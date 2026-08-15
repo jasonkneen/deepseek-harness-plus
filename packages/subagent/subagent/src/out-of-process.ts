@@ -14,7 +14,7 @@
 import { accessSync, constants, statSync } from 'node:fs'
 import { isAbsolute, resolve } from 'node:path'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
-import type { SubagentCapabilities, SubagentResult, SubagentRun, SubagentStopReason } from './types.ts'
+import type { SubagentCapabilities, SubagentResult, SubagentRun, SubagentStopReason, SubagentUpdate } from './types.ts'
 
 /**
  * The capability advertisement of an out-of-process backend: NONE. A child in
@@ -188,6 +188,8 @@ export interface SubprocessRunHandleParts {
   requestCancel: () => void
   /** Tear the child process down to quiescence (backend-owned ladder). */
   teardown: () => Promise<void>
+  /** Live text updates while the child runs, when the backend streams. */
+  updates?: AsyncIterable<SubagentUpdate>
 }
 
 /**
@@ -204,6 +206,7 @@ export function subprocessRunHandle(parts: SubprocessRunHandleParts): SubagentRu
     id: parts.id,
     localAgent: undefined,
     result: parts.result,
+    ...parts.updates === undefined ? {} : { updates: parts.updates },
     dispose(): Promise<void> {
       if (disposal !== undefined) return disposal
       parts.signal.removeEventListener('abort', parts.onAbort)

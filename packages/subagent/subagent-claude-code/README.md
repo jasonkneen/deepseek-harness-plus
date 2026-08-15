@@ -28,6 +28,7 @@ The provider advertises no optional start-time capabilities and reports `inherit
 |---|---|---|
 | `env` | `{}` | Explicit SDK/CLI environment layered over the shared credential-scrubbed parent environment. |
 | `disposeGraceMs` | `3000` | Positive finite grace in milliseconds, no greater than [`MAX_TIMER_DELAY_MS`](../../util/timeout/README.md), between the shared process-tree owner's termination tiers; disposal then waits for whole-tree exit. |
+| `continuation` | `false` | Whether runs persist their SDK session and resume earlier conversations (`continueFrom`). `persistSession: true` writes session state under the native Claude Code config dir; the one-shot default touches no native state. |
 
 Production resolves `claude` from the subprocess execution world's credential-scrubbed `PATH`, with explicit `env` entries applied, and passes the resulting path to the SDK as `pathToClaudeCodeExecutable`. On Windows, a resolved `.cmd` or `.bat` path is carried as a quoted, per-spawn environment value that `cmd.exe /v:off` expands once, so valid path metacharacters remain data. The pinned SDK's fixed flags then occupy cmd's command tail and contain no cmd metacharacters; they are not ordinary Windows argv. Native settings and authentication remain authoritative. The plugin does not install another CLI, select a model, create a product home, log in, or probe an account. Credential-shaped ambient variables are removed before the explicit `env` overlay is applied, so an API key or token intended for the child must be supplied there. Non-credential endpoint variables such as `ANTHROPIC_BASE_URL`, along with ordinary ambient values such as `PATH` and `HOME`, remain inherited unless overridden.
 
@@ -88,7 +89,7 @@ Append-only: the new tool result follows the reusable parent request prefix.
 
 ## Known Limitations and Deferred Work
 
-- **One fresh query and process per run** — there is no continuation, resume, pooling, progress stream, or product-session persistence.
+- **One fresh query and process per run unless `continuation: true`** — with continuation, runs persist and resume the native session (Claude `resume`); the one-shot default is a fresh query with no product-session persistence. Live text deltas stream on `SubagentRun.updates` while the query runs.
 - **Host settings are intentionally authoritative** — project and user settings can change model, tools, and behavior; the provider does not provide a filtered or hermetic production mode.
 - **Product installation and account state remain native** — a missing or incompatible `claude`, configuration error, or authentication failure is surfaced as a startup or run error; the plugin provides no installer or login flow.
 - **The SDK platform CLI remains in the install closure** — production ignores it in favor of the host `claude`, but the current SDK optional dependency is still installed and supplies the keyless compatibility fixture. Removing that payload belongs to the separate product installation-closure follow-up.

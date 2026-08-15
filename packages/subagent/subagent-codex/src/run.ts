@@ -53,6 +53,13 @@ export interface CodexRunSpec {
   readonly spawn: (spec: SubprocessSpawnSpec) => SubprocessHandle
   /** Diagnostic sink for a post-publication error flattened into a result. */
   readonly onError?: (error: Error, stopReason: SubagentStopReason) => void
+  /**
+   * Whether runs persist their thread and can resume (`thread/start` with
+   * `ephemeral: false`; `continueFrom` resumes via `thread/resume`). Thread
+   * persistence writes under the native Codex home; the one-shot default
+   * touches no native state.
+   */
+  readonly continuation: boolean
 }
 
 function thrown(value: unknown): Error {
@@ -133,6 +140,7 @@ export async function startCodexRun(
   const wire = new CodexAppServerWire(
     child.stdout as NonNullable<SubprocessHandle['stdout']>,
     child.stdin as NonNullable<SubprocessHandle['stdin']>,
+    spec.continuation,
   )
   const disposeProcess = (): Promise<void> => disposeCodexChild(wire, child)
 
@@ -159,7 +167,10 @@ export async function startCodexRun(
   try {
     wire.start()
     await Promise.race([wire.initialize(request.signal), processFailure])
-    await Promise.race([wire.startThread(spec.cwd, request.signal), processFailure])
+    await Promise.race([
+      wire.startThread(spec.cwd, request.continueFrom, request.signal),
+      processFailure,
+    ])
   } catch (error: unknown) {
     request.signal.removeEventListener('abort', onAbort)
     try {
@@ -179,7 +190,7 @@ export async function startCodexRun(
   const collectOutput = (): ContentBlock[] => wire.collectOutput()
   const result: Promise<SubagentResult> = settleRunResult({
     attempt: () => Promise.race([
-      wire.runTurn(texts, runAbort.signal),
+      wire.runTurn(texts, runAbort.signal, request.agentOptions?.model, request.reasoningEffort),
       processFailure,
     ]),
     collectOutput,
@@ -192,6 +203,7 @@ export async function startCodexRun(
   return subprocessRunHandle({
     id: SessionId(randomUUID()),
     result,
+    updates: wire.updates(),
     signal: request.signal,
     onAbort,
     requestCancel,

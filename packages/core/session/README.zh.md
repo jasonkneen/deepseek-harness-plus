@@ -50,6 +50,8 @@
 
 会话事件导入将所有权与消息校验分开处理。`snapshotSessionEvent(event)` 会先克隆借用的事件，再校验并冻结其中带标识的消息。`adoptSessionEvent(event)` 原地执行相同的消息处理并返回原事件；调用方只有在移交独占的对象图，且该对象图没有与其他事件共享可变子对象时，才可以使用此函数。
 
+一次性驱动通过 `lastAssistantText(events, fromSeq)` 对齐「哪段助手文本是会话的最终回答」：即 `fromSeq` 之后最后一个非空 `assistant/message` 的文本块拼接，且只统计该区间第一个 `turn/start` 之后的事件。headless runner 与 engine-session runner 都从这一份聚合逻辑打印，而不是各自重新推导。
+
 ### 分片行存储编解码器（`chunk-rows.ts`）
 
 共享的[存储编解码器](src/chunk-rows.ts)在事件序列与紧凑行之间无损转换。它会逐字保留无法识别的事件，并拒绝形态错误的编码行；是否启用打包写入由持久化后端决定。

@@ -1,0 +1,7 @@
+{
+  "name": "multi-provider-example",
+  "private": true,
+  "version": "0.0.1",
+  "type": "module",
+  "description": "Runnable demo: the multi-provider pack over the agent spine — Gemini, MiniMax, and Kimi providers plus Claude Code and Codex delegation backends"
+}

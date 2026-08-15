@@ -43,6 +43,7 @@ import {
   successfulResult,
   textTask,
   type ClaudeCodeRunSpec,
+  updateChannel,
 } from '../src/run.ts'
 
 type QueryFactory = (params: {
@@ -251,6 +252,7 @@ function fakeRun(
     executable: '/native/claude',
     env: { ANTHROPIC_API_KEY: 'fake-key' },
     disposeGraceMs: 5,
+    continuation: false,
     spawn: (spawnSpec) => {
       spawnSpecs.push(spawnSpec)
       return child.handle
@@ -545,12 +547,13 @@ describe('query options and result mapping', () => {
         ANTHROPIC_API_KEY: 'explicit-fake-key',
       },
       disposeGraceMs: 17,
+      continuation: false,
       spawn,
     }
     const controller = new AbortController()
     const options = claudeQueryOptions(spec, controller, (value) => {
       captured.push(value)
-    })
+    }, undefined, undefined, undefined)
 
     expect(options).toMatchObject({
       abortController: controller,
@@ -607,12 +610,13 @@ describe('query options and result mapping', () => {
       success('first'),
       success('last'),
     ])
-    await expect(consumeClaudeQuery(query)).resolves.toEqual({
+    await expect(consumeClaudeQuery(query, updateChannel())).resolves.toEqual({
       output: [{ type: 'text', text: 'last' }],
       stopReason: 'completed',
     })
     await expect(consumeClaudeQuery(
       queryFrom([{ type: 'system', subtype: 'init' } as SDKMessage]),
+      updateChannel(),
     )).rejects.toThrow('ended without a result')
   })
 })
@@ -706,6 +710,7 @@ describe('run publication, cancellation, and settlement', () => {
       executable: '/native/claude',
       env: {},
       disposeGraceMs: 5,
+      continuation: false,
       spawn: () => children[index++]!.handle,
     }
     queryMock.mockImplementation(({ prompt, options }) => {
@@ -757,6 +762,7 @@ describe('run publication, cancellation, and settlement', () => {
         executable: '/native/claude',
         env: {},
         disposeGraceMs: 5,
+        continuation: false,
         spawn: () => child.handle,
       },
     )

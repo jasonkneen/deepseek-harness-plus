@@ -50,6 +50,8 @@ Durable values need one accepted representation, not a check followed by a secon
 
 Session-event import separates ownership from message validation. `snapshotSessionEvent(event)` clones a borrowed event before validating and freezing its identified message. `adoptSessionEvent(event)` performs the same message work in place and returns the original event; callers may use it only when they transfer an exclusively owned object graph with no mutable child shared with another event.
 
+One-shot drivers agree on which assistant text is a session's final answer through `lastAssistantText(events, fromSeq)`: the concatenated text blocks of the last non-empty `assistant/message` at or after `fromSeq`, counting only events after the interval's first `turn/start`. The headless runner and the engine-session runner both print from this single aggregation instead of re-deriving it.
+
 ### Chunk-row storage codec (`chunk-rows.ts`)
 
 The shared [storage codec](src/chunk-rows.ts) losslessly converts event sequences to compact rows and back. It preserves unrecognized events verbatim and rejects malformed encoded rows; persistence backends decide whether to enable packed writes.

@@ -11,7 +11,8 @@
     "sandbox-exec",
     "tar",
     "taskkill",
-    "where.exe"
+    "where.exe",
+    "which"
   ],
   "ignoreWorkspaces": [
     "vendor/*",
@@ -779,6 +780,11 @@
       ]
     },
     "packages/bundle/web-app": {
+      "ignoreDependencies": [
+        "@deepseek-ai/.+"
+      ]
+    },
+    "packages/bundle/multi-provider": {
       "ignoreDependencies": [
         "@deepseek-ai/.+"
       ]

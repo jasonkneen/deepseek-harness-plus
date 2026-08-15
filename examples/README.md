@@ -27,3 +27,11 @@ An opt-in Web overlay for durable, Session-local reminders. It supports positive
 ## acp-agent
 
 An Agent Client Protocol automation server for programmatic clients, with session, permission, and cancellation support. See the [ACP example reference](acp-agent/README.md).
+
+## multi-provider
+
+The multi-provider pack over the agent spine: Gemini, MiniMax, and Kimi as key-based LLM providers plus the Claude Code (Agent SDK) and Codex (app-server) delegation backends. See the [multi-provider example reference](multi-provider/README.md).
+
+## engine-session
+
+Experimental whole-session engines: one durable harness session driven entirely through Claude Code or Codex with native OAuth, recording the transcript in the harness session log. See the [engine-session example reference](engine-session/README.md).

@@ -27,6 +27,7 @@ export type { AssistantMessage, ToolResultMessage, UserMessage } from '@deepseek
 export { isJsonValue, snapshotJsonValue } from './json.ts'
 export type { JsonValue } from './json.ts'
 export { interruptedTurnClosers, TOOL_NOT_STARTED, TOOL_OUTCOME_UNKNOWN } from './repair.ts'
+export { lastAssistantText } from './assistant-text.ts'
 export { decodeStorageRecord, packChunkRuns } from './chunk-rows.ts'
 export type { ChunkRow, StorageRecord } from './chunk-rows.ts'
 export type { SessionSurface, SurfaceFoldReplacement, SurfaceFoldResult } from './surface.ts'

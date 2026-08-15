@@ -137,6 +137,8 @@
     "demo:code-mode": "node scripts/demo-code-mode.mjs",
     "demo:cordis": "node scripts/demo-cordis.mjs",
     "demo:acp": "node --import tsx packages/examples/acp-demo/src/bin.ts --config examples/acp-agent/cordis.yml",
+    "demo:multi-provider": "node --import tsx packages/examples/multi-provider-demo/src/bin.ts --config examples/multi-provider/cordis.yml",
+    "demo:engine-session": "node --import tsx packages/examples/engine-session-demo/src/bin.ts --config examples/engine-session/cordis.yml",
     "mock:llm": "node --import tsx packages/test-support/llm-mock-server/src/bin.ts",
     "dev:web": "tsx scripts/dev-web.ts --poll",
     "postinstall": "node scripts/install-lefthook.mjs"

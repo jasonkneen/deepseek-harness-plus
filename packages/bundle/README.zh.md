@@ -9,5 +9,6 @@ Profile 组合包：在 manifest（元数据清单）中声明 `"dsh": { "bundle
 | [`base/`](base/README.md) | 每个 profile 最先应用的共享 dsh 核心 | —（仅 patch） |
 | [`web-app/`](web-app/README.md) | 浏览器表层：web patch 层 + 运行时粘合插件 | 挂载多条配置行 |
 | [`headless/`](headless/README.md) | 直接运行在 base 之上的一次性任务模式，不含 Host 或 Web 层 | 挂载 `headless-runner` |
+| [`multi-provider/`](multi-provider/README.md) | 可选的第三方 provider 层：`dsh-llm-pi-ai` 上的 Gemini／MiniMax／Kimi 路由，外加 Claude Code 与 Codex 委派后端 | —（仅 patch） |
 
 内置组合包从 dsh 安装目录解析；树外（out-of-tree）组合包通过 `dsh plugin --profile <name> add <package>` 安装进 profile。

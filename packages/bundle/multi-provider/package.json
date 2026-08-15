@@ -1,0 +1,59 @@
+{
+  "name": "@deepseek-ai/dsh-multi-provider",
+  "description": "Multi-provider pack bundle: activates Gemini, MiniMax, and Kimi routes on the dormant dsh-llm-pi-ai adapter and composes the Claude Code and Codex delegation backends as an optional profile layer",
+  "version": "0.1.0-rc.5",
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/deepseek-ai/deepseek-harness.git",
+    "directory": "packages/bundle/multi-provider"
+  },
+  "type": "module",
+  "main": "lib/index.js",
+  "types": "lib/types/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/types/index.d.ts",
+      "default": "./lib/index.js"
+    },
+    "./invariant": {
+      "types": "./lib/types/invariant.d.ts",
+      "default": "./lib/invariant.js"
+    },
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./src/*": "./src/*",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib/index.js",
+    "lib/invariant.js",
+    "cordis.patch.yml",
+    "lib/types/**/*.d.ts"
+  ],
+  "license": "MIT",
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "dependencies": {
+    "@deepseek-ai/dsh-llm-pi-ai": "workspace:^",
+    "@deepseek-ai/dsh-subagent-claude-code": "workspace:^",
+    "@deepseek-ai/dsh-subagent-codex": "workspace:^",
+    "@deepseek-ai/dsh-tool-subagent": "workspace:^",
+    "@deepseek-ai/dsh-llm-engine": "workspace:^"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/dsh-invariants": "workspace:^",
+    "@deepseek-ai/cordis": "workspace:^"
+  },
+  "devDependencies": {
+    "@deepseek-ai/dsh-invariants": "workspace:^",
+    "@deepseek-ai/cordis": "workspace:^",
+    "@deepseek-ai/cordis-plugin-include": "workspace:^",
+    "@deepseek-ai/cordis-plugin-loader": "workspace:^",
+    "js-yaml": "^4.1.0"
+  }
+}

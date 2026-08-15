@@ -35,18 +35,25 @@ export interface Config {
   env?: Record<string, string>
   /** Grace in milliseconds for app-server process-tree termination. */
   disposeGraceMs?: number
+  /**
+   * Whether runs persist their thread and resume earlier conversations
+   * (`continueFrom`). Thread persistence writes under the native Codex home;
+   * the one-shot default touches no native state.
+   */
+  continuation?: boolean
 }
 
 export const Config: z<Config> = z.object({
   env: z.dict(z.string()).default({}),
   disposeGraceMs: z.number().default(DEFAULT_DISPOSE_GRACE_MS),
+  continuation: z.boolean().default(false),
 })
 
 type ResolvedConfig = Required<Config>
 
 class CodexProvider implements SubagentProvider {
   readonly name = 'codex'
-  readonly capabilities: SubagentCapabilities = NO_START_CAPABILITIES
+  readonly capabilities: SubagentCapabilities = { ...NO_START_CAPABILITIES, continuation: true, reasoningEffort: true }
   readonly inheritsParentContext = false
 
   constructor(
@@ -69,6 +76,7 @@ class CodexProvider implements SubagentProvider {
       ),
       env: this.config.env,
       disposeGraceMs: this.config.disposeGraceMs,
+      continuation: this.config.continuation,
       spawn: spawnSpec => this.ctx.subprocess.spawn(spawnSpec),
       onError: (error, stopReason) => {
         this.ctx.logger.warn(

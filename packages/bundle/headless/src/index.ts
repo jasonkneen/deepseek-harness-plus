@@ -14,7 +14,7 @@ import { installModelSelection } from '@deepseek-ai/dsh-agent'
 import type { ModelSelectionRef } from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-agent-default-model'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
-import { SessionId } from '@deepseek-ai/dsh-session'
+import { lastAssistantText, SessionId } from '@deepseek-ai/dsh-session'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 // Empty type imports carry the loader Context merge for the settlement await
 // and the cmdline Context merge for the appExit host value.
@@ -59,26 +59,12 @@ export const internals: { stdout: HeadlessIo['stdout']; stderr: HeadlessIo['stde
 
 /** Aggregate the last assistant text and turn outcome in one owned interval. */
 function summarize(events: readonly SessionEvent[], firstSeq: number): RunOutcome {
-  let started = false
-  let text = ''
   let reason: SessionEvent<'turn/end'>['data']['reason'] | undefined
   for (const event of events) {
     if (event.seq < firstSeq) continue
-    if (event.type === 'turn/start') {
-      started = true
-      continue
-    }
-    if (!started) continue
-    if (event.type === 'assistant/message') {
-      const joined = event.data.message.content
-        .filter(block => block.type === 'text')
-        .map(block => block.text)
-        .join('')
-      if (joined !== '') text = joined
-    }
     if (event.type === 'turn/end') reason = event.data.reason
   }
-  return { text, reason }
+  return { text: lastAssistantText(events, firstSeq), reason }
 }
 
 /** Report an unexpected direct-driver failure and request a failing exit. */

@@ -24,6 +24,7 @@ The provider advertises no optional start-time capabilities and reports `inherit
 |---|---|---|
 | `env` | `{}` | Explicit child environment layered over the subprocess seam's credential-scrubbed parent environment. |
 | `disposeGraceMs` | `3000` | Positive finite grace in milliseconds, no greater than [`MAX_TIMER_DELAY_MS`](../../util/timeout/README.md), between the shared process-tree owner's termination tiers; disposal then waits for whole-tree exit. |
+| `continuation` | `false` | Whether runs persist their thread and resume earlier conversations (`continueFrom` via `thread/resume`). Persistent threads write under the native Codex home; the one-shot default keeps threads ephemeral. |
 
 Production resolves `codex` from `PATH` and uses the host's native Codex configuration and authentication. The plugin does not install Codex, select a model, create `CODEX_HOME`, log in, or probe a version. Credential-shaped ambient variables are removed by the subprocess seam, so an API key intended for the child must be supplied explicitly in `env`; ordinary ambient values such as `PATH` and `HOME` remain available unless overridden.
 
@@ -82,7 +83,7 @@ Append-only: the new tool result follows the reusable parent request prefix.
 
 ## Known Limitations and Deferred Work
 
-- **One fresh process, thread, and turn per run** — there is no continuation, resume, pooling, progress stream, or product-session persistence.
+- **One fresh process, thread, and turn per run unless `continuation: true`** — with continuation, threads persist and resume (`thread/resume`); the one-shot default keeps threads ephemeral. Live `item/agentMessage/delta` text streams on `SubagentRun.updates` while the turn runs.
 - **Host-managed product installation and account state** — a missing or incompatible `codex`, configuration error, or authentication failure is surfaced as a startup or run error; the plugin provides no installer, login flow, or runtime version gate.
 - **Compatibility is pinned by development evidence** — upgrading from the verified 0.147.0 protocol baseline requires regenerating upstream schema evidence and rerunning handshake, answer-selection, approval, cancellation, keyless real-product, and credentialed DeepSeek nonce tests.
 - **No human approval path** — known unattended approval requests are denied and unknown server requests fail closed; deployments cannot configure an allow policy through this package.

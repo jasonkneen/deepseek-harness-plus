@@ -24,6 +24,7 @@ import {
   type SubagentRun,
   type SubagentStartRequest,
   type SubagentStopReason,
+  type SubagentUpdate,
 } from '@deepseek-ai/dsh-subagent'
 import {
   scrubbedParentEnv,
@@ -50,6 +51,13 @@ export interface ClaudeCodeRunSpec {
   readonly env: Record<string, string>
   /** Subprocess termination grace passed to the shared process-tree owner. */
   readonly disposeGraceMs: number
+  /**
+   * Whether runs persist their SDK session and can resume
+   * (`persistSession: true` writes session state under the native CLI
+   * config dir). Off by default: the one-shot posture touches no native
+   * state. When on, `continueFrom` resumes the earlier conversation.
+   */
+  readonly continuation: boolean
   /** Shared subprocess service spawn operation. */
   readonly spawn: (spec: SubprocessSpawnSpec) => SubprocessHandle
   /** Diagnostic sink for a post-publication error flattened into a result. */
@@ -103,19 +111,77 @@ export function successfulResult(message: SDKResultMessage): string {
   return message.result
 }
 
+/** A push channel whose async iterator drains live updates. */
+export interface UpdateChannel {
+  push(update: SubagentUpdate): void
+  end(): void
+  [Symbol.asyncIterator](): AsyncIterator<SubagentUpdate>
+}
+
 /**
- * Consume the complete SDK stream and require one strict success plus normal
- * iterator completion.
+ * Build a live update channel: pushed values buffer until the iterator
+ * consumes them; `end()` terminates iteration.
+ * @returns the push/end facade plus an async iterator over the stream.
+ */
+export function updateChannel(): UpdateChannel {
+  const queue: SubagentUpdate[] = []
+  let closed = false
+  let waiter: { resolve: () => void } | undefined
+  const wake = (): void => {
+    if (waiter !== undefined) {
+      waiter.resolve()
+      waiter = undefined
+    }
+  }
+  return {
+    push(update) {
+      queue.push(update)
+      wake()
+    },
+    end() {
+      closed = true
+      wake()
+    },
+    async *[Symbol.asyncIterator]() {
+      while (true) {
+        while (queue.length > 0) {
+          yield queue.shift() as SubagentUpdate
+        }
+        if (closed) return
+        await new Promise<void>((resolve) => {
+          waiter = { resolve }
+        })
+      }
+    },
+  }
+}
+
+/**
+ * Consume the complete SDK stream, require one strict success plus normal
+ * iterator completion, and surface live text deltas while the model streams.
  * @param query - published official SDK query.
+ * @param channel - live update channel fed from the stream's text deltas.
  * @returns the completed shared result.
  */
 export async function consumeClaudeQuery(
   query: AsyncIterable<SDKMessage>,
+  channel: UpdateChannel,
 ): Promise<SubagentResult> {
   let answer: string | undefined
-  for await (const message of query) {
-    if (message.type !== 'result') continue
-    answer = successfulResult(message)
+  let continuationId: string | undefined
+  try {
+    for await (const message of query) {
+      if (message.type === 'stream_event' && message.event.type === 'content_block_delta'
+        && message.event.delta.type === 'text_delta') {
+        channel.push({ kind: 'text-delta', text: message.event.delta.text })
+        continue
+      }
+      if (message.type !== 'result') continue
+      answer = successfulResult(message)
+      continuationId = message.session_id
+    }
+  } finally {
+    channel.end()
   }
   if (answer === undefined) {
     throw new Error('subagent-claude-code: Claude Code ended without a result')
@@ -123,6 +189,19 @@ export async function consumeClaudeQuery(
   return {
     output: [{ type: 'text', text: answer }],
     stopReason: 'completed',
+    ...continuationId === undefined ? {} : { continuationId },
+  }
+}
+
+/**
+ * The live update stream for one query: drains the channel fed by
+ * {@link consumeClaudeQuery}.
+ * @param channel - the run's update channel.
+ * @returns the updates async iterable for the published run.
+ */
+export function claudeUpdates(channel: UpdateChannel): AsyncIterable<SubagentUpdate> {
+  return {
+    [Symbol.asyncIterator]: () => channel[Symbol.asyncIterator](),
   }
 }
 
@@ -174,17 +253,48 @@ export async function disposeClaudeCodeChild(
  * @param capture - receives the real managed child synchronously from the SDK hook.
  * @returns options that inherit native settings while disabling persistence and user questions.
  */
+/** Harness effort ids accepted for Claude Code, mapped to the SDK vocabulary. */
+export const CLAUDE_EFFORTS = ['off', 'low', 'medium', 'high', 'xhigh', 'max'] as const
+export type ClaudeEffort = (typeof CLAUDE_EFFORTS)[number]
+
+/** Map a harness effort id to the SDK's `effort`/`thinking` options. */
+export function claudeEffortOptions(effort: string | undefined): Pick<Options, 'effort' | 'thinking'> {
+  switch (effort) {
+    case undefined:
+    case 'high':
+      return {}
+    case 'off':
+      return { thinking: { type: 'disabled' } }
+    case 'low':
+      return { effort: 'low' }
+    case 'medium':
+      return { effort: 'medium' }
+    case 'xhigh':
+      return { effort: 'xhigh' }
+    case 'max':
+      return { effort: 'max' }
+    default:
+      throw new Error(`subagent-claude-code: unsupported reasoning effort ${JSON.stringify(effort)}`)
+  }
+}
+
 export function claudeQueryOptions(
   spec: ClaudeCodeRunSpec,
   controller: AbortController,
   capture: (child: SubprocessHandle) => void,
+  continueFrom: string | undefined,
+  model: string | undefined,
+  effort: string | undefined,
 ): Options {
   return {
     abortController: controller,
     cwd: spec.cwd,
     pathToClaudeCodeExecutable: spec.executable,
     env: { ...scrubbedParentEnv(), ...spec.env },
-    persistSession: false,
+    persistSession: spec.continuation,
+    ...(spec.continuation && continueFrom !== undefined ? { resume: continueFrom } : {}),
+    ...(model !== undefined ? { model } : {}),
+    ...claudeEffortOptions(effort),
     disallowedTools: ['AskUserQuestion'],
     spawnClaudeCodeProcess: (options: SpawnOptions) => {
       const child = spec.spawn(claudeSpawnSpec(options, spec.disposeGraceMs))
@@ -208,6 +318,11 @@ export async function startClaudeCodeRun(
   if (request.signal.aborted) {
     throw new Error('subagent-claude-code: request was aborted before SDK startup')
   }
+  if (request.continueFrom !== undefined && !spec.continuation) {
+    throw new Error(
+      'subagent-claude-code: continuation is disabled by configuration; enable the provider `continuation` option',
+    )
+  }
 
   const controller = new AbortController()
   const requestCancel = (): void => {
@@ -220,12 +335,20 @@ export async function startClaudeCodeRun(
 
   let child: SubprocessHandle | undefined
   let query: Query | undefined
+  const channel = updateChannel()
   try {
     query = officialQuery({
       prompt,
-      options: claudeQueryOptions(spec, controller, (captured) => {
-        child = captured
-      }),
+      options: claudeQueryOptions(
+        spec,
+        controller,
+        (captured) => {
+          child = captured
+        },
+        request.continueFrom,
+        request.agentOptions?.model,
+        request.reasoningEffort,
+      ),
     })
     if (child === undefined || child.pid <= 0) {
       throw new Error(
@@ -268,7 +391,7 @@ export async function startClaudeCodeRun(
   const publishedQuery = query
   const publishedChild = child
   const result = settleRunResult({
-    attempt: () => consumeClaudeQuery(publishedQuery),
+    attempt: () => consumeClaudeQuery(publishedQuery, channel),
     collectOutput: () => [],
     cancelled: () => controller.signal.aborted,
     onError: spec.onError,
@@ -279,6 +402,7 @@ export async function startClaudeCodeRun(
   return subprocessRunHandle({
     id: SessionId(randomUUID()),
     result,
+    updates: claudeUpdates(channel),
     signal: request.signal,
     onAbort,
     requestCancel,
