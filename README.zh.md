@@ -6,6 +6,16 @@ DeepSeek Harness（`dsh`）是由 [DeepSeek AI](https://deepseek.com) 开发的�
 
 它采用**一切皆插件**的架构，并由 [Cordis](https://github.com/cordiverse/cordis) 驱动，其设计参见论文 [_A Programming Paradigm for Spatiotemporal Composability_](https://github.com/cordiverse/paper)。
 
+## 本 fork
+
+本仓库是 [deepseek-ai/deepseek-harness](https://github.com/deepseek-ai/deepseek-harness) 的一个 fork，在 upstream 树之上增加了第三方 provider 与本地 agent 引擎。fork 的增量集中在 `upstream/master` 之上的一个提交谱系里；其余内容与 upstream 一致。
+
+**基于密钥的第三方 provider。** [`@deepseek-ai/dsh-multi-provider`](packages/bundle/multi-provider/README.md) 组合包在休眠挂载的 pi-ai 适配器上激活 Gemini、MiniMax、Kimi 与基于密钥的 Claude API，带精选模型目录与按请求解析的凭据引用（`GOOGLE_API_KEY`、`MINIMAX_API_KEY`、`KIMI_CODING_API_KEY`、`ANTHROPIC_API_KEY`）——纯配置，无适配器代码。
+
+**本地 agent 引擎作为一等 provider。** [`@deepseek-ai/dsh-llm-engine`](packages/llm/llm-engine/README.md) 适配器把 **Claude Code** 与 **Codex** 注册为 LLM seam 上的可选 provider——它们会像其他 provider 一样出现在 web Models 选择器里。两者使用原生 CLI 的 OAuth 登录态（claude.ai／ChatGPT）认证，完全不需要 API 密钥。每条引擎路由公布真实的模型目录（Claude Opus／Sonnet／Haiku；GPT-5.3 Codex），带可选的推理努力级别，支持跨回合恢复同一段引擎对话的长会话（Claude `resume`、Codex `thread/resume`），并实时流式输出文本增量。底层的 subagent seam 新增了可选的 `continuation` 与 `reasoningEffort` 能力，以及实时 `updates` 通道。
+
+**可运行的演示与测试。** `pnpm run demo:multi-provider providers|run` 列出 provider 并在任意基于密钥或引擎 provider 上运行一个任务；`pnpm run demo:engine-session` 通过任一引擎运行整个会话。`examples/multi-provider` 与 `examples/engine-session` 两个 leaf 带有无密钥 Loader 测试、逐字节固定的列表快照、逐 provider 的真实回合、真实 OAuth 委派与跨回合记忆 e2e 套件。
+
 ## 开发者预览
 
 DeepSeek Harness 目前处于 _开发者预览_ 阶段，正在快速迭代。**未来将出现破坏兼容性的变更。**
