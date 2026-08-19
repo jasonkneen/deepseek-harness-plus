@@ -72,16 +72,17 @@ describe('input-machine: plain × enter', () => {
   it('non-command text falls to the default sink', () => {
     const m = new InputMachine()
     m.dispatch({ type: 'draft-changed', draft: 'hello world' })
-    expect(m.dispatch({ type: 'enter', mode: 'queue' }))
-      .toEqual([{ type: 'default-sink', draft: 'hello world', mode: 'queue' }])
-    expect(m.state.phase).toBe('plain')
+    const effect = effectAt(m.dispatch({ type: 'enter', mode: 'queue' }), 0, 'default-sink')
+    expect(effect).toMatchObject({ draft: 'hello world', mode: 'queue' })
+    expect(effect.attempt.draftSnapshot).toBe('hello world')
+    expect(m.state.phase).toBe('submitting')
   })
 
   it('retains an explicit steer mode on the default sink effect', () => {
     const m = new InputMachine()
     m.dispatch({ type: 'draft-changed', draft: 'steer now' })
-    expect(m.dispatch({ type: 'enter', mode: 'steer' }))
-      .toEqual([{ type: 'default-sink', draft: 'steer now', mode: 'steer' }])
+    expect(effectAt(m.dispatch({ type: 'enter', mode: 'steer' }), 0, 'default-sink'))
+      .toMatchObject({ draft: 'steer now', mode: 'steer' })
   })
 
   it('leading "/" enters adjudicating with a minted attempt carrying the draft snapshot', () => {
@@ -104,8 +105,8 @@ describe('input-machine: plain × enter', () => {
   it('a non-whitespace prefix before "/" is not leading — default sink', () => {
     const m = new InputMachine()
     m.dispatch({ type: 'draft-changed', draft: '第一行\n/goal x' })
-    expect(m.dispatch({ type: 'enter', mode: 'queue' }))
-      .toEqual([{ type: 'default-sink', draft: '第一行\n/goal x', mode: 'queue' }])
+    expect(effectAt(m.dispatch({ type: 'enter', mode: 'queue' }), 0, 'default-sink'))
+      .toMatchObject({ draft: '第一行\n/goal x', mode: 'queue' })
   })
 })
 
@@ -134,9 +135,12 @@ describe('input-machine: adjudication outcomes', () => {
   it('undefined outcome falls back to the default sink', () => {
     const m = new InputMachine()
     const attempt = enterAdjudicating(m, '/unknown thing', 'steer')
-    expect(m.dispatch({ type: 'adjudicated', attempt, outcome: undefined }))
-      .toEqual([{ type: 'default-sink', draft: '/unknown thing', mode: 'steer' }])
-    expect(m.state.phase).toBe('plain')
+    expect(effectAt(
+      m.dispatch({ type: 'adjudicated', attempt, outcome: undefined }),
+      0,
+      'default-sink',
+    )).toMatchObject({ attempt, draft: '/unknown thing', mode: 'steer' })
+    expect(m.state.phase).toBe('submitting')
   })
 
   it("'handled' lands plain with zero effects (popup shell path)", () => {
@@ -483,6 +487,22 @@ describe('input-machine: undo / redo', () => {
     expect(m.state.draft).toBe('')
     expect(m.dispatch({ type: 'undo' })).toEqual([])
     expect(m.state.draft).toBe('')
+  })
+
+  it('keeps a suffix typed during the round-trip and drops interleaved edits with the commit', () => {
+    const m = new InputMachine()
+    m.dispatch({ type: 'draft-changed', draft: 'hello' })
+    const effect = effectAt(m.dispatch({ type: 'enter', mode: 'queue' }), 0, 'default-sink')
+    m.dispatch({ type: 'draft-changed', draft: 'hello world' })
+    m.dispatch({ type: 'submit-settled', attempt: effect.attempt, ok: true })
+    expect(m.state.draft).toBe(' world')
+
+    const n = new InputMachine()
+    n.dispatch({ type: 'draft-changed', draft: 'hello' })
+    const second = effectAt(n.dispatch({ type: 'enter', mode: 'queue' }), 0, 'default-sink')
+    n.dispatch({ type: 'draft-changed', draft: 'hXello' })
+    n.dispatch({ type: 'submit-settled', attempt: second.attempt, ok: true })
+    expect(n.state.draft).toBe('')
   })
 })
 

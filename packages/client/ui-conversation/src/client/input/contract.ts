@@ -232,7 +232,7 @@ export interface InputState {
 export interface SubmitAttempt {
   readonly seq: number
   readonly signal: AbortSignal
-  /** Draft at enter time; rollback restores it only while the live draft still equals it. */
+  /** Draft at enter time; settlement clears it only after acceptance. */
   readonly draftSnapshot: string
   /** Default-message delivery intent retained while slash adjudication is pending. */
   readonly mode: InputSubmitMode
@@ -271,10 +271,7 @@ export type InputEvent =
   | { readonly type: 'adjudicated'; readonly attempt: SubmitAttempt; readonly outcome: PickOutcome }
   | { readonly type: 'adjudication-failed'; readonly attempt: SubmitAttempt; readonly message: string }
   | { readonly type: 'submit-settled'; readonly attempt: SubmitAttempt; readonly ok: boolean; readonly outcome?: SubmitOutcome; readonly message?: string }
-  /**
-   * An ordinary (default-sink) send was accepted: clear the draft as a COMMIT —
-   * undo must not resurrect sent content (mirrors submit-settled's success arm).
-   */
+  /** Commit an image-only send whose empty draft did not need an attempt. */
   | { readonly type: 'send-committed' }
   | { readonly type: 'release' }
 
@@ -286,5 +283,5 @@ export type InputEvent =
 export type InputEffect =
   | { readonly type: 'adjudicate'; readonly attempt: SubmitAttempt; readonly draft: string }
   | { readonly type: 'begin-submit'; readonly attempt: SubmitAttempt; readonly claim: CommandClaim; readonly args: string }
-  | { readonly type: 'default-sink'; readonly draft: string; readonly mode: InputSubmitMode }
+  | { readonly type: 'default-sink'; readonly attempt: SubmitAttempt; readonly draft: string; readonly mode: InputSubmitMode }
   | { readonly type: 'notice'; readonly level: 'info' | 'error'; readonly text: string }

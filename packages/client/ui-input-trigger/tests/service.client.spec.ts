@@ -359,6 +359,7 @@ describe('programmatic source launcher', () => {
     const hit = {
       trigger: '/' as const,
       query: '',
+      quoted: false,
       position: 'leading' as const,
       span: { start: 2, end: 5, draftRev: 7 },
     }
@@ -385,6 +386,7 @@ describe('programmatic source launcher', () => {
     const hit = {
       trigger: '/' as const,
       query: '',
+      quoted: false,
       position: 'leading' as const,
       span: { start: 0, end: 0, draftRev: 1 },
     }
@@ -494,6 +496,18 @@ describe('pick / scoped input events', () => {
     controller.pick('command', 0)
     expect(texts).toEqual([{ text: '/goal ', span: { start: 0, end: 2, draftRev: 3 } }])
     expect(controller.menu.getSnapshot().open).toBe(false)
+  })
+
+  it('forwards a continuing text outcome so a directory pick keeps completion open', async () => {
+    const { controller, actx } = pickBench(() => ({ text: '@src/', continue: true }))
+    const texts: Array<{ text: string; continue?: boolean }> = []
+    actx.on('slash/input-insert-text', (req) => {
+      texts.push(req)
+      return true
+    })
+    await tick()
+    controller.pick('command', 0)
+    expect(texts).toEqual([{ text: '@src/', continue: true, span: { start: 0, end: 2, draftRev: 3 } }])
   })
 
   it('a text outcome the input declines answers false on the space path', async () => {

@@ -481,7 +481,9 @@ export class InputMachine {
       this.phase = 'adjudicating'
       return [{ type: 'adjudicate', attempt, draft: this.draft }]
     }
-    return [{ type: 'default-sink', draft: this.draft, mode }]
+    const attempt = this.beginAttempt(mode)
+    this.phase = 'submitting'
+    return [{ type: 'default-sink', attempt, draft: this.draft, mode }]
   }
 
   private onAdjudicated(attempt: SubmitAttempt, outcome: Extract<InputEvent, { type: 'adjudicated' }>['outcome']): InputEffect[] {
@@ -499,11 +501,18 @@ export class InputMachine {
     }
     // 'handled' (source dealt internally), {insert} (no enter-time span
     // semantics), or a miss: all land plain; only the miss flows to the sink.
+    if (outcome === undefined) {
+      this.phase = 'submitting'
+      return [{
+        type: 'default-sink',
+        attempt,
+        draft: attempt.draftSnapshot,
+        mode: attempt.mode,
+      }]
+    }
     this.inflight = undefined
     this.phase = 'plain'
-    return outcome === undefined
-      ? [{ type: 'default-sink', draft: attempt.draftSnapshot, mode: attempt.mode }]
-      : []
+    return []
   }
 
   private onAdjudicationFailed(attempt: SubmitAttempt, message: string): InputEffect[] {
@@ -522,7 +531,13 @@ export class InputMachine {
       this.phase = 'plain'
       this.claim = undefined
       this.occurrences = []
-      this.adopt('')
+      // Text appended after the sent snapshot during the Host round-trip
+      // survives the commit; edits interleaved with committed content cannot
+      // be separated from it, so only a pure suffix is retained.
+      const snapshot = flight.attempt.draftSnapshot
+      this.adopt(this.draft !== snapshot && this.draft.startsWith(snapshot)
+        ? this.draft.slice(snapshot.length)
+        : '')
       // Committed content is gone for good: undo must not resurrect a sent draft.
       this.log = []
       this.redoStack = []
@@ -532,24 +547,24 @@ export class InputMachine {
         ? [{ type: 'notice', level: ev.outcome.kind === 'error' ? 'error' : 'info', text: ev.outcome.text }]
         : []
     }
-    const text = ev.message ?? ev.outcome?.text ?? 'command failed'
-    // Drift guard: keep the enter-time draft (same claim) only while the
-    // live draft still equals it; user input typed during flight wins.
+    const text = ev.message ?? ev.outcome?.text
+    // Keep the same command claim only while the live draft still equals the
+    // enter-time draft; user input typed during flight wins.
     // Claimed re-entry additionally requires the watch to hold — an
     // enter-path snapshot may carry leading whitespace the token never had.
     if (this.draft === flight.attempt.draftSnapshot
       && this.claim !== undefined && this.draft.startsWith(this.claim.token)) {
       this.phase = 'claimed'
-      return [{ type: 'notice', level: 'error', text }]
+      return text === undefined ? [] : [{ type: 'notice', level: 'error', text }]
     }
     this.phase = 'plain'
     this.claim = undefined
-    return [{ type: 'notice', level: 'error', text }]
+    return text === undefined ? [] : [{ type: 'notice', level: 'error', text }]
   }
 
-  /** Ordinary send accepted: clear as a commit (no undo unit; sent content
-   *  must not be resurrectable — same discipline as submit-settled success). */
+  /** Cut undo state after an accepted image-only send. */
   private onSendCommitted(): InputEffect[] {
+    if (this.phase !== 'plain') return []
     this.claim = undefined
     this.occurrences = []
     this.adopt('')

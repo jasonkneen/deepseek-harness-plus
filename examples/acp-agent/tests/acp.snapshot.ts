@@ -16,6 +16,7 @@ import {
 } from '@deepseek-ai/dsh-acp-snapshot'
 import { resolvePwshPath } from '@deepseek-ai/dsh-pwsh-local'
 import { decodeStorageRecord } from '@deepseek-ai/dsh-session'
+import { OFFLOADED_IMAGE_TEXT } from '@deepseek-ai/dsh-llm'
 
 /**
  * The acp-agent example's snapshot suite: the scenario table for
@@ -222,27 +223,26 @@ const SCENARIOS: Scenario[] = [
     posixOnly: true,
   },
   // Authored keyless replays through the assembled app: the replay catalog
-  // declares flash image-capable (success) or text-only (refusal), and the
+  // declares the vision model image-capable and Flash text-only, and the
   // real read_image tool executes against the workspace fixture and the real
-  // attachment store. Both boot the same composed header (the tool registers
-  // with the attachment store, independent of route), so they share one class.
+  // attachment store. The success route selects the vision model while the
+  // refusal route retains text-only Flash, so each pins its exact header.
   {
     name: 'read-image',
     hasModelTurn: true,
     recorded: false,
     pinsHeader: true,
     headerClass: 'image',
-    // The overlay adds no prompt section (read_image carries no guidance), so
-    // the composed system prompt is byte-identical to the default class; only
-    // the tool-schema sidecar is class-specific.
-    systemPromptSource: 'text-turn',
     configPath: IMAGE_CONFIG,
   },
   {
     name: 'read-image-text-route',
     hasModelTurn: true,
     recorded: false,
-    headerClass: 'image',
+    pinsHeader: true,
+    headerClass: 'image-text-route',
+    systemPromptSource: 'text-turn',
+    toolSchemasSource: 'read-image',
     configPath: IMAGE_TEXT_ROUTE_CONFIG,
   },
   // Authored keyless replay of the oversized-image refusal: admission rejects
@@ -688,7 +688,7 @@ defineAcpSnapshotSuite({
   hasPwsh,
 })
 
-it('pins pi-ai image offload in the request sent by the assembled app', async () => {
+it('pins native DeepSeek image offload in the request sent by the assembled app', async () => {
   const requests: Record<string, unknown>[] = []
   const server = createServer((request: IncomingMessage, response: ServerResponse) => {
     let body = ''
@@ -697,13 +697,21 @@ it('pins pi-ai image offload in the request sent by the assembled app', async ()
     request.on('end', () => {
       requests.push(JSON.parse(body) as Record<string, unknown>)
       response.writeHead(200, { 'content-type': 'text/event-stream' })
-      response.end([
-        'data: {"choices":[{"delta":{"role":"assistant","content":""},"index":0,"finish_reason":null}]}',
-        'data: {"choices":[{"delta":{"content":"DONE"},"index":0,"finish_reason":null}]}',
-        'data: {"choices":[{"delta":{},"index":0,"finish_reason":"stop"}],"usage":{"prompt_tokens":3,"completion_tokens":1}}',
-        'data: [DONE]',
-        '',
-      ].join('\n\n'))
+      const events = requests.length === 1
+        ? [
+          'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"native-read-image","type":"function","function":{"name":"read_image","arguments":"{\\"file_path\\":\\"red.png\\"}"}}]},"index":0,"finish_reason":null}]}',
+          'data: {"choices":[{"delta":{},"index":0,"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":3,"completion_tokens":1}}',
+          'data: [DONE]',
+          '',
+        ]
+        : [
+          'data: {"choices":[{"delta":{"role":"assistant","content":""},"index":0,"finish_reason":null}]}',
+          'data: {"choices":[{"delta":{"content":"DONE"},"index":0,"finish_reason":null}]}',
+          'data: {"choices":[{"delta":{},"index":0,"finish_reason":"stop"}],"usage":{"prompt_tokens":3,"completion_tokens":1}}',
+          'data: [DONE]',
+          '',
+        ]
+      response.end(events.join('\n\n'))
     })
   })
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
@@ -722,7 +730,7 @@ it('pins pi-ai image offload in the request sent by the assembled app', async ()
           { type: 'image', data: image, mimeType: 'image/png' },
           { type: 'text', text: ' with the newer image ' },
           { type: 'image', data: image, mimeType: 'image/png' },
-          { type: 'text', text: ', then reply with DONE.' },
+          { type: 'text', text: ', then use read_image on red.png and reply with DONE.' },
         ],
       },
     ],
@@ -734,13 +742,14 @@ it('pins pi-ai image offload in the request sent by the assembled app', async ()
       mode: 'record',
       configPath: IMAGE_OFFLOAD_CONFIG,
       fixtureFile: join(SNAPSHOTS_DIR, 'image-offload-request', 'session.jsonl'),
+      workspaceDir: join(SNAPSHOTS_DIR, 'read-image', 'workspace'),
       env: {
         DSH_SNAPSHOT_API_KEY: 'snapshot-key',
-        DSH_SNAPSHOT_BASE_URL: `http://127.0.0.1:${address.port}/v1`,
+        DSH_SNAPSHOT_BASE_URL: `http://127.0.0.1:${address.port}`,
       },
     })
     expect(result.stderr).toBe('')
-    expect(requests).toHaveLength(1)
+    expect(requests).toHaveLength(2)
     const messages = requests[0]?.messages as { content?: unknown }[] | undefined
     const offloaded = messages?.find(message => JSON.stringify(message.content).includes('[image omitted'))
     expect(offloaded?.content).toMatchInlineSnapshot(`
@@ -764,11 +773,62 @@ it('pins pi-ai image offload in the request sent by the assembled app', async ()
           "type": "image_url",
         },
         {
-          "text": ", then reply with DONE.",
+          "text": ", then use read_image on red.png and reply with DONE.",
           "type": "text",
         },
       ]
     `)
+
+    const followup = structuredClone((requests[1]?.messages as unknown[]).slice(1)) as Array<{
+      role?: unknown
+      content?: unknown
+    }>
+    const toolMessage = followup.find(message => message.role === 'tool')
+    if (toolMessage === undefined || typeof toolMessage.content !== 'string') {
+      throw new Error('native read_image request has no tool content')
+    }
+    const cwdSpellings = [...new Set([result.cwd, ...result.cwdAliases].flatMap(cwd => (
+      cwd.startsWith('/private/') ? [cwd, cwd.slice('/private'.length)] : [cwd, `/private${cwd}`]
+    )))]
+    let toolContent = toolMessage.content
+    for (const cwd of cwdSpellings) toolContent = toolContent.replaceAll(cwd, '{{cwd}}')
+    toolMessage.content = toolContent
+    expect(followup).toEqual([
+      {
+        role: 'user',
+        content: `Compare the older image ${OFFLOADED_IMAGE_TEXT} with the newer image ${OFFLOADED_IMAGE_TEXT}, then use read_image on red.png and reply with DONE.`,
+      },
+      {
+        role: 'user',
+        content: 'Current runtime context. This snapshot supersedes earlier runtime-context snapshots.\n\n'
+          + 'Current DSH file policy: danger-full-access. The DSH file sandbox does not restrict file modifications by available operations.\n\n'
+          + 'Approval prompts are disabled in this session: actions that require approval are rejected automatically — do not request sandbox escalation (do not set `sandbox_permissions`).',
+      },
+      {
+        role: 'assistant',
+        content: '',
+        tool_calls: [{
+          id: 'native-read-image',
+          type: 'function',
+          function: { name: 'read_image', arguments: '{"file_path":"red.png"}' },
+        }],
+      },
+      {
+        role: 'tool',
+        tool_call_id: 'native-read-image',
+        content: '<path>{{cwd}}/red.png</path>\n<type>image</type>\n<content>\nimage/png image, 1x1 px, 69 bytes\n</content>',
+      },
+      {
+        role: 'user',
+        content: [
+          { type: 'text', text: 'Attached image(s) from tool result:' },
+          {
+            type: 'image_url',
+            image_url: { url: `data:image/png;base64,${image}` },
+          },
+        ],
+      },
+    ])
   } finally {
     await new Promise<void>(resolve => server.close(() => { resolve() }))
   }

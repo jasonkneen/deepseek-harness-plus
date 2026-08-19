@@ -687,7 +687,17 @@
     },
     {
       "doc": "docs/subsystems/session-reference.md",
+      "symbol": "FileReferenceCandidate",
+      "source": "packages/context/file-reference/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/session-reference.md",
       "symbol": "SessionReferenceCandidate",
+      "source": "packages/context/session-reference/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/session-reference.md",
+      "symbol": "SessionReferenceMentionCandidate",
       "source": "packages/context/session-reference/src/types.ts"
     },
     {

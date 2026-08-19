@@ -1,6 +1,6 @@
 /**
  * Frozen cross-package contract for the input trigger pipeline. Types only —
- * no runtime code. Sources (ui-commands / ui-skill / ui-subagent) and the
+ * no runtime code. Sources (ui-commands / ui-skill / ui-reference) and the
  * conversation input layer import from here; changes require main-thread
  * arbitration.
  *
@@ -35,6 +35,10 @@ export interface InputTriggerCandidate {
   readonly description?: string
   readonly icon?: string
   readonly hint?: string
+  /** Optional visual group heading shared by adjacent candidates. */
+  readonly section?: string
+  /** Opaque source-owned pick payload. */
+  readonly value?: string
 }
 
 /** Pick-moment snapshot of the trigger token span. CAS: stale draftRev ⇒ the whole action no-ops. */
@@ -110,7 +114,7 @@ export interface SubmitOutcome {
 export type PickOutcome =
   | { readonly claim: CommandClaim }
   | { readonly insert: ReferenceInsert }
-  | { readonly text: string }
+  | { readonly text: string; readonly continue?: boolean }
   | 'handled'
   | undefined
 
@@ -127,6 +131,8 @@ export interface SubmitEnvelope {
 /** Candidate request passed to a source. The signal is superseded on query change / menu close. */
 export interface CandidateRequest {
   readonly query: string
+  /** Whether the active @file token is an open quoted path. */
+  readonly quoted?: boolean
   readonly position: TriggerPosition
   readonly signal: AbortSignal
 }
@@ -256,6 +262,8 @@ export interface InsertTextRequest {
   /** Literal replacement for the trigger token span (e.g. `/name `). */
   readonly text: string
   readonly span: TokenSpan
+  /** Keep completion open after the splice (directory descent): the input re-tracks at the caret. */
+  readonly continue?: boolean
 }
 
 declare module '@deepseek-ai/cordis' {

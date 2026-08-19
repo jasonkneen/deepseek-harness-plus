@@ -4,7 +4,7 @@
  * @module dsh-llm-pi-ai/context
  */
 
-import { CallId, contentHasImage, LlmError } from '@deepseek-ai/dsh-llm'
+import { CallId, contentHasImage, LlmError, offloadRequestImages } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, GenerateOptions, Message } from '@deepseek-ai/dsh-llm'
 import type { AttachmentStore } from '@deepseek-ai/dsh-attachment'
 import type { Context as PiContext, ImageContent, Message as PiMessage, TextContent, Tool as PiTool } from '@earendil-works/pi-ai'
@@ -26,82 +26,29 @@ function toolResultText(blocks: readonly ContentBlock[]): string {
     : block.type === 'tool-result' ? toolResultText(block.content) : '').join('')
 }
 
-/** Model-facing stand-in for an image dropped to fit the request bound. */
-export const OFFLOADED_IMAGE_TEXT
-  = '[image omitted to keep the request within its image limit; older images are omitted first. If this image is still needed, read its file again when a path is available; otherwise ask the user to attach it again.]'
-
-/** Base64 length of `bytes` raw bytes (4 output characters per 3 input bytes, padded). */
-function base64Length(bytes: number): number {
-  return Math.ceil(bytes / 3) * 4
-}
-
-/**
- * Select the images a request must drop to fit the per-request payload bound.
- * History order is oldest-first, so the most recent images are omitted last.
- * A single image larger than the bound is itself omitted. Locations use
- * message and nested block indexes so JSON replay cannot change the result by
- * splitting or preserving shared object identities.
- * @param messages - complete request history, oldest first.
- * @param maxRequestImageBytes - bound on total base64-encoded image payload; undefined leaves every image in place.
- * @returns the image locations the conversion replaces with {@link OFFLOADED_IMAGE_TEXT}.
- */
-function offloadedImages(
-  messages: readonly Message[],
-  maxRequestImageBytes: number | undefined,
-): ReadonlySet<string> {
-  const offloaded = new Set<string>()
-  if (maxRequestImageBytes === undefined) return offloaded
-  const images: { location: string; base64Bytes: number }[] = []
-  const collect = (messageIndex: number, blocks: readonly ContentBlock[], prefix: readonly number[] = []): void => {
-    for (const [blockIndex, block] of blocks.entries()) {
-      const path = [...prefix, blockIndex]
-      if (block.type === 'image') {
-        images.push({
-          location: `${messageIndex}:${path.join('.')}`,
-          base64Bytes: base64Length(block.attachment.bytes),
-        })
-      } else if (block.type === 'tool-result') {
-        collect(messageIndex, block.content, path)
-      }
+/** Reject image roles that pi-ai cannot replay before request-size offloading can replace them. */
+function assertSupportedImageRoles(messages: readonly Message[]): void {
+  for (const message of messages) {
+    if (message.role !== 'user' && contentHasImage(message.content)) {
+      throw new LlmError(
+        `pi-ai cannot represent an image in an in-history ${message.role} message`,
+        'UNSUPPORTED_CONTENT',
+      )
     }
   }
-  for (const [messageIndex, message] of messages.entries()) collect(messageIndex, message.content)
-  let total = images.reduce((sum, image) => sum + image.base64Bytes, 0)
-  for (const image of images) {
-    if (total <= maxRequestImageBytes) break
-    offloaded.add(image.location)
-    total -= image.base64Bytes
-  }
-  return offloaded
-}
-
-interface LocatedContentBlock {
-  readonly block: ContentBlock
-  readonly path: readonly number[]
-}
-
-/** Attach stable nested indexes to blocks from one message. */
-function locatedBlocks(blocks: readonly ContentBlock[], prefix: readonly number[] = []): LocatedContentBlock[] {
-  return blocks.map((block, index) => ({ block, path: [...prefix, index] }))
 }
 
 async function userContent(
-  blocks: readonly LocatedContentBlock[],
+  blocks: readonly ContentBlock[],
   attachments: AttachmentStore,
-  offloaded: ReadonlySet<string>,
-  messageIndex: number,
 ): Promise<string | (TextContent | ImageContent)[]> {
   const content: (TextContent | ImageContent)[] = []
-  for (const { block, path } of blocks) {
+  for (const block of blocks) {
     switch (block.type) {
       case 'text':
         if (block.text.length > 0) content.push({ type: 'text', text: block.text })
         break
       case 'image': {
-        if (offloaded.has(`${messageIndex}:${path.join('.')}`)) {
-          content.push({ type: 'text', text: OFFLOADED_IMAGE_TEXT })
-          break
-        }
         const stored = await attachments.readImage(block.attachment)
         content.push({
           type: 'image',
@@ -112,7 +59,7 @@ async function userContent(
       }
       case 'tool-result':
         {
-          const nested = await userContent(locatedBlocks(block.content, path), attachments, offloaded, messageIndex)
+          const nested = await userContent(block.content, attachments)
           if (typeof nested === 'string') {
             if (nested.length > 0) content.push({ type: 'text', text: nested })
           } else {
@@ -234,15 +181,13 @@ async function toPiContextWithImages(
   onReplayDegrade?: (reason: string) => void,
   maxRequestImageBytes?: number,
 ): Promise<PiContext> {
-  const offloaded = offloadedImages(options.messages, maxRequestImageBytes)
+  assertSupportedImageRoles(options.messages)
+  const requestMessages = offloadRequestImages(options.messages, maxRequestImageBytes)
   const toolNames = new Map<CallId, string>()
   const messages: PiMessage[] = []
 
-  for (const [messageIndex, message] of options.messages.entries()) {
+  for (const message of requestMessages) {
     if (message.role === 'system') {
-      if (contentHasImage(message.content)) {
-        throw new LlmError('pi-ai cannot represent an image in an in-history system message', 'UNSUPPORTED_CONTENT')
-      }
       // pi-ai has a single systemPrompt slot; in-history system messages are
       // folded into user messages to preserve order (rare in practice — the
       // harness sends the system prompt via options.system).
@@ -258,17 +203,16 @@ async function toPiContextWithImages(
       continue
     }
     // user role: text + tool results (each result becomes its own message).
-    const located = locatedBlocks(message.content)
-    const regular = located.filter(({ block }) => block.type !== 'tool-result')
-    const content = await userContent(regular, attachments, offloaded, messageIndex)
-    const results = located.filter((entry): entry is LocatedContentBlock & { block: Extract<ContentBlock, { type: 'tool-result' }> } => (
-      entry.block.type === 'tool-result'
+    const regular = message.content.filter(block => block.type !== 'tool-result')
+    const content = await userContent(regular, attachments)
+    const results = message.content.filter((block): block is Extract<ContentBlock, { type: 'tool-result' }> => (
+      block.type === 'tool-result'
     ))
     if (content.length > 0 || results.length === 0) {
       messages.push({ role: 'user', content, timestamp: 0 })
     }
-    for (const { block: result, path } of results) {
-      const resultContent = await userContent(locatedBlocks(result.content, path), attachments, offloaded, messageIndex)
+    for (const result of results) {
+      const resultContent = await userContent(result.content, attachments)
       messages.push({
         role: 'toolResult',
         toolCallId: result.toolCallId,

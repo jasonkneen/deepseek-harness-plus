@@ -87,25 +87,29 @@ export function MenuView({ menu, onPick, onDismiss, t }: MenuViewProps) {
                 : group.items.map((item, index) => {
                   const active = highlight !== null && highlight.source === group.source && highlight.index === index
                   return (
-                    <button
-                      key={`${group.source}:${item.name}`}
-                      id={optionId(group.source, index)}
-                      type="button"
-                      role="option"
-                      aria-selected={active}
-                      className={clsx(css.item, active && css.active)}
-                      // mousedown, not click: the textarea keeps focus (combobox
-                      // pattern) — preventing default stops the focus steal, and the
-                      // pick runs before any blur-driven teardown.
-                      onMouseDown={(ev) => {
-                        ev.preventDefault()
-                        onPick(group.source, index)
-                      }}
-                    >
-                      {item.icon !== undefined && <span className={css.itemIcon} aria-hidden>{item.icon}</span>}
-                      <span className={css.itemName}>{item.name}</span>
-                      {item.description !== undefined && <span className={css.itemDescription}>{item.description}</span>}
-                    </button>
+                    <Fragment key={optionId(group.source, index)}>
+                      {item.section !== undefined && item.section !== group.items[index - 1]?.section
+                        ? <div className={css.sectionTitle} role="presentation">{item.section}</div>
+                        : null}
+                      <button
+                        id={optionId(group.source, index)}
+                        type="button"
+                        role="option"
+                        aria-selected={active}
+                        className={clsx(css.item, active && css.active)}
+                        // mousedown, not click: the textarea keeps focus (combobox
+                        // pattern) — preventing default stops the focus steal, and the
+                        // pick runs before any blur-driven teardown.
+                        onMouseDown={(ev) => {
+                          ev.preventDefault()
+                          onPick(group.source, index)
+                        }}
+                      >
+                        {item.icon !== undefined && <span className={css.itemIcon} aria-hidden>{item.icon}</span>}
+                        <span className={css.itemName}>{item.name}</span>
+                        {item.description !== undefined && <span className={css.itemDescription}>{item.description}</span>}
+                      </button>
+                    </Fragment>
                   )
                 })}
             </Fragment>

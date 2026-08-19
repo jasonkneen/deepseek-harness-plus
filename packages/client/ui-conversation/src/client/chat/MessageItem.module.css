@@ -28,6 +28,11 @@
   color: var(--dsw-alias-label-primary);
 }
 
+.referenceSummary {
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12px;
+  line-height: 18px;
+}
 .contextRow {
   padding: 2px 0;
 }
@@ -269,7 +274,8 @@
 }
 
 /* Reference chip projection inside a user bubble (`<skill>name</skill>` model
-   spans render as chips; free geometry — no textarea pairing here). */
+   spans and metadata-confirmed sessions render as chips; free geometry means
+   the textarea overlay's metric pairing does not apply here). */
 .refChip {
   display: inline-block;
   margin: 0 2px;

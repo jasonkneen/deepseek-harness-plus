@@ -1,0 +1,5 @@
+- listbox "Trigger suggestions":
+  - text: reference Files & folders
+  - option "File · reference.txt reference.txt" [selected]
+  - text: Session conversations
+  - option "Session · Research notes reference-source-session · {{cwd}} · {{timestamp}}"

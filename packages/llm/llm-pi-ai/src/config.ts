@@ -14,14 +14,22 @@
  * @module dsh-llm-pi-ai/config
  */
 
-import type { CacheRetention, ModelThinkingLevel, Provider, ThinkingBudgets, Transport } from '@earendil-works/pi-ai'
+import type { CacheRetention, ChatTemplateKwargValue, ModelThinkingLevel, Provider, ThinkingBudgets, Transport } from '@earendil-works/pi-ai'
 import z from '@deepseek-ai/schemastery'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
 import type { CredentialRef } from '@deepseek-ai/dsh-credentials'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
 import { resolveRetryPolicy, RetryPolicySchema } from '@deepseek-ai/dsh-llm'
 import type { ResolvedRetryPolicy, RetryPolicyConfig } from '@deepseek-ai/dsh-llm'
-import { MODALITIES, resolveRouteModels, SUPPORTED_THINKING_FORMATS, THINKING_LEVELS } from './catalog.ts'
+import {
+  CACHE_CONTROL_FORMATS,
+  CHAT_TEMPLATE_VARS,
+  MAX_TOKENS_FIELDS,
+  MODALITIES,
+  resolveRouteModels,
+  SUPPORTED_THINKING_FORMATS,
+  THINKING_LEVELS,
+} from './catalog.ts'
 import type {
   PiAiCompatProfile,
   PiAiModality,
@@ -102,10 +110,11 @@ export interface PiAiProviderProfile {
    */
   modelOverrides?: Record<string, PiAiModelOverride>
   /**
-   * Reasoning-dispatch switches for every `openai-completions` model on this
-   * route; each model's own `compat` overrides per field. What neither sets
-   * keeps the installed catalog entry's value, then pi-ai's baseURL-derived
-   * detection.
+   * pi-ai wire-compatibility switches defaulting every model on this route
+   * whose protocol declares them; each model's own `compat` overrides per
+   * field. What neither sets keeps the installed catalog entry's value, then
+   * pi-ai's own detection. A switch no model on the route could read is
+   * refused rather than left looking applied.
    */
   compat?: PiAiCompatProfile
   /**
@@ -205,9 +214,43 @@ const thinkingBudgets = z.object({
   high: z.number(),
 })
 
+/**
+ * One `chat_template_kwargs` value. The `$var` member is pi-ai's placeholder
+ * for a value dispatch fills from the request's thinking state, which is what
+ * makes a chat-template gateway configurable without restating its template.
+ */
+const chatTemplateKwarg: z<ChatTemplateKwargValue> = z.union([
+  z.string(),
+  z.number(),
+  z.boolean(),
+  z.const(null),
+  z.object({
+    $var: z.union(CHAT_TEMPLATE_VARS).required(),
+    omitWhenOff: z.boolean(),
+  }),
+])
+
 const compatProfile: z<PiAiCompatProfile> = z.object({
-  thinkingFormat: z.union(SUPPORTED_THINKING_FORMATS),
+  supportsStore: z.boolean(),
+  supportsDeveloperRole: z.boolean(),
   supportsReasoningEffort: z.boolean(),
+  supportsUsageInStreaming: z.boolean(),
+  maxTokensField: z.union(MAX_TOKENS_FIELDS),
+  requiresToolResultName: z.boolean(),
+  requiresAssistantAfterToolResult: z.boolean(),
+  requiresThinkingAsText: z.boolean(),
+  requiresReasoningContentOnAssistantMessages: z.boolean(),
+  thinkingFormat: z.union(SUPPORTED_THINKING_FORMATS),
+  chatTemplateKwargs: z.dict(chatTemplateKwarg),
+  supportsStrictMode: z.boolean(),
+  cacheControlFormat: z.union(CACHE_CONTROL_FORMATS),
+  supportsLongCacheRetention: z.boolean(),
+  supportsEagerToolInputStreaming: z.boolean(),
+  supportsCacheControlOnTools: z.boolean(),
+  supportsTemperature: z.boolean(),
+  forceAdaptiveThinking: z.boolean(),
+  allowEmptySignature: z.boolean(),
+  supportsStrictTools: z.boolean(),
 })
 
 /**

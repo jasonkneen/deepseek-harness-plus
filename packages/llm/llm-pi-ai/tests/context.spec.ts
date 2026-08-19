@@ -1,9 +1,9 @@
 import { describe, expect, it, vi } from 'vitest'
 import { AttachmentId } from '@deepseek-ai/dsh-attachment'
 import type { AttachmentStore, ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
-import { CallId, createMessage, createUserMessage } from '@deepseek-ai/dsh-llm'
+import { CallId, createMessage, createUserMessage, OFFLOADED_IMAGE_TEXT } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, GenerateOptions, Message } from '@deepseek-ai/dsh-llm'
-import { OFFLOADED_IMAGE_TEXT, toPiContext } from '../src/context.ts'
+import { toPiContext } from '../src/context.ts'
 import { toPiAssistant } from '../src/replay.ts'
 
 const ref: ImageAttachmentRef = {
@@ -140,6 +140,59 @@ describe('pi-ai request context conversion', () => {
     ])
   })
 
+  it('recursively converts nested tool-result text and images', async () => {
+    const callId = CallId('nested-call')
+    const context = await toPiContext(request([user([{
+      type: 'tool-result',
+      toolCallId: callId,
+      content: [
+        {
+          type: 'tool-result',
+          toolCallId: callId,
+          content: [{ type: 'text', text: 'nested text' }],
+        },
+        {
+          type: 'tool-result',
+          toolCallId: callId,
+          content: [{ type: 'image', attachment: ref }],
+        },
+      ],
+    }])]), attachments)
+
+    expect(context.messages).toEqual([{
+      role: 'toolResult',
+      toolCallId: 'nested-call',
+      toolName: 'unknown',
+      content: [
+        { type: 'text', text: 'nested text' },
+        { type: 'image', data: 'AQ==', mimeType: 'image/png' },
+      ],
+      isError: false,
+      timestamp: 0,
+    }])
+  })
+
+  it('flattens nested text-only tool results and ignores other block types without storage', () => {
+    const callId = CallId('nested-text')
+    expect(toPiContext(request([user([{
+      type: 'tool-result',
+      toolCallId: callId,
+      content: [
+        { type: 'chart', data: 'ignored' } as unknown as ContentBlock,
+        {
+          type: 'tool-result',
+          toolCallId: callId,
+          content: [{ type: 'text', text: 'nested' }],
+        },
+      ],
+    }])]))).toMatchObject({
+      messages: [{
+        role: 'toolResult',
+        content: [{ type: 'text', text: 'nested' }],
+      }],
+    })
+  })
+
   it('replaces the oldest images with placeholders once the request payload bound is exceeded', async () => {
     const readImage = vi.fn(() => Promise.resolve({ ref: { ...ref, bytes: 3 }, data: Uint8Array.of(1, 2, 3) }))
     const store = { readImage } as unknown as AttachmentStore
@@ -249,9 +302,14 @@ describe('pi-ai request context conversion', () => {
   })
 
   it('handles in-history system and assistant messages explicitly on the image path', async () => {
-    await expect(toPiContext(request([
-      history('system', [{ type: 'image', attachment: ref }]),
-    ]), attachments)).rejects.toMatchObject({ code: 'UNSUPPORTED_CONTENT' })
+    for (const role of ['system', 'assistant'] as const) {
+      const readImage = vi.fn()
+      const store = { readImage } as unknown as AttachmentStore
+      await expect(toPiContext(request([
+        history(role, [{ type: 'image', attachment: ref }]),
+      ]), store, undefined, 1)).rejects.toMatchObject({ code: 'UNSUPPORTED_CONTENT' })
+      expect(readImage).not.toHaveBeenCalled()
+    }
 
     await expect(toPiContext(request([
       history('system', [{ type: 'text', text: 'history system' }]),

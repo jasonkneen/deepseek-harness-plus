@@ -714,9 +714,11 @@ export interface ChatViewInjected {
   openDetails: (target: SelectionTarget) => void
   /**
    * Open a tool-arg filesystem path with the host OS default application
-   * (relative paths resolve against the session cwd).
+   * (relative paths resolve against the session cwd). Always returns a
+   * promise: fulfills when the Host opens the path, rejects when it cannot
+   * hand the path off (the chat view shows that reason and a retry).
    */
-  openFile: (path: string) => void
+  openFile: (path: string) => Promise<void>
   loadOlder: () => void
   /** Resolve a session-authorized historical image for inline display. */
   loadImage: (attachment: ImageAttachmentRef) => Promise<string>

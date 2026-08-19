@@ -26,6 +26,8 @@ Workspace and Session lists have independent monotone `pending` → `ready` base
 
 SlotRegistry gives the renderer separate bare observables for `useSessions` and `useWorkspaces`; ui-renderer creates the hooks. Workspace business state does not enter `SessionListState` or an entry store.
 
+`abbreviateHomePath` is the display-only POSIX home abbreviation used by Web Workspace hover cards and Tool summaries; a Windows drive or UNC path stays verbatim, and a missing, empty, or filesystem-root home leaves the path unchanged.
+
 `indexSubagentDescendants()` derives per-parent total and running descendant counts from the retained list mirror. It follows only uninterrupted `origin: 'subagent'` ancestry, so an ordinary fork starts a separate ownership subtree; cycles stop without throwing, and a missing parent remains a harmless key until its summary arrives.
 
 `SessionListState.jobsBySession` mirrors the Host's `session/jobs` frames last-wins, keyed by session and needing no Session instance. An emptied set is stored as an absent key, so absence and `[]` are one representation and consumers never test a sentinel. Two clears keep it from outliving its truth: `session/subscribed` drops the session's mirror, because a fresh generation sends a baseline only for a non-empty set and a retained list would survive as a phantom, and `host/session-removed` drops it again, because owner disposal removed the records on the mux stream while the removal frame rides the host stream, leaving the two with no relative order.
@@ -54,7 +56,7 @@ The Chat builder keeps one mutable keyed store per Session. Content updates noti
 
 ## Trajectory request data
 
-Trajectory Definitions assemble one chronological, purpose-discriminated provider-request stream. Assistant requests always carry their numeric `turn` and `step`; compaction requests carry `step: 0` and a `turn` owner that may be `null`. That null owner means a manual compaction ran standalone between turns, not that it belongs to either adjacent turn. A `session/end-seed` boundary closes an unmatched compaction request as an error at the boundary time with `Compaction was interrupted before completion.`; a later start projects as an independent request instead of overwriting the orphan.
+Trajectory Definitions assemble one chronological, purpose-discriminated provider-request stream. Assistant requests always carry their numeric `turn` and `step`; compaction requests carry `step: 0` and a `turn` owner that may be `null`. That null owner means a manual compaction ran standalone between turns, not that it belongs to either adjacent turn. A cancellation-finalized `assistant/message` retains its durable result seq and provider provenance but does not complete the request; `step/end` classifies that request as an error. A `session/end-seed` boundary closes an unmatched compaction request as an error at the boundary time with `Compaction was interrupted before completion.`; a later start projects as an independent request instead of overwriting the orphan.
 
 ## Code Mode child-call tree
 

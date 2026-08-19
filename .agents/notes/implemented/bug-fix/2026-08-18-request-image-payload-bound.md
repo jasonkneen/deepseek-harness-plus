@@ -10,7 +10,7 @@ Every image in session history is base64-inlined into every model request by the
 
 ## Decision
 
-The pi-ai provider profile carries `maxRequestImageBytes` (default `DEFAULT_MAX_REQUEST_IMAGE_BYTES = 20MiB`, a positive integer, per route, changeable from cordis.yml and the `llm-pi-ai` settings section). At request conversion, `toPiContext` sums the base64 length of every image in history (derived from `ImageAttachmentRef.bytes` without reading data) and, while the sum exceeds the bound, replaces the oldest images with a fixed model-facing placeholder. The placeholder tells the model to read the file again when a path is available or ask the user to attach the image again. The most recent images are omitted last; an image larger than the bound is itself omitted. Offload locations use message and nested block indexes rather than object identity, so replaying the same JSON log produces the same request. Offloaded images are never read from the attachment store. `classifyPiAiError` classifies 413 and specific request-body-cap wording as `INVALID_REQUEST` (resending the same body cannot succeed). Four images admitted at the attachment store's 3.5MiB raw-image default occupy at most 18.67MiB after base64 expansion. The 20MiB request-image default therefore retains four such images and reserves the rest of a 32MiB request for system prompts, history, tools, and JSON. Deployments behind stricter gateways lower the value per route.
+The pi-ai provider profile and direct DeepSeek adapter carry `maxRequestImageBytes` (default `DEFAULT_MAX_REQUEST_IMAGE_BYTES = 20MiB`, a positive integer, changeable from cordis.yml and settings). The provider-neutral `offloadRequestImages` conversion sums the base64 length of every image in history from `ImageAttachmentRef.bytes` without reading data and, while the sum exceeds the bound, replaces the oldest image occurrences with a fixed model-facing placeholder. The placeholder tells the model to read the file again when a path is available or ask the user to attach the image again. The most recent images are omitted last; an image larger than the bound is itself omitted. Occurrence-order replacement does not depend on object identity, so replaying the same JSON log produces the same request. Offloaded images are never read from the attachment store. Both adapters classify 413 as `INVALID_REQUEST`; pi-ai also recognizes specific request-body-cap wording. Four images admitted at the attachment store's 3.5MiB raw-image default occupy at most 18.67MiB after base64 expansion. The 20MiB default therefore retains four such images and leaves headroom under the direct API's 30MiB request limit, while deployments behind stricter gateways lower the value per route.
 
 ## Offload is conversion, not history
 
@@ -26,6 +26,7 @@ The placeholder is model-visible but not logged as a session event. It stays wit
 ## Related
 
 - [Per-side image dimension admission limit](2026-08-17-image-dimension-admission-limit.md) — the admission-layer companion fix; together they close the two observed session-poisoning failures (400 dimension, 413 body size).
+- [Direct DeepSeek vision input](../feature/2026-08-19-direct-deepseek-vision-input.md) — applies this provider-neutral conversion to the official multimodal route.
 
 ## Consequences
 

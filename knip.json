@@ -502,6 +502,16 @@
         "tests/**/*.ts"
       ]
     },
+    "packages/context/file-reference": {
+      "ignoreDependencies": [
+        "zod"
+      ]
+    },
+    "packages/context/session-reference": {
+      "ignoreDependencies": [
+        "zod"
+      ]
+    },
     "packages/session/session-checkpoint-policy": {
       "entry": [
         "tests/**/*.spec.ts",

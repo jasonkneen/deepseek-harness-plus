@@ -106,9 +106,8 @@ describe('web e2e: mid-turn steering lands durably and visibly', () => {
     // this exact occurrence into the current turn's steering outbox.
     await input.fill(STEER)
     await input.press('Enter')
-    const queued = page.getByText(STEER, { exact: true })
-    await queued.waitFor({ timeout: 10_000 })
     const queuedRow = page.getByRole('listitem').filter({ hasText: STEER })
+    await queuedRow.waitFor({ timeout: 10_000 })
     const steerButton = queuedRow.getByRole('button', { name: 'Steer queued message' })
     await expect.poll(() => steerButton.isEnabled(), { timeout: 10_000 }).toBe(true)
     await steerButton.click({ timeout: 10_000 })

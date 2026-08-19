@@ -152,21 +152,36 @@ function TurnMaxTokensItem({ t }: {
  * scan as the composer, minus the lexicon: sent tokens were validated at
  * compose time, so shape alone decorates).
  */
-function projectUserText(text: string): ReactNode {
+function projectUserText(text: string, sessionLabels: readonly string[]): ReactNode {
+  const ranges: { start: number; end: number; label: string; kind: 'session' | 'plain' }[] = []
+  for (const rawLabel of [...new Set(sessionLabels)].sort((a, b) => b.length - a.length)) {
+    const label = `@${rawLabel}`
+    let start = text.indexOf(label)
+    while (start >= 0) {
+      ranges.push({ start, end: start + label.length, label, kind: 'session' })
+      start = text.indexOf(label, start + label.length)
+    }
+  }
   const re = /(^|\s)([/@][\w-]+)(?=\s|$)/g
-  const parts: ReactNode[] = []
-  let cursor = 0
   let m: RegExpExecArray | null
   while ((m = re.exec(text)) !== null) {
     const tokenStart = m.index + (m[1]?.length ?? 0)
     const label = m[2] ?? ''
+    ranges.push({ start: tokenStart, end: tokenStart + label.length, label, kind: 'plain' })
+  }
+  ranges.sort((a, b) => a.start - b.start || b.end - a.end)
+  const parts: ReactNode[] = []
+  let cursor = 0
+  for (const range of ranges) {
+    if (range.start < cursor) continue
+    const { start: tokenStart, end, label, kind } = range
     if (tokenStart > cursor) parts.push(<MessageText key={cursor} text={text.slice(cursor, tokenStart)} />)
     parts.push(
-      <span key={tokenStart} className={css.refChip} data-ref-chip={label.startsWith('@') ? 'subagent' : 'skill'}>
+      <span key={tokenStart} className={css.refChip} data-ref-chip={kind === 'session' ? 'session' : label.startsWith('@') ? 'subagent' : 'skill'}>
         {label}
       </span>,
     )
-    cursor = tokenStart + label.length
+    cursor = end
   }
   if (parts.length === 0) return <MessageText text={text} />
   if (cursor < text.length) parts.push(<MessageText key={cursor} text={text.slice(cursor)} />)
@@ -175,7 +190,7 @@ function projectUserText(text: string): ReactNode {
 
 /** Right-aligned bubble shared by user and steering rows. */
 function UserStyleBubble({
-  content, renderMessageImages, actions, pending = false, t,
+  content, renderMessageImages, actions, pending = false, referenceLabels = [], t,
 }: {
   content: readonly unknown[]
   renderMessageImages: ChatNodeOwnerProps['renderMessageImages']
@@ -183,6 +198,8 @@ function UserStyleBubble({
   actions?: (text: string) => ReactNode
   /** Whether this is the Host-authoritative pre-admission steering projection. */
   pending?: boolean
+  /** Exact session mention labels associated by the adjacent recall node. */
+  referenceLabels?: readonly string[]
   t: ChatViewSlotProps['t']
 }): ReactNode {
   const { text, images, rest } = contentParts(content)
@@ -193,9 +210,14 @@ function UserStyleBubble({
       <div className={css.userStack}>
         {renderMessageImages({ images, align: 'end' })}
         {showBubble && <div className={css.bubble}>
-          {projectUserText(text)}
+          {projectUserText(text, referenceLabels)}
           {rest.map((block, i) => <JsonBlock key={i} label={t('message.extraBlock')} payload={block} truncatedLabel={truncated} />)}
         </div>}
+        {referenceLabels.length > 0 && (
+          <div className={css.referenceSummary}>
+            {t('message.referenceSummary', { labels: referenceLabels.join(t('message.referenceSeparator')) })}
+          </div>
+        )}
       </div>
       {actions?.(text)}
     </div>
@@ -240,6 +262,7 @@ export const UserMessageNodeView = memo(function UserMessageNodeView({
     <UserStyleBubble
       content={data.content}
       renderMessageImages={renderMessageImages}
+      {...data.referenceLabels === undefined ? {} : { referenceLabels: data.referenceLabels }}
       t={t}
       actions={text => (
         <MessageIconActions
