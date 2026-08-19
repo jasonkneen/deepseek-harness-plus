@@ -54,7 +54,7 @@ Agent *创建* 由实现 `AgentFactory` 的插件（`dsh-agent-loop`）提供，
 
 `PreStepDecision` 要么是 `{ kind: 'reject' }`，要么是 `{ kind: 'enter', messages }`。enter 分支是拟进入步骤的完整、带标识且冻结的批次。包装下游 enter 的监听器会保留该批次，除非有意替换它；新增消息遵循 waterfall 的自然返回顺序。领取操作已经把候选消息从 inbox 删除，因此 reject 不会保留它们；领取后插入的消息仍等待后续边界。
 
-inbox 的实时通知刻意采用逐消息的最小载荷：`agent/inbox/inserted { message }`、`agent/inbox/claimed { message, turn }` 与 `agent/inbox/discarded { message }`。它们补充持久 `agent/inbox/spliced` 投影，但不引入另一层生命周期封套。
+`InboxService` 拥有标准 `inbox` 会话投影。投影注册表只折叠一次持久 `agent/inbox/spliced` 事件，并继续作为 live `{ 'next-turn', 'next-step' }` 状态的唯一所有者；Inbox 是读取注册表快照的命令 facade，不会重新回放或复制折叠结果。Inbox 的实时通知刻意采用逐消息的最小载荷：`agent/inbox/inserted { message }`、`agent/inbox/claimed { message, turn }` 与 `agent/inbox/discarded { message }`。Inbox 在提交对应变更时自行发出这些通知，不引入另一层生命周期封套。
 
 轮次和步骤边界以及模型 token 流是持久 `session/event` 事实，而不是镜像的 `agent/*` 通知。消费方从会话事件流读取 `turn/*`、`step/*` 和 `assistant/chunk`；工具策略与结果观测属于 [`dsh-tools`](../tools/README.md) 记录的完整流水线。
 
@@ -64,7 +64,7 @@ inbox 的实时通知刻意采用逐消息的最小载荷：`agent/inbox/inserte
 
 每个插件面向的 handle：
 
-- `agent.inbox`：agent 所拥有的持久 `agent/inbox/spliced` 事件投影。`nextTurn` 与 `nextStep` 暴露待处理的 `UserMessage` 值。`append`、`prepend`、`replace`、`remove`、`clear`、`splice` 与 `claim` 用于变更队列；`replace(messageId, newMessage)` 与 `remove(messageId)` 通过 `MessageId` 跨两份列表定位待处理消息。替换可以改变标识，并先将旧消息作为 discarded 发布，再将新消息作为 inserted 发布。普通删除和 `clear()` 都是持久取消，并发出 `agent/inbox/discarded`。`claim(target)` 通过纯删除 splice 移除下一个候选批次，随后由循环发出 `agent/inbox/claimed`。`MessageId` 是唯一的入队项标识，在消息待处理期间必须保持唯一。
+- `agent.inbox`：标准持久 `inbox` 投影的 live 接口。`nextTurn` 与 `nextStep` 暴露待处理的 `UserMessage` 值。`append`、`prepend`、`replace`、`remove`、`clear`、`splice` 与 `claim` 用于变更队列；`replace(messageId, newMessage)` 与 `remove(messageId)` 通过 `MessageId` 跨两份列表定位待处理消息。替换可以改变标识，并先将旧消息作为 discarded 发布，再将新消息作为 inserted 发布。普通删除和 `clear()` 都是持久取消，并发出 `agent/inbox/discarded`。`claim(target)` 通过纯删除 splice 移除下一个候选批次，并为每条已认领消息发出 `agent/inbox/claimed`。`MessageId` 是唯一的入队项标识，在消息待处理期间必须保持唯一。
 - `agent.followup(message)`：将一条普通 `next-turn` 消息排队并唤醒驱动器。它不返回完成 handle；消息 id 标识 inbox 的插入、领取与丢弃事实，而不标识之后的输出或 `turn/end`。
 - `agent.steer(message)`：将会唤醒的 `next-step` steering（中途引导）输入排队。agent 空闲时会同步启动一个轮次；驱动器运行期间收到的后续 steering 会在下一个步骤边界被消费。
 - `agent.inject(message)`：将不会唤醒的 `next-step` 上下文排队。运行中的驱动器会在最近的后续 pre-step 边界领取它；idle 驱动器则会让它保持待处理，直至 `followup()` 或 `steer()` 唤醒驱动器。若某次请求的 pre-step 已经领取完批次，它可能赶不上该请求。

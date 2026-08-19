@@ -10,7 +10,9 @@
 import { describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import { z } from 'zod'
-import AgentRegistry, { Inbox } from '@deepseek-ai/dsh-agent'
+import AgentRegistry from '@deepseek-ai/dsh-agent'
+import InboxService from '@deepseek-ai/dsh-agent/inbox'
+import type {} from '@deepseek-ai/dsh-agent/inbox-projection'
 import { AttachmentStore } from '@deepseek-ai/dsh-attachment'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
@@ -52,10 +54,28 @@ async function harness(withRegistry: boolean): Promise<{ ctx: Context; session: 
   await ctx.plugin(SessionStore)
   await ctx.plugin(UserQuestionService)
   await ctx.plugin(AgentRegistry)
-  if (withRegistry) await ctx.plugin(SessionProjectionRegistry)
+  if (withRegistry) {
+    await ctx.plugin(SessionProjectionRegistry)
+    await ctx.plugin(InboxService)
+  }
   const session = ctx.sessions.create()
-  // The gateway reads both the session and durable inbox baseline.
-  ctx.agents.register({ id: session.id, session, inbox: new Inbox(session, { inserted: () => {}, discarded: () => {}, claimed: () => {} }), status: 'idle', ctx } as Agent)
+  const agent = {
+    id: session.id,
+    options: {},
+    session,
+    inbox: { nextTurn: [], nextStep: [], hasPending: false } as never,
+    status: 'idle',
+    ctx,
+    send() {},
+    followup() {},
+    steer() {},
+    inject() {},
+    cancel() {},
+    runMaintenance: task => task(new AbortController().signal),
+    whenIdle: () => Promise.resolve(),
+  } satisfies Agent
+  if (withRegistry) Object.assign(agent, { inbox: ctx.inboxes.create(agent) })
+  ctx.agents.register(agent)
   return { ctx, session }
 }
 
@@ -85,6 +105,78 @@ describe('session.history projections block', () => {
     expect(projections?.values['test/last-user']).toEqual({ text: 'm2' })
     // asOfSeq IS the window tail: the last served event carries it.
     expect(events.at(-1)?.event.seq).toBe(projections?.asOfSeq)
+  })
+
+  it('reconstructs a cold persisted queue without publishing or resuming an Agent', async () => {
+    const { ctx } = await harness(true)
+    const coldId = SessionId('cold-persisted-queue')
+    const meta = { version: 0 as const, id: coldId, createdAt: 1, cwd: '/tmp' }
+    const message = createUserMessage({
+      content: [{ type: 'text', text: 'survive process restart' }],
+      source: { kind: 'user' },
+    })
+    const events = [{
+      type: 'agent/inbox/spliced',
+      seq: 0,
+      time: 2,
+      data: { target: 'next-turn', start: 0, inserted: [message] },
+    }] as const
+    ctx.provide('sessionPersistence', {
+      list: () => Promise.resolve([meta]),
+      inspect: () => Promise.resolve({ meta, events }),
+    } as never)
+    const response = await api(ctx).sessions.history(request({ sessionId: coldId }))
+    if (!response.result.ok) throw new Error('history failed')
+
+    expect(response.result.value.projections?.values.inbox).toEqual({
+      'next-turn': [message],
+      'next-step': [],
+    })
+    expect(ctx.agents.get(coldId)).toBeUndefined()
+    expect(ctx.sessions.get(coldId)).toBeUndefined()
+  })
+
+  it('removes claimed steering from the pending Inbox projection immediately', async () => {
+    const { ctx, session } = await harness(true)
+    const proxy = api(ctx)
+    const message = createUserMessage({
+      content: [{ type: 'text', text: 'apply this now' }],
+      source: { kind: 'user' },
+    })
+    const agent = ctx.agents.get(session.id)
+    if (agent === undefined) throw new Error('missing Agent')
+    agent.inbox.append('next-step', message)
+    agent.inbox.claim('next-step', 1)
+
+    const during = await proxy.sessions.history(request({ sessionId: session.id }))
+    if (!during.result.ok) throw new Error('history failed')
+    expect(during.result.value.projections?.values.inbox).toEqual({
+      'next-turn': [],
+      'next-step': [],
+    })
+
+    session.append('user/message', message, { surfaceOp: 'append' })
+    const settled = await proxy.sessions.history(request({ sessionId: session.id }))
+    if (!settled.result.ok) throw new Error('history failed')
+    expect(settled.result.value.projections?.values.inbox).toEqual({
+      'next-turn': [],
+      'next-step': [],
+    })
+
+    const rejected = createUserMessage({
+      content: [{ type: 'text', text: 'reject this pre-step' }],
+      source: { kind: 'user' },
+    })
+    session.append('turn/start', { turn: 1 })
+    agent.inbox.append('next-step', rejected)
+    agent.inbox.claim('next-step', 1)
+    session.append('turn/end', { turn: 1, reason: { kind: 'blocked' } })
+    const closed = await proxy.sessions.history(request({ sessionId: session.id }))
+    if (!closed.result.ok) throw new Error('history failed')
+    expect(closed.result.value.projections?.values.inbox).toEqual({
+      'next-turn': [],
+      'next-step': [],
+    })
   })
 
   it('publishes the attachments imageLimits as a constant unit while both seams are composed', async () => {

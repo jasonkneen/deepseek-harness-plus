@@ -47,8 +47,8 @@ function config(): ResolvedConfig {
 function agent(ctx: Context, cwd?: string): Agent {
   const id = SessionId('agent')
   const session = Session.create(id, undefined, { version: 0, id, createdAt: 0, ...cwd === undefined ? {} : { cwd } })
-  return {
-    id, options: {}, session, inbox: new Inbox(session, { inserted: () => {}, discarded: () => {}, claimed: () => {} }),
+  const agent: Agent = {
+    id, options: {}, session, inbox: undefined as never,
     status: 'idle',
     ctx,
     send: () => {},
@@ -56,6 +56,8 @@ function agent(ctx: Context, cwd?: string): Agent {
     runMaintenance: task => task(new AbortController().signal),
     whenIdle: () => Promise.resolve(),
   }
+  Object.assign(agent, { inbox: new Inbox(agent.ctx, agent) })
+  return agent
 }
 
 function terminalHandle(): SubprocessTerminalHandle {
@@ -391,7 +393,7 @@ describe('terminal-bash plugin shape', () => {
     const session = ctx.sessions.create(SessionId('mode-owner'))
     const ownerFiber = await ctx.plugin(() => {})
     const owner: Agent = {
-      id: session.id, options: {}, session, inbox: new Inbox(session, { inserted: () => {}, discarded: () => {}, claimed: () => {} }),
+      id: session.id, options: {}, session, inbox: undefined as never,
       status: 'idle',
       ctx: ownerFiber.ctx,
       send: () => {},
@@ -399,6 +401,7 @@ describe('terminal-bash plugin shape', () => {
       runMaintenance: task => task(new AbortController().signal),
       whenIdle: () => Promise.resolve(),
     }
+    Object.assign(owner, { inbox: new Inbox(owner.ctx, owner) })
     ctx.agents.register(owner)
     const providerFiber = await registerStubLocalBackend(ctx, () => stubLocalSession())
     const created = await ctx.terminals.spawn(owner, { type: 'stub' })
@@ -440,7 +443,7 @@ describe('terminal-bash plugin shape', () => {
     const session = ctx.sessions.create(SessionId('pending-mode-owner'))
     const ownerFiber = await ctx.plugin(() => {})
     const owner: Agent = {
-      id: session.id, options: {}, session, inbox: new Inbox(session, { inserted: () => {}, discarded: () => {}, claimed: () => {} }),
+      id: session.id, options: {}, session, inbox: undefined as never,
       status: 'idle',
       ctx: ownerFiber.ctx,
       send: () => {},
@@ -448,6 +451,7 @@ describe('terminal-bash plugin shape', () => {
       runMaintenance: task => task(new AbortController().signal),
       whenIdle: () => Promise.resolve(),
     }
+    Object.assign(owner, { inbox: new Inbox(owner.ctx, owner) })
     ctx.agents.register(owner)
     const gate = Promise.withResolvers<undefined>()
     await registerStubLocalBackend(ctx, () => stubLocalSession(() => gate.promise))

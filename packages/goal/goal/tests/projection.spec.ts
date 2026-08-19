@@ -10,7 +10,7 @@
 
 import { describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
-import AgentRegistry, { Inbox } from '@deepseek-ai/dsh-agent'
+import AgentRegistry from '@deepseek-ai/dsh-agent'
 import type { Agent, AgentStatus } from '@deepseek-ai/dsh-agent'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { UserMessage } from '@deepseek-ai/dsh-session'
@@ -31,19 +31,18 @@ interface Bench {
 /** Register a minimal registry-compatible live agent over a store session. */
 function liveAgent(ctx: Context, session: Session): Agent {
   const status: AgentStatus = 'idle'
-  const inbox = new Inbox(session, { inserted: () => {}, discarded: () => {}, claimed: () => {} })
   const agent: Agent = {
     id: session.id,
     options: {},
     session,
-    inbox,
+    inbox: { nextTurn: [], nextStep: [], hasPending: false } as never,
     ctx,
     get status() { return status },
     send: () => {},
     followup: () => {},
     steer: () => ({ outcome: Promise.resolve({ status: 'rejected' as const }) }),
     inject(input: UserMessage) {
-      inbox.append('next-step', input)
+      this.inbox.append('next-step', input)
     },
     cancel() {},
     runMaintenance: task => task(new AbortController().signal),
@@ -130,10 +129,14 @@ describe('goal projection unit', () => {
     const created = bench.ctx.goals.create(bench.agent, { objective: 'stay cleared' })
     bench.ctx.goals.clear(bench.agent, created)
 
-    bench.agent.inbox.prepend('next-step', createUserMessage({
-      content: [{ type: 'text', text: 'unrelated pending context' }],
-      source: { kind: 'plugin', plugin: 'test' },
-    }))
+    bench.session.append('agent/inbox/spliced', {
+      target: 'next-step',
+      start: 0,
+      inserted: [createUserMessage({
+        content: [{ type: 'text', text: 'unrelated pending context' }],
+        source: { kind: 'plugin', plugin: 'test' },
+      })],
+    })
 
     expect(bench.tailValues().goal).toBeNull()
     expect(foldGoal(bench.session.events).goal).toBeUndefined()

@@ -39,12 +39,12 @@ async function setup(home: string, config: toolSkill.Config = {}): Promise<Conte
 function agentForCwd(cwd: string): Agent {
   const id = SessionId(`tool-skill-${cwd}`)
   const session = Session.create(id, [], { version: 0, id, createdAt: 0, cwd })
-  return {
+  const agent: Agent = {
     ctx: new Context(),
     id,
     options: {},
     session,
-    inbox: new Inbox(session, { inserted: () => {}, discarded: () => {}, claimed: () => {} }),
+    inbox: undefined as never,
     status: 'idle',
     send: () => {},
     followup: () => {},
@@ -54,14 +54,16 @@ function agentForCwd(cwd: string): Agent {
     runMaintenance: task => task(new AbortController().signal),
     whenIdle: () => Promise.resolve(),
   }
+  Object.assign(agent, { inbox: new Inbox(agent.ctx, agent) })
+  return agent
 }
 
 function sessionAgent(session: Session, id = 'tool-skill-agent'): Agent {
-  return {
+  const agent: Agent = {
     id: SessionId(id),
     options: {},
     session,
-    inbox: new Inbox(session, { inserted: () => {}, discarded: () => {}, claimed: () => {} }),
+    inbox: undefined as never,
     status: 'running',
     ctx: new Context(),
     send: () => {},
@@ -72,6 +74,8 @@ function sessionAgent(session: Session, id = 'tool-skill-agent'): Agent {
     runMaintenance: task => task(new AbortController().signal),
     whenIdle: () => Promise.resolve(),
   }
+  Object.assign(agent, { inbox: new Inbox(agent.ctx, agent) })
+  return agent
 }
 
 function openMessageTurn(session: Session, turn = 1): void {

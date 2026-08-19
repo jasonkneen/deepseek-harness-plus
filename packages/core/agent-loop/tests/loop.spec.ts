@@ -1,3 +1,5 @@
+import InboxService from '@deepseek-ai/dsh-agent/inbox'
+import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import { describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import LlmRuntime, { createUserMessage, CallId, LlmError, StreamChunk  } from '@deepseek-ai/dsh-llm'
@@ -17,6 +19,8 @@ async function harness(adapter: MockAdapter, persona = '') {
   const ctx = new Context()
   await ctx.plugin(LlmRuntime)
   await ctx.plugin(SessionStore)
+  await ctx.plugin(SessionProjectionRegistry)
+  await ctx.plugin(InboxService)
   await ctx.plugin(SystemPrompt, { persona })
   await ctx.plugin(ToolRuntime)
   await ctx.plugin(AgentRegistry)
@@ -130,6 +134,22 @@ describe('agent loop', () => {
 
     expect(userTexts(agent)).toEqual(['wake behind maintenance'])
     expect(adapter.requests).toHaveLength(1)
+  })
+
+  it('rejects overlapping maintenance work', async () => {
+    const ctx = await harness(new MockAdapter([]))
+    const agent = ctx.agentLoop.create(SessionId('overlapping-maintenance'), {
+      provider: 'mock',
+      model: 'mock',
+    })
+    const finish = Promise.withResolvers<undefined>()
+    const maintenance = agent.runMaintenance(() => finish.promise)
+
+    expect(() => agent.runMaintenance(async () => undefined))
+      .toThrow('agent "overlapping-maintenance" already has active work')
+
+    finish.resolve(undefined)
+    await maintenance
   })
 
   it('suppresses the replay when a latched maintenance wake is removed', async () => {
@@ -1433,6 +1453,8 @@ describe('agent loop', () => {
     const ctx = new Context()
     await ctx.plugin(LlmRuntime)
     await ctx.plugin(SessionStore)
+    await ctx.plugin(SessionProjectionRegistry)
+    await ctx.plugin(InboxService)
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(ToolRuntime)
     await ctx.plugin(AgentRegistry)
@@ -1457,6 +1479,8 @@ describe('agent loop', () => {
     const ctx = new Context()
     await ctx.plugin(LlmRuntime)
     await ctx.plugin(SessionStore)
+    await ctx.plugin(SessionProjectionRegistry)
+    await ctx.plugin(InboxService)
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(ToolRuntime)
     await ctx.plugin(AgentRegistry)

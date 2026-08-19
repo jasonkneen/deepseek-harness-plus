@@ -85,7 +85,7 @@ describe.skipIf(!process.env.E2B_API_KEY)('E2B live Loader composition', () => {
         id: ownerId,
         options: {},
         session: ownerSession,
-        inbox: new Inbox(ownerSession, { inserted: () => {}, discarded: () => {}, claimed: () => {} }),
+        inbox: undefined as never,
         status: 'idle',
         ctx,
         send() {},
@@ -96,6 +96,7 @@ describe.skipIf(!process.env.E2B_API_KEY)('E2B live Loader composition', () => {
         runMaintenance: task => task(new AbortController().signal),
         whenIdle: () => Promise.resolve(),
       }
+      Object.assign(owner, { inbox: new Inbox(owner.ctx, owner) })
       const backend = new BashTerminalBackend(ctx, {
         backendType: 'shell', shellPath: '/bin/bash', shellArgs: ['--noprofile', '--norc', '-i'],
         rows: 24, cols: 80,

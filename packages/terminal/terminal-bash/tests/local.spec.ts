@@ -35,8 +35,8 @@ function stubAgent(ctx: Context, rawId: string): Agent {
   const id = SessionId(rawId)
   const scope = ctx.plugin(() => {})
   const session = Session.create(id)
-  return {
-    id, options: {}, session, inbox: new Inbox(session, { inserted: () => {}, discarded: () => {}, claimed: () => {} }),
+  const agent: Agent = {
+    id, options: {}, session, inbox: undefined as never,
     status: 'idle',
     ctx: scope.ctx,
     send: () => {},
@@ -44,6 +44,8 @@ function stubAgent(ctx: Context, rawId: string): Agent {
     runMaintenance: task => task(new AbortController().signal),
     whenIdle: () => Promise.resolve(),
   }
+  Object.assign(agent, { inbox: new Inbox(agent.ctx, agent) })
+  return agent
 }
 
 async function harness(

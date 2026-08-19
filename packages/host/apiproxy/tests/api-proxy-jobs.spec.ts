@@ -9,7 +9,7 @@
 
 import { describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
-import AgentRegistry, { Inbox } from '@deepseek-ai/dsh-agent'
+import AgentRegistry from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import type { Session } from '@deepseek-ai/dsh-session'
@@ -56,11 +56,19 @@ async function harness(withRegistry: boolean): Promise<{ ctx: Context; session: 
   const session = ctx.sessions.create()
   const agent = {
     id: session.id,
+    options: {},
     session,
-    inbox: new Inbox(session, { inserted: () => {}, discarded: () => {}, claimed: () => {} }),
+    inbox: { nextTurn: [], nextStep: [], hasPending: false } as never,
     status: 'idle',
     ctx,
-  } as Agent
+    send() {},
+    followup() {},
+    steer() {},
+    inject() {},
+    cancel() {},
+    runMaintenance: task => task(new AbortController().signal),
+    whenIdle: () => Promise.resolve(),
+  } satisfies Agent
   ctx.agents.register(agent)
   return { ctx, session, agent }
 }

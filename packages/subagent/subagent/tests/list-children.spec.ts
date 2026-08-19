@@ -34,7 +34,7 @@ afterEach(() => {
 /** Boot the continuable stack with real JSONL session persistence. */
 async function setup(
   script: Script,
-  options: { sessionProjections?: boolean; projectionCache?: boolean } = {},
+  options: { projectionCache?: boolean } = {},
 ) {
   const ctx = new Context()
   await mountAgentLoopTestDependencies(ctx)
@@ -42,7 +42,6 @@ async function setup(
   roots.push(root)
   await ctx.plugin(JsonlSessionPersistence, { root })
   await ctx.plugin(AgentLoop, { agents: [] })
-  if (options.sessionProjections !== false) await ctx.plugin(SessionProjectionRegistry)
   if (options.projectionCache === true) {
     await ctx.plugin(Storage)
     ctx.storage.backend.register('memory', new MemoryStorageBackend(new MemoryMediaPool()))
@@ -57,6 +56,13 @@ async function setup(
   ctx.llm.registerAdapter(['mock'], new MockAdapter(script))
   const parent = ctx.agentLoop.create(SessionId('parent'), { provider: 'mock', model: 'mock' })
   return { ctx, parent }
+}
+
+async function setupWithoutProjections(): Promise<Context> {
+  const ctx = new Context()
+  await ctx.plugin(SessionStore)
+  await ctx.plugin(SubagentRuntime)
+  return ctx
 }
 
 const testSignal = new AbortController().signal
@@ -175,8 +181,8 @@ describe('SubagentRuntime.listChildren', () => {
   })
 
   it('fails loud when the projection registry is not mounted, even with no children', async () => {
-    const { ctx, parent } = await setup([], { sessionProjections: false })
-    await expect(ctx.subagents.listChildren(parent.id)).rejects.toThrow(
+    const ctx = await setupWithoutProjections()
+    await expect(ctx.subagents.listChildren(SessionId('no-projections-parent'))).rejects.toThrow(
       expect.objectContaining({ code: 'SUBAGENT_CONTROL_PROJECTIONS_UNAVAILABLE' }) as Error,
     )
   })
@@ -966,8 +972,9 @@ describe('SubagentRuntime.listChildren', () => {
   })
 
   it('SubagentError from listChildren is typed with its stable code', async () => {
-    const { ctx, parent } = await setup([], { sessionProjections: false })
-    const caught: unknown = await ctx.subagents.listChildren(parent.id).catch((error: unknown) => error)
+    const ctx = await setupWithoutProjections()
+    const caught: unknown = await ctx.subagents.listChildren(SessionId('typed-no-projections-parent'))
+      .catch((error: unknown) => error)
     expect(caught).toBeInstanceOf(SubagentError)
     expect((caught as SubagentError).code).toBe('SUBAGENT_CONTROL_PROJECTIONS_UNAVAILABLE')
   })
@@ -1206,8 +1213,8 @@ describe('SubagentRuntime.listDescendants', () => {
   })
 
   it('fails loud when the projection registry is not mounted', async () => {
-    const { ctx, parent } = await setup([], { sessionProjections: false })
-    await expect(ctx.subagents.listDescendants(parent.id)).rejects.toThrow(
+    const ctx = await setupWithoutProjections()
+    await expect(ctx.subagents.listDescendants(SessionId('no-projections-root'))).rejects.toThrow(
       expect.objectContaining({ code: 'SUBAGENT_CONTROL_PROJECTIONS_UNAVAILABLE' }) as Error,
     )
   })

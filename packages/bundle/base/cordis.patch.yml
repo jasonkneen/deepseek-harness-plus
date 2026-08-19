@@ -58,6 +58,9 @@
     - id: agent
       name: '@deepseek-ai/dsh-agent'
 
+    - id: agent-inbox
+      name: '@deepseek-ai/dsh-agent/inbox'
+
     # The transport-independent default for Agents created by entry points.
     # Settings may supply a saved selection; consumers read it at creation time.
     - id: agent-default-model

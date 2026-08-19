@@ -43,13 +43,12 @@ class FakeTelemetry extends SessionTelemetryBackend {
 /** Build a live idle agent over a store-owned session, as an app's spine does. */
 function stubAgent(ctx: Context, id: string): { agent: Agent; session: Session } {
   const session = ctx.sessions.create(SessionId(id))
-  const inbox = new Inbox(session, { inserted: () => {}, discarded: () => {}, claimed: () => {} })
   let status: AgentStatus = 'idle'
   const agent: Agent = {
     id: session.id,
     options: {},
     session,
-    inbox,
+    inbox: undefined as never,
     ctx: new Context(),
     get status() { return status },
     send: () => {},
@@ -60,6 +59,7 @@ function stubAgent(ctx: Context, id: string): { agent: Agent; session: Session }
     runMaintenance: task => task(new AbortController().signal),
     whenIdle() { return Promise.resolve() },
   }
+  Object.assign(agent, { inbox: new Inbox(agent.ctx, agent) })
   return { agent, session }
 }
 

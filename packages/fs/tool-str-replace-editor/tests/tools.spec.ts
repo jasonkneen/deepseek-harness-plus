@@ -33,7 +33,7 @@ function agent(ctx: Context, cwd: string): Agent {
     id,
     options: {},
     session,
-    inbox: new Inbox(session, { inserted: () => {}, discarded: () => {}, claimed: () => {} }),
+    inbox: undefined as never,
     status: 'idle',
     ctx: scope.ctx,
     send: () => {},
@@ -44,6 +44,7 @@ function agent(ctx: Context, cwd: string): Agent {
     runMaintenance: task => task(new AbortController().signal),
     whenIdle: () => Promise.resolve(),
   }
+  Object.assign(value, { inbox: new Inbox(value.ctx, value) })
   ctx.agents.register(value)
   return value
 }

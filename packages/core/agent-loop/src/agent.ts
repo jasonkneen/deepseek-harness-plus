@@ -11,11 +11,12 @@ import type {
   AgentOptions,
   AgentStatus,
   CancelOptions,
+  Inbox,
   InboxTarget,
   PreStepDecision,
   RequestErrorAction,
 } from '@deepseek-ai/dsh-agent'
-import { Inbox, agentEvents, assembleContextFor } from '@deepseek-ai/dsh-agent'
+import { agentEvents, assembleContextFor } from '@deepseek-ai/dsh-agent'
 import type { GenerateOptions, LlmCallConfig, Message, PreparedLlmCall } from '@deepseek-ai/dsh-llm'
 import {
   BlockAssembler,
@@ -84,11 +85,7 @@ export class ReactLoopAgent implements Agent {
     public readonly session: Session,
   ) {
     this.dispatch = agentEvents(loopCtx, this)
-    this.inbox = new Inbox(session, {
-      inserted: (message) => { this.dispatch.emit('agent/inbox/inserted', { message }) },
-      discarded: (message) => { this.dispatch.emit('agent/inbox/discarded', { message }) },
-      claimed: (message, turn) => { this.dispatch.emit('agent/inbox/claimed', { message, turn }) },
-    })
+    this.inbox = loopCtx.inboxes.create(this)
     const lastTurn = session.events.findLast(event => event.type === 'turn/start')?.data.turn ?? 0
     this.phase = { kind: 'idle', lastTurn }
     this.scope = createScope(loopCtx, this)

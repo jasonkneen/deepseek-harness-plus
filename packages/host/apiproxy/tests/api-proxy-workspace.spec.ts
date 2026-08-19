@@ -40,11 +40,11 @@ async function nextHostFrame(
 }
 
 function stubAgent(session: Session): Agent {
-  return {
+  const agent: Agent = {
     id: session.id,
     options: {},
     session,
-    inbox: new Inbox(session, { inserted: () => {}, discarded: () => {}, claimed: () => {} }),
+    inbox: undefined as never,
     status: 'idle',
     ctx: new Context(),
     send: () => {},
@@ -55,6 +55,8 @@ function stubAgent(session: Session): Agent {
     runMaintenance: job => job(new AbortController().signal),
     whenIdle: () => Promise.resolve(),
   }
+  Object.assign(agent, { inbox: new Inbox(agent.ctx, agent) })
+  return agent
 }
 
 /** Compose the API over real Session, Agent, Storage, Domain, and Workspace services. */

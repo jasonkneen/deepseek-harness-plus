@@ -1,3 +1,5 @@
+import InboxService from '@deepseek-ai/dsh-agent/inbox'
+import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 /** The `agent-loop` settings section layered over the composition entry. */
 
 import { describe, expect, it } from 'vitest'
@@ -34,6 +36,8 @@ async function boot(): Promise<{ ctx: Context; settingsFiber: Fiber; loopFiber: 
   const ctx = new Context()
   await ctx.plugin(LlmRuntime)
   await ctx.plugin(SessionStore)
+  await ctx.plugin(SessionProjectionRegistry)
+  await ctx.plugin(InboxService)
   await ctx.plugin(SystemPrompt)
   await ctx.plugin(ToolRuntime)
   await ctx.plugin(AgentRegistry)

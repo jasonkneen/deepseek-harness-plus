@@ -2,11 +2,13 @@
 
 import { afterEach, describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
-import AgentRegistry, { Inbox } from '@deepseek-ai/dsh-agent'
+import AgentRegistry from '@deepseek-ai/dsh-agent'
+import InboxService from '@deepseek-ai/dsh-agent/inbox'
 import type { Agent, AgentHandle, CreateAgentOptions } from '@deepseek-ai/dsh-agent'
 import AgentDefaultModelConfig from '@deepseek-ai/dsh-agent-default-model'
 import { createAssistantMessage } from '@deepseek-ai/dsh-llm'
 import SessionStore from '@deepseek-ai/dsh-session'
+import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import type { Session, UserMessage } from '@deepseek-ai/dsh-session'
 import { apply, Config, internals } from '../src/index.ts'
 
@@ -54,6 +56,8 @@ async function bench(script: Script): Promise<{
 }> {
   const ctx = new Context()
   await ctx.plugin(SessionStore)
+  await ctx.plugin(SessionProjectionRegistry)
+  await ctx.plugin(InboxService)
   await ctx.plugin(AgentRegistry)
   await ctx.plugin(AgentDefaultModelConfig, { provider: 'test-provider', model: 'test-model' })
   ctx.agents.setFactory({
@@ -68,7 +72,7 @@ async function bench(script: Script): Promise<{
         id: session.id,
         options: options.agentOptions ?? {},
         session,
-        inbox: new Inbox(session, { inserted: () => {}, discarded: () => {}, claimed: () => {} }),
+        inbox: undefined as never,
         status: 'idle',
         ctx: agentCtx,
         cancel: () => {},
@@ -82,6 +86,7 @@ async function bench(script: Script): Promise<{
         inject: () => {},
         whenIdle: () => idle,
       } satisfies Partial<Agent>)
+      Object.assign(agent, { inbox: ctx.inboxes.create(agent) })
       await options.setup?.(agentCtx)
       script.before?.(session)
       ctx.agents.register(agent)

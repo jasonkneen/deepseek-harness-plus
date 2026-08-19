@@ -20,23 +20,23 @@ interface Harness {
 function stubAgent(ctx: Context, id: string): { agent: Agent; session: Session } {
   // Store-created: the command executor durably logs lifecycle events on it.
   const session = ctx.sessions.create(SessionId(id))
-  const inbox = new Inbox(session, { inserted: () => {}, discarded: () => {}, claimed: () => {} })
   let status: AgentStatus = 'idle'
   const agent: Agent = {
     id: session.id,
     options: {},
     session,
-    inbox,
+    inbox: undefined as never,
     ctx: new Context(),
     get status() { return status },
     send: () => {},
     followup: () => {},
     steer: () => {},
-    inject(input) { inbox.append('next-step', input) },
+    inject(input) { this.inbox.append('next-step', input) },
     cancel() { status = 'idle' },
     runMaintenance: task => task(new AbortController().signal),
     whenIdle() { return Promise.resolve() },
   }
+  Object.assign(agent, { inbox: new Inbox(agent.ctx, agent) })
   return { agent, session }
 }
 

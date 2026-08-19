@@ -5,14 +5,10 @@
  * forward eagerly over committed session events. Domain host plugins
  * contribute pure mathematics (init/apply/view); the framework owns the
  * subscription, the per-session watermark cache, and change notification;
- * carriers consume the snapshot read face and the change feed. Neither side
- * knows the other
- * (capability-seam three-way split). Design authority: the session-projection
- * RFC (.agents/notes/proposed/architecture/2026-07-27-session-projection-and-command-log.md).
- *
- * Whole-value event rule (load-bearing): a state-carrying log event MUST
- * carry the complete post-change state, never a bare delta — it keeps every
- * unit's transition trivially cheap and every served value self-describing.
+ * carriers consume the snapshot read face and the change feed. Source events
+ * may carry whole values or domain operations; every `view` returns a complete
+ * current value. Design authority: the session-projection RFC
+ * (.agents/notes/proposed/architecture/2026-07-27-session-projection-and-command-log.md).
  *
  * @module @deepseek-ai/dsh-session-projection
  */
@@ -158,15 +154,15 @@ interface Registration {
  * every registered unit's `apply` (eager drive), and a changed state
  * reference notifies the change feed with the schema-validated view.
  * Cells build lazily — a unit registered after events flowed, or a session
- * older than the registry, folds `init` over the in-memory log on first
+ * older than the registry, folds `init` over the full in-memory log on first
  * touch (event or read). Registration is an effect (disposer rides the
  * calling fiber): an unloaded domain plugin's key disappears from snapshots
- * and clients read it as capability absence. Domain
- * plugins register under `ctx.inject(['sessionProjections'], …)` so headless
- * assemblies without the registry stay unaffected. Registrants sharing a key
- * share one unit and are counted: the same tool package mounted in N agent
- * presets registers N times, and the key survives until the last one
- * unloads.
+ * and clients read it as capability absence. A domain that requires this
+ * capability declares a Cordis service dependency; an optional contributor
+ * may register under `ctx.inject(['sessionProjections'], …)`. Registrants
+ * sharing a key share one unit and are counted: the same tool package mounted
+ * in N agent presets registers N times, and the key survives until the last
+ * one unloads.
  */
 export class SessionProjectionRegistry extends Service {
   private readonly registrations = new Map<string, Registration>()

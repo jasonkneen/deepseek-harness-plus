@@ -7,8 +7,10 @@
 
 import type { Context } from '@deepseek-ai/cordis'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
+import InboxService from '@deepseek-ai/dsh-agent/inbox'
 import LlmRuntime from '@deepseek-ai/dsh-llm'
 import SessionStore from '@deepseek-ai/dsh-session'
+import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import type { Config as SystemPromptConfig } from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
@@ -40,6 +42,8 @@ export async function mountAgentLoopTestDependencies(
 ): Promise<void> {
   await ctx.plugin(LlmRuntime)
   await ctx.plugin(SessionStore)
+  await ctx.plugin(SessionProjectionRegistry)
+  await ctx.plugin(InboxService)
   await ctx.plugin(SystemPrompt, options.systemPrompt ?? {})
   await ctx.plugin(ToolRuntime, options.tools ?? {})
   await ctx.plugin(AgentRegistry)

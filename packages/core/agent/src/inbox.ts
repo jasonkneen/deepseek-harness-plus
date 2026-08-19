@@ -4,54 +4,82 @@
  * @module @deepseek-ai/dsh-agent/inbox
  */
 
+import { Context, Service } from '@deepseek-ai/cordis'
 import type { MessageId } from '@deepseek-ai/dsh-llm'
-import type { Session, SessionEventMap, UserMessage } from '@deepseek-ai/dsh-session'
+import type { SessionEventMap, UserMessage } from '@deepseek-ai/dsh-session'
+import type { ProjectionDefinition } from '@deepseek-ai/dsh-session-projection'
+import { agentEvents } from './dispatch.ts'
+import type { AgentEventDispatch } from './dispatch.ts'
+import { inboxProjectionSchema } from './inbox-projection.ts'
+import type { InboxState } from './inbox-projection.ts'
+import type { Agent } from './runtime-types.ts'
 import type { InboxTarget } from './types.ts'
 
-/** Mutable state privately owned by an {@link Inbox}. */
-type InboxState = Record<InboxTarget, UserMessage[]>
-
-/** Live notifications committed by inbox mutations. */
-export interface InboxNotifications {
-  /** Publish one inserted message. */
-  inserted(message: UserMessage): void
-  /** Publish one discarded message. */
-  discarded(message: UserMessage): void
-  /** Publish one claimed message inside its owning turn. */
-  claimed(message: UserMessage, turn: number): void
+declare module '@deepseek-ai/cordis' {
+  interface Context {
+    inboxes: InboxService
+  }
 }
 
-/** A replay-once projection that incrementally consumes later inbox splices. */
-export class Inbox {
-  private readonly state: InboxState = { 'next-turn': [], 'next-step': [] }
+/** Root Inbox service: creates live inboxes and owns their durable projection. */
+export class InboxService extends Service {
+  static inject = ['sessionProjections']
 
-  constructor(
-    private readonly session: Session,
-    private readonly notifications: InboxNotifications,
-  ) {
-    for (const event of session.events.slice(session.header.seedLength ?? 0)) {
-      if (event.type !== 'agent/inbox/spliced') continue
-      try {
-        this.apply(event.data)
-      } catch (error: unknown) {
-        throw new Error(`invalid persisted inbox splice at session seq ${event.seq}`, { cause: error })
-      }
-    }
+  constructor(ctx: Context) {
+    super(ctx, 'inboxes')
+    ctx.sessionProjections.register({
+      key: 'inbox',
+      schema: inboxProjectionSchema,
+      init: () => ({ 'next-turn': [], 'next-step': [] }),
+      apply(state, event) {
+        if (event.type !== 'agent/inbox/spliced') return state
+        const splice = event.data
+        const next = state[splice.target].toSpliced(
+          splice.start,
+          splice.removedCount ?? 0,
+          ...splice.inserted,
+        )
+        return splice.target === 'next-turn'
+          ? { 'next-turn': next, 'next-step': state['next-step'] }
+          : { 'next-turn': state['next-turn'], 'next-step': next }
+      },
+      view: state => state,
+      stateVersion: 1,
+    } satisfies ProjectionDefinition<'inbox', InboxState>)
+  }
+
+  /**
+   * Restore one live Inbox for an agent and publish its committed mutations.
+   * @param agent - agent that owns the durable session and live Inbox events.
+   * @returns the restored Inbox.
+   */
+  create(agent: Agent): Inbox {
+    return new Inbox(this.ctx, agent)
+  }
+}
+
+/** Agent-owned command facade over the standard durable Inbox projection. */
+export class Inbox {
+  private readonly dispatch: AgentEventDispatch
+
+  constructor(private readonly ctx: Context, private readonly agent: Agent) {
+    this.dispatch = agentEvents(ctx, agent)
   }
 
   /** Prompts awaiting individual turns. */
   get nextTurn(): readonly UserMessage[] {
-    return this.state['next-turn']
+    return this.current()['next-turn']
   }
 
   /** Input awaiting the next step boundary. */
   get nextStep(): readonly UserMessage[] {
-    return this.state['next-step']
+    return this.current()['next-step']
   }
 
   /** Whether either pending-message list contains work. */
   get hasPending(): boolean {
-    return this.nextTurn.length > 0 || this.nextStep.length > 0
+    const state = this.current()
+    return state['next-turn'].length > 0 || state['next-step'].length > 0
   }
 
   /** Durably cancel all pending input, clearing next-step before next-turn. */
@@ -61,50 +89,41 @@ export class Inbox {
   }
 
   /**
-   * Remove and return the complete batch proposed for one step, publishing
-   * each claimed message. The durable splices are pure deletions.
+   * Remove and return the complete batch proposed for one step.
    * @param target - whether this boundary also consumes one queued turn.
    * @param turn - turn that will own the claimed batch.
    * @returns next-step input followed by the queued turn, when requested.
-   * @internal - The agent loop's step-boundary operation, not a plugin extension point.
    */
   claim(target: InboxTarget, turn: number): UserMessage[] {
     const claimed = this.mutate('next-step', 0, this.nextStep.length, [], false)
-    if (target === 'next-turn') {
-      claimed.push(...this.mutate('next-turn', 0, 1, [], false))
-    }
-    for (const message of claimed) this.notifications.claimed(message, turn)
+    if (target === 'next-turn') claimed.push(...this.mutate('next-turn', 0, 1, [], false))
+    for (const message of claimed) this.dispatch.emit('agent/inbox/claimed', { message, turn })
     return claimed
   }
 
   /**
-   * Append one message to a pending list and durably record the insertion.
+   * Append one message to a pending list.
    * @param target - pending list to extend.
    * @param message - message to append.
-   * @throws if the message identity is already pending.
    */
   append(target: InboxTarget, message: UserMessage): void {
-    this.splice(target, this.state[target].length, 0, [message])
+    this.splice(target, this.current()[target].length, 0, [message])
   }
 
   /**
-   * Prepend one message to a pending list and durably record the insertion.
+   * Prepend one message to a pending list.
    * @param target - pending list to extend.
    * @param message - message to prepend.
-   * @throws if the message identity is already pending.
    */
   prepend(target: InboxTarget, message: UserMessage): void {
     this.splice(target, 0, 0, [message])
   }
 
   /**
-   * Replace one pending message in place, possibly changing its identity. A
-   * successful replacement publishes the old message as discarded and the new
-   * message as inserted.
+   * Replace one pending message in place.
    * @param messageId - identity of the pending message to replace.
    * @param newMessage - replacement message.
    * @returns whether the message was still pending.
-   * @throws if the replacement duplicates another pending message identity.
    */
   replace(messageId: MessageId, newMessage: UserMessage): boolean {
     const location = this.locate(messageId)
@@ -114,7 +133,7 @@ export class Inbox {
   }
 
   /**
-   * Remove one pending message and durably record its cancellation.
+   * Remove one pending message.
    * @param messageId - identity of the pending message to remove.
    * @returns whether the message was still pending.
    */
@@ -127,9 +146,6 @@ export class Inbox {
 
   /**
    * Apply standard splice semantics and durably record the normalized result.
-   * The durable event commits before the live projection mutates, so synchronous
-   * `session/event` observers see the pre-splice lists and can reconstruct the
-   * removed messages from the normalized coordinates.
    * @param target - pending list to mutate.
    * @param start - splice position.
    * @param deleteCount - maximum number of messages to remove.
@@ -147,14 +163,22 @@ export class Inbox {
 
   /** Locate one pending identity across both owned lists. */
   private locate(messageId: MessageId): { target: InboxTarget; index: number } | undefined {
+    const state = this.current()
     for (const target of ['next-turn', 'next-step'] as const) {
-      const index = this.state[target].findIndex(message => message.id === messageId)
+      const index = state[target].findIndex(message => message.id === messageId)
       if (index >= 0) return { target, index }
     }
     return undefined
   }
 
-  /** Commit one normalized mutation and publish its live notifications. */
+  /** Read the current durable projection value. */
+  private current(): InboxState {
+    // InboxService registers this required projection before creating an Inbox.
+    // oxlint-disable-next-line typescript/no-non-null-assertion
+    return this.ctx.sessionProjections.snapshot(this.agent.session).values.inbox!
+  }
+
+  /** Commit one normalized mutation and publish its live events. */
   private mutate(
     target: InboxTarget,
     start: number,
@@ -162,7 +186,8 @@ export class Inbox {
     inserted: UserMessage[],
     discardRemoved: boolean,
   ): UserMessage[] {
-    const inbox = this.state[target]
+    const state = this.current()
+    const inbox = state[target]
     const truncatedStart = Math.trunc(start)
     const offset = Number.isNaN(truncatedStart) ? 0 : truncatedStart
     const actualStart = offset < 0
@@ -174,47 +199,32 @@ export class Inbox {
       inbox.length - actualStart,
     )
     if (actualDeleteCount === 0 && inserted.length === 0) return []
+    const candidate = inbox.toSpliced(actualStart, actualDeleteCount, ...inserted)
+    const ids = new Set<string>()
+    for (const message of target === 'next-turn'
+      ? [...candidate, ...state['next-step']]
+      : [...state['next-turn'], ...candidate]) {
+      if (ids.has(message.id)) throw new Error(`message "${message.id}" is already pending`)
+      ids.add(message.id)
+    }
     const outcome = discardRemoved && actualDeleteCount > 0 ? 'canceled' as const : undefined
-    const splice = {
+    const splice: SessionEventMap['agent/inbox/spliced'] = {
       target,
       start: actualStart,
       ...(actualDeleteCount === 0 ? {} : { removedCount: actualDeleteCount }),
       inserted,
       ...(outcome === undefined ? {} : { outcome }),
     }
-    this.validate(splice)
-    const event = this.session.append('agent/inbox/spliced', splice)
-    const removed = inbox.splice(actualStart, actualDeleteCount, ...event.data.inserted)
+    const removed = inbox.slice(actualStart, actualStart + actualDeleteCount)
+    const event = this.agent.session.append('agent/inbox/spliced', splice)
     if (discardRemoved) {
-      for (const message of removed) this.notifications.discarded(message)
+      for (const message of removed) this.dispatch.emit('agent/inbox/discarded', { message })
     }
-    for (const message of event.data.inserted) this.notifications.inserted(message)
+    for (const message of event.data.inserted) {
+      this.dispatch.emit('agent/inbox/inserted', { message })
+    }
     return removed
   }
-
-  /** Apply one normalized durable splice to the projection. */
-  private apply(splice: SessionEventMap['agent/inbox/spliced']): UserMessage[] {
-    this.validate(splice)
-    const inbox = this.state[splice.target]
-    return inbox.splice(splice.start, splice.removedCount ?? 0, ...splice.inserted)
-  }
-
-  /** Validate one normalized splice against the current projection. */
-  private validate(splice: SessionEventMap['agent/inbox/spliced']): void {
-    const inbox = this.state[splice.target]
-    const removedCount = splice.removedCount ?? 0
-    if (!Number.isSafeInteger(splice.start) || splice.start < 0 || splice.start > inbox.length
-      || !Number.isSafeInteger(removedCount) || removedCount < 0
-      || splice.start + removedCount > inbox.length) {
-      throw new Error('invalid inbox splice')
-    }
-    const candidate = inbox.toSpliced(splice.start, removedCount, ...splice.inserted)
-    const ids = new Set<string>()
-    for (const message of splice.target === 'next-turn'
-      ? [...candidate, ...this.nextStep]
-      : [...this.nextTurn, ...candidate]) {
-      if (ids.has(message.id)) throw new Error(`message "${message.id}" is already pending`)
-      ids.add(message.id)
-    }
-  }
 }
+
+export default InboxService

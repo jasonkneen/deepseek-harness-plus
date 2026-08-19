@@ -41,7 +41,7 @@ function agent(ctx: Context): Agent {
   const id = SessionId('pty-loader-agent')
   const session = Session.create(id)
   const value: Agent = {
-    id, options: {}, session, inbox: new Inbox(session, { inserted: () => {}, discarded: () => {}, claimed: () => {} }),
+    id, options: {}, session, inbox: undefined as never,
     status: 'idle',
     ctx: scope.ctx,
     send: () => {},
@@ -49,6 +49,7 @@ function agent(ctx: Context): Agent {
     runMaintenance: job => job(new AbortController().signal),
     whenIdle: () => Promise.resolve(),
   }
+  Object.assign(value, { inbox: new Inbox(value.ctx, value) })
   ctx.agents.register(value)
   return value
 }

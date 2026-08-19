@@ -6,9 +6,11 @@ import { Context } from '@deepseek-ai/cordis'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
 import * as workspaceContext from '@deepseek-ai/dsh-agent-instructions'
 import LlmRuntime, { createUserMessage, CallId, type Message, type StreamChunk } from '@deepseek-ai/dsh-llm'
-import SessionStore, { Session, SessionId, SESSION_FORMAT_VERSION, type SessionEvent, type UserMessage } from '@deepseek-ai/dsh-session'
-import AgentRegistry, { agentEvents, Inbox, type Agent } from '@deepseek-ai/dsh-agent'
+import SessionStore, { SessionId, type SessionEvent, type UserMessage } from '@deepseek-ai/dsh-session'
+import AgentRegistry, { agentEvents, type Agent } from '@deepseek-ai/dsh-agent'
+import InboxService from '@deepseek-ai/dsh-agent/inbox'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
+import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import { FileSystem, FsTargetKey, FsVersion } from '@deepseek-ai/dsh-fs'
 import type {
   FsDirEntry,
@@ -47,6 +49,11 @@ import { MockAdapter, textResponse, toolCallResponse } from '../../../core/agent
 const sk = (directory: string, candidateName: string): string => candidateScopeKey(directory, candidateName)
 
 const testToolSignal = new AbortController().signal
+const isolatedInboxCtx = new Context()
+await isolatedInboxCtx.plugin(SessionStore)
+await isolatedInboxCtx.plugin(SessionProjectionRegistry)
+await isolatedInboxCtx.plugin(InboxService)
+let nextStubSession = 1
 
 async function tempRepo(): Promise<string> {
   return mkdtemp(join(tmpdir(), 'dsh-workspace-context-'))
@@ -181,14 +188,18 @@ async function mountFileToolsAndWorkspaceContext(ctx: Context, config: workspace
 }
 
 function stubAgent(cwd?: string, seed: SessionEvent[] = []): Agent {
-  const id = SessionId('s1')
-  const session = Session.create(id, seed, cwd === undefined ? undefined : { version: SESSION_FORMAT_VERSION, id, createdAt: 0, cwd })
-  return {
-    ctx: new Context(),
+  const id = SessionId(`agent-instructions-${String(nextStubSession++)}`)
+  const agentCtx = isolatedInboxCtx
+  const session = agentCtx.sessions.create(id, {
+    seed,
+    ...cwd === undefined ? {} : { meta: { createdAt: 0, cwd } },
+  })
+  const agent: Agent = {
+    ctx: agentCtx,
     id: SessionId('a1'),
     options: {},
     session,
-    inbox: new Inbox(session, { inserted: () => {}, discarded: () => {}, claimed: () => {} }),
+    inbox: undefined as never,
     status: 'idle',
     send: () => {},
     followup: () => {},
@@ -198,6 +209,8 @@ function stubAgent(cwd?: string, seed: SessionEvent[] = []): Agent {
     runMaintenance: task => task(new AbortController().signal),
     whenIdle: () => Promise.resolve(),
   }
+  Object.assign(agent, { inbox: agentCtx.inboxes.create(agent) })
+  return agent
 }
 
 function stubToolExecution(
@@ -2509,6 +2522,8 @@ describe('dynamic nested workspace context injection', () => {
       ])
       await ctx.plugin(LlmRuntime)
       await ctx.plugin(SessionStore)
+      await ctx.plugin(SessionProjectionRegistry)
+      await ctx.plugin(InboxService)
       await ctx.plugin(SystemPrompt)
       await ctx.plugin(ToolRuntime)
       await ctx.plugin(AgentRegistry)

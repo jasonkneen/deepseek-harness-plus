@@ -57,12 +57,11 @@ async function harness(): Promise<RuntimeHarness> {
     onFollowup: undefined as (() => void) | undefined,
     idle: Promise.withResolvers<undefined>(),
   }
-  const inbox = new Inbox(session, { inserted: () => {}, discarded: () => {}, claimed: () => {} })
   const agent: Agent = {
     id: session.id,
     options: {},
     session,
-    inbox,
+    inbox: undefined as never,
     status: 'idle',
     ctx: new Context(),
     send(_message: UserMessage, _target: InboxTarget, _wakeup: boolean) {},
@@ -97,6 +96,7 @@ async function harness(): Promise<RuntimeHarness> {
     steer(_message: UserMessage) {},
     inject(_message: UserMessage) {},
   }
+  Object.assign(agent, { inbox: new Inbox(agent.ctx, agent) })
   const disposeAgent = ctx.agents.register(agent)
   ctx.on('session/event', (_session, event) => {
     if (event.type === 'schedule/change' && event.data.operation === 'dispatch') order.push('dispatch')

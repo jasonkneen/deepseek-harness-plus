@@ -29,13 +29,12 @@ function agent(ctx: Context): Agent {
   const scope = ctx.plugin(() => {})
   const id = SessionId('feedback-loader-agent')
   const session = ctx.sessions.create(id)
-  const inbox = new Inbox(session, { inserted: () => {}, discarded: () => {}, claimed: () => {} })
   let status: AgentStatus = 'idle'
   const value: Agent = {
     id,
     options: {},
     session,
-    inbox,
+    inbox: undefined as never,
     ctx: scope.ctx,
     get status() { return status },
     send: () => {},
@@ -46,6 +45,7 @@ function agent(ctx: Context): Agent {
     runMaintenance: task => task(new AbortController().signal),
     whenIdle: () => Promise.resolve(),
   }
+  Object.assign(value, { inbox: new Inbox(value.ctx, value) })
   ctx.agents.register(value)
   return value
 }

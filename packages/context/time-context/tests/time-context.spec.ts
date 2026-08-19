@@ -36,11 +36,11 @@ async function mount(config: Config = {}) {
 }
 
 function sessionAgent(session: Session, id = 'agent'): Agent {
-  return {
+  const agent: Agent = {
     id: SessionId(id),
     options: {},
     session,
-    inbox: new Inbox(session, { inserted: () => {}, discarded: () => {}, claimed: () => {} }),
+    inbox: undefined as never,
     status: 'running',
     ctx: new Context(),
     send: () => {},
@@ -51,6 +51,8 @@ function sessionAgent(session: Session, id = 'agent'): Agent {
     runMaintenance: task => task(new AbortController().signal),
     whenIdle: () => Promise.resolve(),
   }
+  Object.assign(agent, { inbox: new Inbox(agent.ctx, agent) })
+  return agent
 }
 
 function openMessageTurn(session: Session, turn: number, clientTimeZone?: string): void {

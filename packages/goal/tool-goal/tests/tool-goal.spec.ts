@@ -1,13 +1,15 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
-import AgentRegistry, { agentEvents, Inbox } from '@deepseek-ai/dsh-agent'
+import AgentRegistry, { agentEvents } from '@deepseek-ai/dsh-agent'
+import InboxService from '@deepseek-ai/dsh-agent/inbox'
 import type { Agent, AgentStatus } from '@deepseek-ai/dsh-agent'
 import GoalService, { GoalId } from '@deepseek-ai/dsh-goal'
 import type { GoalRef } from '@deepseek-ai/dsh-goal'
 import { createUserMessage, CallId } from '@deepseek-ai/dsh-llm'
 import type { MessageSource } from '@deepseek-ai/dsh-llm'
-import { SESSION_FORMAT_VERSION, Session, SessionId } from '@deepseek-ai/dsh-session'
+import SessionStore, { SESSION_FORMAT_VERSION, Session, SessionId } from '@deepseek-ai/dsh-session'
+import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
 import type { ToolExecutionResult } from '@deepseek-ai/dsh-tools'
@@ -21,17 +23,28 @@ interface StubAgent {
   setStatus(status: AgentStatus): void
 }
 
+const isolatedInboxCtx = new Context()
+await isolatedInboxCtx.plugin(SessionStore)
+await isolatedInboxCtx.plugin(SessionProjectionRegistry)
+await isolatedInboxCtx.plugin(InboxService)
+
 /** Build one registry-compatible live agent whose injections enter the durable inbox. */
-function stubAgent(rawId: string, supplied?: Session): StubAgent {
-  const session = supplied ?? Session.create(SessionId(rawId))
+function stubAgent(rawId: string, supplied?: Session, suppliedCtx?: Context): StubAgent {
+  const agentCtx = suppliedCtx ?? isolatedInboxCtx
+  const session = supplied ?? (suppliedCtx === undefined
+    ? agentCtx.sessions.create(SessionId(rawId))
+    : suppliedCtx.sessions.create(SessionId(rawId)))
+  if (suppliedCtx === undefined) {
+    if (agentCtx.sessions.get(session.id) !== session) agentCtx.sessions.enter(session)
+  }
   let status: AgentStatus = 'running'
   const agent: Agent = {
     id: session.id,
     options: {},
     session,
-    inbox: new Inbox(session, { inserted: () => {}, discarded: () => {}, claimed: () => {} }),
+    inbox: undefined as never,
     get status() { return status },
-    ctx: new Context(),
+    ctx: agentCtx,
     send: () => {},
     followup: () => {},
     steer: () => ({ outcome: Promise.resolve({ status: 'rejected' as const }) }),
@@ -42,6 +55,7 @@ function stubAgent(rawId: string, supplied?: Session): StubAgent {
     runMaintenance: task => task(new AbortController().signal),
     whenIdle() { return Promise.resolve() },
   }
+  Object.assign(agent, { inbox: agentCtx.inboxes.create(agent) })
   return { agent, session, setStatus(value) { status = value } }
 }
 
@@ -71,12 +85,15 @@ function closeTurn(stub: StubAgent, turn: number): void {
 
 async function harness(config: toolGoal.Config = {}) {
   const ctx = new Context()
+  await ctx.plugin(SessionStore)
+  await ctx.plugin(SessionProjectionRegistry)
+  await ctx.plugin(InboxService)
   await ctx.plugin(SystemPrompt)
   await ctx.plugin(AgentRegistry)
   await ctx.plugin(ToolRuntime)
   await ctx.plugin(GoalService)
   const fiber = await ctx.plugin(toolGoal, config)
-  const root = stubAgent(`goal-tool-root-${Math.random()}`)
+  const root = stubAgent(`goal-tool-root-${Math.random()}`, undefined, ctx)
   ctx.agents.register(root.agent)
   return { ctx, fiber, root }
 }
@@ -243,7 +260,7 @@ describe('goal tool execution authority', () => {
     openTurn(root, { kind: 'user' })
     // A distinct agent object over root's exact session: same id, not the live
     // registered instance, so the executor must reject it.
-    const stale = stubAgent('goal-tool-stale', root.agent.session).agent
+    const stale = stubAgent('goal-tool-stale', root.agent.session, ctx).agent
     const staleResult = await execute(ctx, 'get_goal', {}, stale, stale)
     expect(staleResult.error?.info?.code).toBe('GOAL_TOOL_DRIVER_REQUIRED')
 

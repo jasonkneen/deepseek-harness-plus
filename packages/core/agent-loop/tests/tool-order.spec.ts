@@ -1,3 +1,5 @@
+import InboxService from '@deepseek-ai/dsh-agent/inbox'
+import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 /**
  * Loop-level tool-order determinism: the request/header event — and therefore the frozen
@@ -23,6 +25,8 @@ async function harness(adapter: MockAdapter, toolOrder?: SystemPromptConfig['too
   const ctx = new Context()
   await ctx.plugin(LlmRuntime)
   await ctx.plugin(SessionStore)
+  await ctx.plugin(SessionProjectionRegistry)
+  await ctx.plugin(InboxService)
   await ctx.plugin(SystemPrompt, { persona: 'stable base', ...toolOrder !== undefined ? { toolOrder } : {} })
   await ctx.plugin(ToolRuntime)
   await ctx.plugin(AgentRegistry)

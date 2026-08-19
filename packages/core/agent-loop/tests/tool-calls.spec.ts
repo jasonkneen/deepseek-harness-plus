@@ -1,3 +1,5 @@
+import InboxService from '@deepseek-ai/dsh-agent/inbox'
+import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 /**
  * Exercises scheduler ordering and cancellation with deterministic gated tools.
  * ACP expected outputs own transcript-facing coverage.
@@ -20,6 +22,8 @@ async function harness(adapter: MockAdapter, maxParallelToolCalls?: number) {
   const ctx = new Context()
   await ctx.plugin(LlmRuntime)
   await ctx.plugin(SessionStore)
+  await ctx.plugin(SessionProjectionRegistry)
+  await ctx.plugin(InboxService)
   await ctx.plugin(SystemPrompt, { persona: '' })
   await ctx.plugin(ToolRuntime)
   await ctx.plugin(AgentRegistry)
@@ -278,6 +282,8 @@ describe('tool-call scheduler: rolling pool honors maxParallelToolCalls', () => 
     const ctx = new Context()
     await ctx.plugin(LlmRuntime)
     await ctx.plugin(SessionStore)
+    await ctx.plugin(SessionProjectionRegistry)
+    await ctx.plugin(InboxService)
     await ctx.plugin(SystemPrompt, { persona: '' })
     await ctx.plugin(ToolRuntime)
     await ctx.plugin(AgentRegistry)
@@ -346,6 +352,8 @@ describe('tool-call scheduler: rolling pool honors maxParallelToolCalls', () => 
     const ctx = new Context()
     await ctx.plugin(LlmRuntime)
     await ctx.plugin(SessionStore)
+    await ctx.plugin(SessionProjectionRegistry)
+    await ctx.plugin(InboxService)
     await ctx.plugin(SystemPrompt, { persona: '' })
     await ctx.plugin(ToolRuntime)
     await ctx.plugin(AgentRegistry)
@@ -704,6 +712,8 @@ describe('code-mode native-tool denial through the agent loop', () => {
     const ctx = new Context()
     await ctx.plugin(LlmRuntime)
     await ctx.plugin(SessionStore)
+    await ctx.plugin(SessionProjectionRegistry)
+    await ctx.plugin(InboxService)
     await ctx.plugin(SystemPrompt, { persona: '' })
     await ctx.plugin(ToolRuntime, { mode: 'code' })
     // eslint-disable-next-line @typescript-eslint/no-explicit-any -- FakeCodeRuntime is an internal test helper with an opaque type shape

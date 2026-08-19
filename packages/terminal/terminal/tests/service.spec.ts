@@ -26,7 +26,7 @@ function stubAgent(ctx: Context, rawId: string): Agent {
     id,
     options: {},
     session,
-    inbox: new Inbox(session, { inserted: () => {}, discarded: () => {}, claimed: () => {} }),
+    inbox: undefined as never,
     status: 'idle',
     ctx: scopeFiber.ctx,
     send: () => {},
@@ -37,6 +37,7 @@ function stubAgent(ctx: Context, rawId: string): Agent {
     runMaintenance: task => task(new AbortController().signal),
     whenIdle: () => Promise.resolve(),
   }
+  Object.assign(agent, { inbox: new Inbox(agent.ctx, agent) })
   agentScopeDisposers.set(agent, async () => { await scopeFiber.dispose() })
   return agent
 }

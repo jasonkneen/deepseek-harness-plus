@@ -16,7 +16,7 @@ import { contentHasImage, createUserMessage, freezeMessage, ReasoningEffortId } 
 import { errorChain } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, MessageSource } from '@deepseek-ai/dsh-llm'
 import { isAppendSurfaceEvent, isJsonValue } from '@deepseek-ai/dsh-session'
-import type { JsonValue, Session, SessionEvent, SessionEventMap, SessionHeader, SessionId, UserMessage } from '@deepseek-ai/dsh-session'
+import type { JsonValue, Session, SessionEvent, SessionHeader, SessionId, UserMessage } from '@deepseek-ai/dsh-session'
 import type { SessionPersistence } from '@deepseek-ai/dsh-session-persistence'
 import { SessionQueryError, type SessionSearchCursor } from '@deepseek-ai/dsh-session-query'
 import { SubagentError } from '@deepseek-ai/dsh-subagent'
@@ -1267,16 +1267,10 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
     })
   })
 
-  /** Project both durable inbox lists, optionally including the splice currently being emitted. */
-  const queueItems = (
-    agent: Agent,
-    splice?: SessionEventMap['agent/inbox/spliced'],
-  ): QueuedInboxItem[] => {
+  /** Project both durable inbox lists from their committed state. */
+  const queueItems = (agent: Agent): QueuedInboxItem[] => {
     const project = (target: 'next-turn' | 'next-step'): readonly UserMessage[] => {
-      const messages = target === 'next-turn' ? agent.inbox.nextTurn : agent.inbox.nextStep
-      return splice?.target === target
-        ? messages.toSpliced(splice.start, splice.removedCount ?? 0, ...splice.inserted)
-        : messages
+      return target === 'next-turn' ? agent.inbox.nextTurn : agent.inbox.nextStep
     }
     return [
       ...project('next-turn').map(message => ({ id: message.id, placement: 'queued' as const, message })),
@@ -1295,7 +1289,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
     if (event.type !== 'agent/inbox/spliced') return
     const agent = ctx.agents.get(session.id)
     if (agent?.session !== session) return
-    broadcast({ type: 'session/queue', sessionId: session.id, items: queueItems(agent, event.data) })
+    broadcast({ type: 'session/queue', sessionId: session.id, items: queueItems(agent) })
   })
 
   /** Remove a wait before settling it: synchronous deletion makes the first claimant win. */
