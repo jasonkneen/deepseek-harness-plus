@@ -23,6 +23,7 @@ describe('Linux systemd scope adapter', () => {
     }) as unknown as typeof spawnSync
     expect(probeLinuxScope({ spawnSync: runSync, systemdRun: 'systemd-run', systemctl: 'systemctl' })).toBe(true)
     expect(calls[1]).toContain('--expand-environment=no')
+    expect(calls[1]).not.toContain('--pipe')
     expect(calls[1]).not.toContain('--wait')
 
     const oldSystemd = vi.fn((command: string) => ({
@@ -70,6 +71,7 @@ describe('Linux systemd scope adapter', () => {
     launch.owner.signal('SIGKILL')
     expect(runSyncMock).toHaveBeenCalledTimes(callsBeforeStaleSignal)
     expect(systemdArgs).toContain('--expand-environment=no')
+    expect(systemdArgs).not.toContain('--pipe')
     expect(systemdArgs).not.toContain('--wait')
     expect(systemdArgs).not.toContain('literal $VALUE')
   })
