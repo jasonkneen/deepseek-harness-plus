@@ -425,7 +425,6 @@ describe('LocalSubprocessRuntime', () => {
     const warning = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => {})
     const fiber = await ctx.plugin(LocalSubprocessRuntime)
     const runtime = ctx.subprocess as unknown as {
-      fallbackWarned: boolean
       warnFallback(platform: NodeJS.Platform): void
     }
     try {
@@ -435,15 +434,11 @@ describe('LocalSubprocessRuntime', () => {
         ['win32', 'the Win32 Job runner is unavailable'],
         ['freebsd', 'platform freebsd has no native managed range'],
       ] as const) {
-        runtime.fallbackWarned = false
         runtime.warnFallback(platform)
         expect(warning).toHaveBeenLastCalledWith(
           expect.stringContaining(reason),
         )
       }
-      const calls = warning.mock.calls.length
-      runtime.warnFallback('linux')
-      expect(warning).toHaveBeenCalledTimes(calls)
     } finally {
       warning.mockRestore()
       await fiber.dispose()

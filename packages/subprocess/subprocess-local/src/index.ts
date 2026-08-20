@@ -45,7 +45,6 @@ export class LocalSubprocessRuntime extends SubprocessRuntime {
   internals: SpawnInternals = {}
   /** Ordinary native containment mode, selected once before its first user command. */
   private ordinaryMode: 'linux-scope' | 'windows-job' | 'fallback' | undefined
-  private fallbackWarned = false
   /** Test hook for platform process inspection; production resolves lazily on terminal spawn. */
   terminalInspector: ProcessInspector | undefined
 
@@ -178,8 +177,6 @@ export class LocalSubprocessRuntime extends SubprocessRuntime {
   }
 
   private warnFallback(platform: NodeJS.Platform): void {
-    if (this.fallbackWarned) return
-    this.fallbackWarned = true
     const reason = platform === 'darwin'
       ? 'macOS has no supported persistent process-range owner'
       : platform === 'linux'
