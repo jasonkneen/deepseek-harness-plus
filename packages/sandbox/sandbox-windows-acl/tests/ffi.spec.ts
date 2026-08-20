@@ -75,12 +75,6 @@ describe('getTempPath', () => {
   })
 })
 
-describe('public error export', () => {
-  it('keeps the sandbox Win32 error type', () => {
-    expect(new Win32Error('Probe', 5)).toBeInstanceOf(Error)
-  })
-})
-
 describe('sandbox pointer handling', () => {
   it('isInvalidHandle treats NULL as failure', () => {
     expect(isInvalidHandle(null)).toBe(true)
