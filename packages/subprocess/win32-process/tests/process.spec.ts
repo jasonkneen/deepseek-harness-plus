@@ -186,38 +186,6 @@ describe('spawnInheritedJobProcess', () => {
     expect(closeHandle).toHaveBeenCalledWith(60n)
   })
 
-  it('terminates the suspended child before closing handles when Job assignment fails', () => {
-    const closeHandle = vi.fn((_handle: NativePtr) => 1)
-    const terminateProcess = vi.fn(() => 1)
-    const { api } = inheritedApi({
-      assignProcessToJobObject: vi.fn(() => 0),
-      terminateProcess,
-      closeHandle,
-    })
-    expect(() => spawnInheritedJobProcess(api, {
-      command: 'cmd.exe',
-      args: [],
-      cwd: 'C:\\work',
-      token,
-    })).toThrow(Win32Error)
-    expect(terminateProcess).toHaveBeenCalledWith(60n, 1)
-    expect(closeHandle.mock.calls.map(([handle]) => handle)).toEqual([61n, 60n, 50n])
-  })
-
-  it('closes the assigned Job and process when ResumeThread fails', () => {
-    const closeHandle = vi.fn((_handle: NativePtr) => 1)
-    const { api } = inheritedApi({
-      resumeThread: vi.fn(() => 0xFFFFFFFF),
-      closeHandle,
-    })
-    expect(() => spawnInheritedJobProcess(api, {
-      command: 'cmd.exe',
-      args: [],
-      cwd: 'C:\\work',
-      token,
-    })).toThrow(Win32Error)
-    expect(closeHandle.mock.calls.map(([handle]) => handle)).toEqual([61n, 60n, 50n])
-  })
 })
 
 describe('wait and pipe cleanup', () => {

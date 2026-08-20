@@ -254,7 +254,7 @@ describe('spawnInheritedJobProcess failure paths', () => {
 
   it('terminates the suspended child before closing handles when Job assignment fails', () => {
     const terminateProcess = vi.fn(() => 1)
-    const { api, closeHandle } = inheritedApi({
+    const { api, closeHandle, closed } = inheritedApi({
       assignProcessToJobObject: vi.fn(() => 0),
       terminateProcess,
     })
@@ -269,10 +269,11 @@ describe('spawnInheritedJobProcess failure paths', () => {
     expect(closeHandle).toHaveBeenCalledWith(201n)
     expect(closeHandle).toHaveBeenCalledWith(200n)
     expect(closeHandle).toHaveBeenCalledWith(100n)
+    expect(closed).toEqual([201n, 200n, 100n])
   })
 
   it('closes the assigned child and Job when ResumeThread fails', () => {
-    const { api, closeHandle } = inheritedApi({ resumeThread: vi.fn(() => 0xFFFFFFFF) })
+    const { api, closeHandle, closed } = inheritedApi({ resumeThread: vi.fn(() => 0xFFFFFFFF) })
     let caught: unknown
     try {
       spawnInheritedJobProcess(api, { command: 'probe.exe', args: [], cwd: 'C:\\', token })
@@ -283,6 +284,7 @@ describe('spawnInheritedJobProcess failure paths', () => {
     expect(closeHandle).toHaveBeenCalledWith(201n)
     expect(closeHandle).toHaveBeenCalledWith(200n)
     expect(closeHandle).toHaveBeenCalledWith(100n)
+    expect(closed).toEqual([201n, 200n, 100n])
   })
 
   it('closes the job and reports when SetInformationJobObject fails', () => {
@@ -311,7 +313,9 @@ describe('spawnInheritedJobProcess failure paths', () => {
   })
 
   it('returns the pid, process handle, and kill-on-close job when every call succeeds', () => {
-    const { api, closeHandle } = inheritedApi()
+    const assignProcessToJobObject = vi.fn(() => 1)
+    const resumeThread = vi.fn(() => 0)
+    const { api, closeHandle } = inheritedApi({ assignProcessToJobObject, resumeThread })
     const spawned = spawnInheritedJobProcess(api, { command: 'probe.exe', args: [], cwd: 'C:\\', token })
     expect(spawned.pid).toBe(1234)
     expect(spawned.process).toBe(200n)
@@ -320,8 +324,8 @@ describe('spawnInheritedJobProcess failure paths', () => {
     expect(closeHandle).toHaveBeenCalledWith(201n)
     expect(closeHandle).not.toHaveBeenCalledWith(200n)
     expect(closeHandle).not.toHaveBeenCalledWith(100n)
-    expect(api.assignProcessToJobObject).toHaveBeenCalledWith(100n, 200n)
-    expect(api.resumeThread).toHaveBeenCalledWith(201n)
+    expect(assignProcessToJobObject).toHaveBeenCalledWith(100n, 200n)
+    expect(resumeThread).toHaveBeenCalledWith(201n)
   })
 })
 
