@@ -187,9 +187,8 @@ export class LocalSubprocessRuntime extends SubprocessRuntime {
         : platform === 'win32'
           ? 'the Win32 Job runner is unavailable'
           : `platform ${platform} has no native managed range`
-    process.emitWarning(
+    this.ctx.logger.warn(
       `subprocess-local is using weaker process-tree containment because ${reason}; descendants that escape the process group or direct-parent tree are not guaranteed to terminate or delay waitForExit()`,
-      { code: 'DSH_SUBPROCESS_WEAK_CONTAINMENT' },
     )
   }
 

@@ -401,8 +401,8 @@ describe('LocalSubprocessRuntime', () => {
   })
 
   it('warns once when ordinary spawns use the weaker macOS fallback', async () => {
-    const warning = vi.spyOn(process, 'emitWarning').mockImplementation(() => {})
     const ctx = new Context()
+    const warning = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => {})
     const fiber = await ctx.plugin(LocalSubprocessRuntime)
     const runtime = ctx.subprocess as LocalSubprocessRuntime
     runtime.internals = { platform: 'darwin' }
@@ -413,7 +413,6 @@ describe('LocalSubprocessRuntime', () => {
       expect(warning).toHaveBeenCalledOnce()
       expect(warning).toHaveBeenCalledWith(
         expect.stringContaining('descendants that escape the process group'),
-        { code: 'DSH_SUBPROCESS_WEAK_CONTAINMENT' },
       )
     } finally {
       warning.mockRestore()
@@ -422,8 +421,8 @@ describe('LocalSubprocessRuntime', () => {
   })
 
   it('reports the platform-specific reason for every fallback mode', async () => {
-    const warning = vi.spyOn(process, 'emitWarning').mockImplementation(() => {})
     const ctx = new Context()
+    const warning = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => {})
     const fiber = await ctx.plugin(LocalSubprocessRuntime)
     const runtime = ctx.subprocess as unknown as {
       fallbackWarned: boolean
@@ -440,7 +439,6 @@ describe('LocalSubprocessRuntime', () => {
         runtime.warnFallback(platform)
         expect(warning).toHaveBeenLastCalledWith(
           expect.stringContaining(reason),
-          { code: 'DSH_SUBPROCESS_WEAK_CONTAINMENT' },
         )
       }
       const calls = warning.mock.calls.length
