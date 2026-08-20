@@ -508,15 +508,18 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 
 ```ts persistence-catalog
 /**
- * Records the selected preset as durable, log-only user intent. The knob
+ * Records the selected preset and whether it came from the session
+ * default, an explicit selection, or legacy-knob inference. The knob
  * events follow in the same turn and control execution; this event stays
  * out of the model transcript and lets {@link effectivePermissionPreset}
- * preserve a selection when bundles match.
+ * preserve a selection when bundles match. `origin` is optional so logs
+ * written before origin tracking remain readable but are never mistaken
+ * for refreshable defaults.
  */
-'permission/preset': { preset: string }
+'permission/preset': { preset: string; origin?: 'default' | 'selection' | 'inferred' }
 ```
 
-来源：[`packages/interaction/permission-presets/src/index.ts:50`](../packages/interaction/permission-presets/src/index.ts)
+来源：[`packages/interaction/permission-presets/src/index.ts:53`](../packages/interaction/permission-presets/src/index.ts)
 
 ### `plan/*`
 
@@ -533,7 +536,7 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 'plan/mode': { active: boolean }
 ```
 
-来源：[`packages/plan/plan-mode/src/index.ts:54`](../packages/plan/plan-mode/src/index.ts)
+来源：[`packages/plan/plan-mode/src/index.ts:53`](../packages/plan/plan-mode/src/index.ts)
 
 ### `request/*`
 
@@ -723,9 +726,9 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 'team/member': { version: 1; teamId: TeamId; member: TeamMemberSnapshot }
 ```
 
-类型：[TeamId](subsystems/team.md) · [TeamMemberSnapshot](subsystems/team.md)
+类型：[TeamId](subsystems/agent-team.md) · [TeamMemberSnapshot](subsystems/agent-team.md)
 
-来源：[`packages/experimental/team/src/types.ts:206`](../packages/experimental/team/src/types.ts)
+来源：[`packages/experimental/agent-team/src/types.ts:206`](../packages/experimental/agent-team/src/types.ts)
 
 <a id="teammessagedelivered--log-only"></a>
 
@@ -741,9 +744,9 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 }
 ```
 
-类型：[TeamId](subsystems/team.md) · [TeamMessageId](subsystems/team.md)
+类型：[TeamId](subsystems/agent-team.md) · [TeamMessageId](subsystems/agent-team.md)
 
-来源：[`packages/experimental/team/src/types.ts:212`](../packages/experimental/team/src/types.ts)
+来源：[`packages/experimental/agent-team/src/types.ts:212`](../packages/experimental/agent-team/src/types.ts)
 
 <a id="teammessagequeued--log-only"></a>
 
@@ -754,9 +757,9 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 'team/message/queued': { version: 1; teamId: TeamId; message: TeamMessageSnapshot }
 ```
 
-类型：[TeamId](subsystems/team.md) · [TeamMessageSnapshot](subsystems/team.md)
+类型：[TeamId](subsystems/agent-team.md) · [TeamMessageSnapshot](subsystems/agent-team.md)
 
-来源：[`packages/experimental/team/src/types.ts:210`](../packages/experimental/team/src/types.ts)
+来源：[`packages/experimental/agent-team/src/types.ts:210`](../packages/experimental/agent-team/src/types.ts)
 
 <a id="teamtask--log-only"></a>
 
@@ -767,9 +770,9 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 'team/task': { version: 1; teamId: TeamId; task: TeamTaskSnapshot }
 ```
 
-类型：[TeamId](subsystems/team.md) · [TeamTaskSnapshot](subsystems/team.md)
+类型：[TeamId](subsystems/agent-team.md) · [TeamTaskSnapshot](subsystems/agent-team.md)
 
-来源：[`packages/experimental/team/src/types.ts:208`](../packages/experimental/team/src/types.ts)
+来源：[`packages/experimental/agent-team/src/types.ts:208`](../packages/experimental/agent-team/src/types.ts)
 
 ### `todo/*`
 

@@ -8,9 +8,9 @@ import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
 import type { InputTriggerController, SubmitOutcome } from '@deepseek-ai/dsh-client-ui-input-trigger/client'
 import { SessionInputShell } from '../src/client/input/facade.ts'
 import type { DraftAttachmentId } from '../src/client/input/contract.ts'
-import { PLACEHOLDER } from '../src/client/input/machine.ts'
 
 const mention = '@[Research](dsh-session:InNvdXJjZSI)'
+const spacedMention = '@[Research notes](dsh-session:InNvdXJjZSI)'
 const commandImages = {
   serialize: () => Promise.resolve([]),
   release: () => {},
@@ -22,7 +22,7 @@ function chip(shell: SessionInputShell): void {
   const accepted = shell.insertReference({
     source: 'reference',
     ref: mention,
-    label: '@Research',
+    label: 'Research',
     clipboardText: mention,
   }, {
     start: 0,
@@ -33,6 +33,42 @@ function chip(shell: SessionInputShell): void {
 }
 
 describe('reference submission', () => {
+  it('mirrors canonical reference text so a persisted draft remains resolvable after remount', async () => {
+    const mirror = vi.fn()
+    const first = new SessionInputShell({
+      actx: {} as ClientContext,
+      defaultSink: vi.fn(),
+      commandImages,
+    })
+    first.bindMirror(mirror)
+    first.setDraft('@res')
+    expect(first.insertReference({
+      source: 'reference',
+      ref: spacedMention,
+      label: 'Research notes',
+      appearance: 'session',
+      clipboardText: spacedMention,
+    }, {
+      start: 0,
+      end: 4,
+      draftRev: first.snapshot.draftRev,
+    })).toBe(true)
+    expect(first.snapshot.draft).toBe('@Research notes ')
+    expect(mirror).toHaveBeenLastCalledWith(`${spacedMention} `)
+
+    const sink = vi.fn(() => Promise.resolve<SubmitOutcome>({ kind: 'success' }))
+    const restored = new SessionInputShell({
+      actx: {} as ClientContext,
+      defaultSink: sink,
+      commandImages,
+    })
+    restored.setDraft(mirror.mock.calls.at(-1)?.[0] as string)
+    restored.submit()
+    await vi.waitFor(() => {
+      expect(sink).toHaveBeenCalledWith(spacedMention, [], 'queue', expect.any(AbortSignal))
+    })
+  })
+
   it('retains the chip on Host failure and clears it only after a later accepted retry', async () => {
     const serializeReference = vi.fn(() => Promise.resolve(mention))
     const sink = vi.fn<(
@@ -55,8 +91,8 @@ describe('reference submission', () => {
     })
     chip(shell)
     expect(shell.snapshot).toMatchObject({
-      draft: `${PLACEHOLDER} `,
-      occurrences: [{ source: 'reference', ref: mention, label: '@Research' }],
+      draft: '@Research ',
+      occurrences: [{ source: 'reference', ref: mention, label: 'Research', offset: 0, length: 9 }],
     })
 
     shell.submit('queue')
@@ -66,8 +102,8 @@ describe('reference submission', () => {
     })
     expect(sink).toHaveBeenNthCalledWith(1, mention, [], 'queue', expect.any(AbortSignal))
     expect(shell.snapshot).toMatchObject({
-      draft: `${PLACEHOLDER} `,
-      occurrences: [{ source: 'reference', ref: mention, label: '@Research' }],
+      draft: '@Research ',
+      occurrences: [{ source: 'reference', ref: mention, label: 'Research', offset: 0, length: 9 }],
     })
     expect(shell.notices.getSnapshot()).toMatchObject({
       level: 'error',
@@ -101,7 +137,7 @@ describe('reference submission', () => {
       expect(shell.snapshot.phase).toBe('plain')
     })
     expect(sink).not.toHaveBeenCalled()
-    expect(shell.snapshot.draft).toBe(`${PLACEHOLDER} `)
+    expect(shell.snapshot.draft).toBe('@Research ')
     expect(shell.snapshot.occurrences).toHaveLength(1)
     expect(shell.notices.getSnapshot()).toMatchObject({
       level: 'error',

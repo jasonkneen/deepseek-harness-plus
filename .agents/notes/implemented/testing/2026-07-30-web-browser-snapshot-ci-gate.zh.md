@@ -12,13 +12,13 @@ Status: implemented
 
 Linux PR 的 `node 24 / snapshots and artifacts` 必须运行完整 Web 浏览器 replay/compare。配置 `DSH_WEB_SNAPSHOT_WORKERS` 后，`scripts/run-gates.ts` 把 `test:web:ci` 登记为 `ci-consumers` 门禁，并显式注入 `DSH_SNAPSHOT=replay`；CI 永不以 `record` 或 `refresh` 模式运行，因此提交的预期输出与当前组装应用不一致时测试直接失败，不会在 runner 内静默改写后通过。
 
-消费方 job 在[消费方独立构建](../process/2026-07-30-independent-ci-consumer-build.md)中负责唯一一次 Linux 构建，因此 `apps/web/dist` 和包的 `lib/` 目录会保留在其工作区中，供浏览器套件使用。在托管运行器上，CI 按锁文件中的 Playwright 版本安装 Chromium 及其系统依赖。在持久化故障切换 VM 上，镜像负责预装 Linux 系统软件包，CI 只安装 Chromium，避免每次运行都通过 `apt` 改动系统。托管的默认分支 Linux 串行 job 运行该套件，并生成以操作系统和锁文件为键的浏览器缓存；PR 恢复该缓存，使必需路径无需承担压缩和上传开销，并可在锁文件变化时按操作系统前缀回退。自托管热备运行相同的比较，但不执行托管缓存操作。
+消费方 job 在[消费方独立构建](../process/2026-07-30-independent-ci-consumer-build.md)中负责唯一一次 Linux 构建，因此 `apps/web/dist` 和包的 `lib/` 目录会保留在其工作区中，供浏览器套件使用。在托管运行器上，CI 按锁文件中的 Playwright 版本安装 Chromium 及其系统依赖。在持久化故障切换 VM 上，镜像负责预装 Linux 系统软件包，CI 只安装 Chromium，避免每次运行都通过 `apt` 改动系统。PR 恢复以操作系统和锁文件为键的浏览器缓存，使必需路径无需承担压缩和上传开销，并可在锁文件变化时按操作系统前缀回退。没有任何 master 作业生成这些 hosted 缓存，因此恢复只能命中仍有归档的旧条目，直至其被逐出。自托管热备运行相同的比较，但不执行托管缓存操作。
 
 本地 `pnpm run test:web` 仍先构建，再串行运行完整浏览器套件；`test:web:built` 是已有构建产物的串行执行入口。开发者只在确认用户可见输出有意变化后显式运行 `DSH_SNAPSHOT=refresh pnpm run test:web`，评审每一处预期输出 diff，再以 replay 模式复验不再写文件。
 
 CI 的 `scripts/run-web-snapshots.ts` 先用相互独立的 Vitest 调用串行运行 `hmr-live.e2e.ts` 与 `cordis-tool-round.e2e.ts`。HMR 场景会修改已构建工作区状态；Cordis 场景则拥有一条对生命周期时序敏感的批准与 steering（中途引导）序列，它通过在批准前等待初始轮次结束来确定轮次分组。两者通过后，其余全部文件进入同一个 6-worker Vitest 池。所有子进程都继承 stdio，外围门禁再通过 `run-gates` 流式传递输出。
 
-对 PR 而言，门禁仅在 Linux 消费方 job 中运行：这些场景面向 POSIX，其他 PR job 不安装 Chromium。托管和自托管的默认分支 Linux 串行聚合作业也包含该比较，而 macOS 和 Windows 串行 job 仍不使用浏览器。PR 的 `all checks passed` 已依赖消费方 job，因此浏览器比较失败会阻止合并，无需新增 branch-protection check 名称。
+对 PR 而言，门禁仅在 Linux 消费方 job 中运行：这些场景面向 POSIX，其他 PR job 不安装 Chromium。自托管的默认分支 Linux 串行热备也包含该比较，而 macOS 和 Windows 串行 job 仍不使用浏览器（不存在托管的 Linux 串行聚合）。PR 的 `all checks passed` 已依赖消费方 job，因此浏览器比较失败会阻止合并，无需新增 branch-protection check 名称。
 
 完整本地 replay 中，6-worker 浏览器命令耗时约 65–71 秒。12-worker 对比约为 50 秒，因此把浏览器 worker 预算减半只增加约 15–20 秒，而不是让墙钟时间翻倍。门禁调度器会在 `built-package-invariants` 成功后立即启动浏览器快照，并发运行彼此独立的门禁，因此既不需要专用 job 超时，也不需要手动制定 YAML 顺序规则。
 

@@ -219,6 +219,8 @@ jobs:
           }
 
       - name: Build single-exe
+        env:
+          DSH_BUILD_CLIENT_PROFILE: official
         run: pnpm exec tsx scripts/build-exe-for-python-sdk.ts --targets=${{ matrix.target }}
 
       - name: Resolve platform outputs

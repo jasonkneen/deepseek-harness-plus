@@ -88,6 +88,15 @@ describe('MenuView', () => {
     expect(screen.queryByText('正在加载…')).not.toBeNull()
   })
 
+  it('keeps an opted-out source title hidden while its candidates are pending', () => {
+    mount(openState({
+      groups: [{ source: 'reference', showGroupTitle: false, status: 'pending', items: [] }],
+      highlight: null,
+    }))
+    expect(screen.queryByText('reference')).toBeNull()
+    expect(screen.getByText('正在加载…')).toBeTruthy()
+  })
+
   it('titles each group with the localized source name, raw name for unknown sources, none for empty ready groups', () => {
     const { view } = mount(openState({
       groups: [
@@ -113,6 +122,7 @@ describe('MenuView', () => {
       }],
       highlight: { source: 'reference', index: 0 },
     }))
+    expect(screen.queryByText('reference')).toBeNull()
     expect(screen.getAllByText('文件与文件夹')).toHaveLength(1)
     expect(screen.getAllByText('Session 对话')).toHaveLength(1)
     const options = screen.getAllByRole('option')

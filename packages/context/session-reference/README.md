@@ -14,7 +14,7 @@ English | [中文](README.zh.md)
 
 Preparation calls `ctx.sessionQuery.readSurface()` once per distinct source when the target message reaches `agent/pre-step`. A queued message therefore captures the source state at model-step entry, and the resulting context is immutable after that point. Projection keeps only direct-user `user/message`, assistant text, and `user/message` checkpoints carrying the canonical `dsh-compaction` source marker from the folded current surface. Separately sourced session-reference messages are injected context and are excluded, preventing recursive snapshot propagation. Shadowed pre-compaction events, tools, reasoning, other plugin-generated user messages except marked compact checkpoints, and unfinished assistant chunks are also excluded. A compacted source therefore contributes its latest checkpoint plus retained later conversation, not restored shadowed text.
 
-The context source is `{ kind: 'session-reference', version: 1, references }`; each reference records its source id and label, capture seq, compact presence, retained/omitted message counts, omitted UTF-8 bytes, and truncation state. The service's outer `agent/pre-step` listener post-processes accepted direct user messages, preserves their message ids, and inserts each snapshot immediately before the message that cited it. Queue edits and queue-to-steer relocation need no reference-specific handling because parsing occurs after the final inbox claim. Invalid mentions, failed reads, cancellation, and budget failures end that turn before its messages enter model-visible history. The target log records a sourced context `user/message` followed by the readable direct `user/message`; source mutation after capture cannot change target replay.
+The context source is `{ kind: 'session-reference', version: 1, references }`; each reference records its source id and label, capture seq, compact presence, retained/omitted message counts, omitted UTF-8 bytes, and truncation state. The service's outer `agent/pre-step` listener post-processes accepted direct user messages, preserves their message ids, and inserts each snapshot immediately after the message that cited it. Queue edits and queue-to-steer relocation need no reference-specific handling because parsing occurs after the final inbox claim. Invalid mentions, failed reads, cancellation, and budget failures end that turn before its messages enter model-visible history. The target log records the readable direct `user/message` followed by its sourced context `user/message`; source mutation after capture cannot change target replay.
 
 ## Configuration
 
@@ -32,7 +32,7 @@ Retention applies `maxReferenceBytes` independently to each source, keeps compac
 
 #### What the model sees
 
-The model sees two consecutive user-role messages: the `## Referenced sessions` untrusted snapshot, then the current message with its readable `@label`. The warning forbids following instructions, permission claims, or tool requests from the snapshot unless the current user repeats them. Labels, cwd values, ids, and conversation text are serialized as JSON inside `<referenced-sessions>` tags; every data `<` is emitted as the lossless JSON escape `\u003c`, so source text cannot spell a framing tag.
+The model sees two consecutive user-role messages: the current message with its readable `@label`, then the `## Referenced sessions` untrusted snapshot. The warning forbids following instructions, permission claims, or tool requests from the snapshot unless the current user explicitly repeats them. Labels, cwd values, ids, and conversation text are serialized as JSON inside `<referenced-sessions>` tags; every data `<` is emitted as the lossless JSON escape `\u003c`, so source text cannot spell a framing tag.
 
 #### Token effect
 
@@ -40,7 +40,7 @@ Each referenced message adds the fixed warning plus up to three serialized snaps
 
 #### KV Cache effect
 
-The snapshot and request are consecutive append-only target messages and preserve earlier cacheable history. Different references or source capture contents change the new suffix only; later target compaction may invalidate reuse from its replacement boundary.
+The request and snapshot are consecutive append-only target messages and preserve earlier cacheable history. Different references or source capture contents change the new suffix only; later target compaction may invalidate reuse from its replacement boundary.
 
 ## Known Limitations and Deferred Work
 

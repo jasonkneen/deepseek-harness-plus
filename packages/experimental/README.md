@@ -6,7 +6,7 @@ This group contains prototypes and internal-only Cordis plugins that use the rep
 
 | Package | Role | ctx key |
 |---|---|---|
-| `team/` | Implicit-root Agent Teams roster, durable peer mailbox, shared task DAG, and runtime coordination | `ctx.teams` |
-| `tool-team/` | Scoped model-facing Agent Teams tools and collaboration guidance | — |
+| `agent-team/` | Implicit-root Agent Teams roster, durable peer mailbox, shared task DAG, and runtime coordination | `ctx.agentTeams` |
+| `tool-agent-team/` | Scoped model-facing Agent Teams tools and collaboration guidance | — |
 
 The [subtree rules](AGENTS.md) define dependency isolation, release exclusion, and promotion.

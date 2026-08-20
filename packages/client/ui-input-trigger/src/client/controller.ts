@@ -112,7 +112,7 @@ export class InputTriggerController {
       return
     }
     if (launched || !prev.open || prev.hit === null || prev.hit.trigger !== hit.trigger) {
-      this.menu.set(seedGroups(this.menu.getSnapshot(), roster.map(s => s.name)))
+      this.menu.set(seedGroups(this.menu.getSnapshot(), roster))
     }
     this.reduce({ type: 'hit', hit })
     this.fetchCandidates(hit, roster)
@@ -140,7 +140,7 @@ export class InputTriggerController {
     this.stopFetch()
     this.hit = hit
     this.launcher.set(source)
-    this.menu.set(seedGroups(this.menu.getSnapshot(), [source]))
+    this.menu.set(seedGroups(this.menu.getSnapshot(), [match]))
     this.reduce({ type: 'hit', hit })
     this.fetchCandidates(hit, [match])
   }

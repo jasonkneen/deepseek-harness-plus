@@ -81,7 +81,9 @@ export function MenuView({ menu, onPick, onDismiss, t }: MenuViewProps) {
               {/* Source names key the dictionary open-endedly: the lookup chain
                   returns an unknown key verbatim, so an unregistered source
                   shows its raw name — hence the cast past the typed key union. */}
-              <div className={css.groupTitle} role="presentation" data-source={group.source}>{t(group.source as MenuKey)}</div>
+              {group.showGroupTitle === false || group.items.some(item => item.section !== undefined)
+                ? null
+                : <div className={css.groupTitle} role="presentation" data-source={group.source}>{t(group.source as MenuKey)}</div>}
               {group.status === 'pending'
                 ? <div className={css.loading} data-source={group.source}>{t('loading')}</div>
                 : group.items.map((item, index) => {

@@ -12,9 +12,9 @@ An experimental directory without a current package previously imposed placement
 
 ## Decision
 
-`packages/experimental/team` and `packages/experimental/tool-team` are private workspace packages. Their npm names remain `@deepseek-ai/dsh-team` and `@deepseek-ai/dsh-tool-team`, so promotion changes paths and release metadata without renaming imports.
+`packages/experimental/agent-team` and `packages/experimental/tool-agent-team` are private workspace packages. The [experimental package naming decision](2026-08-19-experimental-package-name-prefix.md) owns their npm names and promotion rename; this note owns their placement, release exclusion, and dependency isolation.
 
-The dsh release family and local baseline publisher exclude every manifest below `packages/experimental/`. Workspace constraints require each experimental package to set `private: true` and omit `publishConfig`. The same top-level check rejects `dependencies`, `optionalDependencies`, and `peerDependencies` from release packages, release apps, or the Python runtime to an experimental package. Experimental packages may depend on release packages and each other; tests may use them through `devDependencies`, and examples may load them explicitly.
+The dsh pack and publish set and the local baseline publisher exclude every manifest below `packages/experimental/`. `release:dsh` still advances their manifest versions with the shared dsh version without creating release tags. Workspace constraints require each experimental package to set `private: true` and omit `publishConfig`. The same top-level check rejects `dependencies`, `optionalDependencies`, and `peerDependencies` from release packages, release apps, or the Python runtime to an experimental package. Experimental packages may depend on release packages and each other; tests may use them through `devDependencies`, and examples may load them explicitly.
 
 The generic caller-reserved continuable child identity and selective direct-child drain remain in the stable Subagent service. They own Subagent identity and Activation lifecycle without importing or naming Agent Teams; the experimental Team service consumes them in the permitted direction.
 
@@ -28,10 +28,8 @@ Experimental status changes publication and compatibility expectations only. The
 
 **Move the Subagent prerequisites into the experimental directory.** Child identity allocation and Activation teardown belong to the Subagent owner and contain no Team-specific contract. Moving or duplicating them would invert the dependency or split one lifecycle across packages.
 
-**Publish experimental packages under different npm names.** Experimental suffixes would make promotion rename every import and configuration row without strengthening release exclusion; private manifests and release-family filtering enforce the actual requirement.
-
 ## Consequences
 
 Agent Teams can use the full repository graph and quality checks without entering official tarballs or becoming a supported runtime dependency. A release package cannot expose Team until the Team packages are promoted, so CLI and Web experiments use explicit example or experimental compositions instead of the shipped base bundles.
 
-The product-role grouping is less direct while the packages incubate, and promotion creates path churn. Keeping npm names stable limits that churn to repository paths, metadata, documentation, and composition.
+The product-role grouping is less direct while the packages incubate. Promotion creates path and npm-name churn as specified by the experimental package naming decision.

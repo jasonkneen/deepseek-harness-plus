@@ -3,18 +3,18 @@ import type {
   ContextMessageNode, ConversationNodeDefinition, SteeringMessageNode, UserMessageNode,
 } from '@deepseek-ai/dsh-client-runtime/client'
 import {
-  contextForm, contextProvenance, isAppendSurfaceEvent, isReplacementSurfaceEvent, sessionRecallLabels,
+  contextForm, contextProvenance, isAppendSurfaceEvent, isReplacementSurfaceEvent,
 } from '@deepseek-ai/dsh-client-runtime/client'
 import type { InboxState } from './inbox.ts'
 import { chatNode } from './common.ts'
 
 interface ReferencedUserMessageNode extends UserMessageNode {
-  /** Labels cited by the immediately preceding session-reference context. */
+  /** Labels cited by the immediately following session-reference context. */
   readonly referenceLabels?: readonly string[]
 }
 
 interface ReferencedSteeringMessageNode extends SteeringMessageNode {
-  /** Labels cited by the immediately preceding session-reference context. */
+  /** Labels cited by the immediately following session-reference context. */
   readonly referenceLabels?: readonly string[]
 }
 
@@ -61,11 +61,6 @@ export const messageDefinition: ConversationNodeDefinition<MessageNode> = {
       }
     }
     const claimed = reader.previous<InboxState>('inbox-next-step')?.state.claimed.has(String(event.data.id)) === true
-    const previous = reader.previous<MessageNode>('input-message')
-    const labels = previous?.state.kind === 'context' && previous.state.seq + 1 === event.seq
-      ? sessionRecallLabels(previous.state.source)
-      : []
-    const referenceLabels = labels.length === 0 ? {} : { referenceLabels: labels }
     return claimed
       ? {
         kind: 'steering',
@@ -74,7 +69,6 @@ export const messageDefinition: ConversationNodeDefinition<MessageNode> = {
         time: event.time,
         content: event.data.content,
         source: event.data.source,
-        ...referenceLabels,
       }
       : {
         kind: 'user',
@@ -82,7 +76,6 @@ export const messageDefinition: ConversationNodeDefinition<MessageNode> = {
         time: event.time,
         content: event.data.content,
         source: event.data.source,
-        ...referenceLabels,
       }
   },
   update: context => context.state,

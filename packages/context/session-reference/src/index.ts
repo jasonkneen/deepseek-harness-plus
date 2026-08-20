@@ -115,11 +115,11 @@ export class SessionReferenceResolver extends TypertRemoteService {
 
   /**
    * Replace canonical mentions in direct user messages and place each prepared
-   * snapshot immediately before the message that cited it.
+   * snapshot immediately after the message that cited it.
    * @param agent - agent entering the model step.
    * @param messages - messages accepted by downstream pre-step listeners.
    * @param signal - active turn cancellation.
-   * @returns messages with session-reference context inserted in citation order.
+   * @returns direct messages followed by their session-reference context in citation order.
    */
   private async prepareDirectMessages(
     agent: Agent,
@@ -142,7 +142,7 @@ export class SessionReferenceResolver extends TypertRemoteService {
       if (resolved.additionalContext === undefined) {
         throw new Error('session-reference preparation omitted context for a canonical mention')
       }
-      return [resolved.additionalContext, direct]
+      return [direct, resolved.additionalContext]
     }))
     return prepared.flat()
   }

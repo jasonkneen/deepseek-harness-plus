@@ -2,11 +2,11 @@
 
 English | [中文](README.zh.md)
 
-Unified Web `@file` and `@session` source. The browser starts the `fileReferences/list` and `sessionReferenceResolver/candidates` Remote calls together for an unquoted token, deterministically orders files before sessions with locale-registered folder/file/session labels, renders the rows under non-selectable file and session section headings, and degrades either failed candidate domain independently. An open `@"…` token searches files only.
+Unified Web `@file` and `@session` source. The browser starts the `fileReferences/list` and `sessionReferenceResolver/candidates` Remote calls together for an unquoted token, deterministically orders files before sessions with locale-registered folder/file/session labels, and renders the rows under non-selectable file and session section headings without a redundant raw `reference` source title. Either failed candidate domain degrades independently. An open `@"…` token searches files only.
 
-File picks insert the natural text defined by the shared `@path` grammar. A file closes completion and adds a trailing space; a directory keeps the menu active at its trailing slash so the user can descend another level. Paths containing whitespace use `@"path with spaces"`, and a quote the user opened explicitly remains quoted.
+File picks preserve the natural text defined by the shared `@path` grammar as their hidden serialized and clipboard form. A file closes completion as an atomic inline reference displayed with a file glyph, business-color filename, and no capsule. A directory remains plain editable path text with a folder glyph and keeps the menu active at its trailing slash so the user can descend another level. Paths containing whitespace use `@"path with spaces"`, and a quote the user opened explicitly remains quoted.
 
-Session picks insert an atomic composer chip whose hidden `ref` and clipboard representation are the canonical `@[label](dsh-session:…)` mention returned by the Host. The visible chip uses `@label`; serialization never reconstructs identity from that label. Ordinary send carries the canonical mention through `session.prompt`; the session-reference service validates it and captures model context at `agent/pre-step`.
+Session picks insert an atomic inline reference whose hidden `ref` and clipboard representation are the canonical `@[label](dsh-session:…)` mention returned by the Host. Its visible form is a chat-bubble glyph plus the business-color session title, without a capsule; serialization never reconstructs identity from that title. Ordinary send carries the canonical mention through `session.prompt`; the session-reference service validates it and captures model context at `agent/pre-step`.
 
 The `/client` export is the plugin body (`apply`/`inject`) only; candidate encoding stays internal to the registration effect.
 
@@ -16,7 +16,7 @@ Indirectly, through `@deepseek-ai/dsh-file-reference-local` for path guidance an
 
 #### KV Cache effect
 
-Candidate browsing has no model effect. A selected file or session changes only the new user-message suffix and any Host-prepared session-reference prefix attached to that message; earlier target history remains unchanged.
+Candidate browsing has no model effect. A selected file or session changes only the new user-message suffix and any Host-prepared session-reference context that follows that message; earlier target history remains unchanged.
 
 ## Known Limitations and Deferred Work
 

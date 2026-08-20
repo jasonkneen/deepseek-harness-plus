@@ -35,7 +35,7 @@ export interface InputTriggerCandidate {
   readonly description?: string
   readonly icon?: string
   readonly hint?: string
-  /** Optional visual group heading shared by adjacent candidates. */
+  /** Optional visual heading shared by adjacent candidates; sectioned groups omit their source-title row. */
   readonly section?: string
   /** Opaque source-owned pick payload. */
   readonly value?: string
@@ -82,15 +82,17 @@ export interface CommandClaim {
 }
 
 /**
- * Inline reference insertion. The draft holds one U+FFFC placeholder per
- * occurrence; the owner supplies both user-facing projections at insert time
+ * Inline reference insertion. The draft holds the complete display text while
+ * the occurrence retains its range; the owner supplies both user-facing projections at insert time
  * (the model representation is serialized on submit via the source codec).
  */
 export interface ReferenceInsert {
   readonly source: string
   readonly ref: string
-  /** Chip display label (fallback-cached on the occurrence). */
+  /** Inline display label (fallback-cached on the occurrence). */
   readonly label: string
+  /** Optional domain glyph shown beside the label. */
+  readonly appearance?: 'session' | 'file' | 'folder'
   /** Clipboard / persistence projection, e.g. `/name` (never the model form). */
   readonly clipboardText: string
 }
@@ -177,6 +179,8 @@ export interface InputTriggerSource {
   readonly name: string
   /** Menu group display order (lower = higher in the list; default 0). */
   readonly order?: number
+  /** Whether the menu renders the source-title row; defaults to true. */
+  readonly showGroupTitle?: boolean
   candidates(session: ClientSessionContext, req: CandidateRequest): Promise<readonly InputTriggerCandidate[]>
   /** Every pick lands here; claim/insert outcomes are executed by the pipeline via the scoped input events. */
   onPick(pick: InputTriggerPick): PickOutcome

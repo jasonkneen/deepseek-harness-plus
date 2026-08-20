@@ -182,10 +182,12 @@ function serializeAssistant(message: Message): WireMessage {
     // the message sits durably in the session log, a null here bricks every
     // later turn of that session.
     content: text,
-    // Official passback rule (guides/thinking_mode.mdx): reasoning_content
-    // must return on tool-call turns; it is ignored on plain turns, so we
-    // drop it there to save tokens.
-    ...toolCalls.length > 0 && reasoning.length > 0 ? { reasoning_content: reasoning } : {},
+    // CoT passback on every reasoning-carrying turn. The official rule
+    // (guides/thinking_mode.mdx) requires it on tool-call turns and ignores it
+    // elsewhere; a gateway re-encoding the conversation for another vendor
+    // recovers that turn's upstream thinking signature by hashing this exact
+    // text, which a tool-call-free turn carries nowhere else.
+    ...reasoning.length > 0 ? { reasoning_content: reasoning } : {},
     ...toolCalls.length > 0 ? { tool_calls: toolCalls } : {},
   }
 }

@@ -4,8 +4,8 @@
  * clock. Package-private — the SessionInput shell is the only caller and the
  * sole executor of the returned effects.
  *
- * Draft truth: the draft string holds one U+FFFC placeholder per chip; the
- * occurrence table carries identity and the owner's cached projections. Every
+ * Draft truth: the draft string holds each reference's complete inline display
+ * text; the occurrence table carries identity, range, and the owner's cached projections. Every
  * draft mutation is one transaction — draft edit, occurrence reconciliation,
  * and undo-log push are atomic inside dispatch() — and bumps draftRev, which
  * is what lets span CAS reduce to a revision-equality check: equal rev ⟹
@@ -20,8 +20,20 @@ import type {
   InputState, Occurrence, PasteAttemptState, PasteComponent, SubmitAttempt,
 } from './contract.ts'
 
-/** The object-replacement character backing every chip occurrence in the draft. */
+/** Legacy fixed-width object replacement character rejected from pasted text. */
 export const PLACEHOLDER = '￼'
+
+const REFERENCE_PLACEHOLDER_RE = /[\uE100-\uE11D\uFFFC]/gu
+
+/**
+ * Build the inline draft text whose leading marker is decorated as the
+ * reference icon in the backdrop.
+ * @param reference - reference insertion with its cached display projection.
+ * @returns display text with one marker glyph followed by the complete label.
+ */
+export function referenceDraftText(reference: Pick<ReferenceInsert, 'label'>): string {
+  return `@${reference.label}`
+}
 
 /** The machine never writes the queue; the wiring layer overlays the queue store's projection. */
 const EMPTY_QUEUE: InputState['queue'] = []
@@ -67,10 +79,9 @@ function diffEdit(prev: string, next: string): EditRange {
 }
 
 /**
- * Expand the draft's placeholders into their occurrences' clipboard text
- * (the persistence mirror and clipboard both write this
- * projection — U+FFFC never leaves the machine). Table order is offset
- * order, so one linear walk pairs placeholders with entries.
+ * Expand the draft's reference ranges into their occurrences' clipboard text
+ * for persistence and clipboard projection. Table order is offset order, so
+ * one linear walk pairs ranges with entries.
  * @param state - published input state.
  * @returns the plain-text projection of the draft.
  */
@@ -81,7 +92,7 @@ export function projectClipboard(state: Pick<InputState, 'draft' | 'occurrences'
   let cursor = 0
   for (const o of occurrences) {
     out += draft.slice(cursor, o.offset) + o.clipboardText
-    cursor = o.offset + 1
+    cursor = o.offset + o.length
   }
   return out + draft.slice(cursor)
 }
@@ -202,15 +213,15 @@ export class InputMachine {
 
   /**
    * Reconcile the occurrence table with one edit (old-draft coordinates):
-   * entries past the range shift by the length delta; entries whose
-   * placeholder sits inside the replaced range go away whole (a
-   * deletion/replacement intersecting a placeholder acts on the whole chip).
+   * entries past the range shift by the length delta; an edit that intersects
+   * a reference range removes its structured occurrence and leaves the edited
+   * characters as ordinary draft text.
    */
   private reconcile(range: EditRange): void {
     const delta = range.insertedLength - (range.end - range.start)
     const kept: Occurrence[] = []
     for (const o of this.occurrences) {
-      if (o.offset < range.start) kept.push(o)
+      if (o.offset + o.length <= range.start) kept.push(o)
       else if (o.offset >= range.end) kept.push(delta === 0 ? o : { ...o, offset: o.offset + delta })
     }
     this.occurrences = kept
@@ -225,14 +236,16 @@ export class InputMachine {
   }
 
   /** Mint one occurrence at a draft offset. */
-  private mint(reference: ReferenceInsert, offset: number): Occurrence {
+  private mint(reference: ReferenceInsert, offset: number, length: number): Occurrence {
     this.occurrenceSeq += 1
     return {
       occurrenceId: this.occurrenceSeq,
       source: reference.source,
       ref: reference.ref,
       offset,
+      length,
       label: reference.label,
+      ...reference.appearance === undefined ? {} : { appearance: reference.appearance },
       clipboardText: reference.clipboardText,
     }
   }
@@ -293,19 +306,20 @@ export class InputMachine {
   }
 
   /**
-   * Shared chip-insertion transaction: replace [span) with one placeholder
+   * Shared reference-insertion transaction: replace [span) with one inline
    * occurrence (insert-ref and paste-upgrade both land here). A separating
-   * space follows the chip unless one is already next.
-   * @returns the inserted length (placeholder plus optional gap).
+   * space follows the reference unless one is already next.
+   * @returns the inserted length (display text plus optional gap).
    */
   private replaceSpanWithChip(reference: ReferenceInsert, span: TokenSpan): number {
     this.pushTxn()
     this.typingRun = undefined
     const tail = this.draft.slice(span.end)
     const gap = tail.length === 0 || tail[0] !== ' ' ? ' ' : ''
-    const inserted = PLACEHOLDER + gap
+    const displayText = referenceDraftText(reference)
+    const inserted = displayText + gap
     this.reconcile({ start: span.start, end: span.end, insertedLength: inserted.length })
-    this.withMinted([this.mint(reference, span.start)])
+    this.withMinted([this.mint(reference, span.start, displayText.length)])
     this.adopt(this.draft.slice(0, span.start) + inserted + tail)
     this.watchClaim()
     return inserted.length
@@ -392,7 +406,7 @@ export class InputMachine {
   // ---- paste plane ----
 
   /**
-   * Paste as one transaction: the text (U+FFFC-sanitized) replaces the
+   * Paste as one transaction: the text (reference-placeholder-sanitized) replaces the
    * selection; hot-snapshot sync matches componentize inside the SAME
    * transaction (one undo returns to pre-paste); a match attempt opens for
    * the async remainder while the phase still accepts reference mutations.
@@ -403,19 +417,20 @@ export class InputMachine {
   ): InputEffect[] {
     const { start, end } = selection
     if (start < 0 || start > end || end > this.draft.length) return []
-    const text = rawText.split(PLACEHOLDER).join('')
+    const text = rawText.replace(REFERENCE_PLACEHOLDER_RE, '')
     this.pushTxn(selection)
     this.typingRun = undefined
     // Componentize: replace each matched token range (paste-text coordinates,
-    // disjoint by contract) with a placeholder while assembling the insert.
+    // disjoint by contract) with inline display text while assembling the insert.
     const sorted = [...components].sort((a, b) => a.start - b.start)
     const minted: Occurrence[] = []
     let inserted = ''
     let cursor = 0
     for (const c of sorted) {
       inserted += text.slice(cursor, c.start)
-      minted.push(this.mint(c.reference, start + inserted.length))
-      inserted += PLACEHOLDER
+      const displayText = referenceDraftText(c.reference)
+      minted.push(this.mint(c.reference, start + inserted.length, displayText.length))
+      inserted += displayText
       cursor = c.end
     }
     inserted += text.slice(cursor)

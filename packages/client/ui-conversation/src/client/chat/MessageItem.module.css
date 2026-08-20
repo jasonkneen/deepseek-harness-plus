@@ -273,18 +273,19 @@
   }
 }
 
-/* Reference chip projection inside a user bubble (`<skill>name</skill>` model
-   spans and metadata-confirmed sessions render as chips; free geometry means
-   the textarea overlay's metric pairing does not apply here). */
+/* Inline references use domain glyphs and business-color text without another
+   container inside the user bubble. */
 .refChip {
-  display: inline-block;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   margin: 0 2px;
-  padding: 0 8px;
-  border-radius: 6px;
-  background: rgba(97, 135, 216, 0.22);
-  color: var(--dsw-alias-label-primary);
-  font-size: 0.85em;
-  line-height: 1.6;
+  color: var(--dsw-alias-state-business-primary);
+  font-weight: 500;
   white-space: nowrap;
   vertical-align: baseline;
+}
+
+.refIcon {
+  flex: none;
 }

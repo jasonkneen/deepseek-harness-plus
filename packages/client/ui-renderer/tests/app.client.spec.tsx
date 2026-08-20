@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, render } from '@testing-library/react'
 import { Context } from '@deepseek-ai/cordis'
 import { SlotTestRuntime } from '@deepseek-ai/dsh-client-test-runtime'
@@ -13,6 +13,7 @@ afterEach(async () => {
   await runtime?.dispose()
   runtime = undefined
   document.title = ''
+  vi.unstubAllEnvs()
 })
 
 async function bench() {
@@ -33,7 +34,8 @@ describe('buildRenderApp', () => {
   })
 
   it('projects the selected durable session title', async () => {
-    document.title = 'Product'
+    vi.stubEnv('DSH_CLIENT_TITLE', 'Product')
+    document.title = 'stale title'
     const b = await bench()
     render(<>{b.renderApp()}</>)
     expect(document.title).toBe('Product')
@@ -46,7 +48,8 @@ describe('buildRenderApp', () => {
   })
 
   it('falls back when the selected id has no list row', async () => {
-    document.title = 'Product'
+    vi.stubEnv('DSH_CLIENT_TITLE', 'Product')
+    document.title = 'stale title'
     const b = await bench()
     await b.runtime.sessions.add({ id: 's1', summary: { title: 'First' } })
     render(<>{b.renderApp()}</>)

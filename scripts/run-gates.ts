@@ -9,6 +9,7 @@ import { spawn } from 'node:child_process'
 import { availableParallelism } from 'node:os'
 import { resolve } from 'node:path'
 import { performance } from 'node:perf_hooks'
+import { CLIENT_BUILD_PROFILE_SELECTOR } from './client-build-environment.ts'
 import { COVERAGE_EXEMPT_ENV, coverageExemptHeavySuites } from './coverage-exempt.ts'
 import {
   COVERAGE_PARTITIONS_ENV,
@@ -176,6 +177,14 @@ function pnpmScript(id: string, script: string, options: Partial<Gate> = {}): Ga
   }
 }
 
+/** Build official client artifacts inside a CI aggregate without changing sibling gate environments. */
+function ciBuildGate(id = 'build', options: Partial<Gate> = {}): Gate {
+  return pnpmScript(id, 'build', {
+    ...options,
+    env: { ...options.env, [CLIENT_BUILD_PROFILE_SELECTOR]: 'official' },
+  })
+}
+
 function pnpmExec(id: string, args: string[], options: Partial<Gate> = {}): Gate {
   return {
     id,
@@ -216,7 +225,7 @@ export function gatesForMode(selected: Mode): Gate[] {
     case 'ci-coverage':
       return coverageGates()
     case 'ci-snapshot':
-      return [pnpmScript('build', 'build'), snapshotGate()]
+      return [ciBuildGate(), snapshotGate()]
     case 'ci-artifacts':
       return ciArtifactGates()
     case 'ci-consumers':
@@ -287,7 +296,7 @@ function ciPrimaryGates(): Gate[] {
     // The prepared typecheck and build both drive Client tsc, while build also
     // repeats the Host contract pass. Wait for all three consumers so build
     // neither races tsbuildinfo nor replaces declarations while they are read.
-    pnpmScript('build', 'build', { needs: ['typecheck', 'lint', 'doc-typecheck'] }),
+    ciBuildGate('build', { needs: ['typecheck', 'lint', 'doc-typecheck'] }),
     pnpmScript('publint', 'publint', { needs: ['build'] }),
     pnpmScript('node-next-types', 'verify-node-next-types', {
       label: 'node-next types',
@@ -369,7 +378,7 @@ function runningNodeMajor(): number {
 function ciStaticGates(options: { ownsBuild: boolean }): Gate[] {
   return [
     ...ciSharedStaticGates(),
-    ...options.ownsBuild ? [pnpmScript('build', 'build')] : [],
+    ...options.ownsBuild ? [ciBuildGate()] : [],
     ...docSyncLeafGates({
       includeDocTypecheck: options.ownsBuild,
       ...options.ownsBuild
@@ -388,7 +397,7 @@ function ciStaticGates(options: { ownsBuild: boolean }): Gate[] {
 
 function ciArtifactGates(): Gate[] {
   return [
-    pnpmScript('build', 'build'),
+    ciBuildGate(),
     pnpmScript('publint', 'publint', { needs: ['build'] }),
     pnpmScript('node-next-types', 'verify-node-next-types', {
       label: 'node-next types',
@@ -403,8 +412,11 @@ function ciConsumerGates(): Gate[] {
   const builtTree = ['build']
   const validatedBuild = ['built-package-invariants']
   return [
-    pnpmScript('build', 'build'),
-    pnpmScript('node-compat', 'check:node-compat', { label: 'Node compatibility' }),
+    ciBuildGate(),
+    pnpmScript('node-compat', 'check:node-compat', {
+      label: 'Node compatibility',
+      env: { [CLIENT_BUILD_PROFILE_SELECTOR]: 'official' },
+    }),
     pnpmScript('publint', 'publint', { needs: builtTree }),
     builtPackageInvariantsGate(builtTree),
     pnpmScript('lint-and-duplication', 'check:ci:lint:contracts-ready', {
@@ -450,7 +462,7 @@ function webSnapshotGate(needs: string[]): Gate {
 
 function ciWindowsBlockingGates(): Gate[] {
   return [
-    pnpmScript('windows-build', 'build', { label: 'build' }),
+    ciBuildGate('windows-build', { label: 'build' }),
     pnpmScript('windows-site', 'docs:build', { label: 'production site' }),
   ]
 }
@@ -470,7 +482,7 @@ function ciWindowsCompleteGates(): Gate[] {
       after: [...new Set([...coverageAfter, ...(gate.after ?? [])])],
     }))
   return [
-    pnpmScript('build', 'build'),
+    ciBuildGate(),
     pnpmScript('windows-site', 'docs:build', { label: 'production site' }),
     ...coverage,
     ...observational,

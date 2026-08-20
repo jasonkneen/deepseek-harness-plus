@@ -302,24 +302,24 @@
       "source": "packages/schedule/schedule/src/types.ts"
     },
     {
-      "doc": "docs/subsystems/team.md",
+      "doc": "docs/subsystems/agent-team.md",
       "symbol": "TeamMemberSnapshot",
-      "source": "packages/experimental/team/src/types.ts"
+      "source": "packages/experimental/agent-team/src/types.ts"
     },
     {
-      "doc": "docs/subsystems/team.md",
+      "doc": "docs/subsystems/agent-team.md",
       "symbol": "TeamMessageSnapshot",
-      "source": "packages/experimental/team/src/types.ts"
+      "source": "packages/experimental/agent-team/src/types.ts"
     },
     {
-      "doc": "docs/subsystems/team.md",
+      "doc": "docs/subsystems/agent-team.md",
       "symbol": "TeamMessageSource",
-      "source": "packages/experimental/team/src/types.ts"
+      "source": "packages/experimental/agent-team/src/types.ts"
     },
     {
-      "doc": "docs/subsystems/team.md",
+      "doc": "docs/subsystems/agent-team.md",
       "symbol": "TeamTaskSnapshot",
-      "source": "packages/experimental/team/src/types.ts"
+      "source": "packages/experimental/agent-team/src/types.ts"
     },
     {
       "doc": "docs/subsystems/commands.md",

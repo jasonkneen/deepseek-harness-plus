@@ -344,6 +344,12 @@ describe('Node 24 lane ownership', () => {
       'built-bin-smoke',
     ])
     expect(subject.find(item => item.id === 'publint')?.needs).toEqual(['build'])
+    expect(subject.find(item => item.id === 'build')?.env).toEqual({
+      DSH_BUILD_CLIENT_PROFILE: 'official',
+    })
+    expect(subject.find(item => item.id === 'node-compat')?.env).toEqual({
+      DSH_BUILD_CLIENT_PROFILE: 'official',
+    })
     expect(subject.find(item => item.id === 'built-package-invariants')?.needs).toEqual(['build'])
     expect(subject.find(item => item.id === 'lint-and-duplication')?.needs).toEqual(['built-package-invariants'])
     for (const id of [

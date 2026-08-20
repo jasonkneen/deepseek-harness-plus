@@ -10,6 +10,7 @@ import type {
 } from '@deepseek-ai/dsh-client-runtime/client'
 import { JsonBlock, MessageText, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { ChatNodeOwnerProps, ChatNodeViewProps, ChatViewSlotProps } from '../contract/slots.ts'
+import { ReferenceIcon } from '../reference/ReferenceIcon.tsx'
 import { CompactionItem } from './CompactionItem.tsx'
 import { ContextInjectionRow } from './ContextInjectionRow.tsx'
 import { MessageIconActions } from './MessageIconActions.tsx'
@@ -162,23 +163,46 @@ function projectUserText(text: string, sessionLabels: readonly string[]): ReactN
       start = text.indexOf(label, start + label.length)
     }
   }
-  const re = /(^|\s)([/@][\w-]+)(?=\s|$)/g
+  const re = /(^|\s)(\/[\w-]+|@"[^"\n]+"|@[^\s]+)/gu
   let m: RegExpExecArray | null
   while ((m = re.exec(text)) !== null) {
     const tokenStart = m.index + (m[1]?.length ?? 0)
-    const label = m[2] ?? ''
+    const rawLabel = m[2] ?? ''
+    const label = rawLabel.startsWith('@"')
+      ? rawLabel
+      : rawLabel.replace(/[.,;:!?，。；：！？]+$/gu, '')
+    if (label.length <= 1) continue
     ranges.push({ start: tokenStart, end: tokenStart + label.length, label, kind: 'plain' })
   }
-  ranges.sort((a, b) => a.start - b.start || b.end - a.end)
+  ranges.sort((a, b) => a.start - b.start
+    || (a.kind === b.kind ? b.end - a.end : a.kind === 'session' ? -1 : 1))
   const parts: ReactNode[] = []
   let cursor = 0
   for (const range of ranges) {
     if (range.start < cursor) continue
     const { start: tokenStart, end, label, kind } = range
     if (tokenStart > cursor) parts.push(<MessageText key={cursor} text={text.slice(cursor, tokenStart)} />)
+    const referenceKind = kind === 'session'
+      ? 'session'
+      : label.startsWith('@')
+        ? label.endsWith('/') ? 'folder' : 'file'
+        : undefined
+    const displayLabel = referenceKind === undefined
+      ? label
+      : referenceKind === 'session'
+        ? label.slice(1)
+        : label.slice(1).replace(/^"|"$/gu, '').split(/[\\/]/u).filter(Boolean).at(-1) ?? label.slice(1)
     parts.push(
-      <span key={tokenStart} className={css.refChip} data-ref-chip={kind === 'session' ? 'session' : label.startsWith('@') ? 'subagent' : 'skill'}>
-        {label}
+      <span
+        key={tokenStart}
+        className={css.refChip}
+        data-ref-chip={referenceKind ?? 'skill'}
+        title={label}
+      >
+        {referenceKind !== undefined && (
+          <ReferenceIcon kind={referenceKind} size={16} className={css.refIcon} />
+        )}
+        {displayLabel}
       </span>,
     )
     cursor = end

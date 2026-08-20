@@ -28,9 +28,9 @@
           backgroundMode: one-shot
           maxDepth: 1
       - insert:
-          - id: team
-            name: '@deepseek-ai/dsh-team'
-          - id: tool-team
-            name: '@deepseek-ai/dsh-tool-team'
+          - id: agent-team
+            name: '@deepseek-ai/dsh-experimental-agent-team'
+          - id: tool-agent-team
+            name: '@deepseek-ai/dsh-experimental-tool-agent-team'
           - id: team-fixture-llm
             name: './tests/fixtures/team-llm.mjs'

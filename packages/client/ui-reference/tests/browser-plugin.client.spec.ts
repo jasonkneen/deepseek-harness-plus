@@ -107,7 +107,7 @@ describe('apply', () => {
     ctx.provide('locale', new LocaleRuntime(ctx))
     const ownFiber = ctx.plugin({ inject: [...inject], apply })
     await ownFiber.await()
-    expect(registered).toMatchObject({ trigger: '@', name: 'reference' })
+    expect(registered).toMatchObject({ trigger: '@', name: 'reference', showGroupTitle: false })
     await ownFiber.dispose()
     expect(registered).toBeUndefined()
     await fiber.dispose()
@@ -210,7 +210,15 @@ describe('candidates', () => {
       position: 'inline',
       via: 'menu',
       span: { start: 0, end: 6, draftRev: 1 },
-    })).toEqual({ text: '@"README.md" ' })
+    })).toEqual({
+      insert: {
+        source: 'reference',
+        ref: '@"README.md"',
+        label: 'README.md',
+        appearance: 'file',
+        clipboardText: '@"README.md"',
+      },
+    })
     expect(sessions).not.toHaveBeenCalled()
     await expect(source.candidates(session, request('research'))).resolves.toEqual([
       expect.objectContaining({ name: 'Session · Research' }),
@@ -276,11 +284,19 @@ describe('pick and codec', () => {
     span: { start: 0, end: 1, draftRev: 1 },
   })
 
-  it('inserts files as path text, keeping directory completion open', async () => {
+  it('inserts files as atomic icon labels while keeping directory completion open', async () => {
     const { source } = await bench()
     const [directory, file] = await source.candidates(session, request(''))
     expect(pick(source, directory!)).toEqual({ text: '@src/', continue: true })
-    expect(pick(source, file!)).toEqual({ text: '@"docs/a b.md" ' })
+    expect(pick(source, file!)).toEqual({
+      insert: {
+        source: 'reference',
+        ref: '@"docs/a b.md"',
+        label: 'a b.md',
+        appearance: 'file',
+        clipboardText: '@"docs/a b.md"',
+      },
+    })
     const [quotedDirectory] = await source.candidates(session, request('', { quoted: true }))
     expect(pick(source, quotedDirectory!)).toEqual({ text: '@"src/', continue: true })
   })
@@ -294,7 +310,8 @@ describe('pick and codec', () => {
       insert: {
         source: 'reference',
         ref: mention,
-        label: '@Research',
+        label: 'Research',
+        appearance: 'session',
         clipboardText: mention,
       },
     })

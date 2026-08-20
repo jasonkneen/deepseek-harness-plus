@@ -12,9 +12,9 @@ Agent Teams 的服务与工具约定仍在变化，但它需要使用真实 Sess
 
 ## 决策
 
-`packages/experimental/team` 与 `packages/experimental/tool-team` 是私有 workspace 包。其 npm 名仍为 `@deepseek-ai/dsh-team` 与 `@deepseek-ai/dsh-tool-team`，因此 promotion 只需修改路径与发布元数据，无需重命名 import。
+`packages/experimental/agent-team` 与 `packages/experimental/tool-agent-team` 是私有 workspace 包。[实验性包命名决策](2026-08-19-experimental-package-name-prefix.md)负责其 npm 名和 promotion 重命名；本记录负责其目录归属、发布排除与依赖隔离。
 
-dsh 发布系列与本地 baseline 发布器均排除 `packages/experimental/` 下的所有 manifest。workspace 约束要求每个实验性包设置 `private: true` 并省略 `publishConfig`。同一个顶层检查会拒绝发布包、发布 app 或 Python runtime 通过 `dependencies`、`optionalDependencies` 或 `peerDependencies` 依赖实验性包。实验性包可以依赖发布包和其他实验性包；测试可以通过 `devDependencies` 使用它们，示例可以显式加载它们。
+dsh pack 与 publish 集合以及本地 baseline 发布器均排除 `packages/experimental/` 下的所有 manifest。`release:dsh` 仍会让这些 manifest 跟随 dsh 共享版本递增，但不会创建发布 tag。workspace 约束要求每个实验性包设置 `private: true` 并省略 `publishConfig`。同一个顶层检查会拒绝发布包、发布 app 或 Python runtime 通过 `dependencies`、`optionalDependencies` 或 `peerDependencies` 依赖实验性包。实验性包可以依赖发布包和其他实验性包；测试可以通过 `devDependencies` 使用它们，示例可以显式加载它们。
 
 通用的调用方预留 continuable child 身份和精确 direct-child drain 仍属于稳定 Subagent 服务。它们负责 Subagent 身份与 Activation 生命周期，不 import 或命名 Agent Teams；实验性 Team 服务沿允许的方向消费这些能力。
 
@@ -28,10 +28,8 @@ dsh 发布系列与本地 baseline 发布器均排除 `packages/experimental/` �
 
 **把 Subagent 前置能力移入 experimental 目录。** child 身份分配与 Activation teardown 属于 Subagent owner，且不包含 Team 专用约定。移动或复制这些能力会反转依赖方向，或把同一个生命周期拆到多个包中。
 
-**使用不同的 npm 名发布实验性包。** experimental 后缀会让 promotion 重命名所有 import 与配置项，却不能加强发布排除；私有 manifest 与发布系列过滤已经强制执行实际要求。
-
 ## 后果
 
 Agent Teams 可以使用完整仓库依赖图与质量检查，而不进入正式 tarball，也不会成为受支持的运行时依赖。在 Team 包 promotion 前，发布包不能暴露 Team，因此 CLI 和 Web 实验使用显式示例或实验性组合，而不是已发布的基础组合包。
 
-孵化期间的产品职责分组不够直接，promotion 也会产生路径改动。保持 npm 名稳定后，改动范围仅包括仓库路径、元数据、文档和组合。
+孵化期间的产品职责分组不够直接。promotion 会按照实验性包命名决策产生路径和 npm 名改动。

@@ -1161,20 +1161,89 @@ describe('decorations', () => {
     expect(view.container.querySelector('[data-decoration="hint"]')?.textContent).toBe('输入目标，智能体将持续执行')
   })
 
-  it('an inserted reference renders as a chip at its placeholder offset', () => {
+  it('an inserted reference decorates its complete inline display range', () => {
     const { view, shell } = bench()
+    const reference = {
+      source: 'reference', ref: 'w1', label: '会话一', appearance: 'session' as const, clipboardText: '@w1',
+    }
     act(() => {
       shell.setDraft('参考 @w1 内容')
       shell.insertReference(
-        { source: 'subagent', ref: 'w1', label: '@w1', clipboardText: '@w1' },
+        reference,
         { start: 3, end: 6, draftRev: shell.snapshot.draftRev },
       )
     })
     const chip = view.container.querySelector('[data-decoration="chip"]')
-    expect(chip?.textContent).toBe('@w1')
+    expect(chip?.textContent).toBe('@会话一')
+    expect(chip?.getAttribute('data-reference-appearance')).toBe('session')
+    expect(chip?.querySelector('svg')).not.toBeNull()
     expect(shell.snapshot.occurrences).toHaveLength(1)
-    // The draft carries exactly one placeholder char where the token was.
-    expect(shell.snapshot.draft).toBe('参考 \uFFFC 内容')
+    expect(shell.snapshot.draft).toBe('参考 @会话一 内容')
+    expect(shell.snapshot.occurrences[0]).toMatchObject({ offset: 3, length: 4 })
+  })
+
+  it('keeps the textarea glyph layer transparent when a structured reference becomes disabled', () => {
+    const { view, shell, session, textarea } = bench()
+    act(() => {
+      shell.setDraft('@w1')
+      shell.insertReference({
+        source: 'reference', ref: 'w1', label: '会话一', appearance: 'session', clipboardText: '@w1',
+      }, { start: 0, end: 3, draftRev: shell.snapshot.draftRev })
+      session.set(snapshotOf({ removed: true }))
+    })
+    const backdrop = view.container.querySelector('[data-input-backdrop]')
+    expect(textarea.disabled).toBe(true)
+    expect(backdrop?.getAttribute('data-disabled')).toBe('true')
+    expect(backdrop?.querySelector('[data-decoration="chip"] svg')).not.toBeNull()
+  })
+
+  it('Backspace and Delete remove a reference as one range at its boundaries', () => {
+    const reference = {
+      source: 'reference', ref: 'w1', label: '会话一', appearance: 'session' as const, clipboardText: '@w1',
+    }
+    const backspace = bench()
+    act(() => {
+      backspace.shell.setDraft('前 @w1 后')
+      backspace.shell.insertReference(
+        reference,
+        { start: 2, end: 5, draftRev: backspace.shell.snapshot.draftRev },
+      )
+    })
+    backspace.textarea.setSelectionRange(6, 6)
+    fireEvent.keyDown(backspace.textarea, { key: 'Backspace' })
+    expect(backspace.shell.snapshot).toMatchObject({ draft: '前  后', occurrences: [] })
+
+    const forwardDelete = bench()
+    act(() => {
+      forwardDelete.shell.setDraft('前 @w1 后')
+      forwardDelete.shell.insertReference(
+        reference,
+        { start: 2, end: 5, draftRev: forwardDelete.shell.snapshot.draftRev },
+      )
+    })
+    forwardDelete.textarea.setSelectionRange(2, 2)
+    fireEvent.keyDown(forwardDelete.textarea, { key: 'Delete' })
+    expect(forwardDelete.shell.snapshot).toMatchObject({ draft: '前  后', occurrences: [] })
+  })
+
+  it('copy and cut expand a partial reference selection to its structured range', () => {
+    const { shell, textarea } = bench()
+    act(() => {
+      shell.setDraft('前 @w1 后')
+      shell.insertReference({
+        source: 'reference', ref: 'w1', label: '会话一', appearance: 'session', clipboardText: '@w1',
+      }, { start: 2, end: 5, draftRev: shell.snapshot.draftRev })
+    })
+    const setData = vi.fn()
+    textarea.setSelectionRange(3, 4)
+    fireEvent.copy(textarea, { clipboardData: { setData } })
+    expect(setData).toHaveBeenCalledWith('text/plain', '@w1')
+    expect(shell.snapshot.draft).toBe('前 @会话一 后')
+
+    textarea.setSelectionRange(3, 4)
+    fireEvent.cut(textarea, { clipboardData: { setData } })
+    expect(setData).toHaveBeenLastCalledWith('text/plain', '@w1')
+    expect(shell.snapshot).toMatchObject({ draft: '前  后', occurrences: [] })
   })
 
   it('a lexicon-matched plain token renders the text-ref mark', () => {
@@ -1186,6 +1255,33 @@ describe('decorations', () => {
     // Editing the token out of match shape drops the decoration.
     act(() => { shell.setDraft('use /fixture-dem now') })
     expect(view.container.querySelector('[data-decoration="text-ref"]')).toBeNull()
+  })
+
+  it('a directory completion renders a folder glyph without changing its plain text', () => {
+    const { view, shell } = bench()
+    act(() => { shell.setDraft('see @src/components/') })
+    const mark = view.container.querySelector('[data-decoration="text-ref"]')
+    expect(mark?.textContent).toBe('@src/components/')
+    expect(mark?.querySelector('svg')).not.toBeNull()
+    expect(shell.snapshot.draft).toBe('see @src/components/')
+  })
+
+  it('a plain-text reference keeps its nodes while earlier text shifts its offset', () => {
+    const { view, textarea, shell } = bench()
+    act(() => { shell.setDraft('see @src/components/ here') })
+    const backdrop = view.container.querySelector('[data-input-backdrop]')!
+    const mark = backdrop.querySelector('[data-decoration="text-ref"]')!
+    const icon = mark.querySelector('svg')!
+    act(() => { fireEvent.change(textarea, { target: { value: 'X see @src/components/ here' } }) })
+    // Node identity, not text: an offset-derived key remounts the mark and its
+    // icon on every keystroke landing ahead of the range.
+    expect(backdrop.querySelector('[data-decoration="text-ref"]')).toBe(mark)
+    expect(icon.isConnected).toBe(true)
+    expect(mark.textContent).toBe('@src/components/')
+    // A token edited out of match shape still loses its decoration.
+    act(() => { fireEvent.change(textarea, { target: { value: 'X see X@src/components/ here' } }) })
+    expect(backdrop.querySelector('[data-decoration="text-ref"]')).toBeNull()
+    expect(shell.snapshot.draft).toBe('X see X@src/components/ here')
   })
 })
 
@@ -1300,24 +1396,43 @@ describe('command launcher chrome and control seats', () => {
     }
     const { view } = bench({ permissions, command })
     const trigger = view.getByLabelText(/^访问模式/) as HTMLButtonElement
-    // Title-case display is presentation only; the menu ids stay machine names.
-    expect(trigger.textContent).toBe('Read Only')
+    // Product-label display is presentation only; the menu ids stay machine names.
+    expect(trigger.textContent).toBe('仅可查看')
     expect([...trigger.querySelectorAll('svg')]
       .every(icon => icon.closest('[aria-hidden="true"]') !== null)).toBe(true)
     fireEvent.click(trigger)
     const items = view.getAllByRole('menuitem')
-    expect(items.map(o => o.textContent)).toEqual(['Read Only', 'Workspace Write', 'Full access'])
+    expect(items.map(o => o.textContent)).toEqual(['仅可查看', '可写入工作区', '完全权限'])
     fireEvent.click(items[1]!)
     // Optimistic pick + disable until admission resolves (command stub resolves true).
     const busy = view.getByLabelText(/^访问模式/) as HTMLButtonElement
-    expect(busy.textContent).toBe('Workspace Write')
+    expect(busy.textContent).toBe('可写入工作区')
     expect(busy.disabled).toBe(true)
     expect(command).toHaveBeenCalledWith('/permission workspace-write')
     await act(async () => {})
     expect((view.getByLabelText(/^访问模式/) as HTMLButtonElement).disabled).toBe(false)
   })
 
-  it('requires explicit risk acknowledgement before submitting Full access', async () => {
+  it('the Access chip preserves host labels for built-in preset values', () => {
+    const permissions = {
+      options: [
+        { value: 'read-only', name: 'Review Only' },
+        { value: 'workspace-write', name: 'Project Files' },
+        { value: 'danger-full-access', name: 'Operator Mode' },
+        { value: 'custom-mode', name: 'custom-mode' },
+        { value: '__proto__', name: '__proto__' },
+      ],
+      currentValue: 'workspace-write',
+    }
+    const { view } = bench({ permissions })
+    const trigger = view.getByLabelText(/^访问模式/) as HTMLButtonElement
+    expect(trigger.textContent).toBe('Project Files')
+    fireEvent.click(trigger)
+    expect(view.getAllByRole('menuitem').map(item => item.textContent))
+      .toEqual(['Review Only', 'Project Files', 'Operator Mode', 'Custom Mode', '__proto__'])
+  })
+
+  it('requires explicit risk acknowledgement before submitting full access', async () => {
     const command = vi.fn(() => Promise.resolve(true))
     const permissions = {
       options: [
@@ -1328,11 +1443,11 @@ describe('command launcher chrome and control seats', () => {
     }
     const { view } = bench({ permissions, command })
     fireEvent.click(view.getByLabelText(/^访问模式/))
-    fireEvent.click(view.getByRole('menuitem', { name: 'Full access' }))
+    fireEvent.click(view.getByRole('menuitem', { name: '完全权限' }))
 
     expect(command).not.toHaveBeenCalled()
-    expect(view.getByRole('dialog', { name: '确认启用 Full access？' })).toBeTruthy()
-    const enable = view.getByRole('button', { name: '启用 Full access' }) as HTMLButtonElement
+    expect(view.getByRole('dialog', { name: '确认启用完全权限？' })).toBeTruthy()
+    const enable = view.getByRole('button', { name: '启用完全权限' }) as HTMLButtonElement
     expect(enable.disabled).toBe(true)
 
     fireEvent.click(view.getByRole('checkbox', { name: '我已了解风险，并愿意继续' }))
@@ -1342,11 +1457,11 @@ describe('command launcher chrome and control seats', () => {
     expect(command).toHaveBeenCalledOnce()
     expect(command).toHaveBeenCalledWith('/permission danger-full-access')
     expect(view.queryByRole('dialog')).toBeNull()
-    expect((view.getByLabelText(/^访问模式/) as HTMLButtonElement).textContent).toBe('Full access')
+    expect((view.getByLabelText(/^访问模式/) as HTMLButtonElement).textContent).toBe('完全权限')
     await act(async () => {})
   })
 
-  it('cancels a Full access selection without changing permission and resets acknowledgement', () => {
+  it('cancels a full access selection without changing permission and resets acknowledgement', () => {
     const command = vi.fn(() => Promise.resolve(true))
     const permissions = {
       options: [
@@ -1358,21 +1473,21 @@ describe('command launcher chrome and control seats', () => {
     const { view } = bench({ permissions, command })
     const openConfirmation = () => {
       fireEvent.click(view.getByLabelText(/^访问模式/))
-      fireEvent.click(view.getByRole('menuitem', { name: 'Full access' }))
+      fireEvent.click(view.getByRole('menuitem', { name: '完全权限' }))
     }
 
     openConfirmation()
     fireEvent.click(view.getByRole('checkbox'))
     fireEvent.click(view.getByRole('button', { name: '取消' }))
     expect(command).not.toHaveBeenCalled()
-    expect((view.getByLabelText(/^访问模式/) as HTMLButtonElement).textContent).toBe('Workspace Write')
+    expect((view.getByLabelText(/^访问模式/) as HTMLButtonElement).textContent).toBe('可写入工作区')
 
     openConfirmation()
     expect((view.getByRole('checkbox') as HTMLInputElement).checked).toBe(false)
-    expect((view.getByRole('button', { name: '启用 Full access' }) as HTMLButtonElement).disabled).toBe(true)
+    expect((view.getByRole('button', { name: '启用完全权限' }) as HTMLButtonElement).disabled).toBe(true)
   })
 
-  it('revokes an open Full access confirmation when the task locks', () => {
+  it('revokes an open full access confirmation when the task locks', () => {
     const command = vi.fn(() => Promise.resolve(true))
     const permissions = {
       options: [
@@ -1383,14 +1498,14 @@ describe('command launcher chrome and control seats', () => {
     }
     const { view, session } = bench({ permissions, command })
     fireEvent.click(view.getByLabelText(/^访问模式/))
-    fireEvent.click(view.getByRole('menuitem', { name: 'Full access' }))
+    fireEvent.click(view.getByRole('menuitem', { name: '完全权限' }))
     fireEvent.click(view.getByRole('checkbox'))
     act(() => { session.set(snapshotOf({ removed: true })) })
     expect(view.queryByRole('dialog')).toBeNull()
     expect(command).not.toHaveBeenCalled()
   })
 
-  it('resets an open Full access confirmation when switching tasks', () => {
+  it('resets an open full access confirmation when switching tasks', () => {
     const command = vi.fn(() => Promise.resolve(true))
     const permissions = {
       options: [
@@ -1401,7 +1516,7 @@ describe('command launcher chrome and control seats', () => {
     }
     const { view, props } = bench({ permissions, command })
     fireEvent.click(view.getByLabelText(/^访问模式/))
-    fireEvent.click(view.getByRole('menuitem', { name: 'Full access' }))
+    fireEvent.click(view.getByRole('menuitem', { name: '完全权限' }))
     fireEvent.click(view.getByRole('checkbox'))
     view.rerender(<InputBar {...props} sessionId={'s2' as SessionId} />)
     expect(view.queryByRole('dialog')).toBeNull()

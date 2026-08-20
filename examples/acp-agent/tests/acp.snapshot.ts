@@ -75,6 +75,7 @@ const WEB_CONFIG = fileURLToPath(new URL('../web.cordis.yml', import.meta.url))
 const FS_SEARCH_CONFIG = fileURLToPath(new URL('./fs-search.cordis.yml', import.meta.url))
 const PARTIAL_LANDLOCK_CONFIG = fileURLToPath(new URL('../partial-landlock.cordis.yml', import.meta.url))
 const PWSH_CONFIG = fileURLToPath(new URL('./pwsh.cordis.yml', import.meta.url))
+const PERSISTENT_PWSH_CONFIG = fileURLToPath(new URL('./persistent-pwsh.cordis.yml', import.meta.url))
 const BACKGROUND_TASK_ADMISSION_CONFIG = fileURLToPath(
   new URL('../background-job-admission.cordis.yml', import.meta.url),
 )
@@ -294,6 +295,15 @@ const SCENARIOS: Scenario[] = [
     // binary skip the run (fixtures stay guarded). The recorded turn writes
     // PWSH_OK via [Console]::Out.Write so the fixture carries no platform
     // newline and one recording replays on every host.
+    pwshOnly: true,
+  },
+  {
+    name: 'persistent-pwsh-tool-turn',
+    hasModelTurn: true,
+    recorded: true,
+    pinsHeader: true,
+    headerClass: 'persistent-pwsh',
+    configPath: PERSISTENT_PWSH_CONFIG,
     pwshOnly: true,
   },
   // Authored keyless replay through a test-only partial-Landlock provider:

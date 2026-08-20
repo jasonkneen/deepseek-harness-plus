@@ -36,6 +36,8 @@ export interface MenuState {
   readonly generation: number
   readonly groups: readonly {
     readonly source: string
+    /** False when candidate section rows own all visible group labeling. */
+    readonly showGroupTitle?: boolean
     readonly status: 'pending' | 'ready'
     readonly items: readonly InputTriggerCandidate[]
   }[]

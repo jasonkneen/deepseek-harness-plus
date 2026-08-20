@@ -336,18 +336,18 @@ describe('session reference discovery and preparation', () => {
     expect(decision.kind).toBe('enter')
     if (decision.kind !== 'enter') throw new Error('expected entered pre-step')
     expect(decision.messages).toHaveLength(4)
-    expect(decision.messages[0]?.source).toMatchObject({
-      kind: 'session-reference',
-      references: [{ sessionId: source.id, label: 'Research' }],
-    })
-    expect(decision.messages[1]).toMatchObject({
+    expect(decision.messages[0]).toMatchObject({
       id: direct.id,
       content: [
         { type: 'text', text: 'compare @Research now' },
         { type: 'reasoning', text: 'preserve this non-text block' },
       ],
     })
-    expect(decision.messages[1]).not.toBe(direct)
+    expect(decision.messages[0]).not.toBe(direct)
+    expect(decision.messages[1]?.source).toMatchObject({
+      kind: 'session-reference',
+      references: [{ sessionId: source.id, label: 'Research' }],
+    })
     expect(decision.messages[2]).toBe(ordinary)
     expect(decision.messages[3]).toBe(plugin)
   })
@@ -695,11 +695,11 @@ describe('session reference discovery and preparation', () => {
     )
     const context = prepared.additionalContext
     if (context === undefined) throw new Error('expected prepared context')
-    target.append('user/message', context, { surfaceOp: 'append' })
     target.append('user/message', createUserMessage({
       content: prepared.content,
       source: { kind: 'user' },
     }), { surfaceOp: 'append' })
+    target.append('user/message', context, { surfaceOp: 'append' })
     const before = target.deriveMessages()
 
     const later = source.append(

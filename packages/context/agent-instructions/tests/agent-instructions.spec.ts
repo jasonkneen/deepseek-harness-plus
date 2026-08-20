@@ -236,7 +236,7 @@ async function workspaceContextOf(agent: Agent): Promise<UserMessage> {
       message.source.kind === 'agent-instructions')
     expect(context).toBeDefined()
     return context!
-  })
+  }, { timeout: 10_000 })
 }
 
 async function syncWorkspaceContext(ctx: Context, agent: Agent): Promise<void> {

@@ -33,6 +33,7 @@ export function apply(ctx: ClientContext): void {
   const source: InputTriggerSource = {
     trigger: '@',
     name: 'reference',
+    showGroupTitle: false,
     async candidates(session: ClientSessionContext, { query, quoted, signal }) {
       const files = ctx.remote.fileReferences.list(session.sessionId, query, signal).then(
         result => result.ok ? result.value : [],
@@ -54,17 +55,25 @@ export function apply(ctx: ClientContext): void {
     onPick({ candidate }) {
       const value = parseCandidate(candidate.value)
       if (value?.kind === 'file') {
-        return {
-          text: value.mention + (value.fileKind === 'file' ? ' ' : ''),
-          ...value.fileKind === 'directory' ? { continue: true } : {},
-        }
+        return value.fileKind === 'directory'
+          ? { text: value.mention, continue: true }
+          : {
+            insert: {
+              source: 'reference',
+              ref: value.mention,
+              label: value.label,
+              appearance: 'file',
+              clipboardText: value.mention,
+            },
+          }
       }
       if (value?.kind === 'session') {
         return {
           insert: {
             source: 'reference',
             ref: value.mention,
-            label: `@${value.label}`,
+            label: value.label,
+            appearance: 'session',
             clipboardText: value.mention,
           },
         }
@@ -83,7 +92,7 @@ export function apply(ctx: ClientContext): void {
 type Translate = (key: ReferenceKey) => string
 
 type ReferenceCandidateValue =
-  | { kind: 'file'; fileKind: FileReferenceCandidate['kind']; mention: string }
+  | { kind: 'file'; fileKind: FileReferenceCandidate['kind']; label: string; mention: string }
   | { kind: 'session'; label: string; mention: string }
 
 function fileCandidate(candidate: FileReferenceCandidate, preserveQuote: boolean, t: Translate) {
@@ -94,6 +103,7 @@ function fileCandidate(candidate: FileReferenceCandidate, preserveQuote: boolean
   const value: ReferenceCandidateValue = {
     kind: 'file',
     fileKind: candidate.kind,
+    label: name,
     mention,
   }
   return [{
