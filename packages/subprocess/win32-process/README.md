@@ -15,6 +15,16 @@ Low-level Win32 process library consumed by the Windows ACL sandbox and the ordi
 
 The Windows ACL sandbox adds SID, DACL, grant, workspace, and public child policy above these primitives.
 
+## Header verification
+
+The process, stdio, and Job constants, signatures, and layouts are checked against the MinGW Windows headers by [`verify/abi-probe.cpp`](verify/abi-probe.cpp):
+
+```sh
+g++ -std=c++20 -municode -O2 -o abi-probe.exe verify/abi-probe.cpp && ./abi-probe.exe
+```
+
+The Koffi struct definitions also assert their sizes at module load, so a header or layout mismatch fails before native process creation.
+
 ## Model Experience
 
 ### Process primitives
