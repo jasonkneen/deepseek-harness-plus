@@ -8,7 +8,7 @@ import {
   unlinkSync,
   writeFileSync,
 } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { constants as osConstants, tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 /** One direct command request consumed exactly once by the runner. */
@@ -45,6 +45,50 @@ export interface RunnerFiles {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
+}
+
+function isOptionalString(value: unknown): boolean {
+  return value === undefined || typeof value === 'string'
+}
+
+function isSerializedSpawnError(value: unknown): value is SerializedSpawnError {
+  return isRecord(value)
+    && typeof value.name === 'string'
+    && typeof value.message === 'string'
+    && isOptionalString(value.code)
+    && (value.errno === undefined || typeof value.errno === 'number')
+    && isOptionalString(value.syscall)
+    && isOptionalString(value.path)
+    && (value.spawnargs === undefined
+      || (Array.isArray(value.spawnargs) && value.spawnargs.every(item => typeof item === 'string')))
+}
+
+function parseRunnerEvent(line: string): RunnerEvent {
+  const event: unknown = JSON.parse(line)
+  if (!isRecord(event)) throw new Error(`subprocess runner emitted invalid event: ${line}`)
+  if (event.type === 'started') {
+    if (typeof event.pid !== 'number' || !Number.isSafeInteger(event.pid) || event.pid <= 0) {
+      throw new Error(`subprocess runner emitted invalid event: ${line}`)
+    }
+    return { type: 'started', pid: event.pid }
+  }
+  if (event.type === 'exit') {
+    const validExitCode = event.exitCode === null
+      || (typeof event.exitCode === 'number' && Number.isSafeInteger(event.exitCode) && event.exitCode >= 0)
+    const validSignal = event.signal === null
+      || (typeof event.signal === 'string' && Object.hasOwn(osConstants.signals, event.signal))
+    if (!validExitCode || !validSignal) throw new Error(`subprocess runner emitted invalid event: ${line}`)
+    return {
+      type: 'exit',
+      exitCode: event.exitCode as number | null,
+      signal: event.signal as NodeJS.Signals | null,
+    }
+  }
+  if (event.type === 'spawn-error' || event.type === 'runner-error') {
+    if (!isSerializedSpawnError(event.error)) throw new Error(`subprocess runner emitted invalid event: ${line}`)
+    return { type: event.type, error: event.error }
+  }
+  throw new Error(`subprocess runner emitted unknown event: ${line}`)
 }
 
 /**
@@ -107,14 +151,7 @@ export function readRunnerEvents(eventsPath: string): RunnerEvent[] {
   }
   const lines = content.split('\n')
   if (lines.at(-1) !== '') lines.pop()
-  return lines.filter(line => line.length > 0).map((line) => {
-    const event: unknown = JSON.parse(line)
-    if (isRecord(event)
-      && (event.type === 'started' || event.type === 'exit' || event.type === 'spawn-error' || event.type === 'runner-error')) {
-      return event as unknown as RunnerEvent
-    }
-    throw new Error(`subprocess runner emitted unknown event: ${line}`)
-  })
+  return lines.filter(line => line.length > 0).map(parseRunnerEvent)
 }
 
 /**

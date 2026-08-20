@@ -367,10 +367,15 @@ describe('Node 24 lane ownership', () => {
     })
     expect(subject.find(item => item.id === 'built-bin-smoke')?.args).toEqual(
       expect.arrayContaining([
+        'packages/subprocess/subprocess-local/tests/spawn-runner-built.e2e.ts',
         'packages/subagent/subagent-codex/tests/loader-composition.e2e.ts',
         'packages/subagent/subagent-claude-code/tests/loader-composition.e2e.ts',
       ]),
     )
+    expect(subject.find(item => item.id === 'built-bin-smoke')?.env).toEqual({
+      DSH_EXAMPLE_MODE: 'lib',
+      DSH_REQUIRE_BUILT_SUBPROCESS_RUNNER: '1',
+    })
     expect(subject.find(item => item.id === 'web-snapshot')).toMatchObject({
       displayCommand: 'DSH_SNAPSHOT=replay pnpm run test:web:built',
       env: { DSH_SNAPSHOT: 'replay' },

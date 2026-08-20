@@ -695,6 +695,7 @@ function builtBinSmokeGate(needs: string[] = ['build']): Gate {
     'packages/examples/acp-demo/tests/built-bin.e2e.ts',
     'packages/host/directory-picker-native/tests/built-worker.e2e.ts',
     'packages/sdk/server/tests/built-scope-carrier.e2e.ts',
+    'packages/subprocess/subprocess-local/tests/spawn-runner-built.e2e.ts',
     'packages/subagent/subagent-codex/tests/loader-composition.e2e.ts',
     'packages/subagent/subagent-claude-code/tests/loader-composition.e2e.ts',
     'packages/api/remotes/tests/built-lib.e2e.ts',
@@ -707,7 +708,10 @@ function builtBinSmokeGate(needs: string[] = ['build']): Gate {
   ], {
     label: 'built-bin smoke',
     needs,
-    env: { DSH_EXAMPLE_MODE: 'lib' },
+    env: {
+      DSH_EXAMPLE_MODE: 'lib',
+      DSH_REQUIRE_BUILT_SUBPROCESS_RUNNER: '1',
+    },
   })
 }
 

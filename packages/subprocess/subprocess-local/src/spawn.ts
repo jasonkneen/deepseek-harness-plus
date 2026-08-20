@@ -454,6 +454,7 @@ export function bindManagedProcess(
       rangeExitObserved = true
       if (graceTimer !== undefined) clearTimeout(graceTimer)
       graceTimer = undefined
+      spec.signal?.removeEventListener('abort', onAbort)
     })()
     return rangeExitObservation
   }
@@ -509,6 +510,7 @@ export function bindManagedProcess(
       /* v8 ignore next -- one Promise cannot reject after its fulfillment path has settled this handle. */
       if (settled) return
       settled = true
+      terminate()
       stdoutCollector?.seal()
       stderrCollector?.seal()
       cleanup()
@@ -522,7 +524,6 @@ export function bindManagedProcess(
       // graceTimer deliberately NOT cleared: the SIGKILL escalation must be
       // able to reach tree survivors after the direct child settles.
       if (pipeDrainTimer !== undefined) clearTimeout(pipeDrainTimer)
-      spec.signal?.removeEventListener('abort', onAbort)
     }
   })
 

@@ -68,7 +68,7 @@ export function probeLinuxScope(internals: LinuxScopeInternals = {}): boolean {
 class SystemdScopeOwner implements BoundProcessOwner {
   private stopped = false
   private observation: Promise<void> | undefined
-  private lastSignal: NodeJS.Signals | undefined
+  private killConfirmed = false
 
   constructor(
     private readonly unit: string,
@@ -79,14 +79,14 @@ class SystemdScopeOwner implements BoundProcessOwner {
 
   signal(signal: NodeJS.Signals): void {
     if (this.stopped) return
-    this.lastSignal = signal
-    this.runSync(this.systemctl, [
+    const result = this.runSync(this.systemctl, [
       '--user',
       'kill',
       '--kill-whom=all',
       `--signal=${signal}`,
       this.unit,
     ], { stdio: 'ignore', timeout: 5_000 })
+    if (signal === 'SIGKILL' && result.error === undefined && result.status === 0) this.killConfirmed = true
   }
 
   private active(): boolean {
@@ -121,7 +121,7 @@ class SystemdScopeOwner implements BoundProcessOwner {
   }
 
   forcedOutcome(): { exitCode: null; signal: 'SIGKILL' } | undefined {
-    return this.lastSignal === 'SIGKILL' ? { exitCode: null, signal: 'SIGKILL' } : undefined
+    return this.killConfirmed ? { exitCode: null, signal: 'SIGKILL' } : undefined
   }
 }
 
@@ -165,6 +165,6 @@ export function launchLinuxScope(
   const closed = observeChildClose(child)
   const owner = new SystemdScopeOwner(`${unitBase}.scope`, systemctl, runSync, child)
   const result = runnerDirectResult(child, files, closed, () => owner.forcedOutcome())
-  cleanupAfterRunner(files, result.direct, owner)
+  cleanupAfterRunner(files, result.direct, closed)
   return { child, pid: result.pid, direct: result.direct, closed, owner }
 }

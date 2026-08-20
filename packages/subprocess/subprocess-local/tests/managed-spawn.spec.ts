@@ -123,17 +123,48 @@ describe('managed process binding', () => {
     })
     const rejection: unknown = 'runner failed'
     const direct = Promise.resolve().then(() => { throw rejection })
+    const signal = vi.fn()
     const handle = bindManagedProcess(spec(), {
       child: wrapper,
       pid: wrapper.pid as number,
       direct,
       closed: new Promise<void>(() => {}),
-      owner: { signal: vi.fn(), waitForExit: async () => true },
+      owner: { signal, waitForExit: async () => true },
     })
     try {
       await expect(handle.done).rejects.toThrow('runner failed')
+      expect(signal).toHaveBeenCalledExactlyOnceWith('SIGTERM')
     } finally {
       wrapper.kill('SIGKILL')
     }
+  })
+
+  it('keeps abort ownership after direct exit until the managed range is empty', async () => {
+    const wrapper = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], {
+      stdio: ['ignore', 'pipe', 'pipe'],
+    })
+    const direct = Promise.withResolvers<{ exitCode: number | null; signal: NodeJS.Signals | null }>()
+    const stopped = Promise.withResolvers<undefined>()
+    const signal = vi.fn((requested: NodeJS.Signals) => {
+      if (requested !== 'SIGTERM') return
+      wrapper.kill('SIGTERM')
+      stopped.resolve(undefined)
+    })
+    const controller = new AbortController()
+    const handle = bindManagedProcess({ ...spec(), signal: controller.signal }, {
+      child: wrapper,
+      pid: wrapper.pid as number,
+      direct: direct.promise,
+      closed: Promise.resolve(),
+      owner: {
+        signal,
+        waitForExit: async () => { await stopped.promise; return true },
+      },
+    })
+    direct.resolve({ exitCode: 0, signal: null })
+    await handle.done
+    controller.abort()
+    await expect(handle.waitForExit()).resolves.toBe(true)
+    expect(signal).toHaveBeenCalledExactlyOnceWith('SIGTERM')
   })
 })

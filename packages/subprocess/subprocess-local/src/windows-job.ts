@@ -100,6 +100,6 @@ export function launchWindowsJob(
   const closed = observeChildClose(child)
   const owner = new WindowsJobOwner(child)
   const result = runnerDirectResult(child, files, closed)
-  cleanupAfterRunner(files, result.direct, owner)
+  cleanupAfterRunner(files, result.direct, closed)
   return { child, pid: result.pid, direct: result.direct, closed, owner }
 }

@@ -5,7 +5,6 @@ import { existsSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { setTimeout as sleepMs } from 'node:timers/promises'
 import type { SubprocessOutcome, SubprocessSpawnSpec } from '@deepseek-ai/dsh-subprocess'
-import type { BoundProcessOwner } from './managed-owner.ts'
 import {
   cleanupRunnerFiles,
   createRunnerFiles,
@@ -133,15 +132,15 @@ export function runnerDirectResult(
 }
 
 /**
- * Remove request/result files after both direct and managed-range lifecycles settle.
+ * Remove request/result files after their reader settles and writer closes.
  * @param files - private request and result paths.
  * @param direct - target result promise.
- * @param owner - bound scope or Job owner.
+ * @param closed - runner close observation.
  */
 export function cleanupAfterRunner(
   files: RunnerFiles,
   direct: Promise<SubprocessOutcome>,
-  owner: BoundProcessOwner,
+  closed: Promise<void>,
 ): void {
-  void Promise.allSettled([direct, owner.waitForExit()]).then(() => { cleanupRunnerFiles(files) })
+  void Promise.allSettled([direct, closed]).then(() => { cleanupRunnerFiles(files) })
 }

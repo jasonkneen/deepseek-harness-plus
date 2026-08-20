@@ -135,18 +135,76 @@ describe('spawn runner transport', () => {
         type: 'runner-error',
         error: { name: 'Error', message: 'runner failed' },
       })
+      appendRunnerEvent(files.eventsPath, { type: 'exit', exitCode: null, signal: 'SIGTERM' })
+      appendRunnerEvent(files.eventsPath, {
+        type: 'spawn-error',
+        error: {
+          name: 'Error',
+          message: 'spawn failed',
+          code: 'ENOENT',
+          errno: -2,
+          syscall: 'spawn missing',
+          path: 'missing',
+          spawnargs: ['argument'],
+        },
+      })
       expect(readRunnerEvents(files.eventsPath)).toEqual([
         { type: 'started', pid: 123 },
         { type: 'runner-error', error: { name: 'Error', message: 'runner failed' } },
+        { type: 'exit', exitCode: null, signal: 'SIGTERM' },
+        {
+          type: 'spawn-error',
+          error: {
+            name: 'Error',
+            message: 'spawn failed',
+            code: 'ENOENT',
+            errno: -2,
+            syscall: 'spawn missing',
+            path: 'missing',
+            spawnargs: ['argument'],
+          },
+        },
       ])
 
       writeFileSync(files.eventsPath, '{"type":"started","pid":123}\n{"type":"exit"')
       expect(readRunnerEvents(files.eventsPath)).toEqual([{ type: 'started', pid: 123 }])
-      for (const event of [null, [], { type: 'unknown' }]) {
+      for (const event of [null, []]) {
         writeFileSync(files.eventsPath, `${JSON.stringify(event)}\n`)
-        expect(() => readRunnerEvents(files.eventsPath)).toThrow('emitted unknown event')
+        expect(() => readRunnerEvents(files.eventsPath)).toThrow('emitted invalid event')
       }
+      writeFileSync(files.eventsPath, '{"type":"unknown"}\n')
+      expect(() => readRunnerEvents(files.eventsPath)).toThrow('emitted unknown event')
       expect(() => readRunnerEvents(files.directory)).toThrow()
+    } finally {
+      cleanupRunnerFiles(files)
+    }
+  })
+
+  it.each([
+    ['started without a pid', { type: 'started' }],
+    ['started with a non-number pid', { type: 'started', pid: '1' }],
+    ['started with a fractional pid', { type: 'started', pid: 1.5 }],
+    ['started with a non-positive pid', { type: 'started', pid: 0 }],
+    ['exit with a missing code', { type: 'exit', signal: null }],
+    ['exit with a non-number code', { type: 'exit', exitCode: '0', signal: null }],
+    ['exit with a fractional code', { type: 'exit', exitCode: 1.5, signal: null }],
+    ['exit with a negative code', { type: 'exit', exitCode: -1, signal: null }],
+    ['exit with a non-string signal', { type: 'exit', exitCode: 0, signal: 9 }],
+    ['exit with an unknown signal', { type: 'exit', exitCode: 0, signal: 'NOT_A_SIGNAL' }],
+    ['spawn error without an object', { type: 'spawn-error', error: null }],
+    ['spawn error without a name', { type: 'spawn-error', error: { message: 'failed' } }],
+    ['spawn error without a message', { type: 'spawn-error', error: { name: 'Error' } }],
+    ['spawn error with a numeric code', { type: 'spawn-error', error: { name: 'Error', message: 'failed', code: 1 } }],
+    ['spawn error with a string errno', { type: 'spawn-error', error: { name: 'Error', message: 'failed', errno: '1' } }],
+    ['spawn error with a numeric syscall', { type: 'spawn-error', error: { name: 'Error', message: 'failed', syscall: 1 } }],
+    ['spawn error with a numeric path', { type: 'spawn-error', error: { name: 'Error', message: 'failed', path: 1 } }],
+    ['spawn error with non-array args', { type: 'spawn-error', error: { name: 'Error', message: 'failed', spawnargs: 'arg' } }],
+    ['spawn error with non-string args', { type: 'spawn-error', error: { name: 'Error', message: 'failed', spawnargs: [1] } }],
+  ])('rejects an invalid event payload: %s', (_label, event) => {
+    const files = createRunnerFiles({ argv: ['node'], cwd: '.', env: {} })
+    try {
+      writeFileSync(files.eventsPath, `${JSON.stringify(event)}\n`)
+      expect(() => readRunnerEvents(files.eventsPath)).toThrow('emitted invalid event')
     } finally {
       cleanupRunnerFiles(files)
     }
@@ -242,16 +300,13 @@ describe('spawn runner transport', () => {
     }
   })
 
-  it('cleans runner files only after both direct and owner lifecycles settle', async () => {
+  it('cleans runner files only after the direct result and runner close settle', async () => {
     const files = createRunnerFiles({ argv: ['node'], cwd: '.', env: {} })
-    const exited = Promise.withResolvers<undefined>()
-    cleanupAfterRunner(files, Promise.resolve({ exitCode: 0, signal: null }), {
-      signal: vi.fn(),
-      waitForExit: async () => { await exited.promise; return true },
-    })
+    const closed = Promise.withResolvers<undefined>()
+    cleanupAfterRunner(files, Promise.resolve({ exitCode: 0, signal: null }), closed.promise)
     await new Promise(resolve => setImmediate(resolve))
     expect(existsSync(files.directory)).toBe(true)
-    exited.resolve(undefined)
+    closed.resolve(undefined)
     await new Promise(resolve => setImmediate(resolve))
     expect(existsSync(files.directory)).toBe(false)
   })
@@ -317,23 +372,4 @@ describe('spawn runner transport', () => {
     }
   })
 
-  it.skipIf(!existsSync(builtEntry))('reports direct outcome from the built entry', () => {
-    const files = createRunnerFiles({
-      argv: [process.execPath, '-e', 'process.exit(11)'],
-      cwd: process.cwd(),
-      env: {},
-    })
-    try {
-      const result = runRunner([process.execPath, builtEntry], files.requestPath, files.eventsPath)
-      expect(result.error).toBeUndefined()
-      const events = readRunnerEvents(files.eventsPath)
-      expect(events).toHaveLength(2)
-      expect(events[0]?.type).toBe('started')
-      if (events[0]?.type !== 'started') throw new Error('expected started event')
-      expect(events[0].pid).toBeGreaterThan(0)
-      expect(events[1]).toEqual({ type: 'exit', exitCode: 11, signal: null })
-    } finally {
-      cleanupRunnerFiles(files)
-    }
-  })
 })
