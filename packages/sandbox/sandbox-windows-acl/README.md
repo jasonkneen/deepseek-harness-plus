@@ -68,8 +68,6 @@ The sandbox-owned SID, ACL, token, file, and lock constants and layouts were ver
 g++ -std=c++20 -municode -O2 -o abi-probe.exe verify/abi-probe.cpp -ladvapi32 && ./abi-probe.exe
 ```
 
-The koffi struct definitions assert their sizes against the probe at module load, so a header/koffi layout drift fails loudly instead of corrupting memory.
-
 ## Verified boundaries (inherent to restricted tokens, not this port)
 
 - **Everyone grants remain ambient write authority.** Everyone must stay in both restricting lists: removing it breaks early DLL initialization and CNG. An external NTFS object whose normal DACL grants Everyone a requested write right therefore clears both access checks and stays writable under both modes. The real runner suite provisions an external `Everyone:Modify` directory and pins that behavior; the provider reports `enforcement: 'partial'` so callers can reject or surface the weaker boundary.

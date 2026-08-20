@@ -17,13 +17,13 @@ Windows ACL 沙箱在这些原语上增加 SID、DACL、grant、workspace 与公
 
 ## 头部验证
 
-process、stdio 与 Job 的常量、签名和布局由 [`verify/abi-probe.cpp`](verify/abi-probe.cpp) 对照 MinGW Windows 头文件检查：
+process、stdio 与 Job 的常量以及选定结构体的大小和偏移由 [`verify/abi-probe.cpp`](verify/abi-probe.cpp) 对照 MinGW Windows 头文件检查：
 
 ```sh
 g++ -std=c++20 -municode -O2 -o abi-probe.exe verify/abi-probe.cpp && ./abi-probe.exe
 ```
 
-Koffi 结构体定义还会在模块加载时断言自身大小，因此头文件或布局不匹配会在创建 native process 前失败。
+Koffi 的 `STARTUPINFOW` 与 `PROCESS_INFORMATION` 定义还会在模块加载时断言各自的 64 位大小；其余已记录偏移和常量由该探针提供证据。
 
 ## Model Experience
 

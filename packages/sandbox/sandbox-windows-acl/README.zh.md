@@ -70,8 +70,6 @@ sandbox 自有的 SID、ACL、token、文件与锁常量和布局均已在开发
 g++ -std=c++20 -municode -O2 -o abi-probe.exe verify/abi-probe.cpp -ladvapi32 && ./abi-probe.exe
 ```
 
-koffi 结构体定义在模块加载时对照探针断言其大小，因此头文件/koffi 布局漂移会大声失败而不是破坏内存。
-
 ## 已验证边界（受限令牌固有，非本移植引入）
 
 - **Everyone 授权仍是环境中的写权限来源。** Everyone 必须保留在两种 restricting 列表中：移除它会破坏早期 DLL 初始化与 CNG。因此，如果外部 NTFS 对象的正常 DACL 向 Everyone 授予所请求的写权限，它就会同时通过两次访问检查，并在两种模式下保持可写。真实 runner 套件配置一个外部 `Everyone:Modify` 目录并钉住该行为；提供方报告 `enforcement: 'partial'`，使调用方能够拒绝或向上暴露这项较弱的边界。

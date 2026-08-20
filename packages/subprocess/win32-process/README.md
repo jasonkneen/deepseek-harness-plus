@@ -17,13 +17,13 @@ The Windows ACL sandbox adds SID, DACL, grant, workspace, and public child polic
 
 ## Header verification
 
-The process, stdio, and Job constants, signatures, and layouts are checked against the MinGW Windows headers by [`verify/abi-probe.cpp`](verify/abi-probe.cpp):
+The process, stdio, and Job constants plus selected structure sizes and offsets are checked against the MinGW Windows headers by [`verify/abi-probe.cpp`](verify/abi-probe.cpp):
 
 ```sh
 g++ -std=c++20 -municode -O2 -o abi-probe.exe verify/abi-probe.cpp && ./abi-probe.exe
 ```
 
-The Koffi struct definitions also assert their sizes at module load, so a header or layout mismatch fails before native process creation.
+The Koffi `STARTUPINFOW` and `PROCESS_INFORMATION` definitions also assert their 64-bit sizes at module load. The probe remains the evidence for the other recorded offsets and constants.
 
 ## Model Experience
 
