@@ -314,7 +314,7 @@ describe('spawn runner transport', () => {
       const isolated = await import('../src/runner-launch.ts')
       const result = isolated.runnerDirectResult(fakeChild(123), files, closed.promise)
       expect(readCount).toBe(1)
-      closed.resolve()
+      closed.resolve(undefined)
       await Promise.resolve()
       appendRunnerEvent(files.eventsPath, { type: 'exit', exitCode: 0, signal: null })
       staleRead.resolve([{ type: 'started', pid: 456 }])
