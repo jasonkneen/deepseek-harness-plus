@@ -231,10 +231,43 @@ describe('Linux systemd scope adapter', () => {
     await expect(launch.owner.waitForExit()).resolves.toBe(true)
   })
 
+  it('reports a failed scope KILL through the shared wait', async () => {
+    let wrapper: ReturnType<typeof spawn> | undefined
+    const run = vi.fn((_command: string, args: readonly string[], options: Parameters<typeof spawn>[2]) => {
+      const separator = args.indexOf('--')
+      wrapper = spawn(args[separator + 1] as string, args.slice(separator + 2), options)
+      return wrapper
+    }) as unknown as typeof spawn
+    const runSync = vi.fn((command: string, args: readonly string[]) => {
+      if (command === 'systemctl' && args[1] === 'kill') {
+        return { status: 1, stdout: '', stderr: 'Failed to connect to bus', error: undefined }
+      }
+      return { status: 0, stdout: 'active\n', stderr: '', error: undefined }
+    }) as unknown as typeof spawnSync
+    const launch = launchLinuxScope(spec([process.execPath, '-e', 'setInterval(() => {}, 1000)']), {
+      spawn: run,
+      spawnSync: runSync,
+      runnerInvocation: spawnRunnerInvocation(),
+    })
+    void launch.direct.catch(() => {})
+    try {
+      launch.owner.signal('SIGKILL')
+      await expect(launch.owner.waitForExit()).rejects.toThrow('Failed to connect to bus')
+      expect(runSync).toHaveBeenCalledWith(
+        'systemctl',
+        expect.arrayContaining(['kill', '--kill-whom=all', '--signal=SIGKILL']),
+        expect.any(Object),
+      )
+    } finally {
+      wrapper?.kill('SIGKILL')
+    }
+  })
+
   it('uses the production command defaults when no Linux internals are supplied', async () => {
     let wrapper: ReturnType<typeof spawn> | undefined
     const run = vi.fn()
     const runSync = vi.fn()
+    const runAsync = vi.fn()
     vi.resetModules()
     vi.doMock('node:child_process', async (importOriginal) => {
       const actual = await importOriginal<typeof import('node:child_process')>()
@@ -243,14 +276,19 @@ describe('Linux systemd scope adapter', () => {
         wrapper = actual.spawn(args[separator + 1] as string, args.slice(separator + 2), options)
         return wrapper
       })
-      runSync.mockImplementation((command: string, args: readonly string[]) => {
-        if (command === 'systemctl' && args[1] === 'show') {
-          const active = wrapper?.exitCode === null && wrapper.signalCode === null
-          return { status: 0, stdout: active ? 'active\n' : 'inactive\n', stderr: '', error: undefined }
-        }
+      runSync.mockImplementation((_command: string, _args: readonly string[]) => {
         return { status: 0, stdout: '', stderr: '', error: undefined }
       })
-      return { ...actual, spawn: run, spawnSync: runSync }
+      runAsync.mockImplementation((
+        _command: string,
+        args: readonly string[],
+        _options: unknown,
+        callback: (error: Error | null, stdout: string, stderr: string) => void,
+      ) => {
+        const active = wrapper?.exitCode === null && wrapper.signalCode === null
+        callback(null, args[1] === 'show' && active ? 'active\n' : 'inactive\n', '')
+      })
+      return { ...actual, execFile: runAsync, spawn: run, spawnSync: runSync }
     })
     try {
       const defaults = await import('../src/linux-scope.ts')
@@ -260,6 +298,7 @@ describe('Linux systemd scope adapter', () => {
       await expect(launch.owner.waitForExit()).resolves.toBe(true)
       expect(run).toHaveBeenCalledWith('systemd-run', expect.any(Array), expect.any(Object))
       expect(runSync).toHaveBeenCalledWith('systemctl', expect.any(Array), expect.any(Object))
+      expect(runAsync).toHaveBeenCalledWith('systemctl', expect.any(Array), expect.any(Object), expect.any(Function))
     } finally {
       vi.doUnmock('node:child_process')
       vi.resetModules()

@@ -17,6 +17,7 @@ import {
   createRunnerFiles,
   deserializeSpawnError,
   readRunnerEvents,
+  readRunnerEventsAsync,
   serializeSpawnError,
 } from '../src/runner-protocol.ts'
 
@@ -126,7 +127,7 @@ describe('spawn runner transport', () => {
     }
   })
 
-  it('reads only complete known event records and propagates file errors', () => {
+  it('reads only complete known event records and propagates file errors', async () => {
     const files = createRunnerFiles({ argv: ['node'], cwd: '.', env: {} })
     try {
       expect(readRunnerEvents(files.eventsPath)).toEqual([])
@@ -165,6 +166,7 @@ describe('spawn runner transport', () => {
           },
         },
       ])
+      await expect(readRunnerEventsAsync(files.eventsPath)).resolves.toEqual(readRunnerEvents(files.eventsPath))
 
       writeFileSync(files.eventsPath, '{"type":"started","pid":123}\n{"type":"exit"')
       expect(readRunnerEvents(files.eventsPath)).toEqual([{ type: 'started', pid: 123 }])
@@ -174,7 +176,9 @@ describe('spawn runner transport', () => {
       }
       writeFileSync(files.eventsPath, '{"type":"unknown"}\n')
       expect(() => readRunnerEvents(files.eventsPath)).toThrow('emitted unknown event')
+      await expect(readRunnerEventsAsync(files.eventsPath)).rejects.toThrow('emitted unknown event')
       expect(() => readRunnerEvents(files.directory)).toThrow()
+      await expect(readRunnerEventsAsync(files.directory)).rejects.toThrow()
     } finally {
       cleanupRunnerFiles(files)
     }
@@ -287,10 +291,16 @@ describe('spawn runner transport', () => {
     await expect(missingResult.direct).rejects.toThrow('runner failed to start')
     expect(existsSync(missingChild.directory)).toBe(false)
 
+    const exitedChild = createRunnerFiles({ argv: ['node'], cwd: '.', env: {} })
+    const exitedResult = runnerDirectResult(fakeChild(2_147_483_647), exitedChild, new Promise<void>(() => {}))
+    expect(exitedResult.pid).toBe(-1)
+    await expect(exitedResult.direct).rejects.toThrow('exited before reporting target start')
+    expect(existsSync(exitedChild.directory)).toBe(false)
+
     const timedOut = createRunnerFiles({ argv: ['node'], cwd: '.', env: {} })
     const now = vi.spyOn(Date, 'now').mockReturnValueOnce(0).mockReturnValue(10_001)
     try {
-      const timedOutResult = runnerDirectResult(fakeChild(123), timedOut, new Promise<void>(() => {}))
+      const timedOutResult = runnerDirectResult(fakeChild(process.pid), timedOut, new Promise<void>(() => {}))
       expect(timedOutResult.pid).toBe(-1)
       await expect(timedOutResult.direct).rejects.toThrow('did not report target start')
       expect(existsSync(timedOut.directory)).toBe(false)

@@ -28,8 +28,14 @@ export const ERROR_BROKEN_PIPE = 109
 export const ERROR_NO_DATA = 232
 /** Job limit that terminates every member when the final Job handle closes. */
 export const JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE = 0x00002000
+/** QueryInformationJobObject class for basic accounting and active-process count. */
+export const JobObjectBasicAccountingInformation = 1
 /** SetInformationJobObject class for JOBOBJECT_EXTENDED_LIMIT_INFORMATION. */
 export const JobObjectExtendedLimitInformation = 9
+/** x64 JOBOBJECT_BASIC_ACCOUNTING_INFORMATION byte size. */
+export const JOBOBJECT_BASIC_ACCOUNTING_SIZE = 48
+/** Byte offset of ActiveProcesses in JOBOBJECT_BASIC_ACCOUNTING_INFORMATION. */
+export const JOBOBJECT_BASIC_ACCOUNTING_ACTIVE_PROCESSES_OFFSET = 40
 /** x64 JOBOBJECT_EXTENDED_LIMIT_INFORMATION byte size. */
 export const JOBOBJECT_EXTENDED_LIMIT_SIZE = 144
 /** Byte offset of BasicLimitInformation.LimitFlags in the extended Job record. */

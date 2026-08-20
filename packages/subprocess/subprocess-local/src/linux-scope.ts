@@ -1,7 +1,7 @@
 /** Linux user-systemd scope launch and managed-range ownership. */
 
 import { randomBytes } from 'node:crypto'
-import { spawn, spawnSync } from 'node:child_process'
+import { execFile, spawn, spawnSync } from 'node:child_process'
 import type { ChildProcess } from 'node:child_process'
 import { setTimeout as sleepMs } from 'node:timers/promises'
 import type { SubprocessSpawnSpec } from '@deepseek-ai/dsh-subprocess'
@@ -20,9 +20,48 @@ import {
 export interface LinuxScopeInternals {
   spawn?: typeof spawn
   spawnSync?: typeof spawnSync
+  systemctlQuery?: (command: string, args: readonly string[]) => Promise<SystemctlResult>
   systemdRun?: string
   systemctl?: string
   runnerInvocation?: string[]
+}
+
+interface SystemctlResult {
+  status: number | null
+  stdout: string
+  stderr: string
+  error?: Error
+}
+
+const SYSTEMCTL_TIMEOUT_MS = 5_000
+const SCOPE_POLL_INTERVAL_MS = 200
+
+function querySystemctl(command: string, args: readonly string[]): Promise<SystemctlResult> {
+  return new Promise((resolve) => {
+    execFile(command, [...args], { encoding: 'utf8', timeout: SYSTEMCTL_TIMEOUT_MS }, (error, stdout, stderr) => {
+      const code = error === null ? 0 : (error as Error & { code?: string | number }).code
+      resolve({
+        status: typeof code === 'number' ? code : error === null ? 0 : null,
+        stdout,
+        stderr,
+        ...error === null ? {} : { error },
+      })
+    })
+  })
+}
+
+function syncQuerySystemctl(
+  runSync: typeof spawnSync,
+  command: string,
+  args: readonly string[],
+): Promise<SystemctlResult> {
+  const result = runSync(command, [...args], { encoding: 'utf8', timeout: SYSTEMCTL_TIMEOUT_MS })
+  return Promise.resolve({
+    status: result.status,
+    stdout: typeof result.stdout === 'string' ? result.stdout : '',
+    stderr: typeof result.stderr === 'string' ? result.stderr : '',
+    ...result.error === undefined ? {} : { error: result.error },
+  })
 }
 
 function unitStem(prefix: string): string {
@@ -69,11 +108,13 @@ class SystemdScopeOwner implements BoundProcessOwner {
   private stopped = false
   private observation: Promise<void> | undefined
   private killConfirmed = false
+  private killFailure: Error | undefined
 
   constructor(
     private readonly unit: string,
     private readonly systemctl: string,
     private readonly runSync: typeof spawnSync,
+    private readonly query: (command: string, args: readonly string[]) => Promise<SystemctlResult>,
     private readonly runner: ChildProcess,
   ) {}
 
@@ -85,24 +126,38 @@ class SystemdScopeOwner implements BoundProcessOwner {
       '--kill-whom=all',
       `--signal=${signal}`,
       this.unit,
-    ], { stdio: 'ignore', timeout: 5_000 })
-    if (signal === 'SIGKILL' && result.error === undefined && result.status === 0) this.killConfirmed = true
+    ], { encoding: 'utf8', timeout: SYSTEMCTL_TIMEOUT_MS })
+    if (result.error === undefined && result.status === 0) {
+      if (signal === 'SIGKILL') this.killConfirmed = true
+      return
+    }
+    const output = `${result.stdout}\n${result.stderr}`
+    if (/not found|could not be found|no such/iu.test(output)) {
+      this.stopped = true
+      return
+    }
+    if (signal === 'SIGKILL') {
+      this.killFailure = result.error ?? new Error(
+        `systemctl could not signal ${this.unit}: ${output.trim() || `exit ${String(result.status)}`}`,
+      )
+    }
   }
 
-  private active(): boolean {
-    const result = this.runSync(this.systemctl, [
+  private async active(): Promise<boolean> {
+    if (this.killFailure !== undefined) throw this.killFailure
+    const result = await this.query(this.systemctl, [
       '--user',
       'show',
       this.unit,
       '--property=ActiveState',
       '--value',
-    ], { encoding: 'utf8', timeout: 5_000 })
-    if (result.error !== undefined) throw result.error
+    ])
     const output = `${result.stdout}\n${result.stderr}`
     if (result.status !== 0) {
       if (/not found|could not be found|no such/iu.test(output)) {
         return this.runner.exitCode === null && this.runner.signalCode === null
       }
+      if (result.error !== undefined) throw result.error
       throw new Error(`systemctl could not read ${this.unit}: ${output.trim() || `exit ${String(result.status)}`}`)
     }
     const state = result.stdout.trim()
@@ -114,7 +169,7 @@ class SystemdScopeOwner implements BoundProcessOwner {
   async waitForExit(signal?: AbortSignal): Promise<boolean> {
     if (this.stopped) return true
     this.observation ??= (async () => {
-      while (this.active()) await sleepMs(15)
+      while (await this.active()) await sleepMs(SCOPE_POLL_INTERVAL_MS)
       this.stopped = true
     })()
     return waitWithAbort(this.observation, signal)
@@ -137,6 +192,9 @@ export function launchLinuxScope(
 ): ManagedProcessLaunch {
   const run = internals.spawn ?? spawn
   const runSync = internals.spawnSync ?? spawnSync
+  const query = internals.systemctlQuery ?? (internals.spawnSync === undefined
+    ? querySystemctl
+    : (command, args) => syncQuerySystemctl(runSync, command, args))
   const systemdRun = internals.systemdRun ?? 'systemd-run'
   const systemctl = internals.systemctl ?? 'systemctl'
   const invocation = internals.runnerInvocation ?? spawnRunnerInvocation()
@@ -163,7 +221,7 @@ export function launchLinuxScope(
     stdio: runnerStdio(spec),
   })
   const closed = observeChildClose(child)
-  const owner = new SystemdScopeOwner(`${unitBase}.scope`, systemctl, runSync, child)
+  const owner = new SystemdScopeOwner(`${unitBase}.scope`, systemctl, runSync, query, child)
   const result = runnerDirectResult(child, files, closed, () => owner.forcedOutcome())
   cleanupAfterRunner(files, result.direct, closed)
   return { child, pid: result.pid, direct: result.direct, closed, owner }

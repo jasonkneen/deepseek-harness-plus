@@ -131,7 +131,7 @@ interface SubprocessSpawnSpec {
 
 ## Handles: streams, readers, and managed-range termination
 
-A spawn returns a live handle immediately. Collect-mode readers take whole-stream byte offsets and never consume, so independent readers cannot steal one another's deltas; piped streams belong to the caller. `terminate()` and `waitForExit()` use one managed range: supported local Linux and Windows providers use an OS-owned scope or Job, while weaker fallbacks are disclosed. The only termination verb escalates SIGTERM→grace→SIGKILL, so a consumer can build its own teardown ladder (the ACP backend's stdin-EOF-first `disposeAcpChild` is the template).
+A spawn returns a live handle synchronously after any provider-specific setup needed to publish its target pid. Collect-mode readers take whole-stream byte offsets and never consume, so independent readers cannot steal one another's deltas; piped streams belong to the caller. `terminate()` and `waitForExit()` use one managed range: supported local Linux and Windows providers use an OS-owned scope or Job, while weaker fallbacks are disclosed. The only termination verb escalates SIGTERM→grace→SIGKILL, so a consumer can build its own teardown ladder (the ACP backend's stdin-EOF-first `disposeAcpChild` is the template).
 
 ```ts type-equiv
 /**
@@ -153,7 +153,7 @@ interface SubprocessHandle {
   readonly stderr: Readable | undefined
   /** Offset-based readers for collect-mode streams (also readable after exit). */
   readonly collected: SubprocessCollectedOutputs
-  /** Resolves at process close with exit facts; rejects only for spawn-level failures. */
+  /** Resolves with direct-process exit facts; rejects for spawn or selected native-runner failures. */
   readonly done: Promise<SubprocessOutcome>
   /**
    * Begin the SIGTERM → `graceMs` → SIGKILL escalation on the process tree
@@ -167,6 +167,7 @@ interface SubprocessHandle {
    * child, so a still-running helper is observable before teardown returns.
    * @param signal - optional bound for the wait.
    * @returns `true` when the tree exited, `false` when the signal aborted first.
+   * @throws when the selected provider can no longer observe its managed range.
    */
   waitForExit(signal?: AbortSignal): Promise<boolean>
 }

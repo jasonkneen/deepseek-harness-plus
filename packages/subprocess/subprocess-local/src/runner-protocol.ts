@@ -8,6 +8,7 @@ import {
   unlinkSync,
   writeFileSync,
 } from 'node:fs'
+import { readFile } from 'node:fs/promises'
 import { constants as osConstants, tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -136,6 +137,13 @@ export function appendRunnerEvent(eventsPath: string, event: RunnerEvent): void 
   appendFileSync(eventsPath, `${JSON.stringify(event)}\n`, { mode: 0o600 })
 }
 
+/** Parse complete newline-terminated runner records. */
+function parseRunnerEvents(content: string): RunnerEvent[] {
+  const lines = content.split('\n')
+  if (lines.at(-1) !== '') lines.pop()
+  return lines.filter(line => line.length > 0).map(parseRunnerEvent)
+}
+
 /**
  * Parse every complete event record currently present.
  * @param eventsPath - private event file.
@@ -149,9 +157,23 @@ export function readRunnerEvents(eventsPath: string): RunnerEvent[] {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') return []
     throw error
   }
-  const lines = content.split('\n')
-  if (lines.at(-1) !== '') lines.pop()
-  return lines.filter(line => line.length > 0).map(parseRunnerEvent)
+  return parseRunnerEvents(content)
+}
+
+/**
+ * Asynchronously parse every complete event record currently present.
+ * @param eventsPath - private event file.
+ * @returns complete records in append order.
+ */
+export async function readRunnerEventsAsync(eventsPath: string): Promise<RunnerEvent[]> {
+  let content: string
+  try {
+    content = await readFile(eventsPath, 'utf8')
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return []
+    throw error
+  }
+  return parseRunnerEvents(content)
 }
 
 /**

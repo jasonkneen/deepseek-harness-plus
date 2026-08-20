@@ -117,6 +117,54 @@ describe('managed process binding', () => {
     }
   })
 
+  it('publishes direct outcome immediately when no collected stream needs draining', async () => {
+    const wrapper = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], {
+      stdio: ['ignore', 'ignore', 'ignore'],
+    })
+    const direct = Promise.withResolvers<{ exitCode: number | null; signal: NodeJS.Signals | null }>()
+    const handle = bindManagedProcess({
+      ...spec(1_000),
+      stdio: { stdin: 'ignore', stdout: 'inherit', stderr: 'inherit' },
+    }, {
+      child: wrapper,
+      pid: wrapper.pid as number,
+      direct: direct.promise,
+      closed: new Promise<void>(() => {}),
+      owner: { signal: vi.fn(), waitForExit: async () => true },
+    })
+    try {
+      direct.resolve({ exitCode: 23, signal: null })
+      const outcome = await Promise.race([
+        handle.done,
+        new Promise<'timeout'>(resolve => setTimeout(() => { resolve('timeout') }, 50)),
+      ])
+      expect(outcome).toEqual({ exitCode: 23, signal: null })
+    } finally {
+      wrapper.kill('SIGKILL')
+    }
+  })
+
+  it('contains background range-observation rejection until waitForExit observes it', async () => {
+    const wrapper = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], {
+      stdio: ['ignore', 'pipe', 'pipe'],
+    })
+    const failure = new Error('range observation failed')
+    const handle = bindManagedProcess(spec(), {
+      child: wrapper,
+      pid: wrapper.pid as number,
+      direct: new Promise(() => {}),
+      closed: new Promise<void>(() => {}),
+      owner: { signal: vi.fn(), waitForExit: async () => { throw failure } },
+    })
+    try {
+      handle.terminate()
+      await new Promise(resolve => setImmediate(resolve))
+      await expect(handle.waitForExit()).rejects.toBe(failure)
+    } finally {
+      wrapper.kill('SIGKILL')
+    }
+  })
+
   it('normalizes a non-Error direct rejection', async () => {
     const wrapper = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], {
       stdio: ['ignore', 'pipe', 'pipe'],

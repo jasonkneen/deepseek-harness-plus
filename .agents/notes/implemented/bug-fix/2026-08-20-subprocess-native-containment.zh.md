@@ -14,7 +14,7 @@ Status: implemented
 
 common spawn lifecycle 继续拥有 stdio disposition、有界收集、direct outcome、abort 处理、TERM-to-KILL 升级与 host-exit 注册。`.done` 来自 target process。private `0600` single-spawn request/event transport 让 Linux 或 Windows runner 分别报告 Node-shaped target spawn failure 与 target exit，不依赖 scope 或 Job 生命周期。`waitForExit()` 只在 `terminate()` 使用的同一 owner 确认 OS range 为空后成功；首次确认后，该 owner 永久忽略后续 signal。
 
-Linux user argv 从不进入 `systemd-run` 命令行。runner 从 private request 消费 argv，以精确 cwd 和 scrubbed-plus-explicit environment 启动目标，并报告 direct result。scope TERM 会让 runner 存活足够久，以便报告 trap TERM 的目标；scope KILL 无法保留 runner result 时，该 KILL 事实本身就是权威结果。Windows target descendant 默认继承 Job；runner 会一直存活到 direct result 已报告且 Job 为空。parent IPC 断开会在 JavaScript-observable host exit 期间终止 Job。
+Linux user argv 从不进入 `systemd-run` 命令行。runner 从 private request 消费 argv，以精确 cwd 和 scrubbed-plus-explicit environment 启动目标，并报告 direct result。scope TERM 会让 runner 存活足够久，以便报告 trap TERM 的目标；scope KILL 无法保留 runner result 时，该 KILL 事实本身就是权威结果。Windows target descendant 默认继承 Job；runner 会一直存活到 direct result 已报告且 `QueryInformationJobObject` 报告 Job active member 归零。parent IPC 断开会在 JavaScript-observable host exit 期间终止 Job。
 
 native capability 在目标执行前不可用时，provider 只告警一次并使用既有 PGID 或 `taskkill /T` fallback。macOS 因没有受支持的公开 persistent process owner，始终进入该路径。native launch 一旦被选择，runner、manager 或 result transport 的任何失败都会直接报告；用户命令绝不会经 fallback 重放。
 
@@ -34,4 +34,4 @@ Linux native 证据覆盖真实 `setsid` descendant，以及 direct parent 先�
 
 ## Consequences
 
-受支持的 Linux 与 Windows 宿主会在 session 变化或 reparent 后继续拥有 descendant，termination 与 settlement 读取同一个 OS-owned range。private runner 增加一个 built entry 和短期 private files，但不增加公共配置或 durable format。Windows breakaway descendant 仍不在保证范围；runner 在 CreateProcess 到 Job assignment 的极窄区间遭外力终止时可能留下 suspended target。fallback 宿主继续可用，但保证会被明确削弱。
+受支持的 Linux 与 Windows 宿主会在 session 变化或 reparent 后继续拥有 descendant，termination 与 settlement 读取同一个 OS-owned range。首条 ordinary spawn 会为每个 provider instance 探测一次能力，每条 probe command 的上限为 5 秒。同步公共 spawn 合同随后必须在发布 target pid 前完成每次 launch 的有界握手；runner 始终不报告时，固定上限为 10 秒，每个 native range 还会保留一个 runner process 直到 settlement。handle 发布后，event file 使用异步 100 ms 轮询，systemd state 使用异步 200 ms 轮询，不再阻塞宿主事件循环。private runner 增加一个 built entry 和短期 private files，但不增加公共配置或 durable format。Windows breakaway descendant 仍不在保证范围；runner 在 CreateProcess 到 Job assignment 的极窄区间遭外力终止时可能留下 suspended target。fallback 宿主继续可用，但保证会被明确削弱。

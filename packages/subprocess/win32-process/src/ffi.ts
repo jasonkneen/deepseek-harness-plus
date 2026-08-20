@@ -106,6 +106,13 @@ export interface Win32ProcessBindings {
   getExitCodeProcess(process: NativePtr, exitCode: NativePtr): number
   createJobObjectW(attributes: null, name: null): NativePtr
   setInformationJobObject(job: NativePtr, cls: number, information: Buffer, length: number): number
+  queryInformationJobObject(
+    job: NativePtr,
+    cls: number,
+    information: Buffer,
+    length: number,
+    returnLength: null,
+  ): number
   assignProcessToJobObject(job: NativePtr, process: NativePtr): number
   resumeThread(thread: NativePtr): number
   terminateProcess(process: NativePtr, exitCode: number): number
@@ -266,6 +273,9 @@ function bindings(): Win32ProcessBindings {
     getExitCodeProcess: bind(kernel32, 'GetExitCodeProcess', 'int', [PVOID, koffi.pointer('uint32')]),
     createJobObjectW: bind(kernel32, 'CreateJobObjectW', PVOID, [PVOID, 'str16']),
     setInformationJobObject: bind(kernel32, 'SetInformationJobObject', 'int', [PVOID, 'int', PVOID, 'uint32']),
+    queryInformationJobObject: bind(kernel32, 'QueryInformationJobObject', 'int', [
+      PVOID, 'int', PVOID, 'uint32', PVOID,
+    ]),
     assignProcessToJobObject: bind(kernel32, 'AssignProcessToJobObject', 'int', [PVOID, PVOID]),
     resumeThread: bind(kernel32, 'ResumeThread', 'uint32', [PVOID]),
     terminateProcess: bind(kernel32, 'TerminateProcess', 'int', [PVOID, 'uint32']),

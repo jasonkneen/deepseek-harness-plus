@@ -10,8 +10,8 @@ Low-level Win32 process library consumed by the Windows ACL sandbox and the ordi
 - **Restricted-token creation** — `RestrictedProcessSpawnOptions` requires the sandbox's primary token and uses `CreateProcessAsUserW`. Piped and inherited-stdio paths share command-line quoting, cwd, the inherited environment block, checked return values, and handle cleanup.
 - **Piped process primitive** — `spawnPipedProcess()` creates anonymous stdin/stdout/stderr pipes, closes stdin immediately, returns the two read ends, and leaves process waiting and pipe draining to the caller. Every partial failure closes the handles already owned by the operation, and every Koffi out-parameter or struct allocation is freed after its Win32 lifetime.
 - **Inherited-stdio Job primitive** — `spawnInheritedJobProcess()` creates one kill-on-close Job, temporarily marks the current stdio handles inheritable, creates the restricted child suspended, assigns it to the Job, and then resumes its initial thread. Target code cannot run before Job assignment; controlled assignment or resume failures terminate the suspended child or close the assigned Job before releasing every owned handle.
-- **Ordinary Job runner primitive** — `spawnOrdinaryJobProcess()` applies the same suspended-create, Job-assignment, and resume lifecycle through `CreateProcessW`. Zero-time process and Job probes let the runner publish the direct exit separately and stay alive until default-inheritance descendants leave the Job.
-- **Explicit settlement ownership** — `waitForProcessExit()` waits and closes a sandbox process handle; ordinary runner polling and checked Job termination/closure remain separate operations. `drainPipe()` reuses one native count slot while draining, frees it, and closes the pipe read handle. Each caller owns its result composition and returned handles.
+- **Ordinary Job runner primitive** — `spawnOrdinaryJobProcess()` applies the same suspended-create, Job-assignment, and resume lifecycle through `CreateProcessW`. A zero-time process wait publishes the direct exit separately, while `QueryInformationJobObject(JobObjectBasicAccountingInformation)` keeps the runner alive until `ActiveProcesses` reaches zero.
+- **Explicit settlement ownership** — `waitForProcessExit()` waits and closes a sandbox process handle; ordinary runner process polling, Job accounting, and checked Job termination/closure remain separate operations. `drainPipe()` reuses one native count slot while draining, frees it, and closes the pipe read handle. Each caller owns its result composition and returned handles.
 
 The Windows ACL sandbox adds SID, DACL, grant, workspace, and public child policy above these primitives.
 
@@ -23,7 +23,7 @@ The process, stdio, and Job constants plus selected structure sizes and offsets 
 g++ -std=c++20 -municode -O2 -o abi-probe.exe verify/abi-probe.cpp && ./abi-probe.exe
 ```
 
-The Koffi `STARTUPINFOW` and `PROCESS_INFORMATION` definitions also assert their 64-bit sizes at module load. The probe remains the evidence for the other recorded offsets and constants.
+The Koffi `STARTUPINFOW` and `PROCESS_INFORMATION` definitions also assert their 64-bit sizes at module load. The probe additionally fixes the basic Job accounting record size and `ActiveProcesses` offset used to determine quiescence; it remains the evidence for the other recorded offsets and constants.
 
 ## Model Experience
 

@@ -6,7 +6,7 @@
 
 ## 行为
 
-- **signal 与 wait 使用同一个 managed range**：Linux 在 manager 支持 literal argv 与可读 scope 状态时使用 transient user-systemd scope；Windows 以 suspended 状态创建目标，把它加入 kill-on-close Job 后才恢复。`terminate()` 通过该 owner 发送 TERM 再发送 KILL，`waitForExit()` 只在同一 scope 或 Job 为空后成功。`.done` 仍是 direct command result：private runner 分别报告目标启动失败与退出，不把 range 生命周期冒充目标结果；仍打开的 collected pipe 保留既有有界排空宽限期。
+- **signal 与 wait 使用同一个 managed range**：Linux 在 manager 支持 literal argv 与可读 scope 状态时使用 transient user-systemd scope；Windows 以 suspended 状态创建目标，把它加入 kill-on-close Job 后才恢复。`terminate()` 通过该 owner 发送 TERM 再发送 KILL；`waitForExit()` 只在异步 scope observation 或 Windows Job 的 `ActiveProcesses` 确认同一范围为空后成功，并在 owner 不再可读时拒绝。`.done` 仍是 direct command result：private runner 分别报告目标启动失败与退出，不把 range 生命周期冒充目标结果；只有 collected pipe 保留既有有界排空宽限期，raw/inherited stdio 不会延迟 direct settlement。
 - **明确披露较弱 fallback**：macOS、旧版或不可用的 user-systemd，以及不可用的 Windows native 支持继续使用既有 detached PGID 或 `taskkill /T` 路径。provider 会在首个受影响命令前只告警一次。native runner 可能已经启动用户命令后绝不通过 fallback 重试。
 - **按流划分的处置方式**：`'pipe'` 把原始流原样交给调用方（协议分帧仍归消费方所有）；`'inherit'` 直通父进程的描述符；收集模式（collect）在输出超过上限后于内存中保留尾部（错误与结果通常聚集在末尾，沿用 pi/OpenCode 的理由），并在配置了 spill 上限时把完整流追加到一个私有临时文件；省略 `spill` 则只保留用于诊断的尾部。某条流大于 spill 上限时，会丢弃已不完整的 spill，仅返回带截断标记的尾部；spill 文件描述符在结算时封存，最终关闭失败时则不公布路径，以免声称存在不完整的文件。spill 文件权限为 `0600`、名称随机，位于按需创建、权限为 `0700` 的每进程目录之下。
 - **凭据清除 + 显式合并**：以 `process.env` 为基础，移除形似凭据的变量（`*KEY*`／`*PASSWORD*`／`*SECRET*`／`*TOKEN*`）和所有环境中已有的 `DSH_*` 名称；spec 的显式 `env` 在该清除之后合并且不做命名空间校验，因此有意提供的凭据或当前 `DSH_*` 事实会胜出，而陈旧的嵌套 harness 身份无法从环境中隐式漏入。提供的 stdin 会被写入后关闭；否则 fd 0 指向 `/dev/null`。参见 [stdin/env Agent Note](../../../.agents/notes/implemented/architecture/2026-06-30-bash-stdin-env-trusted-plugin-api.zh.md)与[受管环境 Agent Note](../../../.agents/notes/implemented/feature/2026-07-10-agent-session-identity-and-log-location.zh.md)。
@@ -27,6 +27,7 @@
 ## 已知限制与暂缓事项
 
 - **native ownership 有明确宿主条件**：Linux 需要可读的 user manager 与 `systemd-run --expand-environment=no`；旧版 systemd 使用带告警的 PGID fallback。macOS 因没有受支持的公开 persistent owner，始终使用该 fallback。
+- **native launch 有同步 setup 成本**：首条 ordinary spawn 会为该 provider instance 探测一次宿主能力，每条 probe command 的上限为 5 秒。公共 `spawn()` 合同返回数值 target pid，因此每次 native launch 随后会同步等待 per-spawn runner 报告 target start 或 spawn failure。built runner 通常会迅速完成该握手；若 runner 始终不发布结果，调用方会等待固定的 10 秒 protocol bound。每条受支持的 native command 还会保留一个 runner process，直到 OS-owned range 为空。handle 发布后，runner event 每 100 ms、Linux scope state 每 200 ms 异步轮询。
 - **Windows Job inheritance 有明确排除项**：普通 descendant 默认继承 Job，但 breakaway process 不在保证范围。目标只在 Job 分配后启动；runner 若在 create-to-assignment 极窄区间遭外力终止，可能留下 suspended target。
 - **Windows 终端信号是控制台级的**：SIGINT 以 `\x03` Ctrl-C 输入写入投递，由 conhost 转为控制台级 CTRL_C 事件；SIGTSTP 与 SIGHUP 被拒绝（不可用）；不带 `/F` 的 `taskkill` 无法终止控制台进程，因此拆卸的 TERM 档是 `/F` 升级前的宽限等待。Windows 就绪没有精确的 stdin-wait 档：prompt-marker 快路径把 shell pid 作为伪前台进程组比较，其余由静默/计时档覆盖。
 - **守护化的终端后代仍可能逃出可观察边界**：在 macOS 上，子进程如果在任何前台检查快照之前重新设定父进程，将无法再从 `node-pty` 根进程发现；在 Linux 上，调用 `setsid` 的子进程会同时离开进程树与自有终端会话。本地提供方不会新增持续进程表监视器。

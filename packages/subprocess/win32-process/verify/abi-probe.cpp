@@ -30,6 +30,9 @@ int wmain()
   P(ERROR_INSUFFICIENT_BUFFER);
   P(ERROR_BROKEN_PIPE);
   P(ERROR_NO_DATA);
+  P(sizeof(JOBOBJECT_BASIC_ACCOUNTING_INFORMATION));
+  P(offsetof(JOBOBJECT_BASIC_ACCOUNTING_INFORMATION, ActiveProcesses));
+  P((int)JobObjectBasicAccountingInformation);
   P(sizeof(JOBOBJECT_EXTENDED_LIMIT_INFORMATION));
   P(offsetof(JOBOBJECT_EXTENDED_LIMIT_INFORMATION, BasicLimitInformation) + offsetof(JOBOBJECT_BASIC_LIMIT_INFORMATION, LimitFlags));
   P((int)JobObjectExtendedLimitInformation);
@@ -41,6 +44,9 @@ int wmain()
   static_assert(STARTF_USESTDHANDLES == 0x100, "std handles flag");
   static_assert(HANDLE_FLAG_INHERIT == 0x1, "inherit flag");
   static_assert(WAIT_TIMEOUT == 258, "zero-time wait timeout");
+  static_assert(sizeof(JOBOBJECT_BASIC_ACCOUNTING_INFORMATION) == 48, "job accounting size");
+  static_assert(offsetof(JOBOBJECT_BASIC_ACCOUNTING_INFORMATION, ActiveProcesses) == 40, "active process offset");
+  static_assert(JobObjectBasicAccountingInformation == 1, "basic accounting class");
   static_assert(sizeof(JOBOBJECT_EXTENDED_LIMIT_INFORMATION) == 144, "job extended limit size");
   static_assert(offsetof(JOBOBJECT_EXTENDED_LIMIT_INFORMATION, BasicLimitInformation) + offsetof(JOBOBJECT_BASIC_LIMIT_INFORMATION, LimitFlags) == 16, "job LimitFlags offset");
   static_assert(JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE == 0x2000, "kill on job close flag");

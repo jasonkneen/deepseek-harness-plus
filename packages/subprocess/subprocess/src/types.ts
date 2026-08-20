@@ -174,7 +174,7 @@ export interface SubprocessHandle {
   readonly stderr: Readable | undefined
   /** Offset-based readers for collect-mode streams (also readable after exit). */
   readonly collected: SubprocessCollectedOutputs
-  /** Resolves at process close with exit facts; rejects only for spawn-level failures. */
+  /** Resolves with direct-process exit facts; rejects for spawn or selected native-runner failures. */
   readonly done: Promise<SubprocessOutcome>
   /**
    * Begin the SIGTERM → `graceMs` → SIGKILL escalation on the process tree
@@ -188,6 +188,7 @@ export interface SubprocessHandle {
    * child, so a still-running helper is observable before teardown returns.
    * @param signal - optional bound for the wait.
    * @returns `true` when the tree exited, `false` when the signal aborted first.
+   * @throws when the selected provider can no longer observe its managed range.
    */
   waitForExit(signal?: AbortSignal): Promise<boolean>
 }

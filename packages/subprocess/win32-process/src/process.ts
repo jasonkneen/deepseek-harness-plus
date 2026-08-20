@@ -493,13 +493,20 @@ export function pollProcessExit(api: Win32ProcessBindings, process: NativePtr): 
  * Return whether a Job has no active processes.
  * @param api - active binding table.
  * @param job - caller-owned Job handle.
- * @returns true once the Job object is signalled.
+ * @returns true once the Job reports zero active processes.
  */
 export function isJobEmpty(api: Win32ProcessBindings, job: NativePtr): boolean {
-  const waitResult = api.waitForSingleObject(job, 0)
-  if (waitResult === abi.WAIT_TIMEOUT) return false
-  if (waitResult === 0xFFFFFFFF) throwLastError(api, 'WaitForSingleObject', 'Job object')
-  return true
+  const information = Buffer.alloc(abi.JOBOBJECT_BASIC_ACCOUNTING_SIZE)
+  if (api.queryInformationJobObject(
+    job,
+    abi.JobObjectBasicAccountingInformation,
+    information,
+    information.length,
+    null,
+  ) === 0) {
+    throwLastError(api, 'QueryInformationJobObject', 'active process count')
+  }
+  return information.readUInt32LE(abi.JOBOBJECT_BASIC_ACCOUNTING_ACTIVE_PROCESSES_OFFSET) === 0
 }
 
 /**

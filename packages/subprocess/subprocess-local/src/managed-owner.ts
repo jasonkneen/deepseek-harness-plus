@@ -7,7 +7,7 @@ import type { SubprocessOutcome } from '@deepseek-ai/dsh-subprocess'
 export interface BoundProcessOwner {
   /** Signal the established managed range; a confirmed-stopped owner stays inert. */
   signal(signal: NodeJS.Signals): void
-  /** Wait for the same managed range to become empty. */
+  /** Wait for the same managed range to become empty; reject when its owner cannot be observed. */
   waitForExit(signal?: AbortSignal): Promise<boolean>
 }
 

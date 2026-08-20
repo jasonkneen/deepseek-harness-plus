@@ -466,7 +466,9 @@ export function bindManagedProcess(
 
   const terminate = (): void => {
     if (rangeExitObserved || graceTimer !== undefined) return
-    void observeRangeExit()
+    // Keep the shared observation rejection available to waitForExit() without
+    // leaking an unhandled rejection when a caller only invokes terminate().
+    void observeRangeExit().catch(() => {})
     kill('SIGTERM')
     graceTimer = setTimeout(() => { kill('SIGKILL') }, spec.graceMs)
   }
@@ -504,6 +506,10 @@ export function bindManagedProcess(
     }
     launch.direct.then((outcome) => {
       directOutcome = outcome
+      if (stdoutCollector === undefined && stderrCollector === undefined) {
+        settle(outcome)
+        return
+      }
       pipeDrainTimer = setTimeout(() => { settle(outcome) }, spec.graceMs)
       if (wrapperClosed) settle(outcome)
     }, (error: unknown) => {

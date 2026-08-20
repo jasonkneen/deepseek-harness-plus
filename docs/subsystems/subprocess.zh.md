@@ -131,7 +131,7 @@ interface SubprocessSpawnSpec {
 
 ## 句柄：流、读取器与 managed-range 终止
 
-spawn 会立即返回一个活动句柄。收集模式的读取器接受全流字节偏移量且从不消费，因此独立读取器不会抢走彼此的增量；管道化的流归调用方所有。`terminate()` 与 `waitForExit()` 使用同一个 managed range：受支持的本地 Linux 与 Windows provider 使用 OS-owned scope 或 Job，并明确披露较弱 fallback。唯一的终止动词执行 SIGTERM→宽限期→SIGKILL 升级，因此消费方可以构建自己的分级清理流程；ACP 后端先关闭 stdin 的 `disposeAcpChild` 是参考实现。
+spawn 会在完成发布 target pid 所需的 provider-specific setup 后同步返回活动句柄。收集模式的读取器接受全流字节偏移量且从不消费，因此独立读取器不会抢走彼此的增量；管道化的流归调用方所有。`terminate()` 与 `waitForExit()` 使用同一个 managed range：受支持的本地 Linux 与 Windows provider 使用 OS-owned scope 或 Job，并明确披露较弱 fallback。唯一的终止动词执行 SIGTERM→宽限期→SIGKILL 升级，因此消费方可以构建自己的分级清理流程；ACP 后端先关闭 stdin 的 `disposeAcpChild` 是参考实现。
 
 ```ts type-equiv
 /**
@@ -153,7 +153,7 @@ interface SubprocessHandle {
   readonly stderr: Readable | undefined
   /** Offset-based readers for collect-mode streams (also readable after exit). */
   readonly collected: SubprocessCollectedOutputs
-  /** Resolves at process close with exit facts; rejects only for spawn-level failures. */
+  /** Resolves with direct-process exit facts; rejects for spawn or selected native-runner failures. */
   readonly done: Promise<SubprocessOutcome>
   /**
    * Begin the SIGTERM → `graceMs` → SIGKILL escalation on the process tree
@@ -167,6 +167,7 @@ interface SubprocessHandle {
    * child, so a still-running helper is observable before teardown returns.
    * @param signal - optional bound for the wait.
    * @returns `true` when the tree exited, `false` when the signal aborted first.
+   * @throws when the selected provider can no longer observe its managed range.
    */
   waitForExit(signal?: AbortSignal): Promise<boolean>
 }

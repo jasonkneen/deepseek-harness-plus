@@ -1,7 +1,7 @@
 /** Parent-side launch and direct-result transport for native runners. */
 
 import type { ChildProcess, StdioOptions } from 'node:child_process'
-import { existsSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { setTimeout as sleepMs } from 'node:timers/promises'
 import type { SubprocessOutcome, SubprocessSpawnSpec } from '@deepseek-ai/dsh-subprocess'
@@ -10,11 +10,14 @@ import {
   createRunnerFiles,
   deserializeSpawnError,
   readRunnerEvents,
+  readRunnerEventsAsync,
 } from './runner-protocol.ts'
 import type { RunnerEvent, RunnerFiles, RunnerRequest } from './runner-protocol.ts'
 import { childEnv } from './spawn.ts'
 
 const handshakeWait = new Int32Array(new SharedArrayBuffer(4))
+const RUNNER_HANDSHAKE_TIMEOUT_MS = 10_000
+const RUNNER_EVENT_POLL_MS = 100
 
 /**
  * Resolve the built runner in production or its source entry in repository execution.
@@ -61,18 +64,40 @@ interface RunnerHandshake {
   events: RunnerEvent[]
 }
 
+/** Observe wrapper death without waiting for Node's blocked event loop to emit close. */
+function runnerExited(child: ChildProcess): boolean {
+  if (child.exitCode !== null || child.signalCode !== null) return true
+  if (child.pid === undefined) return true
+  if (process.platform === 'linux') {
+    try {
+      const stat = readFileSync(`/proc/${String(child.pid)}/stat`, 'utf8')
+      const suffix = stat.slice(stat.lastIndexOf(')') + 2)
+      if (suffix.startsWith('Z') || suffix.startsWith('X')) return true
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return true
+    }
+  }
+  try {
+    process.kill(child.pid, 0)
+    return false
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === 'ESRCH'
+  }
+}
+
 /** Wait synchronously only until the runner reports target start or spawn failure. */
 function waitForRunnerHandshake(child: ChildProcess, files: RunnerFiles): RunnerHandshake {
-  const deadline = Date.now() + 10_000
+  const deadline = Date.now() + RUNNER_HANDSHAKE_TIMEOUT_MS
   while (Date.now() < deadline) {
     const events = readRunnerEvents(files.eventsPath)
     const terminal = events.find(event => event.type === 'started' || event.type === 'spawn-error' || event.type === 'runner-error')
     if (terminal?.type === 'started') return { pid: terminal.pid, events }
     if (terminal?.type === 'spawn-error' || terminal?.type === 'runner-error') return { pid: -1, events }
     if (child.pid === undefined) throw new Error('native subprocess runner failed to start')
+    if (runnerExited(child)) throw new Error('native subprocess runner exited before reporting target start')
     Atomics.wait(handshakeWait, 0, 0, 5)
   }
-  throw new Error('native subprocess runner did not report target start within 10000ms')
+  throw new Error(`native subprocess runner did not report target start within ${String(RUNNER_HANDSHAKE_TIMEOUT_MS)}ms`)
 }
 
 async function waitForDirectResult(
@@ -85,7 +110,7 @@ async function waitForDirectResult(
   let wrapperClosed = false
   void closed.then(() => { wrapperClosed = true })
   for (;;) {
-    const events = readRunnerEvents(files.eventsPath)
+    const events = await readRunnerEventsAsync(files.eventsPath)
     for (const event of events.slice(seen)) {
       if (event.type === 'exit') return { exitCode: event.exitCode, signal: event.signal }
       if (event.type === 'spawn-error' || event.type === 'runner-error') throw deserializeSpawnError(event.error)
@@ -97,7 +122,7 @@ async function waitForDirectResult(
       if (known !== undefined) return known
       throw new Error('native subprocess runner exited without a direct-command result')
     }
-    await sleepMs(10)
+    await sleepMs(RUNNER_EVENT_POLL_MS)
   }
 }
 
