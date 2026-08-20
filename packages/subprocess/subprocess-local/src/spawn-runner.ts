@@ -99,6 +99,9 @@ function replaceEnvironment(env: Record<string, string>): void {
 
 /** Release the runner's copies after the Windows target inherits its standard handles. */
 function releaseRunnerStdio(): void {
+  const stdin = process.stdin
+  const stdout = process.stdout
+  const stderr = process.stderr
   for (const fd of [0, 1, 2]) {
     try {
       closeSync(fd)
@@ -106,6 +109,12 @@ function releaseRunnerStdio(): void {
       if ((error as NodeJS.ErrnoException).code !== 'EBADF') throw error
     }
   }
+  // A loader may already have materialized Node's libuv stdio wrappers. Settle
+  // those runner-owned references after closing the CRT descriptors; the target
+  // keeps the handles CreateProcessW inherited and remains the only pipe writer.
+  stdin.destroy()
+  stdout.end()
+  stderr.end()
 }
 
 async function runWin32(request: RunnerRequest, eventsPath: string): Promise<void> {
