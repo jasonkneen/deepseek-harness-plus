@@ -20,7 +20,7 @@ native capability 在目标执行前不可用时，provider 只告警一次并�
 
 ## Verification
 
-Linux native 证据覆盖真实 `setsid` descendant，以及 direct parent 先退出的 double-fork daemon。Windows native 证据覆盖默认继承 descendant，以及 direct target 退出后仍存活的 descendant。shared tests 固定 direct exit 与 range quiescence 的区别、Node-shaped spawn failure、literal argv、一次性 fallback warning、停稳后不再发 signal、abort 与 host-exit 路由，以及 source 和 built runner entry。
+Linux native 证据已在 Ubuntu 24.04 x86_64、systemd 255.4 的 user manager 上运行，覆盖真实 `setsid` descendant、direct parent 先退出的 double-fork daemon，以及不重放的 Node-shaped spawn failure。Windows native 证据覆盖默认继承 descendant，以及 direct target 退出后仍存活的 descendant。shared tests 固定 direct exit 与 range quiescence 的区别、literal argv、一次性 fallback warning、停稳后不再发 signal、abort 与 host-exit 路由，以及 source 和 built runner entry。
 
 ## Alternatives considered
 

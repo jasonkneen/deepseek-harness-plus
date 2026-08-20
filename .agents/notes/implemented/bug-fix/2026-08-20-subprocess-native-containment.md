@@ -20,7 +20,7 @@ When native capability is unavailable before target execution, the provider warn
 
 ## Verification
 
-Linux native evidence covers a real `setsid` descendant and a double-fork daemon whose direct parent exits first. Windows native evidence covers a default-inheritance descendant and a descendant that remains after the direct target exits. Shared tests pin direct exit versus range quiescence, Node-shaped spawn failures, literal argv, one-time fallback warnings, no post-stop signals, abort and host-exit routing, and both source and built runner entries.
+Linux native evidence ran against an Ubuntu 24.04 x86_64 user manager with systemd 255.4 and covers a real `setsid` descendant, a double-fork daemon whose direct parent exits first, and Node-shaped spawn failures without replay. Windows native evidence covers a default-inheritance descendant and a descendant that remains after the direct target exits. Shared tests pin direct exit versus range quiescence, literal argv, one-time fallback warnings, no post-stop signals, abort and host-exit routing, and both source and built runner entries.
 
 ## Alternatives considered
 
