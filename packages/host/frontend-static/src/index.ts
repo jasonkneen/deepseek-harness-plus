@@ -4,8 +4,8 @@
  * Web shell locked at step1 — traversal outside the dist root is 403, any
  * miss falls back to index.html with HTTP 200 (SPA routing), unknown
  * extensions ship as octet-stream, non-GET/HEAD is 405. Every index response
- * runs through the webserver's registered index taps (boot-manifest
- * injection). The dist location is workspace knowledge of the composing
+ * runs through the webserver's index render (structured injection rows, then
+ * raw taps). The dist location is workspace knowledge of the composing
  * application, so `distIndex` is typically supplied through a `!!js`
  * expression, never hardcoded by a deployment.
  * @module @deepseek-ai/dsh-host-frontend-static
@@ -50,7 +50,7 @@ const MIME: Record<string, string> = {
  * @param res - the node:http response to write.
  * @param distRoot - absolute dist root directory (resolved by the caller).
  * @param distIndex - absolute path of index.html inside distRoot.
- * @param renderIndex - produces the index.html body (index-tap injection) for
+ * @param renderIndex - produces the index.html body (injection rendering) for
  * `/` and every SPA fallback.
  */
 export async function serveStatic(
@@ -94,7 +94,7 @@ export function apply(ctx: Context, config: Config): void {
   const distIndex = config.distIndex
   const distRoot = dirname(distIndex)
   const renderIndex = async (): Promise<string> =>
-    ctx.webServer.applyIndexTaps(await readFile(distIndex, 'utf8'))
+    ctx.webServer.renderIndex(await readFile(distIndex, 'utf8'))
   ctx.effect(() => ctx.webServer.registerFallback(async (req, res) => {
     // Non-GET/HEAD without a matching named route is 405 (fallback-only
     // semantics: named routes own their method handling).

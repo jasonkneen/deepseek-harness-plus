@@ -10,7 +10,7 @@ Status: implemented
 
 凭据路径越过它自己划下的边界发生了泄漏。已交付的各个面在 Cordis 启动之前就把 `$DSH_HOME/.env` 提升进了 `process.env`，于是下一次运行时，`credentials-local` 会把它自己存下的每个键都判成来自环境的只读启动覆盖：`describe()` 报告 `source: 'env'` 且 `writable: false`，`set`/`unset` 以被遮蔽为由拒绝，从 web 页面或 TUI 存入的密钥既无法轮换也无法删除，而适配器还在继续使用启动时捕获的那个值。
 
-存储自身的写路径重演了 settings 写路径 note 在 settings-file 修掉的那些缺陷（两条相互独立的链、从陈旧缓存渲染整份文件），还叠加了编辑器自己的缺陷：另一个键的带引号多行值内部的一条物理行会被读成赋值，CRLF 行尾会退化成 LF，多行条目报告 `writable: true` 而 `set` 总是抛错，`credentials/updated` 又在提交之后裸发，于是一个出错的观察者就能让一次已经落盘的写入看起来失败。
+存储自身的写路径重演了 settings 写路径 note 在 settings-file 修掉的那些缺陷（两条相互独立的链、从陈旧缓存渲染整份文件），还叠加了编辑器自己的缺陷：另一个键的带引号多行值内部的一条物理行会被读成赋值，CRLF 行尾会退化成 LF，多行条目报告 `writable: true` 而 `set` 总是抛错，`credentials/reference-updated` 又在提交之后裸发，于是一个出错的观察者就能让一次已经落盘的写入看起来失败。
 
 在读取一侧，文件的 `0600` 权限挡得住其他 OS 用户，却挡不住模型：它的 bash 与文件系统工具就以同一个用户身份运行。
 
@@ -26,7 +26,7 @@ Status: implemented
 
 **路由替换是注册表的操作，不是调用方的一串步骤。**`registerAdapter` 返回一个携带 `replace(providers)` 的句柄：候选集合先被完整校验（冲突、名称、提供方元数据），再在一个同步区段内完成替换。被拒绝的替换会让先前的路由保持注册并继续服务，而调用方的事实缓存只有在注册表确实持有新集合之后才会推进，因此改回可用配置时会重新生效。pi-ai 的注册事实按提供方排序，因此仅仅调换键顺序的设置文档不再算作路由变更。
 
-**已提交的凭据写入采用收容式发布。**`CredentialProvider.notifyUpdated` 逐个监听器扇出 `credentials/updated`；同步抛错与异步 rejection 都只记日志，不改变已提交操作的结果，而带 `INVARIANT` 代码的失败会在每个监听器都运行完之后重抛——与 settings seam 处理 `settings/updated` 的形状相同。`installSettingsSection` 的清理现在会区分它的两个触发来源：提供方脱离时仍回退到组合的 entry 配置并重新推导，而消费方自身卸载时立即返回，不再在拆卸过程中重新注册路由。
+**已提交的凭据写入采用收容式发布。**`CredentialProvider.notifyUpdated` 逐个监听器扇出 `credentials/reference-updated`；同步抛错与异步 rejection 都只记日志，不改变已提交操作的结果，而带 `INVARIANT` 代码的失败会在每个监听器都运行完之后重抛——与 settings seam 处理 `settings/updated` 的形状相同。`installSettingsSection` 的清理现在会区分它的两个触发来源：提供方脱离时仍回退到组合的 entry 配置并重新推导，而消费方自身卸载时立即返回，不再在拆卸过程中重新注册路由。
 
 ## 曾考虑的替代方案
 

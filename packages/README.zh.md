@@ -46,7 +46,7 @@ npm scope 为 `@deepseek-ai/dsh-*`；Cordis `Service` 子类和函数插件通�
 | [`session/`](session/README.md) | 持久会话数据平面：持久化 seam + JSONL/SQLite 后端、投影 seam、基于日志的标题、会话上报 | 产品：稳定 API |
 | [`session-query/`](session-query/README.md) | 会话检索系列：逻辑语料库、有界读取、血缘、事件关系、语义过滤和 SQLite 全文搜索 | 产品：稳定 API |
 | [`settings/`](settings/README.md) | 用户设置 seam + 基于文件的提供方 | 产品：稳定 API |
-| [`credentials/`](credentials/README.md) | 凭据引用 seam + 环境变量优先于 `.env` 的提供方 | 产品：稳定 API |
+| [`credentials/`](credentials/README.md) | 凭据引用/记录 seam + 环境变量优先于 `.env` 的提供方 + 授权 flow | 产品：稳定 API |
 | [`storage/`](storage/README.md) | 非会话存储中枢 + 后端 + 领域形式 | 产品：稳定 API |
 | [`workspace/`](workspace/README.md) | Workspace 实体 | 产品：稳定 API |
 | [`sdk/`](sdk/README.md) | 进程外运行时 SDK：JSON-RPC 协议、TypeScript 客户端和服务器插件 | 产品：稳定 API |

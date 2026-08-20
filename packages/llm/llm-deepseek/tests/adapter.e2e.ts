@@ -72,7 +72,7 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('llm-deepseek e2e (real API)', ()
     try {
       // JSON.stringify quotes the value: YAML is a JSON superset, so a real
       // key survives whatever characters it happens to carry.
-      await writeFile(join(dir, '.credentials.yaml'), `DEEPSEEK_API_KEY: ${JSON.stringify(key)}\n`, { mode: 0o600 })
+      await writeFile(join(dir, '.credentials.yaml'), `version: 1\nrefs:\n  DEEPSEEK_API_KEY: ${JSON.stringify(key)}\n`, { mode: 0o600 })
       // Scrub the ambient variable so only the credential seam can supply the
       // key: this request proves the per-request resolution path end to end.
       vi.stubEnv('DEEPSEEK_API_KEY', '')

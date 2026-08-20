@@ -8,7 +8,7 @@ Web 启动内核：`new AppWebEntry(el, seams?).run()` 分两个阶段挂载客�
 
 `PLATFORM_MODULES`（src/platform.ts）是外壳播种共享模块的唯一事实来源。它与 `PRELOADED_CLIENT_EXTERNALS` 一起定义全部动态 bundle 的隐式 external 基座；`dsh.client.external` 只添加基座之外的精确请求。
 
-可选的覆盖参数 `seams` 会为外部 `<script>` 执行无法到达页面上下文的环境转发模块系统的 `loadBundle` 传输覆盖（`BootSeams`）；普通浏览器调用方省略此参数。
+可选的覆盖参数 `seams` 会为外部 `<script>` 执行无法到达页面上下文的环境转发模块系统的 `loadBundle` 传输覆盖（`BootSeams`）；普通浏览器调用方省略此参数。预注入的页面传输是位于其前的默认值：当 `globalThis.__DSH_TRANSPORT__`（connection 包的 `ClientTransportHooks`）携带 `loadBundle` 时，模块阶段将其采纳为 bundle 传输并跳过 immediately 层级的 HTTP 预取——显式 `seams` 仍然优先。
 
 ## 模型体验
 
