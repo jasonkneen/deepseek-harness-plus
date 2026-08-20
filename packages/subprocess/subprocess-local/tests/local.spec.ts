@@ -400,6 +400,27 @@ describe('LocalSubprocessRuntime', () => {
     await fiber.dispose()
   })
 
+  it('warns once when ordinary spawns use the weaker macOS fallback', async () => {
+    const warning = vi.spyOn(process, 'emitWarning').mockImplementation(() => {})
+    const ctx = new Context()
+    const fiber = await ctx.plugin(LocalSubprocessRuntime)
+    const runtime = ctx.subprocess as LocalSubprocessRuntime
+    runtime.internals = { platform: 'darwin' }
+    try {
+      const first = runtime.spawn(spec('true'))
+      const second = runtime.spawn(spec('true'))
+      await Promise.all([first.done, second.done])
+      expect(warning).toHaveBeenCalledOnce()
+      expect(warning).toHaveBeenCalledWith(
+        expect.stringContaining('descendants that escape the process group'),
+        { code: 'DSH_SUBPROCESS_WEAK_CONTAINMENT' },
+      )
+    } finally {
+      warning.mockRestore()
+      await fiber.dispose()
+    }
+  })
+
   it('disposal kills still-running processes and awaits their exit', async () => {
     const ctx = new Context()
     const fiber = await ctx.plugin(LocalSubprocessRuntime)

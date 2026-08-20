@@ -129,19 +129,18 @@ interface SubprocessSpawnSpec {
 }
 ```
 
-## 句柄：流、读取器与以进程树为范围的终止
+## 句柄：流、读取器与 managed-range 终止
 
-spawn 会立即返回一个活动句柄。收集模式的读取器接受全流字节偏移量且从不消费，因此独立的读取器不会抢走彼此的增量；管道化的流归调用方所有。终止在每个平台上都以进程树为范围：`terminate()`（唯一的终止动词）执行 SIGTERM→宽限期→SIGKILL 升级，`waitForExit()` 观察整棵进程树。这足以让消费方构建自己的分级清理流程；ACP 后端的 `disposeAcpChild` 会先关闭 stdin，让子进程收到 EOF，是仓库内的参考实现。
+spawn 会立即返回一个活动句柄。收集模式的读取器接受全流字节偏移量且从不消费，因此独立读取器不会抢走彼此的增量；管道化的流归调用方所有。`terminate()` 与 `waitForExit()` 使用同一个 managed range：受支持的本地 Linux 与 Windows provider 使用 OS-owned scope 或 Job，并明确披露较弱 fallback。唯一的终止动词执行 SIGTERM→宽限期→SIGKILL 升级，因此消费方可以构建自己的分级清理流程；ACP 后端先关闭 stdin 的 `disposeAcpChild` 是参考实现。
 
 ```ts type-equiv
 /**
  * A live child process rooted in its own process tree. Collected output
  * remains readable after exit; piped streams belong to the caller.
  *
- * Termination is tree-scoped everywhere: POSIX signals the detached process
- * group (falling back to the direct child when the group is gone), Windows
- * terminates the tree via `taskkill /T`, so helper processes cannot outlive
- * the handle unnoticed.
+ * Termination and {@link SubprocessHandle.waitForExit} use the same managed
+ * range. Supported Linux and Windows hosts use an OS-owned scope or Job;
+ * weaker platform fallbacks are disclosed by the provider.
  */
 interface SubprocessHandle {
   /** Process id (tree root); -1 when the spawn itself failed. */

@@ -9,6 +9,7 @@ export {
   decodeUint32,
   extendWin32ProcessBindings,
   isNullPtr,
+  loadWin32ProcessBindings,
   throwLastError,
   throwWin32,
 } from './ffi.ts'
@@ -17,12 +18,18 @@ export type {
   Win32ProcessBindings,
 } from './ffi.ts'
 export {
+  closeHandleChecked,
   drainPipe,
+  isJobEmpty,
+  pollProcessExit,
   spawnInheritedJobProcess,
+  spawnOrdinaryJobProcess,
   spawnPipedProcess,
+  terminateJob,
   waitForProcessExit,
 } from './process.ts'
 export type {
+  OrdinaryProcessSpawnOptions,
   SpawnedJobProcess,
   SpawnedPipedProcess,
 } from './process.ts'

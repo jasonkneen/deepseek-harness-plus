@@ -81,6 +81,18 @@ export interface Win32ProcessBindings {
     startupInfo: NativePtr,
     processInfo: NativePtr,
   ): number
+  createProcessW(
+    applicationName: null,
+    commandLine: string,
+    processAttributes: null,
+    threadAttributes: null,
+    inheritHandles: number,
+    creationFlags: number,
+    environment: null,
+    currentDirectory: string | null,
+    startupInfo: NativePtr,
+    processInfo: NativePtr,
+  ): number
   readFile(file: NativePtr, buffer: Buffer, count: number, bytesRead: NativePtr, overlapped: null): number
   peekNamedPipe(
     pipe: NativePtr,
@@ -97,6 +109,7 @@ export interface Win32ProcessBindings {
   assignProcessToJobObject(job: NativePtr, process: NativePtr): number
   resumeThread(thread: NativePtr): number
   terminateProcess(process: NativePtr, exitCode: number): number
+  terminateJobObject(job: NativePtr, exitCode: number): number
   getStdHandle(stdHandle: number): NativePtr
 }
 
@@ -241,6 +254,10 @@ function bindings(): Win32ProcessBindings {
       PVOID, 'str16', 'str16', PVOID, PVOID, 'int', 'uint32', PVOID, 'str16',
       koffi.pointer(STARTUPINFOW), koffi.pointer(PROCESS_INFORMATION),
     ]),
+    createProcessW: bind(kernel32, 'CreateProcessW', 'int', [
+      'str16', 'str16', PVOID, PVOID, 'int', 'uint32', PVOID, 'str16',
+      koffi.pointer(STARTUPINFOW), koffi.pointer(PROCESS_INFORMATION),
+    ]),
     readFile: bind(kernel32, 'ReadFile', 'int', [PVOID, PVOID, 'uint32', koffi.pointer('uint32'), PVOID]),
     peekNamedPipe: bind(kernel32, 'PeekNamedPipe', 'int', [
       PVOID, PVOID, 'uint32', koffi.pointer('uint32'), koffi.pointer('uint32'), koffi.pointer('uint32'),
@@ -252,6 +269,7 @@ function bindings(): Win32ProcessBindings {
     assignProcessToJobObject: bind(kernel32, 'AssignProcessToJobObject', 'int', [PVOID, PVOID]),
     resumeThread: bind(kernel32, 'ResumeThread', 'uint32', [PVOID]),
     terminateProcess: bind(kernel32, 'TerminateProcess', 'int', [PVOID, 'uint32']),
+    terminateJobObject: bind(kernel32, 'TerminateJobObject', 'int', [PVOID, 'uint32']),
     getStdHandle: bind(kernel32, 'GetStdHandle', PVOID, ['int']),
   } as unknown as Win32ProcessBindings
   return cached
@@ -266,6 +284,14 @@ export function extendWin32ProcessBindings<Extension extends object>(
   create: (context: Win32BindingContext) => Extension,
 ): Win32ProcessBindings & Extension {
   return { ...bindings(), ...create(bindingContext()) }
+}
+
+/**
+ * Load the generic process binding table without policy-specific extensions.
+ * @returns shared Win32 process, stdio, and Job operations.
+ */
+export function loadWin32ProcessBindings(): Win32ProcessBindings {
+  return bindings()
 }
 /* v8 ignore stop */
 

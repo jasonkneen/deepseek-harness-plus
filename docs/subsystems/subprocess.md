@@ -129,19 +129,18 @@ interface SubprocessSpawnSpec {
 }
 ```
 
-## Handles: streams, readers, and tree-scoped termination
+## Handles: streams, readers, and managed-range termination
 
-A spawn returns a live handle immediately. Collect-mode readers take whole-stream byte offsets and never consume, so independent readers cannot steal one another's deltas; piped streams belong to the caller. Termination is tree-scoped on every platform: `terminate()` — the only termination verb — escalates SIGTERM→grace→SIGKILL, and `waitForExit()` observes the whole tree — enough for a consumer to build its own teardown ladder (the ACP backend's stdin-EOF-first `disposeAcpChild` is the template).
+A spawn returns a live handle immediately. Collect-mode readers take whole-stream byte offsets and never consume, so independent readers cannot steal one another's deltas; piped streams belong to the caller. `terminate()` and `waitForExit()` use one managed range: supported local Linux and Windows providers use an OS-owned scope or Job, while weaker fallbacks are disclosed. The only termination verb escalates SIGTERM→grace→SIGKILL, so a consumer can build its own teardown ladder (the ACP backend's stdin-EOF-first `disposeAcpChild` is the template).
 
 ```ts type-equiv
 /**
  * A live child process rooted in its own process tree. Collected output
  * remains readable after exit; piped streams belong to the caller.
  *
- * Termination is tree-scoped everywhere: POSIX signals the detached process
- * group (falling back to the direct child when the group is gone), Windows
- * terminates the tree via `taskkill /T`, so helper processes cannot outlive
- * the handle unnoticed.
+ * Termination and {@link SubprocessHandle.waitForExit} use the same managed
+ * range. Supported Linux and Windows hosts use an OS-owned scope or Job;
+ * weaker platform fallbacks are disclosed by the provider.
  */
 interface SubprocessHandle {
   /** Process id (tree root); -1 when the spawn itself failed. */

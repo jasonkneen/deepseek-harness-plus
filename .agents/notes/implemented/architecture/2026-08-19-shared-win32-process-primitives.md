@@ -10,17 +10,17 @@ The Windows ACL sandbox owns restricted-token, SID, DACL, grant, and workspace p
 
 ## Decision
 
-`@deepseek-ai/dsh-win32-process` owns the reusable Win32 process ABI and native resource operations currently consumed by `sandbox-windows-acl`. The package lazily loads `kernel32.dll` and `advapi32.dll`, verifies the x64 `STARTUPINFOW` and `PROCESS_INFORMATION` layouts, quotes argv for `CreateProcessAsUserW`, and exposes checked restricted-token pipe and inherited-stdio Job operations.
+`@deepseek-ai/dsh-win32-process` owns the reusable Win32 process ABI and native resource operations consumed by `sandbox-windows-acl` and the ordinary subprocess Job runner. The package lazily loads `kernel32.dll` and `advapi32.dll`, verifies the x64 `STARTUPINFOW` and `PROCESS_INFORMATION` layouts, quotes argv for `CreateProcessAsUserW` or `CreateProcessW`, and exposes checked pipe, Job, wait, polling, termination, and handle operations.
 
 The Windows ACL sandbox remains the only owner of restricted-token creation, SID and DACL policy, grants, writable-path decisions, temporary-directory policy, and the public sandbox child result. It extends the shared binding context with policy-specific APIs, supplies the primary token, combines pipe drains and waits, and closes the caller-owned Job at its lifecycle boundary.
 
-Every native allocation and HANDLE has one owner within each shared operation. A process operation frees its Koffi out-parameters and closes every pipe, thread, process, or Job handle it acquired before a controlled failure. Successful pipe creation returns the process plus stdout/stderr read handles to the sandbox. Inherited-stdio creation starts the target suspended, assigns it to the kill-on-close Job, and resumes it only after assignment, so target code cannot run outside the Job. Assignment failure terminates the suspended target before releasing its handles; resume failure closes the assigned Job. The sandbox retains its existing pipe-drain, direct-wait, result, and returned-Job lifecycle.
+Every native allocation and HANDLE has one owner within each shared operation. A process operation frees its Koffi out-parameters and closes every pipe, thread, process, or Job handle it acquired before a controlled failure. Successful pipe creation returns the process plus stdout/stderr read handles to the sandbox. Restricted and ordinary inherited-stdio creation both start the target suspended, assign it to the kill-on-close Job, and resume it only after assignment, so target code cannot run outside the Job. The sandbox retains its existing pipe-drain and direct-wait lifecycle; the ordinary runner polls the direct process separately and closes the Job only after it is empty.
 
-The package exports only operations used by the sandbox production path. Ordinary `CreateProcessW`, exact `applicationName`, parent-stdio release, and whole-Job settlement remain absent until an ordinary process consumer needs them. The package is a library, not a Cordis service or a public Windows SDK.
+The package exports only operations used by the two production consumers. Exact `applicationName`, parent-stdio release, public process handles, and backend selection remain outside. The package is a library, not a Cordis service or a public Windows SDK.
 
 ## Verification
 
-The shared suite covers x64 ABI values, command-line quoting, binding extension, pipe EOF and drain allocation reuse, restricted-token process creation, suspended creation followed by Job assignment and resume, wait and exit-code reads, native allocation release, and the acquired-resource failure paths. Sandbox tests retain restricted-token, fail-closed, pipe/inherit, result, and disposal composition without duplicating the low-level matrix. The committed header probes and Windows package tests cover the migrated ABI and native paths; Wine supplies the emulated Windows package and composition signal.
+The shared suite covers x64 ABI values, command-line quoting, binding extension, pipe EOF and drain allocation reuse, restricted and ordinary process creation, suspended creation followed by Job assignment and resume, blocking and zero-time exit reads, Job-empty probes and termination, native allocation release, and the acquired-resource failure paths. Sandbox tests retain restricted-token, fail-closed, pipe/inherit, result, and disposal composition without duplicating the low-level matrix. The committed header probes and Windows package tests cover the native paths; Wine supplies the emulated Windows package and composition signal.
 
 ## Alternatives considered
 
@@ -28,7 +28,7 @@ The shared suite covers x64 ABI values, command-line quoting, binding extension,
 
 **Copy the Koffi implementation into each consumer.** Rejected because struct layouts, error capture, and partial-failure cleanup would have multiple owners.
 
-**Publish ordinary-runner operations before a current consumer exists.** Rejected because unused `CreateProcessW`, application-name, parent-stdio, and Job-settlement APIs would freeze speculative obligations and enlarge the failure matrix.
+**Publish ordinary-runner operations before a current consumer exists.** Rejected because unused operations would freeze speculative obligations. The ordinary CreateProcess, polling, and Job controls were added only with their runner consumer.
 
 ## Consequences
 

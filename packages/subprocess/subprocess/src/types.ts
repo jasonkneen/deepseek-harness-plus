@@ -159,10 +159,9 @@ export interface SubprocessCollectedOutputs {
  * A live child process rooted in its own process tree. Collected output
  * remains readable after exit; piped streams belong to the caller.
  *
- * Termination is tree-scoped everywhere: POSIX signals the detached process
- * group (falling back to the direct child when the group is gone), Windows
- * terminates the tree via `taskkill /T`, so helper processes cannot outlive
- * the handle unnoticed.
+ * Termination and {@link SubprocessHandle.waitForExit} use the same managed
+ * range. Supported Linux and Windows hosts use an OS-owned scope or Job;
+ * weaker platform fallbacks are disclosed by the provider.
  */
 export interface SubprocessHandle {
   /** Process id (tree root); -1 when the spawn itself failed. */

@@ -53,14 +53,18 @@ export function buildCommandLine(program: string, args: readonly string[]): stri
   return [program, ...args].map(quoteArg).join(' ')
 }
 
-/** Restricted-token process creation inputs owned by the Windows ACL sandbox. */
-export interface RestrictedProcessSpawnOptions {
-  /** Executable argv entry passed through CreateProcessAsUserW. */
+/** Ordinary process creation inputs used by the local Win32 runner. */
+export interface OrdinaryProcessSpawnOptions {
+  /** Executable argv entry passed through CreateProcess. */
   command: string
   /** Arguments excluding the executable. */
   args: readonly string[]
   /** Existing child working directory. */
   cwd: string
+}
+
+/** Restricted-token process creation inputs owned by the Windows ACL sandbox. */
+export interface RestrictedProcessSpawnOptions extends OrdinaryProcessSpawnOptions {
   /** Restricted primary token supplied by sandbox policy. */
   token: NativePtr
 }
@@ -316,19 +320,12 @@ function createKillOnCloseJob(api: Win32ProcessBindings): NativePtr {
   return job
 }
 
-/**
- * Spawn suspended, assign the child to a kill-on-close Job, then resume it.
- * @param api - active binding table.
- * @param options - command, cwd, args, and restricted primary token.
- * @returns caller-owned process and Job handles after successful resume.
- * @remarks Node clears stdio handle inheritability at startup through
- * uv_disable_stdio_inheritance. This operation temporarily restores the bits
- * required by STARTF_USESTDHANDLES. Restoring them afterward is best-effort:
- * failure must not replace the already-created child's outcome.
- */
-export function spawnInheritedJobProcess(
+/** Shared suspended-create, Job-assignment, and resume lifecycle. */
+function spawnJobProcess(
   api: Win32ProcessBindings,
-  options: RestrictedProcessSpawnOptions,
+  options: OrdinaryProcessSpawnOptions,
+  createName: 'CreateProcessAsUserW' | 'CreateProcessW',
+  create: (startupInfo: NativePtr, processInfo: NativePtr) => number,
 ): SpawnedJobProcess {
   const job = createKillOnCloseJob(api)
   const getStdHandle = (selector: number, label: string): NativePtr => {
@@ -366,14 +363,7 @@ export function spawnInheritedJobProcess(
       hStdError: stdErr,
     })
     processInfo = allocProcessInfo()
-    created = createRestrictedProcess(
-      api,
-      options,
-      buildCommandLine(options.command, options.args),
-      abi.CREATE_SUSPENDED,
-      startupInfo,
-      processInfo,
-    )
+    created = create(startupInfo, processInfo)
     if (created === 0) createFailureCode = api.getLastError()
   } catch (error) {
     freeNative(processInfo)
@@ -391,7 +381,7 @@ export function spawnInheritedJobProcess(
     api.closeHandle(job)
     throwWin32(
       api,
-      'CreateProcessAsUserW',
+      createName,
       createFailureCode,
       `command: ${options.command}, cwd: ${options.cwd}`,
     )
@@ -407,7 +397,7 @@ export function spawnInheritedJobProcess(
     api.closeHandle(job)
     closeBestEffort(api, info.hThread)
     closeBestEffort(api, info.hProcess)
-    throw new Error(`CreateProcessAsUserW succeeded but returned null process/thread handles (pid ${info.dwProcessId})`)
+    throw new Error(`${createName} succeeded but returned null process/thread handles (pid ${info.dwProcessId})`)
   }
   if (api.assignProcessToJobObject(job, info.hProcess) === 0) {
     const win32Code = api.getLastError()
@@ -426,4 +416,108 @@ export function spawnInheritedJobProcess(
   }
   closeBestEffort(api, info.hThread)
   return { pid: info.dwProcessId, process: info.hProcess, job }
+}
+
+/**
+ * Spawn a restricted-token process suspended, assign its Job, then resume it.
+ * @param api - active binding table.
+ * @param options - command, cwd, args, and restricted primary token.
+ * @returns caller-owned process and Job handles after successful resume.
+ * @remarks Node clears stdio handle inheritability at startup through
+ * uv_disable_stdio_inheritance. This operation temporarily restores the bits
+ * required by STARTF_USESTDHANDLES. Restoring them afterward is best-effort:
+ * failure must not replace the already-created child's outcome.
+ */
+export function spawnInheritedJobProcess(
+  api: Win32ProcessBindings,
+  options: RestrictedProcessSpawnOptions,
+): SpawnedJobProcess {
+  const commandLine = buildCommandLine(options.command, options.args)
+  return spawnJobProcess(api, options, 'CreateProcessAsUserW', (startupInfo, processInfo) =>
+    createRestrictedProcess(
+      api,
+      options,
+      commandLine,
+      abi.CREATE_SUSPENDED,
+      startupInfo,
+      processInfo,
+    ))
+}
+
+/**
+ * Spawn an ordinary process suspended, assign its Job, then resume it.
+ * @param api - active binding table.
+ * @param options - command, cwd, and argv.
+ * @returns caller-owned process and Job handles after successful resume.
+ */
+export function spawnOrdinaryJobProcess(
+  api: Win32ProcessBindings,
+  options: OrdinaryProcessSpawnOptions,
+): SpawnedJobProcess {
+  const commandLine = buildCommandLine(options.command, options.args)
+  return spawnJobProcess(api, options, 'CreateProcessW', (startupInfo, processInfo) =>
+    api.createProcessW(
+      null,
+      commandLine,
+      null,
+      null,
+      1,
+      abi.CREATE_SUSPENDED,
+      null,
+      options.cwd,
+      startupInfo,
+      processInfo,
+    ))
+}
+
+/**
+ * Poll one process handle without blocking the runner event loop.
+ * @param api - active binding table.
+ * @param process - caller-owned process handle.
+ * @returns the direct exit code when signalled, or undefined while running.
+ */
+export function pollProcessExit(api: Win32ProcessBindings, process: NativePtr): number | undefined {
+  const waitResult = api.waitForSingleObject(process, 0)
+  if (waitResult === abi.WAIT_TIMEOUT) return undefined
+  if (waitResult === 0xFFFFFFFF) throwLastError(api, 'WaitForSingleObject')
+  const exitCodeSlot = allocUint32()
+  try {
+    if (api.getExitCodeProcess(process, exitCodeSlot) === 0) throwLastError(api, 'GetExitCodeProcess')
+    return decodeUint32(exitCodeSlot)
+  } finally {
+    koffi.free(exitCodeSlot)
+  }
+}
+
+/**
+ * Return whether a Job has no active processes.
+ * @param api - active binding table.
+ * @param job - caller-owned Job handle.
+ * @returns true once the Job object is signalled.
+ */
+export function isJobEmpty(api: Win32ProcessBindings, job: NativePtr): boolean {
+  const waitResult = api.waitForSingleObject(job, 0)
+  if (waitResult === abi.WAIT_TIMEOUT) return false
+  if (waitResult === 0xFFFFFFFF) throwLastError(api, 'WaitForSingleObject', 'Job object')
+  return true
+}
+
+/**
+ * Terminate every process in a Job.
+ * @param api - active binding table.
+ * @param job - caller-owned Job handle.
+ * @param exitCode - direct Windows exit code assigned to members.
+ */
+export function terminateJob(api: Win32ProcessBindings, job: NativePtr, exitCode: number): void {
+  if (api.terminateJobObject(job, exitCode) === 0) throwLastError(api, 'TerminateJobObject')
+}
+
+/**
+ * Close a caller-owned handle and report a labelled Win32 failure.
+ * @param api - active binding table.
+ * @param handle - handle to close.
+ * @param detail - lifecycle label for diagnostics.
+ */
+export function closeHandleChecked(api: Win32ProcessBindings, handle: NativePtr, detail: string): void {
+  if (api.closeHandle(handle) === 0) throwLastError(api, 'CloseHandle', detail)
 }

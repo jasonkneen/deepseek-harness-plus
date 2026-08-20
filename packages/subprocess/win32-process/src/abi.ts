@@ -6,6 +6,8 @@ export const STARTF_USESTDHANDLES = 0x00000100
 export const HANDLE_FLAG_INHERIT = 0x1
 /** Infinite WaitForSingleObject timeout. */
 export const INFINITE = 0xFFFFFFFF
+/** WaitForSingleObject returned because a zero-time probe is not signalled. */
+export const WAIT_TIMEOUT = 258
 /** CreateProcess flag that prevents user code from running before resume. */
 export const CREATE_SUSPENDED = 0x4
 /** GetStdHandle selector for standard input. */

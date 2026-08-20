@@ -21,6 +21,7 @@ int wmain()
   P(STARTF_USESTDHANDLES);
   P(HANDLE_FLAG_INHERIT);
   P(INFINITE);
+  P(WAIT_TIMEOUT);
   P(STD_INPUT_HANDLE);
   P(STD_OUTPUT_HANDLE);
   P(STD_ERROR_HANDLE);
@@ -39,6 +40,7 @@ int wmain()
   static_assert(CREATE_SUSPENDED == 0x4, "suspended process flag");
   static_assert(STARTF_USESTDHANDLES == 0x100, "std handles flag");
   static_assert(HANDLE_FLAG_INHERIT == 0x1, "inherit flag");
+  static_assert(WAIT_TIMEOUT == 258, "zero-time wait timeout");
   static_assert(sizeof(JOBOBJECT_EXTENDED_LIMIT_INFORMATION) == 144, "job extended limit size");
   static_assert(offsetof(JOBOBJECT_EXTENDED_LIMIT_INFORMATION, BasicLimitInformation) + offsetof(JOBOBJECT_BASIC_LIMIT_INFORMATION, LimitFlags) == 16, "job LimitFlags offset");
   static_assert(JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE == 0x2000, "kill on job close flag");

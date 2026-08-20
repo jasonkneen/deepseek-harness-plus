@@ -18,6 +18,10 @@
       "types": "./lib/types/index.d.ts",
       "default": "./lib/index.js"
     },
+    "./spawn-runner": {
+      "types": "./lib/types/spawn-runner.d.ts",
+      "default": "./lib/spawn-runner.js"
+    },
     "./invariant": {
       "types": "./lib/types/invariant.d.ts",
       "default": "./lib/invariant.js"
@@ -28,6 +32,8 @@
   "files": [
     "lib/index.js",
     "lib/invariant.js",
+    "lib/spawn-runner.js",
+    "lib/runner-protocol-*.js",
     "scripts/ensure-spawn-helper.mjs",
     "lib/types/**/*.d.ts"
   ],
@@ -42,6 +48,7 @@
     "@deepseek-ai/cordis": "workspace:^"
   },
   "dependencies": {
+    "@deepseek-ai/dsh-win32-process": "workspace:^",
     "koffi": "^3.1.0",
     "node-pty": "1.2.0-beta.15"
   },
@@ -50,6 +57,7 @@
     "@deepseek-ai/dsh-loader-smoke": "workspace:^",
     "@deepseek-ai/dsh-subprocess": "workspace:^",
     "@deepseek-ai/dsh-timeout": "workspace:^",
+    "@deepseek-ai/dsh-win32-process": "workspace:^",
     "@deepseek-ai/cordis": "workspace:^"
   }
 }

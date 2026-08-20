@@ -21,8 +21,10 @@ import type {
   SubprocessTerminalHandle,
   SubprocessTerminalSpawnSpec,
 } from '@deepseek-ai/dsh-subprocess'
-import { childEnv, spawnSubprocess } from './spawn.ts'
+import { bindManagedProcess, childEnv, spawnSubprocess, validateSubprocessSpec } from './spawn.ts'
 import type { LocalSubprocessHandle, SpawnInternals } from './spawn.ts'
+import { launchLinuxScope, probeLinuxScope } from './linux-scope.ts'
+import { launchWindowsJob, probeWindowsJob } from './windows-job.ts'
 import { createProcessInspector } from './process-inspector.ts'
 import type { ProcessInspector } from './process-inspector.ts'
 import { LocalTerminalHandle } from './terminal.ts'
@@ -41,6 +43,9 @@ export class LocalSubprocessRuntime extends SubprocessRuntime {
   private terminals = new Set<LocalTerminalHandle>()
   /** Test hook: spill and platform knobs forwarded to spawnSubprocess. */
   internals: SpawnInternals = {}
+  /** Ordinary native containment mode, selected once before its first user command. */
+  private ordinaryMode: 'linux-scope' | 'windows-job' | 'fallback' | undefined
+  private fallbackWarned = false
   /** Test hook for platform process inspection; production resolves lazily on terminal spawn. */
   terminalInspector: ProcessInspector | undefined
 
@@ -144,7 +149,13 @@ export class LocalSubprocessRuntime extends SubprocessRuntime {
   }
 
   spawn(spec: SubprocessSpawnSpec): SubprocessHandle {
-    const handle = spawnSubprocess(spec, this.internals)
+    validateSubprocessSpec(spec)
+    const mode = this.selectOrdinaryMode()
+    const handle = mode === 'linux-scope'
+      ? bindManagedProcess(spec, launchLinuxScope(spec), this.internals)
+      : mode === 'windows-job'
+        ? bindManagedProcess(spec, launchWindowsJob(spec), this.internals)
+        : spawnSubprocess(spec, this.internals)
     this.live.add(handle)
     // Release ownership only once the whole TREE is gone, not at direct-child
     // settlement — a TERM-trapping helper that outlives the leader must stay
@@ -152,8 +163,34 @@ export class LocalSubprocessRuntime extends SubprocessRuntime {
     // case waitForExit resolves immediately after settlement.
     const release = (): Promise<void> =>
       handle.waitForExit().then(() => { this.live.delete(handle) })
-    handle.done.then(release, release)
+    void handle.done.then(release, release).catch(() => {})
     return handle
+  }
+
+  private selectOrdinaryMode(): 'linux-scope' | 'windows-job' | 'fallback' {
+    if (this.ordinaryMode !== undefined) return this.ordinaryMode
+    const platform = this.internals.platform ?? process.platform
+    if (platform === 'linux' && probeLinuxScope()) this.ordinaryMode = 'linux-scope'
+    else if (platform === 'win32' && probeWindowsJob()) this.ordinaryMode = 'windows-job'
+    else this.ordinaryMode = 'fallback'
+    if (this.ordinaryMode === 'fallback') this.warnFallback(platform)
+    return this.ordinaryMode
+  }
+
+  private warnFallback(platform: NodeJS.Platform): void {
+    if (this.fallbackWarned) return
+    this.fallbackWarned = true
+    const reason = platform === 'darwin'
+      ? 'macOS has no supported persistent process-range owner'
+      : platform === 'linux'
+        ? 'a modern readable user-systemd scope is unavailable'
+        : platform === 'win32'
+          ? 'the Win32 Job runner is unavailable'
+          : `platform ${platform} has no native managed range`
+    process.emitWarning(
+      `subprocess-local is using weaker process-tree containment because ${reason}; descendants that escape the process group or direct-parent tree are not guaranteed to terminate or delay waitForExit()`,
+      { code: 'DSH_SUBPROCESS_WEAK_CONTAINMENT' },
+    )
   }
 
   // Local PTY allocation is synchronous, but the provider contract permits remote asynchronous allocation.
