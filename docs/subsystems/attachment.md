@@ -135,5 +135,5 @@ abstract saveImage(input: SaveImageAttachment): Promise<ImageAttachmentRef>
 abstract readImage(ref: ImageAttachmentRef, signal?: AbortSignal): Promise<StoredImageAttachment>
 ```
 
-Source: [`packages/attachment/attachment/src/index.ts:33`](../../packages/attachment/attachment/src/index.ts)
+Source: [`packages/attachment/attachment/src/index.ts`](../../packages/attachment/attachment/src/index.ts)
 <!-- END GENERATED cordis-surface -->

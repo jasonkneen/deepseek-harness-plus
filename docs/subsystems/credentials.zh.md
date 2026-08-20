@@ -116,7 +116,7 @@ cancel(key: CredentialKey): void
 async begin(request: AuthorizationRequest): Promise<AuthorizationOutcome>
 ```
 
-Source: [`packages/credentials/authorization/src/index.ts:182`](../../packages/credentials/authorization/src/index.ts)
+Source: [`packages/credentials/authorization/src/index.ts`](../../packages/credentials/authorization/src/index.ts)
 
 <a id="ctxcredentials--credentialprovider-abstract-seam"></a>
 
@@ -210,7 +210,7 @@ abstract modifyRecord( key: CredentialKey, mutate: (current: CredentialRecord | 
 abstract deleteRecord(key: CredentialKey): Promise<void>
 ```
 
-Source: [`packages/credentials/credentials/src/index.ts:177`](../../packages/credentials/credentials/src/index.ts)
+Source: [`packages/credentials/credentials/src/index.ts`](../../packages/credentials/credentials/src/index.ts)
 
 <a id="authorization-events"></a>
 
@@ -234,7 +234,7 @@ One authorization attempt has finished and released its key. Fires for every ter
 'authorization/settled'(key: CredentialKey, settlement: AuthorizationSettlement): void
 ```
 
-Source: [`packages/credentials/authorization/src/index.ts:57`](../../packages/credentials/authorization/src/index.ts)
+Source: [`packages/credentials/authorization/src/index.ts`](../../packages/credentials/authorization/src/index.ts)
 
 <a id="credentials-events"></a>
 
@@ -260,7 +260,7 @@ Committed change to a stored credential record: a `modifyRecord` that wrote, a `
 'credentials/record-updated'(key: CredentialKey): void
 ```
 
-Source: [`packages/credentials/credentials/src/types.ts:87`](../../packages/credentials/credentials/src/types.ts)
+Source: [`packages/credentials/credentials/src/types.ts`](../../packages/credentials/credentials/src/types.ts)
 
 <a id="credentialsreference-updated--emit"></a>
 
@@ -284,5 +284,5 @@ Committed change to a provider-managed credential source: a `set`, an `unset`, o
 'credentials/reference-updated'(ref: CredentialRef): void
 ```
 
-Source: [`packages/credentials/credentials/src/types.ts:75`](../../packages/credentials/credentials/src/types.ts)
+Source: [`packages/credentials/credentials/src/types.ts`](../../packages/credentials/credentials/src/types.ts)
 <!-- END GENERATED cordis-surface -->

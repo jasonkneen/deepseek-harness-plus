@@ -62,7 +62,7 @@ interface WebBootGraph {
 
 ## bundle 路由与 index 注入
 
-`GET`/`HEAD /plugins/<id>/client.js` 以 `no-cache` 从磁盘提供已注册的 bundle（锚定一致性的是 rev 查询参数，而非 HTTP 缓存）；其他方法返回 405。未知 id——或已注册、但 bundle 因尚未构建而不可读的行——回应一个大声的 404，而不是让载体的 SPA 回退把 HTML 当作 JavaScript 发出。注入行在每次 index 渲染时携带当前图，因此刷新页面总是针对实时组合启动。
+`GET`/`HEAD /plugins/<id>/client.js` 以 `no-cache` 从磁盘提供已注册的 bundle（锚定一致性的是 rev 查询参数，而非 HTTP 缓存）；其他方法返回 405。未知 id——或已注册、但 bundle 因尚未构建而不可读的行——回应一个大声的 404，因此不可读 bundle 不会表现为成功的 JavaScript 响应。注入行在每次 index 渲染时携带当前图，因此刷新页面总是针对实时组合启动。
 
 ## 服务
 
@@ -122,5 +122,5 @@ onRebuilt(listener: (id: string, rev: string) => void): () => void
 onGraphChanged(listener: () => void): () => void
 ```
 
-Source: [`packages/client/modules/src/index.ts:282`](../../packages/client/modules/src/index.ts)
+Source: [`packages/client/modules/src/index.ts`](../../packages/client/modules/src/index.ts)
 <!-- END GENERATED cordis-surface -->
