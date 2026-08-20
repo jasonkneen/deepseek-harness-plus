@@ -65,6 +65,7 @@ describe('Linux systemd scope adapter', () => {
     })
     await expect(launch.direct).resolves.toEqual({ exitCode: 9, signal: null })
     await expect(launch.owner.waitForExit()).resolves.toBe(true)
+    await expect(launch.owner.waitForExit()).resolves.toBe(true)
     const callsBeforeStaleSignal = runSyncMock.mock.calls.length
     launch.owner.signal('SIGKILL')
     expect(runSyncMock).toHaveBeenCalledTimes(callsBeforeStaleSignal)
