@@ -156,7 +156,7 @@ export interface SubprocessCollectedOutputs {
 }
 
 /**
- * A live child process rooted in its own process tree. Collected output
+ * A live direct child and its provider-managed process range. Collected output
  * remains readable after exit; piped streams belong to the caller.
  *
  * Termination and {@link SubprocessHandle.waitForExit} use the same managed
@@ -164,7 +164,7 @@ export interface SubprocessCollectedOutputs {
  * weaker platform fallbacks are disclosed by the provider.
  */
 export interface SubprocessHandle {
-  /** Process id (tree root); -1 when the spawn itself failed. */
+  /** Direct target process id; -1 when the spawn itself failed. */
   readonly pid: number
   /** The child's stdin, present iff spawned with `stdin: 'pipe'`. */
   readonly stdin: Writable | undefined
@@ -177,17 +177,17 @@ export interface SubprocessHandle {
   /** Resolves with direct-process exit facts; rejects for spawn or selected native-runner failures. */
   readonly done: Promise<SubprocessOutcome>
   /**
-   * Begin the SIGTERM → `graceMs` → SIGKILL escalation on the process tree
-   * (Windows force-terminates immediately) — the seam's only termination
-   * verb. Idempotent, a no-op once the tree is gone (the pid may be reused),
-   * and also triggered by the spec's abort signal.
+   * Begin the SIGTERM → `graceMs` → SIGKILL escalation on the provider-managed
+   * range (Windows force-terminates immediately) — the seam's only termination
+   * verb. Idempotent, a no-op once that range is gone, and also triggered by
+   * the spec's abort signal.
    */
   terminate(): void
   /**
-   * Wait until the process tree has exited — the tree, not just the direct
-   * child, so a still-running helper is observable before teardown returns.
+   * Wait until the same managed range is empty — not just until the direct
+   * child exits, so a still-running helper is observable before teardown returns.
    * @param signal - optional bound for the wait.
-   * @returns `true` when the tree exited, `false` when the signal aborted first.
+   * @returns `true` when the managed range is empty, `false` when the signal aborted first.
    * @throws when the selected provider can no longer observe its managed range.
    */
   waitForExit(signal?: AbortSignal): Promise<boolean>

@@ -1,6 +1,7 @@
 /** Native managed-range runner for ordinary local subprocesses. */
 
 import { spawn } from 'node:child_process'
+import { closeSync } from 'node:fs'
 import {
   closeHandleChecked,
   isJobEmpty,
@@ -96,6 +97,17 @@ function replaceEnvironment(env: Record<string, string>): void {
   Object.assign(process.env, env)
 }
 
+/** Release the runner's copies after the Windows target inherits its standard handles. */
+function releaseRunnerStdio(): void {
+  for (const fd of [0, 1, 2]) {
+    try {
+      closeSync(fd)
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'EBADF') throw error
+    }
+  }
+}
+
 async function runWin32(request: RunnerRequest, eventsPath: string): Promise<void> {
   replaceEnvironment(request.env)
   const api = loadWin32ProcessBindings()
@@ -114,8 +126,6 @@ async function runWin32(request: RunnerRequest, eventsPath: string): Promise<voi
     processHandle = spawned.process
     jobHandle = spawned.job
     targetStarted = true
-    appendRunnerEvent(eventsPath, { type: 'started', pid: spawned.pid })
-
     let terminationRequested = false
     const terminate = (): void => {
       if (terminationRequested || jobHandle === undefined) return
@@ -126,6 +136,8 @@ async function runWin32(request: RunnerRequest, eventsPath: string): Promise<voi
       if (message !== null && typeof message === 'object' && (message as { type?: unknown }).type === 'terminate') terminate()
     })
     process.on('disconnect', terminate)
+    releaseRunnerStdio()
+    appendRunnerEvent(eventsPath, { type: 'started', pid: spawned.pid })
 
     await new Promise<void>((resolve, reject) => {
       const timer = setInterval(() => {

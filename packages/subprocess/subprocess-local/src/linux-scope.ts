@@ -149,7 +149,7 @@ class SystemdScopeOwner implements BoundProcessOwner {
     const output = `${result.stdout}\n${result.stderr}`
     if (result.status !== 0) {
       if (MISSING_UNIT.test(output)) {
-        if (this.runner.exitCode !== null || this.runner.signalCode !== null) return false
+        if (this.runner.pid === undefined || this.runner.exitCode !== null || this.runner.signalCode !== null) return false
       } else {
         if (result.error !== undefined) throw result.error
         throw new Error(`systemctl could not read ${this.unit}: ${output.trim() || `exit ${String(result.status)}`}`)

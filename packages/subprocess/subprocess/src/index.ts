@@ -88,10 +88,11 @@ declare module '@deepseek-ai/cordis' {
  *   and the spill file holding the complete stream when one exists. Piped
  *   streams are handed to the caller raw and never buffered here.
  * - {@link SubprocessHandle.terminate} (and the spec's abort signal) escalates
- *   SIGTERM→grace→SIGKILL — the only termination verb — tree-scoped on every
- *   platform. {@link SubprocessHandle.waitForExit} observes whole-tree
- *   liveness, so a consumer-owned teardown ladder can hold each tier on real
- *   quiescence.
+ *   SIGTERM→grace→SIGKILL — the only termination verb — against the provider's
+ *   managed range. Supported local Linux and Windows providers use an OS-owned
+ *   scope or Job; weaker fallbacks use a detached process group or direct-parent
+ *   tree. {@link SubprocessHandle.waitForExit} observes that same range so a
+ *   consumer-owned teardown ladder can hold each tier on real quiescence.
  * - Disposal of the service terminates all still-running managed processes
  *   and awaits their exit.
  * - {@link spawnTerminal} owns terminal allocation, text transport,

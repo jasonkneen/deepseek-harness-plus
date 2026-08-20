@@ -94,6 +94,17 @@ function privateSpillDir(): string {
 }
 
 /**
+ * Prepare fallible output storage before starting a managed native process.
+ * @param internals - optional caller-owned spill directory.
+ * @returns binding inputs whose spill directory is ready for use.
+ */
+export function prepareManagedProcessBinding(
+  internals: Pick<SpawnInternals, 'spillDir'> = {},
+): { spillDir: string } {
+  return { spillDir: internals.spillDir ?? privateSpillDir() }
+}
+
+/**
  * Collects one stream with a bounded in-memory tail. With a spill cap, on
  * first overflow a spill file is created and every chunk (including those
  * already collected) is appended there while the full stream remains within
@@ -420,7 +431,7 @@ export function bindManagedProcess(
   internals: Pick<SpawnInternals, 'spillDir'> = {},
 ): LocalSubprocessHandle {
   validateSubprocessSpec(spec)
-  const spillDir = internals.spillDir ?? privateSpillDir()
+  const { spillDir } = prepareManagedProcessBinding(internals)
   const child = launch.child
 
   const isCollect = (mode: SubprocessOutputMode): mode is SubprocessCollect =>
@@ -564,6 +575,7 @@ export function bindManagedProcess(
  */
 export function spawnSubprocess(spec: SubprocessSpawnSpec, internals: SpawnInternals = {}): LocalSubprocessHandle {
   validateSubprocessSpec(spec)
+  const binding = prepareManagedProcessBinding(internals)
   const platform = internals.platform ?? process.platform
   const [program, ...args] = spec.argv
   const child = spawn(program as string, args, {
@@ -587,5 +599,5 @@ export function spawnSubprocess(spec: SubprocessSpawnSpec, internals: SpawnInter
     internals.linuxProcessGroupHasLiveMembers ?? linuxProcessGroupHasLiveMembers,
     direct,
   )
-  return bindManagedProcess(spec, { child, pid, direct, closed, owner }, internals)
+  return bindManagedProcess(spec, { child, pid, direct, closed, owner }, binding)
 }

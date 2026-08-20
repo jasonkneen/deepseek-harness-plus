@@ -104,11 +104,23 @@ describe.skipIf(!windowsNative)('Windows Job native containment', () => {
       child.unref()
       process.exit(42)
     `
-    const request = spec([process.execPath, '-e', script, 'literal $HOME ${UNCHANGED}'], 100, { TARGET_VALUE: 'explicit' })
+    const request = {
+      ...spec([process.execPath, '-e', script, 'literal $HOME ${UNCHANGED}'], 100, { TARGET_VALUE: 'explicit' }),
+      stdio: { stdin: 'ignore', stdout: 'pipe', stderr: 'inherit' } as const,
+    }
     const handle = bindManagedProcess(request, launchWindowsJob(request))
     const descendant = await waitForPid(pidFile)
     try {
+      if (handle.stdout === undefined) throw new Error('expected piped stdout')
+      const stdoutEnded = Promise.race([
+        new Promise<boolean>((resolve, reject) => {
+          handle.stdout?.once('end', () => { resolve(true) })
+          handle.stdout?.once('error', reject)
+        }),
+        new Promise<boolean>(resolve => setTimeout(() => { resolve(false) }, 1_000)),
+      ])
       await expect(handle.done).resolves.toEqual({ exitCode: 42, signal: null })
+      await expect(stdoutEnded).resolves.toBe(true)
       expect(readFileSync(factsFile, 'utf8')).toBe(JSON.stringify({
         cwd: scratch,
         value: 'explicit',

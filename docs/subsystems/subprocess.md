@@ -135,7 +135,7 @@ A spawn returns a live handle synchronously after any provider-specific setup ne
 
 ```ts type-equiv
 /**
- * A live child process rooted in its own process tree. Collected output
+ * A live direct child and its provider-managed process range. Collected output
  * remains readable after exit; piped streams belong to the caller.
  *
  * Termination and {@link SubprocessHandle.waitForExit} use the same managed
@@ -143,7 +143,7 @@ A spawn returns a live handle synchronously after any provider-specific setup ne
  * weaker platform fallbacks are disclosed by the provider.
  */
 interface SubprocessHandle {
-  /** Process id (tree root); -1 when the spawn itself failed. */
+  /** Direct target process id; -1 when the spawn itself failed. */
   readonly pid: number
   /** The child's stdin, present iff spawned with `stdin: 'pipe'`. */
   readonly stdin: Writable | undefined
@@ -156,17 +156,17 @@ interface SubprocessHandle {
   /** Resolves with direct-process exit facts; rejects for spawn or selected native-runner failures. */
   readonly done: Promise<SubprocessOutcome>
   /**
-   * Begin the SIGTERM → `graceMs` → SIGKILL escalation on the process tree
-   * (Windows force-terminates immediately) — the seam's only termination
-   * verb. Idempotent, a no-op once the tree is gone (the pid may be reused),
-   * and also triggered by the spec's abort signal.
+   * Begin the SIGTERM → `graceMs` → SIGKILL escalation on the provider-managed
+   * range (Windows force-terminates immediately) — the seam's only termination
+   * verb. Idempotent, a no-op once that range is gone, and also triggered by
+   * the spec's abort signal.
    */
   terminate(): void
   /**
-   * Wait until the process tree has exited — the tree, not just the direct
-   * child, so a still-running helper is observable before teardown returns.
+   * Wait until the same managed range is empty — not just until the direct
+   * child exits, so a still-running helper is observable before teardown returns.
    * @param signal - optional bound for the wait.
-   * @returns `true` when the tree exited, `false` when the signal aborted first.
+   * @returns `true` when the managed range is empty, `false` when the signal aborted first.
    * @throws when the selected provider can no longer observe its managed range.
    */
   waitForExit(signal?: AbortSignal): Promise<boolean>
@@ -284,7 +284,7 @@ Implementations must honor these semantics:
 - Executable paths belong to one execution world shared with the mounted filesystem provider.
 - spawn returns a live handle synchronously after provider-specific setup needed to publish its target pid. `done` resolves with direct-process exit facts and may reject for spawn or selected provider-runner failures.
 - Collect-mode readers are offset-based and non-consuming, so independent readers never consume one another's output; lossy reads report truncation and the spill file holding the complete stream when one exists. Piped streams are handed to the caller raw and never buffered here.
-- SubprocessHandle.terminate (and the spec's abort signal) escalates SIGTERM→grace→SIGKILL — the only termination verb — tree-scoped on every platform. SubprocessHandle.waitForExit observes whole-tree liveness, so a consumer-owned teardown ladder can hold each tier on real quiescence.
+- SubprocessHandle.terminate (and the spec's abort signal) escalates SIGTERM→grace→SIGKILL — the only termination verb — against the provider's managed range. Supported local Linux and Windows providers use an OS-owned scope or Job; weaker fallbacks use a detached process group or direct-parent tree. SubprocessHandle.waitForExit observes that same range so a consumer-owned teardown ladder can hold each tier on real quiescence.
 - Disposal of the service terminates all still-running managed processes and awaits their exit.
 - spawnTerminal owns terminal allocation, text transport, foreground groups, signalling, and whole-session quiescence behind one awaited termination method; readiness and persistent-shell policy stay in the PTY consumer. Its output stream ends after queued terminal output when the top-level process exits.
 

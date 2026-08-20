@@ -245,6 +245,22 @@ describe.skipIf(process.platform === 'win32')('Linux systemd scope adapter', () 
     expect(runSyncMock.mock.calls.length).toBeGreaterThan(1)
   })
 
+  it('settles a missing scope immediately when the wrapper never started', async () => {
+    const launch = launchLinuxScope(spec([process.execPath, '-e', '']), {
+      systemdRun: `missing-systemd-run-${String(process.pid)}-${String(Date.now())}`,
+      systemctlQuery: async () => ({
+        status: 1,
+        stdout: '',
+        stderr: 'Unit dsh-subprocess-missing.scope could not be found',
+      }),
+      runnerInvocation: spawnRunnerInvocation(),
+    })
+    expect(launch.child.pid).toBeUndefined()
+    await expect(launch.direct).rejects.toThrow('runner failed to start')
+    await expect(launch.owner.waitForExit()).resolves.toBe(true)
+    await launch.closed
+  })
+
   it('does not fabricate a direct outcome after a non-forced scope signal', async () => {
     let wrapper: ReturnType<typeof spawn> | undefined
     const run = vi.fn((_command: string, args: readonly string[], options: Parameters<typeof spawn>[2]) => {

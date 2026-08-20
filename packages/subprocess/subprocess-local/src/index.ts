@@ -21,7 +21,13 @@ import type {
   SubprocessTerminalHandle,
   SubprocessTerminalSpawnSpec,
 } from '@deepseek-ai/dsh-subprocess'
-import { bindManagedProcess, childEnv, spawnSubprocess, validateSubprocessSpec } from './spawn.ts'
+import {
+  bindManagedProcess,
+  childEnv,
+  prepareManagedProcessBinding,
+  spawnSubprocess,
+  validateSubprocessSpec,
+} from './spawn.ts'
 import type { LocalSubprocessHandle, SpawnInternals } from './spawn.ts'
 import { launchLinuxScope, probeLinuxScope } from './linux-scope.ts'
 import { launchWindowsJob, probeWindowsJob } from './windows-job.ts'
@@ -150,11 +156,14 @@ export class LocalSubprocessRuntime extends SubprocessRuntime {
   spawn(spec: SubprocessSpawnSpec): SubprocessHandle {
     validateSubprocessSpec(spec)
     const mode = this.selectOrdinaryMode()
-    const handle = mode === 'linux-scope'
-      ? bindManagedProcess(spec, launchLinuxScope(spec), this.internals)
-      : mode === 'windows-job'
-        ? bindManagedProcess(spec, launchWindowsJob(spec), this.internals)
-        : spawnSubprocess(spec, this.internals)
+    let handle: LocalSubprocessHandle
+    if (mode === 'fallback') {
+      handle = spawnSubprocess(spec, this.internals)
+    } else {
+      const binding = prepareManagedProcessBinding(this.internals)
+      const launch = mode === 'linux-scope' ? launchLinuxScope(spec) : launchWindowsJob(spec)
+      handle = bindManagedProcess(spec, launch, binding)
+    }
     this.live.add(handle)
     // Release ownership only once the whole TREE is gone, not at direct-child
     // settlement — a TERM-trapping helper that outlives the leader must stay

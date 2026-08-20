@@ -452,6 +452,7 @@ describe('LocalSubprocessRuntime', () => {
     const launchWindowsJob = vi.fn(() => windowsLaunch)
     const probeLinuxScope = vi.fn(() => true)
     const probeWindowsJob = vi.fn(() => true)
+    const prepareManagedProcessBinding = vi.fn(() => ({ spillDir: '/tmp/dsh-test-spill' }))
     let nextPid = 100
     const handles = [true, false, false].map((failFirstWait) => {
       let waits = 0
@@ -468,7 +469,7 @@ describe('LocalSubprocessRuntime', () => {
         }),
       }
     })
-    const bindManagedProcess = vi.fn((_spec: unknown, _launch: unknown) => {
+    const bindManagedProcess = vi.fn((_spec: unknown, _launch: unknown, _binding: unknown) => {
       const handle = handles.shift()
       if (handle === undefined) throw new Error('missing fake handle')
       return handle
@@ -481,6 +482,7 @@ describe('LocalSubprocessRuntime', () => {
     vi.doMock('../src/spawn.ts', async importOriginal => ({
       ...await importOriginal<typeof import('../src/spawn.ts')>(),
       bindManagedProcess,
+      prepareManagedProcessBinding,
       spawnSubprocess,
     }))
     const fibers: Array<{ dispose(): Promise<void> }> = []
@@ -491,6 +493,10 @@ describe('LocalSubprocessRuntime', () => {
       fibers.push(linuxFiber)
       const linuxRuntime = linuxContext.subprocess as InstanceType<typeof IsolatedLocalSubprocessRuntime>
       linuxRuntime.internals = { platform: 'linux' }
+      const preparationFailure = new Error('spill directory unavailable')
+      prepareManagedProcessBinding.mockImplementationOnce(() => { throw preparationFailure })
+      expect(() => linuxRuntime.spawn(spec('true'))).toThrow(preparationFailure)
+      expect(launchLinuxScope).not.toHaveBeenCalled()
       await linuxRuntime.spawn(spec('true')).done
       await new Promise(resolve => setImmediate(resolve))
       await linuxRuntime.spawn(spec('true')).done
@@ -512,6 +518,7 @@ describe('LocalSubprocessRuntime', () => {
         linuxLaunch,
         windowsLaunch,
       ])
+      expect(prepareManagedProcessBinding).toHaveBeenCalledTimes(4)
       expect(spawnSubprocess).not.toHaveBeenCalled()
     } finally {
       for (const fiber of fibers.reverse()) await fiber.dispose()
