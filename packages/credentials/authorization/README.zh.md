@@ -4,7 +4,7 @@
 
 授权 Service Definition（`ctx.authorization`）。有些凭据无法配置，只能获取：拿到它意味着与人对话——打开这个页面、粘贴那个码、选一个账号。本 seam 拥有这段对话及其生命周期，但从不拥有协议本身。
 
-**flow 是某个插件"如何取得自己那份凭据"的知识。** 它以自己写入的 [`CredentialKey`](../credentials/README.md#two-key-spaces-two-questions) 注册，因此 flow 声明了自己产出哪条记录，并通过该键的 scope 声明由哪个插件为记录内部的格式负责。第二种授权协议以另一个 flow 的形式到来，而不是另一个 seam。
+**flow 是某个插件"如何取得自己那份凭据"的知识。** 它以自己写入的 [`CredentialKey`](../credentials/README.zh.md#two-key-spaces-two-questions) 注册，因此 flow 声明了自己产出哪条记录，并通过该键的 scope 声明由哪个插件为记录内部的格式负责。第二种授权协议以另一个 flow 的形式到来，而不是另一个 seam。
 
 **写入由 flow 拥有。** `run()` 返回即表示记录已经通过 `ctx.credentials` 提交；seam 核实的是它在本次尝试期间观察到的提交——只看记录存在与否，会让重新授权把陈旧记录冒充成新鲜的——并拒绝那些返回时没提交记录的 flow。让提交发生在 flow 内部，才能使一个通过自有 store 适配器持久化的库保持为唯一写入方，而不是把凭据复制出来再写第二遍。
 
@@ -73,4 +73,4 @@ notice 是单向的，且从不携带机密：一条消息，以及可选的"人
 
 - **flow 不可恢复** —— 一次尝试只存活于发起它的进程中，因此登录途中刷新浏览器会丢弃它，人需要重来。可持久的尝试需要一个本 seam 并不具备的存储。
 - **没有吊销** —— 登出即 `ctx.credentials.deleteRecord(key)`，它只遗忘本地记录而不通知签发方。需要服务端吊销的 provider 目前无处声明这一点。
-- **没有 flow 的键是惰性的** —— seam 只报告已注册的内容，因此被卸载插件遗留的记录可以删除但无法重新授权。识别这种孤儿记录由调用方自行 join，与 [`listRecords()`](../credentials/README.md#surface) 的情况相同。
+- **没有 flow 的键是惰性的** —— seam 只报告已注册的内容，因此被卸载插件遗留的记录可以删除但无法重新授权。识别这种孤儿记录由调用方自行 join，与 [`listRecords()`](../credentials/README.zh.md#surface) 的情况相同。

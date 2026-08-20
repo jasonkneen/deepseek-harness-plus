@@ -6,7 +6,7 @@ Status: implemented
 
 ## 问题
 
-[Typert Remote 方法调用](../../implemented/architecture/2026-08-02-typert-remote-method-calls.md)只覆盖「一次请求一个结果」的定向调用，明确把 Session 事件流与有状态交互留在别处；Host 向消费端的**单向事件推送**因此仍然全部压在遗留的 API Proxy 上。
+[Typert Remote 方法调用](../../implemented/architecture/2026-08-02-typert-remote-method-calls.zh.md)只覆盖「一次请求一个结果」的定向调用，明确把 Session 事件流与有状态交互留在别处；Host 向消费端的**单向事件推送**因此仍然全部压在遗留的 API Proxy 上。
 
 Host 拥有 `agent-preset/selected`、`commands/change`、`credentials/reference-updated`、`llm/adapters-updated`、`settings/document-updated` 这五条单向事件；它们既不依赖 AgentScope，载荷也本来就是 JSON。过去每条都要穿过 host cordis 事件、apiproxy 手写帧、client/runtime 手写桥和 Client 事件别名才能抵达 UI，而这些层没有陈述 owner 事件之外的新事实。
 

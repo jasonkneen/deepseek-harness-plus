@@ -32,6 +32,8 @@
 
 无；该包既不组装也不发送提供方请求。
 
+<a id="known-limitations-and-deferred-work"></a>
+
 ## 已知限制与暂缓事项
 
 - **只有宿主平面的插件会出现**——由 agent preset 挂载的插件把配置内联在该 preset 的 `agent.cordis.yml` 中，且根本无法注册 settings 命名空间（同一 preset 挂载第二个会话时会因重复注册而失败），因此本分区不会列出它。编辑那些值仍是 preset 编辑器的职责。

@@ -38,7 +38,7 @@ resolution 未被触动。在仅 OAuth 的路由上指定 `apiKeyEnv` 的 profil
 
 两处相邻缺口仍在，并记录在包 README 中：不指定凭据的路由仍走 catalog 提供方自带的发现，而它只读进程环境变量——不读 `~/.aws/credentials`，也不读 harness 凭据 seam——且由此产生的失败仍是兜底的 `PI_AI_ERROR`。
 
-该扣留其后已被撤销：[凭据记录与授权 flow](../architecture/2026-08-13-credential-records-and-authorization-flows.md) 为适配器补上了可持久的凭据存储与登录 flow，因此 `openai-codex` 重新被提供，`catalogProviderTakesApiKey` 也已删除。下文那两条边界正是把这次反转限制在一个判定函数与一个目录过滤器之内的原因。
+该扣留其后已被撤销：[凭据记录与授权 flow](../architecture/2026-08-13-credential-records-and-authorization-flows.zh.md) 为适配器补上了可持久的凭据存储与登录 flow，因此 `openai-codex` 重新被提供，`catalogProviderTakesApiKey` 也已删除。下文那两条边界正是把这次反转限制在一个判定函数与一个目录过滤器之内的原因。
 
 ## 测试
 

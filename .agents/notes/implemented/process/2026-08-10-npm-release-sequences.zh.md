@@ -26,7 +26,7 @@ Status: implemented
 | vendored framework | `vendor/*` 九个包 | 每包各自一条版本线 | `vendor-<包名>-v<版本>`（每包一个） | `release-vendor.yml`（pack）/ `release-vendor-publish.yml`（发布） |
 | native | `native/landlock-run/packages/*` | 自己的 `0.0.x` | `landlock-run-v<版本>` | `landlock-run-release.yml` |
 
-三组一律发到 npmjs.com 的 `@deepseek-ai` scope，且 access 按序列而非按 scope 区分：vendored 框架与 native 包是 `public`，dsh 族是 `restricted`（[理由](2026-08-13-public-vendor-and-native-sequences.md)）。没有任何发布路径传 `--access`——一个选项无法服务级别互不相同的序列，且会覆盖真正拥有该级别的 manifest。
+三组一律发到 npmjs.com 的 `@deepseek-ai` scope，且 access 按序列而非按 scope 区分：vendored 框架与 native 包是 `public`，dsh 族是 `restricted`（[理由](2026-08-13-public-vendor-and-native-sequences.zh.md)）。没有任何发布路径传 `--access`——一个选项无法服务级别互不相同的序列，且会覆盖真正拥有该级别的 manifest。
 
 ### 版本由本地命令写进仓库，CI 只核对与上传
 
@@ -128,7 +128,7 @@ dsh 的验证会一并安装 vendored 族的 pack 产物。harness 的包把 ven
 
 ### 与先前提案的关系
 
-本 Note 取代 [以产物为先的 NPM 基线发布](../../proposed/process/2026-08-04-artifact-first-npm-baseline-publication.md) 中的版本方案与发布集边界：那篇的 `<base>-<时间戳>-<短 SHA>` 预发布版本与 `dev-<base>` dist-tag 不再采用，vendor 也不排除在发布集之外。两篇一致的部分保留：pack 与 publish 分离、publish 只消费已验证的 tarball、payload 与安装后探针作为发布门。
+本 Note 取代 [以产物为先的 NPM 基线发布](../../proposed/process/2026-08-04-artifact-first-npm-baseline-publication.zh.md) 中的版本方案与发布集边界：那篇的 `<base>-<时间戳>-<短 SHA>` 预发布版本与 `dev-<base>` dist-tag 不再采用，vendor 也不排除在发布集之外。两篇一致的部分保留：pack 与 publish 分离、publish 只消费已验证的 tarball、payload 与安装后探针作为发布门。
 
 ## 曾考虑的替代方案
 

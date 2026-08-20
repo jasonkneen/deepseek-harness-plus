@@ -3,8 +3,9 @@
  * Typert catalog projection. Every harness `ctx.<key>` service and event scope
  * maps to exactly one `docs/subsystems/` page through the curated tables below;
  * the generator injects each page's Cordis API reference between its GENERATED markers —
- * byte-identically into both language sides of the pair — and re-records a
- * pair's `.i18n.yaml` only when nothing outside the region changed. The
+ * into both language sides of the pair, localizing paired document paths for
+ * the Chinese side while retaining every other byte — and re-records a pair's
+ * `.i18n.yaml` only when nothing outside the region changed. The
  * projection enforces event modes, JSDoc parameter/return completeness, and
  * signature type-link coverage; the inherited (vendor) tier renders to
  * `docs/cordis-api/inherited.md`. `--check` verifies every generated artifact.
@@ -32,9 +33,12 @@ import { contextKeyMap, contextMergeFiles, eventNameList } from './cordis-walk.t
 import {
   blobHash,
   parsePairMeta,
+  parseTranslationPairingManifest,
   partitionGeneratedRegions,
   renderPairMeta,
+  translationPairSourcePredicate,
 } from './translation-pairing.ts'
+import { rewriteTranslationLinkLocales } from './translation-links.ts'
 
 const root = resolve(import.meta.dirname, '..')
 const SUBSYSTEMS_DIR = 'docs/subsystems'
@@ -739,6 +743,19 @@ export interface WalkPartitionMaps {
   readonly eventWalkExemptions: Readonly<Record<string, string>>
 }
 
+/** Project paired Markdown destinations in one generated region to the page's locale. */
+export function localizePageRegion(region: string, pageRel: string, scanRoot: string = root): string {
+  if (!pageRel.endsWith('.zh.md')) return region
+  const manifest = parseTranslationPairingManifest(
+    readFileSync(resolve(scanRoot, 'scripts/translation-pairing.manifest.json'), 'utf8'),
+  )
+  return rewriteTranslationLinkLocales(region, {
+    repoRoot: scanRoot,
+    sourcePath: pageRel,
+    isTranslationPairSource: translationPairSourcePredicate(manifest),
+  }).content
+}
+
 /**
  * Judge the rendered API and the independent AST scan against the curated
  * partition maps, fail-closed in both directions for services AND events: a
@@ -862,6 +879,7 @@ export function computeOutputs(): [string, string][] {
     )
     for (const side of [page, page.replace(/\.md$/, '.zh.md')]) {
       const rel = `${SUBSYSTEMS_DIR}/${side}`
+      const localizedRegion = localizePageRegion(region, rel)
       let current: string
       try {
         current = readFileSync(resolve(root, rel), 'utf8')
@@ -872,7 +890,7 @@ export function computeOutputs(): [string, string][] {
         continue
       }
       try {
-        outputs.push([rel, spliceRegion(current, region)])
+        outputs.push([rel, spliceRegion(current, localizedRegion)])
       } catch (error) {
         problems.push(`${rel}: ${error instanceof Error ? error.message : String(error)}`)
       }

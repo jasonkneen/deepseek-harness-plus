@@ -30,7 +30,7 @@ pi-ai profile 的 `models` 列表就在卡片上编辑：一行一个模型，�
 
 ## 已知限制与暂缓事项
 
-- **卡片上可编辑的只有 API 密钥与精选折叠区字段**：手写编辑器用 schema 通用的字段覆盖面换来了设计稿上的布局（[Agent Note](../../../.agents/notes/implemented/architecture/2026-07-30-web-config-plane.md)）。两个家族都公开 `baseURL` 与模型的 `id`/`name`/`contextWindow`/`maxTokens`；手工声明的 pi-ai 路由还公开 `displayName` 与 `api`。重试策略、超时、DeepSeek 模型说明及其他进阶字段仍留在 `settings.yaml` 中；编辑器未展示的现有模型字段会予以保留。不带这些约定字段的 profile schema 只渲染该提示，两套精选布局则以 `llm-deepseek`/`llm-pi-ai` 这两个 namespace 的名字为键。
+- **卡片上可编辑的只有 API 密钥与精选折叠区字段**：手写编辑器用 schema 通用的字段覆盖面换来了设计稿上的布局（[Agent Note](../../../.agents/notes/implemented/architecture/2026-07-30-web-config-plane.zh.md)）。两个家族都公开 `baseURL` 与模型的 `id`/`name`/`contextWindow`/`maxTokens`；手工声明的 pi-ai 路由还公开 `displayName` 与 `api`。重试策略、超时、DeepSeek 模型说明及其他进阶字段仍留在 `settings.yaml` 中；编辑器未展示的现有模型字段会予以保留。不带这些约定字段的 profile schema 只渲染该提示，两套精选布局则以 `llm-deepseek`/`llm-pi-ai` 这两个 namespace 的名字为键。
 - **凭据清理范围刻意保持狭窄**：删除一行时，仅当其引用与页面派生的 `<ROUTE>_API_KEY` 目标完全一致，才会清除已配置且可写的凭据。自定义引用、环境凭据和无法识别的目标会保留，因为该行无法证明自己拥有它们。
 - **只有 pi-ai 路由可以手工声明**：自定义提供方卡片写入 `llm-pi-ai`——唯一一个其 profile 描述整个提供方的 namespace。`llm-deepseek` 路由是组合面的事实，不是本页能创建的东西。
 - **询问只覆盖 OpenAI 兼容端点**：适配器只读这种模型列表响应格式，因此讲其他协议的网关会报告自己无法被询问，其模型需手工填写。

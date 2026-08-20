@@ -34,4 +34,4 @@ markdown-dom 一致性 fixture 按分支 pin 住包裹层类名，含新增的 `
 
 ## 相关
 
-- [Web markdown 增量 AST 渲染器](../architecture/2026-08-06-web-markdown-incremental-ast-renderer.md) —— 本变更所扩展的渲染器与 DOM 一致性契约。
+- [Web markdown 增量 AST 渲染器](../architecture/2026-08-06-web-markdown-incremental-ast-renderer.zh.md) —— 本变更所扩展的渲染器与 DOM 一致性契约。

@@ -6,7 +6,7 @@
 
 一句话机制：把调用者令牌复制为 `WRITE_RESTRICTED` 受限令牌，其 restricting SIDs 携带彼此独立的工作区能力与私有临时目录能力。工作区 SID 由规范工作区路径确定性派生（`workspaceWriteSid`），因此工作区根目录 ACE 每台机器每个工作区只物化一次，之后每次会话、调用或重启都命中精确 ACE 跳过。每个活跃的会话/工作区对则获得一个随机临时目录，以及一个从该路径派生的 SID（`tempWriteSid`），因此各会话共享预期的工作区权限，却不会继承彼此的临时目录权限。此后 Windows 只在「调用者正常权限」与「restricting SID 交集」同时允许时才放行写入。这些 SID 是主要白名单，在系统其余位置不授予任何权限；但该检查还会继承**其他** restricting SID 的环境写 ACE（保活组登录 SID + Everyone），而 NTFS ACL 属于文件对象而非路径。Everyone 与硬链接边界正是该档报告部分而非完整强制执行的原因。
 
-直接构建在原生 ACL 机制上是记录在案的设计选择：它实现两种隔离模式，且不背负被否决的容器方案的问题——见[设计笔记](../../../.agents/notes/implemented/feature/2026-08-08-windows-acl-restricted-token-sandbox.md)（[mxc](https://github.com/microsoft/mxc/blob/main/docs/process-container/os-version-support.md) 要求 Windows 11 24H2 的 OS 下限，且任意路径读取需要整体改写宿主 DACL；AppContainer 根本无法任意路径读取）。
+直接构建在原生 ACL 机制上是记录在案的设计选择：它实现两种隔离模式，且不背负被否决的容器方案的问题——见[设计笔记](../../../.agents/notes/implemented/feature/2026-08-08-windows-acl-restricted-token-sandbox.zh.md)（[mxc](https://github.com/microsoft/mxc/blob/main/docs/process-container/os-version-support.md) 要求 Windows 11 24H2 的 OS 下限，且任意路径读取需要整体改写宿主 DACL；AppContainer 根本无法任意路径读取）。
 
 ## 用法
 
@@ -38,7 +38,7 @@ sandbox.dispose() // revokes the revocable (temp) grant, keeps the standing work
 rmSync(tempDir, { recursive: true, force: true })
 ```
 
-直接使用 `AclSandbox` 时，必须显式提供私有临时目录（或通过 `tempDir: null` 禁用临时写入；环境临时根目录绝不会被隐式授权），工作区 ACE 以**常驻**方式授予（`dispose()` 保留它们——它们是跨实例的复用缓存），不同的临时 SID 则以**可回收**方式授予。服务端复用则是 `AclWriteGrant` 类：每个目录一次 `add(path, standing)`，`dispose()` 撤销可回收路径并释放 SID——见下方 runner 契约。每个 policy-specific Win32 调用和 [`dsh-win32-process`](../../subprocess/win32-process/README.md) 提供的 process primitive 都有检查；失败抛出 `Win32Error`，携带 API 名、精确 Win32 错误码、`FormatMessageW` 系统文本和失败的路径/上下文。这是刻意的：POC 忽略每个返回值，当 `CreateRestrictedToken` 失败时用完整无限制令牌静默运行子进程（fail-open）。本移植从构造上 fail-closed。
+直接使用 `AclSandbox` 时，必须显式提供私有临时目录（或通过 `tempDir: null` 禁用临时写入；环境临时根目录绝不会被隐式授权），工作区 ACE 以**常驻**方式授予（`dispose()` 保留它们——它们是跨实例的复用缓存），不同的临时 SID 则以**可回收**方式授予。服务端复用则是 `AclWriteGrant` 类：每个目录一次 `add(path, standing)`，`dispose()` 撤销可回收路径并释放 SID——见下方 runner 契约。每个 policy-specific Win32 调用和 [`dsh-win32-process`](../../subprocess/win32-process/README.zh.md) 提供的 process primitive 都有检查；失败抛出 `Win32Error`，携带 API 名、精确 Win32 错误码、`FormatMessageW` 系统文本和失败的路径/上下文。这是刻意的：POC 忽略每个返回值，当 `CreateRestrictedToken` 失败时用完整无限制令牌静默运行子进程（fail-open）。本移植从构造上 fail-closed。
 
 <a id="the-confinement-runner"></a>
 
@@ -64,7 +64,7 @@ Authenticated Users 在**两种**列表中都不存在——WMI 命名空间安�
 
 ## 头部验证
 
-sandbox 自有的 SID、ACL、token、文件与锁常量和布局均已在开发机上对照 Windows 头文件（MinGW `winnt.h` / `accctrl.h` / `aclapi.h` / `securitybaseapi.h` / `sddl.h` / `fileapi.h`）验证，并由 [`verify/abi-probe.cpp`](verify/abi-probe.cpp) 交叉检查。共享的 process、stdio 与 Job ABI 由 [`@deepseek-ai/dsh-win32-process`](../../subprocess/win32-process/README.md#header-verification) 归属并验证。
+sandbox 自有的 SID、ACL、token、文件与锁常量和布局均已在开发机上对照 Windows 头文件（MinGW `winnt.h` / `accctrl.h` / `aclapi.h` / `securitybaseapi.h` / `sddl.h` / `fileapi.h`）验证，并由 [`verify/abi-probe.cpp`](verify/abi-probe.cpp) 交叉检查。共享的 process、stdio 与 Job ABI 由 [`@deepseek-ai/dsh-win32-process`](../../subprocess/win32-process/README.zh.md#header-verification) 归属并验证。
 
 ```sh
 g++ -std=c++20 -municode -O2 -o abi-probe.exe verify/abi-probe.cpp -ladvapi32 && ./abi-probe.exe
@@ -84,7 +84,7 @@ g++ -std=c++20 -municode -O2 -o abi-probe.exe verify/abi-probe.cpp -ladvapi32 &&
 
 ## 模型体验
 
-间接地通过 [`dsh-bash-sandbox`](../../shell/bash-sandbox/README.md)、[`dsh-pwsh-sandbox`](../../shell/pwsh-sandbox/README.md) 及其工具呈现：它们渲染此后端的部分强制执行与拒绝事实（工具层通过 `denialSignatures` 分类的受限 stderr），而 [`dsh-sandbox`](../sandbox/README.md) seam 拥有 `SANDBOX_UNAVAILABLE` 文本与 runner 选择。
+间接地通过 [`dsh-bash-sandbox`](../../shell/bash-sandbox/README.zh.md)、[`dsh-pwsh-sandbox`](../../shell/pwsh-sandbox/README.zh.md) 及其工具呈现：它们渲染此后端的部分强制执行与拒绝事实（工具层通过 `denialSignatures` 分类的受限 stderr），而 [`dsh-sandbox`](../sandbox/README.zh.md) seam 拥有 `SANDBOX_UNAVAILABLE` 文本与 runner 选择。
 
 #### KV Cache 影响
 

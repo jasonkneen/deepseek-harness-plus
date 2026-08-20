@@ -159,7 +159,7 @@ pi-ai 依据提供方 id 与 baseURL 决定每个请求的形状：系统提示�
 
 ## 应用归因
 
-每个请求都携带 dsh-llm `attributionHeaders()` 的共享归因标头，并通过 pi-ai `headers` 流选项合并。不会合成提供方特定应用归因标头。详见 [dsh-llm § 应用归因](../llm/README.md#app-attribution-attributionts)。
+每个请求都携带 dsh-llm `attributionHeaders()` 的共享归因标头，并通过 pi-ai `headers` 流选项合并。不会合成提供方特定应用归因标头。详见 [dsh-llm § 应用归因](../llm/README.zh.md#app-attribution-attributionts)。
 
 ## 依赖体量
 
@@ -202,7 +202,7 @@ pi-ai 事件会变为 harness 推理、文本、工具调用、usage 与 finish 
 - **提供方自带的凭据发现经由本插件的 ambient context 作答**：不指定凭据的路由交由 catalog 提供方自行解析，它会询问环境值（`AZURE_OPENAI_API_KEY`、`AWS_PROFILE` 以及各提供方自己的那一组）与本地凭据文件是否存在。两类问题都在这里作答：先查凭据 seam 再查进程环境，文件存在性则按宿主进程的文件系统判断并展开 `~`。它做不到的是*读取*凭据文件的内容——自行解析 `~/.aws/credentials` 的提供方是直接读盘的，不经过 seam。
 - **settings 能新增或覆盖路由，但不能移除组合路由**：用户层合并在组合 `base` 之上，因此删除 `cordis.yml` 提供的提供方属于组合变更；对该 namespace 执行 `replace` 只会重置用户层。
 - **分层合并对字典键没有删除语义**：settings seam 把组合 `base` 与用户层按键递归合并，因此 base 声明的某个 `reasoningEfforts` 档位、`modelOverrides` 条目或 `compat` 字段，用户层只能覆盖、无法移除——而 `reasoningEfforts` 里缺席本身*就是*语义（「不提供」），于是 base 声明过的档位会一直被提供。只有 `cordis.yml` entry config 为用户层正在编辑的同一模型声明了按模型推理字段才会触发；受支持的姿态是把这些字段留给 settings 文档（shipped 组合以 dormant 方式挂载该适配器），且 `models` 列表是数组、整体替换，这是带内的解决办法。
-- **`headers` 可能承载一条脱敏器看不见的凭据**：profile 的 `headers` 是纯字符串字典，因此设在其中的 `Authorization` 或 `api-key` 会被脱敏后的 `describe()` 原样返回，并被任何配置 UI 渲染出来。请把凭据存为 `apiKeyEnv` 引用；把该字典整体改为只写与其余[协议边界工作](../llm/README.md#known-limitations-and-deferred-work)一并暂缓。
+- **`headers` 可能承载一条脱敏器看不见的凭据**：profile 的 `headers` 是纯字符串字典，因此设在其中的 `Authorization` 或 `api-key` 会被脱敏后的 `describe()` 原样返回，并被任何配置 UI 渲染出来。请把凭据存为 `apiKeyEnv` 引用；把该字典整体改为只写与其余[协议边界工作](../llm/README.zh.md#known-limitations-and-deferred-work)一并暂缓。
 - **路由的 catalog 不会自我刷新**：catalog 就是 `settings.yaml` 所写的内容，因此模型列表的新鲜度只到最近一次编辑为止。这里没有任何环节会去问提供方它服务哪些模型；路由要多一个模型，得有人写进去。
 - **每条路由只有一种协议格式**：`api` 作用于整条路由，因此混合协议的 catalog 路由（跨 Responses 与 Chat Completions 的 OpenAI 式 catalog）无法承载另一种协议的模型，向这类路由添加它未描述的模型必须点名 `api` 并把全部模型一起迁过去。把该提供方拆成两个路由键是变通办法。
 - **模态声明不经验证，且多声明的后果超出本轮**：没有任何环节会去询问端点接受什么，因此声明了网关并不提供的 `image` 的模型不会在这里被拦下，而是由提供方在轮次中途拒绝。prompt 准入在构造请求之前就把用户消息持久化提交，于是被拒绝的图片留在会话日志里：该模型会不断重发它，而模型选择拒绝切换到任何纯文本模型。恢复途径是换一个确实支持图片的模型、fork 到图片之前，或开启新会话；发送失败时把尚未消费的图片消息从日志中回滚出去这件事已暂缓。

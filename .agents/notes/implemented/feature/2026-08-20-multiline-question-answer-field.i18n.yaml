@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-08-20-multiline-question-answer-field.md
 2026-08-20-multiline-question-answer-field.md: 5e411d6728205ce1b72ef8355bbf2493f28873eb
-2026-08-20-multiline-question-answer-field.zh.md: 6b98f017bbee2e8d89810c5b193b3707c85d1e95
+2026-08-20-multiline-question-answer-field.zh.md: a19178227e813c78b99529fc3e3186e5cfb98e2a

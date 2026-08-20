@@ -2,7 +2,7 @@
 
 [English](extensions.md) | 中文
 
-extensions 子系统允许 agent（智能体）定义带版本的 Cordis 包、运行其 host 与浏览器两半，并在编写代码前查询获准公开的运行时元数据。包生命周期与沙箱行为由 [`packages/extensions`](../../packages/extensions/README.md) 包组说明。
+extensions 子系统允许 agent（智能体）定义带版本的 Cordis 包、运行其 host 与浏览器两半，并在编写代码前查询获准公开的运行时元数据。包生命周期与沙箱行为由 [`packages/extensions`](../../packages/extensions/README.zh.md) 包组说明。
 
 <!-- BEGIN GENERATED cordis-surface (gen-cordis-catalog.ts) — do not edit between markers -->
 
@@ -10,7 +10,7 @@ extensions 子系统允许 agent（智能体）定义带版本的 Cordis 包、�
 
 ## Cordis API
 
-Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnpm run verify-cordis-catalog` in doc-sync; regenerate with `pnpm run gen-cordis-catalog`) — this section is byte-identical in both language sides of the page. Signature blocks use a `ts cordis-catalog` fence and keep the original source JSDoc; dispatch modes are defined in the [primer](../cordis-primer.md#dispatch-modes), and the framework-inherited `ctx` API lives in [cordis-api/inherited.md](../cordis-api/inherited.md).
+Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnpm run verify-cordis-catalog` in doc-sync; regenerate with `pnpm run gen-cordis-catalog`) — the language sides differ only in locale-specific paired document paths. Signature blocks use a `ts cordis-catalog` fence and keep the original source JSDoc; dispatch modes are defined in the [primer](../cordis-primer.zh.md#dispatch-modes), and the framework-inherited `ctx` API lives in [cordis-api/inherited.md](../cordis-api/inherited.md).
 
 <a id="ctxcordisinspect--cordisinspectregistryservice"></a>
 
@@ -60,7 +60,7 @@ async query( platform: CordisInspectPlatform, providerId: string, methodName: st
 resolveClientQuery( agent: Agent, requestId: CordisInspectRequestId, resolution: CordisInspectQueryResolution, ): CordisInspectResolveAck
 ```
 
-Types: [Agent](core.md)
+Types: [Agent](core.zh.md)
 
 Source: [`packages/extensions/cordis-host-runner/src/inspect-registry.ts:46`](../../packages/extensions/cordis-host-runner/src/inspect-registry.ts)
 
@@ -252,7 +252,7 @@ inspectPackage( agent: Agent, pluginId: CordisDynamicPluginId, packageId: Cordis
 @Remote('invoke') async invoke( pluginId: CordisDynamicPluginId, pluginRunId: CordisDynamicPluginRunId, method: string, args: JsonValue, ): Promise<DynamicCordisInvokeResult>
 ```
 
-Types: [Agent](core.md)
+Types: [Agent](core.zh.md)
 
 Source: [`packages/extensions/cordis-host-runner/src/index.ts:124`](../../packages/extensions/cordis-host-runner/src/index.ts)
 

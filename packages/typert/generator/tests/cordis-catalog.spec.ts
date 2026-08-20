@@ -6,7 +6,14 @@ import {
   renderInheritedPage,
   renderPageRegion,
 } from '../src/cordis-catalog.ts'
-import { CORDIS_CATALOG_POLICY, EVENT_SCOPE_PAGE, REGION_BEGIN, REGION_END, SERVICE_PAGE } from '../../../../scripts/gen-cordis-catalog.ts'
+import {
+  CORDIS_CATALOG_POLICY,
+  EVENT_SCOPE_PAGE,
+  localizePageRegion,
+  REGION_BEGIN,
+  REGION_END,
+  SERVICE_PAGE,
+} from '../../../../scripts/gen-cordis-catalog.ts'
 
 const workspaceRoot = resolve(import.meta.dirname, '../../../..')
 
@@ -29,11 +36,14 @@ describe('Typert-backed Cordis catalog', () => {
         CORDIS_CATALOG_POLICY,
       )
       for (const side of [page, page.replace(/\.md$/, '.zh.md')]) {
-        const committed = expected(`docs/subsystems/${side}`)
+        const rel = `docs/subsystems/${side}`
+        const committed = expected(rel)
         const begin = committed.indexOf(REGION_BEGIN)
         const end = committed.indexOf(REGION_END)
-        expect(begin, `docs/subsystems/${side} carries the region`).toBeGreaterThanOrEqual(0)
-        expect(committed.slice(begin, end + REGION_END.length)).toBe(region)
+        expect(begin, `${rel} carries the region`).toBeGreaterThanOrEqual(0)
+        expect(committed.slice(begin, end + REGION_END.length)).toBe(
+          localizePageRegion(region, rel, workspaceRoot),
+        )
       }
     }
     expect(projector.renderRuntimeApi(model)).toBe(

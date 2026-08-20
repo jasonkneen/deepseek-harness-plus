@@ -14,6 +14,11 @@ import { gfmFromMarkdown } from 'mdast-util-gfm'
 import { gfm } from 'micromark-extension-gfm'
 import type { Nodes } from 'mdast'
 import { docsPages, type DocsLocale, type DocsPage } from '../website/docs.ts'
+import {
+  isExternalOrAbsoluteMarkdownUrl,
+  markdownDestination,
+  splitMarkdownUrlTarget,
+} from './markdown.ts'
 
 const REPOSITORY_URL = 'https://github.com/deepseek-ai/deepseek-harness'
 const root = resolve(import.meta.dirname, '..')
@@ -33,11 +38,6 @@ interface Replacement {
   start: number
   end: number
   value: string
-}
-
-interface DestinationRange {
-  start: number
-  end: number
 }
 
 type RewritableNode = Extract<Nodes, { type: 'link' | 'image' | 'definition' }>
@@ -65,94 +65,12 @@ function repoPath(absPath: string, repoRoot: string): string {
   return relative(repoRoot, absPath).split(sep).join('/')
 }
 
-function isExternalOrSiteAbsolute(url: string): boolean {
-  return url.startsWith('#')
-    || url.startsWith('//')
-    || url.startsWith('/')
-    || /^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(url)
-}
-
-function skipWhitespace(source: string, start: number): number {
-  let index = start
-  while (/\s/.test(source[index] ?? '')) index += 1
-  return index
-}
-
-function labelEnd(source: string): number {
-  const first = source.indexOf('[')
-  if (first === -1) return -1
-  let depth = 0
-  for (let index = first; index < source.length; index += 1) {
-    const char = source[index]
-    if (char === '\\') {
-      index += 1
-    } else if (char === '[') {
-      depth += 1
-    } else if (char === ']') {
-      depth -= 1
-      if (depth === 0) return index
-    }
-  }
-  return -1
-}
-
-function destinationRange(rawNode: string, type: 'link' | 'image' | 'definition'): DestinationRange {
-  const endOfLabel = labelEnd(rawNode)
-  if (endOfLabel === -1) {
-    throw new Error(`project-doc-site: cannot locate label end in ${JSON.stringify(rawNode)}.`)
-  }
-
-  let start: number
-  if (type === 'definition') {
-    const colon = rawNode.indexOf(':', endOfLabel + 1)
-    if (colon === -1) {
-      throw new Error(`project-doc-site: cannot locate definition separator in ${JSON.stringify(rawNode)}.`)
-    }
-    start = skipWhitespace(rawNode, colon + 1)
-  } else {
-    if (rawNode[endOfLabel + 1] !== '(') {
-      throw new Error(`project-doc-site: cannot locate inline destination in ${JSON.stringify(rawNode)}.`)
-    }
-    start = skipWhitespace(rawNode, endOfLabel + 2)
-  }
-
-  if (rawNode[start] === '<') {
-    for (let index = start + 1; index < rawNode.length; index += 1) {
-      if (rawNode[index] === '\\') index += 1
-      else if (rawNode[index] === '>') return { start: start + 1, end: index }
-    }
-    throw new Error(`project-doc-site: cannot locate angle-bracket destination end in ${JSON.stringify(rawNode)}.`)
-  }
-
-  let depth = 0
-  for (let index = start; index < rawNode.length; index += 1) {
-    const char = rawNode[index]
-    if (char === '\\') {
-      index += 1
-    } else if (char === '(') {
-      depth += 1
-    } else if (char === ')') {
-      if (depth === 0) return { start, end: index }
-      depth -= 1
-    } else if (/\s/.test(char ?? '') && depth === 0) {
-      return { start, end: index }
-    }
-  }
-  return { start, end: rawNode.length }
-}
-
 // `#fragment` suffixes pass through verbatim. Generated cordis-surface
 // headings carry explicit `<a id>` anchors with the GitHub slug, so those
 // fragments resolve on the published site too; hand-written headings rely on
 // VitePress's own slugger, which differs from GitHub's for punctuation-heavy
 // text — hand-authored cross-page fragments should prefer plain-text headings
 // or explicit anchors.
-function splitTarget(url: string): { path: string; suffix: string } {
-  const boundary = url.search(/[?#]/)
-  if (boundary === -1) return { path: url, suffix: '' }
-  return { path: url.slice(0, boundary), suffix: url.slice(boundary) }
-}
-
 function decodePath(path: string): string {
   try {
     return decodeURIComponent(path)
@@ -239,8 +157,8 @@ export function rewriteMarkdown(source: string, options: RewriteMarkdownOptions)
   const replacements: Replacement[] = []
 
   const rewrite = (node: RewritableNode): void => {
-    if (isExternalOrSiteAbsolute(node.url)) return
-    const { path, suffix } = splitTarget(node.url)
+    if (isExternalOrAbsoluteMarkdownUrl(node.url)) return
+    const { path, suffix } = splitMarkdownUrlTarget(node.url)
     if (path === '') return
     const { absPath, line } = resolveRepositoryTarget(sourceAbs, path, options.repoRoot)
     const targetPath = repoPath(absPath, options.repoRoot)
@@ -257,16 +175,10 @@ export function rewriteMarkdown(source: string, options: RewriteMarkdownOptions)
         ? `${options.placeImage(absPath)}${suffix}`
         : githubTarget(absPath, line, suffix, options.repositoryRef, options.repoRoot, node.type === 'image')
 
-    const start = node.position?.start.offset
-    const end = node.position?.end.offset
-    if (start === undefined || end === undefined) {
-      throw new Error(`project-doc-site: link ${JSON.stringify(node.url)} has no source offsets.`)
-    }
-    const rawNode = source.slice(start, end)
-    const rawDestination = destinationRange(rawNode, node.type)
+    const destination = markdownDestination(source, node)
     replacements.push({
-      start: start + rawDestination.start,
-      end: start + rawDestination.end,
+      start: destination.start,
+      end: destination.end,
       value: nextUrl,
     })
   }

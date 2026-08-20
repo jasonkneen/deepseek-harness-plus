@@ -14,7 +14,7 @@ DeepSeek 视觉部署使用 chat-completions 图片协议，但直接 `deepseek-
 
 适配器会对每个图片请求解析 `ctx.attachments`，用请求 signal 读取每个保留的持久引用，并将校验后的字节按顺序序列化为 OpenAI 兼容的 `image_url` data URL。纯文本 user 消息保留字符串内容。工具结果保留仅字符串的 `tool` 消息；仅含图片的结果使用 `(see attached image)`，连续工具结果中保留的图片随后合并进一条以 `Attached image(s) from tool result:` 开头的 `user` 消息。System 与 assistant 历史图片会在附件或网络 I/O 前以 `UNSUPPORTED_CONTENT` 失败。
 
-直接适配器与 pi-ai 转换共享确定性的[请求级图片载荷上限](../bug-fix/2026-08-18-request-image-payload-bound.md)。两者都以 20 MiB 累计 base64 payload 为默认值，用相同固定占位文本替换最旧的图片出现位置，并且绝不读取被省略的附件。直接 HTTP 413 响应归类为 `INVALID_REQUEST`；附件失败会保留其稳定附件 code，不会变成 `TRANSPORT`。
+直接适配器与 pi-ai 转换共享确定性的[请求级图片载荷上限](../bug-fix/2026-08-18-request-image-payload-bound.zh.md)。两者都以 20 MiB 累计 base64 payload 为默认值，用相同固定占位文本替换最旧的图片出现位置，并且绝不读取被省略的附件。直接 HTTP 413 响应归类为 `INVALID_REQUEST`；附件失败会保留其稳定附件 code，不会变成 `TRANSPORT`。
 
 规范消息继续只存储 `ImageAttachmentRef`。Data URL 只在准备单次提供方请求时存在，因此无需修改会话事件、持久化格式、API schema 或 SDK 投影。路由接受已经由附件服务准入的 PNG、JPEG、WebP 和 GIF。不支持外部图片 URL、Files API 和图片输出。
 

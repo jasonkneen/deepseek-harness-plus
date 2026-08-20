@@ -10,6 +10,8 @@
 
 **空的存储值等于不存在。** 处处如此：`resolve` 跳过它，`describe` 报告未配置。空白永远不会伪装成已配置的机密。
 
+<a id="two-key-spaces-two-questions"></a>
+
 ## 两个键空间，两个问题
 
 `CredentialRef` 回答的是*这个环境变量名背后是什么*，分层覆盖进程环境、托管存储与 `.env` 文件。以上全部描述的都是这一半。
@@ -17,6 +19,8 @@
 `CredentialKey` 回答的是*某个插件为某个 id 持有什么凭据*。这里没有任何东西可以分层——授权 grant 没有可供读取的环境——因此记录的存在与否就是全部事实，空值规则在此不适用：一条既无 key 也无环境值的 `api-key` 记录，陈述的是其拥有者确认该路由靠 ambient 认证，这属于已配置。
 
 键的形式是 `<scope>/<id>`，其中 `scope` 是**拥有该记录的插件的注册名**。scope 取拥有者而非领域，是因为 `grant` 的 payload 以其拥有者的格式写就：否则服务同一个提供方名称的两个插件会互相读到对方的 payload，而已卸载插件留下的记录也无法与仍在使用的区分开。`/` 同时让两种文法互斥，两个键空间因此不可能相撞。id 来自别处的消费方——settings dict 键、某个库自己的 provider id——应先问 `isCredentialKeySegment` 再构造键：文法之外的 id 不可能存过记录，应读作「没有存储任何东西」，而不是在寻址上抛错。
+
+<a id="surface"></a>
 
 ## 接口
 
@@ -52,7 +56,7 @@ await ctx.credentials.deleteRecord(key)                  // no-op when absent
 
 ## 提供方
 
-[`dsh-credentials-local`](../credentials-local/README.md) 把继承的进程环境叠加在其受管 `$DSH_HOME/.credentials.yaml` 文档之上，并以启动器的项目和用户 `.env` 层作为后备。该 seam 的接口为 keyring、辅助命令和 KMS 后端提供方预留了扩展空间；远端设置提供方永远不必携带机密。
+[`dsh-credentials-local`](../credentials-local/README.zh.md) 把继承的进程环境叠加在其受管 `$DSH_HOME/.credentials.yaml` 文档之上，并以启动器的项目和用户 `.env` 层作为后备。该 seam 的接口为 keyring、辅助命令和 KMS 后端提供方预留了扩展空间；远端设置提供方永远不必携带机密。
 
 ## 模型体验
 

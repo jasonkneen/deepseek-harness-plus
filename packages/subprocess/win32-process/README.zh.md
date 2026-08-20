@@ -15,6 +15,8 @@
 
 Windows ACL 沙箱在这些原语上增加 SID、DACL、grant、workspace 与公共 child policy。
 
+<a id="header-verification"></a>
+
 ## 头部验证
 
 process、stdio 与 Job 的常量以及选定结构体的大小和偏移由 [`verify/abi-probe.cpp`](verify/abi-probe.cpp) 对照 MinGW Windows 头文件检查：

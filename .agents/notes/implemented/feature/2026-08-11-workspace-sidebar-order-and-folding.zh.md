@@ -30,7 +30,7 @@ Workspace 注册表持有持久 `workspaceIds` 顺序，并提供采用 DOM `ins
 
 Workspace 命中测试使用完整渲染分组区段，包括可见 Session 行。前一分组的下半部与后一分组的上半部共享同一条插入边界，指示器是一条带有相连右向尖角且不影响布局的绝对定位横线。树主体覆盖层会在滚动裁切区外以相同的负偏移绘制第一条边界，因此左侧尖角保持可见，列表位置也不会改变。Workspace 或 Session 拖拽期间，文档级 `dragover` 与 `drop` 处理器会接受原生操作；若在 Workspace 列表外松手，`dragend` 会提交最后一个有效标记。
 
-搜索在折叠时是区头操作，展开后占据标题与尾部操作的空间。查询经清除首尾空白后为空时，点击外部会收起搜索；非空查询则会保留；轨道搜索手势仍在进行期间，外部点击监听器保持未挂载（[轨道搜索自我收起](../bug-fix/2026-08-18-rail-search-outside-click-self-dismissal.md)）。紧凑的 Workspace 与 Session 行、24px 底部渐隐以及取消每个 Workspace 的 Session 数量共同节省纵向空间，同时保留导航入口。
+搜索在折叠时是区头操作，展开后占据标题与尾部操作的空间。查询经清除首尾空白后为空时，点击外部会收起搜索；非空查询则会保留；轨道搜索手势仍在进行期间，外部点击监听器保持未挂载（[轨道搜索自我收起](../bug-fix/2026-08-18-rail-search-outside-click-self-dismissal.zh.md)）。紧凑的 Workspace 与 Session 行、24px 底部渐隐以及取消每个 Workspace 的 Session 数量共同节省纵向空间，同时保留导航入口。
 
 ## 考虑过的替代方案
 
@@ -52,7 +52,7 @@ Workspace 命中测试使用完整渲染分组区段，包括可见 Session 行�
 - 最近更新模式会在进入时执行完整时间排序，随后保持手动调整，直到 user prompt 或 steer 推进某条 Session 并将其置顶。返回手动排序会保留所有当前位置。
 - 新选中的空白“新会话”行会在分组和单列表顺序中各置顶一次，之后遵循与其他 Session 相同的拖拽和活动规则。
 - 未执行明确的**展开其余**手势时，打开 Workspace 最多显示五条 Session；关闭分组只重置这项临时手势。
-- Host Session 记账继续采用[会话列表浏览与 Workspace 手动排序](2026-07-25-session-list-browsing-and-manual-order.md)确立的手动顺序含义。
+- Host Session 记账继续采用[会话列表浏览与 Workspace 手动排序](2026-07-25-session-list-browsing-and-manual-order.zh.md)确立的手动顺序含义。
 
 ## 测试
 

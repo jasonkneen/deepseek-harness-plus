@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-07-31-gui-full-access-confirmation.md
 2026-07-31-gui-full-access-confirmation.md: 5822ae26d36329b865a05c59dd672daa55fb6224
-2026-07-31-gui-full-access-confirmation.zh.md: e954e6f4ec1d5591a1d55dc1b98f2f0d01b7b242
+2026-07-31-gui-full-access-confirmation.zh.md: 612300dccaf8aa5d75b223767350f769037ea0f1
