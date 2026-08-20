@@ -62,6 +62,10 @@ describe.skipIf(process.platform === 'win32')('Linux systemd scope adapter', () 
     expect(probeLinuxScope({
       spawnSync: vi.fn(() => ({ status: 1, error: undefined })) as unknown as typeof spawnSync,
     })).toBe(false)
+
+    const emptyInvocation = vi.fn() as unknown as typeof spawnSync
+    expect(probeLinuxScope({ spawnSync: emptyInvocation, runnerInvocation: [] })).toBe(false)
+    expect(emptyInvocation).not.toHaveBeenCalled()
   })
 
   it('keeps user argv out of systemd-run and reports the direct target outcome', async () => {
@@ -292,12 +296,17 @@ describe.skipIf(process.platform === 'win32')('Linux systemd scope adapter', () 
       wrapper = spawn(args[separator + 1] as string, args.slice(separator + 2), options)
       return wrapper
     }) as unknown as typeof spawn
-    const runSync = vi.fn((command: string, args: readonly string[]) => {
+    const runSyncMock = vi.fn((
+      command: string,
+      args: readonly string[],
+      _options?: { env?: NodeJS.ProcessEnv },
+    ) => {
       if (command === 'systemctl' && args[1] === 'kill') {
         return failure
       }
       return { status: 0, stdout: 'active\n', stderr: '', error: undefined }
-    }) as unknown as typeof spawnSync
+    })
+    const runSync = runSyncMock as unknown as typeof spawnSync
     const launch = launchLinuxScope(spec([process.execPath, '-e', 'setInterval(() => {}, 1000)']), {
       spawn: run,
       spawnSync: runSync,
@@ -308,11 +317,11 @@ describe.skipIf(process.platform === 'win32')('Linux systemd scope adapter', () 
     try {
       launch.owner.signal('SIGKILL')
       await expect(launch.owner.waitForExit()).rejects.toThrow(message)
-      expect(runSync).toHaveBeenCalledWith(
-        'systemctl',
-        expect.arrayContaining(['kill', '--kill-whom=all', '--signal=SIGKILL']),
-        expect.objectContaining({ env: expect.objectContaining({ LC_ALL: 'C' }) }),
-      )
+      const killCall = runSyncMock.mock.calls.find(([, args]) => args.includes('--signal=SIGKILL'))
+      expect(killCall?.[0]).toBe('systemctl')
+      expect(killCall?.[1]).toContain('kill')
+      expect(killCall?.[1]).toContain('--kill-whom=all')
+      expect(killCall?.[2]?.env?.LC_ALL).toBe('C')
     } finally {
       wrapper?.kill('SIGKILL')
     }
