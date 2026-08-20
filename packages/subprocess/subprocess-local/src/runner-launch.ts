@@ -1,7 +1,8 @@
 /** Parent-side launch and direct-result transport for native runners. */
 
 import type { ChildProcess, StdioOptions } from 'node:child_process'
-import { existsSync, readFileSync } from 'node:fs'
+import { readFileSync } from 'node:fs'
+import { extname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { setTimeout as sleepMs } from 'node:timers/promises'
 import type { SubprocessOutcome, SubprocessSpawnSpec } from '@deepseek-ai/dsh-subprocess'
@@ -21,15 +22,18 @@ const RUNNER_EVENT_POLL_MS = 100
 const PACKAGED_RUNNER_ARG = '--dsh-internal-subprocess-runner'
 
 /**
- * Resolve the built runner in production or its source entry in repository execution.
+ * Resolve the runner entry from the current module's source or built plane.
+ * @param moduleUrl - executing module URL; defaults to this module.
  * @returns Node executable and runner argv prefix.
  */
-export function spawnRunnerInvocation(): string[] {
+export function spawnRunnerInvocation(moduleUrl = import.meta.url): string[] {
   if ('pkg' in process) return [process.execPath, PACKAGED_RUNNER_ARG]
+  if (extname(fileURLToPath(moduleUrl)) === '.ts') {
+    const sourceEntry = fileURLToPath(import.meta.resolve('@deepseek-ai/dsh-subprocess-local/src/spawn-runner.ts'))
+    return [process.execPath, '--import', 'tsx/esm', sourceEntry]
+  }
   const builtEntry = fileURLToPath(import.meta.resolve('@deepseek-ai/dsh-subprocess-local/spawn-runner'))
-  if (existsSync(builtEntry)) return [process.execPath, builtEntry]
-  const sourceEntry = fileURLToPath(import.meta.resolve('@deepseek-ai/dsh-subprocess-local/src/spawn-runner.ts'))
-  return [process.execPath, '--import', 'tsx/esm', sourceEntry]
+  return [process.execPath, builtEntry]
 }
 
 /**
@@ -114,6 +118,10 @@ async function waitForDirectResult(
   let wrapperClosed = false
   void closed.then(() => { wrapperClosed = true })
   for (;;) {
+    // A read started before close may return a stale snapshot after close has
+    // become visible. Only a read started after close can prove no terminal
+    // event was written before the runner exited.
+    const closedBeforeRead = wrapperClosed
     const events = await readRunnerEventsAsync(files.eventsPath)
     for (const event of events.slice(seen)) {
       if (event.type === 'exit') return { exitCode: event.exitCode, signal: event.signal }
@@ -121,7 +129,7 @@ async function waitForDirectResult(
     }
     seen = Math.max(seen, events.length, initial.length)
     // oxlint-disable-next-line typescript/no-unnecessary-condition -- child close mutates this flag asynchronously.
-    if (wrapperClosed) {
+    if (closedBeforeRead) {
       const known = missingResult?.()
       if (known !== undefined) return known
       throw new Error('native subprocess runner exited without a direct-command result')

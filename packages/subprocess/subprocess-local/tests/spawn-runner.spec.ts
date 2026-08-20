@@ -1,4 +1,4 @@
-import { spawnSync } from 'node:child_process'
+import { spawn, spawnSync } from 'node:child_process'
 import type { ChildProcess } from 'node:child_process'
 import { existsSync, statSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
@@ -12,6 +12,7 @@ import {
   runnerStdio,
   spawnRunnerInvocation,
 } from '../src/runner-launch.ts'
+import { observeChildClose } from '../src/managed-owner.ts'
 import {
   appendRunnerEvent,
   cleanupRunnerFiles,
@@ -59,31 +60,13 @@ function runRunner(invocation: string[], requestPath: string, eventsPath: string
 }
 
 describe('spawn runner transport', () => {
-  it('selects built and source runner entries according to artifact availability', async () => {
-    vi.resetModules()
-    vi.doMock('node:fs', async importOriginal => ({
-      ...await importOriginal<typeof import('node:fs')>(),
-      existsSync: () => true,
-    }))
-    try {
-      const built = await import('../src/runner-launch.ts')
-      expect(built.spawnRunnerInvocation()).toEqual([process.execPath, builtEntry])
-    } finally {
-      vi.doUnmock('node:fs')
-      vi.resetModules()
-    }
-
-    vi.doMock('node:fs', async importOriginal => ({
-      ...await importOriginal<typeof import('node:fs')>(),
-      existsSync: () => false,
-    }))
-    try {
-      const source = await import('../src/runner-launch.ts')
-      expect(source.spawnRunnerInvocation()).toEqual(sourceInvocation)
-    } finally {
-      vi.doUnmock('node:fs')
-      vi.resetModules()
-    }
+  it('selects the runner entry from the current execution plane', () => {
+    expect(spawnRunnerInvocation(new URL('../lib/index.js', import.meta.url).href)).toEqual([
+      process.execPath,
+      builtEntry,
+    ])
+    expect(spawnRunnerInvocation(new URL('../src/runner-launch.ts', import.meta.url).href)).toEqual(sourceInvocation)
+    expect(spawnRunnerInvocation()).toEqual(sourceInvocation)
   })
 
   it('re-enters a packaged executable through its private runner dispatch', () => {
@@ -306,6 +289,57 @@ describe('spawn runner transport', () => {
       await expect(result.direct).resolves.toEqual({ exitCode: null, signal: 'SIGKILL' })
     } finally {
       cleanupRunnerFiles(forced)
+    }
+  })
+
+  it('requires an event snapshot started after wrapper close before reporting a missing result', async () => {
+    const staleRead = Promise.withResolvers<Awaited<ReturnType<typeof readRunnerEventsAsync>>>()
+    let readCount = 0
+    vi.resetModules()
+    vi.doMock('../src/runner-protocol.ts', async (importOriginal) => {
+      const actual = await importOriginal<typeof import('../src/runner-protocol.ts')>()
+      return {
+        ...actual,
+        readRunnerEventsAsync: vi.fn(async (eventsPath: string) => {
+          readCount += 1
+          if (readCount === 1) return staleRead.promise
+          return actual.readRunnerEvents(eventsPath)
+        }),
+      }
+    })
+    const files = createRunnerFiles({ argv: ['node'], cwd: '.', env: {} })
+    try {
+      appendRunnerEvent(files.eventsPath, { type: 'started', pid: 456 })
+      const closed = Promise.withResolvers<undefined>()
+      const isolated = await import('../src/runner-launch.ts')
+      const result = isolated.runnerDirectResult(fakeChild(123), files, closed.promise)
+      expect(readCount).toBe(1)
+      closed.resolve()
+      await Promise.resolve()
+      appendRunnerEvent(files.eventsPath, { type: 'exit', exitCode: 0, signal: null })
+      staleRead.resolve([{ type: 'started', pid: 456 }])
+      await expect(result.direct).resolves.toEqual({ exitCode: 0, signal: null })
+      expect(readCount).toBe(2)
+    } finally {
+      cleanupRunnerFiles(files)
+      vi.doUnmock('../src/runner-protocol.ts')
+      vi.resetModules()
+    }
+  })
+
+  it('contains wrapper spawn errors while publishing the runner startup rejection', async () => {
+    const files = createRunnerFiles({ argv: ['node'], cwd: '.', env: {} })
+    try {
+      const child = spawn(`missing-dsh-native-runner-${String(process.pid)}-${String(Date.now())}`, [], {
+        stdio: 'ignore',
+      })
+      const closed = observeChildClose(child)
+      const result = runnerDirectResult(child, files, closed)
+      expect(result.pid).toBe(-1)
+      await expect(result.direct).rejects.toThrow('runner failed to start')
+      await expect(closed).resolves.toBeUndefined()
+    } finally {
+      cleanupRunnerFiles(files)
     }
   })
 

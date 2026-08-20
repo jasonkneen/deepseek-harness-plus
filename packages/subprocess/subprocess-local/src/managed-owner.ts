@@ -21,12 +21,18 @@ export interface ManagedProcessLaunch {
 }
 
 /**
- * Observe wrapper close from the moment it is spawned.
+ * Observe wrapper close from the moment it is spawned and contain its error
+ * event while the runner-result path converts launch failures into rejection.
  * @param child - direct child or native wrapper.
  * @returns promise settled by the ChildProcess close event.
  */
 export function observeChildClose(child: ChildProcess): Promise<void> {
-  return new Promise((resolve) => { child.once('close', () => { resolve() }) })
+  return new Promise((resolve) => {
+    child.once('error', () => {
+      // runnerDirectResult reports the wrapper failure through the handle.
+    })
+    child.once('close', () => { resolve() })
+  })
 }
 
 /**
