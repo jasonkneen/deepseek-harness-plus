@@ -309,6 +309,7 @@ describe.skipIf(process.platform === 'win32')('Linux systemd scope adapter', () 
 
   it('uses the production command defaults when no Linux internals are supplied', async () => {
     let wrapper: ReturnType<typeof spawn> | undefined
+    let queryFailure: (Error & { code?: string | number }) | undefined
     const run = vi.fn()
     const runSync = vi.fn()
     const runAsync = vi.fn()
@@ -329,6 +330,10 @@ describe.skipIf(process.platform === 'win32')('Linux systemd scope adapter', () 
         _options: unknown,
         callback: (error: Error | null, stdout: string, stderr: string) => void,
       ) => {
+        if (queryFailure !== undefined) {
+          callback(queryFailure, '', '')
+          return
+        }
         const active = wrapper?.exitCode === null && wrapper.signalCode === null
         callback(null, args[1] === 'show' && active ? 'active\n' : 'inactive\n', '')
       })
@@ -343,6 +348,16 @@ describe.skipIf(process.platform === 'win32')('Linux systemd scope adapter', () 
       expect(run).toHaveBeenCalledWith('systemd-run', expect.any(Array), expect.any(Object))
       expect(runSync).toHaveBeenCalledWith('systemctl', expect.any(Array), expect.any(Object))
       expect(runAsync).toHaveBeenCalledWith('systemctl', expect.any(Array), expect.any(Object), expect.any(Function))
+
+      queryFailure = Object.assign(new Error('numeric systemctl failure'), { code: 17 })
+      const numericFailure = defaults.launchLinuxScope(spec([process.execPath, '-e', 'process.exit(0)']))
+      await expect(numericFailure.owner.waitForExit()).rejects.toBe(queryFailure)
+      await expect(numericFailure.direct).resolves.toEqual({ exitCode: 0, signal: null })
+
+      queryFailure = Object.assign(new Error('named systemctl failure'), { code: 'EQUERY' })
+      const namedFailure = defaults.launchLinuxScope(spec([process.execPath, '-e', 'process.exit(0)']))
+      await expect(namedFailure.owner.waitForExit()).rejects.toBe(queryFailure)
+      await expect(namedFailure.direct).resolves.toEqual({ exitCode: 0, signal: null })
     } finally {
       vi.doUnmock('node:child_process')
       vi.resetModules()

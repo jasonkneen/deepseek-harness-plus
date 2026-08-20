@@ -135,20 +135,20 @@ class SystemdScopeOwner implements BoundProcessOwner {
     const output = `${result.stdout}\n${result.stderr}`
     if (result.status !== 0) {
       if (/not found|could not be found|no such/iu.test(output)) {
-        const runnerActive = this.runner.exitCode === null && this.runner.signalCode === null
-        if (runnerActive && this.killFailure !== undefined) throw this.killFailure
-        return runnerActive
+        if (this.runner.exitCode !== null || this.runner.signalCode !== null) return false
+      } else {
+        if (result.error !== undefined) throw result.error
+        throw new Error(`systemctl could not read ${this.unit}: ${output.trim() || `exit ${String(result.status)}`}`)
       }
-      if (result.error !== undefined) throw result.error
-      throw new Error(`systemctl could not read ${this.unit}: ${output.trim() || `exit ${String(result.status)}`}`)
+    } else {
+      const state = result.stdout.trim()
+      if (state === 'inactive' || state === 'failed') return false
+      if (state !== 'active' && state !== 'activating' && state !== 'deactivating') {
+        throw new Error(`systemctl returned unknown ActiveState for ${this.unit}: ${JSON.stringify(state)}`)
+      }
     }
-    const state = result.stdout.trim()
-    if (state === 'inactive' || state === 'failed') return false
-    if (state === 'active' || state === 'activating' || state === 'deactivating') {
-      if (this.killFailure !== undefined) throw this.killFailure
-      return true
-    }
-    throw new Error(`systemctl returned unknown ActiveState for ${this.unit}: ${JSON.stringify(state)}`)
+    if (this.killFailure !== undefined) throw this.killFailure
+    return true
   }
 
   async waitForExit(signal?: AbortSignal): Promise<boolean> {
