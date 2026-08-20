@@ -784,6 +784,8 @@ describe('dsh-subagent-acp', () => {
     const run = await ctx.subagents.start('acp', request())
     const result = await run.result
     expect(result.stopReason).toBe('error')
+    // Unsupported hosts can emit the subprocess provider's one-time fallback
+    // warning before this provider-specific failure reaches the same logger.
     expect(warnings).toContainEqual(
       expect.stringContaining('subagent-acp "acp": child run failed (error):'),
     )
