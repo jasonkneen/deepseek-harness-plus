@@ -30,8 +30,6 @@ const sourceInvocation = [
   'tsx/esm',
   fileURLToPath(import.meta.resolve('@deepseek-ai/dsh-subprocess-local/src/spawn-runner.ts')),
 ]
-const builtEntry = fileURLToPath(import.meta.resolve('@deepseek-ai/dsh-subprocess-local/spawn-runner'))
-
 function spec(overrides: Partial<SubprocessSpawnSpec> = {}): SubprocessSpawnSpec {
   return {
     argv: [process.execPath, '-e', ''],
@@ -60,12 +58,7 @@ function runRunner(invocation: string[], requestPath: string, eventsPath: string
 }
 
 describe('spawn runner transport', () => {
-  it('selects the runner entry from the current execution plane', () => {
-    expect(spawnRunnerInvocation(new URL('../lib/index.js', import.meta.url).href)).toEqual([
-      process.execPath,
-      builtEntry,
-    ])
-    expect(spawnRunnerInvocation(new URL('../src/runner-launch.ts', import.meta.url).href)).toEqual(sourceInvocation)
+  it('selects the source runner from source-plane execution', () => {
     expect(spawnRunnerInvocation()).toEqual(sourceInvocation)
   })
 

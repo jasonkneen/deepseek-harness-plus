@@ -23,17 +23,19 @@ const PACKAGED_RUNNER_ARG = '--dsh-internal-subprocess-runner'
 
 /**
  * Resolve the runner entry from the current module's source or built plane.
- * @param moduleUrl - executing module URL; defaults to this module.
  * @returns Node executable and runner argv prefix.
  */
-export function spawnRunnerInvocation(moduleUrl = import.meta.url): string[] {
+export function spawnRunnerInvocation(): string[] {
   if ('pkg' in process) return [process.execPath, PACKAGED_RUNNER_ARG]
-  if (extname(fileURLToPath(moduleUrl)) === '.ts') {
-    const sourceEntry = fileURLToPath(import.meta.resolve('@deepseek-ai/dsh-subprocess-local/src/spawn-runner.ts'))
-    return [process.execPath, '--import', 'tsx/esm', sourceEntry]
+  /* v8 ignore start -- source-plane coverage cannot execute the bundled module;
+     the required built-runner smoke executes its published entry. */
+  if (extname(fileURLToPath(import.meta.url)) !== '.ts') {
+    const builtEntry = fileURLToPath(import.meta.resolve('@deepseek-ai/dsh-subprocess-local/spawn-runner'))
+    return [process.execPath, builtEntry]
   }
-  const builtEntry = fileURLToPath(import.meta.resolve('@deepseek-ai/dsh-subprocess-local/spawn-runner'))
-  return [process.execPath, builtEntry]
+  /* v8 ignore stop */
+  const sourceEntry = fileURLToPath(import.meta.resolve('@deepseek-ai/dsh-subprocess-local/src/spawn-runner.ts'))
+  return [process.execPath, '--import', 'tsx/esm', sourceEntry]
 }
 
 /**
