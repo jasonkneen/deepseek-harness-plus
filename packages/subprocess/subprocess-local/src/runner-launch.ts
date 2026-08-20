@@ -115,20 +115,19 @@ async function waitForDirectResult(
   missingResult?: () => SubprocessOutcome | undefined,
 ): Promise<SubprocessOutcome> {
   let seen = 0
-  let wrapperClosed = false
-  void closed.then(() => { wrapperClosed = true })
+  const wrapperState = { closed: false }
+  void closed.then(() => { wrapperState.closed = true })
   for (;;) {
     // A read started before close may return a stale snapshot after close has
     // become visible. Only a read started after close can prove no terminal
     // event was written before the runner exited.
-    const closedBeforeRead = wrapperClosed
+    const closedBeforeRead = wrapperState.closed
     const events = await readRunnerEventsAsync(files.eventsPath)
     for (const event of events.slice(seen)) {
       if (event.type === 'exit') return { exitCode: event.exitCode, signal: event.signal }
       if (event.type === 'spawn-error' || event.type === 'runner-error') throw deserializeSpawnError(event.error)
     }
     seen = Math.max(seen, events.length, initial.length)
-    // oxlint-disable-next-line typescript/no-unnecessary-condition -- child close mutates this flag asynchronously.
     if (closedBeforeRead) {
       const known = missingResult?.()
       if (known !== undefined) return known
