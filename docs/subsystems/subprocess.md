@@ -131,19 +131,19 @@ interface SubprocessSpawnSpec {
 
 ## Handles: streams, readers, and managed-range termination
 
-A spawn returns a live handle synchronously after any provider-specific setup needed to publish its target pid. Collect-mode readers take whole-stream byte offsets and never consume, so independent readers cannot steal one another's deltas; piped streams belong to the caller. `terminate()` and `waitForExit()` use one managed range: supported local Linux and Windows providers use an OS-owned scope or Job, while weaker fallbacks are disclosed. The only termination verb escalates SIGTERM→grace→SIGKILL, so a consumer can build its own teardown ladder (the ACP backend's stdin-EOF-first `disposeAcpChild` is the template).
+A spawn returns a live handle synchronously; the provider may publish its process identity later. Collect-mode readers take whole-stream byte offsets and never consume, so independent readers cannot steal one another's deltas; piped streams belong to the caller. `terminate()` and `waitForExit()` use one provider-managed range whose identity, observation limits, and weaker fallbacks belong to the provider. The only termination verb escalates SIGTERM→grace→SIGKILL, so a consumer can build its own teardown ladder (the ACP backend's stdin-EOF-first `disposeAcpChild` is the template).
 
 ```ts type-equiv
 /**
- * A live direct child and its provider-managed process range. Collected output
+ * A live subprocess and its provider-managed process range. Collected output
  * remains readable after exit; piped streams belong to the caller.
  *
  * Termination and {@link SubprocessHandle.waitForExit} use the same managed
- * range. Supported Linux and Windows hosts use an OS-owned scope or Job;
- * weaker platform fallbacks are disclosed by the provider.
+ * range. Each provider documents the process identity and range it can
+ * observe.
  */
 interface SubprocessHandle {
-  /** Direct target process id; -1 when the spawn itself failed. */
+  /** Provider-published process identifier; -1 while unavailable or after startup fails. */
   readonly pid: number
   /** The child's stdin, present iff spawned with `stdin: 'pipe'`. */
   readonly stdin: Writable | undefined
@@ -282,9 +282,9 @@ Abstract subprocess service. Subclass, implement spawn, and load the subclass as
 Implementations must honor these semantics:
 
 - Executable paths belong to one execution world shared with the mounted filesystem provider.
-- spawn returns a live handle synchronously after provider-specific setup needed to publish its target pid. `done` resolves with direct-process exit facts and may reject for spawn or selected provider-runner failures.
+- spawn returns a live handle synchronously. Its pid is provider-owned and may remain unavailable during asynchronous startup. `done` resolves with the spawned command's exit facts and may reject for spawn or selected provider-runner failures.
 - Collect-mode readers are offset-based and non-consuming, so independent readers never consume one another's output; lossy reads report truncation and the spill file holding the complete stream when one exists. Piped streams are handed to the caller raw and never buffered here.
-- SubprocessHandle.terminate (and the spec's abort signal) escalates SIGTERM→grace→SIGKILL — the only termination verb — against the provider's managed range. Supported local Linux and Windows providers use an OS-owned scope or Job; weaker fallbacks use a detached process group or direct-parent tree. SubprocessHandle.waitForExit observes that same range so a consumer-owned teardown ladder can hold each tier on real quiescence.
+- SubprocessHandle.terminate (and the spec's abort signal) escalates SIGTERM→grace→SIGKILL — the only termination verb — against the provider's managed range. SubprocessHandle.waitForExit observes that same range so a consumer-owned teardown ladder can hold each tier on real quiescence; each provider documents its identity and observability limits.
 - Disposal of the service terminates all still-running managed processes and awaits their exit.
 - spawnTerminal owns terminal allocation, text transport, foreground groups, signalling, and whole-session quiescence behind one awaited termination method; readiness and persistent-shell policy stay in the PTY consumer. Its output stream ends after queued terminal output when the top-level process exits.
 

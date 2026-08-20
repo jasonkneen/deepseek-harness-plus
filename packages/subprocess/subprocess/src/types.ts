@@ -156,15 +156,15 @@ export interface SubprocessCollectedOutputs {
 }
 
 /**
- * A live direct child and its provider-managed process range. Collected output
+ * A live subprocess and its provider-managed process range. Collected output
  * remains readable after exit; piped streams belong to the caller.
  *
  * Termination and {@link SubprocessHandle.waitForExit} use the same managed
- * range. Supported Linux and Windows hosts use an OS-owned scope or Job;
- * weaker platform fallbacks are disclosed by the provider.
+ * range. Each provider documents the process identity and range it can
+ * observe.
  */
 export interface SubprocessHandle {
-  /** Direct target process id; -1 when the spawn itself failed. */
+  /** Provider-published process identifier; -1 while unavailable or after startup fails. */
   readonly pid: number
   /** The child's stdin, present iff spawned with `stdin: 'pipe'`. */
   readonly stdin: Writable | undefined
