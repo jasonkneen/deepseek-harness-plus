@@ -14,7 +14,7 @@ function spec(argv: string[]): SubprocessSpawnSpec {
   }
 }
 
-describe('Linux systemd scope adapter', () => {
+describe.skipIf(process.platform === 'win32')('Linux systemd scope adapter', () => {
   it('requires a readable user manager and literal-argument systemd support', () => {
     const calls: string[][] = []
     const runSync = vi.fn((command: string, args: readonly string[]) => {

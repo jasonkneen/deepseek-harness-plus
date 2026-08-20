@@ -111,15 +111,15 @@ describe.skipIf(!windowsNative)('Windows Job native containment', () => {
     }
   })
 
-  it('preserves missing-target and direct cmd rejection errors', async () => {
+  it('preserves missing-target and invalid-executable rejection errors', async () => {
     const missing = spec([`missing-native-target-${Date.now()}.exe`])
     const missingHandle = bindManagedProcess(missing, launchWindowsJob(missing))
     await expect(missingHandle.done).rejects.toMatchObject({ code: 'ENOENT' })
 
-    const cmd = join(scratch, `direct-${Date.now()}.cmd`)
-    writeFileSync(cmd, '@exit /b 0\r\n')
-    const directCmd = spec([cmd])
-    const cmdHandle = bindManagedProcess(directCmd, launchWindowsJob(directCmd))
-    await expect(cmdHandle.done).rejects.toMatchObject({ code: 'EINVAL' })
+    const invalidExecutable = join(scratch, `direct-${Date.now()}.exe`)
+    writeFileSync(invalidExecutable, 'not a Windows executable\r\n')
+    const invalid = spec([invalidExecutable])
+    const invalidHandle = bindManagedProcess(invalid, launchWindowsJob(invalid))
+    await expect(invalidHandle.done).rejects.toMatchObject({ code: 'EINVAL' })
   })
 })
