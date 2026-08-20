@@ -47,7 +47,7 @@ export interface GlobToolCaps {
   maxMetaBytes: number
   /** Cap on the complete raw `rg` stdout the tool will parse. */
   rawOutputMaxBytes: number
-  /** Terminate-escalation grace period (ms) for the search process. */
+  /** Grace for subprocess termination and output draining (ms). */
   graceMs: number
   /** Cap on the retained stderr diagnostic tail. */
   stderrMaxBytes: number

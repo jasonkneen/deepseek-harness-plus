@@ -39,19 +39,33 @@ export function probeWindowsJob(internals: WindowsJobInternals = {}): boolean {
 
 class WindowsJobOwner implements BoundProcessOwner {
   private stopped = false
+  private runnerClosed = false
   private readonly observation: Promise<void>
 
   constructor(private readonly runner: ReturnType<typeof spawn>) {
-    this.observation = new Promise((resolve) => {
-      runner.once('close', () => {
-        this.stopped = true
-        resolve()
+    this.observation = new Promise((resolve, reject) => {
+      runner.once('close', (exitCode, signal) => {
+        this.runnerClosed = true
+        if (exitCode === 0 && signal === null) {
+          this.stopped = true
+          resolve()
+          return
+        }
+        const status = signal !== null
+          ? `signal ${signal}`
+          : exitCode === null
+            ? 'without an exit status'
+            : `exit code ${String(exitCode)}`
+        reject(new Error(
+          `subprocess-local: Windows Job runner exited with ${status} before proving its managed range empty`,
+        ))
       })
     })
+    void this.observation.catch(() => {})
   }
 
   signal(_signal: NodeJS.Signals): void {
-    if (this.stopped) return
+    if (this.stopped || this.runnerClosed) return
     try {
       if (this.runner.connected) {
         this.runner.send({ type: 'terminate' }, (error) => {

@@ -6,7 +6,7 @@ This package registers a Profile-named Codex subagent provider whose default nam
 
 ## Start and ownership
 
-`start(request)` accepts only a non-empty sequence of text blocks and derives the child cwd from the parent Session. It then spawns the fixed command through [`dsh-subprocess`](../../subprocess/subprocess/README.md), performs `initialize` → `initialized`, maps the Profile-selected mode into official `thread/start` approval/reviewer/sandbox fields beside `{ cwd, ephemeral: true }`, and publishes the run only after Codex returns a valid ephemeral thread. A failure or cancellation before publication closes the wire, terminates the managed process tree, waits for it to exit, and rejects `start()`. Non-cancellation rejections expose only the fixed `initialize` or `thread-start` stage plus an already observed process outcome; raw product and Host errors remain on internal cause chains.
+`start(request)` accepts only a non-empty sequence of text blocks and derives the child cwd from the parent Session. It then spawns the fixed command through [`dsh-subprocess`](../../subprocess/subprocess/README.md), performs `initialize` → `initialized`, maps the Profile-selected mode into official `thread/start` approval/reviewer/sandbox fields beside `{ cwd, ephemeral: true }`, and publishes the run only after Codex returns a valid ephemeral thread. A failure or cancellation before publication closes the wire, invokes managed-range termination, waits for the range to empty, and rejects `start()`. Non-cancellation rejections expose only the fixed `initialize` or `thread-start` stage plus an already observed process outcome; raw product and Host errors remain on internal cause chains.
 
 The published `run.result` starts exactly one turn. It accepts only notifications for that run's thread and turn, then waits for the authoritative `turn/completed` terminal notification. The latest `agentMessage` with `phase: "final_answer"` wins; when Codex emits no explicit final phase, the latest message with `phase: null` is the compatibility fallback. Commentary never replaces either answer, and a successful turn with no nonblank answer settles as an error.
 
@@ -14,7 +14,7 @@ For command and file approvals, the unattended provider selects a non-approval d
 
 Local cancellation wins the result race and maps to `aborted`. For failed turns, the diagnostic preserves all eleven string and five object variants in the Codex 0.147.0 `codexErrorInfo` union; the four connection/stream variants retain a numeric `httpStatusCode` when supplied, while `activeTurnNotSteerable` does not expose `turnKind`. The diagnostic also names `turn-start`, `turn`, or `process`, independently includes available exit code and signal, and uses `unknown` for unrecognized or malformed values without copying raw fields. `contextWindowExceeded` remains `max-tokens`; every other remote interruption or failure remains `error`, and the provider produces no `refusal`. A contributing permission decision follows the structured failure line. Successful and locally cancelled runs omit both facts.
 
-`dispose()` is idempotent: it requests a best-effort `turn/interrupt` with both current ids when they are known, closes the JSON-RPC wire, ends stdin, invokes the shared process-tree termination escalation, waits for whole-tree exit, and detaches the stderr observer. Independent cleanup rejection uses the fixed `teardown` stage and any available process outcome. When startup and rollback both fail, the top-level aggregate message preserves both safe stage lines while the raw failures remain internal.
+`dispose()` is idempotent: it requests a best-effort `turn/interrupt` with both current ids when they are known, closes the JSON-RPC wire, ends stdin, invokes the subprocess provider's termination procedure, waits for managed-range exit, and detaches the stderr observer. Independent cleanup rejection uses the fixed `teardown` stage and any available process outcome. When startup and rollback both fail, the top-level aggregate message preserves both safe stage lines while the raw failures remain internal.
 
 ## Capabilities and context
 
@@ -27,7 +27,7 @@ The provider advertises no optional start-time capabilities and reports `inherit
 | `providerName` | `codex` | Non-empty registry name on `ctx.subagents`; each mounted instance needs a unique value. |
 | `env` | `{}` | Explicit child environment layered over the subprocess seam's credential-scrubbed parent environment. |
 | `permissionMode` | `never` | Native non-interactive approval and sandbox mode fixed for every thread from this Provider instance. |
-| `disposeGraceMs` | `3000` | Positive finite grace in milliseconds, no greater than [`MAX_TIMER_DELAY_MS`](../../util/timeout/README.md), between the shared process-tree owner's termination tiers; disposal then waits for whole-tree exit. |
+| `disposeGraceMs` | `3000` | Positive finite grace in milliseconds, no greater than [`MAX_TIMER_DELAY_MS`](../../util/timeout/README.md), supplied to subprocess termination and output draining; disposal then waits for managed-range exit. |
 
 | `permissionMode` value | `thread/start` fields | Native behavior |
 |---|---|---|

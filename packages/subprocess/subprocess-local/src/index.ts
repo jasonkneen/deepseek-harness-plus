@@ -165,10 +165,9 @@ export class LocalSubprocessRuntime extends SubprocessRuntime {
       handle = bindManagedProcess(spec, launch, binding)
     }
     this.live.add(handle)
-    // Release ownership only once the whole TREE is gone, not at direct-child
-    // settlement — a TERM-trapping helper that outlives the leader must stay
-    // owned so teardown can still escalate it. For the common no-survivor
-    // case waitForExit resolves immediately after settlement.
+    // Release ownership only once the managed range is empty, not at spawned-
+    // command settlement. A surviving helper remains owned until provider
+    // termination and observation reach quiescence.
     const release = (): Promise<void> =>
       handle.waitForExit().then(() => { this.live.delete(handle) })
     void handle.done.then(release, release).catch(() => {})

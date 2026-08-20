@@ -13,7 +13,7 @@
  * ({@link module:@deepseek-ai/dsh-tool-fs-search/glob} /
  * {@link module:@deepseek-ai/dsh-tool-fs-search/grep}), result parsing,
  * retention, formatted-result spill, and timeout declaration; the subprocess
- * seam owns spawn execution, process-tree termination, environment scrubbing,
+ * seam owns spawn execution, managed-range termination, environment scrubbing,
  * and raw output capture. The package injects `tools`, `systemPrompt`, and
  * `subprocess` — deliberately NOT `fs`, and `ctx.spillStore` is read
  * opportunistically with `ctx.get()` because formatted-result spill is optional.
@@ -83,7 +83,7 @@ export interface Config {
   searchMetaMaxBytes?: number
   /** Max complete raw `rg` stdout bytes a search will parse; larger raw output fails with `SEARCH_RAW_OUTPUT_OVERFLOW`. */
   rawOutputMaxBytes?: number
-  /** Terminate-escalation grace (ms), handed to the subprocess seam and bounded by `MAX_TIMER_DELAY_MS`. */
+  /** Grace for subprocess termination and output draining (ms), bounded by `MAX_TIMER_DELAY_MS`. */
   graceMs?: number
   /** Max bytes retained for one search's stderr tail; the excerpt is embedded in `SEARCH_*` error messages, never shown on success. */
   stderrMaxBytes?: number

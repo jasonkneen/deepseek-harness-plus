@@ -97,7 +97,7 @@ The signal only *notifies*; termination is always the listener's job, and the li
 
 ## Consequences
 
-- `runBash`'s outcome no longer independently latches `timedOut` and `aborted`; a timeout and a user abort racing before process close now report a single first-abort cause instead of both being true. The uniform SIGTERM→grace→SIGKILL kill is unchanged, and the Service Definition type `ShellRunResult` keeps both booleans (now mutually exclusive), so `dsh-tool-bash`'s result rendering is untouched.
+- `runBash`'s outcome no longer independently latches `timedOut` and `aborted`; a timeout and a user abort racing before process close now report a single first-abort cause instead of both being true. The subprocess provider still owns termination of its managed range, and the Service Definition type `ShellRunResult` keeps both booleans (now mutually exclusive), so `dsh-tool-bash`'s result rendering is untouched.
 - `SpawnSpec.timeoutMs` and `SpawnOutcome.timedOut`/`aborted` were removed rather than kept as always-zero/always-false vestiges: with `runBash` owning no timer and the executor owning classification, they were read nowhere. An always-0 field read by nothing is dead weight under the per-file coverage gate.
 - web_fetch shed its bespoke controller/timer/listener/reason-recovery; the classifier now keys off the deadline signal (`timeoutOf` + `aborted`) rather than the thrown error's shape, which is robust across both the request-phase reject-with-reason and the read-phase bare-`AbortError`.
 - `AbortSignal.any` and `using`/`Symbol.dispose` enter the repo for the first time here (Node ≥ 24 baseline, already met).
@@ -113,4 +113,4 @@ Out of scope, named to mark the boundary: `web_search` can gain an optional mode
 
 **A `withTimeout(promise, ms)` wrapper instead of a signal factory.** Rejected because racing a promise against a timer resolves the *tool-call* promise on deadline without stopping the underlying work — the child process or fetch socket leaks on. Handing out a signal and requiring the capability to listen is what forces a real termination path to exist. This mirrors the "dispose must reach quiescence, not just request it" defensive rule.
 
-**Keep separate bash timeout and cancellation triggers.** Rejected because one deadline signal removes the bespoke timer and standardizes classification. Racing causes report whichever abort arrived first, while the existing SIGTERM-to-SIGKILL termination path remains unchanged.
+**Keep separate bash timeout and cancellation triggers.** Rejected because one deadline signal removes the bespoke timer and standardizes classification. Racing causes report whichever abort arrived first, while the existing provider-owned managed-range termination path remains unchanged.

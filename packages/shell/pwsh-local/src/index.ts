@@ -48,7 +48,7 @@ export const ENV_OVERRIDES = {
 export const ENCODING_PREAMBLE =
   '[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false); $OutputEncoding = [System.Text.UTF8Encoding]::new($false); '
 
-/** Default SIGTERM→SIGKILL grace period (the `graceMs` config). */
+/** Default subprocess termination and output-drain grace (the `graceMs` config). */
 const DEFAULT_GRACE_MS = 3_000
 
 /** Default per-stream spill cap (the `maxSpillBytes` config). */
@@ -66,7 +66,7 @@ export interface Config {
   maxOutputBytes?: number
   /** Per-stream spill-file cap; larger streams retain only their in-memory tail. */
   maxSpillBytes?: number
-  /** Grace period for kill escalation and inherited pipes; at most `MAX_TIMER_DELAY_MS`. */
+  /** Grace for subprocess termination and inherited-pipe draining; at most `MAX_TIMER_DELAY_MS`. */
   graceMs?: number
   /**
    * Explicit pwsh executable. When omitted, well-known Windows install
@@ -122,7 +122,7 @@ export function assertServiceablePwshConfig(config: Config): void {
 
 /**
  * Local PowerShell executor over `ctx.subprocess`. Bounded output, spill
- * files, and process-tree termination are the subprocess service's mechanics;
+ * files, and managed-range termination are the subprocess service's mechanics;
  * this executor supplies their configured budgets per spawn.
  */
 export class PwshLocalExecutor extends ShellExecutor {

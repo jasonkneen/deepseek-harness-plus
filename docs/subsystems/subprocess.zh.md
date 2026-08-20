@@ -114,9 +114,9 @@ interface SubprocessSpawnSpec {
    */
   graceMs: number
   /**
-   * Abort signal — starts the terminate escalation on the managed range when
-   * it fires. The caller owns deadlines and cause classification; this seam
-   * only reacts to the abort.
+   * Abort signal — starts the provider's termination procedure on the managed
+   * range when it fires. The caller owns deadlines and cause classification;
+   * this seam only reacts to the abort.
    */
   signal?: AbortSignal | undefined
   /**
@@ -284,7 +284,7 @@ Implementations must honor these semantics:
 - Executable paths belong to one execution world shared with the mounted filesystem provider.
 - spawn returns a live handle synchronously. Its pid is provider-owned and may remain unavailable during asynchronous startup. `done` resolves with the spawned command's exit facts and may reject for spawn or provider failures.
 - Collect-mode readers are offset-based and non-consuming, so independent readers never consume one another's output; lossy reads report truncation and the spill file holding the complete stream when one exists. Piped streams are handed to the caller raw and never buffered here.
-- SubprocessHandle.terminate (and the spec's abort signal) starts the provider's documented procedure against its managed range. SubprocessHandle.waitForExit observes that same range so a consumer-owned teardown ladder can hold each tier on real quiescence; each provider documents its identity, signalling, and observability limits.
+- SubprocessHandle.terminate (and the spec's abort signal) starts the provider's documented procedure against its managed range. SubprocessHandle.waitForExit observes that same range so consumer teardown can await real quiescence; each provider documents its identity, signalling, and observability limits.
 - Disposal of the service terminates all still-running managed processes and awaits their exit.
 - spawnTerminal owns terminal allocation, text transport, foreground groups, signalling, and whole-session quiescence behind one awaited termination method; readiness and persistent-shell policy stay in the PTY consumer. Its output stream ends after queued terminal output when the top-level process exits.
 

@@ -90,9 +90,9 @@ declare module '@deepseek-ai/cordis' {
  *   streams are handed to the caller raw and never buffered here.
  * - {@link SubprocessHandle.terminate} (and the spec's abort signal) starts the
  *   provider's documented procedure against its managed range.
- *   {@link SubprocessHandle.waitForExit} observes that same range so a
- *   consumer-owned teardown ladder can hold each tier on real quiescence; each
- *   provider documents its identity, signalling, and observability limits.
+ *   {@link SubprocessHandle.waitForExit} observes that same range so consumer
+ *   teardown can await real quiescence; each provider documents its identity,
+ *   signalling, and observability limits.
  * - Disposal of the service terminates all still-running managed processes
  *   and awaits their exit.
  * - {@link spawnTerminal} owns terminal allocation, text transport,

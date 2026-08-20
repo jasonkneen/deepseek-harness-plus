@@ -7,10 +7,11 @@ const request = consumeRunnerRequest(requestPath)
 appendRunnerEvent(eventsPath, { type: 'started', pid: process.pid })
 
 const configuredExit = Number(request.argv[1])
+// Events carry target results; zero means the runner completed its own observation.
 if (Number.isSafeInteger(configuredExit)) {
   setTimeout(() => {
     appendRunnerEvent(eventsPath, { type: 'exit', exitCode: configuredExit, signal: null })
-    process.exitCode = configuredExit
+    process.exitCode = 0
   }, 10)
 } else {
   const hold = setInterval(() => {}, 1_000)
@@ -21,7 +22,7 @@ if (Number.isSafeInteger(configuredExit)) {
     appendRunnerEvent(eventsPath, { type: 'exit', exitCode: 1, signal: null })
     clearInterval(hold)
     if (process.connected) process.disconnect()
-    process.exitCode = 1
+    process.exitCode = 0
   }
   process.on('message', (message: unknown) => {
     if (message !== null && typeof message === 'object' && (message as { type?: unknown }).type === 'terminate') terminate()

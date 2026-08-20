@@ -114,6 +114,8 @@ describe.skipIf(!windowsNative)('Windows Job native containment', () => {
       handle.stdout?.once('end', resolve)
       handle.stdout?.once('error', reject)
     })
+    // A Readable reports `end` only after the consumer drains any buffered bytes.
+    handle.stdout.resume()
     const descendant = await waitForPid(pidFile)
     try {
       await expect(handle.done).resolves.toEqual({ exitCode: 42, signal: null })

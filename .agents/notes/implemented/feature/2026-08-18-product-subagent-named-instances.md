@@ -29,7 +29,7 @@ Removing one provider row blocks new starts and removes only tools bound to that
 
 ## Verification
 
-Both product packages pin their default and custom names, empty-name rejection, duplicate rollback, actual-name diagnostics, two concurrent instances with different permission modes, environments, and cleanup grace, cancellation isolation, and removal of one instance while its published run remains valid. The official product loopback tests run two named instances in one Host against separate model fixtures and prove independent unload and process-tree quiescence. Public Loader compositions mount two rows and two distinct tools for each product without starting either product, while keyless ACP snapshots pin the four-tool combined roster and the absence of a dynamic provider parameter.
+Both product packages pin their default and custom names, empty-name rejection, duplicate rollback, actual-name diagnostics, two concurrent instances with different permission modes, environments, and cleanup grace, cancellation isolation, and removal of one instance while its published run remains valid. The official product loopback tests run two named instances in one Host against separate model fixtures and prove independent unload and managed-range quiescence. Public Loader compositions mount two rows and two distinct tools for each product without starting either product, while keyless ACP snapshots pin the four-tool combined roster and the absence of a dynamic provider parameter.
 
 ## Alternatives considered
 

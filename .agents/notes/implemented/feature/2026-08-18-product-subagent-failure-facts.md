@@ -35,7 +35,7 @@ Agent SDK 0.3.220 defines four error subtypes: `error_during_execution`, `error_
 | `query-start` | SDK query construction, native platform-payload startup, and unpublished rollback | `start()` rejects with fixed safe facts and any process outcome observed before rollback |
 | `query-run` | Published SDK message iteration and strict terminal-result validation | The run resolves as `error` with the exact known subtype or a fixed result category |
 | `process` | Managed CLI exits before the SDK supplies a terminal result | The run resolves as `error` with `process-exit` and the available exit code and signal |
-| `teardown` | Query close and managed process-tree release | `dispose()` rejects independently with fixed safe facts after cleanup still reaches its final exit wait |
+| `teardown` | Query close and managed-range release | `dispose()` rejects independently with fixed safe facts after cleanup still reaches its final exit wait |
 
 ### Codex facts
 
@@ -48,7 +48,7 @@ Codex app-server 0.147.0 defines eleven string categories and five object varian
 | `turn-start` | Published `turn/start` request, provisional ids, and early frames | The run resolves as `error` with a safe unknown fallback when no structured category exists |
 | `turn` | Terminal notification, final-answer selection, and error-info mapping | The complete category and optional HTTP status reach the non-completed result |
 | `process` | Managed app-server exits before another terminal path settles | The run resolves as `error` with `process-exit` and any available code and signal |
-| `teardown` | Wire close and process-tree release | `dispose()` rejects independently; startup rollback aggregation exposes both startup and teardown lines |
+| `teardown` | Wire close and managed-range release | `dispose()` rejects independently; startup rollback aggregation exposes both startup and teardown lines |
 
 `contextWindowExceeded` remains `max-tokens`; every other known or unknown Codex category remains `error`, and `cyberPolicy` does not become `refusal`.
 
@@ -64,7 +64,7 @@ Codex app-server 0.147.0 defines eleven string categories and five object varian
 
 ## Verification
 
-Claude Code package tests pin all four SDK subtypes, invalid success, missing result, unknown values and exceptions, all four stages, independent exit code and signal fields, permission-fact ordering, sanitization, successful-result and cancellation omission, concurrent-run isolation, and cleanup completion. Codex package tests pin all sixteen error-info variants, HTTP status presence and absence, all six stages, unknown fallback, stop-reason preservation, permission ordering, sanitization, cancellation, concurrency, and cleanup aggregation. The real SDK/CLI fixture produces an actual Claude `error_max_turns`; the real app-server fixture produces an actual Codex `internalServerError`; both fixtures cover process/protocol failure and whole-tree quiescence. The keyless ACP snapshot records each product's exact diagnostic in foreground error output, a background completion notice, and `job_output`.
+Claude Code package tests pin all four SDK subtypes, invalid success, missing result, unknown values and exceptions, all four stages, independent exit code and signal fields, permission-fact ordering, sanitization, successful-result and cancellation omission, concurrent-run isolation, and cleanup completion. Codex package tests pin all sixteen error-info variants, HTTP status presence and absence, all six stages, unknown fallback, stop-reason preservation, permission ordering, sanitization, cancellation, concurrency, and cleanup aggregation. The real SDK/CLI fixture produces an actual Claude `error_max_turns`; the real app-server fixture produces an actual Codex `internalServerError`; both fixtures cover process/protocol failure and managed-range quiescence. The keyless ACP snapshot records each product's exact diagnostic in foreground error output, a background completion notice, and `job_output`.
 
 ## Alternatives considered
 

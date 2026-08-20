@@ -312,7 +312,7 @@ describe('LspInstance disposal', () => {
     await expect(instance.dispose()).resolves.toBeUndefined()
   })
 
-  it('awaits a surviving process-tree helper on every concurrent dispose', async () => {
+  it('awaits a surviving managed-range helper on every concurrent dispose', async () => {
     const marker = join(root, 'helper.pid')
     const helper = 'process.on("SIGTERM",()=>{});setInterval(()=>{},1000);'
     const script = 'const{spawn}=require("node:child_process");const{writeFileSync}=require("node:fs");'

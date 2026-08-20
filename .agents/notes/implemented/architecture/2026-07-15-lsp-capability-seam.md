@@ -108,7 +108,7 @@ The transport-neutral presenter uses `{ card: 'generic', kind: 'search', title, 
 
 The seam and provider add no startup or request deadline. Non-tool callers therefore receive no hidden timeout and must supply an `AbortSignal`, using `deadline()` when they need a budget.
 
-Provider disposal occurs outside tool execution, so `dsh-lsp-stdio` keeps `shutdownTimeoutMs` (default `5_000`) for `shutdown`/`exit` and `killGraceMs` (default `2_000`) for both request-cancel grace and SIGTERM-to-SIGKILL escalation; the same bounds govern failed-instance cleanup. Timer values above Node's `2_147_483_647` ms scheduling range fail at load. The provider uses `deadline()` and `timeoutOf()` but owns request cancellation, process signals, and awaiting close because timeout notification does not terminate work.
+Provider disposal occurs outside tool execution, so `dsh-lsp-stdio` keeps `shutdownTimeoutMs` (default `5_000`) for `shutdown`/`exit` and `killGraceMs` (default `2_000`) for request-cancel grace plus subprocess termination and output draining; the same bounds govern failed-instance cleanup. Timer values above Node's `2_147_483_647` ms scheduling range fail at load. The LSP provider uses `deadline()` and `timeoutOf()` and owns request cancellation, while the subprocess provider owns range termination and observation; timeout notification alone does not terminate work.
 
 ## Workspace, filesystem, and document synchronization
 

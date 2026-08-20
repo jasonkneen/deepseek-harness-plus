@@ -1,7 +1,7 @@
 /**
  * One-shot Codex child lifecycle: spawn the real app-server through the
  * subprocess seam, publish only after initialization and ephemeral thread
- * creation, flatten post-publication failures, and dispose to whole-tree
+ * creation, flatten post-publication failures, and dispose to managed-range
  * quiescence.
  *
  * @module @deepseek-ai/dsh-subagent-codex/run
@@ -31,7 +31,7 @@ import {
   type CodexWireFailureFacts,
 } from './wire.ts'
 
-/** Default POSIX grace between subprocess termination tiers. */
+/** Default subprocess termination and output-drain grace. */
 export const DEFAULT_DISPOSE_GRACE_MS = 3_000
 
 interface CodexPackageManifest {
@@ -141,7 +141,7 @@ export interface CodexRunSpec {
   readonly permissionMode: CodexPermissionMode
   /** Explicit deployment/test environment layered after the shared scrub. */
   readonly env: Record<string, string>
-  /** Subprocess termination grace passed to the shared process-tree owner. */
+  /** Grace passed to the shared subprocess owner. */
   readonly disposeGraceMs: number
   /** Shared subprocess service spawn operation. */
   readonly spawn: (spec: SubprocessSpawnSpec) => SubprocessHandle
@@ -177,10 +177,10 @@ export function textTask(prompt: readonly ContentBlock[]): string[] {
 }
 
 /**
- * Close the private wire, terminate the managed process tree, and wait for the
- * subprocess owner to prove it is gone.
+ * Close the private wire, start managed-range termination, and wait for the
+ * subprocess owner to prove the range is empty.
  * @param wire - private app-server protocol connection.
- * @param child - shared-service handle that owns the process tree.
+ * @param child - shared-service handle that owns the managed range.
  */
 export async function disposeCodexChild(
   wire: CodexAppServerWire,

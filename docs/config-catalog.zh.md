@@ -363,7 +363,7 @@ export interface Config {
   maxOutputBytes?: number
   /** Per-stream spill-file cap; larger streams retain only their in-memory tail. */
   maxSpillBytes?: number
-  /** Grace period for kill escalation and inherited pipes; at most `MAX_TIMER_DELAY_MS`. */
+  /** Grace for subprocess termination and inherited-pipe draining; at most `MAX_TIMER_DELAY_MS`. */
   graceMs?: number
 }
 ```
@@ -1325,9 +1325,9 @@ export interface LspLocalServerConfig {
   maxStderrBytes?: number
   /** Largest source file this host will open (bytes). Default 4000000. */
   maxDocumentBytes?: number
-  /** Graceful `shutdown`/`exit` budget before escalation (ms). Default 5000. */
+  /** Graceful `shutdown`/`exit` budget before provider termination (ms). Default 5000. */
   shutdownTimeoutMs?: number
-  /** Request-cancel and SIGTERM→SIGKILL grace (ms). Default 2000. */
+  /** Grace supplied to subprocess termination and output draining (ms). Default 2000. */
   killGraceMs?: number
 }
 ```
@@ -1523,7 +1523,7 @@ export interface Config {
   maxOutputBytes?: number
   /** Per-stream spill-file cap; larger streams retain only their in-memory tail. */
   maxSpillBytes?: number
-  /** Grace period for kill escalation and inherited pipes; at most `MAX_TIMER_DELAY_MS`. */
+  /** Grace for subprocess termination and inherited-pipe draining; at most `MAX_TIMER_DELAY_MS`. */
   graceMs?: number
   /**
    * Explicit pwsh executable. When omitted, well-known Windows install
@@ -2174,11 +2174,11 @@ export interface Config {
   /**
    * Grace period (ms) for the child's EOF-driven quiesce on dispose — its
    * window to flush persistence and tear down its own nested subprocesses
-   * before the parent escalates to a signal. Must not exceed
+   * before the parent invokes provider termination. Must not exceed
    * `MAX_TIMER_DELAY_MS`.
    */
   disposeEofGraceMs?: number
-  /** Termination-escalation grace (ms); must not exceed `MAX_TIMER_DELAY_MS`. */
+  /** Grace for subprocess termination and output draining (ms); must not exceed `MAX_TIMER_DELAY_MS`. */
   disposeGraceMs?: number
 }
 
@@ -2211,7 +2211,7 @@ export interface Config {
    * `bypassPermissions` explicitly skips permission checks.
    */
   permissionMode?: ClaudeCodePermissionMode
-  /** Grace in milliseconds for Claude Code process-tree termination. */
+  /** Grace in milliseconds for Claude Code termination and output draining. */
   disposeGraceMs?: number
 }
 
@@ -2239,7 +2239,7 @@ export interface Config {
   env?: Record<string, string>
   /** Native non-interactive permission mode fixed for this Provider instance. */
   permissionMode?: CodexPermissionMode
-  /** Grace in milliseconds for app-server process-tree termination. */
+  /** Grace in milliseconds for app-server termination and output draining. */
   disposeGraceMs?: number
 }
 
@@ -2556,7 +2556,7 @@ export interface Config {
   searchMetaMaxBytes?: number
   /** Max complete raw `rg` stdout bytes a search will parse; larger raw output fails with `SEARCH_RAW_OUTPUT_OVERFLOW`. */
   rawOutputMaxBytes?: number
-  /** Terminate-escalation grace (ms), handed to the subprocess seam and bounded by `MAX_TIMER_DELAY_MS`. */
+  /** Grace for subprocess termination and output draining (ms), bounded by `MAX_TIMER_DELAY_MS`. */
   graceMs?: number
   /** Max bytes retained for one search's stderr tail; the excerpt is embedded in `SEARCH_*` error messages, never shown on success. */
   stderrMaxBytes?: number

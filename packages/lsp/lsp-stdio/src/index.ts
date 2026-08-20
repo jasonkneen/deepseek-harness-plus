@@ -72,9 +72,9 @@ export interface LspLocalServerConfig {
   maxStderrBytes?: number
   /** Largest source file this host will open (bytes). Default 4000000. */
   maxDocumentBytes?: number
-  /** Graceful `shutdown`/`exit` budget before escalation (ms). Default 5000. */
+  /** Graceful `shutdown`/`exit` budget before provider termination (ms). Default 5000. */
   shutdownTimeoutMs?: number
-  /** Request-cancel and SIGTERM→SIGKILL grace (ms). Default 2000. */
+  /** Grace supplied to subprocess termination and output draining (ms). Default 2000. */
   killGraceMs?: number
 }
 

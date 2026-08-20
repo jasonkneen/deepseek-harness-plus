@@ -89,9 +89,9 @@ export interface SubprocessSpawnSpec {
    */
   graceMs: number
   /**
-   * Abort signal — starts the terminate escalation on the managed range when
-   * it fires. The caller owns deadlines and cause classification; this seam
-   * only reacts to the abort.
+   * Abort signal — starts the provider's termination procedure on the managed
+   * range when it fires. The caller owns deadlines and cause classification;
+   * this seam only reacts to the abort.
    */
   signal?: AbortSignal | undefined
   /**

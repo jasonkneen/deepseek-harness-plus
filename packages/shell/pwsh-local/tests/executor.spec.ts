@@ -2,7 +2,7 @@
  * Real-process tests for `@deepseek-ai/dsh-pwsh-local`: the LOCAL subprocess
  * service plus a REAL pwsh executable, exercised through the executor seam
  * (`resolve` → `run`/`start`). These verify the world — actual PowerShell
- * runs, output capture, truncation and spill, deadlines, kill escalation, and
+ * runs, output capture, truncation and spill, deadlines, termination, and
  * the background-handle contract. The suite self-skips when no usable `pwsh`
  * resolves (a CI accommodation for hosts without PowerShell); the pure unit tests
  * (config validation, executable resolution) run on every platform. PowerShell
@@ -400,7 +400,7 @@ describe.skipIf(!hasPwsh)('PwshLocalExecutor.start (background process handles)'
     expect(lf(read.delta)).toContain('[stderr]')
   })
 
-  it('kill() terminates the process tree: true once, false after settlement', async () => {
+  it('kill() terminates the managed range: true once, false after settlement', async () => {
     const { bash } = await setup()
     const proc = bash.start(bash.resolve({ command: 'Start-Sleep -Seconds 60' }))
     expect(proc.kill()).toBe(true)

@@ -10,7 +10,7 @@ Status: implemented
 
 ## 决策
 
-阶梯移入其唯一消费方。`dsh-subagent-acp` 拥有 `disposeAcpChild(child, eofGraceMs)`，完全构建在 seam 的公开动词之上：关闭 `stdin`，以 `eofGraceMs` 约束一次 `waitForExit`，随后调用 `terminate()`（其 SIGTERM→spec 宽限期→SIGKILL 升级已拥有信号定时器），再无界等待 `waitForExit()`，由子进程责任方证明整棵进程树已经退出。seam 保留 `kill`／`terminate`／`waitForExit`——机制而非策略——而 `waitForExit(signal?)` 恰是消费方阶梯在协作层确认进程树真正退出所需的完全停稳探针，无需从终止宽限期再派生一个定时器。seam 的句柄少了一个方法和一个导出接口。
+阶梯移入其唯一消费方。`dsh-subagent-acp` 拥有 `disposeAcpChild(child, eofGraceMs)`，完全构建在 seam 的公开动词之上：关闭 `stdin`，以 `eofGraceMs` 约束一次 `waitForExit`，随后调用 provider-owned `terminate()` 过程，再无界等待 `waitForExit()`，由子进程责任方证明 managed range 已经退出。seam 保留 `kill`／`terminate`／`waitForExit`——机制而非策略——而 `waitForExit(signal?)` 恰是消费方阶梯在协作层确认范围真正退出所需的完全停稳探针，无需从终止宽限期再派生一个定时器。seam 的句柄少了一个方法和一个导出接口。
 
 ## 曾考虑的替代方案
 
@@ -20,4 +20,4 @@ Status: implemented
 
 ## 后果
 
-买到的：Service Definition 少了一个方法和一个类型；Service Provider 只欠四个动词，不欠拆卸策略；协作式 EOF 时间窗与调节它的 ACP 配置字段住在一起，而终止时间窗与最终的整树退出等待仅由子进程责任方拥有。代价：未来想要 EOF 打头拆卸的后端需针对这些动词写约 20 行（或直接搬 ACP 的辅助函数）；阶梯的层级测试位于 ACP 套件，Service Definition 套件转而钉住阶梯所组合的动词（升级前有界 `waitForExit` 返回假，升级后无界等待整棵进程树退出），而非组合后的策略。
+买到的：Service Definition 少了一个方法和一个类型；Service Provider 只欠四个动词，不欠拆卸策略；协作式 EOF 时间窗与调节它的 ACP 配置字段住在一起，而终止与最终的 managed-range 等待仅由子进程责任方拥有。代价：未来想要 EOF 打头拆卸的后端需针对这些动词写约 20 行（或直接搬 ACP 的辅助函数）；阶梯的层级测试位于 ACP 套件，Service Definition 套件转而钉住阶梯所组合的动词（终止前有界 `waitForExit` 返回假，终止后无界等待 managed range 退出），而非组合后的策略。

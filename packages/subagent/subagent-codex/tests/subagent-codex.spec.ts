@@ -2296,7 +2296,7 @@ describe('disposeCodexChild', () => {
       .resolves.toBeUndefined()
   })
 
-  it('handles a spawn-level failure with no process tree', async () => {
+  it('handles a spawn-level failure with no managed range', async () => {
     const child = fakeChild({
       pid: -1,
       doneError: new Error('spawn failed'),

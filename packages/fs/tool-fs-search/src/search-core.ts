@@ -182,8 +182,8 @@ export function resolveRgPath(): Promise<string> {
  * complete raw stdout. The working directory is the calling agent's session
  * cwd (`exec.agent.session.header.cwd`) when available, else
  * `process.cwd()`. `exec.signal` is forwarded so the cooperative tool timeout
- * (`@deepseek-ai/dsh-tool-call-timeout-policy`) and caller cancellation terminate the
- * process tree.
+ * (`@deepseek-ai/dsh-tool-call-timeout-policy`) and caller cancellation start the
+ * provider's managed-range termination procedure.
  *
  * The spawn is unconfined (a plain `ctx.subprocess` call), so `--no-config`
  * is prepended: a host `RIPGREP_CONFIG_PATH` (or `rg.conf` next to the
@@ -208,7 +208,7 @@ export function resolveRgPath(): Promise<string> {
  * @param toolName - `glob` or `grep`, used in error messages.
  * @param argv - the ripgrep arguments (every model value an unquoted argv element; no shell layer exists).
  * @param rawOutputMaxBytes - cap on the complete raw stdout the tool will parse.
- * @param graceMs - the seam's terminate-escalation grace period.
+ * @param graceMs - grace supplied to subprocess termination and output draining.
  * @param stderrMaxBytes - cap on the retained stderr diagnostic tail.
  * @returns the complete stdout, the zero-result flag, and the resolved workdir.
  */

@@ -269,8 +269,8 @@ export class LspInstance {
   }
 
   /**
-   * Reject queued work, attempt graceful `shutdown`/`exit`, then escalate SIGTERM→SIGKILL, awaiting
-   * process close so nothing outlives disposal.
+   * Reject queued work, attempt graceful `shutdown`/`exit`, then request the
+   * provider's termination procedure and await process close and range quiescence.
    */
   async dispose(): Promise<void> {
     await this.startTeardown()
@@ -288,7 +288,7 @@ export class LspInstance {
     try {
       await this.gracefulShutdown(shutdownDeadline.signal)
     } catch {
-      // Graceful shutdown failed or timed out; process-tree cleanup below remains authoritative.
+      // Graceful shutdown failed or timed out; managed-range cleanup below remains authoritative.
     } finally {
       shutdownDeadline[Symbol.dispose]()
     }
@@ -303,10 +303,9 @@ export class LspInstance {
   }
 
   /**
-   * Terminate the tree (the seam escalates SIGTERM→`killGraceMs`→SIGKILL),
-   * then await leader and helper exit. The awaits are unbounded on purpose:
-   * the seam's escalation already committed to SIGKILL, so quiescence — not
-   * another timer — is the postcondition disposal owes its callers.
+   * Start the provider's termination procedure, then await command transport
+   * and managed-range exit. The awaits are unbounded on purpose: quiescence,
+   * not another consumer timer, is the postcondition disposal owes its callers.
    */
   private async forceTerminate(): Promise<void> {
     this.connection.terminate()

@@ -1,6 +1,6 @@
 /**
- * Process plumbing for the local subprocess service: detached process-tree
- * spawn with per-stream stdio dispositions, tail-keep collection with spill
+ * Process plumbing for the local subprocess service: ordinary process launch
+ * with per-stream stdio dispositions, tail-keep collection with spill
  * files, provider-owned range signalling, and common termination scheduling.
  * POSIX owners stage TERM before KILL; Windows owners terminate immediately.
  * This layer reacts to an abort signal; callers own deadlines, teardown
@@ -420,7 +420,7 @@ function fallbackOwner(
 }
 
 /**
- * Bind platform launch facts to the existing stdio, outcome, abort, and escalation lifecycle.
+ * Bind platform launch facts to the existing stdio, outcome, abort, and termination lifecycle.
  * @param spec - fully resolved argv, cwd, stdio, grace, cancellation, environment.
  * @param launch - platform child streams, direct outcome, and managed-range owner.
  * @param internals - test-only spill-directory override.
@@ -539,8 +539,8 @@ export function bindManagedProcess(
       if (directOutcome !== undefined) settle(directOutcome)
     })
     function cleanup(): void {
-      // graceTimer deliberately NOT cleared: the SIGKILL escalation must be
-      // able to reach tree survivors after the direct child settles.
+      // graceTimer deliberately NOT cleared: the forced termination call must
+      // still reach range survivors after the spawned command settles.
       if (pipeDrainTimer !== undefined) clearTimeout(pipeDrainTimer)
     }
   })

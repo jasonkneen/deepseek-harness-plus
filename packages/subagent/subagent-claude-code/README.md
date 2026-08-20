@@ -6,11 +6,11 @@ This package registers a Profile-named Claude Code subagent provider whose defau
 
 ## Start and ownership
 
-`start(request)` accepts only a non-empty sequence of text blocks and derives the child cwd from the parent Session. It creates one private `AbortController`, calls the official SDK `query()`, and publishes the run only after the SDK's `spawnClaudeCodeProcess` hook has supplied a live CLI handle owned by [`dsh-subprocess`](../../subprocess/subprocess/README.md). A failure or cancellation before publication closes the query, terminates any acquired process tree, waits for it to exit, and rejects `start()`.
+`start(request)` accepts only a non-empty sequence of text blocks and derives the child cwd from the parent Session. It creates one private `AbortController`, calls the official SDK `query()`, and publishes the run only after the SDK's `spawnClaudeCodeProcess` hook has supplied a live CLI handle owned by [`dsh-subprocess`](../../subprocess/subprocess/README.md). A failure or cancellation before publication closes the query, terminates any acquired managed range, waits for it to exit, and rejects `start()`.
 
 The SDK receives the exact concatenated text task. The provider iterates the complete SDK message stream and accepts only a `result` message with `subtype: "success"`, `is_error: false`, and a nonblank `result`, followed by normal iterator completion. Every failure still maps to `error`: the four error subtypes in Agent SDK 0.3.220 retain their exact category, an error-marked or blank success becomes `invalid-success`, a missing result becomes `missing-result`, an unclassified query failure becomes `unknown`, and an early CLI exit becomes `process-exit`. The diagnostic also names the current `query-start`, `query-run`, `process`, or `teardown` stage and independently includes an observed exit code and signal. The provider produces neither `max-tokens` nor `refusal`.
 
-Local cancellation wins the result race and maps to `aborted` without a failure diagnostic. `dispose()` is idempotent: it aborts the run, asks the SDK query to close, invokes the shared process-tree termination escalation, and waits for whole-tree exit. SDK graceful close expresses protocol intent; the subprocess handle remains the authority for process quiescence. Startup and teardown rejections expose the same fixed safe stage and process facts through their Error message, while the original product or Host error remains on the internal cause chain and in the Provider's Host log. Result failure and independent teardown failure remain separate.
+Local cancellation wins the result race and maps to `aborted` without a failure diagnostic. `dispose()` is idempotent: it aborts the run, asks the SDK query to close, invokes the subprocess provider's termination procedure, and waits for managed-range exit. SDK graceful close expresses protocol intent; the subprocess handle remains the authority for process quiescence. Startup and teardown rejections expose the same fixed safe stage and process facts through their Error message, while the original product or Host error remains on the internal cause chain and in the Provider's Host log. Result failure and independent teardown failure remain separate.
 
 ## Native settings and interaction
 
@@ -29,7 +29,7 @@ The provider advertises no optional start-time capabilities and reports `inherit
 | `providerName` | `claude-code` | Non-empty registry name on `ctx.subagents`; each mounted instance needs a unique value. |
 | `env` | `{}` | Explicit SDK/CLI environment layered over the shared credential-scrubbed parent environment. |
 | `permissionMode` | `dontAsk` | Native non-interactive permission policy fixed for every run from this Provider instance. |
-| `disposeGraceMs` | `3000` | Positive finite grace in milliseconds, no greater than [`MAX_TIMER_DELAY_MS`](../../util/timeout/README.md), between the shared process-tree owner's termination tiers; disposal then waits for whole-tree exit. |
+| `disposeGraceMs` | `3000` | Positive finite grace in milliseconds, no greater than [`MAX_TIMER_DELAY_MS`](../../util/timeout/README.md), supplied to subprocess termination and output draining; disposal then waits for managed-range exit. |
 
 | `permissionMode` value | Native behavior |
 |---|---|

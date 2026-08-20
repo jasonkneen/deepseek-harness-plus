@@ -17,7 +17,7 @@ packages/    @deepseek-ai/dsh-<pkg> workspaces at packages/<group>/<pkg>/
   llm/         LLM capability: Service Definition/Consumer + DeepSeek providers
   e2b/         E2B POC: sandbox + FS/subprocess adapters
   shell/        bash capability: Service Definition + local/pwsh providers + shell Consumers
-  subprocess/  subprocess capability + local process-tree provider + shared Win32 library
+  subprocess/  subprocess capability + local managed-range provider + shared Win32 library
   terminal/         persistent sessions
   fs/          filesystem capability + policy
   lsp/         language-server capability

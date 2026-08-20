@@ -31,7 +31,7 @@ export const ENV_OVERRIDES = {
   GIT_PAGER: 'cat',
 } as const
 
-/** Default SIGTERM→SIGKILL grace period (the `graceMs` config; matches OpenCode's 3s). */
+/** Default subprocess termination and output-drain grace (the `graceMs` config; matches OpenCode's 3s). */
 const DEFAULT_GRACE_MS = 3_000
 
 /** Default per-stream spill cap (the `maxSpillBytes` config). */
@@ -49,7 +49,7 @@ export interface Config {
   maxOutputBytes?: number
   /** Per-stream spill-file cap; larger streams retain only their in-memory tail. */
   maxSpillBytes?: number
-  /** Grace period for kill escalation and inherited pipes; at most `MAX_TIMER_DELAY_MS`. */
+  /** Grace for subprocess termination and inherited-pipe draining; at most `MAX_TIMER_DELAY_MS`. */
   graceMs?: number
 }
 
@@ -94,8 +94,8 @@ export function assertServiceableBashConfig(config: Config): void {
 
 /**
  * Local bash executor over `ctx.subprocess`. Bounded output, spill files, and
- * process-group SIGTERM→SIGKILL escalation are the subprocess service's
- * mechanics; this executor supplies their configured budgets per spawn, so a
+ * provider-owned managed-range termination are the subprocess service's
+ * mechanics; this executor supplies the configured budgets per spawn, so a
  * still-running background process stays managed (killed and joined at
  * composition teardown) even across an executor reload.
  */
@@ -245,7 +245,7 @@ export class LocalBashExecutor extends ShellExecutor {
 
   /**
    * Start an explicit argv with the background lifecycle, environment, output,
-   * cancellation, and process-tree ownership semantics of this executor.
+   * cancellation, and managed-range ownership semantics of this executor.
    * Subclasses use this after replacing the public command's shell argv at an
    * execution boundary.
    * @param spec - resolved execution settings and caller-owned command metadata.

@@ -59,11 +59,11 @@ Codex 默认使用 `never`，并接受 Codex 0.147.0 公开的三种原生非交
 | 交互决定与安全诊断 | 单次产品运行 | 并发运行分别拥有独立的模式、协议与诊断状态。 |
 | 诊断类型与字节上限 | `dsh-subagent` | 消费方收到与 assistant 输出分离的有界可选字段。 |
 | 前台与 Job 呈现 | `dsh-tool-subagent` 和通用 Job 运行时 | 调度选择不会改变底层失败事实。 |
-| 进程取消与完全停稳 | 产品提供方和 `dsh-subprocess` | 结果结算后仍执行幂等的完整进程树资源释放。 |
+| 进程取消与完全停稳 | 产品提供方和 `dsh-subprocess` | 结果结算后仍执行幂等的 managed-range 资源释放。 |
 
 ## Verification
 
-包测试固定所有允许与拒绝的 Config 值、准确的 SDK 与 app-server 字段映射、危险确认、无人值守终态、诊断脱敏与 UTF-8 上限、成功结果不携带诊断、并发运行隔离、前台顺序、Job detail、stderr observer 释放和进程清理。真实 Claude Agent SDK/CLI fixture 证明其安全默认、受限拒绝、显式 bypass 与整棵进程树完全停稳。真实 Codex app-server fixture 证明线程级 `never` 覆盖环境中的 `on-request`、自动评审可以启动、危险绕过只在测试拥有的临时存储中写入、固定 stderr 签名产生安全诊断，而且 wrapper／native 进程树会退出。Loader 组装证明非默认模式可以在不启动任一产品的情况下发布；无密钥 ACP snapshot 则记录每个产品的失败诊断如何经过前台与 Job 呈现，同时面向模型的产品工具 schema 不包含权限参数。
+包测试固定所有允许与拒绝的 Config 值、准确的 SDK 与 app-server 字段映射、危险确认、无人值守终态、诊断脱敏与 UTF-8 上限、成功结果不携带诊断、并发运行隔离、前台顺序、Job detail、stderr observer 释放和进程清理。真实 Claude Agent SDK/CLI fixture 证明其安全默认、受限拒绝、显式 bypass 与 managed-range 完全停稳。真实 Codex app-server fixture 证明线程级 `never` 覆盖环境中的 `on-request`、自动评审可以启动、危险绕过只在测试拥有的临时存储中写入、固定 stderr 签名产生安全诊断，而且 wrapper／native managed range 会退出。Loader 组装证明非默认模式可以在不启动任一产品的情况下发布；无密钥 ACP snapshot 则记录每个产品的失败诊断如何经过前台与 Job 呈现，同时面向模型的产品工具 schema 不包含权限参数。
 
 ## Alternatives considered
 
