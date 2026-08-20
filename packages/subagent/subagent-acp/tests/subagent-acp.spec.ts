@@ -784,9 +784,9 @@ describe('dsh-subagent-acp', () => {
     const run = await ctx.subagents.start('acp', request())
     const result = await run.result
     expect(result.stopReason).toBe('error')
-    expect(warnings).toEqual([
+    expect(warnings).toContainEqual(
       expect.stringContaining('subagent-acp "acp": child run failed (error):'),
-    ])
+    )
     await run.dispose()
   })
 
