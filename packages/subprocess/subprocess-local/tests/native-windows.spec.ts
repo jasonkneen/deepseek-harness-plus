@@ -110,17 +110,17 @@ describe.skipIf(!windowsNative)('Windows Job native containment', () => {
     }
     const handle = bindManagedProcess(request, launchWindowsJob(request))
     if (handle.stdout === undefined) throw new Error('expected piped stdout')
-    const stdoutEnded = Promise.race([
-      new Promise<boolean>((resolve, reject) => {
-        handle.stdout?.once('end', () => { resolve(true) })
-        handle.stdout?.once('error', reject)
-      }),
-      new Promise<boolean>(resolve => setTimeout(() => { resolve(false) }, 1_000)),
-    ])
+    const stdoutEnded = new Promise<void>((resolve, reject) => {
+      handle.stdout?.once('end', resolve)
+      handle.stdout?.once('error', reject)
+    })
     const descendant = await waitForPid(pidFile)
     try {
       await expect(handle.done).resolves.toEqual({ exitCode: 42, signal: null })
-      await expect(stdoutEnded).resolves.toBe(true)
+      await expect(Promise.race([
+        stdoutEnded.then(() => true),
+        new Promise<boolean>(resolve => setTimeout(() => { resolve(false) }, 1_000)),
+      ])).resolves.toBe(true)
       expect(readFileSync(factsFile, 'utf8')).toBe(JSON.stringify({
         cwd: scratch,
         value: 'explicit',

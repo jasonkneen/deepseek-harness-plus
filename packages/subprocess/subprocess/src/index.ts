@@ -82,8 +82,8 @@ declare module '@deepseek-ai/cordis' {
  *   filesystem provider.
  * - {@link spawn} returns a live handle synchronously. Its pid is provider-owned
  *   and may remain unavailable during asynchronous startup. `done` resolves with
- *   the spawned command's exit facts and may reject for spawn or selected
- *   provider-runner failures.
+ *   the spawned command's exit facts and may reject for spawn or provider
+ *   failures.
  * - Collect-mode readers are offset-based and non-consuming, so independent
  *   readers never consume one another's output; lossy reads report truncation
  *   and the spill file holding the complete stream when one exists. Piped

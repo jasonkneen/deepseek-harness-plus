@@ -113,7 +113,7 @@ interface SubprocessSpawnSpec {
    */
   graceMs: number
   /**
-   * Abort signal — starts the terminate escalation on the process tree when
+   * Abort signal — starts the terminate escalation on the managed range when
    * it fires. The caller owns deadlines and cause classification; this seam
    * only reacts to the abort.
    */
@@ -153,18 +153,17 @@ interface SubprocessHandle {
   readonly stderr: Readable | undefined
   /** Offset-based readers for collect-mode streams (also readable after exit). */
   readonly collected: SubprocessCollectedOutputs
-  /** Resolves with direct-process exit facts; rejects for spawn or selected native-runner failures. */
+  /** Resolves with spawned-command exit facts; rejects for spawn or provider failures. */
   readonly done: Promise<SubprocessOutcome>
   /**
-   * Begin the SIGTERM → `graceMs` → SIGKILL escalation on the provider-managed
-   * range (Windows force-terminates immediately) — the seam's only termination
-   * verb. Idempotent, a no-op once that range is gone, and also triggered by
-   * the spec's abort signal.
+   * Begin the provider's termination escalation on the managed range — the
+   * seam's only termination verb. Idempotent, a no-op once that range is gone,
+   * and also triggered by the spec's abort signal.
    */
   terminate(): void
   /**
-   * Wait until the same managed range is empty — not just until the direct
-   * child exits, so a still-running helper is observable before teardown returns.
+   * Wait until the same managed range is empty — not just until the spawned
+   * command reports its outcome, so surviving work remains observable.
    * @param signal - optional bound for the wait.
    * @returns `true` when the managed range is empty, `false` when the signal aborted first.
    * @throws when the selected provider can no longer observe its managed range.
@@ -282,7 +281,7 @@ Abstract subprocess service. Subclass, implement spawn, and load the subclass as
 Implementations must honor these semantics:
 
 - Executable paths belong to one execution world shared with the mounted filesystem provider.
-- spawn returns a live handle synchronously. Its pid is provider-owned and may remain unavailable during asynchronous startup. `done` resolves with the spawned command's exit facts and may reject for spawn or selected provider-runner failures.
+- spawn returns a live handle synchronously. Its pid is provider-owned and may remain unavailable during asynchronous startup. `done` resolves with the spawned command's exit facts and may reject for spawn or provider failures.
 - Collect-mode readers are offset-based and non-consuming, so independent readers never consume one another's output; lossy reads report truncation and the spill file holding the complete stream when one exists. Piped streams are handed to the caller raw and never buffered here.
 - SubprocessHandle.terminate (and the spec's abort signal) escalates SIGTERM→grace→SIGKILL — the only termination verb — against the provider's managed range. SubprocessHandle.waitForExit observes that same range so a consumer-owned teardown ladder can hold each tier on real quiescence; each provider documents its identity and observability limits.
 - Disposal of the service terminates all still-running managed processes and awaits their exit.
