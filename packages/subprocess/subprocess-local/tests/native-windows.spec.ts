@@ -57,9 +57,13 @@ function cleanup(pid: number): void {
 
 function directSpawnFailure(argv: string[]): Promise<NodeJS.ErrnoException> {
   return new Promise((resolve, reject) => {
-    const child = spawn(argv[0] as string, argv.slice(1), { cwd: scratch, stdio: 'ignore' })
-    child.once('error', resolve)
-    child.once('spawn', () => { reject(new Error(`expected ${argv[0]} to fail before spawn`)) })
+    try {
+      const child = spawn(argv[0] as string, argv.slice(1), { cwd: scratch, stdio: 'ignore' })
+      child.once('error', resolve)
+      child.once('spawn', () => { reject(new Error(`expected ${argv[0]} to fail before spawn`)) })
+    } catch (error) {
+      resolve(error as NodeJS.ErrnoException)
+    }
   })
 }
 

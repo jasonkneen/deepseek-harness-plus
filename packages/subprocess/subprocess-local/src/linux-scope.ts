@@ -41,7 +41,7 @@ function querySystemctl(command: string, args: readonly string[]): Promise<Syste
     execFile(command, [...args], { encoding: 'utf8', timeout: SYSTEMCTL_TIMEOUT_MS }, (error, stdout, stderr) => {
       const code = error === null ? 0 : (error as Error & { code?: string | number }).code
       resolve({
-        status: typeof code === 'number' ? code : error === null ? 0 : null,
+        status: typeof code === 'number' ? code : null,
         stdout,
         stderr,
         ...error === null ? {} : { error },
