@@ -679,18 +679,25 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--scenario",
-        choices=("all", "sdk-default", "sdk-custom", "sdk-minimal", "sdk-fs-search", "sdk-mcp", "sdk-snapshot", "direct"),
+        choices=("all", "sdk-default", "sdk-custom", "sdk-minimal", "sdk-fs-search", "sdk-mcp", "sdk-snapshot", "runner", "direct"),
         default="all",
     )
     parser.add_argument("--exe", type=Path)
     parser.add_argument("--update-snapshots", action="store_true")
     args = parser.parse_args()
-    if args.scenario in {"all", "sdk-custom", "sdk-minimal", "sdk-fs-search", "sdk-snapshot", "direct"} and args.exe is None:
-        parser.error("--exe is required for custom, minimal, snapshot, and direct scenarios")
+    if args.scenario in {"all", "sdk-custom", "sdk-minimal", "sdk-fs-search", "sdk-snapshot", "runner", "direct"} and args.exe is None:
+        parser.error("--exe is required for custom, minimal, fs-search, snapshot, runner, and direct scenarios")
     if args.update_snapshots and args.scenario not in {"all", "sdk-minimal", "sdk-snapshot"}:
         parser.error("--update-snapshots requires --scenario sdk-minimal, sdk-snapshot, or all")
     if args.exe is not None and not args.exe.is_file():
         parser.error(f"runtime executable does not exist: {args.exe}")
+
+    if args.scenario in {"all", "runner"}:
+        assert args.exe is not None
+        smoke_packaged_runner(args.exe.resolve())
+    if args.scenario == "runner":
+        print("smoke-python-runtime: runner passed")
+        return
 
     with MockModel() as model:
         if args.scenario in {"all", "sdk-default"}:
@@ -944,6 +951,58 @@ def smoke_direct(base_url: str, executable: Path) -> None:
         finally:
             peer.close()
         assert_session_log(sessions, root, EXPECTED_TEXT)
+
+
+def smoke_packaged_runner(executable: Path) -> None:
+    """Exercise the private subprocess runner through the single-file entry."""
+    with tempfile.TemporaryDirectory(prefix="dsh-packaged-runner-") as temporary:
+        root = Path(temporary).resolve()
+        request_path = root / "request.json"
+        events_path = root / "events.ndjson"
+        probe = subprocess.run(
+            [str(executable), "--dsh-internal-subprocess-runner", "--mode", "probe-node"],
+            cwd=root,
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        )
+        if probe.returncode != 0:
+            raise AssertionError(f"packaged runner probe failed: {probe.stderr}")
+
+        request_path.write_text(json.dumps({
+            "argv": [sys.executable, "-c", "import sys; sys.exit(7)"],
+            "cwd": str(root),
+            "env": {},
+        }))
+        result = subprocess.run(
+            [
+                str(executable),
+                "--dsh-internal-subprocess-runner",
+                "--mode",
+                "node",
+                "--request",
+                str(request_path),
+                "--events",
+                str(events_path),
+            ],
+            cwd=root,
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        )
+        if result.returncode != 7:
+            raise AssertionError(
+                f"packaged runner returned {result.returncode}, expected 7; stderr: {result.stderr}"
+            )
+        events = [json.loads(line) for line in events_path.read_text().splitlines()]
+        if len(events) != 2 or events[0].get("type") != "started" or events[1] != {
+            "type": "exit",
+            "exitCode": 7,
+            "signal": None,
+        }:
+            raise AssertionError(f"packaged runner emitted unexpected events: {events}")
 
 
 def is_idle_notification(message: dict[str, object]) -> bool:

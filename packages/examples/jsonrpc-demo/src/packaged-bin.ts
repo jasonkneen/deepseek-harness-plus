@@ -8,5 +8,13 @@
 
 import { runJsonrpcAgent } from './runner.ts'
 
-/* v8 ignore next -- exercised through the built Python runtime carriers */
-await runJsonrpcAgent(import.meta.url)
+/* v8 ignore start -- exercised through the built Python runtime carriers */
+const PACKAGED_RUNNER_ARG = '--dsh-internal-subprocess-runner'
+
+if (process.argv[2] === PACKAGED_RUNNER_ARG) {
+  process.argv.splice(2, 1)
+  await import('@deepseek-ai/dsh-subprocess-local/spawn-runner')
+} else {
+  await runJsonrpcAgent(import.meta.url)
+}
+/* v8 ignore stop */

@@ -10,6 +10,7 @@ import {
   runnerDirectResult,
   runnerFiles,
   runnerStdio,
+  spawnRunnerInvocation,
 } from '../src/runner-launch.ts'
 import {
   appendRunnerEvent,
@@ -83,6 +84,28 @@ describe('spawn runner transport', () => {
       vi.doUnmock('node:fs')
       vi.resetModules()
     }
+  })
+
+  it('re-enters a packaged executable through its private runner dispatch', () => {
+    const packagedProcess = process as NodeJS.Process & { pkg?: unknown }
+    const original = Object.getOwnPropertyDescriptor(packagedProcess, 'pkg')
+    Object.defineProperty(packagedProcess, 'pkg', { configurable: true, value: {} })
+    try {
+      expect(spawnRunnerInvocation()).toEqual([process.execPath, '--dsh-internal-subprocess-runner'])
+    } finally {
+      if (original === undefined) Reflect.deleteProperty(packagedProcess, 'pkg')
+      else Object.defineProperty(packagedProcess, 'pkg', original)
+    }
+  })
+
+  it('supports the node runner capability probe', () => {
+    const result = spawnSync(sourceInvocation[0] as string, [
+      ...sourceInvocation.slice(1),
+      '--mode',
+      'probe-node',
+    ], { encoding: 'utf8', timeout: 10_000 })
+    expect(result.error).toBeUndefined()
+    expect(result.status).toBe(0)
   })
 
   it('maps every target stdio disposition and optional IPC channel', () => {

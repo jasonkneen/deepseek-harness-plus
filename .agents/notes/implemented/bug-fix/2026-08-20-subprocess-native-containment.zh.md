@@ -14,13 +14,13 @@ Status: implemented
 
 common spawn lifecycle 继续拥有 stdio disposition、有界收集、direct outcome、abort 处理、TERM-to-KILL 升级与 host-exit 注册。`.done` 来自 target process。private `0600` single-spawn request/event transport 让 Linux 或 Windows runner 分别报告 Node-shaped target spawn failure 与 target exit，不依赖 scope 或 Job 生命周期。`waitForExit()` 只在 `terminate()` 使用的同一 owner 确认 OS range 为空后成功；首次确认后，该 owner 永久忽略后续 signal。
 
-Linux user argv 从不进入 `systemd-run` 命令行。runner 从 private request 消费 argv，以精确 cwd 和 scrubbed-plus-explicit environment 启动目标，并报告 direct result。scope TERM 会让 runner 存活足够久，以便报告 trap TERM 的目标；scope KILL 无法保留 runner result 时，该 KILL 事实本身就是权威结果。Windows target descendant 默认继承 Job；runner 会一直存活到 direct result 已报告且 `QueryInformationJobObject` 报告 Job active member 归零。parent IPC 断开会在 JavaScript-observable host exit 期间终止 Job。
+Linux user argv 从不进入 `systemd-run` 命令行。runner 从 private request 消费 argv，以精确 cwd 和 scrubbed-plus-explicit environment 启动目标，并报告 direct result。打包载体通过[单文件运行时](../architecture/2026-07-10-single-file-executable-sdk-runtime-distribution.zh.md)拥有的 private dispatch 重新进入自身 executable；Linux capability probe 在选择 native mode 前调用同一个 runner entry。scope TERM 会让 runner 存活足够久，以便报告 trap TERM 的目标；scope KILL 无法保留 runner result 时，该 KILL 事实本身就是权威结果。Windows target descendant 默认继承 Job；runner 会一直存活到 direct result 已报告且 `QueryInformationJobObject` 报告 Job active member 归零。parent IPC 断开会在 JavaScript-observable host exit 期间终止 Job。
 
 native capability 在目标执行前不可用时，provider 只告警一次并使用既有 PGID 或 `taskkill /T` fallback。macOS 因没有受支持的公开 persistent process owner，始终进入该路径。native launch 一旦被选择，runner、manager 或 result transport 的任何失败都会直接报告；用户命令绝不会经 fallback 重放。
 
 ## Verification
 
-Linux native 证据已在 Ubuntu 24.04 x86_64、systemd 255.4 的 user manager 上运行，覆盖真实 `setsid` descendant、direct parent 先退出的 double-fork daemon，以及不重放的 Node-shaped spawn failure。Windows native 证据覆盖默认继承 descendant，以及 direct target 退出后仍存活的 descendant。shared tests 固定 direct exit 与 range quiescence 的区别、literal argv、一次性 fallback warning、停稳后不再发 signal、abort 与 host-exit 路由，以及 source 和 built runner entry。
+Linux native 证据已在 Ubuntu 24.04 x86_64、systemd 255.4 的 user manager 上运行，覆盖真实 `setsid` descendant、direct parent 先退出的 double-fork daemon，以及不重放的 Node-shaped spawn failure。Windows native 证据覆盖默认继承 descendant，以及 direct target 退出后仍存活的 descendant。shared tests 固定 direct exit 与 range quiescence 的区别、literal argv、一次性 fallback warning、停稳后不再发 signal、abort 与 host-exit 路由，以及 source、built 和 packaged-executable runner entry。
 
 ## Alternatives considered
 

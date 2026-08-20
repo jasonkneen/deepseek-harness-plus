@@ -29,14 +29,25 @@ function asyncQuery(runSync: typeof spawnSync) {
 describe.skipIf(process.platform === 'win32')('Linux systemd scope adapter', () => {
   it('requires a readable user manager and literal-argument systemd support', () => {
     const calls: string[][] = []
-    const runSync = vi.fn((command: string, args: readonly string[]) => {
+    const environments: Array<NodeJS.ProcessEnv | undefined> = []
+    const runSync = vi.fn((command: string, args: readonly string[], options?: { env?: NodeJS.ProcessEnv }) => {
       calls.push([command, ...args])
+      environments.push(options?.env)
       return { status: 0, error: undefined }
     }) as unknown as typeof spawnSync
-    expect(probeLinuxScope({ spawnSync: runSync, systemdRun: 'systemd-run', systemctl: 'systemctl' })).toBe(true)
+    const runnerInvocation = ['node-runtime', 'runner-entry.js']
+    expect(probeLinuxScope({
+      spawnSync: runSync,
+      systemdRun: 'systemd-run',
+      systemctl: 'systemctl',
+      runnerInvocation,
+    })).toBe(true)
     expect(calls[1]).toContain('--expand-environment=no')
     expect(calls[1]).not.toContain('--pipe')
     expect(calls[1]).not.toContain('--wait')
+    const separator = calls[1]?.indexOf('--') ?? -1
+    expect(calls[1]?.slice(separator + 1)).toEqual([...runnerInvocation, '--mode', 'probe-node'])
+    expect(environments[0]?.LC_ALL).toBe('C')
 
     const oldSystemd = vi.fn((command: string) => ({
       status: command === 'systemctl' ? 0 : 1,
@@ -130,7 +141,7 @@ describe.skipIf(process.platform === 'win32')('Linux systemd scope adapter', () 
     const runSync = vi.fn(() => ({
       status: 1,
       stdout: '',
-      stderr: 'Failed to connect to bus',
+      stderr: 'Failed to connect to bus: No such file or directory',
       error: undefined,
     })) as unknown as typeof spawnSync
     const launch = launchLinuxScope(spec([process.execPath, '-e', 'process.exit(0)']), {
@@ -300,7 +311,7 @@ describe.skipIf(process.platform === 'win32')('Linux systemd scope adapter', () 
       expect(runSync).toHaveBeenCalledWith(
         'systemctl',
         expect.arrayContaining(['kill', '--kill-whom=all', '--signal=SIGKILL']),
-        expect.any(Object),
+        expect.objectContaining({ env: expect.objectContaining({ LC_ALL: 'C' }) }),
       )
     } finally {
       wrapper?.kill('SIGKILL')
@@ -313,6 +324,7 @@ describe.skipIf(process.platform === 'win32')('Linux systemd scope adapter', () 
     const run = vi.fn()
     const runSync = vi.fn()
     const runAsync = vi.fn()
+    const queryEnvironments: Array<NodeJS.ProcessEnv | undefined> = []
     vi.resetModules()
     vi.doMock('node:child_process', async (importOriginal) => {
       const actual = await importOriginal<typeof import('node:child_process')>()
@@ -327,9 +339,10 @@ describe.skipIf(process.platform === 'win32')('Linux systemd scope adapter', () 
       runAsync.mockImplementation((
         _command: string,
         args: readonly string[],
-        _options: unknown,
+        options: { env?: NodeJS.ProcessEnv },
         callback: (error: Error | null, stdout: string, stderr: string) => void,
       ) => {
+        queryEnvironments.push(options.env)
         if (queryFailure !== undefined) {
           callback(queryFailure, '', '')
           return
@@ -348,6 +361,7 @@ describe.skipIf(process.platform === 'win32')('Linux systemd scope adapter', () 
       expect(run).toHaveBeenCalledWith('systemd-run', expect.any(Array), expect.any(Object))
       expect(runSync).toHaveBeenCalledWith('systemctl', expect.any(Array), expect.any(Object))
       expect(runAsync).toHaveBeenCalledWith('systemctl', expect.any(Array), expect.any(Object), expect.any(Function))
+      expect(queryEnvironments[0]?.LC_ALL).toBe('C')
 
       queryFailure = Object.assign(new Error('numeric systemctl failure'), { code: 17 })
       const numericFailure = defaults.launchLinuxScope(spec([process.execPath, '-e', 'process.exit(0)']))

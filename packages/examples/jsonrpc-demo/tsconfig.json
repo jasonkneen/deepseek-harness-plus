@@ -18,6 +18,9 @@
       "path": "../../boot/app-boot"
     },
     {
+      "path": "../../subprocess/subprocess-local"
+    },
+    {
       "path": "../../runtime-diagnostics/invariants"
     }
   ]

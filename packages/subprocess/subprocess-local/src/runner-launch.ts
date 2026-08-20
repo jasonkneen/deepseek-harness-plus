@@ -18,12 +18,14 @@ import { childEnv } from './spawn.ts'
 const handshakeWait = new Int32Array(new SharedArrayBuffer(4))
 const RUNNER_HANDSHAKE_TIMEOUT_MS = 10_000
 const RUNNER_EVENT_POLL_MS = 100
+const PACKAGED_RUNNER_ARG = '--dsh-internal-subprocess-runner'
 
 /**
  * Resolve the built runner in production or its source entry in repository execution.
  * @returns Node executable and runner argv prefix.
  */
 export function spawnRunnerInvocation(): string[] {
+  if ('pkg' in process) return [process.execPath, PACKAGED_RUNNER_ARG]
   const builtEntry = fileURLToPath(import.meta.resolve('@deepseek-ai/dsh-subprocess-local/spawn-runner'))
   if (existsSync(builtEntry)) return [process.execPath, builtEntry]
   const sourceEntry = fileURLToPath(import.meta.resolve('@deepseek-ai/dsh-subprocess-local/src/spawn-runner.ts'))

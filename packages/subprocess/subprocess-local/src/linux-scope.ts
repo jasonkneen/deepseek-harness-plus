@@ -35,10 +35,19 @@ interface SystemctlResult {
 
 const SYSTEMCTL_TIMEOUT_MS = 5_000
 const SCOPE_POLL_INTERVAL_MS = 200
+const MISSING_UNIT = /\bunit\b[^\r\n]*(?:could not be found|not found|not loaded)/iu
+
+function systemctlEnv(): NodeJS.ProcessEnv {
+  return { ...process.env, LC_ALL: 'C' }
+}
 
 function querySystemctl(command: string, args: readonly string[]): Promise<SystemctlResult> {
   return new Promise((resolve) => {
-    execFile(command, [...args], { encoding: 'utf8', timeout: SYSTEMCTL_TIMEOUT_MS }, (error, stdout, stderr) => {
+    execFile(command, [...args], {
+      encoding: 'utf8',
+      env: systemctlEnv(),
+      timeout: SYSTEMCTL_TIMEOUT_MS,
+    }, (error, stdout, stderr) => {
       const code = error === null ? 0 : (error as Error & { code?: string | number }).code
       resolve({
         status: typeof code === 'number' ? code : null,
@@ -61,11 +70,15 @@ function unitStem(prefix: string): string {
  */
 export function probeLinuxScope(internals: LinuxScopeInternals = {}): boolean {
   const runSync = internals.spawnSync ?? spawnSync
+  const invocation = internals.runnerInvocation ?? spawnRunnerInvocation()
+  const [runnerCommand, ...runnerPrefix] = invocation
+  if (runnerCommand === undefined) return false
   const systemdRun = internals.systemdRun ?? 'systemd-run'
   const systemctl = internals.systemctl ?? 'systemctl'
   const timeout = 5_000
   const manager = runSync(systemctl, ['--user', 'show-environment'], {
     encoding: 'utf8',
+    env: systemctlEnv(),
     stdio: 'ignore',
     timeout,
   })
@@ -78,9 +91,10 @@ export function probeLinuxScope(internals: LinuxScopeInternals = {}): boolean {
     '--expand-environment=no',
     `--unit=${unitStem('dsh-subprocess-probe')}`,
     '--',
-    process.execPath,
-    '-e',
-    '',
+    runnerCommand,
+    ...runnerPrefix,
+    '--mode',
+    'probe-node',
   ], {
     env: childEnv(),
     stdio: 'ignore',
@@ -111,7 +125,7 @@ class SystemdScopeOwner implements BoundProcessOwner {
       '--kill-whom=all',
       `--signal=${signal}`,
       this.unit,
-    ], { encoding: 'utf8', timeout: SYSTEMCTL_TIMEOUT_MS })
+    ], { encoding: 'utf8', env: systemctlEnv(), timeout: SYSTEMCTL_TIMEOUT_MS })
     if (result.error === undefined && result.status === 0) {
       if (signal === 'SIGKILL') this.killConfirmed = true
       return
@@ -134,7 +148,7 @@ class SystemdScopeOwner implements BoundProcessOwner {
     ])
     const output = `${result.stdout}\n${result.stderr}`
     if (result.status !== 0) {
-      if (/not found|could not be found|no such/iu.test(output)) {
+      if (MISSING_UNIT.test(output)) {
         if (this.runner.exitCode !== null || this.runner.signalCode !== null) return false
       } else {
         if (result.error !== undefined) throw result.error

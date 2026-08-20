@@ -19,6 +19,7 @@ import {
 import type { RunnerRequest, SerializedSpawnError } from './runner-protocol.ts'
 
 type RunnerArgs =
+  | { mode: 'probe-node' }
   | { mode: 'probe-win32' }
   | { mode: 'node' | 'win32'; requestPath: string; eventsPath: string }
 
@@ -35,7 +36,7 @@ function parseArgs(argv: string[]): RunnerArgs {
     else if (key === '--events') eventsPath = value
     else throw new Error(`subprocess runner unknown argument: ${String(key)}`)
   }
-  if (mode === 'probe-win32') return { mode }
+  if (mode === 'probe-node' || mode === 'probe-win32') return { mode }
   if (mode !== 'node' && mode !== 'win32') throw new Error(`subprocess runner unknown mode: ${String(mode)}`)
   if (requestPath === undefined || eventsPath === undefined) throw new Error('subprocess runner requires request and event paths')
   return { mode, requestPath, eventsPath }
@@ -167,6 +168,7 @@ async function runWin32(request: RunnerRequest, eventsPath: string): Promise<voi
 
 async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2))
+  if (args.mode === 'probe-node') return
   if (args.mode === 'probe-win32') {
     loadWin32ProcessBindings()
     return
@@ -185,7 +187,7 @@ async function main(): Promise<void> {
 main().catch((error: unknown) => {
   try {
     const args = parseArgs(process.argv.slice(2))
-    if (args.mode !== 'probe-win32') {
+    if (args.mode !== 'probe-node' && args.mode !== 'probe-win32') {
       appendRunnerEvent(args.eventsPath, { type: 'runner-error', error: serializeSpawnError(error) })
     }
   } catch {
