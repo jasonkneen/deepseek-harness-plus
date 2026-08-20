@@ -65,13 +65,12 @@ interface RunnerHandshake {
 }
 
 /** Observe wrapper death without waiting for Node's blocked event loop to emit close. */
-function runnerExited(child: ChildProcess): boolean {
+function runnerExited(child: ChildProcess, pid: number): boolean {
   if (child.exitCode !== null || child.signalCode !== null) return true
-  if (child.pid === undefined) return true
   /* v8 ignore start -- Linux zombie detection is exercised by the real user-systemd test environment. */
   if (process.platform === 'linux') {
     try {
-      const stat = readFileSync(`/proc/${String(child.pid)}/stat`, 'utf8')
+      const stat = readFileSync(`/proc/${String(pid)}/stat`, 'utf8')
       const suffix = stat.slice(stat.lastIndexOf(')') + 2)
       if (suffix.startsWith('Z') || suffix.startsWith('X')) return true
     } catch (error) {
@@ -80,7 +79,7 @@ function runnerExited(child: ChildProcess): boolean {
   }
   /* v8 ignore stop */
   try {
-    process.kill(child.pid, 0)
+    process.kill(pid, 0)
     return false
   } catch (error) {
     /* v8 ignore next -- EPERM means the known process still exists but is not signalable. */
@@ -97,7 +96,7 @@ function waitForRunnerHandshake(child: ChildProcess, files: RunnerFiles): Runner
     if (terminal?.type === 'started') return { pid: terminal.pid, events }
     if (terminal?.type === 'spawn-error' || terminal?.type === 'runner-error') return { pid: -1, events }
     if (child.pid === undefined) throw new Error('native subprocess runner failed to start')
-    if (runnerExited(child)) throw new Error('native subprocess runner exited before reporting target start')
+    if (runnerExited(child, child.pid)) throw new Error('native subprocess runner exited before reporting target start')
     Atomics.wait(handshakeWait, 0, 0, 5)
   }
   throw new Error(`native subprocess runner did not report target start within ${String(RUNNER_HANDSHAKE_TIMEOUT_MS)}ms`)
