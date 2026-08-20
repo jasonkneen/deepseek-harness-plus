@@ -338,11 +338,14 @@ function directChildResult(child: ChildProcess): Promise<SubprocessOutcome> {
   return new Promise((resolve, reject) => {
     let completed = false
     child.once('error', (error) => {
+      /* v8 ignore next -- ChildProcess may report a later operational error after its
+         terminal exit event; the first terminal event owns the result. */
       if (completed) return
       completed = true
-      reject(error instanceof Error ? error : new Error(String(error)))
+      reject(error)
     })
     child.once('exit', (exitCode, signal) => {
+      /* v8 ignore next -- a spawn/kill error may be followed by exit; a Promise can publish only the first terminal event. */
       if (completed) return
       completed = true
       resolve({ exitCode, signal })
@@ -392,6 +395,8 @@ function fallbackOwner(
       signalTree(platform, pid, signal, child, taskkill)
     },
     waitForExit: async (signal) => {
+      /* v8 ignore next -- bindManagedProcess memoizes this owner wait; the guard only
+         protects direct internal re-entry after signal() observed absence. */
       if (stopped) return true
       observation ??= (async () => {
         while (alive()) await sleepTick()
@@ -501,6 +506,7 @@ export function bindManagedProcess(
       pipeDrainTimer = setTimeout(() => { settle(outcome) }, spec.graceMs)
       if (wrapperClosed) settle(outcome)
     }, (error: unknown) => {
+      /* v8 ignore next -- one Promise cannot reject after its fulfillment path has settled this handle. */
       if (settled) return
       settled = true
       stdoutCollector?.seal()

@@ -14,12 +14,17 @@ if (Number.isSafeInteger(configuredExit)) {
   }, 10)
 } else {
   const hold = setInterval(() => {}, 1_000)
+  let terminated = false
+  const terminate = (): void => {
+    if (terminated) return
+    terminated = true
+    appendRunnerEvent(eventsPath, { type: 'exit', exitCode: 1, signal: null })
+    clearInterval(hold)
+    if (process.connected) process.disconnect()
+    process.exitCode = 1
+  }
   process.on('message', (message: unknown) => {
-    if (message !== null && typeof message === 'object' && (message as { type?: unknown }).type === 'terminate') {
-      appendRunnerEvent(eventsPath, { type: 'exit', exitCode: 1, signal: null })
-      clearInterval(hold)
-      process.disconnect()
-      process.exitCode = 1
-    }
+    if (message !== null && typeof message === 'object' && (message as { type?: unknown }).type === 'terminate') terminate()
   })
+  process.on('disconnect', terminate)
 }

@@ -61,6 +61,15 @@ const windowsOnlyCoverageExclusions = process.platform !== 'win32'
       // executes only on win32; its decision logic is unit-pinned on every
       // host through the injected-internals suites.
       'packages/subprocess/subprocess-local/src/windows-inspector.ts',
+      'packages/subprocess/subprocess-local/src/windows-job.ts',
+    ]
+  : []
+
+const linuxOnlyCoverageExclusions = process.platform !== 'linux'
+  ? [
+      // Native scope ownership executes only on Linux; its command and result
+      // decisions are unit-pinned on every host through injected runners.
+      'packages/subprocess/subprocess-local/src/linux-scope.ts',
     ]
   : []
 
@@ -72,6 +81,13 @@ const windowsOnlyCoverageExclusions = process.platform !== 'win32'
 const windowsRunnerCoverageExclusions = process.platform === 'win32'
   ? ['packages/sandbox/sandbox-windows-acl/src/runner.ts']
   : []
+
+// The ordinary subprocess runner is a source/built child-process entry on
+// every platform. Its real-entry smoke tests execute it out of process, where
+// the parent Vitest coverage provider cannot instrument the module.
+const subprocessRunnerCoverageExclusions = [
+  'packages/subprocess/subprocess-local/src/spawn-runner.ts',
+]
 
 // pwsh-local's run/start/lifecycle suites self-skip without a real pwsh
 // (executor.spec.ts hasPwsh), leaving this file
@@ -181,6 +197,7 @@ export default defineConfig({
         'packages/*/*/src/types.ts',
         'packages/*/*/src/bin.ts',
         'packages/*/*/src/worker.ts',
+        ...subprocessRunnerCoverageExclusions,
         // Dynamic Host/Client composition is covered by its focused lifecycle
         // tests and assembled application checks rather than per-file coverage.
         'packages/self-modification/*/src/**/*.{ts,tsx}',
@@ -275,6 +292,7 @@ export default defineConfig({
         ...windowsUnsupportedCoveragePackages.map(path => `${path}/src/**/*.ts`),
         ...windowsOnlyCoverageExclusions,
         ...windowsRunnerCoverageExclusions,
+        ...linuxOnlyCoverageExclusions,
         ...pwshCoverageExclusions,
       ],
       // 100% or it doesn't merge (docs/testing.md: excessive tests are welcome).

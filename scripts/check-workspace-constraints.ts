@@ -161,7 +161,13 @@ const packageFileExtras: Readonly<Record<string, readonly string[]>> = {
   // SQLite loads every statement from immutable package resources at runtime.
   '@deepseek-ai/dsh-session-persistence-sqlite': ['resources/sql/**/*.sql'],
   '@deepseek-ai/dsh-skill-badge': ['assets'],
-  '@deepseek-ai/dsh-subprocess-local': ['scripts/ensure-spawn-helper.mjs'],
+  // Ordinary native containment ships a path-loaded runner and its shared
+  // result-protocol chunk beside the existing node-pty permission repair.
+  '@deepseek-ai/dsh-subprocess-local': [
+    'lib/spawn-runner.js',
+    'lib/runner-protocol-*.js',
+    'scripts/ensure-spawn-helper.mjs',
+  ],
 }
 
 function sameStringList(actual: readonly string[] | undefined, expected: readonly string[]): boolean {

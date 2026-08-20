@@ -421,6 +421,114 @@ describe('LocalSubprocessRuntime', () => {
     }
   })
 
+  it('reports the platform-specific reason for every fallback mode', async () => {
+    const warning = vi.spyOn(process, 'emitWarning').mockImplementation(() => {})
+    const ctx = new Context()
+    const fiber = await ctx.plugin(LocalSubprocessRuntime)
+    const runtime = ctx.subprocess as unknown as {
+      fallbackWarned: boolean
+      warnFallback(platform: NodeJS.Platform): void
+    }
+    try {
+      for (const [platform, reason] of [
+        ['darwin', 'macOS has no supported persistent process-range owner'],
+        ['linux', 'a modern readable user-systemd scope is unavailable'],
+        ['win32', 'the Win32 Job runner is unavailable'],
+        ['freebsd', 'platform freebsd has no native managed range'],
+      ] as const) {
+        runtime.fallbackWarned = false
+        runtime.warnFallback(platform)
+        expect(warning).toHaveBeenLastCalledWith(
+          expect.stringContaining(reason),
+          { code: 'DSH_SUBPROCESS_WEAK_CONTAINMENT' },
+        )
+      }
+      const calls = warning.mock.calls.length
+      runtime.warnFallback('linux')
+      expect(warning).toHaveBeenCalledTimes(calls)
+    } finally {
+      warning.mockRestore()
+      await fiber.dispose()
+    }
+  })
+
+  it('selects each available native owner once and contains release-observer failures', async () => {
+    const linuxLaunch = { kind: 'linux' }
+    const windowsLaunch = { kind: 'windows' }
+    const launchLinuxScope = vi.fn(() => linuxLaunch)
+    const launchWindowsJob = vi.fn(() => windowsLaunch)
+    const probeLinuxScope = vi.fn(() => true)
+    const probeWindowsJob = vi.fn(() => true)
+    let nextPid = 100
+    const handles = [true, false, false].map((failFirstWait) => {
+      let waits = 0
+      return {
+        pid: nextPid++,
+        collected: {},
+        done: Promise.resolve({ exitCode: 0, signal: null }),
+        terminate: vi.fn(),
+        terminateForHostExit: vi.fn(),
+        waitForExit: vi.fn(async () => {
+          waits += 1
+          if (failFirstWait && waits === 1) throw new Error('release observation failed')
+          return true
+        }),
+      }
+    })
+    const bindManagedProcess = vi.fn((_spec: unknown, _launch: unknown) => {
+      const handle = handles.shift()
+      if (handle === undefined) throw new Error('missing fake handle')
+      return handle
+    })
+    const spawnSubprocess = vi.fn()
+
+    vi.resetModules()
+    vi.doMock('../src/linux-scope.ts', () => ({ launchLinuxScope, probeLinuxScope }))
+    vi.doMock('../src/windows-job.ts', () => ({ launchWindowsJob, probeWindowsJob }))
+    vi.doMock('../src/spawn.ts', async importOriginal => ({
+      ...await importOriginal<typeof import('../src/spawn.ts')>(),
+      bindManagedProcess,
+      spawnSubprocess,
+    }))
+    const fibers: Array<{ dispose(): Promise<void> }> = []
+    try {
+      const { default: IsolatedLocalSubprocessRuntime } = await import('../src/index.ts')
+      const linuxContext = new Context()
+      const linuxFiber = await linuxContext.plugin(IsolatedLocalSubprocessRuntime)
+      fibers.push(linuxFiber)
+      const linuxRuntime = linuxContext.subprocess as InstanceType<typeof IsolatedLocalSubprocessRuntime>
+      linuxRuntime.internals = { platform: 'linux' }
+      await linuxRuntime.spawn(spec('true')).done
+      await new Promise(resolve => setImmediate(resolve))
+      await linuxRuntime.spawn(spec('true')).done
+      await new Promise(resolve => setImmediate(resolve))
+      expect(probeLinuxScope).toHaveBeenCalledOnce()
+      expect(launchLinuxScope).toHaveBeenCalledTimes(2)
+
+      const windowsContext = new Context()
+      const windowsFiber = await windowsContext.plugin(IsolatedLocalSubprocessRuntime)
+      fibers.push(windowsFiber)
+      const windowsRuntime = windowsContext.subprocess as InstanceType<typeof IsolatedLocalSubprocessRuntime>
+      windowsRuntime.internals = { platform: 'win32' }
+      await windowsRuntime.spawn(spec('true')).done
+      await new Promise(resolve => setImmediate(resolve))
+      expect(probeWindowsJob).toHaveBeenCalledOnce()
+      expect(launchWindowsJob).toHaveBeenCalledOnce()
+      expect(bindManagedProcess.mock.calls.map(([, launch]) => launch)).toEqual([
+        linuxLaunch,
+        linuxLaunch,
+        windowsLaunch,
+      ])
+      expect(spawnSubprocess).not.toHaveBeenCalled()
+    } finally {
+      for (const fiber of fibers.reverse()) await fiber.dispose()
+      vi.doUnmock('../src/linux-scope.ts')
+      vi.doUnmock('../src/windows-job.ts')
+      vi.doUnmock('../src/spawn.ts')
+      vi.resetModules()
+    }
+  })
+
   it('disposal kills still-running processes and awaits their exit', async () => {
     const ctx = new Context()
     const fiber = await ctx.plugin(LocalSubprocessRuntime)

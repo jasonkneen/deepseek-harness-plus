@@ -829,6 +829,24 @@ describe('coverage seams', () => {
     }
   })
 
+  it('treats an EPERM group probe as still alive', async () => {
+    const running = spawnSubprocess(spec('sleep 60'), { platform: 'linux' })
+    const realKill = process.kill.bind(process)
+    const killSpy = vi.spyOn(process, 'kill').mockImplementation((target, signal) => {
+      if (typeof target === 'number' && target < 0 && signal === 0) {
+        throw Object.assign(new Error('simulated permission denial'), { code: 'EPERM' })
+      }
+      return realKill(target, signal)
+    })
+    try {
+      await expect(running.waitForExit(AbortSignal.timeout(20))).resolves.toBe(false)
+    } finally {
+      killSpy.mockRestore()
+      realKill(-running.pid, 'SIGKILL')
+      await running.done
+    }
+  })
+
   it('childEnv keeps the POSIX spread on non-Windows hosts', () => {
     const platform = vi.spyOn(process, 'platform', 'get').mockReturnValue('linux')
     try {
@@ -915,6 +933,15 @@ describe('coverage seams', () => {
       spy.mockRestore()
     }
     await running.waitForExit()
+  })
+
+  it('waitForExit is immediate after host-exit finalization observes an absent tree', async () => {
+    const taskkill = vi.fn()
+    const running = spawnSubprocess(spec('true'), { platform: 'win32', taskkill })
+    await running.done
+    running.terminateForHostExit()
+    await expect(running.waitForExit()).resolves.toBe(true)
+    expect(taskkill).not.toHaveBeenCalled()
   })
 
   it('repeated terminate after exit never probes or signals a reused process group', async () => {

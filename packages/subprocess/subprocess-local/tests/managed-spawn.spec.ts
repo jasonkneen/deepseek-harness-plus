@@ -2,7 +2,7 @@ import { spawn } from 'node:child_process'
 import { describe, expect, it, vi } from 'vitest'
 import type { SubprocessSpawnSpec } from '@deepseek-ai/dsh-subprocess'
 import type { BoundProcessOwner } from '../src/managed-owner.ts'
-import { observeChildClose } from '../src/managed-owner.ts'
+import { observeChildClose, waitWithAbort } from '../src/managed-owner.ts'
 import { bindManagedProcess } from '../src/spawn.ts'
 
 function spec(graceMs = 30): SubprocessSpawnSpec {
@@ -15,6 +15,22 @@ function spec(graceMs = 30): SubprocessSpawnSpec {
 }
 
 describe('managed process binding', () => {
+  it('closes the abort race after installing the wait listener', async () => {
+    let reads = 0
+    const removeEventListener = vi.fn()
+    const signal = {
+      get aborted() {
+        reads += 1
+        return reads > 1
+      },
+      addEventListener: vi.fn(),
+      removeEventListener,
+    } as unknown as AbortSignal
+
+    await expect(waitWithAbort(new Promise<void>(() => {}), signal)).resolves.toBe(false)
+    expect(removeEventListener).toHaveBeenCalledOnce()
+  })
+
   it('keeps direct outcome separate from managed-range quiescence', async () => {
     const wrapper = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], {
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -78,5 +94,46 @@ describe('managed process binding', () => {
     })
     handle.terminateForHostExit()
     expect(signal).toHaveBeenCalledExactlyOnceWith('SIGKILL')
+  })
+
+  it('settles when the wrapper closes before the direct outcome arrives', async () => {
+    const wrapper = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], {
+      stdio: ['ignore', 'pipe', 'pipe'],
+    })
+    const direct = Promise.withResolvers<{ exitCode: number | null; signal: NodeJS.Signals | null }>()
+    const handle = bindManagedProcess(spec(), {
+      child: wrapper,
+      pid: wrapper.pid as number,
+      direct: direct.promise,
+      closed: Promise.resolve(),
+      owner: { signal: vi.fn(), waitForExit: async () => true },
+    })
+    try {
+      await new Promise(resolve => setImmediate(resolve))
+      direct.resolve({ exitCode: 23, signal: null })
+      await expect(handle.done).resolves.toEqual({ exitCode: 23, signal: null })
+    } finally {
+      wrapper.kill('SIGKILL')
+    }
+  })
+
+  it('normalizes a non-Error direct rejection', async () => {
+    const wrapper = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], {
+      stdio: ['ignore', 'pipe', 'pipe'],
+    })
+    const rejection: unknown = 'runner failed'
+    const direct = Promise.resolve().then(() => { throw rejection })
+    const handle = bindManagedProcess(spec(), {
+      child: wrapper,
+      pid: wrapper.pid as number,
+      direct,
+      closed: new Promise<void>(() => {}),
+      owner: { signal: vi.fn(), waitForExit: async () => true },
+    })
+    try {
+      await expect(handle.done).rejects.toThrow('runner failed')
+    } finally {
+      wrapper.kill('SIGKILL')
+    }
   })
 })

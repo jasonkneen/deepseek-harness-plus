@@ -111,6 +111,17 @@ describe('ordinary Job process operations', () => {
     expect(isJobEmpty(exited, 50n as NativePtr)).toBe(true)
   })
 
+  it('reports wait and exit-code query failures', () => {
+    const processWait = api({ waitForSingleObject: vi.fn(() => 0xFFFFFFFF) })
+    expect(() => pollProcessExit(processWait, 60n as NativePtr)).toThrow(Win32Error)
+
+    const exitCode = api({ getExitCodeProcess: vi.fn(() => 0) })
+    expect(() => pollProcessExit(exitCode, 60n as NativePtr)).toThrow(Win32Error)
+
+    const jobWait = api({ waitForSingleObject: vi.fn(() => 0xFFFFFFFF) })
+    expect(() => isJobEmpty(jobWait, 50n as NativePtr)).toThrow(Win32Error)
+  })
+
   it('checks Job termination and caller-owned handle closure', () => {
     const terminateJobObject = vi.fn(() => 1)
     const bindings = api({ terminateJobObject })
@@ -120,5 +131,8 @@ describe('ordinary Job process operations', () => {
 
     const failing = api({ terminateJobObject: vi.fn(() => 0) })
     expect(() => { terminateJob(failing, 50n as NativePtr, 1) }).toThrow(Win32Error)
+
+    const closeFailure = api({ closeHandle: vi.fn(() => 0) })
+    expect(() => { closeHandleChecked(closeFailure, 50n as NativePtr, 'test Job') }).toThrow(Win32Error)
   })
 })
