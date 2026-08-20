@@ -50,20 +50,6 @@ function querySystemctl(command: string, args: readonly string[]): Promise<Syste
   })
 }
 
-function syncQuerySystemctl(
-  runSync: typeof spawnSync,
-  command: string,
-  args: readonly string[],
-): Promise<SystemctlResult> {
-  const result = runSync(command, [...args], { encoding: 'utf8', timeout: SYSTEMCTL_TIMEOUT_MS })
-  return Promise.resolve({
-    status: result.status,
-    stdout: typeof result.stdout === 'string' ? result.stdout : '',
-    stderr: typeof result.stderr === 'string' ? result.stderr : '',
-    ...result.error === undefined ? {} : { error: result.error },
-  })
-}
-
 function unitStem(prefix: string): string {
   return `${prefix}-${process.pid}-${randomBytes(6).toString('hex')}`
 }
@@ -130,12 +116,8 @@ class SystemdScopeOwner implements BoundProcessOwner {
       if (signal === 'SIGKILL') this.killConfirmed = true
       return
     }
-    const output = `${result.stdout}\n${result.stderr}`
-    if (/not found|could not be found|no such/iu.test(output)) {
-      this.stopped = true
-      return
-    }
     if (signal === 'SIGKILL') {
+      const output = `${result.stdout}\n${result.stderr}`
       this.killFailure = result.error ?? new Error(
         `systemctl could not signal ${this.unit}: ${output.trim() || `exit ${String(result.status)}`}`,
       )
@@ -143,7 +125,6 @@ class SystemdScopeOwner implements BoundProcessOwner {
   }
 
   private async active(): Promise<boolean> {
-    if (this.killFailure !== undefined) throw this.killFailure
     const result = await this.query(this.systemctl, [
       '--user',
       'show',
@@ -154,14 +135,19 @@ class SystemdScopeOwner implements BoundProcessOwner {
     const output = `${result.stdout}\n${result.stderr}`
     if (result.status !== 0) {
       if (/not found|could not be found|no such/iu.test(output)) {
-        return this.runner.exitCode === null && this.runner.signalCode === null
+        const runnerActive = this.runner.exitCode === null && this.runner.signalCode === null
+        if (runnerActive && this.killFailure !== undefined) throw this.killFailure
+        return runnerActive
       }
       if (result.error !== undefined) throw result.error
       throw new Error(`systemctl could not read ${this.unit}: ${output.trim() || `exit ${String(result.status)}`}`)
     }
     const state = result.stdout.trim()
     if (state === 'inactive' || state === 'failed') return false
-    if (state === 'active' || state === 'activating' || state === 'deactivating') return true
+    if (state === 'active' || state === 'activating' || state === 'deactivating') {
+      if (this.killFailure !== undefined) throw this.killFailure
+      return true
+    }
     throw new Error(`systemctl returned unknown ActiveState for ${this.unit}: ${JSON.stringify(state)}`)
   }
 
@@ -191,9 +177,7 @@ export function launchLinuxScope(
 ): ManagedProcessLaunch {
   const run = internals.spawn ?? spawn
   const runSync = internals.spawnSync ?? spawnSync
-  const query = internals.systemctlQuery ?? (internals.spawnSync === undefined
-    ? querySystemctl
-    : (command, args) => syncQuerySystemctl(runSync, command, args))
+  const query = internals.systemctlQuery ?? querySystemctl
   const systemdRun = internals.systemdRun ?? 'systemd-run'
   const systemctl = internals.systemctl ?? 'systemctl'
   const invocation = internals.runnerInvocation ?? spawnRunnerInvocation()

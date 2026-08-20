@@ -1,4 +1,4 @@
-import { spawnSync } from 'node:child_process'
+import { spawn, spawnSync } from 'node:child_process'
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -55,6 +55,14 @@ function cleanup(pid: number): void {
   spawnSync('taskkill', ['/PID', String(pid), '/T', '/F'], { stdio: 'ignore' })
 }
 
+function directSpawnFailure(argv: string[]): Promise<NodeJS.ErrnoException> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(argv[0] as string, argv.slice(1), { cwd: scratch, stdio: 'ignore' })
+    child.once('error', resolve)
+    child.once('spawn', () => { reject(new Error(`expected ${argv[0]} to fail before spawn`)) })
+  })
+}
+
 const windowsNative = process.platform === 'win32' && probeWindowsJob()
 
 describe.skipIf(!windowsNative)('Windows Job native containment', () => {
@@ -63,7 +71,7 @@ describe.skipIf(!windowsNative)('Windows Job native containment', () => {
     const script = `
       const { spawn } = require('node:child_process')
       const { writeFileSync } = require('node:fs')
-      const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' })
+      const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore', detached: true })
       writeFileSync(${JSON.stringify(pidFile)}, String(child.pid))
       setInterval(() => {}, 1000)
     `
@@ -118,8 +126,9 @@ describe.skipIf(!windowsNative)('Windows Job native containment', () => {
 
     const invalidExecutable = join(scratch, `direct-${Date.now()}.exe`)
     writeFileSync(invalidExecutable, 'not a Windows executable\r\n')
+    const directError = await directSpawnFailure([invalidExecutable])
     const invalid = spec([invalidExecutable])
     const invalidHandle = bindManagedProcess(invalid, launchWindowsJob(invalid))
-    await expect(invalidHandle.done).rejects.toMatchObject({ code: 'EINVAL' })
+    await expect(invalidHandle.done).rejects.toMatchObject({ code: directError.code })
   })
 })

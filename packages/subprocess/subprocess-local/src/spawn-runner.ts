@@ -46,9 +46,9 @@ function win32SpawnError(error: unknown, request: RunnerRequest): SerializedSpaw
   const code = error.win32Code === 2 || error.win32Code === 3 || error.win32Code === 267
     ? 'ENOENT'
     : error.win32Code === 5
-      ? 'EACCES'
+      ? 'EPERM'
       : error.win32Code === 193
-        ? 'EINVAL'
+        ? 'EFTYPE'
         : 'UNKNOWN'
   const program = request.argv[0] as string
   return {

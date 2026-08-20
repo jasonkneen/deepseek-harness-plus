@@ -14,6 +14,18 @@ function spec(argv: string[]): SubprocessSpawnSpec {
   }
 }
 
+function asyncQuery(runSync: typeof spawnSync) {
+  return async (command: string, args: readonly string[]) => {
+    const result = runSync(command, [...args], { encoding: 'utf8', timeout: 5_000 })
+    return {
+      status: result.status,
+      stdout: typeof result.stdout === 'string' ? result.stdout : '',
+      stderr: typeof result.stderr === 'string' ? result.stderr : '',
+      ...result.error === undefined ? {} : { error: result.error },
+    }
+  }
+}
+
 describe.skipIf(process.platform === 'win32')('Linux systemd scope adapter', () => {
   it('requires a readable user manager and literal-argument systemd support', () => {
     const calls: string[][] = []
@@ -62,6 +74,7 @@ describe.skipIf(process.platform === 'win32')('Linux systemd scope adapter', () 
     const launch = launchLinuxScope(spec([process.execPath, '-e', 'process.exit(9)', 'literal $VALUE']), {
       spawn: run,
       spawnSync: runSync,
+      systemctlQuery: asyncQuery(runSync),
       runnerInvocation: spawnRunnerInvocation(),
     })
     await expect(launch.direct).resolves.toEqual({ exitCode: 9, signal: null })
@@ -76,7 +89,7 @@ describe.skipIf(process.platform === 'win32')('Linux systemd scope adapter', () 
     expect(systemdArgs).not.toContain('literal $VALUE')
   })
 
-  it('uses the authoritative SIGKILL scope signal when the runner cannot report after force kill', async () => {
+  it('still escalates after a missing-unit TERM response and uses the authoritative scope KILL', async () => {
     let wrapper: ReturnType<typeof spawn> | undefined
     const run = vi.fn((_command: string, args: readonly string[], options: Parameters<typeof spawn>[2]) => {
       const separator = args.indexOf('--')
@@ -85,8 +98,11 @@ describe.skipIf(process.platform === 'win32')('Linux systemd scope adapter', () 
       return wrapper
     }) as unknown as typeof spawn
     const runSync = vi.fn((command: string, args: readonly string[]) => {
-      if (command === 'systemctl' && args[1] === 'kill' && wrapper?.pid !== undefined) {
-        process.kill(-wrapper.pid, 'SIGKILL')
+      if (command === 'systemctl' && args[1] === 'kill') {
+        if (args.includes('--signal=SIGTERM')) {
+          return { status: 1, stdout: '', stderr: 'Unit could not be found', error: undefined }
+        }
+        if (wrapper?.pid !== undefined) process.kill(-wrapper.pid, 'SIGKILL')
       }
       if (command === 'systemctl' && args[1] === 'show') {
         const active = wrapper?.exitCode === null && wrapper.signalCode === null
@@ -97,8 +113,10 @@ describe.skipIf(process.platform === 'win32')('Linux systemd scope adapter', () 
     const launch = launchLinuxScope(spec([process.execPath, '-e', 'setInterval(() => {}, 1000)']), {
       spawn: run,
       spawnSync: runSync,
+      systemctlQuery: asyncQuery(runSync),
       runnerInvocation: spawnRunnerInvocation(),
     })
+    launch.owner.signal('SIGTERM')
     launch.owner.signal('SIGKILL')
     await expect(launch.direct).resolves.toEqual({ exitCode: null, signal: 'SIGKILL' })
     await expect(launch.owner.waitForExit()).resolves.toBe(true)
@@ -118,6 +136,7 @@ describe.skipIf(process.platform === 'win32')('Linux systemd scope adapter', () 
     const launch = launchLinuxScope(spec([process.execPath, '-e', 'process.exit(0)']), {
       spawn: run,
       spawnSync: runSync,
+      systemctlQuery: asyncQuery(runSync),
       runnerInvocation: spawnRunnerInvocation(),
     })
     await expect(launch.direct).resolves.toEqual({ exitCode: 0, signal: null })
@@ -133,6 +152,7 @@ describe.skipIf(process.platform === 'win32')('Linux systemd scope adapter', () 
     const failedRead = launchLinuxScope(spec([process.execPath, '-e', 'process.exit(0)']), {
       spawn: run,
       spawnSync: vi.fn(() => ({ error: failure })) as unknown as typeof spawnSync,
+      systemctlQuery: async () => ({ status: null, stdout: '', stderr: '', error: failure }),
       runnerInvocation: spawnRunnerInvocation(),
     })
     await expect(failedRead.owner.waitForExit()).rejects.toBe(failure)
@@ -141,6 +161,7 @@ describe.skipIf(process.platform === 'win32')('Linux systemd scope adapter', () 
     const unknownState = launchLinuxScope(spec([process.execPath, '-e', 'process.exit(0)']), {
       spawn: run,
       spawnSync: vi.fn(() => ({ status: 0, stdout: 'reloading\n', stderr: '', error: undefined })) as unknown as typeof spawnSync,
+      systemctlQuery: async () => ({ status: 0, stdout: 'reloading\n', stderr: '' }),
       runnerInvocation: spawnRunnerInvocation(),
     })
     await expect(unknownState.owner.waitForExit()).rejects.toThrow('unknown ActiveState')
@@ -149,6 +170,7 @@ describe.skipIf(process.platform === 'win32')('Linux systemd scope adapter', () 
     const blankFailure = launchLinuxScope(spec([process.execPath, '-e', 'process.exit(0)']), {
       spawn: run,
       spawnSync: vi.fn(() => ({ status: 1, stdout: '', stderr: '', error: undefined })) as unknown as typeof spawnSync,
+      systemctlQuery: async () => ({ status: 1, stdout: '', stderr: '' }),
       runnerInvocation: spawnRunnerInvocation(),
     })
     await expect(blankFailure.owner.waitForExit()).rejects.toThrow('exit 1')
@@ -177,6 +199,7 @@ describe.skipIf(process.platform === 'win32')('Linux systemd scope adapter', () 
       const launch = launchLinuxScope(spec([process.execPath, '-e', 'process.exit(0)']), {
         spawn: run,
         spawnSync: runSync,
+        systemctlQuery: asyncQuery(runSync),
         runnerInvocation: spawnRunnerInvocation(),
       })
       await expect(launch.owner.waitForExit()).resolves.toBe(true)
@@ -199,6 +222,7 @@ describe.skipIf(process.platform === 'win32')('Linux systemd scope adapter', () 
     const launch = launchLinuxScope(spec([process.execPath, '-e', 'setTimeout(() => {}, 40)']), {
       spawn: run,
       spawnSync: runSync,
+      systemctlQuery: asyncQuery(runSync),
       runnerInvocation: spawnRunnerInvocation(),
     })
     await expect(launch.owner.waitForExit()).resolves.toBe(true)
@@ -226,6 +250,7 @@ describe.skipIf(process.platform === 'win32')('Linux systemd scope adapter', () 
     const launch = launchLinuxScope(spec([process.execPath, '-e', 'setInterval(() => {}, 1000)']), {
       spawn: run,
       spawnSync: runSync,
+      systemctlQuery: asyncQuery(runSync),
       runnerInvocation: spawnRunnerInvocation(),
     })
     launch.owner.signal('SIGTERM')
@@ -233,7 +258,23 @@ describe.skipIf(process.platform === 'win32')('Linux systemd scope adapter', () 
     await expect(launch.owner.waitForExit()).resolves.toBe(true)
   })
 
-  it('reports a failed scope KILL through the shared wait', async () => {
+  it.each([
+    [
+      'execution error',
+      { status: null, stdout: '', stderr: '', error: new Error('systemctl execution failed') },
+      'systemctl execution failed',
+    ],
+    [
+      'stderr',
+      { status: 1, stdout: '', stderr: 'Failed to connect to bus', error: undefined },
+      'Failed to connect to bus',
+    ],
+    [
+      'exit status',
+      { status: 1, stdout: '', stderr: '', error: undefined },
+      'exit 1',
+    ],
+  ])('reports a failed scope KILL through the shared wait: %s', async (_label, failure, message) => {
     let wrapper: ReturnType<typeof spawn> | undefined
     const run = vi.fn((_command: string, args: readonly string[], options: Parameters<typeof spawn>[2]) => {
       const separator = args.indexOf('--')
@@ -242,19 +283,20 @@ describe.skipIf(process.platform === 'win32')('Linux systemd scope adapter', () 
     }) as unknown as typeof spawn
     const runSync = vi.fn((command: string, args: readonly string[]) => {
       if (command === 'systemctl' && args[1] === 'kill') {
-        return { status: 1, stdout: '', stderr: 'Failed to connect to bus', error: undefined }
+        return failure
       }
       return { status: 0, stdout: 'active\n', stderr: '', error: undefined }
     }) as unknown as typeof spawnSync
     const launch = launchLinuxScope(spec([process.execPath, '-e', 'setInterval(() => {}, 1000)']), {
       spawn: run,
       spawnSync: runSync,
+      systemctlQuery: asyncQuery(runSync),
       runnerInvocation: spawnRunnerInvocation(),
     })
     void launch.direct.catch(() => {})
     try {
       launch.owner.signal('SIGKILL')
-      await expect(launch.owner.waitForExit()).rejects.toThrow('Failed to connect to bus')
+      await expect(launch.owner.waitForExit()).rejects.toThrow(message)
       expect(runSync).toHaveBeenCalledWith(
         'systemctl',
         expect.arrayContaining(['kill', '--kill-whom=all', '--signal=SIGKILL']),
