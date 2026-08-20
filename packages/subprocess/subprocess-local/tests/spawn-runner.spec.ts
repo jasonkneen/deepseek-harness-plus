@@ -1,6 +1,7 @@
 import { spawnSync } from 'node:child_process'
 import type { ChildProcess } from 'node:child_process'
 import { existsSync, statSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it, vi } from 'vitest'
 import type { SubprocessSpawnSpec } from '@deepseek-ai/dsh-subprocess'
@@ -131,6 +132,7 @@ describe('spawn runner transport', () => {
     const files = createRunnerFiles({ argv: ['node'], cwd: '.', env: {} })
     try {
       expect(readRunnerEvents(files.eventsPath)).toEqual([])
+      await expect(readRunnerEventsAsync(join(files.directory, 'missing.ndjson'))).resolves.toEqual([])
       appendRunnerEvent(files.eventsPath, { type: 'started', pid: 123 })
       appendRunnerEvent(files.eventsPath, {
         type: 'runner-error',

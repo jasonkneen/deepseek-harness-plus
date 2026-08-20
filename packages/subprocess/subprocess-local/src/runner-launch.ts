@@ -68,6 +68,7 @@ interface RunnerHandshake {
 function runnerExited(child: ChildProcess): boolean {
   if (child.exitCode !== null || child.signalCode !== null) return true
   if (child.pid === undefined) return true
+  /* v8 ignore start -- Linux zombie detection is exercised by the real user-systemd test environment. */
   if (process.platform === 'linux') {
     try {
       const stat = readFileSync(`/proc/${String(child.pid)}/stat`, 'utf8')
@@ -77,10 +78,12 @@ function runnerExited(child: ChildProcess): boolean {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') return true
     }
   }
+  /* v8 ignore stop */
   try {
     process.kill(child.pid, 0)
     return false
   } catch (error) {
+    /* v8 ignore next -- EPERM means the known process still exists but is not signalable. */
     return (error as NodeJS.ErrnoException).code === 'ESRCH'
   }
 }
