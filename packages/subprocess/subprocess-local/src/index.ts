@@ -1,10 +1,10 @@
 /**
- * Local Service Provider for the subprocess capability seam. Each spawn is a detached
- * process tree with the spec's per-stream stdio dispositions. Normal disposal
- * terminates and joins live trees; Node's synchronous exit phase force-stops
- * any trees the service still owns. It has no config: every disposition and
- * limit arrives on the spec, so the deployment-varying choices stay with the
- * caller's config (the bash executor's, the LSP host's, …).
+ * Local Service Provider for the subprocess capability seam. Each spawn owns a
+ * platform-selected managed range with the spec's per-stream stdio dispositions.
+ * Normal disposal terminates and joins live ranges; Node's synchronous exit
+ * phase force-stops any ranges the service still owns. It has no config: every
+ * disposition and limit arrives on the spec, so deployment-varying choices
+ * stay with the caller's config (the bash executor's, the LSP host's, …).
  * @module @deepseek-ai/dsh-subprocess-local
  */
 
@@ -36,11 +36,11 @@ import type { ProcessInspector } from './process-inspector.ts'
 import { LocalTerminalHandle } from './terminal.ts'
 
 /**
- * Local subprocess service: detached process trees, Node-shaped stdio
+ * Local subprocess service: platform-selected managed ranges, Node-shaped stdio
  * dispositions (raw pipes, inherit, bounded tail-keep collection with spill
- * files), credential-scrubbed environment, and tree-scoped signalling with
- * SIGTERM→grace→SIGKILL escalation, plus synchronous final termination during
- * JavaScript-observable host exit.
+ * files), credential-scrubbed environment, and provider-owned range signalling.
+ * POSIX paths stage TERM before KILL; Windows paths terminate immediately.
+ * JavaScript-observable host exit also performs synchronous final termination.
  */
 export class LocalSubprocessRuntime extends SubprocessRuntime {
   /** Live handles retained for normal disposal and synchronous host-exit finalization. */
@@ -73,7 +73,7 @@ export class LocalSubprocessRuntime extends SubprocessRuntime {
     for (const handle of this.live) {
       try {
         handle.terminateForHostExit()
-      } catch (_ordinaryTreeTerminationFailed) {
+      } catch (_ordinaryRangeTerminationFailed) {
         // Host exit cannot await or report one target; continue with the rest.
       }
     }
@@ -87,8 +87,8 @@ export class LocalSubprocessRuntime extends SubprocessRuntime {
   }
 
   private async disposeManagedProcesses(): Promise<void> {
-    // Terminate (escalating), then await WHOLE-TREE exit — not just the
-    // direct child's settlement — so even a TERM-trapping descendant cannot
+    // Request termination, then await MANAGED-RANGE exit — not just the
+    // direct command's settlement — so even a surviving descendant cannot
     // outlive the fiber. Keep both sets authoritative while these waits are
     // pending so a shorter process-level exit bound can still force-kill them.
     const pending: Promise<unknown>[] = []

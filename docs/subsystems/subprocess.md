@@ -106,10 +106,11 @@ interface SubprocessSpawnSpec {
   stdio: SubprocessStdio
   /**
    * Positive finite grace period in milliseconds, no greater than
-   * `MAX_TIMER_DELAY_MS`, for the {@link SubprocessHandle.terminate} escalation
-   * and for draining still-open collected pipes after the process exits (an
-   * inherited descriptor held by a surviving descendant cannot hold the
-   * outcome open indefinitely).
+   * `MAX_TIMER_DELAY_MS`, available to the provider's termination procedure
+   * and used for draining still-open collected pipes after the process exits
+   * (an inherited descriptor held by a survivor cannot hold the outcome open
+   * indefinitely). Providers document whether range termination is staged or
+   * immediate.
    */
   graceMs: number
   /**
@@ -131,7 +132,7 @@ interface SubprocessSpawnSpec {
 
 ## Handles: streams, readers, and managed-range termination
 
-A spawn returns a live handle synchronously; the provider may publish its process identity later. Collect-mode readers take whole-stream byte offsets and never consume, so independent readers cannot steal one another's deltas; piped streams belong to the caller. `terminate()` and `waitForExit()` use one provider-managed range whose identity, observation limits, and weaker fallbacks belong to the provider. The only termination verb escalates SIGTERM→grace→SIGKILL, so a consumer can build its own teardown ladder (the ACP backend's stdin-EOF-first `disposeAcpChild` is the template).
+A spawn returns a live handle synchronously; the provider may publish its process identity later. Collect-mode readers take whole-stream byte offsets and never consume, so independent readers cannot steal one another's deltas; piped streams belong to the caller. `terminate()` starts the provider's documented procedure, and `waitForExit()` observes the same provider-managed range; staged providers may use `graceMs`, while immediate providers do not delay. Consumers can build their own teardown ladders over those two operations (the ACP backend's stdin-EOF-first `disposeAcpChild` is the template).
 
 ```ts type-equiv
 /**
@@ -156,9 +157,9 @@ interface SubprocessHandle {
   /** Resolves with spawned-command exit facts; rejects for spawn or provider failures. */
   readonly done: Promise<SubprocessOutcome>
   /**
-   * Begin the provider's termination escalation on the managed range — the
-   * seam's only termination verb. Idempotent, a no-op once that range is gone,
-   * and also triggered by the spec's abort signal.
+   * Begin the provider's documented termination procedure on the managed range
+   * — the seam's only termination verb. Idempotent, a no-op once that range is
+   * gone, and also triggered by the spec's abort signal.
    */
   terminate(): void
   /**
@@ -245,7 +246,7 @@ The terminal spec fully specifies argv, cwd, environment overrides, dimensions, 
 
 ## Service behavior
 
-The abstract [`SubprocessRuntime`](../../packages/subprocess/subprocess/src/index.ts) Service Definition specifies execution-world coordinates, executable lookup, ordinary `spawn`, and `spawnTerminal`. [`LocalSubprocessRuntime`](../../packages/subprocess/subprocess-local/src/index.ts) provides them with detached process trees, per-disposition wiring, credential scrubbing, `node-pty`, platform process inspection, and terminate-and-join disposal. See [`dsh-subprocess`](../../packages/subprocess/subprocess/README.md) for the Service Definition contract and [`dsh-subprocess-local`](../../packages/subprocess/subprocess-local/README.md) for local mechanics.
+The abstract [`SubprocessRuntime`](../../packages/subprocess/subprocess/src/index.ts) Service Definition specifies execution-world coordinates, executable lookup, ordinary `spawn`, and `spawnTerminal`. [`LocalSubprocessRuntime`](../../packages/subprocess/subprocess-local/src/index.ts) provides them with platform-selected managed ranges, per-disposition wiring, credential scrubbing, `node-pty`, platform process inspection, and terminate-and-join disposal. See [`dsh-subprocess`](../../packages/subprocess/subprocess/README.md) for the Service Definition contract and [`dsh-subprocess-local`](../../packages/subprocess/subprocess-local/README.md) for local mechanics.
 
 <!-- BEGIN GENERATED cordis-surface (gen-cordis-catalog.ts) — do not edit between markers -->
 
@@ -283,7 +284,7 @@ Implementations must honor these semantics:
 - Executable paths belong to one execution world shared with the mounted filesystem provider.
 - spawn returns a live handle synchronously. Its pid is provider-owned and may remain unavailable during asynchronous startup. `done` resolves with the spawned command's exit facts and may reject for spawn or provider failures.
 - Collect-mode readers are offset-based and non-consuming, so independent readers never consume one another's output; lossy reads report truncation and the spill file holding the complete stream when one exists. Piped streams are handed to the caller raw and never buffered here.
-- SubprocessHandle.terminate (and the spec's abort signal) escalates SIGTERM→grace→SIGKILL — the only termination verb — against the provider's managed range. SubprocessHandle.waitForExit observes that same range so a consumer-owned teardown ladder can hold each tier on real quiescence; each provider documents its identity and observability limits.
+- SubprocessHandle.terminate (and the spec's abort signal) starts the provider's documented procedure against its managed range. SubprocessHandle.waitForExit observes that same range so a consumer-owned teardown ladder can hold each tier on real quiescence; each provider documents its identity, signalling, and observability limits.
 - Disposal of the service terminates all still-running managed processes and awaits their exit.
 - spawnTerminal owns terminal allocation, text transport, foreground groups, signalling, and whole-session quiescence behind one awaited termination method; readiness and persistent-shell policy stay in the PTY consumer. Its output stream ends after queued terminal output when the top-level process exits.
 

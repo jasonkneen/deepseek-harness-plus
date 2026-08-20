@@ -1,9 +1,10 @@
 /**
  * Process plumbing for the local subprocess service: detached process-tree
  * spawn with per-stream stdio dispositions, tail-keep collection with spill
- * files, tree-scoped signalling (POSIX groups; Windows taskkill), and the
- * SIGTERM→SIGKILL escalation. This layer reacts to an abort signal; callers
- * own deadlines, teardown ladders, and cause classification.
+ * files, provider-owned range signalling, and common termination scheduling.
+ * POSIX owners stage TERM before KILL; Windows owners terminate immediately.
+ * This layer reacts to an abort signal; callers own deadlines, teardown
+ * ladders, and cause classification.
  * @module dsh-subprocess-local/spawn
  */
 

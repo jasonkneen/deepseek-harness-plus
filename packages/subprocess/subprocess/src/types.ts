@@ -1,7 +1,7 @@
 /**
  * Vocabulary for the subprocess Service Definition: fully-specified spawn requests with
  * Node-shaped per-stream stdio modes, bounded collected output with spill
- * recovery, raw piped streams, and tree-scoped termination. Command
+ * recovery, raw piped streams, and managed-range termination. Command
  * defaulting, shell semantics, protocol framing, and presentation belong to
  * consumers such as the bash executor seam.
  * @module dsh-subprocess/types
@@ -81,10 +81,11 @@ export interface SubprocessSpawnSpec {
   stdio: SubprocessStdio
   /**
    * Positive finite grace period in milliseconds, no greater than
-   * `MAX_TIMER_DELAY_MS`, for the {@link SubprocessHandle.terminate} escalation
-   * and for draining still-open collected pipes after the process exits (an
-   * inherited descriptor held by a surviving descendant cannot hold the
-   * outcome open indefinitely).
+   * `MAX_TIMER_DELAY_MS`, available to the provider's termination procedure
+   * and used for draining still-open collected pipes after the process exits
+   * (an inherited descriptor held by a survivor cannot hold the outcome open
+   * indefinitely). Providers document whether range termination is staged or
+   * immediate.
    */
   graceMs: number
   /**
@@ -177,9 +178,9 @@ export interface SubprocessHandle {
   /** Resolves with spawned-command exit facts; rejects for spawn or provider failures. */
   readonly done: Promise<SubprocessOutcome>
   /**
-   * Begin the provider's termination escalation on the managed range — the
-   * seam's only termination verb. Idempotent, a no-op once that range is gone,
-   * and also triggered by the spec's abort signal.
+   * Begin the provider's documented termination procedure on the managed range
+   * — the seam's only termination verb. Idempotent, a no-op once that range is
+   * gone, and also triggered by the spec's abort signal.
    */
   terminate(): void
   /**

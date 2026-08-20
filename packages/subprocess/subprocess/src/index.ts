@@ -1,6 +1,6 @@
 /**
  * Service Definition for the subprocess capability seam (`ctx.subprocess`): execution-world executable lookup,
- * fully specified managed process trees with raw or
+ * fully specified provider-managed process ranges with raw or
  * collected stdio, and one terminal-process primitive. Command defaulting,
  * shell semantics, deadlines, protocol framing, terminal readiness, and
  * presentation belong to consumers. The local implementation lives in
@@ -88,11 +88,11 @@ declare module '@deepseek-ai/cordis' {
  *   readers never consume one another's output; lossy reads report truncation
  *   and the spill file holding the complete stream when one exists. Piped
  *   streams are handed to the caller raw and never buffered here.
- * - {@link SubprocessHandle.terminate} (and the spec's abort signal) escalates
- *   SIGTERM→grace→SIGKILL — the only termination verb — against the provider's
- *   managed range. {@link SubprocessHandle.waitForExit} observes that same range
- *   so a consumer-owned teardown ladder can hold each tier on real quiescence;
- *   each provider documents its identity and observability limits.
+ * - {@link SubprocessHandle.terminate} (and the spec's abort signal) starts the
+ *   provider's documented procedure against its managed range.
+ *   {@link SubprocessHandle.waitForExit} observes that same range so a
+ *   consumer-owned teardown ladder can hold each tier on real quiescence; each
+ *   provider documents its identity, signalling, and observability limits.
  * - Disposal of the service terminates all still-running managed processes
  *   and awaits their exit.
  * - {@link spawnTerminal} owns terminal allocation, text transport,
