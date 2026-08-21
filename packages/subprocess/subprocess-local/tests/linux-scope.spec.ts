@@ -264,7 +264,7 @@ describe.skipIf(process.platform === 'win32')('Linux systemd scope adapter', () 
       }),
       runnerInvocation: spawnRunnerInvocation(),
     })
-    expect(launch.child.pid).toBeUndefined()
+    expect(launch.pid).toBe(-1)
     await expect(launch.direct).rejects.toThrow('runner failed to start')
     await expect(launch.owner.waitForExit()).resolves.toBe(true)
     await launch.closed

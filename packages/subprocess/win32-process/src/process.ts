@@ -63,6 +63,13 @@ export interface OrdinaryProcessSpawnOptions {
   cwd: string
 }
 
+/** Optional explicit target standard handles; omitted entries use the caller's standard handle. */
+export interface ChildStdioHandles {
+  stdin?: NativePtr
+  stdout?: NativePtr
+  stderr?: NativePtr
+}
+
 /** Restricted-token process creation inputs owned by the Windows ACL sandbox. */
 export interface RestrictedProcessSpawnOptions extends OrdinaryProcessSpawnOptions {
   /** Restricted primary token supplied by sandbox policy. */
@@ -347,6 +354,28 @@ export function openJobForAssignment(api: Win32ProcessBindings, name: string): N
 }
 
 /**
+ * Open one private named-pipe client for target stdio.
+ * @param api - active binding table.
+ * @param path - unique parent-owned named-pipe path.
+ * @returns caller-owned connected pipe handle.
+ */
+export function openNamedPipeForStdio(api: Win32ProcessBindings, path: string): NativePtr {
+  const handle = api.createFileW(
+    path,
+    abi.GENERIC_READ + abi.GENERIC_WRITE,
+    0,
+    null,
+    abi.OPEN_EXISTING,
+    0,
+    null,
+  )
+  if (isNullPtr(handle) || (handle as bigint) === -1n || (handle as bigint) === 0xFFFFFFFFFFFFFFFFn) {
+    throwLastError(api, 'CreateFileW', path)
+  }
+  return handle
+}
+
+/**
  * Open a process for non-blocking exit observation.
  * @param api - active binding table.
  * @param pid - direct process id published by the launcher.
@@ -363,6 +392,7 @@ function spawnJobProcess(
   api: Win32ProcessBindings,
   options: OrdinaryProcessSpawnOptions,
   job: NativePtr,
+  stdio: ChildStdioHandles,
   createName: 'CreateProcessAsUserW' | 'CreateProcessW',
   create: (startupInfo: NativePtr, processInfo: NativePtr) => number,
 ): SpawnedAssignedProcess {
@@ -372,9 +402,9 @@ function spawnJobProcess(
     const win32Code = api.getLastError()
     throwWin32(api, 'GetStdHandle', win32Code, `null ${label} handle`)
   }
-  const stdIn = getStdHandle(abi.STD_INPUT_HANDLE, 'stdin')
-  const stdOut = getStdHandle(abi.STD_OUTPUT_HANDLE, 'stdout')
-  const stdErr = getStdHandle(abi.STD_ERROR_HANDLE, 'stderr')
+  const stdIn = stdio.stdin ?? getStdHandle(abi.STD_INPUT_HANDLE, 'stdin')
+  const stdOut = stdio.stdout ?? getStdHandle(abi.STD_OUTPUT_HANDLE, 'stdout')
+  const stdErr = stdio.stderr ?? getStdHandle(abi.STD_ERROR_HANDLE, 'stderr')
   const enabled: NativePtr[] = []
   let startupInfo: NativePtr | undefined
   let processInfo: NativePtr | undefined
@@ -469,7 +499,7 @@ export function spawnInheritedJobProcess(
   const commandLine = buildCommandLine(options.command, options.args)
   try {
     return {
-      ...spawnJobProcess(api, options, job, 'CreateProcessAsUserW', (startupInfo, processInfo) =>
+      ...spawnJobProcess(api, options, job, {}, 'CreateProcessAsUserW', (startupInfo, processInfo) =>
         createRestrictedProcess(
           api,
           options,
@@ -491,15 +521,17 @@ export function spawnInheritedJobProcess(
  * @param api - active binding table.
  * @param options - command, cwd, and argv.
  * @param job - caller-owned Job handle that remains open after this call.
+ * @param stdio - optional explicit handles opened for this target.
  * @returns caller-owned process handle after successful resume.
  */
 export function spawnOrdinaryProcessInJob(
   api: Win32ProcessBindings,
   options: OrdinaryProcessSpawnOptions,
   job: NativePtr,
+  stdio: ChildStdioHandles = {},
 ): SpawnedAssignedProcess {
   const commandLine = buildCommandLine(options.command, options.args)
-  return spawnJobProcess(api, options, job, 'CreateProcessW', (startupInfo, processInfo) =>
+  return spawnJobProcess(api, options, job, stdio, 'CreateProcessW', (startupInfo, processInfo) =>
     api.createProcessW(
       null,
       commandLine,

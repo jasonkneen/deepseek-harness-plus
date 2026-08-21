@@ -570,6 +570,7 @@ describe('background sandbox facts', () => {
       stderr: undefined,
       collected: { stdout: emptyReader, stderr: emptyReader },
       // Arbitrary subprocess providers can reject without a value; that edge is the point of this test.
+      // oxlint-disable-next-line typescript/prefer-promise-reject-errors
       done: Promise.reject(undefined),
       terminate: vi.fn(),
       waitForExit: async () => true,

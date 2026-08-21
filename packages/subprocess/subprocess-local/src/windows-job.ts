@@ -19,13 +19,12 @@ import type { BoundProcessOwner, ManagedProcessLaunch } from './managed-owner.ts
 import { waitWithAbort } from './managed-owner.ts'
 import { childEnv } from './spawn.ts'
 import {
-  cleanupAfterRunner,
-  runnerDirectResult,
   runnerFiles,
-  runnerStdio,
+  runnerStart,
   spawnRunnerInvocation,
 } from './runner-launch.ts'
 import { cleanupRunnerFiles } from './runner-protocol.ts'
+import { createWindowsStdioBridge } from './windows-stdio.ts'
 
 const JOB_POLL_INTERVAL_MS = 10
 const PROCESS_POLL_INTERVAL_MS = 10
@@ -63,6 +62,13 @@ function releaseRunner(child: ReturnType<typeof spawn>): Error | undefined {
     try { child.kill() } catch { /* The direct process and Job remain parent-owned. */ }
     return error instanceof Error ? error : new Error(String(error))
   }
+}
+
+function stopFailedRunner(child: ReturnType<typeof spawn>): void {
+  if (child.connected) {
+    try { child.disconnect() } catch { /* A forced stop below remains authoritative. */ }
+  }
+  try { child.kill() } catch { /* The parent-owned Job remains responsible for any target. */ }
 }
 
 function observeRunnerExit(child: ReturnType<typeof spawn>): Promise<void> {
@@ -203,7 +209,7 @@ class WindowsJobOwner implements BoundProcessOwner {
  * Launch one direct command through a runner into a parent-owned Job.
  * @param spec - exact target argv, cwd, stdio, environment, and lifecycle settings.
  * @param internals - injected process runner used by tests.
- * @returns wrapper streams, target outcome, and the bound Job owner.
+ * @returns parent-owned streams, target outcome, and the bound Job owner.
  */
 export function launchWindowsJob(
   spec: SubprocessSpawnSpec,
@@ -215,12 +221,21 @@ export function launchWindowsJob(
   if (command === undefined) throw new Error('subprocess-local: Windows runner invocation is empty')
   /* v8 ignore next -- the native Windows suite exercises the real Job operations. */
   const operations = internals.operations ?? nativeProcessOperations()
-  const jobName = `Local\\dsh-subprocess-${randomUUID()}`
+  const launchId = randomUUID()
+  const jobName = `Local\\dsh-subprocess-${launchId}`
   const files = runnerFiles(spec)
   let job: NativePtr
   try {
     job = operations.create(jobName)
   } catch (error) {
+    cleanupRunnerFiles(files)
+    throw error
+  }
+  let stdio: ReturnType<typeof createWindowsStdioBridge>
+  try {
+    stdio = createWindowsStdioBridge(spec, `\\\\.\\pipe\\dsh-subprocess-${String(process.pid)}-${launchId}`)
+  } catch (error) {
+    try { operations.closeJob(job) } catch { /* Preserve the stdio setup failure. */ }
     cleanupRunnerFiles(files)
     throw error
   }
@@ -236,35 +251,46 @@ export function launchWindowsJob(
       files.requestPath,
       '--events',
       files.eventsPath,
+      ...stdio.runnerArgs,
     ], {
       env: childEnv(),
-      stdio: runnerStdio(spec, true),
+      stdio: stdio.runnerStdio,
     })
   } catch (error) {
     try { operations.closeJob(job) } catch { /* Preserve the launch failure. */ }
+    stdio.dispose()
     cleanupRunnerFiles(files)
     throw error
   }
   const runnerExited = observeRunnerExit(child)
   const closed = Promise.all([
     runnerExited,
-    observeCollectedStream(spec.stdio.stdout, child.stdout),
-    observeCollectedStream(spec.stdio.stderr, child.stderr),
+    observeCollectedStream(spec.stdio.stdout, stdio.stdout),
+    observeCollectedStream(spec.stdio.stderr, stdio.stderr),
   ]).then(() => undefined)
   const owner = new WindowsJobOwner(job, operations, runnerExited)
-  const transport = runnerDirectResult(child, files, runnerExited)
-  if (transport.pid <= 0) {
-    cleanupAfterRunner(files, transport.direct, runnerExited)
-    return { child, pid: transport.pid, direct: transport.direct, closed, owner }
+  const start = runnerStart(child, files)
+  if (!start.ok) {
+    stopFailedRunner(child)
+    stdio.dispose()
+    const direct = Promise.resolve().then(() => { throw start.error })
+    return {
+      stdin: stdio.stdin,
+      stdout: stdio.stdout,
+      stderr: stdio.stderr,
+      pid: start.pid,
+      direct,
+      closed,
+      owner,
+    }
   }
   // The launcher retains its original process handle until this process opens
   // an independent one, preventing PID reuse during the ownership handoff.
-  // Its event reader then becomes intentionally irrelevant: Windows direct
-  // settlement is owned by the handle below, not by the released runner.
-  void transport.direct.catch(() => {})
+  // Windows direct settlement is owned by the handle below, not by continued
+  // runner event polling after the startup handoff.
   let direct: Promise<SubprocessOutcome>
   try {
-    direct = observeDirectProcess(transport.pid, operations)
+    direct = observeDirectProcess(start.pid, operations)
   } catch (error) {
     direct = Promise.resolve().then(() => { throw error })
   }
@@ -273,6 +299,18 @@ export function launchWindowsJob(
     void direct.catch(() => {})
     direct = Promise.resolve().then(() => { throw releaseFailure })
   }
-  cleanupAfterRunner(files, direct, runnerExited)
-  return { child, pid: transport.pid, direct, closed, owner }
+  void direct.then(
+    () => { stdio.closeInput() },
+    () => { stdio.closeInput() },
+  )
+  void runnerExited.then(() => { cleanupRunnerFiles(files) })
+  return {
+    stdin: stdio.stdin,
+    stdout: stdio.stdout,
+    stderr: stdio.stderr,
+    pid: start.pid,
+    direct,
+    closed,
+    owner,
+  }
 }

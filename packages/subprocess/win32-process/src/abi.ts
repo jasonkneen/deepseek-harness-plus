@@ -6,14 +6,20 @@ export const STARTF_USESTDHANDLES = 0x00000100
 export const HANDLE_FLAG_INHERIT = 0x1
 /** Infinite WaitForSingleObject timeout. */
 export const INFINITE = 0xFFFFFFFF
-/** WaitForSingleObject returned because a zero-time probe is not signalled. */
-export const WAIT_TIMEOUT = 258
 /** CreateProcess flag that prevents user code from running before resume. */
 export const CREATE_SUSPENDED = 0x4
+/** WaitForSingleObject returned because a zero-time probe is not signalled. */
+export const WAIT_TIMEOUT = 258
 /** OpenProcess right required to read limited process information. */
 export const PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
 /** Standard right required to wait on a process handle. */
 export const SYNCHRONIZE = 0x00100000
+/** Read access requested for a private named-pipe client handle. */
+export const GENERIC_READ = 0x80000000
+/** Write access requested for a private named-pipe client handle. */
+export const GENERIC_WRITE = 0x40000000
+/** Open an existing named-pipe endpoint. */
+export const OPEN_EXISTING = 3
 /** GetStdHandle selector for standard input. */
 export const STD_INPUT_HANDLE = -10
 /** GetStdHandle selector for standard output. */

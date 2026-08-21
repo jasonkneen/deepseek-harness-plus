@@ -1,7 +1,6 @@
 import { spawn, spawnSync } from 'node:child_process'
 import type { ChildProcess } from 'node:child_process'
 import { EventEmitter } from 'node:events'
-import { PassThrough } from 'node:stream'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it, vi } from 'vitest'
 import type { SubprocessSpawnSpec } from '@deepseek-ai/dsh-subprocess'
@@ -17,7 +16,7 @@ function spec(argv: string[]): SubprocessSpawnSpec {
   return {
     argv,
     cwd: process.cwd(),
-    stdio: { stdin: 'ignore', stdout: { maxBytes: 1024 }, stderr: { maxBytes: 1024 } },
+    stdio: { stdin: 'ignore', stdout: 'inherit', stderr: 'inherit' },
     graceMs: 100,
   }
 }
@@ -279,34 +278,6 @@ describe('Windows Job runner adapter', () => {
     expect(kill).toHaveBeenCalledOnce()
   })
 
-  it('keeps collected settlement pending until the runner and collected streams close', async () => {
-    const { child } = fakeRunner(658)
-    const stdout = new PassThrough()
-    const stderr = new PassThrough()
-    Object.assign(child, { stdout, stderr })
-    let eventsPath = ''
-    const run = vi.fn((_command: string, args: readonly string[]) => {
-      eventsPath = args[args.indexOf('--events') + 1] as string
-      appendRunnerEvent(eventsPath, { type: 'started', pid: 658 })
-      return child
-    }) as unknown as typeof spawn
-    const jobs = processOperations()
-    const launch = launchWindowsJob(spec(['fake-target']), {
-      spawn: run,
-      runnerInvocation: ['fake-runner'],
-      operations: jobs.operations,
-    })
-    let closed = false
-    void launch.closed.then(() => { closed = true })
-    await new Promise(resolve => setImmediate(resolve))
-    expect(closed).toBe(false)
-    stdout.resume()
-    stderr.resume()
-    stdout.end()
-    stderr.end()
-    await expect(launch.closed).resolves.toBeUndefined()
-  })
-
   it('closes the parent Job when spawning the runner throws synchronously', () => {
     const failure = new Error('runner spawn failed')
     const jobs = processOperations()
@@ -316,6 +287,31 @@ describe('Windows Job runner adapter', () => {
       operations: jobs.operations,
     })).toThrow(failure)
     expect(jobs.closeJob).toHaveBeenCalledExactlyOnceWith(50n)
+  })
+
+  it('force-stops a runner that times out before publishing target startup', async () => {
+    const child = new EventEmitter() as ChildProcess
+    const disconnect = vi.fn(() => { Object.assign(child, { connected: false }) })
+    const kill = vi.fn(() => {
+      queueMicrotask(() => { child.emit('exit', 1, null) })
+      return true
+    })
+    Object.assign(child, { pid: process.pid, exitCode: null, signalCode: null, connected: true, disconnect, kill })
+    const jobs = processOperations()
+    const now = vi.spyOn(Date, 'now').mockReturnValueOnce(0).mockReturnValue(10_001)
+    try {
+      const launch = launchWindowsJob(spec(['fake-target']), {
+        spawn: vi.fn(() => child) as unknown as typeof spawn,
+        runnerInvocation: ['fake-runner'],
+        operations: jobs.operations,
+      })
+      await expect(launch.direct).rejects.toThrow('did not report target start')
+      await expect(launch.owner.waitForExit()).resolves.toBe(true)
+      expect(disconnect).toHaveBeenCalledOnce()
+      expect(kill).toHaveBeenCalledOnce()
+    } finally {
+      now.mockRestore()
+    }
   })
 
   it('passes a generated Job name to the runner and rejects an empty invocation', async () => {

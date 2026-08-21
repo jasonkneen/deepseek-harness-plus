@@ -87,7 +87,6 @@ describe('spawn runner transport', () => {
 
   it('maps every target stdio disposition', () => {
     expect(runnerStdio(spec())).toEqual(['ignore', 'pipe', 'pipe'])
-    expect(runnerStdio(spec(), true)).toEqual(['ignore', 'pipe', 'pipe', 'ipc'])
     expect(runnerStdio(spec({
       stdio: { stdin: { data: 'input' }, stdout: 'inherit', stderr: 'inherit' },
     }))).toEqual(['pipe', 'inherit', 'inherit'])
@@ -289,6 +288,20 @@ describe('spawn runner transport', () => {
       await expect(result.direct).rejects.toMatchObject({ message: 'runner setup failed', code: 'EIO' })
     } finally {
       cleanupRunnerFiles(runnerFailure)
+    }
+
+    const afterStartFailure = createRunnerFiles({ argv: ['node'], cwd: '.', env: {} })
+    try {
+      appendRunnerEvent(afterStartFailure.eventsPath, { type: 'started', pid: 456 })
+      appendRunnerEvent(afterStartFailure.eventsPath, {
+        type: 'runner-error',
+        error: { name: 'Error', message: 'post-start runner failed', code: 'EIO' },
+      })
+      const result = runnerDirectResult(fakeChild(123), afterStartFailure, new Promise<void>(() => {}))
+      expect(result.pid).toBe(456)
+      await expect(result.direct).rejects.toMatchObject({ message: 'post-start runner failed', code: 'EIO' })
+    } finally {
+      cleanupRunnerFiles(afterStartFailure)
     }
 
     const missing = createRunnerFiles({ argv: ['node'], cwd: '.', env: {} })

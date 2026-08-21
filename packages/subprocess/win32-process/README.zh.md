@@ -10,7 +10,7 @@
 - **restricted-token 创建** — `RestrictedProcessSpawnOptions` 要求 sandbox 的 primary token，并使用 `CreateProcessAsUserW`。pipe 与 inherited-stdio 路径共用命令行引用、cwd、继承环境块、返回值检查与句柄清理。
 - **管道进程原语** — `spawnPipedProcess()` 创建匿名 stdin/stdout/stderr 管道，立即关闭 stdin，并返回两个读取端；调用方负责等待进程与排空管道。任一局部失败都会关闭该操作已经拥有的句柄，并在各自 Win32 生命周期结束后释放每个 Koffi 输出槽与结构体分配。
 - **继承 stdio 的 Job 原语** — `spawnInheritedJobProcess()` 创建一个 kill-on-close Job，临时把当前 stdio 句柄设为可继承，以 suspended 状态创建 restricted child，把它分配给 Job，再恢复初始线程。目标代码不会在 Job 分配前运行；受控的分配或恢复失败会终止 suspended child，或在释放全部已拥有句柄前关闭已分配的 Job。
-- **ordinary Job runner 原语** — parent 创建 named kill-on-close Job，runner 以 assignment 权限打开该 Job，`spawnOrdinaryProcessInJob()` 再通过 `CreateProcessW` 应用 suspended-create、Job-assignment 与 resume 生命周期。释放 runner 前，parent 会打开另一个 process handle，并轮询其 zero-time state 得到 direct result；Job accounting 则独立持续到 `ActiveProcesses` 归零。
+- **ordinary Job runner 原语** — parent 创建 named kill-on-close Job 与 private named-pipe endpoint，runner 打开它们的 target 端 handle，`spawnOrdinaryProcessInJob()` 再通过 `CreateProcessW` 应用显式 stdio、suspended-create、Job-assignment 与 resume 生命周期。释放 runner 前，parent 会打开另一个 process handle，并轮询其 zero-time state 得到 direct result；Job accounting 与 parent-owned stream 随后各自持续到对应 OS 生命周期结束。
 - **显式结算归属** — `waitForProcessExit()` 等待并关闭 sandbox process handle；ordinary parent-side process polling 与 Job accounting、termination、closure 保持独立。`drainPipe()` 在排空期间复用一个 native count slot，释放该分配并关闭管道读取句柄。每个调用方拥有自己的 result 组合与返回 handle。
 
 Windows ACL 沙箱在这些原语上增加 SID、DACL、grant、workspace 与公共 child policy。

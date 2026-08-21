@@ -21,6 +21,9 @@ int wmain()
   P(STARTF_USESTDHANDLES);
   P(HANDLE_FLAG_INHERIT);
   P(INFINITE);
+  P(GENERIC_READ);
+  P(GENERIC_WRITE);
+  P(OPEN_EXISTING);
   P(WAIT_TIMEOUT);
   P(PROCESS_QUERY_LIMITED_INFORMATION);
   P(SYNCHRONIZE);
@@ -45,6 +48,9 @@ int wmain()
   static_assert(CREATE_SUSPENDED == 0x4, "suspended process flag");
   static_assert(STARTF_USESTDHANDLES == 0x100, "std handles flag");
   static_assert(HANDLE_FLAG_INHERIT == 0x1, "inherit flag");
+  static_assert(GENERIC_READ == 0x80000000, "generic read access");
+  static_assert(GENERIC_WRITE == 0x40000000, "generic write access");
+  static_assert(OPEN_EXISTING == 3, "open existing disposition");
   static_assert(WAIT_TIMEOUT == 258, "zero-time wait timeout");
   static_assert(PROCESS_QUERY_LIMITED_INFORMATION == 0x1000, "limited process query right");
   static_assert(SYNCHRONIZE == 0x100000, "synchronize right");

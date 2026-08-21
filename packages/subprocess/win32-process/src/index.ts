@@ -22,6 +22,7 @@ export {
   createKillOnCloseJob,
   drainPipe,
   isJobEmpty,
+  openNamedPipeForStdio,
   openJobForAssignment,
   openProcessForWait,
   pollProcessExit,
@@ -32,6 +33,7 @@ export {
   waitForProcessExit,
 } from './process.ts'
 export type {
+  ChildStdioHandles,
   OrdinaryProcessSpawnOptions,
   SpawnedAssignedProcess,
   SpawnedJobProcess,

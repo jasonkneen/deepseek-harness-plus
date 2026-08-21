@@ -57,11 +57,12 @@ const windowsUnsupportedCoveragePackages = process.platform === 'win32'
 const windowsOnlyCoverageExclusions = process.platform !== 'win32'
   ? [
       'packages/sandbox/sandbox-windows-acl/src/**/*.ts',
-      // The koffi-backed Win32 table (Toolhelp32/GetProcessTimes/taskkill)
-      // executes only on win32; its decision logic is unit-pinned on every
-      // host through the injected-internals suites.
+      // The Win32 adapters (Koffi process inspection/Jobs and named-pipe
+      // streams) execute only on win32; their decisions are unit-pinned on
+      // every host through focused tests and injected operations.
       'packages/subprocess/subprocess-local/src/windows-inspector.ts',
       'packages/subprocess/subprocess-local/src/windows-job.ts',
+      'packages/subprocess/subprocess-local/src/windows-stdio.ts',
     ]
   : []
 

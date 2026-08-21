@@ -55,14 +55,16 @@ function cleanup(pid: number): void {
   spawnSync('taskkill', ['/PID', String(pid), '/T', '/F'], { stdio: 'ignore' })
 }
 
-function directSpawnFailure(argv: string[]): Promise<NodeJS.ErrnoException> {
+type SpawnFailure = NodeJS.ErrnoException & { path?: string; spawnargs?: string[] }
+
+function directSpawnFailure(argv: string[], cwd = scratch): Promise<SpawnFailure> {
   return new Promise((resolve, reject) => {
     try {
-      const child = spawn(argv[0] as string, argv.slice(1), { cwd: scratch, stdio: 'ignore' })
+      const child = spawn(argv[0] as string, argv.slice(1), { cwd, stdio: 'ignore' })
       child.once('error', resolve)
       child.once('spawn', () => { reject(new Error(`expected ${argv[0]} to fail before spawn`)) })
     } catch (error) {
-      resolve(error as NodeJS.ErrnoException)
+      resolve(error as SpawnFailure)
     }
   })
 }
@@ -70,6 +72,33 @@ function directSpawnFailure(argv: string[]): Promise<NodeJS.ErrnoException> {
 const windowsNative = process.platform === 'win32' && probeWindowsJob()
 
 describe.skipIf(!windowsNative)('Windows Job native containment', () => {
+  it('keeps raw stdin writable after the launcher handoff', async () => {
+    const output = join(scratch, `stdin-${Date.now()}.txt`)
+    const script = `
+      const { writeFileSync } = require('node:fs')
+      let input = ''
+      process.stdin.setEncoding('utf8')
+      process.stdin.on('data', chunk => { input += chunk })
+      process.stdin.on('end', () => { writeFileSync(${JSON.stringify(output)}, input) })
+    `
+    const request = {
+      ...spec([process.execPath, '-e', script]),
+      stdio: { stdin: 'pipe', stdout: 'inherit', stderr: 'inherit' } as const,
+    }
+    const handle = bindManagedProcess(request, launchWindowsJob(request))
+    if (handle.stdin === undefined) throw new Error('expected piped stdin')
+    await new Promise(resolve => setTimeout(resolve, 100))
+    await new Promise<void>((resolve, reject) => {
+      handle.stdin?.end('after-handoff', (error?: Error | null) => {
+        if (error !== undefined && error !== null) reject(error)
+        else resolve()
+      })
+    })
+    await expect(handle.done).resolves.toEqual({ exitCode: 0, signal: null })
+    await expect(handle.waitForExit()).resolves.toBe(true)
+    expect(readFileSync(output, 'utf8')).toBe('after-handoff')
+  })
+
   it('releases raw stdout when the target closes it before exiting', async () => {
     const request = {
       ...spec([process.execPath, '-e', 'process.stdout.end(); setInterval(() => {}, 1000)']),
@@ -175,6 +204,20 @@ describe.skipIf(!windowsNative)('Windows Job native containment', () => {
     const missing = spec([`missing-native-target-${Date.now()}.exe`])
     const missingHandle = bindManagedProcess(missing, launchWindowsJob(missing))
     await expect(missingHandle.done).rejects.toMatchObject({ code: 'ENOENT' })
+    await expect(missingHandle.waitForExit()).resolves.toBe(true)
+
+    const missingCwd = join(scratch, `missing-cwd-${Date.now()}`)
+    const cwdArgv = [process.execPath, '-e', 'process.exit(0)']
+    const expectedCwd = await directSpawnFailure(cwdArgv, missingCwd)
+    const invalidCwd = { ...spec(cwdArgv), cwd: missingCwd }
+    const invalidCwdHandle = bindManagedProcess(invalidCwd, launchWindowsJob(invalidCwd))
+    await expect(invalidCwdHandle.done).rejects.toMatchObject({
+      code: expectedCwd.code,
+      syscall: expectedCwd.syscall,
+      path: expectedCwd.path,
+      spawnargs: expectedCwd.spawnargs,
+    })
+    await expect(invalidCwdHandle.waitForExit()).resolves.toBe(true)
 
     const invalidExecutable = join(scratch, `direct-${Date.now()}.exe`)
     writeFileSync(invalidExecutable, 'not a Windows executable\r\n')
@@ -182,5 +225,6 @@ describe.skipIf(!windowsNative)('Windows Job native containment', () => {
     const invalid = spec([invalidExecutable])
     const invalidHandle = bindManagedProcess(invalid, launchWindowsJob(invalid))
     await expect(invalidHandle.done).rejects.toMatchObject({ code: directError.code })
+    await expect(invalidHandle.waitForExit()).resolves.toBe(true)
   })
 })

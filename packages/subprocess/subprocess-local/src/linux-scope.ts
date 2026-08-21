@@ -215,5 +215,13 @@ export function launchLinuxScope(
   const owner = new SystemdScopeOwner(`${unitBase}.scope`, systemctl, runSync, query, child)
   const result = runnerDirectResult(child, files, closed)
   cleanupAfterRunner(files, result.direct, closed)
-  return { child, pid: result.pid, direct: result.direct, closed, owner }
+  return {
+    stdin: child.stdin,
+    stdout: child.stdout,
+    stderr: child.stderr,
+    pid: result.pid,
+    direct: result.direct,
+    closed,
+    owner,
+  }
 }
