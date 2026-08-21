@@ -72,9 +72,19 @@ function splice(html: string, at: number, markup: string): string {
 }
 
 /**
+ * Tail script settling the boot-readiness deferred (`__DSH_BOOT_READY__`):
+ * the client entry awaits its `.promise` before reading any injected state.
+ * Whichever side runs first creates the deferred (`??=`), so a bootstrap that
+ * applies the table asynchronously installs it ahead of the entry module and
+ * settles it after the last row; the served form below creates and resolves
+ * it in one statement, because every row is already in the document text.
+ */
+const READY_MARKUP = '<script>(globalThis.__DSH_BOOT_READY__ ??= Promise.withResolvers()).resolve()</script>'
+
+/**
  * Render rows into an index.html body: head rows immediately after the
  * opening head tag, body rows immediately after the opening body tag, each
- * group in table order.
+ * group in table order, and the boot-readiness tail after the last body row.
  * @param html - the raw index.html body.
  * @param rows - the collected injection table.
  * @returns the html with every row rendered.
@@ -87,6 +97,7 @@ export function renderIndexInjections(html: string, rows: readonly IndexInjectio
     if (rendered.placement === 'head') head += rendered.markup
     else body += rendered.markup
   }
+  body += READY_MARKUP
   let out = html
   if (head !== '') {
     const open = /<head(?:\s[^>]*)?>/i.exec(out)

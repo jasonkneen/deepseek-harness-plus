@@ -70,6 +70,15 @@ export interface ClientTransportHooks {
    * bundles load over HTTP.
    */
   loadBundle?(url: string): Promise<void>
+  /**
+   * The transport owner declares the page owns the Host outright: the Host
+   * runs inside a worker this page spawned, so no other party can reach it and
+   * the loopback stand-in for "the operator's own machine" is vacuous.
+   * `ctx.connection.isLoopback` then reports the privileged surface reachable
+   * regardless of the page authority. Only a shell that assembles its own
+   * transport can set this; served pages never carry the global at all.
+   */
+  ownsHost?: boolean
 }
 
 /** Page global carrying {@link ClientTransportHooks}; absent in the served web app. */
@@ -85,7 +94,11 @@ interface ClientTransportGlobal {
 export interface ConnectionHandle {
   /** Shared api client (fixture or real, decided at boot from the page URL). */
   readonly api: IApiClient
-  /** Whether the current page authority is loopback; non-browser contexts default to true. */
+  /**
+   * Whether the privileged surface is reachable: the page authority is
+   * loopback, the transport declares the page owns the Host
+   * ({@link ClientTransportHooks.ownsHost}), or the context is not a browser.
+   */
   readonly isLoopback: boolean
   /** Generation-scoped Host facts, including the account home and native path-open capability. */
   readonly hostDescription: HostDescriptionSource
@@ -129,7 +142,7 @@ export function apply(ctx: Context): void {
   }
   const handle: ConnectionHandle = {
     api,
-    isLoopback: pageLocation === undefined || isLoopbackHostname(pageLocation.hostname),
+    isLoopback: transport?.ownsHost === true || pageLocation === undefined || isLoopbackHostname(pageLocation.hostname),
     hostDescription: {
       getSnapshot: () => description,
       subscribe: (listener) => {

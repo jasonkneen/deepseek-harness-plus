@@ -211,6 +211,20 @@
         "tests/**/*.ts"
       ]
     },
+    "packages/experimental/webworker-runtime": {
+      "entry": [
+        "tests/**/*.spec.ts",
+        "tests/compile/transform-corpus-check.ts"
+      ],
+      "project": [
+        "src/**/*.ts",
+        "tests/**/*.ts"
+      ],
+      "ignoreDependencies": [
+        "buffer",
+        "@deepseek-ai/dsh-client-modules"
+      ]
+    },
     "packages/typert/generator": {
       "entry": [
         "tests/**/*.spec.ts",
@@ -621,7 +635,8 @@
         "tests/**/*.perf.ts",
         "tests/**/*.snapshot.ts",
         "tests/support.ts",
-        "src/node-module-stub.ts"
+        "src/node-module-stub.ts",
+        "src/preview.ts"
       ],
       "project": [
         "src/**/*.ts",

@@ -8,5 +8,7 @@ This group contains prototypes and internal-only Cordis plugins that use the rep
 |---|---|---|
 | `agent-team/` | Implicit-root Agent Teams roster, durable peer mailbox, shared task DAG, and runtime coordination | `ctx.agentTeams` |
 | `tool-agent-team/` | Scoped model-facing Agent Teams tools and collaboration guidance | — |
+| `webworker-runtime/` | Browser-only host runtime: in-memory VFS, module loader, postMessage tunnel, and the dedicated Web Worker assembly | — |
+| `webworker-packer/` | Build-time packer that materializes a profile's package closure into the VFS image the worker mounts | — |
 
 The [subtree rules](AGENTS.md) define dependency isolation, release exclusion, and promotion.

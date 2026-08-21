@@ -76,6 +76,9 @@
     },
     {
       "path": "../ui-settings"
+    },
+    {
+      "path": "../../util/crypto"
     }
   ],
   "exclude": [

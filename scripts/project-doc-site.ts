@@ -3,6 +3,9 @@
  *
  * The generated tree is disposable: sources stay in their owning `docs/`
  * tier, while this adapter rewrites cross-source links for the public site.
+ * The same projection also emits a raw-Markdown twin of every route into the
+ * build output, so a page's URL, minus any trailing slash, plus `.md` serves
+ * it as plain Markdown.
  */
 
 import {
@@ -13,7 +16,7 @@ import { fromMarkdown } from 'mdast-util-from-markdown'
 import { gfmFromMarkdown } from 'mdast-util-gfm'
 import { gfm } from 'micromark-extension-gfm'
 import type { Nodes } from 'mdast'
-import { docsPages, type DocsLocale, type DocsPage } from '../website/docs.ts'
+import { docsPages, localeCollections, orderedPages, type DocsLocale, type DocsPage } from '../website/docs.ts'
 import {
   isExternalOrAbsoluteMarkdownUrl,
   markdownDestination,
@@ -317,34 +320,66 @@ export function docsSourceFiles(): string[] {
   return [...new Set([...docsPages.map(page => resolve(root, page.source)), ...referencedImages()])]
 }
 
-/** Rebuild the disposable VitePress source tree from the publication manifest. */
-export function projectDocs(): void {
+/** Manifest and repository inputs for one projection pass. */
+export interface ProjectionContext {
+  /** Pages to project. */
+  pages: DocsPage[]
+  /** Repository root every source and placed image must live under. */
+  repoRoot: string
+  /** Public ref used by projected GitHub links. */
+  repositoryRef: string
+}
+
+function defaultProjectionContext(): ProjectionContext {
+  return { pages: docsPages, repoRoot: root, repositoryRef: resolveRepositoryRef(process.env) }
+}
+
+/**
+ * Project every page and its images into one target tree.
+ *
+ * `entries` are what gets emitted; link resolution always reads the canonical
+ * `context.pages`, so an alias entry sharing a source with its index route
+ * emits at its own path while links keep targeting canonical routes.
+ */
+function projectPagesInto(
+  targetRoot: string,
+  context: ProjectionContext,
+  pageContent: (markdown: string, page: DocsPage) => string,
+  entries: DocsPage[] = context.pages,
+): void {
   const routes = new Set<string>()
   /** Projected path to the repository file that claimed it, pages and images alike. */
   const claimed = new Map<string, string>()
-  const repositoryRef = resolveRepositoryRef(process.env)
-  rmSync(generatedRoot, { recursive: true, force: true })
 
   /** Reserve one projected path, refusing a second source for it. */
   const claim = (target: string, sourceAbs: string): void => {
     const holder = claimed.get(target)
     if (holder !== undefined && holder !== sourceAbs) {
       throw new Error(
-        `project-doc-site: ${repoPath(sourceAbs, root)} and ${repoPath(holder, root)}`
-        + ` both project to ${relative(generatedRoot, target).split(sep).join('/')}.`,
+        `project-doc-site: ${repoPath(sourceAbs, context.repoRoot)} and ${repoPath(holder, context.repoRoot)}`
+        + ` both project to ${relative(targetRoot, target).split(sep).join('/')}.`,
+      )
+    }
+    // A file the projection did not claim is another producer's output — in
+    // the twin pass, the build VitePress just wrote, including `public/`
+    // copies. Overwriting one would silently corrupt the site.
+    if (holder === undefined && existsSync(target)) {
+      throw new Error(
+        `project-doc-site: ${repoPath(sourceAbs, context.repoRoot)} would overwrite existing build file`
+        + ` ${relative(targetRoot, target).split(sep).join('/')}.`,
       )
     }
     claimed.set(target, sourceAbs)
   }
 
-  for (const page of docsPages) {
+  for (const page of entries) {
     if (routes.has(page.route)) throw new Error(`project-doc-site: duplicate route ${JSON.stringify(page.route)}.`)
     routes.add(page.route)
-    const sourceAbs = resolve(root, page.source)
+    const sourceAbs = resolve(context.repoRoot, page.source)
     if (!existsSync(sourceAbs) || !lstatSync(sourceAbs).isFile()) {
       throw new Error(`project-doc-site: source ${JSON.stringify(page.source)} does not exist or is not a file.`)
     }
-    const output = resolve(generatedRoot, page.route)
+    const output = resolve(targetRoot, page.route)
     // Claimed before the images are placed: a page and an image landing on one
     // path would otherwise overwrite each other in whichever order they ran.
     claim(output, sourceAbs)
@@ -354,14 +389,14 @@ export function projectDocs(): void {
       sourcePath: page.source,
       locale: page.locale,
       route: page.route,
-      pages: docsPages,
-      repoRoot: root,
-      repositoryRef,
+      pages: context.pages,
+      repoRoot: context.repoRoot,
+      repositoryRef: context.repositoryRef,
       placeImage: (absPath) => {
-        const real = publishableImage(absPath, root)
+        const real = publishableImage(absPath, context.repoRoot)
         if (real === undefined) {
           throw new Error(
-            `project-doc-site: ${page.source} references image ${repoPath(absPath, root)},`
+            `project-doc-site: ${page.source} references image ${repoPath(absPath, context.repoRoot)},`
             + ' which is not a regular file inside the repository.',
           )
         }
@@ -377,6 +412,164 @@ export function projectDocs(): void {
         return `./${encodeURI(name)}`
       },
     })
-    writeFileSync(output, addProjectionFrontmatter(projectedPageContent(projected, page), page))
+    writeFileSync(output, pageContent(projected, page))
   }
+}
+
+/** Rebuild the disposable VitePress source tree from the publication manifest. */
+export function projectDocs(): void {
+  rmSync(generatedRoot, { recursive: true, force: true })
+  projectPagesInto(generatedRoot, defaultProjectionContext(), (markdown, page) =>
+    addProjectionFrontmatter(projectedPageContent(markdown, page), page))
+}
+
+/**
+ * Strip the leading YAML frontmatter of a projected page.
+ *
+ * @param markdown Rewritten canonical Markdown content.
+ * @param source Repository-relative page source, named by the failure.
+ * @returns The content after the frontmatter block, or the input when none opens it.
+ */
+function withoutFrontmatter(markdown: string, source: string): string {
+  if (!markdown.startsWith('---\n')) return markdown
+  const closingDelimiter = '\n---\n'
+  const closing = markdown.indexOf(closingDelimiter, 4)
+  if (closing === -1) {
+    throw new Error(`project-doc-site: ${JSON.stringify(source)} has unclosed YAML frontmatter.`)
+  }
+  return markdown.slice(closing + closingDelimiter.length).replace(/^\n+/, '')
+}
+
+/**
+ * The raw-Markdown twin of one published page.
+ *
+ * Frontmatter is VitePress rendering configuration and is dropped. A locale
+ * home page therefore keeps its body here, while the rendered site truncates
+ * it to the frontmatter redirect.
+ *
+ * @param markdown Rewritten canonical Markdown content.
+ * @param source Repository-relative page source, named by frontmatter failures.
+ * @returns Plain Markdown without frontmatter or repository chrome.
+ */
+export function rawMarkdownPageContent(markdown: string, source: string): string {
+  return withoutRepositoryChrome(withoutFrontmatter(markdown, source))
+}
+
+/**
+ * Parent-level alias route of an index route, or `undefined` for other routes.
+ *
+ * The rendered site shows an index route as a directory URL, so "append
+ * `.md`" naturally lands on `<dir>.md` once the trailing slash is dropped.
+ * The root `index.md` has no parent to alias into.
+ */
+function indexAliasRoute(route: string): string | undefined {
+  const match = /^(.+)\/index\.md$/.exec(route)
+  return match?.[1] === undefined ? undefined : `${match[1]}.md`
+}
+
+/**
+ * Site-relative Markdown files the raw-Markdown projection emits: every
+ * route, plus one parent-level alias per index route.
+ *
+ * @param pages Pages to project, defaulting to the publication manifest.
+ * @returns The emitted paths, routes first.
+ */
+export function rawMarkdownFiles(pages: DocsPage[] = docsPages): string[] {
+  const aliases = pages.map(page => indexAliasRoute(page.route)).filter(alias => alias !== undefined)
+  return [...pages.map(page => page.route), ...aliases]
+}
+
+/**
+ * Emit the raw-Markdown twin of every published route into a built site, so
+ * static hosting serves the page's URL, minus any trailing slash, plus `.md`
+ * as plain Markdown. Each index route also emits a parent-level alias twin,
+ * projected over the alias route so its relative links stay correct.
+ * Referenced images are copied beside the pages, keeping the same relative
+ * URLs valid in both trees. Existing build files stay in place, and a name
+ * collision with one fails the emission.
+ *
+ * @param outDir Build output directory to emit into.
+ * @param context Manifest and repository inputs, defaulting to this repository.
+ */
+export function emitRawMarkdownPages(outDir: string, context: ProjectionContext = defaultProjectionContext()): void {
+  const aliases = context.pages.flatMap((page) => {
+    const alias = indexAliasRoute(page.route)
+    return alias === undefined ? [] : [{ ...page, route: alias }]
+  })
+  projectPagesInto(
+    outDir,
+    context,
+    (markdown, page) => rawMarkdownPageContent(markdown, page.source),
+    [...context.pages, ...aliases],
+  )
+}
+
+/**
+ * Raw Markdown served for one site route.
+ *
+ * Dev-server counterpart of {@link emitRawMarkdownPages}: images are not
+ * copied because the generated tree already serves them beside the page.
+ *
+ * @param route Manifest route, including its `.md` suffix.
+ * @param context Manifest and repository inputs, defaulting to this repository.
+ * @returns The projected page, or `undefined` when the manifest does not publish the route.
+ */
+export function rawMarkdownRoute(route: string, context: ProjectionContext = defaultProjectionContext()): string | undefined {
+  const page = context.pages.find(candidate => candidate.route === route)
+  if (page === undefined) return undefined
+  const markdown = readFileSync(resolve(context.repoRoot, page.source), 'utf8')
+  return rawMarkdownPageContent(rewriteMarkdown(markdown, {
+    sourcePath: page.source,
+    locale: page.locale,
+    route: page.route,
+    pages: context.pages,
+    repoRoot: context.repoRoot,
+    repositoryRef: context.repositoryRef,
+    placeImage: absPath => `./${encodeURI(basename(absPath))}`,
+  }), page.source)
+}
+
+/** Site identity written into llms.txt. */
+export interface LlmsTxtSite {
+  /** Site base path, carrying the leading and trailing slashes VitePress requires. */
+  base: string
+  /** Site title. */
+  title: string
+  /** Site description. */
+  description: string
+}
+
+/** Locale groups llms.txt lists, in the order the site's navigation presents them. */
+const llmsTxtLocales: readonly { heading: string; locale: DocsLocale }[] = [
+  { heading: '简体中文', locale: 'root' },
+  { heading: 'English', locale: 'en' },
+]
+
+/**
+ * The llms.txt index of every published page's raw-Markdown twin.
+ *
+ * Links are site-absolute so an agent resolves them against the host it
+ * fetched llms.txt from; locale home pages stay out because this file is the
+ * agent-facing entry point itself.
+ *
+ * @param site Site identity and base path.
+ * @returns llms.txt content listing both locale trees.
+ */
+export function llmsTxt(site: LlmsTxtSite): string {
+  const lines = [
+    `# ${site.title}`,
+    '',
+    `> ${site.description}`,
+    '',
+    '页面 URL 去掉末尾斜杠再加 `.md` 即为该页原始 Markdown(根路径用 `/index.md`);下方列表是各页精确地址。Drop any trailing slash and append `.md` to a page URL for its raw Markdown (the site root is `/index.md`); the list below carries the exact addresses.',
+  ]
+  for (const { heading, locale } of llmsTxtLocales) {
+    lines.push('', `## ${heading}`, '')
+    for (const collection of localeCollections[locale]) {
+      for (const page of orderedPages(locale, collection)) {
+        lines.push(`- [${page.label}](${site.base}${page.route}): ${page.section}`)
+      }
+    }
+  }
+  return `${lines.join('\n')}\n`
 }

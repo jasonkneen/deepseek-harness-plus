@@ -80,7 +80,9 @@ async function request(port: number, path: string, init?: RequestInit): Promise<
   return {
     status: response.status,
     type: response.headers.get('content-type'),
-    body: (await response.text()).slice(0, 80),
+    // Window wide enough to keep index body markers visible behind the
+    // served prelude (base anchor + injection rows + boot-readiness tail).
+    body: (await response.text()).slice(0, 200),
   }
 }
 

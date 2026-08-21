@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest'
 
 const root = resolve(import.meta.dirname, '..')
 const runnerPrivatePnpmDestination = '${{ runner.temp }}/setup-pnpm'
+const nativeWindowsPnpmDestination = '${{ runner.temp }}/setup-pnpm-js'
 
 describe('CI workflow', () => {
   it('isolates every pnpm action setup destination per runner', () => {
@@ -25,8 +26,13 @@ describe('CI workflow', () => {
     expect(setups.length).toBeGreaterThan(0)
     for (const { jobName, step } of setups) {
       expect(step, `${jobName} must not share pnpm/action-setup's default destination`).toMatchObject({
-        with: { dest: runnerPrivatePnpmDestination },
+        with: {
+          dest: jobName === 'windows-native'
+            ? nativeWindowsPnpmDestination
+            : runnerPrivatePnpmDestination,
+        },
       })
+      if (jobName === 'windows-native') expect(step).not.toMatchObject({ with: { standalone: true } })
     }
   })
 
@@ -80,7 +86,8 @@ describe('CI workflow', () => {
     expect(windowsNative.env).toMatchObject({
       DSH_COVERAGE_TEST_TIMEOUT_MS: '30000',
     })
-    const nativeCommandSteps = (windowsNative.steps as unknown[]).filter((step): step is Record<string, unknown> & { run: string } => (
+    const nativeSteps = windowsNative.steps as unknown[]
+    const nativeCommandSteps = nativeSteps.filter((step): step is Record<string, unknown> & { run: string } => (
       isRecord(step) && typeof step.run === 'string'
     ))
     expect(nativeCommandSteps.map(step => step.run)).toContain('pnpm run check:ci:windows-complete')
@@ -471,6 +478,46 @@ describe('npm release workflows', () => {
       expect(publish.environment).toBe('npm-publish')
       expect(publish.concurrency).toMatchObject({ group: 'Release-publish' })
     }
+  })
+})
+
+describe('Documentation site publication', () => {
+  it('keeps Pages deployment dispatch-only from a dsh-v* tag', () => {
+    const workflow = loadWorkflow('.github/workflows/docs-pages.yml')
+    const build = workflowJob(workflow, 'build')
+    const deploy = workflowJob(workflow, 'deploy')
+    if (!isRecord(workflow.on) || !isRecord(workflow.env) || !Array.isArray(build.steps)) {
+      throw new TypeError('Documentation deployment must define on, env, and build steps')
+    }
+
+    // The site presents a released snapshot: a merge must never publish it, and
+    // publication must never appear as a PR check.
+    expect(Object.keys(workflow.on)).toEqual(['workflow_dispatch'])
+
+    // RELEASE_PUBLISH makes release:verify reject every ref that is not a dsh-v*
+    // tag naming this tree's version, so the site and the npm sequence share one
+    // definition of a released version.
+    const steps = build.steps.filter(isRecord)
+    const verify = steps.find(step => step.name === 'Verify release version')
+    const checkout = steps.find(
+      step => typeof step.uses === 'string' && step.uses.startsWith('actions/checkout@'),
+    )
+    expect(verify).toMatchObject({
+      env: { RELEASE_PUBLISH: 'true' },
+      run: 'pnpm run release:verify --family dsh',
+    })
+    // Complete history: the release scripts read tags.
+    expect(checkout).toMatchObject({ with: { 'fetch-depth': 0 } })
+
+    // Projected source links stay on the public repository's master. That
+    // repository advances only to each release commit, so its master never
+    // carries unreleased work, while it retains only the most recent tags:
+    // following the dispatched tag would leave every source link on a deploy
+    // from an older tag unresolvable.
+    expect(workflow.env.DOCS_REPOSITORY_REF).toBe('master')
+
+    // The environment owns the deployment tag policy and the required reviewers.
+    expect(deploy.environment).toMatchObject({ name: 'github-pages' })
   })
 })
 

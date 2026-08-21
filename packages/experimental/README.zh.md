@@ -8,5 +8,7 @@
 |---|---|---|
 | `agent-team/` | 隐式 root Agent Teams roster、持久 peer mailbox、共享任务 DAG 与运行时协调 | `ctx.agentTeams` |
 | `tool-agent-team/` | 按 Agent 作用域提供的 Agent Teams 模型工具与协作指引 | — |
+| `webworker-runtime/` | 纯浏览器 host 运行时：内存 VFS、模块装载器、postMessage 隧道与 dedicated Web Worker 装配 | — |
+| `webworker-packer/` | 构建期打包器：把 profile 的包闭包物化成 worker 挂载的 VFS 镜像 | — |
 
 [子树规则](AGENTS.md)规定依赖隔离、发布排除与 promotion。

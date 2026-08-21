@@ -43,6 +43,17 @@ const windowsUnsupportedTests = process.platform === 'win32'
       'packages/subprocess/subprocess-local/tests/process-inspector.spec.ts',
       'packages/subprocess/subprocess-local/tests/spawn.spec.ts',
       'packages/subprocess/subprocess-local/tests/terminal.spec.ts',
+      // Oracle-diff suites: they compare the worker's POSIX path/url faces
+      // against the host Node's own answers, which are win32 semantics on
+      // Windows. The worker always speaks POSIX; the Linux lanes hold the diff.
+      'packages/experimental/webworker-runtime/tests/node/path-diff.spec.ts',
+      'packages/experimental/webworker-runtime/tests/node/shim-diff.spec.ts',
+      // The subprocess ladder over the worker's child_process face: its kill
+      // rung reaches the in-worker process table through `process.kill`,
+      // which the ladder's win32 branch replaces with taskkill-by-real-pid —
+      // undeliverable to a table pid. The worker host always reports 'linux',
+      // so the Linux lanes hold the ladder.
+      'packages/experimental/webworker-runtime/tests/node/child-process.spec.ts',
     ]
   : []
 
@@ -228,6 +239,14 @@ export default defineConfig({
         'packages/client/ui-layout/src/*',
         'packages/client/web/src/*',
         'packages/host/webserver/src/*',
+        // The browser-worker runtime and its image packer: the executing
+        // composition is a real dedicated Worker driven by the web browser lane
+        // (apps/web/tests/preview-boot.e2e.ts), which unit-process V8 coverage
+        // cannot observe. Unit specs cover the algorithmic cores; the assembled
+        // evidence is that boot. TODO(webworker): revisit when a browser-grade
+        // coverage lane exists.
+        'packages/experimental/webworker-runtime/src/**',
+        'packages/experimental/webworker-packer/src/*',
         'packages/client/modules/src/client/system.ts',
         'packages/client/hmr/src/client/index.ts',
         // Web config-tree boot round: the new host-side web-transport halves

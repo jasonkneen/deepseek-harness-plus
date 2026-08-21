@@ -13,6 +13,7 @@
 
 import { spawn, type ChildProcess } from 'node:child_process'
 import { createRequire } from 'node:module'
+import { dirname, join } from 'node:path'
 import { networkInterfaces } from 'node:os'
 import { fileURLToPath } from 'node:url'
 import type { Context } from '@deepseek-ai/cordis'
@@ -159,14 +160,20 @@ function localWebUrl(ctx: Context): string {
   return `http://${LOOPBACK_HOST}:${String(port)}`
 }
 
-/** Dist location is workspace knowledge of this bundle: resolved through the frontend package exports, not configured. */
+/**
+ * Dist location is workspace knowledge of this bundle: anchored on the
+ * frontend package manifest, not configured. Existence is a request-time
+ * concern — the fallback owner reads files per request, so a composition
+ * whose page never reaches the fallback seat (the static worker preview
+ * ships its own page and carries no dist) boots without one.
+ */
 function resolveDistIndex(): string {
   const require = createRequire(import.meta.url)
   try {
-    return require.resolve('@deepseek-ai/dsh-web-frontend/dist/index.html')
+    return join(dirname(require.resolve('@deepseek-ai/dsh-web-frontend/package.json')), 'dist', 'index.html')
   } catch {
-    /* v8 ignore next 2 -- reachable only on a checkout without a built dist; the test tree builds it */
-    throw new Error('web-app: frontend dist not built; run pnpm run build from the repository root first')
+    /* v8 ignore next 2 -- reachable only when the frontend package is absent from the checkout */
+    throw new Error('web-app: @deepseek-ai/dsh-web-frontend is not resolvable from this composition')
   }
 }
 

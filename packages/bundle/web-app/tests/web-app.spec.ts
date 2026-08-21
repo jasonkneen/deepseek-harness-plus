@@ -286,16 +286,12 @@ describe('web-app runtime glue', () => {
     await ctx.fiber.dispose()
   })
 
-  it('resolves the real built frontend dist through the package exports, failing loud unbuilt', () => {
-    // The production resolver (not the test hook). A built checkout resolves
-    // the frontend package's index.html; a dist-less one (the CI coverage
-    // lane runs before any build) must fail with the build hint, never a
-    // silent fallback.
-    try {
-      expect(originalResolve()).toMatch(/dist[/\\]index\.html$/)
-    } catch (error) {
-      expect((error as Error).message).toContain('frontend dist not built')
-    }
+  it('anchors the dist index on the frontend package manifest without requiring a built dist', () => {
+    // The production resolver (not the test hook): the anchor resolves on any
+    // checkout, built or not — dist existence is the fallback owner's
+    // request-time concern, so a dist-less composition (the static worker
+    // preview ships its own page) still boots.
+    expect(originalResolve()).toMatch(/dist[/\\]index\.html$/)
   })
 
   it.each([
