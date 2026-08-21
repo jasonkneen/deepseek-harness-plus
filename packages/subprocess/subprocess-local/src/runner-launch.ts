@@ -22,12 +22,13 @@ const RUNNER_HANDSHAKE_TIMEOUT_MS = 10_000
 const RUNNER_EVENT_POLL_MS = 100
 const PACKAGED_RUNNER_ARG = '--dsh-internal-subprocess-runner'
 
+/** Non-empty command tuple used to launch the private native runner. */
+export type RunnerInvocation = [string, ...string[]]
+
 /**
  * Resolve the runner entry from the current module's source or built plane.
  * @returns Node executable and runner argv prefix.
  */
-export type RunnerInvocation = [string, ...string[]]
-
 export function spawnRunnerInvocation(): RunnerInvocation {
   if ('pkg' in process) return [process.execPath, PACKAGED_RUNNER_ARG]
   /* v8 ignore start -- source-plane coverage cannot execute the bundled module;

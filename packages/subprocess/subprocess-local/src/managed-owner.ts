@@ -27,7 +27,11 @@ export interface ManagedProcessLaunch {
   owner: BoundProcessOwner
 }
 
-/** Observe runner exit separately from inherited stdio closure. */
+/**
+ * Observe runner exit separately from inherited stdio closure.
+ * @param child - native wrapper process.
+ * @returns promises for wrapper exit/error and full stdio closure.
+ */
 export function observeChildLifecycle(child: ChildProcess): {
   exited: Promise<void>
   closed: Promise<void>
