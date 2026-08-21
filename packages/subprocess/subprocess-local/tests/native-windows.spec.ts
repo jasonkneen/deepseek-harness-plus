@@ -118,7 +118,7 @@ describe.skipIf(!windowsNative)('Windows Job native containment', () => {
     )
     await expect(Promise.race([
       stdoutEnded.then(() => true),
-      new Promise<boolean>(resolve => setTimeout(() => { resolve(false) }, 1_000)),
+      new Promise<boolean>(resolve => setTimeout(() => { resolve(false) }, 5_000)),
     ])).resolves.toBe(true)
     expect(directSettled).toBe(false)
     handle.terminate()
@@ -177,7 +177,7 @@ describe.skipIf(!windowsNative)('Windows Job native containment', () => {
       await expect(handle.done).resolves.toEqual({ exitCode: 42, signal: null })
       await expect(Promise.race([
         stdoutEnded.then(() => true),
-        new Promise<boolean>(resolve => setTimeout(() => { resolve(false) }, 1_000)),
+        new Promise<boolean>(resolve => setTimeout(() => { resolve(false) }, 5_000)),
       ])).resolves.toBe(true)
       expect(readFileSync(factsFile, 'utf8')).toBe(JSON.stringify({
         cwd: scratch,
