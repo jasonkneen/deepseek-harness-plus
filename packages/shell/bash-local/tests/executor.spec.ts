@@ -4,9 +4,11 @@ import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import { LocalBashExecutor } from '@deepseek-ai/dsh-bash-local'
+import SubprocessRuntime from '@deepseek-ai/dsh-subprocess'
 import LocalSubprocessRuntime from '@deepseek-ai/dsh-subprocess-local'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
 import type { ShellProcess } from '@deepseek-ai/dsh-shell'
+import type { SubprocessHandle, SubprocessOutputReader, SubprocessSpawnSpec } from '@deepseek-ai/dsh-subprocess'
 
 const spillDir = mkdtempSync(join(tmpdir(), 'dsh-bash-exec-spec-'))
 
@@ -18,6 +20,43 @@ async function setup(config: ConstructorParameters<typeof LocalBashExecutor>[1] 
   await ctx.plugin(LocalBashExecutor, { graceMs: 200, ...config })
   const bash = ctx.shell as LocalBashExecutor
   return { ctx, bash }
+}
+
+class RejectingSubprocessRuntime extends SubprocessRuntime {
+  private readonly reader: SubprocessOutputReader = {
+    readFrom: () => ({ text: '', lossy: false, nextOffset: 0 }),
+  }
+
+  constructor(ctx: Context, private readonly failure: unknown, private readonly processId = 123) {
+    super(ctx)
+  }
+
+  override async resolveExecutable(command: string): Promise<string> { return command }
+  override spawnTerminal(): Promise<never> { throw new Error('bash spawns pipes, never terminals') }
+  override spawn(_spec: SubprocessSpawnSpec): SubprocessHandle {
+    return {
+      pid: this.processId,
+      stdin: undefined,
+      stdout: undefined,
+      stderr: undefined,
+      collected: { stdout: this.reader, stderr: this.reader },
+      done: Promise.resolve().then(() => { throw this.failure }),
+      terminate: () => {},
+      waitForExit: async () => true,
+    }
+  }
+}
+
+class ObservingBashExecutor extends LocalBashExecutor {
+  spawnFailed: boolean | undefined
+
+  protected override onProcessDone(
+    _proc: ShellProcess,
+    _stderr: string,
+    spawnFailed: boolean,
+  ): void {
+    this.spawnFailed = spawnFailed
+  }
 }
 
 /**
@@ -295,6 +334,39 @@ describe('LocalBashExecutor.start (background process handles)', () => {
     await expect(proc.done).resolves.toBeUndefined()
     expect(proc.status).toBe('killed')
     expect(proc.readOutput().delta).toContain('spawn failed:')
+  })
+
+  it('does not label a post-start provider rejection as a spawn failure', async () => {
+    const ctx = new Context()
+    const failure = Object.assign(new Error('managed owner became unreadable'), {
+      code: 'ENOENT',
+      syscall: 'spawn bash',
+      path: 'bash',
+    })
+    new RejectingSubprocessRuntime(ctx, failure)
+    await ctx.plugin(ObservingBashExecutor)
+    const bash = ctx.shell as ObservingBashExecutor
+    const proc = bash.start(bash.resolve({ command: 'true' }))
+    await proc.done
+    expect(proc.readOutput().delta).toContain('subprocess failed:')
+    expect(proc.readOutput().delta).toBe('')
+    expect(bash.spawnFailed).toBe(false)
+  })
+
+  it.each([
+    ['non-object rejection', undefined, 'subprocess failed:', false],
+    ['non-string syscall', { syscall: 1 }, 'subprocess failed:', false],
+    ['non-spawn syscall', { syscall: 'kill', path: 'bash' }, 'subprocess failed:', false],
+    ['matching syscall without path', { syscall: 'spawn bash' }, 'spawn failed:', true],
+  ])('classifies a pre-start %s from structured evidence', async (_label, failure, note, spawnFailed) => {
+    const ctx = new Context()
+    new RejectingSubprocessRuntime(ctx, failure, -1)
+    await ctx.plugin(ObservingBashExecutor)
+    const bash = ctx.shell as ObservingBashExecutor
+    const proc = bash.start(bash.resolve({ command: 'true' }))
+    await proc.done
+    expect(proc.readOutput().delta).toContain(note)
+    expect(bash.spawnFailed).toBe(spawnFailed)
   })
 })
 

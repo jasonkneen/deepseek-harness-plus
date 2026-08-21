@@ -87,6 +87,7 @@ describe('spawn runner transport', () => {
 
   it('maps every target stdio disposition', () => {
     expect(runnerStdio(spec())).toEqual(['ignore', 'pipe', 'pipe'])
+    expect(runnerStdio(spec(), true)).toEqual(['ignore', 'pipe', 'pipe', 'ipc'])
     expect(runnerStdio(spec({
       stdio: { stdin: { data: 'input' }, stdout: 'inherit', stderr: 'inherit' },
     }))).toEqual(['pipe', 'inherit', 'inherit'])

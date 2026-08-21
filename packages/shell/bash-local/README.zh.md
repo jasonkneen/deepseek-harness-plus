@@ -42,6 +42,6 @@
 - **自身不提供隔离**：此执行器始终以 harness 进程的权限运行命令；需要隔离的部署可以组合 [`dsh-bash-sandbox`](../bash-sandbox/README.zh.md)，每次调用的 allow/deny/ask 策略则属于 `tools/pre-execute`。
 - **没有持久 shell 或 PTY**：每次调用都启动新的非登录 `bash -c`；仅持久化 cwd 与交互式终端会话均继续暂缓，直到真实工作流需要它们。
 - **仅支持 POSIX**：`bash` 二进制已硬编码，因此本执行器不会在 Windows 上组装。
-- **后台 spawn 失败提示只交付一次**：subprocess 服务不会为从未真正运行的进程缓冲任何输出，因此执行器把 `spawn failed: …` 注入恰好一个 `readOutput()` 增量；丢弃了该增量的读取方无法再恢复它。
+- **后台失败提示只交付一次**：`done` 拒绝且没有真实 stderr 时，执行器会把一条诊断注入恰好一个 `readOutput()` 增量。能以 Node-shaped 字段确认 `argv[0]` 未启动的拒绝使用 `spawn failed: …`；无法证明目标未启动的 provider failure 使用 `subprocess failed: …`。
 
 凭据清除启发式规则与 spill 保留的注意事项随 [`dsh-subprocess-local`](../../subprocess/subprocess-local/README.zh.md) 记录；这些机制归它所有。

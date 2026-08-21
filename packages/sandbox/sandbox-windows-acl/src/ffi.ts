@@ -28,7 +28,6 @@ const PPVOID: Ptr = koffi.pointer(PVOID)
 
 /** ACL/token calls composed with the generic Win32 process binding table. */
 export interface Win32Bindings extends Win32ProcessBindings {
-  openProcess(desiredAccess: number, inheritHandle: number, pid: number): NativePtr
   openProcessToken(process: NativePtr, desiredAccess: number, tokenHandle: NativePtr): number
   localAlloc(flags: number, bytes: number): NativePtr
   localFree(memory: NativePtr): NativePtr
@@ -222,7 +221,6 @@ let cached: Win32Bindings | undefined
 function bindings(): Win32Bindings {
   if (cached !== undefined) return cached
   cached = extendWin32ProcessBindings(({ kernel32, advapi32, bind }) => ({
-    openProcess: bind(kernel32, 'OpenProcess', PVOID, ['uint32', 'int', 'uint32']),
     openProcessToken: bind(advapi32, 'OpenProcessToken', 'int', [PVOID, 'uint32', PPVOID]),
     localAlloc: bind(kernel32, 'LocalAlloc', PVOID, ['uint32', 'size_t']),
     localFree: bind(kernel32, 'LocalFree', PVOID, [PVOID]),

@@ -175,6 +175,43 @@ describe('spawn construction (pure, every platform)', () => {
     }
   }
 
+  class RejectingSubprocessRuntime extends SubprocessRuntime {
+    private readonly reader: SubprocessOutputReader = {
+      readFrom: () => ({ text: '', lossy: false, nextOffset: 0 }),
+    }
+
+    constructor(ctx: Context, private readonly failure: unknown) {
+      super(ctx)
+    }
+
+    override async resolveExecutable(command: string): Promise<string> { return command }
+    override spawnTerminal(): Promise<never> { throw new Error('pwsh spawns pipes, never terminals') }
+    override spawn(_spec: SubprocessSpawnSpec): SubprocessHandle {
+      return {
+        pid: 123,
+        stdin: undefined,
+        stdout: undefined,
+        stderr: undefined,
+        collected: { stdout: this.reader, stderr: this.reader },
+        done: Promise.resolve().then(() => { throw this.failure }),
+        terminate: () => {},
+        waitForExit: async () => true,
+      }
+    }
+  }
+
+  class ObservingPwshExecutor extends PwshLocalExecutor {
+    spawnFailed: boolean | undefined
+
+    protected override onProcessDone(
+      _proc: ShellProcess,
+      _stderr: string,
+      spawnFailed: boolean,
+    ): void {
+      this.spawnFailed = spawnFailed
+    }
+  }
+
   it('runs every command as ONE argv element under the UTF-8 encoding preamble', async () => {
     const ctx = new Context()
     const subprocess = new CapturingSubprocessRuntime(ctx)
@@ -186,6 +223,23 @@ describe('spawn construction (pure, every platform)', () => {
     expect(argv[5]).toBe(`${ENCODING_PREAMBLE}Write-Output 你好`)
     expect(ENCODING_PREAMBLE).toContain('[Console]::OutputEncoding')
     expect(ENCODING_PREAMBLE).toContain('$OutputEncoding')
+  })
+
+  it('does not label a post-start provider rejection as a spawn failure', async () => {
+    const ctx = new Context()
+    const failure = Object.assign(new Error('managed owner became unreadable'), {
+      code: 'ENOENT',
+      syscall: 'spawn pwsh',
+      path: 'pwsh',
+    })
+    new RejectingSubprocessRuntime(ctx, failure)
+    await ctx.plugin(ObservingPwshExecutor, { pwshPath: 'pwsh' })
+    const pwsh = ctx.shell as ObservingPwshExecutor
+    const proc = pwsh.start(pwsh.resolve({ command: 'Write-Output ok' }))
+    await proc.done
+    expect(proc.readOutput().delta).toContain('subprocess failed:')
+    expect(proc.readOutput().delta).toBe('')
+    expect(pwsh.spawnFailed).toBe(false)
   })
 })
 

@@ -9,10 +9,12 @@ appendRunnerEvent(eventsPath, { type: 'started', pid: process.pid })
 const configuredExit = Number(request.argv[1])
 // Events carry target results; zero means the runner completed its own work.
 if (Number.isSafeInteger(configuredExit)) {
-  setTimeout(() => {
+  const finish = (): void => {
     appendRunnerEvent(eventsPath, { type: 'exit', exitCode: configuredExit, signal: null })
-    process.exitCode = 0
-  }, 10)
+    process.exit(0)
+  }
+  if (process.connected) process.once('disconnect', finish)
+  else setTimeout(finish, 10)
 } else {
   setInterval(() => {}, 1_000)
 }

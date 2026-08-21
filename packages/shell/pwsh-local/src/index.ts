@@ -94,6 +94,15 @@ function finalOutput(reader: SubprocessOutputReader): CollectedOutput {
   }
 }
 
+/** Whether a rejection carries direct evidence that argv[0] never started. */
+function isSpawnFailure(error: unknown, program: string): boolean {
+  if (typeof error !== 'object' || error === null) return false
+  const { path, syscall } = error as { path?: unknown; syscall?: unknown }
+  if (typeof syscall !== 'string') return false
+  if (syscall !== 'spawn' && syscall !== `spawn ${program}`) return false
+  return path === undefined || path === program
+}
+
 function assertPositiveFinite(name: string, value: number): void {
   if (!Number.isFinite(value) || value <= 0) {
     throw new Error(`pwsh-local: ${name} must be a positive finite number`)
@@ -286,12 +295,12 @@ export class PwshLocalExecutor extends ShellExecutor {
     const running = this.ctx.subprocess.spawn(this.spawnSpec(spec, this.config.maxOutputBytes, spec.signal, argv))
     const collected = PwshLocalExecutor.collected(running)
 
-    // A spawn failure produces no process output, so the subprocess service has nothing
-    // to buffer; the note is delivered exactly once through the read path.
-    let spawnFailureNote: string | undefined
-    const consumeSpawnFailure = (): string => {
-      const note = spawnFailureNote ?? ''
-      spawnFailureNote = undefined
+    // A rejected subprocess result has no settled outcome. Its diagnostic is
+    // delivered exactly once through the read path.
+    let failureNote: string | undefined
+    const consumeFailure = (): string => {
+      const note = failureNote ?? ''
+      failureNote = undefined
       return note
     }
 
@@ -310,10 +319,10 @@ export class PwshLocalExecutor extends ShellExecutor {
         proc.signal = outcome.signal
         this.onProcessDone(proc, collected.stderr.readFrom(0).text, false)
       }, (error: unknown) => {
-        // Background spawn failures settle as killed and surface through the read path.
+        const spawnFailed = running.pid <= 0 && isSpawnFailure(error, argv[0] as string)
         proc.status = 'killed'
-        spawnFailureNote = `spawn failed: ${String(error)}`
-        this.onProcessDone(proc, spawnFailureNote, true, error)
+        failureNote = `${spawnFailed ? 'spawn' : 'subprocess'} failed: ${String(error)}`
+        this.onProcessDone(proc, failureNote, spawnFailed, error)
       }),
       readOutput: (): ShellProcessRead => {
         const out = collected.stdout.readFrom(stdoutOffset)
@@ -321,9 +330,9 @@ export class PwshLocalExecutor extends ShellExecutor {
         stdoutOffset = out.nextOffset
         stderrOffset = err.nextOffset
 
-        // A failed spawn never produced process output, so the note and real
-        // stderr text are mutually exclusive.
-        const errText = err.text.length > 0 ? err.text : consumeSpawnFailure()
+        // A rejected subprocess may have no process output; its synthetic note
+        // is used only when no real stderr is available.
+        const errText = err.text.length > 0 ? err.text : consumeFailure()
         // Single newline between sections: stdout chunks usually end with one
         // already; add it only when missing.
         const separator = out.text.length > 0 && !out.text.endsWith('\n') ? '\n' : ''
@@ -354,7 +363,7 @@ export class PwshLocalExecutor extends ShellExecutor {
    * @param _proc - the settled process handle.
    * @param _stderr - the process's retained stderr tail used by subclasses for settlement classification.
    * @param _spawnFailed - whether the spawn rejected before any process existed.
-   * @param _spawnError - the spawn rejection, when `_spawnFailed`.
+   * @param _spawnError - the original subprocess rejection when settlement failed; it may itself be undefined.
    */
   protected onProcessDone(_proc: ShellProcess, _stderr: string, _spawnFailed: boolean, _spawnError?: unknown): void {}
 }

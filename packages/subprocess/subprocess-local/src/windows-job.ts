@@ -2,18 +2,21 @@
 
 import { spawn, spawnSync } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
+import type { Readable } from 'node:stream'
 import { setTimeout as sleepMs } from 'node:timers/promises'
-import type { SubprocessSpawnSpec } from '@deepseek-ai/dsh-subprocess'
+import type { SubprocessOutcome, SubprocessSpawnSpec } from '@deepseek-ai/dsh-subprocess'
 import {
   closeHandleChecked,
   createKillOnCloseJob,
   isJobEmpty,
   loadWin32ProcessBindings,
+  openProcessForWait,
+  pollProcessExit,
   terminateJob,
 } from '@deepseek-ai/dsh-win32-process'
 import type { NativePtr } from '@deepseek-ai/dsh-win32-process'
 import type { BoundProcessOwner, ManagedProcessLaunch } from './managed-owner.ts'
-import { observeChildClose, waitWithAbort } from './managed-owner.ts'
+import { waitWithAbort } from './managed-owner.ts'
 import { childEnv } from './spawn.ts'
 import {
   cleanupAfterRunner,
@@ -25,23 +28,69 @@ import {
 import { cleanupRunnerFiles } from './runner-protocol.ts'
 
 const JOB_POLL_INTERVAL_MS = 10
+const PROCESS_POLL_INTERVAL_MS = 10
 
-/** Parent-side operations for one Windows Job handle. */
-export interface WindowsJobOperations {
+/** Parent-side operations for one Windows managed launch. */
+export interface WindowsProcessOperations {
   create(name: string): NativePtr
+  openProcess(pid: number): NativePtr
+  pollProcess(process: NativePtr): number | undefined
   empty(job: NativePtr): boolean
   terminate(job: NativePtr): void
-  close(job: NativePtr): void
+  closeJob(job: NativePtr): void
+  closeProcess(process: NativePtr): void
 }
 
-function nativeJobOperations(): WindowsJobOperations {
+function nativeProcessOperations(): WindowsProcessOperations {
   const api = loadWin32ProcessBindings()
   return {
     create: name => createKillOnCloseJob(api, name),
+    openProcess: pid => openProcessForWait(api, pid),
+    pollProcess: process => pollProcessExit(api, process),
     empty: job => isJobEmpty(api, job),
     terminate: (job) => { terminateJob(api, job, 1) },
-    close: (job) => { closeHandleChecked(api, job, 'ordinary process Job') },
+    closeJob: (job) => { closeHandleChecked(api, job, 'ordinary process Job') },
+    closeProcess: (process) => { closeHandleChecked(api, process, 'ordinary direct process') },
   }
+}
+
+function releaseRunner(child: ReturnType<typeof spawn>): Error | undefined {
+  if (!child.connected) return undefined
+  try {
+    child.disconnect()
+    return undefined
+  } catch (error) {
+    try { child.kill() } catch { /* The direct process and Job remain parent-owned. */ }
+    return error instanceof Error ? error : new Error(String(error))
+  }
+}
+
+function observeRunnerExit(child: ReturnType<typeof spawn>): Promise<void> {
+  return new Promise((resolve) => {
+    child.once('error', () => { resolve() })
+    child.once('exit', () => { resolve() })
+  })
+}
+
+function observeCollectedStream(
+  mode: SubprocessSpawnSpec['stdio']['stdout'],
+  stream: Readable | null | undefined,
+): Promise<void> {
+  if (mode === 'pipe' || mode === 'inherit' || stream === null || stream === undefined
+    || stream.readableEnded || stream.destroyed) {
+    return Promise.resolve()
+  }
+  return new Promise((resolve) => {
+    const settle = (): void => {
+      stream.off('end', settle)
+      stream.off('close', settle)
+      stream.off('error', settle)
+      resolve()
+    }
+    stream.once('end', settle)
+    stream.once('close', settle)
+    stream.once('error', settle)
+  })
 }
 
 /** Test seams for the runner process. */
@@ -49,7 +98,37 @@ export interface WindowsJobInternals {
   spawn?: typeof spawn
   spawnSync?: typeof spawnSync
   runnerInvocation?: string[]
-  jobs?: WindowsJobOperations
+  operations?: WindowsProcessOperations
+}
+
+function observeDirectProcess(
+  pid: number,
+  operations: WindowsProcessOperations,
+): Promise<SubprocessOutcome> {
+  const processHandle = operations.openProcess(pid)
+  let closed = false
+  const close = (): void => {
+    if (closed) return
+    operations.closeProcess(processHandle)
+    closed = true
+  }
+  return new Promise((resolve, reject) => {
+    const poll = (): void => {
+      try {
+        const exitCode = operations.pollProcess(processHandle)
+        if (exitCode === undefined) {
+          setTimeout(poll, PROCESS_POLL_INTERVAL_MS)
+          return
+        }
+        close()
+        resolve({ exitCode, signal: null })
+      } catch (error) {
+        try { close() } catch { /* Preserve the observation failure. */ }
+        reject(error instanceof Error ? error : new Error(String(error)))
+      }
+    }
+    poll()
+  })
 }
 
 /**
@@ -78,8 +157,8 @@ class WindowsJobOwner implements BoundProcessOwner {
 
   constructor(
     private readonly job: NativePtr,
-    private readonly operations: WindowsJobOperations,
-    private readonly runnerClosed: Promise<void>,
+    private readonly operations: WindowsProcessOperations,
+    private readonly runnerExited: Promise<void>,
   ) {}
 
   signal(_signal: NodeJS.Signals): void {
@@ -103,7 +182,7 @@ class WindowsJobOwner implements BoundProcessOwner {
         }
         this.stopped = true
         this.close()
-        await this.runnerClosed
+        await this.runnerExited
       } catch (error) {
         this.stopped = true
         try { this.close() } catch { /* Preserve the observation failure. */ }
@@ -115,7 +194,7 @@ class WindowsJobOwner implements BoundProcessOwner {
 
   private close(): void {
     if (this.closed) return
-    this.operations.close(this.job)
+    this.operations.closeJob(this.job)
     this.closed = true
   }
 }
@@ -135,12 +214,12 @@ export function launchWindowsJob(
   const [command, ...prefix] = invocation
   if (command === undefined) throw new Error('subprocess-local: Windows runner invocation is empty')
   /* v8 ignore next -- the native Windows suite exercises the real Job operations. */
-  const jobs = internals.jobs ?? nativeJobOperations()
+  const operations = internals.operations ?? nativeProcessOperations()
   const jobName = `Local\\dsh-subprocess-${randomUUID()}`
   const files = runnerFiles(spec)
   let job: NativePtr
   try {
-    job = jobs.create(jobName)
+    job = operations.create(jobName)
   } catch (error) {
     cleanupRunnerFiles(files)
     throw error
@@ -159,16 +238,41 @@ export function launchWindowsJob(
       files.eventsPath,
     ], {
       env: childEnv(),
-      stdio: runnerStdio(spec),
+      stdio: runnerStdio(spec, true),
     })
   } catch (error) {
-    try { jobs.close(job) } catch { /* Preserve the launch failure. */ }
+    try { operations.closeJob(job) } catch { /* Preserve the launch failure. */ }
     cleanupRunnerFiles(files)
     throw error
   }
-  const closed = observeChildClose(child)
-  const owner = new WindowsJobOwner(job, jobs, closed)
-  const result = runnerDirectResult(child, files, closed)
-  cleanupAfterRunner(files, result.direct, closed)
-  return { child, pid: result.pid, direct: result.direct, closed, owner }
+  const runnerExited = observeRunnerExit(child)
+  const closed = Promise.all([
+    runnerExited,
+    observeCollectedStream(spec.stdio.stdout, child.stdout),
+    observeCollectedStream(spec.stdio.stderr, child.stderr),
+  ]).then(() => undefined)
+  const owner = new WindowsJobOwner(job, operations, runnerExited)
+  const transport = runnerDirectResult(child, files, runnerExited)
+  if (transport.pid <= 0) {
+    cleanupAfterRunner(files, transport.direct, runnerExited)
+    return { child, pid: transport.pid, direct: transport.direct, closed, owner }
+  }
+  // The launcher retains its original process handle until this process opens
+  // an independent one, preventing PID reuse during the ownership handoff.
+  // Its event reader then becomes intentionally irrelevant: Windows direct
+  // settlement is owned by the handle below, not by the released runner.
+  void transport.direct.catch(() => {})
+  let direct: Promise<SubprocessOutcome>
+  try {
+    direct = observeDirectProcess(transport.pid, operations)
+  } catch (error) {
+    direct = Promise.resolve().then(() => { throw error })
+  }
+  const releaseFailure = releaseRunner(child)
+  if (releaseFailure !== undefined) {
+    void direct.catch(() => {})
+    direct = Promise.resolve().then(() => { throw releaseFailure })
+  }
+  cleanupAfterRunner(files, direct, runnerExited)
+  return { child, pid: transport.pid, direct, closed, owner }
 }

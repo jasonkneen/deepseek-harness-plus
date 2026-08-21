@@ -41,14 +41,17 @@ export function spawnRunnerInvocation(): string[] {
 /**
  * Build wrapper stdio corresponding to the public target dispositions.
  * @param spec - target stdio request.
+ * @param ipc - append a private control channel for the Windows launcher.
  * @returns child-process stdio configuration.
  */
-export function runnerStdio(spec: SubprocessSpawnSpec): StdioOptions {
-  return [
+export function runnerStdio(spec: SubprocessSpawnSpec, ipc = false): StdioOptions {
+  const stdio: StdioOptions = [
     spec.stdio.stdin === 'ignore' ? 'ignore' : 'pipe',
     spec.stdio.stdout === 'inherit' ? 'inherit' : 'pipe',
     spec.stdio.stderr === 'inherit' ? 'inherit' : 'pipe',
   ]
+  if (ipc) stdio.push('ipc')
+  return stdio
 }
 
 /**

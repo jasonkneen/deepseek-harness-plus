@@ -14,13 +14,13 @@ Windows ACL sandbox 拥有 restricted token、SID、DACL、grant 与 workspace p
 
 Windows ACL sandbox 继续唯一拥有 restricted-token 创建、SID 与 DACL policy、grants、可写路径裁定、临时目录 policy 和公共 sandbox child result。它通过共享 binding context 扩展 policy-specific API，提供 primary token，组合 pipe drain 与 wait，并在自己的生命周期边界关闭调用方拥有的 Job。
 
-每项 native allocation 与 HANDLE 在各个 shared operation 内只有一个 owner。process operation 会释放 Koffi out-parameter，并在受控失败前关闭它已经取得的每个 pipe、thread、process 或 Job handle。pipe 创建成功时，把 process 与 stdout/stderr read handles 返回给 sandbox。restricted 与 ordinary inherited-stdio 创建都会以 suspended 状态启动目标，把它分配给 kill-on-close Job，并只在分配后恢复，因此目标代码不会在 Job 外运行。sandbox 保留既有 pipe-drain 与 direct-wait 生命周期；ordinary runner 单独等待 direct process，而 subprocess parent 拥有 Job accounting、termination 与 closure。
+每项 native allocation 与 HANDLE 在各个 shared operation 内只有一个 owner。process operation 会释放 Koffi out-parameter，并在受控失败前关闭它已经取得的每个 pipe、thread、process 或 Job handle。pipe 创建成功时，把 process 与 stdout/stderr read handles 返回给 sandbox。restricted 与 ordinary inherited-stdio 创建都会以 suspended 状态启动目标，把它分配给 kill-on-close Job，并只在分配后恢复，因此目标代码不会在 Job 外运行。sandbox 保留既有 pipe-drain 与 direct-wait 生命周期；ordinary runner 只把自己的 process handle 保留到 parent 打开独立 wait handle，而 subprocess parent 拥有 direct-result polling 以及 Job accounting、termination 与 closure。
 
 该包只导出两个生产 consumer 已使用的操作。精确 `applicationName`、parent-stdio release、公共 process handle 与 backend selection 仍留在外部。该包是 library，不是 Cordis service 或公共 Windows SDK。
 
 ## Verification
 
-shared suite 覆盖 x64 ABI 值、命令行引用、binding extension、pipe EOF 与 drain allocation 复用、restricted 与 ordinary process 创建、suspended 创建后的 Job 分配与恢复、blocking direct-exit 读取、Job-empty probe 与 termination、native allocation 释放，以及已取得资源的失败路径。sandbox 测试保留 restricted-token、fail-closed、pipe/inherit、result 与 disposal 组合行为，不重复低层矩阵。已提交的 header probe 与 Windows package 测试覆盖 native 路径；Wine 提供模拟 Windows package 与组合信号。
+shared suite 覆盖 x64 ABI 值、命令行引用、binding extension、pipe EOF 与 drain allocation 复用、restricted 与 ordinary process 创建、suspended 创建后的 Job 分配与恢复、blocking 与 zero-time direct-exit 读取、parent-side process opening、Job-empty probe 与 termination、native allocation 释放，以及已取得资源的失败路径。sandbox 测试保留 restricted-token、fail-closed、pipe/inherit、result 与 disposal 组合行为，不重复低层矩阵。已提交的 header probe 与 Windows package 测试覆盖 native 路径；Wine 提供模拟 Windows package 与组合信号。
 
 ## Alternatives considered
 
@@ -28,7 +28,7 @@ shared suite 覆盖 x64 ABI 值、命令行引用、binding extension、pipe EOF
 
 **为每个 consumer 复制 Koffi 实现。** 拒绝，因为 struct layout、错误捕获与局部失败清理会出现多个 owner。
 
-**在当前 consumer 出现前发布 ordinary-runner operations。** 拒绝，因为未使用的操作会冻结推测性义务。ordinary CreateProcess、direct wait 与 Job control 只随实际 runner consumer 一起加入。
+**在当前 consumer 出现前发布 ordinary-runner operations。** 拒绝，因为未使用的操作会冻结推测性义务。ordinary CreateProcess、direct wait/poll 与 Job control 只随实际 runner 和 parent consumer 一起加入。
 
 ## Consequences
 

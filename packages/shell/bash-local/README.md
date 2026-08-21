@@ -42,6 +42,6 @@ No direct invalidation; the named consumer owns any request-prefix changes.
 - **Unconfined by itself** — this executor always runs commands with the harness process's authority; deployments needing confinement compose [`dsh-bash-sandbox`](../bash-sandbox/README.md), while per-call allow/deny/ask policy belongs on `tools/pre-execute`.
 - **No persistent shell or PTY** — every call starts a fresh non-login `bash -c`; cwd-only persistence and interactive terminal sessions remain deferred until a real workflow requires them.
 - **POSIX-only** — the `bash` binary is hardcoded, so this executor is not composed on Windows.
-- **A background spawn-failure note is single-delivery** — the subprocess service buffers no output for a process that never ran, so the executor injects `spawn failed: …` into exactly one `readOutput()` delta; a reader that discards that delta cannot recover it.
+- **A background failure note is single-delivery** — when `done` rejects and no real stderr is available, the executor injects one diagnostic into exactly one `readOutput()` delta. A Node-shaped rejection that identifies `argv[0]` uses `spawn failed: …`; a provider failure without proof that the target never started uses `subprocess failed: …`.
 
 Scrub-heuristic and spill-retention caveats live with [`dsh-subprocess-local`](../../subprocess/subprocess-local/README.md), which owns those mechanics.

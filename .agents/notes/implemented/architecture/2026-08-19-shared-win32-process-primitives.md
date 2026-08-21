@@ -14,13 +14,13 @@ The Windows ACL sandbox owns restricted-token, SID, DACL, grant, and workspace p
 
 The Windows ACL sandbox remains the only owner of restricted-token creation, SID and DACL policy, grants, writable-path decisions, temporary-directory policy, and the public sandbox child result. It extends the shared binding context with policy-specific APIs, supplies the primary token, combines pipe drains and waits, and closes the caller-owned Job at its lifecycle boundary.
 
-Every native allocation and HANDLE has one owner within each shared operation. A process operation frees its Koffi out-parameters and closes every pipe, thread, process, or Job handle it acquired before a controlled failure. Successful pipe creation returns the process plus stdout/stderr read handles to the sandbox. Restricted and ordinary inherited-stdio creation both start the target suspended, assign it to the kill-on-close Job, and resume it only after assignment, so target code cannot run outside the Job. The sandbox retains its existing pipe-drain and direct-wait lifecycle; the ordinary runner waits for the direct process separately, while the subprocess parent owns Job accounting, termination, and closure.
+Every native allocation and HANDLE has one owner within each shared operation. A process operation frees its Koffi out-parameters and closes every pipe, thread, process, or Job handle it acquired before a controlled failure. Successful pipe creation returns the process plus stdout/stderr read handles to the sandbox. Restricted and ordinary inherited-stdio creation both start the target suspended, assign it to the kill-on-close Job, and resume it only after assignment, so target code cannot run outside the Job. The sandbox retains its existing pipe-drain and direct-wait lifecycle; the ordinary runner retains its process handle only until the parent opens a separate wait handle, while the subprocess parent owns direct-result polling and Job accounting, termination, and closure.
 
 The package exports only operations used by the two production consumers. Exact `applicationName`, parent-stdio release, public process handles, and backend selection remain outside. The package is a library, not a Cordis service or a public Windows SDK.
 
 ## Verification
 
-The shared suite covers x64 ABI values, command-line quoting, binding extension, pipe EOF and drain allocation reuse, restricted and ordinary process creation, suspended creation followed by Job assignment and resume, blocking direct-exit reads, Job-empty probes and termination, native allocation release, and the acquired-resource failure paths. Sandbox tests retain restricted-token, fail-closed, pipe/inherit, result, and disposal composition without duplicating the low-level matrix. The committed header probes and Windows package tests cover the native paths; Wine supplies the emulated Windows package and composition signal.
+The shared suite covers x64 ABI values, command-line quoting, binding extension, pipe EOF and drain allocation reuse, restricted and ordinary process creation, suspended creation followed by Job assignment and resume, blocking and zero-time direct-exit reads, parent-side process opening, Job-empty probes and termination, native allocation release, and the acquired-resource failure paths. Sandbox tests retain restricted-token, fail-closed, pipe/inherit, result, and disposal composition without duplicating the low-level matrix. The committed header probes and Windows package tests cover the native paths; Wine supplies the emulated Windows package and composition signal.
 
 ## Alternatives considered
 
@@ -28,7 +28,7 @@ The shared suite covers x64 ABI values, command-line quoting, binding extension,
 
 **Copy the Koffi implementation into each consumer.** Rejected because struct layouts, error capture, and partial-failure cleanup would have multiple owners.
 
-**Publish ordinary-runner operations before a current consumer exists.** Rejected because unused operations would freeze speculative obligations. The ordinary CreateProcess, direct wait, and Job controls were added only with their runner consumer.
+**Publish ordinary-runner operations before a current consumer exists.** Rejected because unused operations would freeze speculative obligations. The ordinary CreateProcess, direct wait/poll, and Job controls were added only with their runner and parent consumers.
 
 ## Consequences
 

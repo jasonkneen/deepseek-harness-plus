@@ -346,6 +346,18 @@ export function openJobForAssignment(api: Win32ProcessBindings, name: string): N
   return job
 }
 
+/**
+ * Open a process for non-blocking exit observation.
+ * @param api - active binding table.
+ * @param pid - direct process id published by the launcher.
+ * @returns caller-owned process handle with query and synchronize access.
+ */
+export function openProcessForWait(api: Win32ProcessBindings, pid: number): NativePtr {
+  const process = api.openProcess(abi.PROCESS_QUERY_LIMITED_INFORMATION | abi.SYNCHRONIZE, 0, pid)
+  if (isNullPtr(process)) throwLastError(api, 'OpenProcess', `pid ${String(pid)}`)
+  return process
+}
+
 /** Shared suspended-create, Job-assignment, and resume lifecycle. */
 function spawnJobProcess(
   api: Win32ProcessBindings,
@@ -500,6 +512,25 @@ export function spawnOrdinaryProcessInJob(
       startupInfo,
       processInfo,
     ))
+}
+
+/**
+ * Poll one process handle without blocking the caller event loop.
+ * @param api - active binding table.
+ * @param process - caller-owned process handle.
+ * @returns the direct exit code when signalled, or undefined while running.
+ */
+export function pollProcessExit(api: Win32ProcessBindings, process: NativePtr): number | undefined {
+  const waitResult = api.waitForSingleObject(process, 0)
+  if (waitResult === abi.WAIT_TIMEOUT) return undefined
+  if (waitResult === 0xFFFFFFFF) throwLastError(api, 'WaitForSingleObject')
+  const exitCodeSlot = allocUint32()
+  try {
+    if (api.getExitCodeProcess(process, exitCodeSlot) === 0) throwLastError(api, 'GetExitCodeProcess')
+    return decodeUint32(exitCodeSlot)
+  } finally {
+    koffi.free(exitCodeSlot)
+  }
 }
 
 /**

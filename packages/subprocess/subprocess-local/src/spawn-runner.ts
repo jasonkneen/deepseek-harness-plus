@@ -6,7 +6,6 @@ import {
   loadWin32ProcessBindings,
   openJobForAssignment,
   spawnOrdinaryProcessInJob,
-  waitForProcessExit,
   Win32Error,
 } from '@deepseek-ai/dsh-win32-process'
 import type { NativePtr } from '@deepseek-ai/dsh-win32-process'
@@ -102,13 +101,15 @@ function replaceEnvironment(env: Record<string, string>): void {
   Object.assign(process.env, env)
 }
 
-function runWin32(request: RunnerRequest, eventsPath: string, jobName: string): void {
+async function runWin32(request: RunnerRequest, eventsPath: string, jobName: string): Promise<void> {
   replaceEnvironment(request.env)
   const api = loadWin32ProcessBindings()
   let processHandle: NativePtr | undefined
   let jobHandle: NativePtr | undefined
   let targetStarted = false
   try {
+    if (!process.connected) throw new Error('Windows subprocess runner requires a parent IPC channel')
+    const released = new Promise<void>((resolve) => { process.once('disconnect', resolve) })
     process.chdir(request.cwd)
     jobHandle = openJobForAssignment(api, jobName)
     const [command, ...args] = request.argv
@@ -118,10 +119,10 @@ function runWin32(request: RunnerRequest, eventsPath: string, jobName: string): 
     closeHandleChecked(api, jobHandle, 'ordinary process Job assignment')
     jobHandle = undefined
     appendRunnerEvent(eventsPath, { type: 'started', pid: spawned.pid })
+    await released
     const directProcess = processHandle
     processHandle = undefined
-    const exitCode = waitForProcessExit(api, directProcess)
-    appendRunnerEvent(eventsPath, { type: 'exit', exitCode, signal: null })
+    closeHandleChecked(api, directProcess, 'ordinary direct process handoff')
   } catch (error) {
     appendRunnerEvent(eventsPath, {
       type: targetStarted ? 'runner-error' : 'spawn-error',
@@ -138,7 +139,7 @@ function runWin32(request: RunnerRequest, eventsPath: string, jobName: string): 
   }
 }
 
-function main(): void {
+async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2))
   if (args.mode === 'probe-node') return
   if (args.mode === 'probe-win32') {
@@ -147,12 +148,16 @@ function main(): void {
   }
   const request = consumeRunnerRequest(args.requestPath)
   if (args.mode === 'node') runNode(request, args.eventsPath)
-  else runWin32(request, args.eventsPath, args.jobName)
+  else {
+    try {
+      await runWin32(request, args.eventsPath, args.jobName)
+    } finally {
+      if (process.connected) process.disconnect()
+    }
+  }
 }
 
-try {
-  main()
-} catch (error: unknown) {
+main().catch((error: unknown) => {
   try {
     const args = parseArgs(process.argv.slice(2))
     if (args.mode !== 'probe-node' && args.mode !== 'probe-win32') {
@@ -162,4 +167,4 @@ try {
     // No trustworthy transport remains; the parent reports the missing result.
   }
   process.exitCode = 127
-}
+})

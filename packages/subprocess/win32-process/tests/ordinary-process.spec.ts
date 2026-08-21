@@ -5,6 +5,8 @@ import {
   createKillOnCloseJob,
   isJobEmpty,
   openJobForAssignment,
+  openProcessForWait,
+  pollProcessExit,
   spawnOrdinaryProcessInJob,
   terminateJob,
   Win32Error,
@@ -15,6 +17,9 @@ import {
   JOBOBJECT_BASIC_ACCOUNTING_ACTIVE_PROCESSES_OFFSET,
   JOBOBJECT_BASIC_ACCOUNTING_SIZE,
   JobObjectBasicAccountingInformation,
+  PROCESS_QUERY_LIMITED_INFORMATION,
+  SYNCHRONIZE,
+  WAIT_TIMEOUT,
 } from '../src/abi.ts'
 import { PROCESS_INFORMATION } from '../src/ffi.ts'
 import type { NativePtr, Win32ProcessBindings } from '../src/index.ts'
@@ -23,6 +28,7 @@ function api(overrides: Partial<Win32ProcessBindings> = {}): Win32ProcessBinding
   return {
     createJobObjectW: vi.fn(() => 50n),
     openJobObjectW: vi.fn(() => 55n),
+    openProcess: vi.fn(() => 60n),
     setInformationJobObject: vi.fn(() => 1),
     queryInformationJobObject: vi.fn((_job: NativePtr, _cls: number, information: Buffer) => {
       information.writeUInt32LE(0, JOBOBJECT_BASIC_ACCOUNTING_ACTIVE_PROCESSES_OFFSET)
@@ -136,12 +142,16 @@ describe('ordinary Job process operations', () => {
     expect(closeHandle).not.toHaveBeenCalledWith(50n)
   })
 
-  it('reads Job emptiness without blocking', () => {
+  it('polls a parent-owned process handle and reads Job emptiness without blocking', () => {
     const queryInformationJobObject = vi.fn((_job: NativePtr, _cls: number, information: Buffer) => {
       information.writeUInt32LE(1, JOBOBJECT_BASIC_ACCOUNTING_ACTIVE_PROCESSES_OFFSET)
       return 1
     })
-    const running = api({ queryInformationJobObject })
+    const running = api({
+      waitForSingleObject: vi.fn(() => WAIT_TIMEOUT),
+      queryInformationJobObject,
+    })
+    expect(pollProcessExit(running, 60n as NativePtr)).toBeUndefined()
     expect(isJobEmpty(running, 50n as NativePtr)).toBe(false)
     expect(queryInformationJobObject).toHaveBeenCalledWith(
       50n,
@@ -150,10 +160,18 @@ describe('ordinary Job process operations', () => {
       JOBOBJECT_BASIC_ACCOUNTING_SIZE,
       null,
     )
-    expect(isJobEmpty(api(), 50n as NativePtr)).toBe(true)
+    const exited = api()
+    expect(pollProcessExit(exited, 60n as NativePtr)).toBe(42)
+    expect(isJobEmpty(exited, 50n as NativePtr)).toBe(true)
   })
 
-  it('reports a Job accounting query failure', () => {
+  it('reports process wait, exit-code query, and Job accounting failures', () => {
+    const processWait = api({ waitForSingleObject: vi.fn(() => 0xFFFFFFFF) })
+    expect(() => pollProcessExit(processWait, 60n as NativePtr)).toThrow(Win32Error)
+
+    const exitCode = api({ getExitCodeProcess: vi.fn(() => 0) })
+    expect(() => pollProcessExit(exitCode, 60n as NativePtr)).toThrow(Win32Error)
+
     const jobQuery = api({ queryInformationJobObject: vi.fn(() => 0) })
     expect(() => isJobEmpty(jobQuery, 50n as NativePtr)).toThrow(Win32Error)
   })
@@ -180,5 +198,15 @@ describe('ordinary Job process operations', () => {
 
     const missing = api({ openJobObjectW: vi.fn(() => 0n as NativePtr) })
     expect(() => openJobForAssignment(missing, 'Local\\missing-job')).toThrow(Win32Error)
+  })
+
+  it('opens a direct process for parent-side exit observation', () => {
+    const openProcess = vi.fn(() => 60n as NativePtr)
+    const bindings = api({ openProcess })
+    expect(openProcessForWait(bindings, 1234)).toBe(60n)
+    expect(openProcess).toHaveBeenCalledWith(PROCESS_QUERY_LIMITED_INFORMATION | SYNCHRONIZE, 0, 1234)
+
+    const missing = api({ openProcess: vi.fn(() => 0n as NativePtr) })
+    expect(() => openProcessForWait(missing, 1234)).toThrow(Win32Error)
   })
 })

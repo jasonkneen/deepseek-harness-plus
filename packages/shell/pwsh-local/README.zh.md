@@ -49,7 +49,7 @@
 - **自身不设沙箱**——本执行器始终以 harness 进程的权限运行命令；需要隔离的部署应组合启用沙箱的 bash 执行器或策略。
 - **无持久 shell 或 PTY**——每次调用都是全新的 `pwsh -Command`。
 - **命令字符串是 PowerShell 文本**——`-Command` 域没有 shell 引号层，但面向模型的命令由 PowerShell 自己解析，因此 PowerShell 语法错误是命令失败，而非启动失败。
-- **后台 spawn 失败提示只投递一次**——subprocess 服务不会为从未运行的进程缓冲输出，因此执行器只把 `spawn failed: …` 注入一次 `readOutput()` 增量；丢弃该增量的读取方无法恢复它。
+- **后台失败提示只投递一次**——`done` 拒绝且没有真实 stderr 时，执行器只把一条诊断注入一次 `readOutput()` 增量。能以 Node-shaped 字段确认 `argv[0]` 未启动的拒绝使用 `spawn failed: …`；无法证明目标未启动的 provider failure 使用 `subprocess failed: …`。
 - **Windows 终止不报告信号**——被强制终止的进程以退出码 1、`signal: null` 结束，因此基于信号的状态分类（POSIX `killed`）在 Windows 上不适用；`kill()` 发起的停止仍会直接标记为 `killed`。
 - **编码 preamble 位于命令之前**——PowerShell 要求 `param(...)`、`#requires` 与 `using namespace`/`using assembly` 语句位于脚本最顶部，因此以其中一种开头的命令无法在 UTF-8 输出 preamble 下运行。`param(...)` 脚本可包进 `& { … }`（param 块可以合法地位于脚本块开头）；`using` 语句与 `#requires` 在命令内没有变通办法（`#requires` 在 `-Command` 中无论位置如何都不生效）——此类脚本请改从文件运行。
 - **Windows PowerShell 5.1 下的非 ASCII stdin 可能被错误解码**——preamble 只固定输出编码；`[Console]::InputEncoding` 保持主机默认，因为在重定向 stdin 下设置它会抛出异常。pwsh 7 默认 UTF-8，不受影响。

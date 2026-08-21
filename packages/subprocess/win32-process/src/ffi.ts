@@ -57,6 +57,7 @@ export interface ProcessInfoOutput {
 export interface Win32ProcessBindings {
   closeHandle(handle: NativePtr): number
   getLastError(): number
+  openProcess(desiredAccess: number, inheritHandle: number, processId: number): NativePtr
   formatMessageW(
     flags: number,
     source: null,
@@ -253,6 +254,7 @@ function bindings(): Win32ProcessBindings {
   cached = {
     closeHandle: bind(kernel32, 'CloseHandle', 'int', [PVOID]),
     getLastError: bind(kernel32, 'GetLastError', 'uint32', []),
+    openProcess: bind(kernel32, 'OpenProcess', PVOID, ['uint32', 'int', 'uint32']),
     formatMessageW: bind(kernel32, 'FormatMessageW', 'uint32', [
       'uint32', PVOID, 'uint32', 'uint32', PVOID, 'uint32', PVOID,
     ]),

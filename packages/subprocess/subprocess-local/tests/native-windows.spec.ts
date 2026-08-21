@@ -70,6 +70,33 @@ function directSpawnFailure(argv: string[]): Promise<NodeJS.ErrnoException> {
 const windowsNative = process.platform === 'win32' && probeWindowsJob()
 
 describe.skipIf(!windowsNative)('Windows Job native containment', () => {
+  it('releases raw stdout when the target closes it before exiting', async () => {
+    const request = {
+      ...spec([process.execPath, '-e', 'process.stdout.end(); setInterval(() => {}, 1000)']),
+      stdio: { stdin: 'ignore', stdout: 'pipe', stderr: 'inherit' } as const,
+    }
+    const handle = bindManagedProcess(request, launchWindowsJob(request))
+    if (handle.stdout === undefined) throw new Error('expected piped stdout')
+    const stdoutEnded = new Promise<void>((resolve, reject) => {
+      handle.stdout?.once('end', resolve)
+      handle.stdout?.once('error', reject)
+    })
+    handle.stdout.resume()
+    let directSettled = false
+    void handle.done.then(
+      () => { directSettled = true },
+      () => { directSettled = true },
+    )
+    await expect(Promise.race([
+      stdoutEnded.then(() => true),
+      new Promise<boolean>(resolve => setTimeout(() => { resolve(false) }, 1_000)),
+    ])).resolves.toBe(true)
+    expect(directSettled).toBe(false)
+    handle.terminate()
+    await handle.done
+    await expect(handle.waitForExit()).resolves.toBe(true)
+  })
+
   it('terminates the direct target and its default-inheritance descendant', async () => {
     const pidFile = join(scratch, `job-child-${Date.now()}.pid`)
     const script = `
