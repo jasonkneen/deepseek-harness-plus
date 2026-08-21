@@ -166,7 +166,7 @@ describe('spawnSubprocess', () => {
   it.each([0, -1, Number.NaN, Number.POSITIVE_INFINITY, MAX_TIMER_DELAY_MS + 1])(
     'rejects an invalid grace before spawning: %s',
     (graceMs) => {
-      expect(() => validateSubprocessSpec(spec('true', { graceMs })))
+      expect(() => { validateSubprocessSpec(spec('true', { graceMs })) })
         .toThrow(`subprocess graceMs must be a positive finite number no greater than ${MAX_TIMER_DELAY_MS}`)
     },
   )
@@ -311,7 +311,7 @@ describe('spawnSubprocess', () => {
   it('throws when the signal is already aborted before spawn', () => {
     const controller = new AbortController()
     controller.abort('too late')
-    expect(() => validateSubprocessSpec(spec('echo hi', { signal: controller.signal })))
+    expect(() => { validateSubprocessSpec(spec('echo hi', { signal: controller.signal })) })
       .toThrow(/aborted before spawn: too late/)
   })
 
@@ -1030,11 +1030,11 @@ describe('coverage seams 2', () => {
 
 describe('argv validation', () => {
   it('rejects an empty argv before spawning', () => {
-    expect(() => validateSubprocessSpec({ ...spec('true'), argv: [] })).toThrow(/non-empty program name/)
+    expect(() => { validateSubprocessSpec({ ...spec('true'), argv: [] }) }).toThrow(/non-empty program name/)
   })
 
   it('rejects an empty program name before spawning', () => {
-    expect(() => validateSubprocessSpec({ ...spec('true'), argv: [''] })).toThrow(/non-empty program name/)
+    expect(() => { validateSubprocessSpec({ ...spec('true'), argv: [''] }) }).toThrow(/non-empty program name/)
   })
 
   it.skipIf(process.platform === 'win32')('spawns argv verbatim without shell interpretation', async () => {
@@ -1053,7 +1053,7 @@ describe('abort edge cases', () => {
       addEventListener() {},
       removeEventListener() {},
     } as unknown as AbortSignal
-    expect(() => validateSubprocessSpec(spec('echo hi', { signal: bare })))
+    expect(() => { validateSubprocessSpec(spec('echo hi', { signal: bare })) })
       .toThrow(/aborted before spawn: aborted/)
   })
 
