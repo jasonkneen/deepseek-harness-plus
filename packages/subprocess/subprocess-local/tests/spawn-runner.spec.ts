@@ -1,6 +1,6 @@
 import { spawn, spawnSync } from 'node:child_process'
 import type { ChildProcess } from 'node:child_process'
-import { existsSync, mkdtempSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -124,6 +124,18 @@ describe('spawn runner transport', () => {
     } finally {
       rmSync(files.directory, { recursive: true, force: true })
       rmSync(outside, { recursive: true, force: true })
+    }
+  })
+
+  it('contains an unexpected owned-path cleanup failure', () => {
+    const files = createRunnerFiles({ argv: ['node'], cwd: '.', env: {} })
+    rmSync(files.requestPath, { force: true })
+    mkdirSync(files.requestPath)
+    try {
+      expect(() => { cleanupRunnerFiles(files) }).not.toThrow()
+      expect(existsSync(files.directory)).toBe(true)
+    } finally {
+      rmSync(files.directory, { recursive: true, force: true })
     }
   })
 

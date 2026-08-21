@@ -101,15 +101,13 @@ interface MaterializedStdioStream {
   readonly _handle?: { close(): void } | null
 }
 
-function closeMaterializedStdio(stream: NodeJS.WriteStream): void {
-  (stream as unknown as MaterializedStdioStream)._handle?.close()
-}
-
 /** Release the runner's copies after the Windows target inherits its standard handles. */
 function releaseRunnerStdio(): void {
   const stdin = process.stdin
   const stdout = process.stdout
   const stderr = process.stderr
+  const stdoutHandle = (stdout as unknown as MaterializedStdioStream)._handle
+  const stderrHandle = (stderr as unknown as MaterializedStdioStream)._handle
   stdin.destroy()
   for (const fd of [0, 1, 2]) {
     try {
@@ -121,8 +119,8 @@ function releaseRunnerStdio(): void {
   // Node deliberately keeps stdout/stderr alive when destroy() is called. A
   // loader may already have materialized their libuv handles, so close those
   // runner-owned references explicitly; the target keeps its inherited copies.
-  closeMaterializedStdio(stdout)
-  closeMaterializedStdio(stderr)
+  stdoutHandle?.close()
+  stderrHandle?.close()
 }
 
 async function runWin32(request: RunnerRequest, eventsPath: string): Promise<void> {
