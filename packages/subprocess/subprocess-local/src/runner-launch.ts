@@ -67,6 +67,7 @@ export function runnerFiles(spec: SubprocessSpawnSpec): RunnerFiles {
 interface RunnerHandshake {
   pid: number
   events: RunnerEvent[]
+  failureReported: boolean
 }
 
 /** Observe wrapper death without waiting for Node's blocked event loop to emit close. */
@@ -98,8 +99,10 @@ function waitForRunnerHandshake(child: ChildProcess, files: RunnerFiles): Runner
   while (Date.now() < deadline) {
     const events = readRunnerEvents(files.eventsPath)
     const terminal = events.find(event => event.type === 'started' || event.type === 'spawn-error' || event.type === 'runner-error')
-    if (terminal?.type === 'started') return { pid: terminal.pid, events }
-    if (terminal?.type === 'spawn-error' || terminal?.type === 'runner-error') return { pid: -1, events }
+    if (terminal?.type === 'started') return { pid: terminal.pid, events, failureReported: false }
+    if (terminal?.type === 'spawn-error' || terminal?.type === 'runner-error') {
+      return { pid: -1, events, failureReported: true }
+    }
     if (child.pid === undefined) throw new Error('native subprocess runner failed to start')
     if (runnerExited(child, child.pid)) throw new Error('native subprocess runner exited before reporting target start')
     handshakeWait ??= new Int32Array(new SharedArrayBuffer(4))
@@ -139,7 +142,7 @@ async function waitForDirectResult(
  * @param child - native wrapper process.
  * @param files - private request and result paths.
  * @param closed - wrapper close observation attached before the start handshake.
- * @returns target pid and direct result promise.
+ * @returns target pid, direct result, and whether the runner already reported a pre-start terminal failure.
  */
 export function runnerDirectResult(
   child: ChildProcess,
@@ -148,17 +151,19 @@ export function runnerDirectResult(
 ): {
   pid: number
   direct: Promise<SubprocessOutcome>
+  failureReported: boolean
 } {
   let handshake: RunnerHandshake
   try {
     handshake = waitForRunnerHandshake(child, files)
   } catch (error) {
     cleanupRunnerFiles(files)
-    return { pid: -1, direct: Promise.resolve().then(() => { throw error }) }
+    return { pid: -1, direct: Promise.resolve().then(() => { throw error }), failureReported: false }
   }
   return {
     pid: handshake.pid,
     direct: waitForDirectResult(files, handshake.events, closed),
+    failureReported: handshake.failureReported,
   }
 }
 

@@ -87,6 +87,29 @@ describe('Windows Job runner adapter', () => {
     expect(kill).not.toHaveBeenCalled()
   })
 
+  it('lets a runner-reported startup failure close without a termination race', async () => {
+    const child = new EventEmitter() as ChildProcess
+    const kill = vi.fn(() => true)
+    const send = vi.fn()
+    Object.assign(child, { pid: 432, connected: true, kill, send })
+    const run = vi.fn((_command: string, args: readonly string[]) => {
+      const eventsPath = args[args.indexOf('--events') + 1] as string
+      appendRunnerEvent(eventsPath, {
+        type: 'spawn-error',
+        error: { name: 'Error', message: 'spawn missing ENOENT', code: 'ENOENT' },
+      })
+      return child
+    }) as unknown as typeof spawn
+    const launch = launchWindowsJob(spec(['missing-target']), { spawn: run, runnerInvocation: ['fake-runner'] })
+
+    launch.owner.signal('SIGTERM')
+    await expect(launch.direct).rejects.toMatchObject({ code: 'ENOENT' })
+    expect(send).not.toHaveBeenCalled()
+    expect(kill).not.toHaveBeenCalled()
+    child.emit('close', 0, null)
+    await expect(launch.owner.waitForExit()).resolves.toBe(true)
+  })
+
   it('falls back to killing the runner when IPC delivery is unavailable or fails', async () => {
     for (const mode of ['callback-error', 'disconnected', 'throw'] as const) {
       const child = new EventEmitter() as ChildProcess

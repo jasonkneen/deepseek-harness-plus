@@ -299,6 +299,7 @@ describe('spawn runner transport', () => {
       })
       const result = runnerDirectResult(fakeChild(123), runnerFailure, new Promise<void>(() => {}))
       expect(result.pid).toBe(-1)
+      expect(result.failureReported).toBe(true)
       await expect(result.direct).rejects.toMatchObject({ message: 'runner setup failed', code: 'EIO' })
     } finally {
       cleanupRunnerFiles(runnerFailure)
@@ -313,6 +314,7 @@ describe('spawn runner transport', () => {
       })
       const result = runnerDirectResult(fakeChild(123), afterStartFailure, new Promise<void>(() => {}))
       expect(result.pid).toBe(456)
+      expect(result.failureReported).toBe(false)
       await expect(result.direct).rejects.toMatchObject({ message: 'post-start runner failed', code: 'EIO' })
     } finally {
       cleanupRunnerFiles(afterStartFailure)
@@ -323,6 +325,7 @@ describe('spawn runner transport', () => {
       appendRunnerEvent(missing.eventsPath, { type: 'started', pid: 456 })
       const result = runnerDirectResult(fakeChild(123), missing, Promise.resolve())
       expect(result.pid).toBe(456)
+      expect(result.failureReported).toBe(false)
       await expect(result.direct).rejects.toThrow('exited without a direct-command result')
     } finally {
       cleanupRunnerFiles(missing)
@@ -351,6 +354,7 @@ describe('spawn runner transport', () => {
       const closed = Promise.withResolvers<undefined>()
       const isolated = await import('../src/runner-launch.ts')
       const result = isolated.runnerDirectResult(fakeChild(123), files, closed.promise)
+      expect(result.failureReported).toBe(false)
       expect(readCount).toBe(1)
       closed.resolve(undefined)
       await Promise.resolve()
@@ -374,6 +378,7 @@ describe('spawn runner transport', () => {
       const closed = observeChildClose(child)
       const result = runnerDirectResult(child, files, closed)
       expect(result.pid).toBe(-1)
+      expect(result.failureReported).toBe(false)
       await expect(result.direct).rejects.toThrow('runner failed to start')
       await expect(closed).resolves.toBeUndefined()
     } finally {
@@ -385,12 +390,14 @@ describe('spawn runner transport', () => {
     const missingChild = createRunnerFiles({ argv: ['node'], cwd: '.', env: {} })
     const missingResult = runnerDirectResult(fakeChild(undefined), missingChild, new Promise<void>(() => {}))
     expect(missingResult.pid).toBe(-1)
+    expect(missingResult.failureReported).toBe(false)
     await expect(missingResult.direct).rejects.toThrow('runner failed to start')
     expect(existsSync(missingChild.directory)).toBe(false)
 
     const exitedChild = createRunnerFiles({ argv: ['node'], cwd: '.', env: {} })
     const exitedResult = runnerDirectResult(fakeChild(2_147_483_647), exitedChild, new Promise<void>(() => {}))
     expect(exitedResult.pid).toBe(-1)
+    expect(exitedResult.failureReported).toBe(false)
     await expect(exitedResult.direct).rejects.toThrow('exited before reporting target start')
     expect(existsSync(exitedChild.directory)).toBe(false)
 
@@ -399,6 +406,7 @@ describe('spawn runner transport', () => {
     try {
       const timedOutResult = runnerDirectResult(fakeChild(process.pid), timedOut, new Promise<void>(() => {}))
       expect(timedOutResult.pid).toBe(-1)
+      expect(timedOutResult.failureReported).toBe(false)
       await expect(timedOutResult.direct).rejects.toThrow('did not report target start')
       expect(existsSync(timedOut.directory)).toBe(false)
     } finally {

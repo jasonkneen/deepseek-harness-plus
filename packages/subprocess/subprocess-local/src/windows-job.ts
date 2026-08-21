@@ -66,7 +66,10 @@ class WindowsJobOwner implements BoundProcessOwner {
   private runnerClosed = false
   private readonly observation: Promise<void>
 
-  constructor(private readonly runner: ReturnType<typeof spawn>) {
+  constructor(
+    private readonly runner: ReturnType<typeof spawn>,
+    private readonly startupFailureReported: boolean,
+  ) {
     this.observation = new Promise((resolve, reject) => {
       runner.once('close', (exitCode, signal) => {
         this.runnerClosed = true
@@ -89,7 +92,7 @@ class WindowsJobOwner implements BoundProcessOwner {
   }
 
   signal(_signal: NodeJS.Signals): void {
-    if (this.stopped || this.runnerClosed) return
+    if (this.stopped || this.runnerClosed || this.startupFailureReported) return
     try {
       if (this.runner.connected) {
         this.runner.send({ type: 'terminate' }, (error) => {
@@ -158,8 +161,8 @@ export function launchWindowsJob(
     observeCollectedStream(spec.stdio.stdout, stdio.stdout),
     observeCollectedStream(spec.stdio.stderr, stdio.stderr),
   ]).then(() => undefined)
-  const owner = new WindowsJobOwner(child)
   const result = runnerDirectResult(child, files, runnerClosed)
+  const owner = new WindowsJobOwner(child, result.failureReported)
   void result.direct.then(
     () => { stdio.closeInput() },
     () => { stdio.dispose() },
