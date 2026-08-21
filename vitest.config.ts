@@ -72,15 +72,6 @@ const windowsOnlyCoverageExclusions = process.platform !== 'win32'
       // executes only on win32; its decision logic is unit-pinned on every
       // host through the injected-internals suites.
       'packages/subprocess/subprocess-local/src/windows-inspector.ts',
-      'packages/subprocess/subprocess-local/src/windows-job.ts',
-    ]
-  : []
-
-const linuxOnlyCoverageExclusions = process.platform !== 'linux'
-  ? [
-      // Native scope ownership executes only on Linux; its command and result
-      // decisions are unit-pinned on every host through injected runners.
-      'packages/subprocess/subprocess-local/src/linux-scope.ts',
     ]
   : []
 
@@ -311,7 +302,6 @@ export default defineConfig({
         ...windowsUnsupportedCoveragePackages.map(path => `${path}/src/**/*.ts`),
         ...windowsOnlyCoverageExclusions,
         ...windowsRunnerCoverageExclusions,
-        ...linuxOnlyCoverageExclusions,
         ...pwshCoverageExclusions,
       ],
       // 100% or it doesn't merge (docs/testing.md: excessive tests are welcome).

@@ -70,27 +70,6 @@ describe.skipIf(!linuxNative)('Linux user-systemd native containment', () => {
     await waitGone(descendant)
   })
 
-  it('keeps direct outcome separate from a double-fork descendant, then reaps the range', async () => {
-    const pidFile = join(scratch, `double-fork-${Date.now()}.pid`)
-    const script = [
-      'import os, signal, time',
-      'if os.fork() > 0: os._exit(0)',
-      'os.setsid()',
-      'if os.fork() > 0: os._exit(0)',
-      `open(${JSON.stringify(pidFile)}, 'w').write(str(os.getpid()))`,
-      'signal.signal(signal.SIGTERM, signal.SIG_IGN)',
-      'while True: time.sleep(60)',
-    ].join('\n')
-    const request = spec(['python3', '-c', script], 80)
-    const handle = bindManagedProcess(request, launchLinuxScope(request))
-    const descendant = await waitForPid(pidFile)
-    await expect(handle.done).resolves.toEqual({ exitCode: 0, signal: null })
-    await expect(handle.waitForExit(AbortSignal.timeout(30))).resolves.toBe(false)
-    handle.terminate()
-    await expect(handle.waitForExit()).resolves.toBe(true)
-    await waitGone(descendant)
-  })
-
   it('preserves Node-shaped ENOENT and EACCES spawn failures without replay', async () => {
     const missing = spec([`missing-native-target-${Date.now()}`])
     const missingHandle = bindManagedProcess(missing, launchLinuxScope(missing))

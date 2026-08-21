@@ -96,29 +96,7 @@ describe.skipIf(!windowsNative)('Windows Job native containment', () => {
     expect(readFileSync(output, 'utf8')).toBe('after-handshake')
   })
 
-  it('terminates the direct target and its default-inheritance descendant', async () => {
-    const pidFile = join(scratch, `job-child-${Date.now()}.pid`)
-    const script = `
-      const { spawn } = require('node:child_process')
-      const { writeFileSync } = require('node:fs')
-      const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore', detached: true })
-      writeFileSync(${JSON.stringify(pidFile)}, String(child.pid))
-      setInterval(() => {}, 1000)
-    `
-    const request = spec([process.execPath, '-e', script])
-    const handle = bindManagedProcess(request, launchWindowsJob(request))
-    const descendant = await waitForPid(pidFile)
-    try {
-      handle.terminate()
-      await handle.done
-      await expect(handle.waitForExit()).resolves.toBe(true)
-      await waitGone(descendant)
-    } finally {
-      cleanup(descendant)
-    }
-  })
-
-  it('reports direct exit before the inherited descendant leaves the Job', async () => {
+  it('reports direct exit before terminating its default-inheritance descendant', async () => {
     const pidFile = join(scratch, `job-survivor-${Date.now()}.pid`)
     const factsFile = join(scratch, `job-facts-${Date.now()}.json`)
     const script = `
