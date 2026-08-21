@@ -62,7 +62,9 @@ describe('managed process binding', () => {
       },
     }
     const handle = bindManagedProcess(spec(), {
-      child: wrapper,
+      stdin: wrapper.stdin,
+      stdout: wrapper.stdout,
+      stderr: wrapper.stderr,
       pid: 4242,
       direct: direct.promise,
       closed: observeChildClose(wrapper),
@@ -86,7 +88,9 @@ describe('managed process binding', () => {
     const wrapper = spawn(process.execPath, ['-e', 'process.exit(0)'], { stdio: ['ignore', 'pipe', 'pipe'] })
     const signal = vi.fn()
     const handle = bindManagedProcess(spec(), {
-      child: wrapper,
+      stdin: wrapper.stdin,
+      stdout: wrapper.stdout,
+      stderr: wrapper.stderr,
       pid: 4242,
       direct: Promise.resolve({ exitCode: 0, signal: null }),
       closed: observeChildClose(wrapper),
@@ -102,7 +106,9 @@ describe('managed process binding', () => {
     })
     const direct = Promise.withResolvers<{ exitCode: number | null; signal: NodeJS.Signals | null }>()
     const handle = bindManagedProcess(spec(), {
-      child: wrapper,
+      stdin: wrapper.stdin,
+      stdout: wrapper.stdout,
+      stderr: wrapper.stderr,
       pid: wrapper.pid as number,
       direct: direct.promise,
       closed: Promise.resolve(),
@@ -126,7 +132,9 @@ describe('managed process binding', () => {
       ...spec(1_000),
       stdio: { stdin: 'ignore', stdout: 'inherit', stderr: 'inherit' },
     }, {
-      child: wrapper,
+      stdin: wrapper.stdin,
+      stdout: wrapper.stdout,
+      stderr: wrapper.stderr,
       pid: wrapper.pid as number,
       direct: direct.promise,
       closed: new Promise<void>(() => {}),
@@ -150,7 +158,9 @@ describe('managed process binding', () => {
     })
     const failure = new Error('range observation failed')
     const handle = bindManagedProcess(spec(), {
-      child: wrapper,
+      stdin: wrapper.stdin,
+      stdout: wrapper.stdout,
+      stderr: wrapper.stderr,
       pid: wrapper.pid as number,
       direct: new Promise(() => {}),
       closed: new Promise<void>(() => {}),
@@ -173,7 +183,9 @@ describe('managed process binding', () => {
     const direct = Promise.resolve().then(() => { throw rejection })
     const signal = vi.fn()
     const handle = bindManagedProcess(spec(), {
-      child: wrapper,
+      stdin: wrapper.stdin,
+      stdout: wrapper.stdout,
+      stderr: wrapper.stderr,
       pid: wrapper.pid as number,
       direct,
       closed: new Promise<void>(() => {}),
@@ -182,6 +194,8 @@ describe('managed process binding', () => {
     try {
       await expect(handle.done).rejects.toThrow('runner failed')
       expect(signal).toHaveBeenCalledExactlyOnceWith('SIGTERM')
+      expect(wrapper.stdout?.destroyed).toBe(true)
+      expect(wrapper.stderr?.destroyed).toBe(true)
     } finally {
       wrapper.kill('SIGKILL')
     }
@@ -200,7 +214,9 @@ describe('managed process binding', () => {
     })
     const controller = new AbortController()
     const handle = bindManagedProcess({ ...spec(), signal: controller.signal }, {
-      child: wrapper,
+      stdin: wrapper.stdin,
+      stdout: wrapper.stdout,
+      stderr: wrapper.stderr,
       pid: wrapper.pid as number,
       direct: direct.promise,
       closed: Promise.resolve(),

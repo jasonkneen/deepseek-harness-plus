@@ -14,7 +14,7 @@ function spec(argv: string[]): SubprocessSpawnSpec {
   return {
     argv,
     cwd: process.cwd(),
-    stdio: { stdin: 'ignore', stdout: { maxBytes: 1024 }, stderr: { maxBytes: 1024 } },
+    stdio: { stdin: 'ignore', stdout: 'inherit', stderr: 'inherit' },
     graceMs: 100,
   }
 }
@@ -60,6 +60,33 @@ describe('Windows Job runner adapter', () => {
     launch.owner.signal('SIGKILL')
   })
 
+  it.each([
+    { exitCode: 127, signal: null, status: 'exit code 127' },
+    { exitCode: null, signal: 'SIGTERM' as NodeJS.Signals, status: 'signal SIGTERM' },
+    { exitCode: null, signal: null, status: 'without an exit status' },
+  ])('rejects range settlement when the runner exits with $status', async ({ exitCode, signal, status }) => {
+    const child = new EventEmitter() as ChildProcess
+    const kill = vi.fn(() => true)
+    Object.assign(child, { pid: 432, connected: false, kill })
+    let eventsPath = ''
+    const run = vi.fn((_command: string, args: readonly string[]) => {
+      eventsPath = args[args.indexOf('--events') + 1] as string
+      appendRunnerEvent(eventsPath, { type: 'started', pid: 432 })
+      return child
+    }) as unknown as typeof spawn
+    const launch = launchWindowsJob(spec(['fake-target']), { spawn: run, runnerInvocation: ['fake-runner'] })
+    const directFailure = launch.direct.catch((error: unknown) => error)
+
+    child.emit('close', exitCode, signal)
+
+    await expect(launch.owner.waitForExit()).rejects.toThrow(
+      `Windows Job runner exited with ${status} before proving its managed range empty`,
+    )
+    await expect(directFailure).resolves.toBeInstanceOf(Error)
+    launch.owner.signal('SIGKILL')
+    expect(kill).not.toHaveBeenCalled()
+  })
+
   it('falls back to killing the runner when IPC delivery is unavailable or fails', async () => {
     for (const mode of ['callback-error', 'disconnected', 'throw'] as const) {
       const child = new EventEmitter() as ChildProcess
@@ -90,9 +117,9 @@ describe('Windows Job runner adapter', () => {
       if (mode === 'disconnected') expect(send).not.toHaveBeenCalled()
 
       appendRunnerEvent(eventsPath, { type: 'exit', exitCode: 0, signal: null })
-      child.emit('close', 0, null)
+      child.emit('close', null, 'SIGTERM')
       await expect(launch.direct).resolves.toEqual({ exitCode: 0, signal: null })
-      await expect(launch.owner.waitForExit()).resolves.toBe(true)
+      await expect(launch.owner.waitForExit()).rejects.toThrow('before proving its managed range empty')
       const sends = send.mock.calls.length
       const kills = kill.mock.calls.length
       launch.owner.signal('SIGKILL')

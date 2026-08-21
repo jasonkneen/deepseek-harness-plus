@@ -1,6 +1,7 @@
 /** Minimal managed-range ownership bound to one ordinary subprocess handle. */
 
 import type { ChildProcess } from 'node:child_process'
+import type { Readable, Writable } from 'node:stream'
 import type { SubprocessOutcome } from '@deepseek-ai/dsh-subprocess'
 
 /** Platform owner used by termination and whole-range settlement. */
@@ -13,7 +14,9 @@ export interface BoundProcessOwner {
 
 /** Platform launch facts consumed by the common stdio and result lifecycle. */
 export interface ManagedProcessLaunch {
-  child: ChildProcess
+  stdin: Writable | null
+  stdout: Readable | null
+  stderr: Readable | null
   pid: number
   direct: Promise<SubprocessOutcome>
   closed: Promise<void>

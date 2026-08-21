@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-08-19-shared-win32-process-primitives.md
-2026-08-19-shared-win32-process-primitives.md: a3ab8ebcfac7c2ad3429bcea2993fb5281a9d2e0
-2026-08-19-shared-win32-process-primitives.zh.md: e64f7537cb54e9eb1aaeb3dcf3b37cf300721b36
+2026-08-19-shared-win32-process-primitives.md: f9d876acdc385b0dfae8319091655722b24d4981
+2026-08-19-shared-win32-process-primitives.zh.md: 37ba5cae7f2d194f6e641164b72478fefab6428e

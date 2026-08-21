@@ -1,5 +1,5 @@
 import { spawn, spawnSync } from 'node:child_process'
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { copyFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, describe, expect, it } from 'vitest'
@@ -55,14 +55,16 @@ function cleanup(pid: number): void {
   spawnSync('taskkill', ['/PID', String(pid), '/T', '/F'], { stdio: 'ignore' })
 }
 
-function directSpawnFailure(argv: string[]): Promise<NodeJS.ErrnoException> {
+type SpawnFailure = NodeJS.ErrnoException & { path?: string; spawnargs?: string[] }
+
+function directSpawnFailure(argv: string[], cwd = scratch): Promise<SpawnFailure> {
   return new Promise((resolve, reject) => {
     try {
-      const child = spawn(argv[0] as string, argv.slice(1), { cwd: scratch, stdio: 'ignore' })
+      const child = spawn(argv[0] as string, argv.slice(1), { cwd, stdio: 'ignore' })
       child.once('error', resolve)
       child.once('spawn', () => { reject(new Error(`expected ${argv[0]} to fail before spawn`)) })
     } catch (error) {
-      resolve(error as NodeJS.ErrnoException)
+      resolve(error as SpawnFailure)
     }
   })
 }
@@ -70,6 +72,30 @@ function directSpawnFailure(argv: string[]): Promise<NodeJS.ErrnoException> {
 const windowsNative = process.platform === 'win32' && probeWindowsJob()
 
 describe.skipIf(!windowsNative)('Windows Job native containment', () => {
+  it('keeps raw stdin writable after the launch handshake', async () => {
+    const output = join(scratch, `stdin-${Date.now()}.txt`)
+    const script = `
+      const { writeFileSync } = require('node:fs')
+      let input = ''
+      process.stdin.setEncoding('utf8')
+      process.stdin.on('data', chunk => { input += chunk })
+      process.stdin.on('end', () => { writeFileSync(${JSON.stringify(output)}, input) })
+    `
+    const request = {
+      ...spec([process.execPath, '-e', script]),
+      stdio: { stdin: 'pipe', stdout: 'inherit', stderr: 'inherit' } as const,
+    }
+    const handle = bindManagedProcess(request, launchWindowsJob(request))
+    if (handle.stdin === undefined) throw new Error('expected piped stdin')
+    await new Promise<void>((resolve, reject) => {
+      handle.stdin?.once('error', reject)
+      handle.stdin?.end('after-handshake', resolve)
+    })
+    await expect(handle.done).resolves.toEqual({ exitCode: 0, signal: null })
+    await expect(handle.waitForExit()).resolves.toBe(true)
+    expect(readFileSync(output, 'utf8')).toBe('after-handshake')
+  })
+
   it('terminates the direct target and its default-inheritance descendant', async () => {
     const pidFile = join(scratch, `job-child-${Date.now()}.pid`)
     const script = `
@@ -102,24 +128,33 @@ describe.skipIf(!windowsNative)('Windows Job native containment', () => {
       writeFileSync(${JSON.stringify(pidFile)}, String(child.pid))
       writeFileSync(${JSON.stringify(factsFile)}, JSON.stringify({ cwd: process.cwd(), value: process.env.TARGET_VALUE, arg: process.argv[1] }))
       child.unref()
-      process.exit(42)
+      process.stdout.end()
+      process.stderr.end()
+      process.exitCode = 42
     `
     const request = {
       ...spec([process.execPath, '-e', script, 'literal $HOME ${UNCHANGED}'], 100, { TARGET_VALUE: 'explicit' }),
-      stdio: { stdin: 'ignore', stdout: 'pipe', stderr: 'inherit' } as const,
+      stdio: { stdin: 'ignore', stdout: 'pipe', stderr: 'pipe' } as const,
     }
     const handle = bindManagedProcess(request, launchWindowsJob(request))
     if (handle.stdout === undefined) throw new Error('expected piped stdout')
+    if (handle.stderr === undefined) throw new Error('expected piped stderr')
+    handle.stdout.resume()
+    handle.stderr.resume()
     const stdoutEnded = new Promise<void>((resolve, reject) => {
       handle.stdout?.once('end', resolve)
       handle.stdout?.once('error', reject)
+    })
+    const stderrEnded = new Promise<void>((resolve, reject) => {
+      handle.stderr?.once('end', resolve)
+      handle.stderr?.once('error', reject)
     })
     const descendant = await waitForPid(pidFile)
     try {
       await expect(handle.done).resolves.toEqual({ exitCode: 42, signal: null })
       await expect(Promise.race([
-        stdoutEnded.then(() => true),
-        new Promise<boolean>(resolve => setTimeout(() => { resolve(false) }, 1_000)),
+        Promise.all([stdoutEnded, stderrEnded]).then(() => true),
+        new Promise<boolean>(resolve => setTimeout(() => { resolve(false) }, 5_000)),
       ])).resolves.toBe(true)
       expect(readFileSync(factsFile, 'utf8')).toBe(JSON.stringify({
         cwd: scratch,
@@ -136,9 +171,30 @@ describe.skipIf(!windowsNative)('Windows Job native containment', () => {
   })
 
   it('preserves missing-target and invalid-executable rejection errors', async () => {
+    const relativeExecutable = `relative-node-${String(Date.now())}.exe`
+    copyFileSync(process.execPath, join(scratch, relativeExecutable))
+    const relative = spec([relativeExecutable, '-e', 'process.exit(17)'])
+    const relativeHandle = bindManagedProcess(relative, launchWindowsJob(relative))
+    await expect(relativeHandle.done).resolves.toEqual({ exitCode: 17, signal: null })
+    await expect(relativeHandle.waitForExit()).resolves.toBe(true)
+
     const missing = spec([`missing-native-target-${Date.now()}.exe`])
     const missingHandle = bindManagedProcess(missing, launchWindowsJob(missing))
     await expect(missingHandle.done).rejects.toMatchObject({ code: 'ENOENT' })
+    await expect(missingHandle.waitForExit()).resolves.toBe(true)
+
+    const missingCwd = join(scratch, `missing-cwd-${Date.now()}`)
+    const cwdArgv = [process.execPath, '-e', 'process.exit(0)']
+    const expectedCwd = await directSpawnFailure(cwdArgv, missingCwd)
+    const invalidCwd = { ...spec(cwdArgv), cwd: missingCwd }
+    const invalidCwdHandle = bindManagedProcess(invalidCwd, launchWindowsJob(invalidCwd))
+    await expect(invalidCwdHandle.done).rejects.toMatchObject({
+      code: expectedCwd.code,
+      syscall: expectedCwd.syscall,
+      path: expectedCwd.path,
+      spawnargs: expectedCwd.spawnargs,
+    })
+    await expect(invalidCwdHandle.waitForExit()).resolves.toBe(true)
 
     const invalidExecutable = join(scratch, `direct-${Date.now()}.exe`)
     writeFileSync(invalidExecutable, 'not a Windows executable\r\n')
@@ -146,5 +202,6 @@ describe.skipIf(!windowsNative)('Windows Job native containment', () => {
     const invalid = spec([invalidExecutable])
     const invalidHandle = bindManagedProcess(invalid, launchWindowsJob(invalid))
     await expect(invalidHandle.done).rejects.toMatchObject({ code: directError.code })
+    await expect(invalidHandle.waitForExit()).resolves.toBe(true)
   })
 })

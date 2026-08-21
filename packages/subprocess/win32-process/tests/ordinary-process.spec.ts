@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest'
 import {
   closeHandleChecked,
   isJobEmpty,
+  openNamedPipeForStdio,
   pollProcessExit,
   spawnOrdinaryJobProcess,
   terminateJob,
@@ -10,17 +11,21 @@ import {
 } from '../src/index.ts'
 import {
   CREATE_SUSPENDED,
+  GENERIC_READ,
+  GENERIC_WRITE,
   JOBOBJECT_BASIC_ACCOUNTING_ACTIVE_PROCESSES_OFFSET,
   JOBOBJECT_BASIC_ACCOUNTING_SIZE,
   JobObjectBasicAccountingInformation,
+  OPEN_EXISTING,
   WAIT_TIMEOUT,
 } from '../src/abi.ts'
-import { PROCESS_INFORMATION } from '../src/ffi.ts'
+import { PROCESS_INFORMATION, STARTUPINFOW } from '../src/ffi.ts'
 import type { NativePtr, Win32ProcessBindings } from '../src/index.ts'
 
 function api(overrides: Partial<Win32ProcessBindings> = {}): Win32ProcessBindings {
   return {
     createJobObjectW: vi.fn(() => 50n),
+    createFileW: vi.fn(() => 70n),
     setInformationJobObject: vi.fn(() => 1),
     queryInformationJobObject: vi.fn((_job: NativePtr, _cls: number, information: Buffer) => {
       information.writeUInt32LE(0, JOBOBJECT_BASIC_ACCOUNTING_ACTIVE_PROCESSES_OFFSET)
@@ -109,6 +114,65 @@ describe('ordinary Job process operations', () => {
       caught = error
     }
     expect(caught).toMatchObject({ api: 'CreateProcessW', win32Code: 5 })
+  })
+
+  it('passes explicit target stdio handles without reading caller stdio', () => {
+    let startup: Record<string, unknown> | undefined
+    const getStdHandle = vi.fn(() => 99n as NativePtr)
+    const bindings = api({
+      getStdHandle,
+      createProcessW: vi.fn((_app, _line, _pa, _ta, _inherit, _flags, _env, _cwd, infoPtr, processInfo) => {
+        startup = koffi.decode(infoPtr, STARTUPINFOW) as Record<string, unknown>
+        koffi.encode(processInfo, PROCESS_INFORMATION, {
+          hProcess: 60n,
+          hThread: 61n,
+          dwProcessId: 1234,
+          dwThreadId: 5678,
+        })
+        return 1
+      }),
+    })
+    expect(spawnOrdinaryJobProcess(bindings, {
+      command: 'probe.exe',
+      args: [],
+      cwd: 'C:\\work',
+    }, {
+      stdin: 71n as NativePtr,
+      stdout: 72n as NativePtr,
+      stderr: 73n as NativePtr,
+    })).toEqual({ pid: 1234, process: 60n, job: 50n })
+    expect(getStdHandle).not.toHaveBeenCalled()
+    expect(startup).toMatchObject({ hStdInput: 71n, hStdOutput: 72n, hStdError: 73n })
+  })
+
+  it('opens private named-pipe clients with stream-specific access', () => {
+    const createFileW = vi.fn(() => 70n as NativePtr)
+    const bindings = api({ createFileW })
+    expect(openNamedPipeForStdio(bindings, '\\\\.\\pipe\\dsh-stdin', 'read')).toBe(70n)
+    expect(openNamedPipeForStdio(bindings, '\\\\.\\pipe\\dsh-stdout', 'write')).toBe(70n)
+    expect(createFileW).toHaveBeenNthCalledWith(
+      1,
+      '\\\\.\\pipe\\dsh-stdin',
+      GENERIC_READ,
+      0,
+      null,
+      OPEN_EXISTING,
+      0,
+      null,
+    )
+    expect(createFileW).toHaveBeenNthCalledWith(
+      2,
+      '\\\\.\\pipe\\dsh-stdout',
+      GENERIC_WRITE,
+      0,
+      null,
+      OPEN_EXISTING,
+      0,
+      null,
+    )
+
+    const invalid = api({ createFileW: vi.fn(() => -1n as NativePtr) })
+    expect(() => openNamedPipeForStdio(invalid, '\\\\.\\pipe\\missing', 'read')).toThrow(Win32Error)
   })
 
   it('polls direct exit and Job emptiness without blocking', () => {

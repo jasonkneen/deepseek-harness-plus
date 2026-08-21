@@ -10,6 +10,12 @@ export const INFINITE = 0xFFFFFFFF
 export const WAIT_TIMEOUT = 258
 /** CreateProcess flag that prevents user code from running before resume. */
 export const CREATE_SUSPENDED = 0x4
+/** Read access requested for a private named-pipe client handle. */
+export const GENERIC_READ = 0x80000000
+/** Write access requested for a private named-pipe client handle. */
+export const GENERIC_WRITE = 0x40000000
+/** Open an existing named-pipe endpoint. */
+export const OPEN_EXISTING = 3
 /** GetStdHandle selector for standard input. */
 export const STD_INPUT_HANDLE = -10
 /** GetStdHandle selector for standard output. */

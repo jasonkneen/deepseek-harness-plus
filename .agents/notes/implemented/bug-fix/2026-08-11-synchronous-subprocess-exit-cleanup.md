@@ -20,7 +20,7 @@ The listener uses local-only final operations that are absent from the public `S
 - A terminal handle synchronously signals every captured and currently observable descendant with SIGKILL, kills the PTY root, then rescans once for members that became observable during that boundary.
 - The service contains each target's failure and continues with the remaining handles. The callback creates no promise or timer, writes no diagnostic, and does not change the original exit code or error.
 
-Normal disposal remains the [subprocess seam's](../architecture/2026-07-26-subprocess-seam.md) terminate-and-join path: ordinary trees receive TERM, the configured grace, then KILL, and every ordinary or terminal cleanup is awaited to quiescence. The synchronous path requests final termination but does not publish a completion result or claim the OS tree is already gone when the callback returns. Remote providers retain their own sandbox ownership and do not inherit a local Node listener.
+Normal disposal remains the [subprocess seam's](../architecture/2026-07-26-subprocess-seam.md) terminate-and-join path: POSIX ordinary ranges receive TERM, the configured grace, then KILL; Windows ordinary ranges terminate immediately; and every ordinary or terminal cleanup is awaited to quiescence. The synchronous path requests final termination but does not publish a completion result or claim the OS range is already gone when the callback returns. Remote providers retain their own sandbox ownership and do not inherit a local Node listener.
 
 | Host path | Local provider action | Completion evidence |
 | --- | --- | --- |
