@@ -173,7 +173,6 @@ describe('dsh-subagent-fork-in-process', () => {
     const result = await run.result
     expect(result.stopReason).toBe('completed')
     expect(result.structured).toEqual({ answer: 9 })
-    // Run-scoped runtime: nothing stays registered after the settle.
     expect(ctx.tools.get(STRUCTURED_OUTPUT_TOOL)).toBeUndefined()
     await run.dispose()
   })

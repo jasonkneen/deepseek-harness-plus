@@ -1,13 +1,3 @@
-// HoverCard: delayed hover-preview card portaled to document.body.
-// Same portal mechanics as Menu: the wrapper span supplies the anchor rect,
-// the card is fixed-positioned at its right edge and repositions on
-// scroll/resize while open. The card is reachable: it takes pointer events,
-// and leaving the anchor only arms a grace-delayed close, so the pointer can
-// cross the 8px gap and settle on the card to read a clipped path or title.
-// The portaled card is a React child of the wrapper, so React's enter/leave
-// traversal already treats it as inside — one pair of wrapper handlers covers
-// anchor and card alike.
-
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { createPortal } from 'react-dom'

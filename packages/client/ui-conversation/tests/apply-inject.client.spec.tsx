@@ -1,18 +1,4 @@
 // @vitest-environment jsdom
-// apply inject factories exercised end to end against the terminal thin
-// API: the strict session API (views triple, draft mirror), the
-// provide-channel input face (machine-sink submit choreography incl.
-// transactional clear + failure retention), the resident API (selectWorkspace
-// draft carrying), the composer-bar stop face, openDetails = select action +
-// layout orchestration, and the closeDetails details API. Complements
-// chat-apply.spec.tsx (registration) and selection-survival.spec.tsx (store
-// axis). History opening is NOT an inject concern — the runtime sessions
-// service opens on watch (sessions-service.spec.ts owns that behavior).
-//
-// The inject APIs are read off the ledger entries deliberately (typed at
-// this spec's own contract): these cases pin factory choreography the UI
-// guards would mask. Rendering-path acceptance lives in
-// chat-toolview-slot.spec.tsx.
 
 import { describe, expect, it, vi } from 'vitest'
 import { SlotTestRuntime, usePinnedBrowserLanguages, stubSettingsScope } from '@deepseek-ai/dsh-client-test-runtime'

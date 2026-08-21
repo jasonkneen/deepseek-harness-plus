@@ -1,13 +1,4 @@
 
-/* Floating capsule input (figma Input_Bottom 75:8208): card floats above the
-   viewport bottom inside the centered message column; textarea on top, action
-   row below, primary action controls bottom-right. Input width rides the
-   column (--dsh-composer-card-max-width = chat content + 32px, 16px per side,
-   is a cap, not a fixed size — layout rule: the box shrinks with the center
-   column keeping its clearance). Hero variant = the same card centered in the
-   empty state; the transition between the two is a position move of one
-   component. */
-
 .root {
   display: flex;
   flex-direction: column;

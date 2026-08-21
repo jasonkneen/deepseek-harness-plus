@@ -1,8 +1,3 @@
-/* Assistant flow body: full-width narration (figma 16/28), block gap 16.
-   IconActions sit below the body with an explicit 16px top margin (figma
-   43:32997) — separate from the body's internal gap so the footer spacing
-   stays fixed when the body is a single block. */
-
 .root {
   display: flex;
   flex-direction: column;

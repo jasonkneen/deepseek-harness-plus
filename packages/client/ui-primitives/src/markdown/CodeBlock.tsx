@@ -1,9 +1,3 @@
-// CodeBlock: one code surface for every consumer — markdown fences, the
-// run_code program body, and the details panel's raw args/output — with
-// shiki highlighting for the registered grammars and an identical-geometry
-// plain fallback for everything else. Chrome (language banner + copy) matches
-// deepsuite `@deepseek/md` code blocks; token colors stay on `--shiki-*`.
-
 import { useCallback, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import clsx from 'clsx'
 import { writeClipboard } from '../clipboard.ts'

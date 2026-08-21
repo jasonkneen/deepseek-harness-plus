@@ -1,12 +1,4 @@
 // @vitest-environment jsdom
-// The web render intent on the web side: the pure webCardModel derivation over
-// resultView, and the conversation render sites that consume it — the keyed
-// WebRow (registered under both web_search and web_fetch), the GenericToolCard
-// render-site fallback, and the details panel's Output section. Mirrors
-// terminal-card.spec.tsx: model derivation + null arms, both kinds, the chat
-// row's collapsed-by-default ToolRow card, the panel arm, and the keyed
-// registration. WebRow now composes the shared ToolRow, so its web card is
-// collapsed by default and appears only once the whole row is expanded.
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render } from '@testing-library/react'
@@ -35,7 +27,6 @@ afterEach(cleanup)
 
 const SID = 's1' as SessionId
 
-/** Locale seat for the card render sites (GenericToolCard, DetailsPanel), as the sibling suites build it. */
 const t = makeTranslate(zh, commonZh)
 
 const SEARCH_ARGS = '{"query":"deepseek harness"}'
@@ -187,8 +178,6 @@ describe('chat row web body', () => {
   })
 
   it('the GenericToolCard fallback also expands to a web card for a web-declaring tool', () => {
-    // A web-declaring tool without its own keyed row lands on the fallback; its
-    // card routes through the same collapsed-by-default ToolRow.
     const view = render(<GenericToolCard {...ownerProps(settledSearch({
       call: { name: 'fx-web', argsRaw: SEARCH_ARGS },
     }), 'fx-web')} t={t} />)

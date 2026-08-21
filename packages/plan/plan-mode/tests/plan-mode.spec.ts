@@ -60,7 +60,6 @@ async function agentWithSession(
   return agent
 }
 
-/** Assemble exactly as the loop does: the agent is both subject and scope. */
 function assembleFor(ctx: Context, agent: Agent) {
   return ctx.systemPrompt.assemble({ agent, scope: agent })
 }

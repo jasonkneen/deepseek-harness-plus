@@ -30,7 +30,6 @@ const resultNode = (argsRaw: string, resultText: string | null, over?: Partial<T
 const runningCall = (argsRaw: string) =>
   ({ callId: 'c1', name: 'ask_user_question', argsRaw, turn: 1, step: 1, time: 1_000, callView: null, subCalls: [] })
 
-// Standard locale seat stub mirroring the real ns → common → key chain.
 const t = makeTranslate(zh, commonZh)
 
 function rowProps(block: unknown): Parameters<typeof AskQuestionRow>[0] {

@@ -1,9 +1,6 @@
-// ConversationSnapshot / ConversationNode: the only data shape the logic layer feeds the UI.
-// Publication contract: every change swaps the top-level object; unchanged
-// substructures keep their references (the React.memo premise). Chat node and
-// Location stores are stable live readers, so old snapshots are not time-point
-// views. callId/approvalId stay plain string here (narrow to real brands when
-// convenient).
+// Each publication replaces the top-level snapshot while preserving unchanged
+// substructure references. Stable node and location stores make old snapshots
+// live readers rather than time-point views.
 
 import type { CommandId } from '@deepseek-ai/dsh-commands/brand'
 import type { MessageId } from '@deepseek-ai/dsh-llm/brand'

@@ -1,11 +1,4 @@
-// Web e2e scenario: a Code Mode round trip. The scaffold boots the SAME
-// shipped tree with the tools row patched to mode: code (the run_code-only
-// wire), a real chromium sends a prompt engineered to elicit one run_code
-// program with several sub-calls, and the UI must render the code-variant
-// parent row with its always-visible nested sub-rows — each sub-row the same
-// component a native call renders through — plus details-panel resolution for
-// a clicked sub-row. Drive steps wait only on generic completion
-// (whenTurnSettled); assertion steps run in replay/refresh only.
+// Code Mode browser round trip with nested sub-calls and details selection.
 // Record: DSH_SNAPSHOT=record rewrites session.jsonl, then a keyless
 // DSH_SNAPSHOT=refresh regenerates ui.expected.md.
 import { readFile } from 'node:fs/promises'
@@ -24,9 +17,7 @@ const FIXTURE = fileURLToPath(new URL('./snapshots/code-mode-round/session.jsonl
 const UI_EXPECTED = fileURLToPath(new URL('./snapshots/code-mode-round/ui.expected.md', import.meta.url))
 const MODE = webSnapshotMode()
 
-// The scenario's one drive prompt: elicits one program with a bash sub-call
-// and a failing read the program tolerates — the sub-row set the assertions
-// need. Never asserted against model prose.
+// Elicits the successful and failed sub-rows this scenario asserts.
 const PROMPT = 'Using ONE run_code program: run bash `echo CODE_ROUND_OK`, then read the file missing.txt '
   + 'catching its error in the program. Return an object with both outcomes. Then reply DONE and stop.'
 
@@ -48,7 +39,6 @@ describe('web e2e: Code Mode round renders nested sub-calls', () => {
     tripwire = watchConsole(page)
     await page.goto(scaffold.baseUrl, { waitUntil: 'load' })
     await page.waitForSelector('[class*="frame"]', { timeout: 30_000 })
-    // Fresh world: connect a Workspace so the composer scenarios start live.
     await connectFreshWorkspace(page, scaffold.workspaceCwd)
   }, 120_000)
 
@@ -60,7 +50,6 @@ describe('web e2e: Code Mode round renders nested sub-calls', () => {
   it('drives the recorded prompt to a settled turn (all modes)', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-code-mode-drive'))
     if (MODE !== 'record') {
-      // Drift guard: the committed fixture must carry exactly the drive prompt.
       expect(fixtureUserPrompts(await readFile(FIXTURE, 'utf8'))).toEqual([PROMPT])
     }
     const input = page.locator('textarea').first()
@@ -75,11 +64,9 @@ describe('web e2e: Code Mode round renders nested sub-calls', () => {
   }, 200_000)
 
   it.skipIf(MODE === 'record')('the durable log carries run_code with full-content sub-dispatches', () => {
-    // Wire discipline: code mode collapsed the call surface to run_code.
     const calls = sessionEvents.filter(event => event.type === 'tool/call')
     expect(calls.length).toBeGreaterThanOrEqual(1)
     expect(new Set(calls.map(call => (call.data as { name: string }).name))).toEqual(new Set(['run_code']))
-    // Sub-dispatches logged with the complete tool/result vocabulary.
     const dispatches = sessionEvents.filter(event => (event.type as string) === 'tool/code-dispatch')
     expect(dispatches.length).toBeGreaterThanOrEqual(2)
     for (const dispatch of dispatches) {
@@ -107,14 +94,9 @@ describe('web e2e: Code Mode round renders nested sub-calls', () => {
     // description as its summary (the presentCall contract).
     const codeRow = page.locator('[data-variant="code"]').first()
     await codeRow.waitFor({ timeout: 10_000 })
-    // Nested rows are visible WITHOUT any expand interaction, inside the
-    // sub-call nest, each rendered by the same components as native rows:
-    // the bash sub-call landed in the bash sample registration.
     const nest = page.locator('[data-subcalls]').first()
     await nest.waitFor({ timeout: 10_000 })
     expect(await nest.locator('[data-sample="bash"]').count()).toBeGreaterThanOrEqual(1)
-    // The failing read sub-call wears the same error state a native failed
-    // row wears (the recorded program tolerates a read of missing.txt).
     expect(await nest.locator('[data-state="error"]').count()).toBeGreaterThanOrEqual(1)
   }, 60_000)
 
@@ -124,7 +106,6 @@ describe('web e2e: Code Mode round renders nested sub-calls', () => {
     const frame = page.locator('[style*="grid-template-columns"]').first()
     expect(await frame.getAttribute('data-details-collapsed')).toBe('true')
     await nest.locator('[data-sample="bash"]').first().click()
-    // Tool rows do not drive layout geometry; the Session's default panel stays closed.
     await expect.poll(() => frame.getAttribute('data-details-collapsed'), { timeout: 5_000 }).toBe('true')
   })
 

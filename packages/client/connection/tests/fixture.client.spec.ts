@@ -1,9 +1,3 @@
-/**
- * Fixture impl semantics: the demo data source must honor the same contract
- * shapes as the real host (paging boundaries, rpcId echo, replay lifecycle,
- * baseline replay, timing hooks) — this is the vitest-side drift detector for
- * the hand-written fixture/host parallel implementations.
- */
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { SessionId, WorkspaceId } from '../src/client/api.ts'
 import { RpcId } from '../src/client/api.ts'

@@ -1,9 +1,5 @@
-// FixtureApi: standalone UI development without a server. Real contract shape: unary takes
-// RpcRequest<P> and returns RpcResponse<T> (echoing the rpcId); streams yield RpcRequest<frame>
-// (the fixture IS the fake server, so it mints frame rpcIds); root respond takes ClientResponse
-// and returns RpcReceipt. fx-alpha carries a hand-built history script (74 turns, pageable);
-// prompt triggers a chunked streaming replay; cancel stops the replay; resident pending
-// approval/question requests exercise replay and composer takeover with stable rpcIds.
+// Standalone browser fixture. It models server-owned frame rpcIds and echoes
+// unary request rpcIds through the production carrier types.
 
 import {
   createAssistantMessage,
@@ -177,13 +173,6 @@ const SEARCH_MATCHES_FIXTURE: { path: string; matches: { lineNumber: number; lin
   },
 ]
 
-/**
- * The model-facing grep render text for the sample — what a UI without a search
- * card shows, attached as the view's `content`. Mirrors the real grep
- * presenter's shape (see formatGrepOutput in dsh-tool-fs-search): a
- * `Found X of Y matches` header, the matches grouped under file headers with
- * `Line N:` rows, then a spill-recovery footer.
- */
 const SEARCH_MATCHES_TEXT = [
   'Found 9 of 42 matches',
   '',
@@ -193,10 +182,6 @@ const SEARCH_MATCHES_TEXT = [
   '(Full grep result stored at: fixture://spill/grep-66. Read it to see every match.)',
 ].join('\n')
 
-/**
- * Structured glob result for the search sample (turn 68): a flat path list,
- * truncated with a larger `total` so the path card shows its capped indicator.
- */
 const SEARCH_PATHS_FIXTURE = [
   'packages/client/ui-primitives/src/SearchBlock.tsx',
   'packages/client/ui-primitives/src/SearchBlock.module.css',
@@ -205,25 +190,12 @@ const SEARCH_PATHS_FIXTURE = [
   'packages/client/ui-tool/tests/search-card.client.spec.tsx',
 ]
 
-/**
- * The model-facing glob render text — the newline-joined path list plus a
- * spill-recovery footer, mirroring the real glob presenter's shape (see
- * formatGlobOutput in dsh-tool-fs-search).
- */
 const SEARCH_PATHS_TEXT = [
   ...SEARCH_PATHS_FIXTURE,
   '',
   '(Showing 5 of 23 paths. Full sorted result stored at: fixture://spill/glob-67. Read it to see every path.)',
 ].join('\n')
 
-/**
- * Read-card sample for the read turn: a WINDOW past an offset, so the line
- * numbers start above 1 (the card's gutter keeps the file's own numbering) and
- * `totalLines` exceeds the window (the card shows a "showing N of M" note). The
- * fixture is client-side and cannot import the read tool, so the structured
- * window is authored inline exactly as the tool would project it through
- * `presentationMeta`. `lang` is a `ts` hint so the shiki path highlights it.
- */
 const READ_SAMPLE_FIRST_LINE = 41
 const READ_SAMPLE_SOURCE = [
   'export interface ReadBlockProps {',
@@ -373,8 +345,7 @@ function buildAlphaLog(): SessionEvent[] {
     events.push({ seq, time: (time += 800), ...authored })
     return seq
   }
-  // This resident history represents completed model requests, so retain the
-  // route capacity that accompanied them just as the live prompt path does.
+  // Completed fixture requests retain the route capacity recorded with them.
   push({
     type: 'request/context',
     data: { provider: 'deepseek-official', model: 'deepseek-v4-flash', contextWindow: 128_000 },
@@ -2021,7 +1992,7 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
   /** At most one in-flight replay per session; cancel clears it. */
   const replays = new Map<SessionId, { timer: ReturnType<typeof setTimeout>; finish(aborted: boolean): void }>()
 
-  /** history transit delay (timing hooks below); the page snapshot is taken at request time, like a real host. */
+  /** History transit delay; the page snapshot is taken at request time. */
   let historyDelayMs = 0
   /** One-shot history failure (timing hook: a pre-disconnect history request already doomed when reconnect lands). */
   let failNextHistory = false
@@ -2032,10 +2003,7 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
   /** The single opt-in browser stress producer; normal fixture journeys never start it. */
   let activeReasoningChunkStorm: ReasoningChunkStormState | null = null
 
-  // Timing-acceptance hooks (browser test backdoor): the in-memory fixture is
-  // ideally timed. These let
-  // browser acceptance runs create slow-history, lost-frame, and reconnect
-  // windows a real host produces naturally.
+  // Browser-only timing hooks for slow history, lost frames, and reconnects.
   const timingHooks = {
     setHistoryDelay(ms: number): void {
       historyDelayMs = ms
@@ -2357,7 +2325,7 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
         modelSelections.set(created.sessionId, { provider: 'deepseek-official', model: 'deepseek-v4-flash' })
         attachedSessions += 1
         const emitSession = (): void => {
-          // Mirrors the host: the frame fires at creation, so blank is constantly true.
+          // The creation frame precedes later workspace-attachment work.
           emitHost({ type: 'host/session-added', sessionId: created.sessionId, blank: true, cwd })
         }
         if (workspace !== undefined && options.failWorkspaceAttach) {
@@ -2447,7 +2415,7 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
       },
       history: async (request) => {
         const log = logs.get(request.payload.sessionId) ?? []
-        // Snapshot at request time, deliver after the transit delay (mirrors a real host under latency).
+        // Snapshot at request time, then deliver after the transit delay.
         const page = pageOf(log, request.payload.beforeSeq, request.payload.maxMessages ?? 50)
         // Tail page carries the projections block (host parallel: one consistent
         // cut over the registered units; asOfSeq = window tail seq, -1 on an

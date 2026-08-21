@@ -1,9 +1,4 @@
 // @vitest-environment jsdom
-// SearchBlock: both kinds (grouped grep matches and a flat glob path list), the
-// folded truncation summary, the empty arm, per-file collapse/expand, the
-// head/tail height cap and its expand control, the tail slice restoring its
-// owning file header, and the copy control writing the whole structured
-// result on both the accepted and refused clipboard paths.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
@@ -16,17 +11,14 @@ beforeEach(() => {
   vi.useRealTimers()
 })
 
-/** The rendered result rows, one string per visible row (CSS-module class prefix). */
 function lines(container: HTMLElement): string[] {
   return [...container.querySelectorAll('[class^="_line_"]')].map(row => row.textContent ?? '')
 }
 
-/** The file-group header rows, one string per header (path + count concatenated). */
 function fileHeaders(container: HTMLElement): string[] {
   return [...container.querySelectorAll('[class^="_fileHeader_"]')].map(row => row.textContent ?? '')
 }
 
-/** `count` numbered match lines under one file, without a terminating newline. */
 function group(path: string, count: number, from = 1): SearchFileGroup {
   return {
     path,

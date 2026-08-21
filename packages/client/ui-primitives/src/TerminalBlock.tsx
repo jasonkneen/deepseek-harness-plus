@@ -1,10 +1,3 @@
-// TerminalBlock: the terminal surface for a shell command and its output —
-// prompt line (run-state dot + shortened cwd + command), ANSI-colored output,
-// settled exit status, and a copy control for the raw output. Output never soft-wraps:
-// column-aligned output (ls, tables, box drawing) keeps its alignment and
-// scrolls horizontally instead of folding. Colors resolve through --dsw-*
-// tokens; ANSI parsing lives in ansi.ts.
-
 import { useCallback, useMemo, useState } from 'react'
 import clsx from 'clsx'
 import { parseAnsiLines, type AnsiLine } from './ansi.ts'
@@ -14,11 +7,7 @@ import { Pill } from './Pill.tsx'
 import { StateDot, type StateDotState } from './StateDot.tsx'
 import css from './TerminalBlock.module.css'
 
-/**
- * Output lines shown before the height cap collapses the middle. Matches the
- * TUI transcript's default tool-output budget so both front ends cut a long
- * command's output at the same place.
- */
+/** Output lines shown before the height cap collapses the middle. */
 export const DEFAULT_TERMINAL_MAX_LINES = 16
 
 /**

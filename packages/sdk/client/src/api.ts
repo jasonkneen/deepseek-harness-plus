@@ -2,7 +2,6 @@
  * High-level run API over {@link HarnessClient}: `DeepSeekHarness` owns one
  * runtime subprocess across many sessions; `HarnessSession.run` sends a
  * prompt and settles when the whole agent next becomes idle.
- * Mirrors the Python SDK's `DeepSeekHarness`/`Session` pair.
  *
  * @module @deepseek-ai/dsh-sdk-client/api
  */

@@ -1,9 +1,3 @@
-/* Composer-takeover approval panel (draft approval.png): the same floating
-   capsule footprint as the InputBar card, with an amber header band, the
-   justification headline, a muted command line, and right-aligned actions.
-   Warn semantics ride the alias state tokens; no hardcoded colors. */
-
-/* Mirrors InputBar .root so the takeover is a content swap, not a layout jump. */
 .root {
   display: flex;
   flex-direction: column;

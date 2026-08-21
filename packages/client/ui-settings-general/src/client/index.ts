@@ -68,8 +68,7 @@ export function apply(ctx: ClientContext): void {
   // locale/change re-registration wiring.
   const t = ctx.locale.bind(NS)
   const connection = ctx.get('connection') as ConnectionHandle
-  // The action follows the shared describe mirror, whose owning plugin
-  // already refreshes it on document commits and reconnects.
+  // The shared SettingsScope mirror updates after document commits and reconnects.
   const documentController = connection.isLoopback
     ? new SettingsDocumentStore(connection.api, ctx.settingsScope.describe())
     : undefined

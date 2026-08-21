@@ -1,8 +1,3 @@
-/* Workspace browsing region (fills the sidebar shell's hole): section
-   header, search capsule, and the scrolling session list. Wide/rail
-   variants ride the shell's fold state through the `wide` owner prop —
-   rail state renders only the two 36x36 icon controls. */
-
 .root {
   --dsh-session-list-edge-inset: var(--dsh-sidebar-inline-padding);
   --dsh-session-list-scrollbar-width: 8px;

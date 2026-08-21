@@ -1,22 +1,3 @@
-// ToolRow: the single-line tool summary row (figma component set 122:9479) —
-// 16px leading slot (state dot / tool icon, chevron on hover or expanded) + title +
-// separator dot + FILL-truncated summary, drawn through the shared
-// DisclosureRow chrome with the whole row as the expand toggle (click /
-// Enter / Space, icon→chevron hover preview). The collapsed row is always
-// one line; every row with body, output, or a card material (terminal, diff,
-// read, search, web) is expandable; the summary stays inline while open.
-// The expanded body — an IN/OUT gutter-labeled card (figma 1249:35657) for
-// text input/output, the run_code program through CodeBlock, or a card
-// primitive (TerminalBlock, DiffBlock, ReadBlock, SearchBlock, WebBlock) for a
-// call that declared that render intent — lives in a max-height scroll
-// container so a long payload scrolls internally instead of taking over the
-// message flow. Every card kind starts collapsed, so a run of tool calls stays
-// scannable; the details panel is the single-call full-height reading surface.
-// Expand state is component-local view state. File-tool summaries are path
-// links that open through the host (stopPropagation keeps the two gestures
-// independent); an error row's collapsed summary is the failure's first line in
-// the error color.
-
 import { useState, type KeyboardEvent, type MouseEvent, type ReactNode } from 'react'
 import clsx from 'clsx'
 import {
@@ -32,12 +13,10 @@ import type { ToolRowState, ToolRowVariant } from '../models/tool-call-model.ts'
 import css from './ToolRow.module.css'
 
 export interface ToolRowProps {
-  /** The render site's conversation locale seat (terminal/code body copy). */
   t: TranslateNS<'conversation'>
   variant: ToolRowVariant
   /** Wire tool name for tool-owned styling layered over the generic variant. */
   toolName?: string | undefined
-  /** Leading 16px tool icon, shown while collapsed and not running/failed. */
   icon: ReactNode
   title: string
   summary: string
@@ -55,36 +34,11 @@ export interface ToolRowProps {
   output?: string | null | undefined
   /** Error first line shown as the collapsed summary on an error row; null/absent = keep `summary`. */
   errorSummary?: string | null | undefined
-  /**
-   * Terminal-card material for a call whose render intent is a terminal card
-   * (derived by `terminalCardModel`); it replaces the text sections when
-   * present. A call carries at most one card kind, so the card props below are
-   * mutually exclusive.
-   */
+  /** Terminal card; card fields are mutually exclusive and replace text sections. */
   terminal?: TerminalCardModel | null | undefined
-  /**
-   * Diff-card material for a call whose render intent is a diff card (derived by
-   * `diffCardModel`); it replaces the text body when present, the same way
-   * `terminal` does.
-   */
   diff?: DiffCardModel | null | undefined
-  /**
-   * Read-card material for a call whose render intent is a read card (derived by
-   * `readCardModel`); it replaces the text body with the file's line-numbered,
-   * syntax-highlighted window when present.
-   */
   read?: ReadCardModel | null | undefined
-  /**
-   * Search-card material for a call whose render intent is a search card
-   * (derived by `searchCardModel`); it replaces the text body with grouped
-   * matches or a path list when present.
-   */
   search?: SearchCardModel | null | undefined
-  /**
-   * Web-card material for a call whose render intent is a web card (derived by
-   * `webCardModel`); it replaces the text body with the retrieval's citation
-   * list or fetched-source card when present.
-   */
   web?: WebBlockProps | null | undefined
   state: ToolRowState
   /**
@@ -101,9 +55,6 @@ export interface ToolRowProps {
   inspect?: (() => void) | undefined
 }
 
-/** Leading-slot state substitution: the tool icon yields to the terminal state
- *  semantic (error = red, interrupted = amber halo). Running keeps the icon —
- *  the row sweep (CSS on data-state) carries the in-flight signal. */
 function leadingFor(state: ToolRowState, icon: ReactNode): ReactNode {
   switch (state) {
     case 'error': return <StateDot state="error" />
@@ -153,23 +104,14 @@ export function ToolRow({
   const searchBody = search ?? null
   const webBody = web ?? null
   const outputText = output ?? null
-  // A card replaces the text body; a call carries at most one card kind, so the
-  // card props are mutually exclusive. Any of them, or a text body/output,
-  // makes the row expandable.
   const card = terminalBody ?? diffBody ?? readBody ?? searchBody ?? webBody
   const expandable = body !== null || outputText !== null || card !== null
   const open = expanded && expandable
-  // The run-state label AT needs: the StateDot and the running sweep are both
-  // aria-hidden / colour-only, so a stopped or running row is otherwise silent.
   const status = stateStatus(state, t)
-  // An error row's collapsed summary IS the failure: the first error line in
-  // the error color outranks both the args summary and a terminal description.
+  // A failure must replace, not supplement, the normal summary.
   const failureLine = state === 'error' ? errorSummary ?? null : null
   const summaryText = failureLine ?? summary
-  // The failure line replaces the summary wholesale, so a suffix derived from
-  // the call args has nothing left to sit beside.
   const suffix = failureLine === null ? summarySuffix ?? null : null
-  // The failure line is error prose, not the path: no open-file affordance.
   const fileLink = filePath !== undefined && onOpenFile !== undefined && failureLine === null
   const toggleExpand = () => {
     setExpanded(v => !v)
@@ -188,9 +130,6 @@ export function ToolRow({
   // The code variant's program renders through CodeBlock (shiki), so only its
   // output joins the IN/OUT card; every other variant's input does too.
   const cardBody = variant === 'code' ? null : body
-  // The state substitution rides the idle icon slot, so an expandable error
-  // row keeps DisclosureRow's icon→chevron hover preview (its default) instead
-  // of losing it with the icon.
   return (
     <div className={css.root} data-variant={variant} data-tool={toolName} data-state={state}>
       {status !== null && <span className={css.visuallyHidden}>{status}</span>}
@@ -231,8 +170,6 @@ export function ToolRow({
           </>
         )}
       >
-        {/* The wrapper (sibling of the header row, so clicks inside never
-            toggle it) carries the expanded body and the Inspect pill below. */}
         <div className={css.bodyWrap}>
           {terminalBody !== null
             ? (

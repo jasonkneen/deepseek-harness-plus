@@ -1,6 +1,4 @@
 // @vitest-environment jsdom
-// StatsLine (composer.dock entry): totals derivation + the RFC hard
-// acceptance — zero renders during streaming.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render } from '@testing-library/react'
@@ -16,7 +14,6 @@ import { StatsLine, contextOccupancy, deriveStats, formatDuration, formatTokens,
 import { en, zh } from '../src/client/locales.ts'
 import { chatSnapshotFixture } from './chat-snapshot-fixture.client.ts'
 
-// Mirrors the real lookup chain (conversation namespace, then common).
 const t: StatsLineProps['t'] = makeTranslate(zh, commonZh)
 const tEn: StatsLineProps['t'] = makeTranslate(en, commonEn)
 

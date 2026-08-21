@@ -1,6 +1,4 @@
 // @vitest-environment jsdom
-// ContextMeter (composer trailing control): occupancy ring gating, the
-// click-open breakdown panel, and its close gestures.
 
 import { afterEach, describe, expect, it } from 'vitest'
 import { cleanup, fireEvent, render } from '@testing-library/react'
@@ -12,7 +10,6 @@ import { en, zh } from '../src/client/locales.ts'
 
 afterEach(cleanup)
 
-// Mirrors the real lookup chain (conversation namespace, then common).
 const t = makeTranslate(zh, commonZh) as ContextMeterProps['t']
 const tEn = makeTranslate(en, commonEn) as ContextMeterProps['t']
 
@@ -21,7 +18,6 @@ const BREAKDOWN = { systemTokens: 120, toolsTokens: 21_500, messageTokens: 477_0
 const segmentClass = css.segment
 if (segmentClass === undefined) throw new Error('segment class missing from ContextMeter.module.css')
 
-/** Stub the projection seat: a key-addressed table of whole values. */
 function projections(values: Record<string, unknown>): ContextMeterProps['useProjection'] {
   return (key: string) => values[key]
 }

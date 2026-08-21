@@ -15,7 +15,6 @@ import type { TodoDockProps } from '../src/client/skeleton/TodoPanel.tsx'
 import { TodoDock, TodoPanel, todoDockEntry } from '../src/client/skeleton/TodoPanel.tsx'
 import { NS, zh } from '../src/client/locales.ts'
 
-// Mirrors the real lookup chain (conversation namespace, then common).
 const t: TodoDockProps['t'] = makeTranslate(zh, commonZh)
 
 afterEach(cleanup)

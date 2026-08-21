@@ -1,12 +1,4 @@
 // @vitest-environment jsdom
-// Code Mode sub-call acceptance on the REAL machinery stack (same bench as
-// chat-toolview-slot.spec): a run_code result renders the 'code' variant row
-// (description summary, program body), its logged sub-dispatches render as
-// always-visible nested rows through the SAME keyed toolview hole — the bash
-// sub-call lands in the bash sample plugin's registration exactly like a
-// top-level bash row, unregistered sub-tools fall back to GenericToolCard —
-// and a file sub-row click opens the host path. Running parents
-// (runningCalls) nest their so-far dispatches the same way.
 
 import { Context } from '@deepseek-ai/cordis'
 import { stubSettingsScope } from '@deepseek-ai/dsh-client-test-runtime'
@@ -206,10 +198,6 @@ describe('run_code sub-calls through the real chat machinery', () => {
     expect(view.getByText('Code')).toBeTruthy()
     expect(view.getByText('List the notes directory')).toBeTruthy()
 
-    // Nested rows are ALWAYS visible (no parent expand needed): the bash
-    // sub-call landed in the bash sample plugin's keyed registration — Bash ·
-    // description chrome, same as a top-level bash row — and the unregistered
-    // sub-tool fell back to GenericToolCard at the same render site.
     const nest = view.container.querySelector('[data-subcalls]')
     expect(nest).not.toBeNull()
     expect(nest!.querySelector('[data-sample="bash"]')).not.toBeNull()

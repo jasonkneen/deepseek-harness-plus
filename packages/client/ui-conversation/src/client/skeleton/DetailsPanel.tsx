@@ -1,11 +1,3 @@
-// DetailsPanel: close button + the selected call's args and
-// result — args as JSON, the result raw except for a terminal-card call, whose
-// Output section is the command's terminal card. Reads the
-// selection from the shared chat
-// store (conversation writes, this panel reads — the cross-registration
-// share the store seat exists for) and derives the call material from the
-// session snapshot — no data of its own.
-
 import { Fragment } from 'react'
 import { CodeBlock } from '@deepseek-ai/dsh-client-ui-primitives'
 import { shallowEqual } from '@deepseek-ai/dsh-client-runtime/client'
@@ -14,28 +6,19 @@ import type { DetailsSlotProps } from '../contract/slots.ts'
 import { findToolCall } from '../chat/tool-node-reader.ts'
 import css from './DetailsPanel.module.css'
 
-/** Full props composed by reference from the contract (automatic shares & injected share). */
 export type DetailsPanelProps = DetailsSlotProps
 
-/**
- * Selected call material: the call's display name and args plus the frozen
- * block slice it came from. `block` is a snapshot-cached reference, so the
- * wrapper stays shallow-equal across unrelated snapshot frames; the settled /
- * running split is read off it with the `'kind' in block` discrimination
- * instead of duplicated as flags.
- */
+/** The snapshot-owned block reference must remain stable across unrelated frames. */
 interface CallMaterial {
   name: string
   argsRaw: string | null
   block: ToolCallBlock
 }
 
-/** Material of a settled result node (native call or run_code sub-dispatch). */
 function settledMaterial(node: ToolResultNode, callId: string): CallMaterial {
   return { name: node.call?.name ?? callId, argsRaw: node.call?.argsRaw ?? null, block: node }
 }
 
-/** Material of an in-flight call (native call or run_code sub-dispatch). */
 function runningMaterial(call: RunningToolCall): CallMaterial {
   return { name: call.name, argsRaw: call.argsRaw, block: call }
 }
@@ -50,7 +33,6 @@ function pretty(raw: string): string {
   try {
     return JSON.stringify(JSON.parse(raw), null, 2)
   } catch {
-    // Not JSON (streaming fragment or plain text): show verbatim.
     return raw
   }
 }

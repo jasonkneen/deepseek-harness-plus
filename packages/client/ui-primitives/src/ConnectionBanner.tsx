@@ -1,8 +1,3 @@
-// ConnectionBanner: top strip surfacing connection loss. The atom is pure:
-// the owner subscribes to connection state and passes `reconnecting` down.
-// A null/connecting state upstream should stay quiet too — only an actual
-// outage (reconnect backoff in progress) shows the strip.
-
 import css from './ConnectionBanner.module.css'
 
 /**

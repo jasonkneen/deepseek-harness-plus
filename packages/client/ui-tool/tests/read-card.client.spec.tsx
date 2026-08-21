@@ -1,10 +1,4 @@
 // @vitest-environment jsdom
-// The read render intent on the web side: the pure readCardModel derivation
-// over the settled result view, and both conversation render sites that consume
-// it — the chat tool row (the keyed ReadRow and the GenericToolCard fallback,
-// each composing ToolRow with the read card as its collapsed-by-default expanded
-// body) and the details panel's Output section (resident, full height). Also
-// pins the keyed 'read' toolview registration.
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render } from '@testing-library/react'

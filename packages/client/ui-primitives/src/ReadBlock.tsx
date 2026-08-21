@@ -1,14 +1,3 @@
-// ReadBlock: the file surface for a read tool result — a banner (label +
-// language + a "showing N of M" note when the read is a window + a copy
-// control) over line-numbered, syntax-highlighted source. Each row carries the
-// file's OWN line number in a gutter, so a windowed read past an offset keeps
-// its file numbering rather than re-counting from 1. Highlighting reuses the
-// CodeBlock shiki path (highlight.ts) at the per-line granularity a gutter
-// needs; an unknown or absent language renders plain monospace. Long content is
-// height-capped with the same head/tail arithmetic TerminalBlock uses, so the
-// two cards collapse a long body at the same place. Colors resolve through
-// --shiki-*/--dsw-* tokens.
-
 import { useCallback, useMemo, useState, useSyncExternalStore } from 'react'
 import clsx from 'clsx'
 import { writeClipboard } from './clipboard.ts'
@@ -50,13 +39,6 @@ export interface ReadBlockProps {
   className?: string | undefined
 }
 
-/**
- * Render one line's highlighted runs. The css-variables theme colors every run,
- * so each run is a styled span; a line with no highlighting at all takes the
- * bare-text path in the caller instead (an unknown or absent language).
- * @param spans - the line's styled runs.
- * @returns the line's children.
- */
 function renderSpans(spans: readonly HighlightSpan[]) {
   return spans.map((span, index) => <span key={index} style={span.style}>{span.text}</span>)
 }
@@ -75,26 +57,19 @@ export function ReadBlock({
   maxLines = DEFAULT_READ_MAX_LINES,
   className,
 }: ReadBlockProps) {
-  // The raw text the copy control writes and the highlighter tokenizes: the
-  // window's lines joined by newlines, without the file numbers or any chrome.
-  // Highlighting the whole window in one call (not line by line) keeps grammar
-  // context across lines — a multi-line string or comment stays one construct.
+  // Whole-window highlighting preserves multiline grammar context; copy uses
+  // the same text without gutter or banner chrome.
   const raw = useMemo(() => lines.map(line => line.text).join('\n'), [lines])
   // Re-render when a lazy grammar finishes loading, so a read card that showed
   // plain text while its language's grammar imported picks up highlighting. The
   // snapshot value is opaque; only its change across renders drives the memo.
   const loaded = useSyncExternalStore(subscribeGrammarLoaded, grammarLoadCount, grammarLoadCount)
-  // Per-line highlighted runs aligned 1:1 with `lines`; undefined for an
-  // unknown/absent (or not-yet-loaded) language, when every line renders as
-  // bare text.
   const highlighted = useMemo(() => highlightLines(raw, lang), [raw, lang, loaded])
   const [expanded, setExpanded] = useState(false)
   const [copied, setCopied] = useState(false)
 
   const onCopy = useCallback(() => {
     if (copied) return
-    // The window's raw text, never the rendered tree: the gutter numbers and the
-    // banner are chrome the file does not contain.
     void writeClipboard(raw).then((ok) => {
       if (!ok) return
       setCopied(true)
@@ -106,19 +81,12 @@ export function ReadBlock({
 
   const hidden = lines.length - maxLines
   const capped = hidden > 0 && !expanded
-  // Same split arithmetic as TerminalBlock's height cap, so a long read and a
-  // long command output slice their head and tail at the same place.
   const headLines = Math.ceil(maxLines / 2)
   const tailLines = maxLines - headLines
   // A read is a window when its returned lines are fewer than the file's total;
   // the note states that so a reader is not misled that the file ends here.
   const windowed = lines.length < totalLines
 
-  /**
-   * Render a slice of the line array as gutter-numbered rows.
-   * @param slice - the lines to draw, each with its aligned run array.
-   * @returns the row elements.
-   */
   const rows = (slice: readonly (readonly [ReadBlockLine, readonly HighlightSpan[] | undefined])[]) =>
     slice.map(([line, spans]) => (
       <div key={line.number} className={css.line}>
@@ -127,8 +95,6 @@ export function ReadBlock({
       </div>
     ))
 
-  // Pair each line with its aligned run array up front, so head/tail slicing
-  // keeps the two in step without re-indexing.
   const paired = lines.map((line, index): readonly [ReadBlockLine, readonly HighlightSpan[] | undefined] =>
     [line, highlighted?.[index]])
 
@@ -141,10 +107,7 @@ export function ReadBlock({
             <span className={css.count}>{`显示 ${lines.length} / ${totalLines} 行`}</span>
           )}
           <span className={css.lang}>{lang ?? ''}</span>
-          {/* Hide copy on an empty window, matching TerminalBlock's empty-output
-              guard: a successful read of an empty file returns lines: [] with
-              card:'read', so this branch is reachable, and copying then would
-              wipe the clipboard with an empty string. */}
+          {/* Empty files omit Copy to avoid replacing the clipboard with an empty string. */}
           {lines.length > 0 && (
             <button type="button" className={css.copyButton} onClick={onCopy}>
               {copied ? '复制成功' : '复制'}

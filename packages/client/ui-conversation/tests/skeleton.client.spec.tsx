@@ -1,7 +1,4 @@
 // @vitest-environment jsdom
-// ConversationRoot skeleton behavior: the ONE resident composer across the
-// hero (blank session) and active phases — same textarea DOM node, machine-
-// owned draft, and the hero workspace picker (switching = retargetWorkspace).
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ReactNode } from 'react'
 import { act, cleanup, fireEvent, render } from '@testing-library/react'
@@ -31,7 +28,6 @@ import type {
 } from '../src/client/contract/slots.ts'
 import type { ViewTab } from '../src/client/contract/views.ts'
 
-/** Machine-backed wiring over a sink spy. */
 function fakeWiring() {
   const sink = vi.fn(() => Promise.resolve({ kind: 'success' as const }))
   const shell = new SessionInputShell({ actx: {} as ClientContext, defaultSink: sink, commandImages: { serialize: () => Promise.resolve([]), release: () => {}, unsupportedNotice: (token: string) => `${token.trim()} images-unsupported` } })
@@ -54,7 +50,6 @@ beforeEach(() => {
   vi.stubGlobal('ResizeObserver', ResizeObserverStub)
 })
 
-// Mirrors the real lookup chain (conversation namespace, then common).
 const t: ConversationRootProps['t'] = makeTranslate(zh, commonZh)
 
 const sid = (id: string) => id as SessionId

@@ -1,5 +1,4 @@
 // @vitest-environment jsdom
-// Conversation-owned attachment errors and the message-image slot handoff.
 
 import { afterEach, describe, expect, it } from 'vitest'
 import { cleanup, render } from '@testing-library/react'

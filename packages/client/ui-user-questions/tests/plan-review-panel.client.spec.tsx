@@ -1,8 +1,4 @@
 // @vitest-environment jsdom
-// The plan-review takeover, driven through the composer entry that routes to
-// it: a request carrying the intent must reach the decision card and answer
-// with the asker's own option labels, and a request that does not (or cannot)
-// must keep the generic question flow.
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import type {
@@ -22,7 +18,6 @@ afterEach(cleanup)
 
 const SID = 's1' as SessionId
 
-/** Seat stub over a dictionary pair mirroring the real lookup chain: package dictionary, then common vocabulary, then the key. */
 const seatOver = (dict: Record<string, string>, common: Record<string, string>): QuestionComposerProps['t'] =>
   (key => dict[key] ?? common[key] ?? key)
 
@@ -209,7 +204,7 @@ describe('PlanReviewPanel', () => {
   it('reports a non-Error transport failure as its stringified value', async () => {
     // A non-Error rejection is the case under test: a carrier can reject with
     // anything, and the panel must still show the user something.
-    // oxlint-disable-next-line typescript/prefer-promise-reject-errors
+    // oxlint-disable-next-line typescript/prefer-promise-reject-errors -- exercises non-Error rejections
     const { carrier } = wait({ questions: questions() }, vi.fn(() => Promise.reject('socket gone')))
     render(<QuestionComposer matched={carrier} interactions={[carrier]} {...kit} />)
 

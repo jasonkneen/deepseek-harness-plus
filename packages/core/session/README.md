@@ -46,7 +46,7 @@ Plain class (not a Cordis Service). Create live sessions through `ctx.sessions.c
 
 ### Lossless JSON utilities
 
-Durable values need one accepted representation, not a check followed by a second read. `isJsonValue(value)` is the boolean predicate; `snapshotJsonValue(value)` iteratively validates and copies a plain value in one pass, returning `undefined` for invalid input and propagating a throwing getter. The snapshot helper accepts finite JSON numbers except `-0` (JSON rewrites it to `0`), dense ordinary arrays, and plain or null-prototype objects; it rejects cycles, unsupported scalars, and exotic prototypes before normalization without imposing a call-stack depth limit.
+Durable values use one lossless-JSON representation. `isJsonValue(value)` checks that representation; `snapshotJsonValue(value)` validates and detaches it in one pass and returns `undefined` for invalid input. The source JSDoc owns the exact accepted value set.
 
 Session-event import separates ownership from message validation. `snapshotSessionEvent(event)` clones a borrowed event before validating and freezing its identified message. `adoptSessionEvent(event)` performs the same message work in place and returns the original event; callers may use it only when they transfer an exclusively owned object graph with no mutable child shared with another event.
 

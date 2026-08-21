@@ -11,7 +11,6 @@ import { zh } from '../src/client/locales.ts'
 
 afterEach(cleanup)
 
-// Standard locale seat stub mirroring the real ns → common → key chain (zh default).
 const t = makeTranslate(zh, commonZh) as never
 
 const sid = (id: string) => id as SessionId

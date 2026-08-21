@@ -1,8 +1,3 @@
-/* Chat flow: one 16px rhythm everywhere through the column gap. Input
-   padding cap rides the skeleton. Under
-   `[data-conversation-scroll]` the column host owns overflow and this view
-   is ordinary flow (see ConversationRoot active-phase rules). */
-
 .root {
   position: relative;
   display: flex;

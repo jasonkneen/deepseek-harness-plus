@@ -1,9 +1,3 @@
-/**
- * The settings domain base plugin's own mounting behavior: it stands up
- * `ctx.settingsScope` over one shared describe mirror, keeps that mirror
- * fresh on settings-document and connection-reset invalidations, and retires
- * both the service and the subscriptions with its fiber.
- */
 import { Context } from '@deepseek-ai/cordis'
 import { describe, expect, it, vi } from 'vitest'
 import { TestRemote } from '@deepseek-ai/dsh-client-test-runtime'
@@ -11,7 +5,6 @@ import { apply, inject } from '../src/client/index.ts'
 import { SettingsSchemaService } from '../src/client/schema.ts'
 import { SettingsScopeBinder } from '../src/client/settings-scope.ts'
 
-/** Boot the browser half over a fake loopback connection and test remote. */
 function bench() {
   const describeCall = vi.fn().mockResolvedValue({
     rpcId: 'plugin-bench' as never,

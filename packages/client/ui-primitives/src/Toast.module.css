@@ -1,8 +1,5 @@
-/* Transient top-center banner (DeepSeek Chat toast look): contrast fill,
-   inverted label, slide-in, then hold-and-fade. The fade delay/duration MUST
-   agree with HOLD_MS/FADE_MS in Toast.tsx: the component unmounts at their
-   sum, so a mismatched sheet either cuts the fade or leaves an invisible
-   banner blocking nothing. */
+/* Keep the fade delay and duration synchronized with HOLD_MS and FADE_MS in
+   Toast.tsx so the toast unmounts after the fade. */
 
 .toast {
   position: fixed;
@@ -11,9 +8,7 @@
   /* Above the 1000 the image lightbox backdrop uses: a failure reported while
      a preview is open must stay readable. */
   z-index: 1100;
-  /* Purely an announcement: it must never intercept clicks — in particular
-     after the CSS fade finished while a throttled background-tab timer has
-     not yet unmounted the still-hit-testable fixed element. */
+  /* Announcements never intercept clicks. */
   pointer-events: none;
   display: flex;
   align-items: center;

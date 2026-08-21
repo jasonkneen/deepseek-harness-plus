@@ -1,6 +1,4 @@
 // @vitest-environment jsdom
-// Dedicated skill tool row: replay-stable naming, lifecycle states, disclosure,
-// keyboard operation, exact output, and the trajectory Inspect handoff.
 
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'

@@ -221,7 +221,6 @@ export function AgentPresetSection(props: AgentPresetSectionProps): ReactNode {
           props.close()
         }}
       >
-        {/* Same glyph as the Models page's add affordances. */}
         <IconPlusOutline16 size={14} />
         {t('creatorDraft')}
       </button>

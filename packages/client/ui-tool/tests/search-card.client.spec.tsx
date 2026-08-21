@@ -1,10 +1,4 @@
 // @vitest-environment jsdom
-// The search render intent on the web side: the pure searchCardModel derivation
-// over resultView, and the conversation render sites that consume it — the chat
-// tool row (GenericToolCard's fallback body and SearchRow, both composing the
-// shared ToolRow with the search card collapsed by default) and the details
-// panel's Output section (resident, full height). The keyed registration under
-// both grep and glob is pinned here too.
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render } from '@testing-library/react'
@@ -27,12 +21,10 @@ import { DetailsPanel } from '@deepseek-ai/dsh-client-ui-conversation/src/client
 import { SearchRow, searchToolview } from '../src/client/tool/toolviews/search-row.tsx'
 import { renderToolDetails, SessionProviderStub, toolChatSnapshot } from './tool-details-render.client.tsx'
 
-/** SearchRow now composes ToolRow, so its props include the locale `t` seat. */
 type SearchRowProps = Parameters<typeof SearchRow>[0]
 
 afterEach(cleanup)
 
-/** Conversation-locale translate stub for the render sites' `t` seat. */
 const t: GenericToolCardProps['t'] = makeTranslate(zh, commonZh)
 
 /** The rendered search card's kind attribute, so a render site cannot silently drop it. */

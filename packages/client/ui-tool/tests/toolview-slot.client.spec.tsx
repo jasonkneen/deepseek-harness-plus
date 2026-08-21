@@ -1,13 +1,4 @@
 // @vitest-environment jsdom
-// The Tool presentation package's acceptance chain on the REAL machinery stack:
-// SlotTestRuntime (cordis Context + SlotRegistry ledger + the ui-renderer
-// renderer) + ui-conversation and ui-tool apply — no outlet twins. Proves the
-// keyed 'tool.call.toolview' hole end to end: registered rows dispatch by
-// entryKey (the bash sample lands through its plugin), unregistered tools
-// fall back to GenericToolCard at the render site, live registration/unload
-// flips rows in place, duplicate keys fail loud, the inject channel feeds
-// (sessionId) => I into row components, and a registrant can activate before
-// the declaration then land through slots.inject when the chat entry appears.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup } from '@testing-library/react'

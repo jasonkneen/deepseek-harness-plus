@@ -1,11 +1,4 @@
 // @vitest-environment jsdom
-/**
- * SessionProvider behavior account (render-prop form, framework-wired):
- * empty/body branching off the host's current-session source, key={sessionId}
- * remount semantics, and cell delivery observed through a session slot's
- * standard kit — never through the internal context objects (BindingContext
- * does not leave the package).
- */
 import { useEffect, useRef } from 'react'
 import { describe, expect, it, vi } from 'vitest'
 import { act, render } from '@testing-library/react'

@@ -1329,7 +1329,6 @@ describe('DirectoryBrowser', () => {
     fireEvent.compositionEnd(pathInput)
     fireEvent.keyDown(pathInput, { key: 'Enter' })
     await waitFor(() => { expect(b.listDirectory).toHaveBeenLastCalledWith(DOCS, expect.any(AbortSignal)) })
-    // Create dialog: same guard.
     fireEvent.click(screen.getByRole('button', { name: 'browser.newFolder' }))
     const nameInput = screen.getByLabelText('browser.folderName')
     fireEvent.change(nameInput, { target: { value: '新建' } })

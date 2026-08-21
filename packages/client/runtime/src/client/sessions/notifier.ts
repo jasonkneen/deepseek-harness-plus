@@ -1,16 +1,8 @@
-// Notifier: subscription + batched notification primitive shared by Session and
-// SessionManager. Semantics: N markDirty calls collapse into one microtask flush, while
-// N markFrameDirty calls collapse into one animation-frame flush;
-// the flush rebuilds the snapshot cache BEFORE notifying (useSyncExternalStore requires a stable
-// getSnapshot reference). With no listeners the rebuild is skipped and only the dirty bit is set
-// (keeps frame storms cheap); the next getSnapshot rebuilds lazily.
-//
-// Freshness and notification are SEPARATE bits: a pull (ensureFresh) between
-// markDirty and the scheduled flush rebuilds the snapshot but must not
-// swallow the notification — push subscribers (object-layer watchers) would
-// otherwise starve whenever any reader pulls first.
-
-/** Subscription + batched notification primitive (shared by Session and SessionManager). */
+/**
+ * Batches structural updates in microtasks and stream updates by animation
+ * frame. Reads may rebuild a dirty snapshot without consuming the pending
+ * subscriber notification.
+ */
 export class Notifier {
   private listeners = new Set<() => void>()
   private dirty = false
@@ -33,7 +25,7 @@ export class Notifier {
     }
   }
 
-  /** State-change entry: mark dirty and schedule the batched flush. */
+  /** Mark the snapshot dirty and notify in a microtask. */
   markDirty(): void {
     this.dirty = true
     this.notifyPending = true
@@ -41,7 +33,7 @@ export class Notifier {
     this.schedule('microtask')
   }
 
-  /** Stream-change entry: mark dirty and publish the cumulative state at most once per frame. */
+  /** Mark the snapshot dirty and publish cumulative state at most once per frame. */
   markFrameDirty(): void {
     this.dirty = true
     this.notifyPending = true

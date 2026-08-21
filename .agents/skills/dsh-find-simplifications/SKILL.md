@@ -1,6 +1,6 @@
 ---
 name: dsh-find-simplifications
-description: 'Use when working in the deepseek-harness repo to find non-obvious simplification candidates, write proposed Agent Notes or inline TODO/FIXME/XXX notes, audit or coalesce superseded Agent Notes, or fold worthwhile simplification ideas from another PR; especially for dead, duplicated, speculative, over-built, added-then-removed, or hand-rolled-where-a-dependency-exists surfaces.'
+description: 'Use when working in the deepseek-harness repo to find non-obvious simplification candidates, remove redundant comments or implementation-heavy documentation, write proposed Agent Notes or inline TODO/FIXME/XXX notes, audit or coalesce superseded Agent Notes, or fold worthwhile simplification ideas from another PR; especially for dead, duplicated, speculative, over-built, added-then-removed, or hand-rolled-where-a-dependency-exists surfaces.'
 ---
 
 # Finding DeepSeek Harness Simplifications
@@ -43,6 +43,13 @@ Use parallel subagents when the user asks for breadth or many candidates. Give e
 If subagents are unavailable, simulate the same breadth yourself. Do not let the first good candidate stop the survey.
 
 Start with the largest production-code deltas. A broad simplification audit that stops after obvious unused symbols can miss the files where duplicated lifecycle or defensive machinery carries most of the cost.
+
+## Simplify Prose With The Code
+
+Treat comments and documentation as maintained surface area. Apply [dsh-prose-standard](../dsh-prose-standard/SKILL.md) when a survey includes prose.
+
+- Delete comments that restate code or explain behavior owned elsewhere; keep required local contracts.
+- Keep docs at their owning level; omit implementation details and rare cases unless they change a maintained contract.
 
 ## Audit Trust And Lifecycle Boundaries
 

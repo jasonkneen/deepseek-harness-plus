@@ -1,8 +1,4 @@
 // @vitest-environment jsdom
-// The diff render intent on the web side: the pure diffCardModel derivation
-// over callView/resultView, and both conversation render sites that consume it
-// — the chat tool row's expanded body (GenericToolCard / FileMutationRow) and
-// the details panel's Output section.
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render } from '@testing-library/react'
@@ -27,7 +23,6 @@ import { zh } from '@deepseek-ai/dsh-client-ui-conversation/src/client/locales.t
 
 afterEach(cleanup)
 
-/** FileMutationRow's full prop shape (ToolRow runtime share + conversation locale seat). */
 type FileMutationRowProps = Parameters<typeof FileMutationRow>[0]
 
 const SID = 's1' as SessionId

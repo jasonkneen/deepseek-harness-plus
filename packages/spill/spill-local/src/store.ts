@@ -1,9 +1,7 @@
 /**
  * Cordis-free storage mechanics for the local spill backend: private
  * session-scoped directory selection, safe-name derivation, path-traversal
- * protection, and the exclusive owner-only write. Kept out of the service class
- * (like `dsh-bash-local`'s `run.ts`) so the filesystem behavior is unit-testable
- * without a `ctx` and without the OS temp dir.
+ * protection, and the exclusive owner-only write.
  *
  * @module @deepseek-ai/dsh-spill-local/store
  */
@@ -29,8 +27,7 @@ export function privateRoot(): string {
   return defaultRoot
 }
 
-// Deliberately mirrors the JSONL path encoder, but keeps spill's empty-name
-// policy (`""` -> `"~"`) local so storage backends stay decoupled.
+// Spill keeps its empty-name policy local so storage backends stay decoupled.
 /* jscpd:ignore-start */
 /**
  * Encode an arbitrary string as one safe path segment, injectively over ALL JS
@@ -40,7 +37,6 @@ export function privateRoot(): string {
  * as `~XXXX`; `~` is itself escaped, so the mapping is reversible and distinct
  * inputs never collide. The whole-segment tokens `.`/`..` are escaped so they
  * can never traverse. An empty string encodes to `~` (never an empty segment).
- * (Mirrors the JSONL persistence backend's `encodeSegment`.)
  *
  * @param raw The untrusted string to encode as one safe path segment.
  * @returns An injective, filesystem-safe single path segment.

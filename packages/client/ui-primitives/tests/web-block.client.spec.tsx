@@ -1,10 +1,4 @@
 // @vitest-environment jsdom
-// WebBlock: both kinds of the web card. The search card's answer, its citation
-// list with the title-or-hostname label fallback and optional snippet/date, the
-// full source list under one <ol>, and the truncated indicator; the fetch
-// card's linked URL, status, and truncation. Safe-link
-// attributes on both kinds: an http(s) URL becomes an external anchor
-// (target/rel), any other URL renders as plain text with no href.
 
 import { afterEach, describe, expect, it } from 'vitest'
 import { cleanup, render } from '@testing-library/react'
@@ -13,7 +7,6 @@ import type { WebSourceView } from '../src/index.ts'
 
 afterEach(cleanup)
 
-/** `count` sources with sequential hostnames, so each row reads distinctly. */
 function sources(count: number): WebSourceView[] {
   return Array.from({ length: count }, (_value, index) => ({
     url: `https://site-${index}.example.com/page`,

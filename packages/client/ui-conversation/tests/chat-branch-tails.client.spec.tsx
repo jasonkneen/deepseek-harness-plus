@@ -1,9 +1,4 @@
 // @vitest-environment jsdom
-// Remaining chat branch tails: MessageItem context/unknown arms,
-// user IconActions, StatsLine no-cache join,
-// AssistantMarkdown single-line reasoning. (Tool-row dispatch tails live
-// with the keyed-slot machinery specs since the tool ring dissolved into
-// renderSlot.)
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
@@ -40,7 +35,6 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
-// Mirrors the real lookup chain (conversation namespace, then common).
 const t: ChatNodeViewProps['t'] = makeTranslate(zh, commonZh)
 const renderMessageImages: AssistantMarkdownProps['renderMessageImages'] = () => null
 const RETRY_ID = 'retry-fixture' as Extract<ConversationNode, { kind: 'model-retry' }>['retryId']

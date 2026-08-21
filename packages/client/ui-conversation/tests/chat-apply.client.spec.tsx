@@ -1,9 +1,4 @@
 // @vitest-environment jsdom
-// apply wiring: the conversation service provided, the chat view registered
-// as the first 'conversation.view' ring entry declaring the whole-Tool seat,
-// the slot registrations land against a root entry's children declarations
-// (the AppFrame role), and the shared store handle rides all strict session
-// entries. Tool composition belongs to ui-tool and its machinery spec.
 
 import { describe, expect, it, vi } from 'vitest'
 import { SlotTestRuntime, usePinnedBrowserLanguages, stubSettingsScope } from '@deepseek-ai/dsh-client-test-runtime'

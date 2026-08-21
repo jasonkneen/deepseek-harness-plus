@@ -1,7 +1,4 @@
 // @vitest-environment jsdom
-// ChatView behavior: flow derivation, streaming isolation (Profiler counts),
-// Tool seat ownership and selection handoff — driven through a scripted
-// ObservableSnapshot fake, no wire or Tool presentation plugin.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
@@ -162,8 +159,7 @@ function makeHarness(init?: Partial<ConversationSnapshot>) {
     read: () => savedScroll,
   }
   const forkAt = vi.fn()
-  // Selection rides the REAL chat store (same construction path as
-  // production; the view reads it through the PropsStore useStore share).
+  // Rows and the harness must observe the same chat-store instance.
   const chat = createChatStore().create()
   const t = makeTranslate(zh, commonZh)
   const toolOwners: Array<{
@@ -289,7 +285,6 @@ function makeHarness(init?: Partial<ConversationSnapshot>) {
     forkAt,
     // Absent-service default; mention tests override with a real resolver.
     fileMentions: () => undefined,
-    // Mirrors the real lookup chain (conversation namespace, then common).
     t,
   }
   const setSelection = (next: SelectionTarget | null): void => { chat.actions.select(next) }
@@ -343,7 +338,6 @@ describe('Chat node rendering', () => {
       ],
       turnEnds: new Map([[1, 4]]),
     })
-    // Stub provider mirroring the real service: only produced files resolve.
     h.props.fileMentions = owner => ({
       resolve: (value) => {
         if (value !== 'report.html') return undefined

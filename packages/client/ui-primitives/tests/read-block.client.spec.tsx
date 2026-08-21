@@ -1,11 +1,4 @@
 // @vitest-environment jsdom
-// ReadBlock + the highlightLines token path: the banner (label, language, the
-// "showing N of M" note only when the read is a window, copy control), the
-// gutter-numbered rows keeping the file's own line numbers, the shiki per-line
-// highlighting resolved to css-variables token spans with an identical-geometry
-// plain fallback for an unknown/absent language, the head/tail height cap and
-// its expand control, and the copy control writing the raw window text on both
-// the accepted and refused clipboard paths.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
@@ -18,17 +11,14 @@ beforeEach(() => {
   vi.useRealTimers()
 })
 
-/** `count` lines starting at `first`, each with distinct text. */
 function lines(count: number, first = 1): ReadBlockLine[] {
   return Array.from({ length: count }, (_value, index) => ({ number: first + index, text: `line ${first + index}` }))
 }
 
-/** The rendered rows as `<gutter><content>` strings (CSS-module class prefix). */
 function rowTexts(container: HTMLElement): string[] {
   return [...container.querySelectorAll('[class^="_line_"]')].map(row => row.textContent ?? '')
 }
 
-/** The gutter numbers of the rendered rows, in order. */
 function gutters(container: HTMLElement): string[] {
   return [...container.querySelectorAll('[class^="_gutter_"]')].map(cell => cell.textContent ?? '')
 }

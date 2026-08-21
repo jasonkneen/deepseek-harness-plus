@@ -1,8 +1,4 @@
 // @vitest-environment jsdom
-// The terminal render intent on the web side: the pure terminalCardModel
-// derivation over callView/resultView, and both conversation render sites that
-// consume it — the chat tool row's expanded body (GenericToolCard / BashRow)
-// and the details panel's Output section.
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render } from '@testing-library/react'
@@ -27,7 +23,6 @@ import { zh } from '@deepseek-ai/dsh-client-ui-conversation/src/client/locales.t
 
 type BashRowProps = Parameters<typeof BashRow>[0]
 
-// Mirrors the real lookup chain (conversation namespace, then common).
 const t: GenericToolCardProps['t'] = makeTranslate(zh, commonZh)
 
 afterEach(cleanup)

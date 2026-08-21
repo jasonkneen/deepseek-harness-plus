@@ -22,13 +22,9 @@ const CLIENT_WEB = '@deepseek-ai/dsh-client-web'
 
 /** One workspace package's browser-module declaration. */
 export interface ClientDeclaration {
-  /** npm package name. */
   readonly name: string
-  /** Repository-relative package manifest. */
   readonly manifest: string
-  /** Whether the manifest declares a dynamic dsh.client row. */
   readonly dynamic: boolean
-  /** Exact module-table specifiers requested by the row. */
   readonly external: readonly string[]
   /** Informational package dependencies declared by the row. */
   readonly inject: readonly string[]
@@ -36,43 +32,28 @@ export interface ClientDeclaration {
 
 /** One package directly under packages/client. */
 export interface ClientPackage extends ClientDeclaration {
-  /** Whether its build config uses the staticLinked preset. */
   readonly staticLinked: boolean
-  /** Production source locations grouped by imported package name. */
   readonly sourceUses: Readonly<Record<string, readonly string[]>>
-  /** Production source locations grouped by runtime-imported package name. */
   readonly runtimeSourceUses: Readonly<Record<string, readonly string[]>>
-  /** Installed implementation dependencies. */
   readonly dependencies: Readonly<Record<string, string>>
-  /** Consumer-supplied dependencies. */
   readonly peerDependencies: Readonly<Record<string, string>>
-  /** Dependencies available while developing the package. */
   readonly devDependencies: Readonly<Record<string, string>>
 }
 
 /** Complete source-plane input to the client package verifier. */
 export interface ClientPackageFacts {
-  /** Packages directly under packages/client. */
   readonly packages: readonly ClientPackage[]
-  /** Every workspace package, including packages without a browser row. */
   readonly declarations: readonly ClientDeclaration[]
-  /** Packages whose build config uses the staticLinked preset. */
   readonly staticLinkedPackages: ReadonlySet<string>
-  /** Specifiers the web shell seeds into the module table. */
   readonly platformModules: readonly string[]
-  /** Dynamic factories the HTML parser loads before shell boot. */
   readonly preloadedExternals: readonly string[]
-  /** Package rows whose bundles the HTML parser executes before shell boot. */
   readonly parserPreloadIds: readonly string[]
-  /** Manifest field errors found while reading declarations. */
   readonly malformed: readonly string[]
 }
 
 /** Result of reading every workspace browser-module declaration. */
 export interface ClientDeclarations {
-  /** One declaration record per named workspace manifest. */
   readonly declarations: ClientDeclaration[]
-  /** Manifest field errors that prevent a reliable declaration. */
   readonly malformed: string[]
 }
 

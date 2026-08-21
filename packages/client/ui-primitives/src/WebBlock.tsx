@@ -1,24 +1,3 @@
-// WebBlock: the surface for a completed web retrieval. One component draws both
-// kinds of the `web` render intent, discriminated by `kind`: a `search` shows an
-// optional provider answer above a citation list of sources (each a safe
-// external link labelled by its title, or its hostname when the provider gave
-// none, with the snippet and publication date below it), and a `fetch` shows a
-// compact retrieval summary (the linked final URL and its HTTP status). Both
-// mark a capped retrieval. Every link is a same-origin-safe external anchor:
-// only http(s) URLs become anchors (target/rel set) — the http(s) subset of the
-// allowlist MarkdownText applies to untrusted assistant-authored links (it also
-// permits mailto, excluded here); an unparseable or non-http URL renders as
-// plain text. Geometry, radius, and fonts mirror CodeBlock/TerminalBlock so a
-// web card reads as one family with them; the whole source list renders inside a
-// fixed-height scroll container (its `.sources` max-height), so a long list
-// scrolls in place rather than growing the card — and that container's
-// `padding-left` must stay wide enough for the widest `<li>` marker, since a
-// scroll container clips inline-start overflow irrecoverably. The card draws every source the
-// view carries: the tool already cut the list to its source cap, and `truncated`
-// reports that cut. A content-only transform downstream of the tool — spill-policy
-// replacing an oversized result's text while leaving its presentationMeta whole —
-// can still narrow what the model reads below this list.
-
 import clsx from 'clsx'
 import { MarkdownText } from './markdown/MarkdownText.tsx'
 import css from './WebBlock.module.css'

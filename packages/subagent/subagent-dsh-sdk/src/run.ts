@@ -1,12 +1,11 @@
 /**
  * Fresh-process SDK subagent client. Drives one child DeepSeek Harness
  * runtime over stdio JSON-RPC through `@deepseek-ai/dsh-sdk-client` and owns
- * cancellation and quiescent disposal. Structure mirrors the ACP backend
- * (`@deepseek-ai/dsh-subagent-acp`): publish after the child handshake,
- * flatten child failures into stop reasons, tear down to quiescence. The
- * child is spawned BY the SDK client rather than through `ctx.subprocess` —
- * the subprocess seam's documented exception for SDK-managed transports —
- * so this driver applies the seam's shared env scrub itself.
+ * cancellation and quiescent disposal. It publishes after the child
+ * handshake, maps child failures to stop reasons, and tears down to
+ * quiescence. The SDK client spawns the child rather than using
+ * `ctx.subprocess` — the subprocess seam's documented exception for
+ * SDK-managed transports — so this driver applies the seam's shared env scrub.
  *
  * @module @deepseek-ai/dsh-subagent-dsh-sdk/run
  */

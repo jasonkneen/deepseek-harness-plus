@@ -1,10 +1,4 @@
 // @vitest-environment jsdom
-// Client apply wiring under the terminal register form: ctx.layout provided,
-// ONE register() call declares the three child slots + seats the store factory
-// + wires the panel actions through the inject hook; teardown cascades
-// (service unprovided + declarations gone + registration cleared). Node half
-// and the invariant companion ride along — one line exposes the aggregate
-// coverage gate still requires exercised.
 
 import { Context } from '@deepseek-ai/cordis'
 import { stubSettingsScope } from '@deepseek-ai/dsh-client-test-runtime'

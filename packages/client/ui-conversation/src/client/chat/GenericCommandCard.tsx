@@ -1,9 +1,3 @@
-// GenericCommandCard: the default command row — a stripped-down
-// GenericToolCard rendering the command name and its settlement text.
-// Supplied by the chat view as the keyed commandview slot's render-site
-// fallback (an unregistered command name lands here); registrants may compose
-// it as a base, feeding the same owner payload through.
-
 import { useState, type ReactNode } from 'react'
 import type { ChatViewSlotProps, CommandRowOwnerProps } from '../contract/slots.ts'
 import { DisclosureRow, IconApiOutline14, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
@@ -35,10 +29,8 @@ export function GenericCommandCard({ node, t, runningSummary }: GenericCommandCa
   const summary = node.outcome === null
     ? runningSummary ?? t('command.running')
     : text ?? (node.outcome.kind === 'error' ? t('command.failed') : t('command.done'))
-  // Title is the bare command name: the row already reads `name · outcome`,
-  // and the dispatched line's own `/` and arguments only restate what the
-  // settlement text says (`permission · preset workspace-write`). A
-  // cross-window node whose run page fell out of the window has no name.
+  // The summary already carries the settlement text, so the title is the bare
+  // command name.
   const title = node.name ?? t('command.title')
   const state = stateOf(node.outcome)
   const body = text !== undefined && text.includes('\n') ? text : null

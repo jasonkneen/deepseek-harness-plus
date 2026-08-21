@@ -1131,8 +1131,7 @@ export class PersistenceCoordinator<TornMarker = unknown> {
     // Session disposal is observe-only, so retirement contains its own failure.
     ctx.on('session/disposed', (session) => { this.retire(session) })
 
-    // HMR: a hot reload does not replay session/created, so seed existing live
-    // sessions (mirrors dsh-invariants).
+    // HMR does not replay session/created, so seed existing live sessions.
     for (const session of ctx.sessions.list()) void this.initFor(session)
   }
 

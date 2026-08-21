@@ -1,10 +1,5 @@
-// CompactionItem: the one row a landed compaction contributes to the flow.
-// The conversation it shadowed on the model surface stays above it, so this
-// marker reports where the model stopped seeing that history — it never
-// replaces it. The framed checkpoint payload is written for the model and is
-// not rendered; the disclosure shows the summary from the checkpoint's own
-// cited `compaction/summary` event, and a window cut that left that event outside makes the row
-// non-expandable rather than empty.
+// A compaction marker does not replace shadowed transcript rows. It is
+// expandable only when the current window includes its cited summary.
 
 import { memo, useState } from 'react'
 import type { CompactionSummaryNode } from '@deepseek-ai/dsh-client-runtime/client'
@@ -28,7 +23,7 @@ interface CompactionItemProps {
 }
 
 /**
- * The collapsed-by-default compaction marker.
+ * Renders the model-history compaction marker.
  * @param props - the marker node off the snapshot cache.
  * @returns the marker row, with the summary disclosure when one is available.
  */

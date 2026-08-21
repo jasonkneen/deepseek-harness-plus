@@ -1,5 +1,3 @@
-// menuReduce generation gating, auto-close, silent group removal, cyclic
-// highlight movement, stale/no-op reference identity; exactMatch lookup.
 import { describe, expect, it } from 'vitest'
 import type { MenuState, TriggerHit } from '../src/core/contract.ts'
 import { exactMatch, MENU_CLOSED, menuReduce, seedGroups } from '../src/core/menu.ts'
@@ -12,7 +10,6 @@ const hit = (query = ''): TriggerHit => ({
   span: { start: 0, end: 1 + query.length, draftRev: 1 },
 })
 
-/** Seed sources onto the closed state and open a first generation. */
 function open(sources: readonly string[], h: TriggerHit = hit()): MenuState {
   return menuReduce(seedGroups(MENU_CLOSED, sources.map(name => ({ name }))), { type: 'hit', hit: h })
 }
