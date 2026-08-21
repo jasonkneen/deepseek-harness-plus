@@ -449,6 +449,12 @@ export function bindManagedProcess(
   }
   const stdoutCollector = collectStream(outMode, child.stdout, 'stdout')
   const stderrCollector = collectStream(errMode, child.stderr, 'stderr')
+  const stopCollectors = (): void => {
+    if (stdoutCollector !== undefined) child.stdout?.destroy()
+    if (stderrCollector !== undefined) child.stderr?.destroy()
+    stdoutCollector?.seal()
+    stderrCollector?.seal()
+  }
 
   let graceTimer: ReturnType<typeof setTimeout> | undefined
   let rangeExitObserved = false
@@ -509,10 +515,7 @@ export function bindManagedProcess(
       settled = true
       // Only harness-collected pipes are force-closed at the drain boundary;
       // a 'pipe'-mode stream belongs to the caller and closes with the child.
-      if (stdoutCollector !== undefined) child.stdout?.destroy()
-      if (stderrCollector !== undefined) child.stderr?.destroy()
-      stdoutCollector?.seal()
-      stderrCollector?.seal()
+      stopCollectors()
       cleanup()
       resolve(outcome)
     }
@@ -529,8 +532,7 @@ export function bindManagedProcess(
       if (settled) return
       settled = true
       terminate()
-      stdoutCollector?.seal()
-      stderrCollector?.seal()
+      stopCollectors()
       cleanup()
       reject(error instanceof Error ? error : new Error(String(error)))
     })

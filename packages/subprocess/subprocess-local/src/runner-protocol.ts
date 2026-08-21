@@ -2,9 +2,10 @@
 
 import {
   appendFileSync,
+  lstatSync,
   mkdtempSync,
   readFileSync,
-  rmSync,
+  rmdirSync,
   unlinkSync,
   writeFileSync,
 } from 'node:fs'
@@ -218,7 +219,18 @@ export function deserializeSpawnError(serialized: SerializedSpawnError): Error {
  */
 export function cleanupRunnerFiles(files: RunnerFiles): void {
   try {
-    rmSync(files.directory, { recursive: true, force: true })
+    if (lstatSync(files.directory).isSymbolicLink()) {
+      unlinkSync(files.directory)
+      return
+    }
+    for (const file of [files.requestPath, files.eventsPath]) {
+      try {
+        unlinkSync(file)
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+      }
+    }
+    rmdirSync(files.directory)
   } catch {
     // A crash residue remains private and is not reused by later spawns.
   }

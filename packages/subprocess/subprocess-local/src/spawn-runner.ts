@@ -134,6 +134,7 @@ async function runWin32(request: RunnerRequest, eventsPath: string): Promise<voi
   try {
     let spawned
     try {
+      process.chdir(request.cwd)
       const [command, ...args] = request.argv
       spawned = spawnOrdinaryJobProcess(api, { command: command as string, args, cwd: request.cwd })
     } catch (error) {

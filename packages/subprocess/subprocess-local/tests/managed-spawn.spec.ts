@@ -182,6 +182,8 @@ describe('managed process binding', () => {
     try {
       await expect(handle.done).rejects.toThrow('runner failed')
       expect(signal).toHaveBeenCalledExactlyOnceWith('SIGTERM')
+      expect(wrapper.stdout?.destroyed).toBe(true)
+      expect(wrapper.stderr?.destroyed).toBe(true)
     } finally {
       wrapper.kill('SIGKILL')
     }

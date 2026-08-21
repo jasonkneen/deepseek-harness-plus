@@ -87,6 +87,41 @@ describe('LocalSubprocessRuntime', () => {
     expect(process.listeners('exit')).not.toContain(listener)
   })
 
+  it('observes range failure without waiting for a stuck direct result', async () => {
+    const before = new Set(process.listeners('exit'))
+    const ctx = new Context()
+    const disposalErrors: unknown[] = []
+    ctx.logger.error = ((error: unknown) => { disposalErrors.push(error) }) as typeof ctx.logger.error
+    const fiber = await ctx.plugin(LocalSubprocessRuntime)
+    const listener = process.listeners('exit').find(candidate => !before.has(candidate))
+    const rangeFailure = new Error('managed range became unreadable')
+    const terminate = vi.fn()
+    const terminateForHostExit = vi.fn()
+    const live = (ctx.subprocess as unknown as {
+      live: Set<{
+        done: Promise<never>
+        terminate(): void
+        terminateForHostExit(): void
+        waitForExit(): Promise<boolean>
+      }>
+    }).live
+    live.add({
+      done: new Promise<never>(() => {}),
+      terminate,
+      terminateForHostExit,
+      waitForExit: async () => { throw rangeFailure },
+    })
+
+    await expect(Promise.race([
+      fiber.dispose().then(() => 'disposed'),
+      new Promise<string>(resolve => setTimeout(() => { resolve('timeout') }, 100)),
+    ])).resolves.toBe('disposed')
+    expect(terminate).toHaveBeenCalledOnce()
+    expect(terminateForHostExit).toHaveBeenCalledOnce()
+    expect(disposalErrors).toEqual([rangeFailure])
+    expect(process.listeners('exit')).not.toContain(listener)
+  })
+
   it('contains each host-exit termination failure and continues with the other targets', async () => {
     const before = new Set(process.listeners('exit'))
     const ctx = new Context()

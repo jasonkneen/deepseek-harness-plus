@@ -94,8 +94,13 @@ export class LocalSubprocessRuntime extends SubprocessRuntime {
     const pending: Promise<unknown>[] = []
     for (const handle of this.live) {
       handle.terminate()
-      // Spawn-failure rejections already settled and left the live set.
-      pending.push(handle.done.catch(() => {}).then(() => handle.waitForExit()))
+      // Direct result and range observation are independent. Start both now so
+      // an unreadable owner cannot hide behind a target that termination failed
+      // to stop; direct-result rejection itself remains non-fatal to disposal.
+      pending.push(Promise.all([
+        handle.done.catch(() => {}),
+        handle.waitForExit(),
+      ]).then(() => undefined))
     }
     for (const terminal of this.terminals) {
       pending.push(terminal.terminate())

@@ -110,12 +110,9 @@ async function treeExitsWithin(child: SubprocessHandle, ms: number): Promise<boo
  * @param eofGraceMs - tier-1 window after stdin EOF.
  */
 export async function disposeAcpChild(child: SubprocessHandle, eofGraceMs: number): Promise<void> {
-  // A spawn failure has no process to tear down; observe the rejection so
-  // disposal in a finally block cannot surface it as unhandled.
-  if (child.pid <= 0) {
-    await child.done.catch(() => {})
-    return
-  }
+  // Observe the direct result independently. A non-positive pid does not prove
+  // that a native owner has no range left to terminate or await.
+  void child.done.catch(() => {})
   child.stdin?.end()
   if (await treeExitsWithin(child, eofGraceMs)) return
   // terminate() owns the provider-specific procedure. Its unbounded wait is

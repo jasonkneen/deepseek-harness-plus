@@ -1449,8 +1449,8 @@ describe('run publication, cancellation, and settlement', () => {
     await expect(failedStartup).rejects.not.toThrow('spawn /sdk/claude EACCES')
     await expect(failedStartup).rejects.toMatchObject({ cause: spawnError })
     expect(failed.close).toHaveBeenCalledOnce()
-    expect(failedSpawn.terminate).not.toHaveBeenCalled()
-    expect(failedSpawn.waitForExit).not.toHaveBeenCalled()
+    expect(failedSpawn.terminate).toHaveBeenCalledOnce()
+    expect(failedSpawn.waitForExit).toHaveBeenCalledOnce()
 
     const failedSpawnAbort = new AbortController()
     const cancelledFailedSpawn = fakeChild({

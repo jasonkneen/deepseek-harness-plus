@@ -1,6 +1,7 @@
 import { spawn, spawnSync } from 'node:child_process'
 import type { ChildProcess } from 'node:child_process'
-import { existsSync, statSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it, vi } from 'vitest'
@@ -106,6 +107,23 @@ describe('spawn runner transport', () => {
       expect(existsSync(files.requestPath)).toBe(false)
     } finally {
       cleanupRunnerFiles(files)
+    }
+  })
+
+  it('unlinks a substituted runner-directory link without traversing it', () => {
+    const files = createRunnerFiles({ argv: ['node'], cwd: '.', env: {} })
+    const outside = mkdtempSync(join(tmpdir(), 'dsh-runner-outside-'))
+    const sentinel = join(outside, 'events.ndjson')
+    writeFileSync(sentinel, 'keep')
+    rmSync(files.directory, { recursive: true, force: true })
+    symlinkSync(outside, files.directory, process.platform === 'win32' ? 'junction' : 'dir')
+    try {
+      cleanupRunnerFiles(files)
+      expect(existsSync(files.directory)).toBe(false)
+      expect(existsSync(sentinel)).toBe(true)
+    } finally {
+      rmSync(files.directory, { recursive: true, force: true })
+      rmSync(outside, { recursive: true, force: true })
     }
   })
 
@@ -270,19 +288,6 @@ describe('spawn runner transport', () => {
       cleanupRunnerFiles(missing)
     }
 
-    const forced = createRunnerFiles({ argv: ['node'], cwd: '.', env: {} })
-    try {
-      appendRunnerEvent(forced.eventsPath, { type: 'started', pid: 789 })
-      const result = runnerDirectResult(
-        fakeChild(123),
-        forced,
-        Promise.resolve(),
-        () => ({ exitCode: null, signal: 'SIGKILL' }),
-      )
-      await expect(result.direct).resolves.toEqual({ exitCode: null, signal: 'SIGKILL' })
-    } finally {
-      cleanupRunnerFiles(forced)
-    }
   })
 
   it('requires an event snapshot started after wrapper close before reporting a missing result', async () => {

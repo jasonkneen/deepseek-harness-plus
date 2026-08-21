@@ -1,5 +1,5 @@
 import { spawn, spawnSync } from 'node:child_process'
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { copyFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, describe, expect, it } from 'vitest'
@@ -138,6 +138,13 @@ describe.skipIf(!windowsNative)('Windows Job native containment', () => {
   })
 
   it('preserves missing-target and invalid-executable rejection errors', async () => {
+    const relativeExecutable = `relative-node-${String(Date.now())}.exe`
+    copyFileSync(process.execPath, join(scratch, relativeExecutable))
+    const relative = spec([relativeExecutable, '-e', 'process.exit(17)'])
+    const relativeHandle = bindManagedProcess(relative, launchWindowsJob(relative))
+    await expect(relativeHandle.done).resolves.toEqual({ exitCode: 17, signal: null })
+    await expect(relativeHandle.waitForExit()).resolves.toBe(true)
+
     const missing = spec([`missing-native-target-${Date.now()}.exe`])
     const missingHandle = bindManagedProcess(missing, launchWindowsJob(missing))
     await expect(missingHandle.done).rejects.toMatchObject({ code: 'ENOENT' })

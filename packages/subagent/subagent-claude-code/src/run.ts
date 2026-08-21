@@ -454,26 +454,30 @@ export async function startClaudeCodeRun(
     )
     requestCancel()
     if (child !== undefined && child.pid <= 0) {
-      let closeError: Error | undefined
+      let spawnError = thrown(error)
+      void child.done.catch((childError: unknown) => { spawnError = thrown(childError) })
+      const cleanupErrors: Error[] = []
       try {
         query?.close()
       } catch (disposeError: unknown) {
-        closeError = thrown(disposeError)
+        cleanupErrors.push(thrown(disposeError))
       }
-
-      let spawnError = thrown(error)
+      child.terminate()
       try {
-        await child.done
-      } catch (childError: unknown) {
-        spawnError = thrown(childError)
+        await child.waitForExit()
+      } catch (disposeError: unknown) {
+        cleanupErrors.push(thrown(disposeError))
       }
+      await Promise.resolve()
 
-      if (closeError !== undefined) {
+      if (cleanupErrors.length > 0) {
         const failure = startupFailure(spawnError)
         const cleanupFailure = new ClaudeCodeFailure({
           stage: 'teardown',
           category: 'unknown',
-        }, closeError)
+        }, cleanupErrors.length === 1
+          ? cleanupErrors[0]
+          : new AggregateError(cleanupErrors, 'Claude Code teardown failures'))
         const aggregate = new AggregateError(
           [failure, cleanupFailure],
           `${failure.message}; ${cleanupFailure.message}`,

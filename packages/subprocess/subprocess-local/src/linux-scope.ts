@@ -38,7 +38,7 @@ const SCOPE_POLL_INTERVAL_MS = 200
 const MISSING_UNIT = /\bunit\b[^\r\n]*(?:could not be found|not found|not loaded)/iu
 
 function systemctlEnv(): NodeJS.ProcessEnv {
-  return { ...process.env, LC_ALL: 'C' }
+  return childEnv({ LC_ALL: 'C' })
 }
 
 function querySystemctl(command: string, args: readonly string[]): Promise<SystemctlResult> {
@@ -106,7 +106,6 @@ export function probeLinuxScope(internals: LinuxScopeInternals = {}): boolean {
 class SystemdScopeOwner implements BoundProcessOwner {
   private stopped = false
   private observation: Promise<void> | undefined
-  private killConfirmed = false
   private killFailure: Error | undefined
 
   constructor(
@@ -127,7 +126,6 @@ class SystemdScopeOwner implements BoundProcessOwner {
       this.unit,
     ], { encoding: 'utf8', env: systemctlEnv(), timeout: SYSTEMCTL_TIMEOUT_MS })
     if (result.error === undefined && result.status === 0) {
-      if (signal === 'SIGKILL') this.killConfirmed = true
       return
     }
     if (signal === 'SIGKILL') {
@@ -174,9 +172,6 @@ class SystemdScopeOwner implements BoundProcessOwner {
     return waitWithAbort(this.observation, signal)
   }
 
-  forcedOutcome(): { exitCode: null; signal: 'SIGKILL' } | undefined {
-    return this.killConfirmed ? { exitCode: null, signal: 'SIGKILL' } : undefined
-  }
 }
 
 /**
@@ -218,7 +213,7 @@ export function launchLinuxScope(
   })
   const closed = observeChildClose(child)
   const owner = new SystemdScopeOwner(`${unitBase}.scope`, systemctl, runSync, query, child)
-  const result = runnerDirectResult(child, files, closed, () => owner.forcedOutcome())
+  const result = runnerDirectResult(child, files, closed)
   cleanupAfterRunner(files, result.direct, closed)
   return { child, pid: result.pid, direct: result.direct, closed, owner }
 }

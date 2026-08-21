@@ -114,7 +114,6 @@ async function waitForDirectResult(
   files: RunnerFiles,
   initial: RunnerEvent[],
   closed: Promise<void>,
-  missingResult?: () => SubprocessOutcome | undefined,
 ): Promise<SubprocessOutcome> {
   let seen = 0
   const wrapperState = { closed: false }
@@ -131,8 +130,6 @@ async function waitForDirectResult(
     }
     seen = Math.max(seen, events.length, initial.length)
     if (closedBeforeRead) {
-      const known = missingResult?.()
-      if (known !== undefined) return known
       throw new Error('native subprocess runner exited without a direct-command result')
     }
     await sleepMs(RUNNER_EVENT_POLL_MS)
@@ -144,14 +141,12 @@ async function waitForDirectResult(
  * @param child - native wrapper process.
  * @param files - private request and result paths.
  * @param closed - wrapper close observation attached before the start handshake.
- * @param missingResult - authoritative outcome available when force-kill prevents a final event.
  * @returns target pid and direct result promise.
  */
 export function runnerDirectResult(
   child: ChildProcess,
   files: RunnerFiles,
   closed: Promise<void>,
-  missingResult?: () => SubprocessOutcome | undefined,
 ): {
   pid: number
   direct: Promise<SubprocessOutcome>
@@ -165,7 +160,7 @@ export function runnerDirectResult(
   }
   return {
     pid: handshake.pid,
-    direct: waitForDirectResult(files, handshake.events, closed, missingResult),
+    direct: waitForDirectResult(files, handshake.events, closed),
   }
 }
 
