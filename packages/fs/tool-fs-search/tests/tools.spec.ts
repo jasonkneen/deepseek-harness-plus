@@ -93,7 +93,7 @@ class FakeReader implements SubprocessOutputReader {
  * A scriptable subprocess handle: `done` resolves with the scripted outcome
  * (or rejects with the scripted error), `terminate()` records the call, and
  * the spec's abort signal marks the handle terminated — mirroring the seam's
- * abort-triggered provider termination.
+ * abort→terminate escalation.
  */
 class FakeHandle implements SubprocessHandle {
   readonly pid = 4242
@@ -434,8 +434,8 @@ describe('workdir derivation and signal forwarding', () => {
 
   it('reports an abort fired during the run as SEARCH_ABORTED', async () => {
     // The cooperative tool timeout or caller cancellation aborts exec.signal;
-    // the subprocess provider then starts managed-range termination. The tool
-    // classifies the first cause it owns: the abort.
+    // the subprocess seam then kills the process tree. The tool classifies
+    // the first cause it owns: the abort.
     const { ctx, subprocess } = await setup()
     const controller = new AbortController()
     subprocess.handler = () => {

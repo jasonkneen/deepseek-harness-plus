@@ -1,140 +1,23 @@
 /** Windows Job runner launch and managed-range ownership. */
 
 import { spawn, spawnSync } from 'node:child_process'
-import { randomUUID } from 'node:crypto'
-import type { Readable } from 'node:stream'
-import { setTimeout as sleepMs } from 'node:timers/promises'
-import type { SubprocessOutcome, SubprocessSpawnSpec } from '@deepseek-ai/dsh-subprocess'
-import {
-  closeHandleChecked,
-  createKillOnCloseJob,
-  isJobEmpty,
-  loadWin32ProcessBindings,
-  openProcessForWait,
-  pollProcessExit,
-  terminateJob,
-} from '@deepseek-ai/dsh-win32-process'
-import type { NativePtr } from '@deepseek-ai/dsh-win32-process'
+import type { SubprocessSpawnSpec } from '@deepseek-ai/dsh-subprocess'
 import type { BoundProcessOwner, ManagedProcessLaunch } from './managed-owner.ts'
-import { waitWithAbort } from './managed-owner.ts'
+import { observeChildClose, waitWithAbort } from './managed-owner.ts'
 import { childEnv } from './spawn.ts'
 import {
+  cleanupAfterRunner,
+  runnerDirectResult,
   runnerFiles,
-  runnerStart,
+  runnerStdio,
   spawnRunnerInvocation,
 } from './runner-launch.ts'
-import { cleanupRunnerFiles } from './runner-protocol.ts'
-import { createWindowsStdioBridge } from './windows-stdio.ts'
-
-const JOB_POLL_INTERVAL_MS = 10
-const PROCESS_POLL_INTERVAL_MS = 10
-
-/** Parent-side operations for one Windows managed launch. */
-export interface WindowsProcessOperations {
-  create(name: string): NativePtr
-  openProcess(pid: number): NativePtr
-  pollProcess(process: NativePtr): number | undefined
-  empty(job: NativePtr): boolean
-  terminate(job: NativePtr): void
-  closeJob(job: NativePtr): void
-  closeProcess(process: NativePtr): void
-}
-
-function nativeProcessOperations(): WindowsProcessOperations {
-  const api = loadWin32ProcessBindings()
-  return {
-    create: name => createKillOnCloseJob(api, name),
-    openProcess: pid => openProcessForWait(api, pid),
-    pollProcess: process => pollProcessExit(api, process),
-    empty: job => isJobEmpty(api, job),
-    terminate: (job) => { terminateJob(api, job, 1) },
-    closeJob: (job) => { closeHandleChecked(api, job, 'ordinary process Job') },
-    closeProcess: (process) => { closeHandleChecked(api, process, 'ordinary direct process') },
-  }
-}
-
-function releaseRunner(child: ReturnType<typeof spawn>): Error | undefined {
-  if (!child.connected) return undefined
-  try {
-    child.disconnect()
-    return undefined
-  } catch (error) {
-    try { child.kill() } catch { /* The direct process and Job remain parent-owned. */ }
-    return error instanceof Error ? error : new Error(String(error))
-  }
-}
-
-function stopFailedRunner(child: ReturnType<typeof spawn>): void {
-  if (child.connected) {
-    try { child.disconnect() } catch { /* A forced stop below remains authoritative. */ }
-  }
-  try { child.kill() } catch { /* The parent-owned Job remains responsible for any target. */ }
-}
-
-function observeRunnerExit(child: ReturnType<typeof spawn>): Promise<void> {
-  return new Promise((resolve) => {
-    child.once('error', () => { resolve() })
-    child.once('exit', () => { resolve() })
-  })
-}
-
-function observeCollectedStream(
-  mode: SubprocessSpawnSpec['stdio']['stdout'],
-  stream: Readable | null | undefined,
-): Promise<void> {
-  if (mode === 'pipe' || mode === 'inherit' || stream === null || stream === undefined
-    || stream.readableEnded || stream.destroyed) {
-    return Promise.resolve()
-  }
-  return new Promise((resolve) => {
-    const settle = (): void => {
-      stream.off('end', settle)
-      stream.off('close', settle)
-      stream.off('error', settle)
-      resolve()
-    }
-    stream.once('end', settle)
-    stream.once('close', settle)
-    stream.once('error', settle)
-  })
-}
 
 /** Test seams for the runner process. */
 export interface WindowsJobInternals {
   spawn?: typeof spawn
   spawnSync?: typeof spawnSync
   runnerInvocation?: string[]
-  operations?: WindowsProcessOperations
-}
-
-function observeDirectProcess(
-  pid: number,
-  operations: WindowsProcessOperations,
-): Promise<SubprocessOutcome> {
-  const processHandle = operations.openProcess(pid)
-  let closed = false
-  const close = (): void => {
-    if (closed) return
-    operations.closeProcess(processHandle)
-    closed = true
-  }
-  return new Promise((resolve, reject) => {
-    const poll = (): void => {
-      try {
-        const exitCode = operations.pollProcess(processHandle)
-        if (exitCode === undefined) {
-          setTimeout(poll, PROCESS_POLL_INTERVAL_MS)
-          return
-        }
-        close()
-        resolve({ exitCode, signal: null })
-      } catch (error) {
-        try { close() } catch { /* Preserve the observation failure. */ }
-        reject(error instanceof Error ? error : new Error(String(error)))
-      }
-    }
-    poll()
-  })
 }
 
 /**
@@ -156,60 +39,42 @@ export function probeWindowsJob(internals: WindowsJobInternals = {}): boolean {
 
 class WindowsJobOwner implements BoundProcessOwner {
   private stopped = false
-  private closed = false
-  private terminationRequested = false
-  private terminationFailure: Error | undefined
-  private observation: Promise<void> | undefined
+  private readonly observation: Promise<void>
 
-  constructor(
-    private readonly job: NativePtr,
-    private readonly operations: WindowsProcessOperations,
-    private readonly runnerExited: Promise<void>,
-  ) {}
+  constructor(private readonly runner: ReturnType<typeof spawn>) {
+    this.observation = new Promise((resolve) => {
+      runner.once('close', () => {
+        this.stopped = true
+        resolve()
+      })
+    })
+  }
 
   signal(_signal: NodeJS.Signals): void {
-    if (this.stopped || this.terminationRequested) return
-    this.terminationRequested = true
+    if (this.stopped) return
     try {
-      this.operations.terminate(this.job)
-    } catch (error) {
-      this.terminationFailure = error instanceof Error ? error : new Error(String(error))
+      if (this.runner.connected) {
+        this.runner.send({ type: 'terminate' }, (error) => {
+          if (error !== null) this.runner.kill()
+        })
+      } else {
+        this.runner.kill()
+      }
+    } catch {
+      this.runner.kill()
     }
   }
 
   waitForExit(signal?: AbortSignal): Promise<boolean> {
-    if (this.observation !== undefined) return waitWithAbort(this.observation, signal)
-    if (this.stopped) return Promise.resolve(true)
-    this.observation = (async () => {
-      try {
-        while (!this.operations.empty(this.job)) {
-          if (this.terminationFailure !== undefined) throw this.terminationFailure
-          await sleepMs(JOB_POLL_INTERVAL_MS)
-        }
-        this.stopped = true
-        this.close()
-        await this.runnerExited
-      } catch (error) {
-        this.stopped = true
-        try { this.close() } catch { /* Preserve the observation failure. */ }
-        throw error
-      }
-    })()
-    return waitWithAbort(this.observation, signal)
-  }
-
-  private close(): void {
-    if (this.closed) return
-    this.operations.closeJob(this.job)
-    this.closed = true
+    return this.stopped ? Promise.resolve(true) : waitWithAbort(this.observation, signal)
   }
 }
 
 /**
- * Launch one direct command through a runner into a parent-owned Job.
+ * Launch one direct command through the Job-owning runner.
  * @param spec - exact target argv, cwd, stdio, environment, and lifecycle settings.
  * @param internals - injected process runner used by tests.
- * @returns parent-owned streams, target outcome, and the bound Job owner.
+ * @returns wrapper streams, target outcome, and the bound Job owner.
  */
 export function launchWindowsJob(
   spec: SubprocessSpawnSpec,
@@ -219,98 +84,22 @@ export function launchWindowsJob(
   const invocation = internals.runnerInvocation ?? spawnRunnerInvocation()
   const [command, ...prefix] = invocation
   if (command === undefined) throw new Error('subprocess-local: Windows runner invocation is empty')
-  /* v8 ignore next -- the native Windows suite exercises the real Job operations. */
-  const operations = internals.operations ?? nativeProcessOperations()
-  const launchId = randomUUID()
-  const jobName = `Local\\dsh-subprocess-${launchId}`
   const files = runnerFiles(spec)
-  let job: NativePtr
-  try {
-    job = operations.create(jobName)
-  } catch (error) {
-    cleanupRunnerFiles(files)
-    throw error
-  }
-  let stdio: ReturnType<typeof createWindowsStdioBridge>
-  try {
-    stdio = createWindowsStdioBridge(spec, `\\\\.\\pipe\\dsh-subprocess-${String(process.pid)}-${launchId}`)
-  } catch (error) {
-    try { operations.closeJob(job) } catch { /* Preserve the stdio setup failure. */ }
-    cleanupRunnerFiles(files)
-    throw error
-  }
-  let child: ReturnType<typeof spawn>
-  try {
-    child = run(command, [
-      ...prefix,
-      '--mode',
-      'win32',
-      '--job',
-      jobName,
-      '--request',
-      files.requestPath,
-      '--events',
-      files.eventsPath,
-      ...stdio.runnerArgs,
-    ], {
-      env: childEnv(),
-      stdio: stdio.runnerStdio,
-    })
-  } catch (error) {
-    try { operations.closeJob(job) } catch { /* Preserve the launch failure. */ }
-    stdio.dispose()
-    cleanupRunnerFiles(files)
-    throw error
-  }
-  const runnerExited = observeRunnerExit(child)
-  const closed = Promise.all([
-    runnerExited,
-    observeCollectedStream(spec.stdio.stdout, stdio.stdout),
-    observeCollectedStream(spec.stdio.stderr, stdio.stderr),
-  ]).then(() => undefined)
-  const owner = new WindowsJobOwner(job, operations, runnerExited)
-  const start = runnerStart(child, files)
-  if (!start.ok) {
-    stopFailedRunner(child)
-    stdio.dispose()
-    const direct = Promise.resolve().then(() => { throw start.error })
-    return {
-      stdin: stdio.stdin,
-      stdout: stdio.stdout,
-      stderr: stdio.stderr,
-      pid: start.pid,
-      direct,
-      closed,
-      owner,
-    }
-  }
-  // The launcher retains its original process handle until this process opens
-  // an independent one, preventing PID reuse during the ownership handoff.
-  // Windows direct settlement is owned by the handle below, not by continued
-  // runner event polling after the startup handoff.
-  let direct: Promise<SubprocessOutcome>
-  try {
-    direct = observeDirectProcess(start.pid, operations)
-  } catch (error) {
-    direct = Promise.resolve().then(() => { throw error })
-  }
-  const releaseFailure = releaseRunner(child)
-  if (releaseFailure !== undefined) {
-    void direct.catch(() => {})
-    direct = Promise.resolve().then(() => { throw releaseFailure })
-  }
-  void direct.then(
-    () => { stdio.closeInput() },
-    () => { stdio.closeInput() },
-  )
-  void runnerExited.then(() => { cleanupRunnerFiles(files) })
-  return {
-    stdin: stdio.stdin,
-    stdout: stdio.stdout,
-    stderr: stdio.stderr,
-    pid: start.pid,
-    direct,
-    closed,
-    owner,
-  }
+  const child = run(command, [
+    ...prefix,
+    '--mode',
+    'win32',
+    '--request',
+    files.requestPath,
+    '--events',
+    files.eventsPath,
+  ], {
+    env: childEnv(),
+    stdio: runnerStdio(spec, true),
+  })
+  const closed = observeChildClose(child)
+  const owner = new WindowsJobOwner(child)
+  const result = runnerDirectResult(child, files, closed)
+  cleanupAfterRunner(files, result.direct, closed)
+  return { child, pid: result.pid, direct: result.direct, closed, owner }
 }

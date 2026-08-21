@@ -53,11 +53,10 @@ export interface ProcessInfoOutput {
   dwThreadId: number
 }
 
-/** Generic Win32 calls consumed by sandbox and ordinary process operations. */
+/** Generic Win32 calls consumed by restricted-token sandbox process operations. */
 export interface Win32ProcessBindings {
   closeHandle(handle: NativePtr): number
   getLastError(): number
-  openProcess(desiredAccess: number, inheritHandle: number, processId: number): NativePtr
   formatMessageW(
     flags: number,
     source: null,
@@ -68,15 +67,6 @@ export interface Win32ProcessBindings {
     args: null,
   ): number
   createPipe(readHandle: NativePtr, writeHandle: NativePtr, attributes: null, size: number): number
-  createFileW(
-    path: string,
-    desiredAccess: number,
-    shareMode: number,
-    securityAttributes: null,
-    creationDisposition: number,
-    flagsAndAttributes: number,
-    templateFile: null,
-  ): NativePtr
   setHandleInformation(handle: NativePtr, mask: number, flags: number): number
   createProcessAsUserW(
     token: NativePtr,
@@ -114,8 +104,7 @@ export interface Win32ProcessBindings {
   ): number
   waitForSingleObject(handle: NativePtr, milliseconds: number): number
   getExitCodeProcess(process: NativePtr, exitCode: NativePtr): number
-  createJobObjectW(attributes: null, name: string | null): NativePtr
-  openJobObjectW(desiredAccess: number, inheritHandle: number, name: string): NativePtr
+  createJobObjectW(attributes: null, name: null): NativePtr
   setInformationJobObject(job: NativePtr, cls: number, information: Buffer, length: number): number
   queryInformationJobObject(
     job: NativePtr,
@@ -132,7 +121,7 @@ export interface Win32ProcessBindings {
 }
 
 /** Koffi STARTUPINFOW layout. */
-export const STARTUPINFOW = koffi.struct({
+export const STARTUPINFOW = koffi.struct('DSH_STARTUPINFOW', {
   cb: 'uint32',
   lpReserved: 'str16',
   lpDesktop: 'str16',
@@ -154,7 +143,7 @@ export const STARTUPINFOW = koffi.struct({
 })
 
 /** Koffi PROCESS_INFORMATION layout. */
-export const PROCESS_INFORMATION = koffi.struct({
+export const PROCESS_INFORMATION = koffi.struct('DSH_PROCESS_INFORMATION', {
   hProcess: PVOID,
   hThread: PVOID,
   dwProcessId: 'uint32',
@@ -263,14 +252,10 @@ function bindings(): Win32ProcessBindings {
   cached = {
     closeHandle: bind(kernel32, 'CloseHandle', 'int', [PVOID]),
     getLastError: bind(kernel32, 'GetLastError', 'uint32', []),
-    openProcess: bind(kernel32, 'OpenProcess', PVOID, ['uint32', 'int', 'uint32']),
     formatMessageW: bind(kernel32, 'FormatMessageW', 'uint32', [
       'uint32', PVOID, 'uint32', 'uint32', PVOID, 'uint32', PVOID,
     ]),
     createPipe: bind(kernel32, 'CreatePipe', 'int', [PPVOID, PPVOID, PVOID, 'uint32']),
-    createFileW: bind(kernel32, 'CreateFileW', PVOID, [
-      'str16', 'uint32', 'uint32', PVOID, 'uint32', 'uint32', PVOID,
-    ]),
     setHandleInformation: bind(kernel32, 'SetHandleInformation', 'int', [PVOID, 'uint32', 'uint32']),
     createProcessAsUserW: bind(advapi32, 'CreateProcessAsUserW', 'int', [
       PVOID, 'str16', 'str16', PVOID, PVOID, 'int', 'uint32', PVOID, 'str16',
@@ -287,7 +272,6 @@ function bindings(): Win32ProcessBindings {
     waitForSingleObject: bind(kernel32, 'WaitForSingleObject', 'uint32', [PVOID, 'uint32']),
     getExitCodeProcess: bind(kernel32, 'GetExitCodeProcess', 'int', [PVOID, koffi.pointer('uint32')]),
     createJobObjectW: bind(kernel32, 'CreateJobObjectW', PVOID, [PVOID, 'str16']),
-    openJobObjectW: bind(kernel32, 'OpenJobObjectW', PVOID, ['uint32', 'int', 'str16']),
     setInformationJobObject: bind(kernel32, 'SetInformationJobObject', 'int', [PVOID, 'int', PVOID, 'uint32']),
     queryInformationJobObject: bind(kernel32, 'QueryInformationJobObject', 'int', [
       PVOID, 'int', PVOID, 'uint32', PVOID,

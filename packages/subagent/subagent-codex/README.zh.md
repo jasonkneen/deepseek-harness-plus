@@ -6,7 +6,7 @@
 
 ## 启动与所有权
 
-`start(request)` 只接受非空的文本块序列，并根据父会话确定子级 cwd。随后，它通过 [`dsh-subprocess`](../../subprocess/subprocess/README.zh.md) spawn 固定命令，依次执行 `initialize` → `initialized`，把 Profile 选择的模式映射为官方 `thread/start` approval／reviewer／sandbox 字段并与 `{ cwd, ephemeral: true }` 一起发送，且仅在 Codex 返回有效的临时线程后才发布此次运行。若在发布前发生失败或取消，它会关闭通信链路、启动 managed-range 终止并等待该范围为空，然后拒绝 `start()` 调用。非取消拒绝只公开固定的 `initialize` 或 `thread-start` 阶段及已经观测到的进程结果；原始产品与 Host 错误只保留在内部 cause 链中。
+`start(request)` 只接受非空的文本块序列，并根据父会话确定子级 cwd。随后，它通过 [`dsh-subprocess`](../../subprocess/subprocess/README.zh.md) spawn 固定命令，依次执行 `initialize` → `initialized`，把 Profile 选择的模式映射为官方 `thread/start` approval／reviewer／sandbox 字段并与 `{ cwd, ephemeral: true }` 一起发送，且仅在 Codex 返回有效的临时线程后才发布此次运行。若在发布前发生失败或取消，它会关闭通信链路、终止受管进程树并等待其退出，然后拒绝 `start()` 调用。非取消拒绝只公开固定的 `initialize` 或 `thread-start` 阶段及已经观测到的进程结果；原始产品与 Host 错误只保留在内部 cause 链中。
 
 已发布的 `run.result` 恰好启动一个轮次。它只接受与此次运行的线程和轮次匹配的通知，随后等待权威的终止通知 `turn/completed`。以最后一条 `phase: "final_answer"` 的 `agentMessage` 为准；若 Codex 没有发出明确的最终阶段，则以最后一条 `phase: null` 的消息作为兼容性回退。过程说明绝不会取代上述任一答案；成功完成的轮次若没有非空白答案，结果也会判为错误。
 
@@ -14,7 +14,7 @@
 
 本地取消会在结果竞态中胜出并映射为 `aborted`。对于失败轮次，诊断会保留 Codex 0.147.0 `codexErrorInfo` 联合中的全部十一种字符串与五种对象 variant；四种连接／stream variant 会在上游提供时保留数值 `httpStatusCode`，而 `activeTurnNotSteerable` 不公开 `turnKind`。诊断还会注明 `turn-start`、`turn` 或 `process`，分别包含可用的退出码与信号，并对无法识别或格式错误的值使用 `unknown`，且不复制原始字段。`contextWindowExceeded` 仍映射为 `max-tokens`；其他任何远端中断或失败仍映射为 `error`，且该提供方不会产生 `refusal`。参与失败的权限决定会跟在结构化失败行之后。成功与本地取消都不附带这两类事实。
 
-`dispose()`（资源释放）具有幂等性：如果当前的两个标识符均已知，它会尽力请求 `turn/interrupt`，关闭 JSON-RPC 通信链路，结束标准输入，调用 subprocess provider 的终止过程，等待 managed range 退出，并移除 stderr observer。独立清理拒绝使用固定的 `teardown` 阶段与可用进程结果。当启动与回滚同时失败时，顶层聚合消息会保留两条安全阶段说明，而原始失败仍只在内部可见。
+`dispose()`（资源释放）具有幂等性：如果当前的两个标识符均已知，它会尽力请求 `turn/interrupt`，关闭 JSON-RPC 通信链路，结束标准输入，调用共享的进程树逐级终止机制，等待整棵进程树退出，并移除 stderr observer。独立清理拒绝使用固定的 `teardown` 阶段与可用进程结果。当启动与回滚同时失败时，顶层聚合消息会保留两条安全阶段说明，而原始失败仍只在内部可见。
 
 ## 能力与上下文
 
@@ -27,7 +27,7 @@
 | `providerName` | `codex` | `ctx.subagents` 中的非空注册名称；每个已挂载实例都需要唯一值。 |
 | `env` | `{}` | 显式指定的子进程环境，叠加在由子进程 seam 清除凭证后的父环境之上。 |
 | `permissionMode` | `never` | 为该提供方实例的每个线程固定原生非交互审批与沙箱模式。 |
-| `disposeGraceMs` | `3000` | 提供给 subprocess 终止与输出排空的宽限期，单位为毫秒且须为正有限值，并不得大于仓库共享的 [`MAX_TIMER_DELAY_MS`](../../util/timeout/README.zh.md)；随后资源释放会等待 managed range 退出。 |
+| `disposeGraceMs` | `3000` | 共享进程树责任方各终止层级之间的宽限期，单位为毫秒且须为正有限值，并不得大于仓库共享的 [`MAX_TIMER_DELAY_MS`](../../util/timeout/README.zh.md)；随后资源释放会等待整棵进程树退出。 |
 
 | `permissionMode` 值 | `thread/start` 字段 | 原生行为 |
 |---|---|---|

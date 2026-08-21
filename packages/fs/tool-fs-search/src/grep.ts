@@ -45,7 +45,7 @@ export interface GrepToolCaps {
   maxMetaBytes: number
   /** Cap on the complete raw `rg` stdout the tool will parse. */
   rawOutputMaxBytes: number
-  /** Grace for subprocess termination and output draining (ms). */
+  /** Terminate-escalation grace period (ms) for the search process. */
   graceMs: number
   /** Cap on the retained stderr diagnostic tail. */
   stderrMaxBytes: number

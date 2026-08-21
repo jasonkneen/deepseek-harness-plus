@@ -1,6 +1,6 @@
 /**
- * Process plumbing for the local subprocess service: ordinary process launch
- * with per-stream stdio dispositions, tail-keep collection with spill
+ * Process plumbing for the local subprocess service: detached process-tree
+ * spawn with per-stream stdio dispositions, tail-keep collection with spill
  * files, provider-owned range signalling, and common termination scheduling.
  * POSIX owners stage TERM before KILL; Windows owners terminate immediately.
  * This layer reacts to an abort signal; callers own deadlines, teardown
@@ -420,7 +420,7 @@ function fallbackOwner(
 }
 
 /**
- * Bind platform launch facts to the existing stdio, outcome, abort, and termination lifecycle.
+ * Bind platform launch facts to the existing stdio, outcome, abort, and escalation lifecycle.
  * @param spec - fully resolved argv, cwd, stdio, grace, cancellation, environment.
  * @param launch - platform child streams, direct outcome, and managed-range owner.
  * @param internals - test-only spill-directory override.
@@ -433,7 +433,7 @@ export function bindManagedProcess(
 ): LocalSubprocessHandle {
   validateSubprocessSpec(spec)
   const { spillDir } = prepareManagedProcessBinding(internals)
-  const { stdin, stdout, stderr } = launch
+  const child = launch.child
 
   const isCollect = (mode: SubprocessOutputMode): mode is SubprocessCollect =>
     mode !== 'pipe' && mode !== 'inherit'
@@ -447,14 +447,8 @@ export function bindManagedProcess(
     stream.on('data', (chunk: Buffer) => { collector.push(chunk) })
     return collector
   }
-  const stdoutCollector = collectStream(outMode, stdout, 'stdout')
-  const stderrCollector = collectStream(errMode, stderr, 'stderr')
-  const stopCollectors = (): void => {
-    if (stdoutCollector !== undefined) stdout?.destroy()
-    if (stderrCollector !== undefined) stderr?.destroy()
-    stdoutCollector?.seal()
-    stderrCollector?.seal()
-  }
+  const stdoutCollector = collectStream(outMode, child.stdout, 'stdout')
+  const stderrCollector = collectStream(errMode, child.stderr, 'stderr')
 
   let graceTimer: ReturnType<typeof setTimeout> | undefined
   let rangeExitObserved = false
@@ -501,9 +495,9 @@ export function bindManagedProcess(
 
   // Batch stdin is written and closed up front; process exit and captured
   // output remain authoritative, so write errors (EPIPE) are best-effort.
-  if (typeof stdinMode === 'object' && stdin !== null) {
-    stdin.on('error', () => { /* stdin write is best-effort; outcome rides on exit/output. */ })
-    stdin.end(stdinMode.data)
+  if (typeof stdinMode === 'object' && child.stdin !== null) {
+    child.stdin.on('error', () => { /* stdin write is best-effort; outcome rides on exit/output. */ })
+    child.stdin.end(stdinMode.data)
   }
 
   const done = new Promise<SubprocessOutcome>((resolve, reject) => {
@@ -515,7 +509,10 @@ export function bindManagedProcess(
       settled = true
       // Only harness-collected pipes are force-closed at the drain boundary;
       // a 'pipe'-mode stream belongs to the caller and closes with the child.
-      stopCollectors()
+      if (stdoutCollector !== undefined) child.stdout?.destroy()
+      if (stderrCollector !== undefined) child.stderr?.destroy()
+      stdoutCollector?.seal()
+      stderrCollector?.seal()
       cleanup()
       resolve(outcome)
     }
@@ -532,7 +529,8 @@ export function bindManagedProcess(
       if (settled) return
       settled = true
       terminate()
-      stopCollectors()
+      stdoutCollector?.seal()
+      stderrCollector?.seal()
       cleanup()
       reject(error instanceof Error ? error : new Error(String(error)))
     })
@@ -541,8 +539,8 @@ export function bindManagedProcess(
       if (directOutcome !== undefined) settle(directOutcome)
     })
     function cleanup(): void {
-      // graceTimer deliberately NOT cleared: the forced termination call must
-      // still reach range survivors after the spawned command settles.
+      // graceTimer deliberately NOT cleared: the SIGKILL escalation must be
+      // able to reach tree survivors after the direct child settles.
       if (pipeDrainTimer !== undefined) clearTimeout(pipeDrainTimer)
     }
   })
@@ -554,11 +552,10 @@ export function bindManagedProcess(
 
   return {
     pid: launch.pid,
-    /* v8 ignore start -- pipe-mode streams exist on every conforming launch;
-       the null-coalesces guard an internal adapter defect only. */
-    stdin: stdinMode === 'pipe' ? stdin ?? undefined : undefined,
-    stdout: outMode === 'pipe' ? stdout ?? undefined : undefined,
-    stderr: errMode === 'pipe' ? stderr ?? undefined : undefined,
+    /* v8 ignore start -- pipe-mode fds exist on every spawn Node returns; the null-coalesces guard a nonconforming ChildProcess only. */
+    stdin: stdinMode === 'pipe' ? child.stdin ?? undefined : undefined,
+    stdout: outMode === 'pipe' ? child.stdout ?? undefined : undefined,
+    stderr: errMode === 'pipe' ? child.stderr ?? undefined : undefined,
     /* v8 ignore stop */
     collected: {
       ...stdoutCollector !== undefined ? { stdout: stdoutCollector } : {},
@@ -603,13 +600,5 @@ export function spawnSubprocess(spec: SubprocessSpawnSpec, internals: SpawnInter
     internals.linuxProcessGroupHasLiveMembers ?? linuxProcessGroupHasLiveMembers,
     direct,
   )
-  return bindManagedProcess(spec, {
-    stdin: child.stdin,
-    stdout: child.stdout,
-    stderr: child.stderr,
-    pid,
-    direct,
-    closed,
-    owner,
-  }, binding)
+  return bindManagedProcess(spec, { child, pid, direct, closed, owner }, binding)
 }

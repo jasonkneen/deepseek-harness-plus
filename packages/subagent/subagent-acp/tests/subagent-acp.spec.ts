@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
 import { chmodSync, existsSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url'
 import SubagentRuntime from '@deepseek-ai/dsh-subagent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
-import type { SubprocessHandle, SubprocessOutcome } from '@deepseek-ai/dsh-subprocess'
+import type { SubprocessOutcome } from '@deepseek-ai/dsh-subprocess'
 import * as acp from '../src/index.ts'
 import { acpStopReason, acpContentText, DEFAULT_DISPOSE_EOF_GRACE_MS, DEFAULT_DISPOSE_GRACE_MS, disposeAcpChild, startAcpRun, toAcpPrompt, type AcpRunSpec } from '../src/run.ts'
 import LocalSubprocessRuntime from '@deepseek-ai/dsh-subprocess-local'
@@ -195,29 +195,6 @@ describe('disposeAcpChild (the backend-owned teardown ladder over seam verbs)', 
     })
     await expect(disposeAcpChild(child, 1_000)).resolves.toBeUndefined()
     await expect(child.done).rejects.toThrow()
-  })
-
-  it('still asks an unpublished native owner to terminate and settle', async () => {
-    const terminate = vi.fn()
-    const waitForExit = vi.fn()
-      .mockResolvedValueOnce(false)
-      .mockResolvedValueOnce(true)
-    const done = Promise.reject(new Error('runner failed before publishing target pid'))
-    void done.catch(() => {})
-    const child: SubprocessHandle = {
-      pid: -1,
-      stdin: undefined,
-      stdout: undefined,
-      stderr: undefined,
-      collected: {},
-      done,
-      terminate,
-      waitForExit,
-    }
-
-    await expect(disposeAcpChild(child, 100)).resolves.toBeUndefined()
-    expect(terminate).toHaveBeenCalledOnce()
-    expect(waitForExit).toHaveBeenCalledTimes(2)
   })
 })
 

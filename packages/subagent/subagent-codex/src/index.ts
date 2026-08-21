@@ -43,7 +43,7 @@ export interface Config {
   env?: Record<string, string>
   /** Native non-interactive permission mode fixed for this Provider instance. */
   permissionMode?: CodexPermissionMode
-  /** Grace in milliseconds for app-server termination and output draining. */
+  /** Grace in milliseconds for app-server process-tree termination. */
   disposeGraceMs?: number
 }
 

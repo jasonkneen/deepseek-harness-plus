@@ -12,7 +12,7 @@ Namespace plugin (`name` / `inject` / `Config` / `apply`, no default export).
 - Lazily single-flights one server process per `(server id, canonical workspace target)`. A live server error is not replayed; if the selected pooled transport fails before or during a read-only query, the provider awaits its disposal and retries that query once on a fresh process.
 - Uses a compatibility-first **transient-open** sequence per query: resolve and byte-bound the source while streaming it through `ctx.fs`, `textDocument/didOpen` (version 1, full text), the requested request, then `textDocument/didClose` in `finally`. A failed or canceled `didOpen` write terminates the instance before the pool can reuse it. Documents close after each call, so the first version needs no `didChange`, content cache, or document LRU.
 - Serializes each source-read/open/query/close lifecycle through one abortable per-workspace queue so queued calls read current source only when their turn starts; distinct workspaces run in parallel. Provider disposal aborts filesystem and protocol work, awaits workspace lookups that have not entered a queue, then drains every queue and server.
-- After protocol shutdown fails, invokes the subprocess provider's termination procedure and awaits the same managed range through `waitForExit()`. The provider owns signal delivery and observation failures; the LSP host owns only protocol-first teardown and the final quiescence wait.
+- After protocol shutdown fails, terminates the server's descendant tree through the subprocess seam (POSIX process-group signaling; Windows `taskkill /T /F`). Tree-kill delivery is contained like every group signal — it races server exit — and quiescence is confirmed by the handle's tree-liveness wait rather than by the kill's own outcome.
 - Resolves the server executable, cwd, process, and protocol streams through `ctx.subprocess`; `initialize.processId` is `null` because another machine or PID namespace must not monitor the harness process.
 - Uses `ctx.fs` canonical containment, file URIs, and streamed text validation, but emits no `fs/observed`: only the LSP result is model-visible, so a query does not satisfy read-before-write policy.
 
@@ -32,7 +32,7 @@ The `servers` record key is the stable provider id reserved on `ctx.lsp`; each v
 | `maxStderrBytes` | `1000000` | Largest stderr tail retained for diagnostics. |
 | `maxDocumentBytes` | `4000000` | Largest source file this host will open. |
 | `shutdownTimeoutMs` | `5000` | Graceful `shutdown`/`exit` budget before escalation. |
-| `killGraceMs` | `2000` | Grace supplied to subprocess termination and output draining. |
+| `killGraceMs` | `2000` | Grace for request cancellation and for SIGTERM→SIGKILL escalation. |
 
 `servers` must contain at least one entry, and every id must be non-empty. Timer budgets must be positive integers no greater than Node's `2_147_483_647` ms timer limit. All executables resolve at load after credential scrubbing; a bad later entry prevents every provider from registering. Processes launch lazily on the first matching query.
 

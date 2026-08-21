@@ -58,18 +58,19 @@ export interface AcpRunSpec {
   /**
    * Grace period (ms) for the child's EOF-driven quiesce in
    * {@link SubagentRun.dispose} — the window to flush persistence and tear down
-   * its OWN nested subprocesses before the parent invokes provider termination. The
+   * its OWN nested subprocesses before the parent escalates to a signal. The
    * plugin fills this from its `disposeEofGraceMs` config.
    */
   disposeEofGraceMs: number
   /**
-   * Grace supplied to subprocess termination and output draining in
-   * {@link SubagentRun.dispose}. The plugin fills it from `disposeGraceMs`.
+   * Termination-escalation grace (ms) in {@link SubagentRun.dispose}; POSIX
+   * waits this long after `SIGTERM` before `SIGKILL`, while Windows
+   * force-terminates directly. The plugin fills it from `disposeGraceMs`.
    */
   disposeGraceMs: number
   /**
    * Spawn function from the subprocess seam (`ctx.subprocess.spawn`), so the
-   * child rides the shared scrub, managed-range teardown, and service-owned
+   * child rides the shared scrub, tree-scoped teardown, and service-owned
    * lifetime instead of a package-local child_process path.
    */
   spawn: (spec: SubprocessSpawnSpec) => SubprocessHandle
@@ -84,13 +85,13 @@ export interface AcpRunSpec {
   onError?: (error: Error, stopReason: SubagentStopReason) => void
 }
 
-/** EOF grace for child flush and nested-process teardown; wider than the termination grace below. */
+/** EOF grace for child flush and nested-process teardown; wider than the signal grace below. */
 export const DEFAULT_DISPOSE_EOF_GRACE_MS = 6_000
 
-/** Default subprocess termination and output-drain grace (the `disposeGraceMs` config). */
+/** Default POSIX grace between SIGTERM and SIGKILL on dispose (the `disposeGraceMs` config). */
 export const DEFAULT_DISPOSE_GRACE_MS = 3_000
 
-/** Bounded managed-range wait: polls the handle until its owned range exits or `ms` elapses. */
+/** Bounded whole-tree exit wait: polls the handle's tree liveness until it exits or `ms` elapses. */
 async function treeExitsWithin(child: SubprocessHandle, ms: number): Promise<boolean> {
   const controller = new AbortController()
   const timer = setTimeout(() => { controller.abort() }, ms)
@@ -103,20 +104,24 @@ async function treeExitsWithin(child: SubprocessHandle, ms: number): Promise<boo
 
 /**
  * Cooperative teardown ladder for an out-of-process agent, over the seam's
- * public verbs; resolves only at managed-range quiescence: stdin EOF (the child's
+ * public verbs; resolves only at whole-tree quiescence: stdin EOF (the child's
  * window to flush persistence and reap its own descendants), then the
- * provider-owned terminate() procedure and its managed-range exit proof.
+ * terminate() escalation (SIGTERM → spec grace → SIGKILL) and its
+ * whole-tree exit proof.
  * @param child - the spawned ACP child's handle.
  * @param eofGraceMs - tier-1 window after stdin EOF.
  */
 export async function disposeAcpChild(child: SubprocessHandle, eofGraceMs: number): Promise<void> {
-  // Observe the direct result independently. A non-positive pid does not prove
-  // that a native owner has no range left to terminate or await.
-  void child.done.catch(() => {})
+  // A spawn failure has no process to tear down; observe the rejection so
+  // disposal in a finally block cannot surface it as unhandled.
+  if (child.pid <= 0) {
+    await child.done.catch(() => {})
+    return
+  }
   child.stdin?.end()
   if (await treeExitsWithin(child, eofGraceMs)) return
-  // terminate() owns the provider-specific procedure. Its unbounded wait is
-  // the range owner's exit proof, not a second derived grace that can overflow.
+  // terminate() owns the bounded SIGTERM→SIGKILL timer. Its unbounded wait is
+  // the process owner's exit proof, not a second derived grace that can overflow.
   child.terminate()
   await child.waitForExit()
 }

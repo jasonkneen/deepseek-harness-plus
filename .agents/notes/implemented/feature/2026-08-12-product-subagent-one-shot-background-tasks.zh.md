@@ -16,7 +16,7 @@ Codex 与 Claude Code 提供方已经能够运行一项自包含任务并返回�
 
 [命名实例决策](2026-08-18-product-subagent-named-instances.zh.md)允许两个产品分别拥有多个配置项。每个新增宿主提供方配置项都有独立的 `providerName`，每个公开的 preset 工具配置项都通过 `provider` 绑定该名称并保持唯一的 `toolName`；前台或后台调度选择不会限制实例数量。
 
-[通用 one-shot 后台适配器](2026-07-08-background-subagent-tasks.zh.md)负责后台登记与结算。它会启动同一个 [`SubagentRun`](2026-06-21-subagent-capability-seam.zh.md)，让 Job 自有的取消信号覆盖提供方启动与执行，等待 `run.result` 和 `run.dispose()`，把终态结果与可选安全诊断映射进 Job，并由 `job_output`、`job_list`、`job_kill` 与现有完成通知公开该状态。[产品提供方决策](2026-08-04-claude-code-and-codex-subagent-backends.zh.md)继续负责原生协议、答案选择、本地取消与 managed-range 完全停稳；[非交互权限决策](2026-08-15-product-subagent-noninteractive-permissions.zh.md)负责各产品提供方的 Profile 配置与诊断生产。
+[通用 one-shot 后台适配器](2026-07-08-background-subagent-tasks.zh.md)负责后台登记与结算。它会启动同一个 [`SubagentRun`](2026-06-21-subagent-capability-seam.zh.md)，让 Job 自有的取消信号覆盖提供方启动与执行，等待 `run.result` 和 `run.dispose()`，把终态结果与可选安全诊断映射进 Job，并由 `job_output`、`job_list`、`job_kill` 与现有完成通知公开该状态。[产品提供方决策](2026-08-04-claude-code-and-codex-subagent-backends.zh.md)继续负责原生协议、答案选择、本地取消与进程树完全停稳；[非交互权限决策](2026-08-15-product-subagent-noninteractive-permissions.zh.md)负责各产品提供方的 Profile 配置与诊断生产。
 
 本调度决策不新增提供方配置、服务接口、事件、协议字段、持久化格式或产品标识符。提供方可以独立定义自己的 Profile 配置；前台与后台的区别仍然只在于由哪个现有消费方等待同一个 one-shot 运行。
 
@@ -39,7 +39,7 @@ product tool call
 | 产品选择与公开 | Agent Preset | 把一个固定工具名绑定到一个固定提供方 | 启用一行只会公开对应产品工具 |
 | 前台或后台选择 | `dsh-tool-subagent` | 按 `one-shot` 策略解析 `run_in_background` | 省略参数时在前台运行；显式传入 `true` 时返回 Job id |
 | Job id、状态、输出、取消与通知 | `ctx.jobs` 与 `dsh-tool-jobs` | 登记并展示现有 one-shot 运行 | 通用作业工具为准确父级收集或停止运行 |
-| 原生结果、可选诊断与进程完全停稳 | 产品提供方与 `dsh-subprocess` | 产生一个最终结果并释放一个 managed range | Job 结算与前台返回消费同一结果，且都会等待资源释放 |
+| 原生结果、可选诊断与进程完全停稳 | 产品提供方与 `dsh-subprocess` | 产生一个最终结果并释放一棵进程树 | Job 结算与前台返回消费同一结果，且都会等待资源释放 |
 
 ## 发布组装
 
@@ -69,4 +69,4 @@ Web 组装测试会从仓库 examples 依赖锚点显式挂载两个可选提供
 
 agent 可以在 Codex 或 Claude Code 处理独立 one-shot 任务时继续推进其他工作，随后通过其他后台 producer 共用的 Job 控制工具收集最终回答或取消运行。若失败结果提供了安全的提供方诊断，前台与一次性后台消费方会呈现同一内容。
 
-每次产品委托仍会启动一个全新的原生进程或 query，把最终 assistant 文本作为唯一 assistant 载荷，并以提供方资源释放和 managed-range 退出结束。失败结果可以另行携带安全诊断。后台调用还会额外公开通用 Job id、状态、完成通知以及收集或取消结果。后台 Job 仅存在于当前进程且由父级拥有：它不会在父级资源释放后继续存活，不会公开产品中间活动，也不会让产品对话变得可恢复。只有 Profile 显式安装产品集成时，生产安装才承担对应成本；公开后台参数的任何组装还必须让通用 Job 提供方与控制工具保持可用。
+每次产品委托仍会启动一个全新的原生进程或 query，把最终 assistant 文本作为唯一 assistant 载荷，并以提供方资源释放和整棵进程树退出结束。失败结果可以另行携带安全诊断。后台调用还会额外公开通用 Job id、状态、完成通知以及收集或取消结果。后台 Job 仅存在于当前进程且由父级拥有：它不会在父级资源释放后继续存活，不会公开产品中间活动，也不会让产品对话变得可恢复。只有 Profile 显式安装产品集成时，生产安装才承担对应成本；公开后台参数的任何组装还必须让通用 Job 提供方与控制工具保持可用。

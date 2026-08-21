@@ -2,7 +2,7 @@
  * Real-process tests for `@deepseek-ai/dsh-pwsh-local`: the LOCAL subprocess
  * service plus a REAL pwsh executable, exercised through the executor seam
  * (`resolve` → `run`/`start`). These verify the world — actual PowerShell
- * runs, output capture, truncation and spill, deadlines, termination, and
+ * runs, output capture, truncation and spill, deadlines, kill escalation, and
  * the background-handle contract. The suite self-skips when no usable `pwsh`
  * resolves (a CI accommodation for hosts without PowerShell); the pure unit tests
  * (config validation, executable resolution) run on every platform. PowerShell
@@ -175,43 +175,6 @@ describe('spawn construction (pure, every platform)', () => {
     }
   }
 
-  class RejectingSubprocessRuntime extends SubprocessRuntime {
-    private readonly reader: SubprocessOutputReader = {
-      readFrom: () => ({ text: '', lossy: false, nextOffset: 0 }),
-    }
-
-    constructor(ctx: Context, private readonly failure: unknown) {
-      super(ctx)
-    }
-
-    override async resolveExecutable(command: string): Promise<string> { return command }
-    override spawnTerminal(): Promise<never> { throw new Error('pwsh spawns pipes, never terminals') }
-    override spawn(_spec: SubprocessSpawnSpec): SubprocessHandle {
-      return {
-        pid: 123,
-        stdin: undefined,
-        stdout: undefined,
-        stderr: undefined,
-        collected: { stdout: this.reader, stderr: this.reader },
-        done: Promise.resolve().then(() => { throw this.failure }),
-        terminate: () => {},
-        waitForExit: async () => true,
-      }
-    }
-  }
-
-  class ObservingPwshExecutor extends PwshLocalExecutor {
-    spawnFailed: boolean | undefined
-
-    protected override onProcessDone(
-      _proc: ShellProcess,
-      _stderr: string,
-      spawnFailed: boolean,
-    ): void {
-      this.spawnFailed = spawnFailed
-    }
-  }
-
   it('runs every command as ONE argv element under the UTF-8 encoding preamble', async () => {
     const ctx = new Context()
     const subprocess = new CapturingSubprocessRuntime(ctx)
@@ -223,23 +186,6 @@ describe('spawn construction (pure, every platform)', () => {
     expect(argv[5]).toBe(`${ENCODING_PREAMBLE}Write-Output 你好`)
     expect(ENCODING_PREAMBLE).toContain('[Console]::OutputEncoding')
     expect(ENCODING_PREAMBLE).toContain('$OutputEncoding')
-  })
-
-  it('does not label a post-start provider rejection as a spawn failure', async () => {
-    const ctx = new Context()
-    const failure = Object.assign(new Error('managed owner became unreadable'), {
-      code: 'ENOENT',
-      syscall: 'spawn pwsh',
-      path: 'pwsh',
-    })
-    new RejectingSubprocessRuntime(ctx, failure)
-    await ctx.plugin(ObservingPwshExecutor, { pwshPath: 'pwsh' })
-    const pwsh = ctx.shell as ObservingPwshExecutor
-    const proc = pwsh.start(pwsh.resolve({ command: 'Write-Output ok' }))
-    await proc.done
-    expect(proc.readOutput().delta).toContain('subprocess failed:')
-    expect(proc.readOutput().delta).toBe('')
-    expect(pwsh.spawnFailed).toBe(false)
   })
 })
 
@@ -454,7 +400,7 @@ describe.skipIf(!hasPwsh)('PwshLocalExecutor.start (background process handles)'
     expect(lf(read.delta)).toContain('[stderr]')
   })
 
-  it('kill() terminates the managed range: true once, false after settlement', async () => {
+  it('kill() terminates the process tree: true once, false after settlement', async () => {
     const { bash } = await setup()
     const proc = bash.start(bash.resolve({ command: 'Start-Sleep -Seconds 60' }))
     expect(proc.kill()).toBe(true)

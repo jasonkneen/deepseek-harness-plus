@@ -108,7 +108,7 @@ interface LspToolInput {
 
 seam 和提供方不增加启动或请求截止时间。非工具调用方不会获得隐藏超时，必须自行提供 `AbortSignal`，并在需要预算时使用 `deadline()`。
 
-提供方 dispose 发生在工具执行之外，因此 `dsh-lsp-stdio` 保留 `shutdownTimeoutMs`（默认 `5_000`）限制 `shutdown`/`exit`，以及 `killGraceMs`（默认 `2_000`），同时用于限制请求取消宽限期，并提供给 subprocess 终止与输出排空；失败实例的清理也使用相同边界。定时器值超过 Node `2_147_483_647` ms 的调度范围时，插件加载失败。LSP provider 使用 `deadline()` 和 `timeoutOf()` 并拥有请求取消，subprocess provider 则拥有范围终止与观察；超时通知本身不会终止工作。
+提供方 dispose 发生在工具执行之外，因此 `dsh-lsp-stdio` 保留 `shutdownTimeoutMs`（默认 `5_000`）限制 `shutdown`/`exit`，以及 `killGraceMs`（默认 `2_000`），同时用于限制请求取消宽限期和从 SIGTERM 升级到 SIGKILL 的宽限期；失败实例的清理也使用相同边界。定时器值超过 Node `2_147_483_647` ms 的调度范围时，插件加载失败。提供方使用 `deadline()` 和 `timeoutOf()`，但仍负责请求取消、进程信号和等待关闭，因为超时通知不会终止工作。
 
 ## 工作区、文件系统与文档同步
 

@@ -28,9 +28,6 @@ function asyncQuery(runSync: typeof spawnSync) {
 
 describe.skipIf(process.platform === 'win32')('Linux systemd scope adapter', () => {
   it('requires a readable user manager and literal-argument systemd support', () => {
-    const secretName = 'DSH_SCOPE_TEST_TOKEN'
-    const previousSecret = process.env[secretName]
-    process.env[secretName] = 'secret'
     const calls: string[][] = []
     const environments: Array<NodeJS.ProcessEnv | undefined> = []
     const runSync = vi.fn((command: string, args: readonly string[], options?: { env?: NodeJS.ProcessEnv }) => {
@@ -39,24 +36,18 @@ describe.skipIf(process.platform === 'win32')('Linux systemd scope adapter', () 
       return { status: 0, error: undefined }
     }) as unknown as typeof spawnSync
     const runnerInvocation = ['node-runtime', 'runner-entry.js']
-    try {
-      expect(probeLinuxScope({
-        spawnSync: runSync,
-        systemdRun: 'systemd-run',
-        systemctl: 'systemctl',
-        runnerInvocation,
-      })).toBe(true)
-      expect(calls[1]).toContain('--expand-environment=no')
-      expect(calls[1]).not.toContain('--pipe')
-      expect(calls[1]).not.toContain('--wait')
-      const separator = calls[1]?.indexOf('--') ?? -1
-      expect(calls[1]?.slice(separator + 1)).toEqual([...runnerInvocation, '--mode', 'probe-node'])
-      expect(environments[0]?.LC_ALL).toBe('C')
-      expect(environments[0]).not.toHaveProperty(secretName)
-    } finally {
-      if (previousSecret === undefined) Reflect.deleteProperty(process.env, secretName)
-      else process.env[secretName] = previousSecret
-    }
+    expect(probeLinuxScope({
+      spawnSync: runSync,
+      systemdRun: 'systemd-run',
+      systemctl: 'systemctl',
+      runnerInvocation,
+    })).toBe(true)
+    expect(calls[1]).toContain('--expand-environment=no')
+    expect(calls[1]).not.toContain('--pipe')
+    expect(calls[1]).not.toContain('--wait')
+    const separator = calls[1]?.indexOf('--') ?? -1
+    expect(calls[1]?.slice(separator + 1)).toEqual([...runnerInvocation, '--mode', 'probe-node'])
+    expect(environments[0]?.LC_ALL).toBe('C')
 
     const oldSystemd = vi.fn((command: string) => ({
       status: command === 'systemctl' ? 0 : 1,
@@ -113,7 +104,7 @@ describe.skipIf(process.platform === 'win32')('Linux systemd scope adapter', () 
     expect(systemdArgs).not.toContain('literal $VALUE')
   })
 
-  it('still escalates after a missing-unit TERM response without fabricating a direct result', async () => {
+  it('still escalates after a missing-unit TERM response and uses the authoritative scope KILL', async () => {
     let wrapper: ReturnType<typeof spawn> | undefined
     const run = vi.fn((_command: string, args: readonly string[], options: Parameters<typeof spawn>[2]) => {
       const separator = args.indexOf('--')
@@ -142,7 +133,7 @@ describe.skipIf(process.platform === 'win32')('Linux systemd scope adapter', () 
     })
     launch.owner.signal('SIGTERM')
     launch.owner.signal('SIGKILL')
-    await expect(launch.direct).rejects.toThrow('exited without a direct-command result')
+    await expect(launch.direct).resolves.toEqual({ exitCode: null, signal: 'SIGKILL' })
     await expect(launch.owner.waitForExit()).resolves.toBe(true)
   })
 
@@ -264,7 +255,7 @@ describe.skipIf(process.platform === 'win32')('Linux systemd scope adapter', () 
       }),
       runnerInvocation: spawnRunnerInvocation(),
     })
-    expect(launch.pid).toBe(-1)
+    expect(launch.child.pid).toBeUndefined()
     await expect(launch.direct).rejects.toThrow('runner failed to start')
     await expect(launch.owner.waitForExit()).resolves.toBe(true)
     await launch.closed

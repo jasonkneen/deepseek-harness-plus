@@ -151,9 +151,8 @@ export class SandboxBashExecutor extends LocalBashExecutor {
     const facts = this.processFacts.get(proc)
     if (facts !== undefined) {
       this.processFacts.delete(proc)
-      // A definite spawn rejection never started the confined launch. A
-      // settled runner failure outranks denial because its diagnostics may
-      // contain denial terms; unclassified provider rejection proves neither.
+      // A rejected spawn never started the confined launch. Otherwise runner
+      // failure outranks denial because its diagnostics may contain denial terms.
       const runnerFailed = spawnFailed
         ? isRunnerSpawnFailure(spawnError, facts.runnerProgram, facts.workdir)
         : classifyRunnerFailure(proc.exitCode, stderr, facts.runnerFailureRules) !== undefined

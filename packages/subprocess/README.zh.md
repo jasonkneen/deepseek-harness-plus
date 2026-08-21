@@ -2,12 +2,12 @@
 
 [English](README.md) | 中文
 
-这里集中提供一个执行世界的共享进程基底：可执行文件查找、具有原始或收集式 stdio 的完整 provider-managed range，以及一项底层终端进程原语，负责 PTY 分配、前台进程组和 provider 仍可观察到的会话成员清理。命令默认值补全、shell 语义、时限、协议分帧、就绪状态与呈现留在消费方：[bash 执行器](../shell/README.zh.md)、[LSP 主机](../lsp/README.zh.md)、[PTY shell 后端](../terminal/README.zh.md)与 [ACP（Agent Client Protocol）subagent 后端](../subagent/README.zh.md)。参见 [subprocess seam Agent Note](../../.agents/notes/implemented/architecture/2026-07-26-subprocess-seam.zh.md)。
+这里集中提供一个执行世界的共享进程基底：可执行文件查找、具有原始或收集式 stdio 的完全明确指定的受管子进程树，以及一项底层终端进程原语，负责 PTY 分配、前台进程组和提供方仍可观察到的会话成员清理。命令默认值补全、shell 语义、时限、协议分帧、就绪状态与呈现留在消费方：[bash 执行器](../shell/README.zh.md)、[LSP 主机](../lsp/README.zh.md)、[PTY shell 后端](../terminal/README.zh.md)与 [ACP（Agent Client Protocol）subagent 后端](../subagent/README.zh.md)。参见 [subprocess seam Agent Note](../../.agents/notes/implemented/architecture/2026-07-26-subprocess-seam.zh.md)。
 
 | 包 | ctx 键 | 角色 |
 |---|---|---|
 | [`subprocess`](subprocess/README.zh.md)（`@deepseek-ai/dsh-subprocess`） | `ctx.subprocess` | Service Definition：可执行文件查找、普通受管 spawn、终端进程原语、句柄生命周期，以及共享的环境／输出词汇 |
-| [`subprocess-local`](subprocess-local/README.zh.md)（`@deepseek-ai/dsh-subprocess-local`） | 无 | 本地 Service Provider：native 与 fallback managed range、有界收集／spill、`node-pty`、前台／会话检查、信号发送，以及先终止再等待退出的 dispose（资源释放） |
+| [`subprocess-local`](subprocess-local/README.zh.md)（`@deepseek-ai/dsh-subprocess-local`） | 无 | 本地 Service Provider：detached 进程树、有界收集／spill、`node-pty`、前台／会话检查、进程树信号发送，以及先终止再等待退出的 dispose（资源释放） |
 | [`win32-process`](win32-process/README.zh.md)（`@deepseek-ai/dsh-win32-process`） | 无 | 仅限 Windows 的底层库：sandbox 与 ordinary process creation、继承／匿名管道 stdio、suspended Job 分配、polling、wait 与句柄清理的唯一 Koffi owner |
 
 即使消费方重载，进程生命周期仍由服务负责管理；消费方负责定义进程的含义（一条 bash 命令、未来的非 shell 运行器），以及决定塑造该进程的每一项默认值。

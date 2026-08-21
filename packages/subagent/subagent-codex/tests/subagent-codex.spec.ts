@@ -1922,8 +1922,7 @@ describe('run lifecycle and quiescence', () => {
     await expect(asyncSpawnFailure)
       .rejects.toThrow(expectedFailureDiagnostic('initialize', 'unknown'))
     await expect(asyncSpawnFailure).rejects.not.toThrow('SECRET_TOKEN')
-    expect(asyncSpawnFailureChild.terminate).toHaveBeenCalledOnce()
-    expect(asyncSpawnFailureChild.waitForExit).toHaveBeenCalledOnce()
+    expect(asyncSpawnFailureChild.terminate).not.toHaveBeenCalled()
 
     const child = fakeChild()
     const starting = startCodexRun(request(), runSpec(child))
@@ -2297,7 +2296,7 @@ describe('disposeCodexChild', () => {
       .resolves.toBeUndefined()
   })
 
-  it('asks an unpublished owner to settle after a spawn-level failure', async () => {
+  it('handles a spawn-level failure with no process tree', async () => {
     const child = fakeChild({
       pid: -1,
       doneError: new Error('spawn failed'),
@@ -2305,8 +2304,8 @@ describe('disposeCodexChild', () => {
     const wire = defaultWire(child)
     await expect(disposeCodexChild(wire, child.handle))
       .resolves.toBeUndefined()
-    expect(child.terminate).toHaveBeenCalledOnce()
-    expect(child.waitForExit).toHaveBeenCalledOnce()
+    expect(child.terminate).not.toHaveBeenCalled()
+    expect(child.waitForExit).not.toHaveBeenCalled()
   })
 
   it('reports tree-wait failure with safe teardown facts', async () => {

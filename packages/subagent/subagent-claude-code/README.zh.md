@@ -6,11 +6,11 @@
 
 ## 启动与所有权
 
-`start(request)` 只接受非空的文本块序列，并根据父会话确定子级 cwd。它会创建一个私有 `AbortController`，调用官方 SDK 的 `query()`，并仅在 SDK 的 `spawnClaudeCodeProcess` 钩子已经提供由 [`dsh-subprocess`](../../subprocess/subprocess/README.zh.md) 管理的活动 CLI 句柄后发布此次运行。若在发布前发生失败或取消，它会关闭 query、终止所有已取得的 managed range 并等待其退出，然后拒绝 `start()` 调用。
+`start(request)` 只接受非空的文本块序列，并根据父会话确定子级 cwd。它会创建一个私有 `AbortController`，调用官方 SDK 的 `query()`，并仅在 SDK 的 `spawnClaudeCodeProcess` 钩子已经提供由 [`dsh-subprocess`](../../subprocess/subprocess/README.zh.md) 管理的活动 CLI 句柄后发布此次运行。若在发布前发生失败或取消，它会关闭 query、终止所有已取得的进程树并等待其退出，然后拒绝 `start()` 调用。
 
 SDK 接收由文本块原样拼接成的任务。提供方会完整迭代 SDK 消息流，而且只接受满足以下条件的 `result` 消息：其 `subtype: "success"`、`is_error: false` 且 `result` 非空白，之后迭代器还须正常结束。所有失败仍映射为 `error`：Agent SDK 0.3.220 的四种错误子类型保留准确类别；标记为错误或内容空白的成功消息成为 `invalid-success`；缺失结果成为 `missing-result`；未分类的 query 失败成为 `unknown`；CLI 提前退出成为 `process-exit`。诊断还会注明当前 `query-start`、`query-run`、`process` 或 `teardown` 阶段，并分别保留已观测到的退出码与信号。该提供方不会产生 `max-tokens` 或 `refusal`。
 
-本地取消会在结果竞态中胜出并映射为 `aborted`，且不附带失败诊断。`dispose()`（资源释放）具有幂等性：它会中止此次运行、请求 SDK query 关闭、调用 subprocess provider 的终止过程，并等待 managed range 退出。SDK 的优雅关闭只表达协议意图；进程是否完全停稳仍以子进程句柄为准。启动与清理拒绝会在 Error 消息中公开同样固定的安全阶段和进程事实，而原始产品或 Host 错误只保留在内部 cause 链与提供方的 Host 日志中。结果失败与独立的清理失败仍彼此分离。
+本地取消会在结果竞态中胜出并映射为 `aborted`，且不附带失败诊断。`dispose()`（资源释放）具有幂等性：它会中止此次运行、请求 SDK query 关闭、调用共享的进程树逐级终止机制，并等待整棵进程树退出。SDK 的优雅关闭只表达协议意图；进程是否完全停稳仍以子进程句柄为准。启动与清理拒绝会在 Error 消息中公开同样固定的安全阶段和进程事实，而原始产品或 Host 错误只保留在内部 cause 链与提供方的 Host 日志中。结果失败与独立的清理失败仍彼此分离。
 
 ## 原生设置与交互
 
@@ -29,7 +29,7 @@ SDK 接收由文本块原样拼接成的任务。提供方会完整迭代 SDK �
 | `providerName` | `claude-code` | `ctx.subagents` 中的非空注册名称；每个已挂载实例都需要唯一值。 |
 | `env` | `{}` | 显式指定的 SDK/CLI 环境，叠加在由共享机制清除凭证后的父环境之上。 |
 | `permissionMode` | `dontAsk` | 为该提供方实例的每次运行固定原生非交互权限策略。 |
-| `disposeGraceMs` | `3000` | 提供给 subprocess 终止与输出排空的宽限期，单位为毫秒且须为正有限值，并不得大于仓库共享的 [`MAX_TIMER_DELAY_MS`](../../util/timeout/README.zh.md)；随后资源释放会等待 managed range 退出。 |
+| `disposeGraceMs` | `3000` | 共享进程树责任方各终止层级之间的宽限期，单位为毫秒且须为正有限值，并不得大于仓库共享的 [`MAX_TIMER_DELAY_MS`](../../util/timeout/README.zh.md)；随后资源释放会等待整棵进程树退出。 |
 
 | `permissionMode` 值 | 原生行为 |
 |---|---|

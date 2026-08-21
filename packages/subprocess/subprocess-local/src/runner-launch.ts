@@ -41,14 +41,17 @@ export function spawnRunnerInvocation(): string[] {
 /**
  * Build wrapper stdio corresponding to the public target dispositions.
  * @param spec - target stdio request.
+ * @param ipc - append a Node IPC channel for the Windows runner.
  * @returns child-process stdio configuration.
  */
-export function runnerStdio(spec: SubprocessSpawnSpec): StdioOptions {
-  return [
+export function runnerStdio(spec: SubprocessSpawnSpec, ipc = false): StdioOptions {
+  const stdio: StdioOptions = [
     spec.stdio.stdin === 'ignore' ? 'ignore' : 'pipe',
     spec.stdio.stdout === 'inherit' ? 'inherit' : 'pipe',
     spec.stdio.stderr === 'inherit' ? 'inherit' : 'pipe',
   ]
+  if (ipc) stdio.push('ipc')
+  return stdio
 }
 
 /**
@@ -68,11 +71,6 @@ interface RunnerHandshake {
   pid: number
   events: RunnerEvent[]
 }
-
-/** Startup-only result for launchers that observe the direct process elsewhere. */
-export type RunnerStartResult =
-  | { ok: true; pid: number; events: RunnerEvent[] }
-  | { ok: false; pid: -1; error: Error }
 
 /** Observe wrapper death without waiting for Node's blocked event loop to emit close. */
 function runnerExited(child: ChildProcess, pid: number): boolean {
@@ -104,9 +102,7 @@ function waitForRunnerHandshake(child: ChildProcess, files: RunnerFiles): Runner
     const events = readRunnerEvents(files.eventsPath)
     const terminal = events.find(event => event.type === 'started' || event.type === 'spawn-error' || event.type === 'runner-error')
     if (terminal?.type === 'started') return { pid: terminal.pid, events }
-    if (terminal?.type === 'spawn-error' || terminal?.type === 'runner-error') {
-      throw deserializeSpawnError(terminal.error)
-    }
+    if (terminal?.type === 'spawn-error' || terminal?.type === 'runner-error') return { pid: -1, events }
     if (child.pid === undefined) throw new Error('native subprocess runner failed to start')
     if (runnerExited(child, child.pid)) throw new Error('native subprocess runner exited before reporting target start')
     Atomics.wait(handshakeWait, 0, 0, 5)
@@ -114,30 +110,11 @@ function waitForRunnerHandshake(child: ChildProcess, files: RunnerFiles): Runner
   throw new Error(`native subprocess runner did not report target start within ${String(RUNNER_HANDSHAKE_TIMEOUT_MS)}ms`)
 }
 
-/**
- * Read only the native runner's startup result.
- * @param child - native wrapper process.
- * @param files - private request and result paths.
- * @returns target pid after publication, otherwise the launch failure.
- */
-export function runnerStart(child: ChildProcess, files: RunnerFiles): RunnerStartResult {
-  try {
-    const handshake = waitForRunnerHandshake(child, files)
-    return { ok: true, pid: handshake.pid, events: handshake.events }
-  } catch (error) {
-    cleanupRunnerFiles(files)
-    return {
-      ok: false,
-      pid: -1,
-      error: error as Error,
-    }
-  }
-}
-
 async function waitForDirectResult(
   files: RunnerFiles,
   initial: RunnerEvent[],
   closed: Promise<void>,
+  missingResult?: () => SubprocessOutcome | undefined,
 ): Promise<SubprocessOutcome> {
   let seen = 0
   const wrapperState = { closed: false }
@@ -154,6 +131,8 @@ async function waitForDirectResult(
     }
     seen = Math.max(seen, events.length, initial.length)
     if (closedBeforeRead) {
+      const known = missingResult?.()
+      if (known !== undefined) return known
       throw new Error('native subprocess runner exited without a direct-command result')
     }
     await sleepMs(RUNNER_EVENT_POLL_MS)
@@ -165,21 +144,28 @@ async function waitForDirectResult(
  * @param child - native wrapper process.
  * @param files - private request and result paths.
  * @param closed - wrapper close observation attached before the start handshake.
+ * @param missingResult - authoritative outcome available when force-kill prevents a final event.
  * @returns target pid and direct result promise.
  */
 export function runnerDirectResult(
   child: ChildProcess,
   files: RunnerFiles,
   closed: Promise<void>,
+  missingResult?: () => SubprocessOutcome | undefined,
 ): {
   pid: number
   direct: Promise<SubprocessOutcome>
 } {
-  const start = runnerStart(child, files)
-  if (!start.ok) return { pid: -1, direct: Promise.resolve().then(() => { throw start.error }) }
+  let handshake: RunnerHandshake
+  try {
+    handshake = waitForRunnerHandshake(child, files)
+  } catch (error) {
+    cleanupRunnerFiles(files)
+    return { pid: -1, direct: Promise.resolve().then(() => { throw error }) }
+  }
   return {
-    pid: start.pid,
-    direct: waitForDirectResult(files, start.events, closed),
+    pid: handshake.pid,
+    direct: waitForDirectResult(files, handshake.events, closed, missingResult),
   }
 }
 

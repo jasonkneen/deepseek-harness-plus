@@ -10,7 +10,7 @@ English | [中文](2026-07-27-dispose-ladder-to-consumer.zh.md)
 
 ## Decision
 
-The ladder moves to its one consumer. `dsh-subagent-acp` owns `disposeAcpChild(child, eofGraceMs)`, built entirely on the seam's public verbs: close `stdin`, bound a `waitForExit` on `eofGraceMs`, then call the provider-owned `terminate()` procedure and await an unbounded `waitForExit()` for the subprocess owner's managed-range exit proof. The seam keeps `kill`/`terminate`/`waitForExit` — mechanisms, not policy — and `waitForExit(signal?)` is exactly the quiescence probe a consumer ladder needs to hold the cooperative tier on real range exit without deriving another timer from the termination grace. The seam's handle loses one method and one exported interface.
+The ladder moves to its one consumer. `dsh-subagent-acp` owns `disposeAcpChild(child, eofGraceMs)`, built entirely on the seam's public verbs: close `stdin`, bound a `waitForExit` on `eofGraceMs`, then call `terminate()`, whose SIGTERM→spec-grace→SIGKILL escalation already owns the signal timer, and await an unbounded `waitForExit()` for the subprocess owner's whole-tree exit proof. The seam keeps `kill`/`terminate`/`waitForExit` — mechanisms, not policy — and `waitForExit(signal?)` is exactly the quiescence probe a consumer ladder needs to hold the cooperative tier on real tree exit without deriving another timer from the termination grace. The seam's handle loses one method and one exported interface.
 
 ## Alternatives considered
 
@@ -20,4 +20,4 @@ The ladder moves to its one consumer. `dsh-subagent-acp` owns `disposeAcpChild(c
 
 ## Consequences
 
-Bought: the Service Definition is one method and one type smaller; Service Providers owe four verbs and no teardown policy; the cooperative EOF window lives beside the ACP config field that tunes it, while the subprocess owner alone owns termination and the final join. Cost: a future backend wanting EOF-first teardown writes ~20 lines against the verbs (or lifts the ACP helper); the ladder's tier tests live in the ACP suite, and the Service Definition suite pins the verbs the ladder composes (bounded `waitForExit` false before termination and an unbounded managed-range join after it) instead of the composed policy.
+Bought: the Service Definition is one method and one type smaller; Service Providers owe four verbs and no teardown policy; the cooperative EOF window lives beside the ACP config field that tunes it, while the subprocess owner alone owns the termination window and final join. Cost: a future backend wanting EOF-first teardown writes ~20 lines against the verbs (or lifts the ACP helper); the ladder's tier tests live in the ACP suite, and the Service Definition suite pins the verbs the ladder composes (bounded `waitForExit` false before escalation and an unbounded whole-tree join after it) instead of the composed policy.

@@ -1449,8 +1449,8 @@ describe('run publication, cancellation, and settlement', () => {
     await expect(failedStartup).rejects.not.toThrow('spawn /sdk/claude EACCES')
     await expect(failedStartup).rejects.toMatchObject({ cause: spawnError })
     expect(failed.close).toHaveBeenCalledOnce()
-    expect(failedSpawn.terminate).toHaveBeenCalledOnce()
-    expect(failedSpawn.waitForExit).toHaveBeenCalledOnce()
+    expect(failedSpawn.terminate).not.toHaveBeenCalled()
+    expect(failedSpawn.waitForExit).not.toHaveBeenCalled()
 
     const failedSpawnAbort = new AbortController()
     const cancelledFailedSpawn = fakeChild({
@@ -1505,12 +1505,10 @@ describe('run publication, cancellation, and settlement', () => {
     expect(cancelledFailedSpawnClose).toHaveBeenCalledOnce()
 
     const failedSpawnCloseError = new Error('query close failed')
-    const failedSpawnWaitError = new Error('managed range wait failed')
     const failedSpawnClose = vi.fn(() => { throw failedSpawnCloseError })
     const failedSpawnWithCloseFailure = fakeChild({
       pid: -1,
       doneError: spawnError,
-      waitForExitError: failedSpawnWaitError,
     })
     queryMock.mockImplementationOnce(({ options }) => {
       options.spawnClaudeCodeProcess!(sdkSpawnOptions())
@@ -1520,18 +1518,17 @@ describe('run publication, cancellation, and settlement', () => {
       ...unused.spec,
       spawn: () => failedSpawnWithCloseFailure.handle,
     })
-    const failedWithCloseError = await failedWithCloseFailure.catch((error: unknown) => error)
-    expect(failedWithCloseError).toBeInstanceOf(AggregateError)
-    expect(String(failedWithCloseError)).toContain(expectedFailureDiagnostic('query-start', 'unknown'))
-    expect(String(failedWithCloseError)).not.toContain('spawn /sdk/claude EACCES')
-    const failures = (failedWithCloseError as AggregateError).errors as unknown[]
-    expect(failures[0]).toMatchObject({ cause: spawnError })
-    const cleanupCause = errorCause(failures[1])
-    expect(cleanupCause).toBeInstanceOf(AggregateError)
-    expect((cleanupCause as AggregateError).errors).toEqual([
-      failedSpawnCloseError,
-      failedSpawnWaitError,
-    ])
+    await expect(failedWithCloseFailure)
+      .rejects.toThrow(expectedFailureDiagnostic('query-start', 'unknown'))
+    await expect(failedWithCloseFailure)
+      .rejects.not.toThrow('spawn /sdk/claude EACCES')
+    await expect(failedWithCloseFailure).rejects.toMatchObject({
+      message: `subagent-claude-code: ${expectedFailureDiagnostic('query-start', 'unknown')}; subagent-claude-code: ${expectedFailureDiagnostic('teardown', 'unknown')}`,
+      errors: [
+        expect.objectContaining({ cause: spawnError }),
+        expect.objectContaining({ cause: failedSpawnCloseError }),
+      ],
+    })
 
     const cleanupError = new Error('live child cleanup failed')
     const constructionError = new Error(

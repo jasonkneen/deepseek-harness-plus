@@ -94,13 +94,8 @@ export class LocalSubprocessRuntime extends SubprocessRuntime {
     const pending: Promise<unknown>[] = []
     for (const handle of this.live) {
       handle.terminate()
-      // Direct result and range observation are independent. Start both now so
-      // an unreadable owner cannot hide behind a target that termination failed
-      // to stop; direct-result rejection itself remains non-fatal to disposal.
-      pending.push(Promise.all([
-        handle.done.catch(() => {}),
-        handle.waitForExit(),
-      ]).then(() => undefined))
+      // Spawn-failure rejections already settled and left the live set.
+      pending.push(handle.done.catch(() => {}).then(() => handle.waitForExit()))
     }
     for (const terminal of this.terminals) {
       pending.push(terminal.terminate())
@@ -170,9 +165,10 @@ export class LocalSubprocessRuntime extends SubprocessRuntime {
       handle = bindManagedProcess(spec, launch, binding)
     }
     this.live.add(handle)
-    // Release ownership only once the managed range is empty, not at spawned-
-    // command settlement. A surviving helper remains owned until provider
-    // termination and observation reach quiescence.
+    // Release ownership only once the whole TREE is gone, not at direct-child
+    // settlement — a TERM-trapping helper that outlives the leader must stay
+    // owned so teardown can still escalate it. For the common no-survivor
+    // case waitForExit resolves immediately after settlement.
     const release = (): Promise<void> =>
       handle.waitForExit().then(() => { this.live.delete(handle) })
     void handle.done.then(release, release).catch(() => {})

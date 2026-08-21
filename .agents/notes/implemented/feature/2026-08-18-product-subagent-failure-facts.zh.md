@@ -35,7 +35,7 @@ Agent SDK 0.3.220 定义四种错误子类型：`error_during_execution`、`erro
 | `query-start` | SDK query 构造、原生平台载荷启动与未发布回滚 | `start()` 以固定安全事实和回滚前已观测到的进程结果拒绝 |
 | `query-run` | 已发布 SDK 消息迭代与严格终态结果校验 | 运行以 `error` 兑现，并携带准确已知子类型或固定结果类别 |
 | `process` | SDK 提供终态结果之前受管 CLI 已退出 | 运行以 `error` 兑现，并携带 `process-exit` 以及可用的退出码和信号 |
-| `teardown` | Query 关闭与 managed-range 释放 | `dispose()` 独立拒绝并携带固定安全事实，同时清理仍会完成最终退出等待 |
+| `teardown` | Query 关闭与受管进程树释放 | `dispose()` 独立拒绝并携带固定安全事实，同时清理仍会完成最终退出等待 |
 
 ### Codex 事实
 
@@ -48,7 +48,7 @@ Codex app-server 0.147.0 定义十一种字符串类别与五种对象 variant�
 | `turn-start` | 已发布 `turn/start` 请求、暂定 id 与早到 frame | 没有结构化类别时，运行以 `error` 和安全 unknown 回退兑现 |
 | `turn` | 终态通知、最终答案选择与 error-info 映射 | 完整类别与可选 HTTP status 进入非完成结果 |
 | `process` | 受管 app-server 在另一终态路径结算前退出 | 运行以 `error` 兑现，并携带 `process-exit` 以及可用的退出码与信号 |
-| `teardown` | Wire 关闭与 managed-range 释放 | `dispose()` 独立拒绝；启动回滚聚合会同时公开启动与 teardown 两行 |
+| `teardown` | Wire 关闭与进程树释放 | `dispose()` 独立拒绝；启动回滚聚合会同时公开启动与 teardown 两行 |
 
 `contextWindowExceeded` 仍是 `max-tokens`；其他所有已知或未知 Codex 类别仍是 `error`，`cyberPolicy` 不会变成 `refusal`。
 
@@ -64,7 +64,7 @@ Codex app-server 0.147.0 定义十一种字符串类别与五种对象 variant�
 
 ## Verification
 
-Claude Code 包测试固定四种 SDK 子类型、无效成功、缺失结果、未知值与异常、四个阶段、相互独立的退出码与信号字段、权限事实顺序、脱敏、成功结果与取消时省略诊断、并发运行隔离和清理完成。Codex 包测试固定全部十六种 error-info variant、HTTP status 存在与缺失、六个阶段、unknown 回退、终止原因保持不变、权限顺序、脱敏、取消、并发与清理聚合。真实 SDK/CLI fixture 会产生真实的 Claude `error_max_turns`，真实 app-server fixture 会产生真实的 Codex `internalServerError`；两个 fixture 都覆盖进程／协议失败与 managed-range 完全停稳。无密钥 ACP snapshot 会在前台错误输出、后台完成通知和 `job_output` 中记录两个产品各自的准确诊断。
+Claude Code 包测试固定四种 SDK 子类型、无效成功、缺失结果、未知值与异常、四个阶段、相互独立的退出码与信号字段、权限事实顺序、脱敏、成功结果与取消时省略诊断、并发运行隔离和清理完成。Codex 包测试固定全部十六种 error-info variant、HTTP status 存在与缺失、六个阶段、unknown 回退、终止原因保持不变、权限顺序、脱敏、取消、并发与清理聚合。真实 SDK/CLI fixture 会产生真实的 Claude `error_max_turns`，真实 app-server fixture 会产生真实的 Codex `internalServerError`；两个 fixture 都覆盖进程／协议失败与整棵进程树完全停稳。无密钥 ACP snapshot 会在前台错误输出、后台完成通知和 `job_output` 中记录两个产品各自的准确诊断。
 
 ## Alternatives considered
 

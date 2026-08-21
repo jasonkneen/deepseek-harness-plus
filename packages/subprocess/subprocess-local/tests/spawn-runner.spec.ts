@@ -1,7 +1,6 @@
 import { spawn, spawnSync } from 'node:child_process'
 import type { ChildProcess } from 'node:child_process'
-import { existsSync, mkdirSync, mkdtempSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { existsSync, statSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it, vi } from 'vitest'
@@ -85,11 +84,11 @@ describe('spawn runner transport', () => {
     expect(result.status).toBe(0)
   })
 
-  it('maps every target stdio disposition', () => {
+  it('maps every target stdio disposition and optional IPC channel', () => {
     expect(runnerStdio(spec())).toEqual(['ignore', 'pipe', 'pipe'])
     expect(runnerStdio(spec({
       stdio: { stdin: { data: 'input' }, stdout: 'inherit', stderr: 'inherit' },
-    }))).toEqual(['pipe', 'inherit', 'inherit'])
+    }), true)).toEqual(['pipe', 'inherit', 'inherit', 'ipc'])
   })
 
   it('materializes and consumes the exact runner request once', () => {
@@ -107,35 +106,6 @@ describe('spawn runner transport', () => {
       expect(existsSync(files.requestPath)).toBe(false)
     } finally {
       cleanupRunnerFiles(files)
-    }
-  })
-
-  it('unlinks a substituted runner-directory link without traversing it', () => {
-    const files = createRunnerFiles({ argv: ['node'], cwd: '.', env: {} })
-    const outside = mkdtempSync(join(tmpdir(), 'dsh-runner-outside-'))
-    const sentinel = join(outside, 'events.ndjson')
-    writeFileSync(sentinel, 'keep')
-    rmSync(files.directory, { recursive: true, force: true })
-    symlinkSync(outside, files.directory, process.platform === 'win32' ? 'junction' : 'dir')
-    try {
-      cleanupRunnerFiles(files)
-      expect(existsSync(files.directory)).toBe(false)
-      expect(existsSync(sentinel)).toBe(true)
-    } finally {
-      rmSync(files.directory, { recursive: true, force: true })
-      rmSync(outside, { recursive: true, force: true })
-    }
-  })
-
-  it('contains an unexpected owned-path cleanup failure', () => {
-    const files = createRunnerFiles({ argv: ['node'], cwd: '.', env: {} })
-    rmSync(files.requestPath, { force: true })
-    mkdirSync(files.requestPath)
-    try {
-      expect(() => { cleanupRunnerFiles(files) }).not.toThrow()
-      expect(existsSync(files.directory)).toBe(true)
-    } finally {
-      rmSync(files.directory, { recursive: true, force: true })
     }
   })
 
@@ -290,20 +260,6 @@ describe('spawn runner transport', () => {
       cleanupRunnerFiles(runnerFailure)
     }
 
-    const afterStartFailure = createRunnerFiles({ argv: ['node'], cwd: '.', env: {} })
-    try {
-      appendRunnerEvent(afterStartFailure.eventsPath, { type: 'started', pid: 456 })
-      appendRunnerEvent(afterStartFailure.eventsPath, {
-        type: 'runner-error',
-        error: { name: 'Error', message: 'post-start runner failed', code: 'EIO' },
-      })
-      const result = runnerDirectResult(fakeChild(123), afterStartFailure, new Promise<void>(() => {}))
-      expect(result.pid).toBe(456)
-      await expect(result.direct).rejects.toMatchObject({ message: 'post-start runner failed', code: 'EIO' })
-    } finally {
-      cleanupRunnerFiles(afterStartFailure)
-    }
-
     const missing = createRunnerFiles({ argv: ['node'], cwd: '.', env: {} })
     try {
       appendRunnerEvent(missing.eventsPath, { type: 'started', pid: 456 })
@@ -314,6 +270,19 @@ describe('spawn runner transport', () => {
       cleanupRunnerFiles(missing)
     }
 
+    const forced = createRunnerFiles({ argv: ['node'], cwd: '.', env: {} })
+    try {
+      appendRunnerEvent(forced.eventsPath, { type: 'started', pid: 789 })
+      const result = runnerDirectResult(
+        fakeChild(123),
+        forced,
+        Promise.resolve(),
+        () => ({ exitCode: null, signal: 'SIGKILL' }),
+      )
+      await expect(result.direct).resolves.toEqual({ exitCode: null, signal: 'SIGKILL' })
+    } finally {
+      cleanupRunnerFiles(forced)
+    }
   })
 
   it('requires an event snapshot started after wrapper close before reporting a missing result', async () => {

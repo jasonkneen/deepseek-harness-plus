@@ -31,7 +31,7 @@ export const ENV_OVERRIDES = {
   GIT_PAGER: 'cat',
 } as const
 
-/** Default subprocess termination and output-drain grace (the `graceMs` config; matches OpenCode's 3s). */
+/** Default SIGTERM→SIGKILL grace period (the `graceMs` config; matches OpenCode's 3s). */
 const DEFAULT_GRACE_MS = 3_000
 
 /** Default per-stream spill cap (the `maxSpillBytes` config). */
@@ -49,7 +49,7 @@ export interface Config {
   maxOutputBytes?: number
   /** Per-stream spill-file cap; larger streams retain only their in-memory tail. */
   maxSpillBytes?: number
-  /** Grace for subprocess termination and inherited-pipe draining; at most `MAX_TIMER_DELAY_MS`. */
+  /** Grace period for kill escalation and inherited pipes; at most `MAX_TIMER_DELAY_MS`. */
   graceMs?: number
 }
 
@@ -64,15 +64,6 @@ function finalOutput(reader: SubprocessOutputReader): CollectedOutput {
     truncated: read.lossy,
     ...read.spillPath !== undefined ? { spillPath: read.spillPath } : {},
   }
-}
-
-/** Whether a rejection carries direct evidence that argv[0] never started. */
-function isSpawnFailure(error: unknown, program: string): boolean {
-  if (typeof error !== 'object' || error === null) return false
-  const { path, syscall } = error as { path?: unknown; syscall?: unknown }
-  if (typeof syscall !== 'string') return false
-  if (syscall !== 'spawn' && syscall !== `spawn ${program}`) return false
-  return path === undefined || path === program
 }
 
 function assertPositiveFinite(name: string, value: number): void {
@@ -103,8 +94,8 @@ export function assertServiceableBashConfig(config: Config): void {
 
 /**
  * Local bash executor over `ctx.subprocess`. Bounded output, spill files, and
- * provider-owned managed-range termination are the subprocess service's
- * mechanics; this executor supplies the configured budgets per spawn, so a
+ * process-group SIGTERM→SIGKILL escalation are the subprocess service's
+ * mechanics; this executor supplies their configured budgets per spawn, so a
  * still-running background process stays managed (killed and joined at
  * composition teardown) even across an executor reload.
  */
@@ -254,7 +245,7 @@ export class LocalBashExecutor extends ShellExecutor {
 
   /**
    * Start an explicit argv with the background lifecycle, environment, output,
-   * cancellation, and managed-range ownership semantics of this executor.
+   * cancellation, and process-tree ownership semantics of this executor.
    * Subclasses use this after replacing the public command's shell argv at an
    * execution boundary.
    * @param spec - resolved execution settings and caller-owned command metadata.
@@ -266,12 +257,12 @@ export class LocalBashExecutor extends ShellExecutor {
     const running = this.ctx.subprocess.spawn(this.spawnSpec(spec, argv, this.config.maxOutputBytes, spec.signal))
     const collected = LocalBashExecutor.collected(running)
 
-    // A rejected subprocess result has no settled outcome. Its diagnostic is
-    // delivered exactly once through the read path.
-    let failureNote: string | undefined
-    const consumeFailure = (): string => {
-      const note = failureNote ?? ''
-      failureNote = undefined
+    // A spawn failure produces no process output, so the subprocess service has nothing
+    // to buffer; the note is delivered exactly once through the read path.
+    let spawnFailureNote: string | undefined
+    const consumeSpawnFailure = (): string => {
+      const note = spawnFailureNote ?? ''
+      spawnFailureNote = undefined
       return note
     }
 
@@ -290,10 +281,10 @@ export class LocalBashExecutor extends ShellExecutor {
         proc.signal = outcome.signal
         this.onProcessDone(proc, collected.stderr.readFrom(0).text, false)
       }, (error: unknown) => {
-        const spawnFailed = running.pid <= 0 && isSpawnFailure(error, argv[0] as string)
+        // Background spawn failures settle as killed and surface through the read path.
         proc.status = 'killed'
-        failureNote = `${spawnFailed ? 'spawn' : 'subprocess'} failed: ${String(error)}`
-        this.onProcessDone(proc, failureNote, spawnFailed, error)
+        spawnFailureNote = `spawn failed: ${String(error)}`
+        this.onProcessDone(proc, spawnFailureNote, true, error)
       }),
       readOutput: (): ShellProcessRead => {
         const out = collected.stdout.readFrom(stdoutOffset)
@@ -301,9 +292,9 @@ export class LocalBashExecutor extends ShellExecutor {
         stdoutOffset = out.nextOffset
         stderrOffset = err.nextOffset
 
-        // A rejected subprocess may have no process output; its synthetic note
-        // is used only when no real stderr is available.
-        const errText = err.text.length > 0 ? err.text : consumeFailure()
+        // A failed spawn never produced process output, so the note and real
+        // stderr text are mutually exclusive.
+        const errText = err.text.length > 0 ? err.text : consumeSpawnFailure()
         // Single newline between sections: stdout chunks usually end with one
         // already; add it only when missing.
         const separator = out.text.length > 0 && !out.text.endsWith('\n') ? '\n' : ''
@@ -328,13 +319,13 @@ export class LocalBashExecutor extends ShellExecutor {
 
   /**
    * Settlement hook for subclasses that attach execution facts to a process.
-   * Called after exit facts or rejection output are stamped and before
+   * Called after exit facts or spawn-failure output are stamped and before
    * {@link ShellProcess.done} resolves. The base implementation is intentionally
    * empty.
    * @param _proc - the settled process handle.
    * @param _stderr - the process's retained stderr tail used by subclasses for settlement classification.
    * @param _spawnFailed - whether the subprocess promise rejected before a process started.
-   * @param _spawnError - the original subprocess rejection when settlement failed; it may itself be undefined.
+   * @param _spawnError - the original spawn rejection reason, which may itself be undefined.
    */
   protected onProcessDone(_proc: ShellProcess, _stderr: string, _spawnFailed: boolean, _spawnError?: unknown): void {}
 }

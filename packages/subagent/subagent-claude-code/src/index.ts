@@ -50,7 +50,7 @@ export interface Config {
    * `bypassPermissions` explicitly skips permission checks.
    */
   permissionMode?: ClaudeCodePermissionMode
-  /** Grace in milliseconds for Claude Code termination and output draining. */
+  /** Grace in milliseconds for Claude Code process-tree termination. */
   disposeGraceMs?: number
 }
 

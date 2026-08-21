@@ -558,7 +558,7 @@ describe('background sandbox facts', () => {
     }
   })
 
-  it('does not invent spawn or runner evidence for an unstructured subprocess rejection', async () => {
+  it('does not invent runner evidence when a spawn rejection has no structured reason', async () => {
     const { ctx, bash } = await setup()
     const emptyReader: SubprocessOutputReader = {
       readFrom: () => ({ text: '', nextOffset: 0, lossy: false }),
@@ -579,7 +579,7 @@ describe('background sandbox facts', () => {
     const task = bash.start(bash.resolve({ command: 'true' }))
     await task.done
 
-    expect(task.readOutput().delta).toContain('subprocess failed: undefined')
+    expect(task.readOutput().delta).toContain('spawn failed: undefined')
     expect(task.sandbox).toEqual({
       mode: 'read-only',
       denied: false,
