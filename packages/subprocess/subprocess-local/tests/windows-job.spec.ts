@@ -1,11 +1,13 @@
 import { spawn, spawnSync } from 'node:child_process'
 import type { ChildProcess } from 'node:child_process'
 import { EventEmitter } from 'node:events'
+import { PassThrough } from 'node:stream'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it, vi } from 'vitest'
 import type { SubprocessSpawnSpec } from '@deepseek-ai/dsh-subprocess'
 import { appendRunnerEvent } from '../src/runner-protocol.ts'
 import { launchWindowsJob, probeWindowsJob } from '../src/windows-job.ts'
+import type { WindowsStdioBridge } from '../src/windows-stdio.ts'
 
 const fixture = fileURLToPath(new URL('fixtures/fake-job-runner.ts', import.meta.url))
 const invocation = [process.execPath, '--import', 'tsx/esm', fixture]
@@ -110,6 +112,20 @@ describe('Windows Job runner adapter', () => {
     await expect(launch.owner.waitForExit()).resolves.toBe(true)
   })
 
+  it('treats a wrapper that never started as an empty managed range', async () => {
+    const child = new EventEmitter() as ChildProcess
+    const kill = vi.fn(() => true)
+    Object.assign(child, { pid: undefined, connected: false, kill })
+    const run = vi.fn(() => child) as unknown as typeof spawn
+    const launch = launchWindowsJob(spec(['fake-target']), { spawn: run, runnerInvocation: ['missing-runner'] })
+
+    await expect(launch.direct).rejects.toThrow('runner failed to start')
+    launch.owner.signal('SIGTERM')
+    expect(kill).not.toHaveBeenCalled()
+    child.emit('close', -2, null)
+    await expect(launch.owner.waitForExit()).resolves.toBe(true)
+  })
+
   it('falls back to killing the runner when IPC delivery is unavailable or fails', async () => {
     for (const mode of ['callback-error', 'disconnected', 'throw'] as const) {
       const child = new EventEmitter() as ChildProcess
@@ -209,6 +225,80 @@ describe('Windows Job runner adapter', () => {
       expect(runSync).toHaveBeenCalledOnce()
     } finally {
       vi.doUnmock('node:child_process')
+      vi.resetModules()
+    }
+  })
+
+  it('cleans synchronous setup failures and waits for collected streams', async () => {
+    const bridgeFailure = new Error('bridge failed')
+    const spawnFailure = new Error('spawn threw')
+    const bridges: Array<WindowsStdioBridge & { dispose: ReturnType<typeof vi.fn>; closeInput: ReturnType<typeof vi.fn> }> = []
+    let collectedStreams: { stdout: PassThrough; stderr: PassThrough } | undefined
+    vi.resetModules()
+    vi.doMock('../src/windows-stdio.ts', async importOriginal => ({
+      ...await importOriginal<typeof import('../src/windows-stdio.ts')>(),
+      createWindowsStdioBridge: vi.fn((request: SubprocessSpawnSpec): WindowsStdioBridge => {
+        if (request.argv[0] === 'bridge-failure') throw bridgeFailure
+        const stdout = typeof request.stdio.stdout === 'object' ? new PassThrough() : null
+        const stderr = typeof request.stdio.stderr === 'object' ? new PassThrough() : null
+        if (stdout !== null && stderr !== null) collectedStreams = { stdout, stderr }
+        const bridge = {
+          stdin: null,
+          stdout,
+          stderr,
+          runnerArgs: [],
+          runnerStdio: ['ignore', 'ignore', 'ignore', 'ipc'],
+          closeInput: vi.fn(),
+          dispose: vi.fn(() => {
+            stdout?.destroy()
+            stderr?.destroy()
+          }),
+        } satisfies WindowsStdioBridge
+        bridges.push(bridge)
+        return bridge
+      }),
+    }))
+    try {
+      const isolated = await import('../src/windows-job.ts')
+      expect(() => isolated.launchWindowsJob(spec(['bridge-failure']), { runnerInvocation: ['fake-runner'] }))
+        .toThrow(bridgeFailure)
+
+      expect(() => isolated.launchWindowsJob(spec(['spawn-failure']), {
+        spawn: vi.fn(() => { throw spawnFailure }) as unknown as typeof spawn,
+        runnerInvocation: ['fake-runner'],
+      })).toThrow(spawnFailure)
+      expect(bridges.at(-1)?.dispose).toHaveBeenCalledOnce()
+
+      const child = new EventEmitter() as ChildProcess
+      Object.assign(child, { pid: 432, connected: true, kill: vi.fn(), send: vi.fn() })
+      const run = vi.fn((_command: string, args: readonly string[]) => {
+        const eventsPath = args[args.indexOf('--events') + 1] as string
+        appendRunnerEvent(eventsPath, { type: 'started', pid: 432 })
+        appendRunnerEvent(eventsPath, { type: 'exit', exitCode: 0, signal: null })
+        setImmediate(() => { child.emit('close', 0, null) })
+        return child
+      }) as unknown as typeof spawn
+      const launch = isolated.launchWindowsJob({
+        ...spec(['collect']),
+        stdio: {
+          stdin: 'ignore',
+          stdout: { maxBytes: 1024 },
+          stderr: { maxBytes: 1024 },
+        },
+      }, { spawn: run, runnerInvocation: ['fake-runner'] })
+      let streamsSettled = false
+      void launch.closed.then(() => { streamsSettled = true })
+      await launch.direct
+      await new Promise(resolve => setImmediate(resolve))
+      expect(streamsSettled).toBe(false)
+      collectedStreams?.stdout.emit('end')
+      await Promise.resolve()
+      expect(streamsSettled).toBe(false)
+      collectedStreams?.stderr.emit('error', new Error('stream closed'))
+      await expect(launch.closed).resolves.toBeUndefined()
+      expect(bridges.at(-1)?.closeInput).toHaveBeenCalledOnce()
+    } finally {
+      vi.doUnmock('../src/windows-stdio.ts')
       vi.resetModules()
     }
   })

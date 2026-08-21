@@ -18,22 +18,21 @@ import { createWindowsStdioBridge } from './windows-stdio.ts'
 
 function observeCollectedStream(
   mode: SubprocessSpawnSpec['stdio']['stdout'],
-  stream: Readable | null | undefined,
+  stream: Readable | null,
 ): Promise<void> {
-  if (mode === 'pipe' || mode === 'inherit' || stream === null || stream === undefined
-    || stream.readableEnded || stream.destroyed) {
-    return Promise.resolve()
-  }
+  if (mode === 'pipe' || mode === 'inherit') return Promise.resolve()
+  // The bridge creates collect streams synchronously before the runner starts.
+  const collected = stream as Readable
   return new Promise((resolve) => {
     const settle = (): void => {
-      stream.off('end', settle)
-      stream.off('close', settle)
-      stream.off('error', settle)
+      collected.off('end', settle)
+      collected.off('close', settle)
+      collected.off('error', settle)
       resolve()
     }
-    stream.once('end', settle)
-    stream.once('close', settle)
-    stream.once('error', settle)
+    collected.once('end', settle)
+    collected.once('close', settle)
+    collected.once('error', settle)
   })
 }
 
@@ -73,7 +72,7 @@ class WindowsJobOwner implements BoundProcessOwner {
     this.observation = new Promise((resolve, reject) => {
       runner.once('close', (exitCode, signal) => {
         this.runnerClosed = true
-        if (exitCode === 0 && signal === null) {
+        if (this.startupFailureReported || this.runner.pid === undefined || (exitCode === 0 && signal === null)) {
           this.stopped = true
           resolve()
           return
@@ -92,7 +91,7 @@ class WindowsJobOwner implements BoundProcessOwner {
   }
 
   signal(_signal: NodeJS.Signals): void {
-    if (this.stopped || this.runnerClosed || this.startupFailureReported) return
+    if (this.stopped || this.runnerClosed || this.startupFailureReported || this.runner.pid === undefined) return
     try {
       if (this.runner.connected) {
         this.runner.send({ type: 'terminate' }, (error) => {
