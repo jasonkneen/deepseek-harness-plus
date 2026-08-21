@@ -20,6 +20,20 @@ by `dsh web`.
   permission to install `@deepseek-ai/dsh` via npm**, then starts it. The spawned
   server is killed with its process group on quit. **No harness source code is
   bundled with the app**; it relies on the published `dsh` CLI.
+- The installer resolves `npm`/`dsh` from PATH **and** common Node install
+  locations (nvm, Homebrew), because a DMG-launched app runs under launchd's
+  minimal PATH that omits those — so a plain `npm install -g` and detection work
+  without a shell.
+
+> **Provider set / Claude Code.** The app is a neutral shell: it renders whatever
+> the connected `dsh` server serves. Your fork's Claude Code / multi-provider
+> additions (the `dsh-llm-engine` and `dsh-multi-provider` packages) are **not**
+> in this Electron app, and are **not** in the published `@deepseek-ai/dsh`
+> either (that is upstream) — they ship only in a harness built from your fork.
+> Three ways to get them: (1) run your fork's `dsh web --no-open` and let the app
+> attach (dev, works now); (2) set `DSH_DESKTOP_DOWNLOAD_URL` to a fork-hosted
+> self-contained server built by `scripts/publish-fork-server.sh`; (3) publish the
+> fork CLI to npm and point `DSH_DESKTOP_PACKAGE` at it.
 
 ## Run
 
@@ -47,6 +61,8 @@ pnpm --filter @deepseek-ai/dsh-desktop run dev
 | `DSH_DESKTOP_SERVER_CMD` | `dsh` | Server executable; extra args go in `DSH_DESKTOP_SERVER_ARGS`. |
 | `DSH_DESKTOP_SERVER_ARGS` | unset | Extra arguments passed before `web --no-open --port`. |
 | `DSH_DESKTOP_CWD` | `$HOME` | Working directory for the spawned server (affects profile resolution). |
+| `DSH_DESKTOP_PACKAGE` | `@deepseek-ai/dsh` | npm package installed on demand; a fork may point this at its own published CLI. |
+| `DSH_DESKTOP_DOWNLOAD_URL` | unset | Base URL of a self-contained fork server binary (the app appends `-<platform>-<arch>` and runs it). |
 | `DSH_DESKTOP_GLASS` | `off` | `off` \| `basic` (Electron vibrancy) \| `liquid` (macOS 26 Tahoe). |
 | `DSH_DESKTOP_GLASS_RADIUS` | `16` | Corner radius for liquid glass, in pixels. |
 

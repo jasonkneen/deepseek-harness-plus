@@ -9,6 +9,9 @@ Electron 桌面外壳，承载 harness Web UI：一个保留下方 macOS 原生�
 - 单个主进程（`src/main.ts`）创建 `BrowserWindow`：macOS 上 `titleBarStyle: hiddenInset`（隐藏标题栏、保留原生红绿灯按钮），Windows/Linux 上 `hidden` + Window Controls Overlay。
 - 窗口加载 `http://127.0.0.1:3080`——harness Web UI。渲染器永远是 web 应用，而非本包代码：无 preload、无 `nodeIntegration`、不打包任何前端资源。
 - 若端口上尚无服务器应答，应用按序选择服务器来源：`PATH` 上的 `dsh` CLI；或——若 `dsh` 缺失——**经用户许可后通过 npm 安装 `@deepseek-ai/dsh`**，再启动它。被启动的服务器随其进程组在退出时一并终止。**应用不打包任何 harness 源码**，只依赖已发布的 `dsh` CLI。
+- 安装器从 PATH **以及** 常见 Node 安装位置（nvm、Homebrew）解析 `npm`/`dsh`，因为从 DMG 启动的应用运行在 launchd 的最小 PATH 下，会遗漏这些目录——因此无需 shell 即可完成常规 `npm install -g` 与检测。
+
+> **Provider 集合 / Claude Code。** 本应用是中性外壳：它只呈现所连接 `dsh` 服务器提供的内容。你 fork 中的 Claude Code / multi-provider 追加（`dsh-llm-engine` 与 `dsh-multi-provider` 两个包）**不**在本 Electron 应用中，也**不**在已发布的 `@deepseek-ai/dsh` 里（那是 upstream）——它们只随你 fork 构建的 harness 一起提供。有三种方式取得：(1) 运行你 fork 的 `dsh web --no-open` 并让应用附加（开发，现成可用）；(2) 把 `DSH_DESKTOP_DOWNLOAD_URL` 指向由 `scripts/publish-fork-server.sh` 构建、托管在 fork 的独立服务器二进制；(3) 发布 fork 的 CLI 到 npm 并用 `DSH_DESKTOP_PACKAGE` 指向它。
 
 ## 运行
 
@@ -36,6 +39,8 @@ pnpm --filter @deepseek-ai/dsh-desktop run dev
 | `DSH_DESKTOP_SERVER_CMD` | `dsh` | 服务器可执行文件；额外参数放在 `DSH_DESKTOP_SERVER_ARGS`。 |
 | `DSH_DESKTOP_SERVER_ARGS` | 未设置 | 在 `web --no-open --port` 之前传入的额外参数。 |
 | `DSH_DESKTOP_CWD` | `$HOME` | 被启动服务器的工作目录（会影响 profile 解析）。 |
+| `DSH_DESKTOP_PACKAGE` | `@deepseek-ai/dsh` | 按需安装的 npm 包；fork 可指向其自己发布的 CLI。 |
+| `DSH_DESKTOP_DOWNLOAD_URL` | 未设置 | 独立 fork 服务器二进制的基础 URL（应用会追加 `-<platform>-<arch>` 并运行它）。 |
 | `DSH_DESKTOP_GLASS` | `off` | `off` \| `basic`（Electron vibrancy）\| `liquid`（macOS 26 Tahoe）。 |
 | `DSH_DESKTOP_GLASS_RADIUS` | `16` | liquid glass 的圆角半径（像素）。 |
 

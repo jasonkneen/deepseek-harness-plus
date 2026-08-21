@@ -21,10 +21,10 @@ import {
   shell,
   type BrowserWindowConstructorOptions,
 } from 'electron'
-import { spawn, spawnSync, type ChildProcess } from 'node:child_process'
-import { accessSync, constants } from 'node:fs'
+import { spawn, type ChildProcess } from 'node:child_process'
+import { accessSync, chmodSync, constants, existsSync, mkdirSync, readdirSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { delimiter, join } from 'node:path'
+import { delimiter, dirname, isAbsolute, join } from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
 
 /** Default `dsh web` listen port. */
@@ -69,30 +69,45 @@ async function serverUp(): Promise<boolean> {
   }
 }
 
-/** Resolve `cmd` to an executable path on PATH, or undefined. */
-function findOnPath(cmd: string): string | undefined {
-  const exts = process.platform === 'win32' ? ['.exe', '.cmd', '.bat', ''] : ['']
-  for (const dir of (process.env.PATH ?? '').split(delimiter)) {
-    if (dir === '') continue
-    for (const ext of exts) {
-      const candidate = join(dir, `${cmd}${ext}`)
-      try {
-        accessSync(candidate, constants.X_OK)
-        return candidate
-      } catch {
-        /* keep searching */
-      }
-    }
+/** Common Node/npm install dirs. A GUI app launched from a DMG gets a minimal
+ *  launchd PATH that omits nvm/homebrew, so PATH scanning alone misses `dsh`. */
+function candidateBinDirs(): string[] {
+  const dirs: string[] = ['/opt/homebrew/bin', '/usr/local/bin', '/usr/bin', '/bin']
+  const nvmRoot = join(homedir(), '.nvm', 'versions', 'node')
+  try {
+    for (const version of readdirSync(nvmRoot)) dirs.push(join(nvmRoot, version, 'bin'))
+  } catch {
+    /* no nvm install */
   }
-  return undefined
+  return dirs
 }
 
-/** Resolve the `dsh` inside the npm global bin dir (not always on PATH). */
+/** Resolve `cmd` to an executable path, searching PATH then common bins. */
+function findExecutable(cmd: string): string | undefined {
+  const exts = process.platform === 'win32' ? ['.exe', '.cmd', '.bat', ''] : ['']
+  const tryDirs = (dirs: Iterable<string>): string | undefined => {
+    for (const dir of dirs) {
+      if (dir === '') continue
+      for (const ext of exts) {
+        const candidate = join(dir, `${cmd}${ext}`)
+        try {
+          accessSync(candidate, constants.X_OK)
+          return candidate
+        } catch {
+          /* keep searching */
+        }
+      }
+    }
+    return undefined
+  }
+  return tryDirs((process.env.PATH ?? '').split(delimiter)) ?? tryDirs(candidateBinDirs())
+}
+
+/** Resolve `dsh` next to the npm binary (npm's global bin dir), if installed. */
 function globalBinDsh(): string | undefined {
-  const prefix = spawnSync('npm', ['prefix', '-g'], { encoding: 'utf8' })
-  if (prefix.status !== 0) return undefined
-  const binDir = join(prefix.stdout.trim(), 'bin')
-  const dsh = join(binDir, process.platform === 'win32' ? 'dsh.cmd' : 'dsh')
+  const npm = findExecutable('npm')
+  if (npm === undefined) return undefined
+  const dsh = join(dirname(npm), process.platform === 'win32' ? 'dsh.cmd' : 'dsh')
   try {
     accessSync(dsh, constants.X_OK)
     return dsh
@@ -113,10 +128,20 @@ function startServer(command: string): void {
   const extraArgs = (process.env.DSH_DESKTOP_SERVER_ARGS ?? '')
     .split(/\s+/)
     .filter(part => part !== '')
+  // For a resolved absolute binary, put its dir first on PATH so the spawned
+  // `dsh` can find its own `node`/`npm` under a minimal launchd PATH.
+  const env = { ...process.env }
+  if (isAbsolute(command)) {
+    const binDir = dirname(command)
+    if (env.PATH === undefined || !env.PATH.split(delimiter).includes(binDir)) {
+      env.PATH = `${binDir}${delimiter}${env.PATH ?? ''}`
+    }
+  }
   server = spawn(command, [...extraArgs, 'web', '--no-open', '--port', String(port)], {
     stdio: 'inherit',
     detached: process.platform !== 'win32',
     cwd: process.env.DSH_DESKTOP_CWD ?? homedir(),
+    env,
   })
   server.once('error', (error) => {
     server = undefined
@@ -147,10 +172,15 @@ async function waitForServer(): Promise<boolean> {
   return false
 }
 
-/** Run `npm install -g @deepseek-ai/dsh`, streaming output; resolves true on success. */
-function runInstall(): Promise<boolean> {
+/** The dsh npm package to install (overridable for a fork's published CLI). */
+function installPackage(): string {
+  return process.env.DSH_DESKTOP_PACKAGE ?? DSH_PACKAGE
+}
+
+/** Run `npm install -g <pkg>` via the resolved npm binary; resolves true on success. */
+function runInstall(npm: string): Promise<boolean> {
   return new Promise((resolve) => {
-    const child = spawn('npm', ['install', '-g', DSH_PACKAGE], {
+    const child = spawn(npm, ['install', '-g', installPackage()], {
       stdio: 'inherit',
       env: process.env,
       cwd: homedir(),
@@ -188,14 +218,19 @@ async function ensureServerInstalled(serverCommand: string): Promise<void> {
     )
     return
   }
-  if (findOnPath('npm') === undefined) {
+  const npm = findExecutable('npm')
+  if (npm === undefined) {
     showFatal('npm was not found. Install Node.js (which bundles npm), then run `npm install -g @deepseek-ai/dsh` and relaunch.')
     return
   }
-  await runInstall()
-  const resolved = findOnPath(serverCommand) ?? globalBinDsh()
+  const ok = await runInstall(npm)
+  if (!ok) {
+    showFatal(`The dsh install failed (npm exited with an error). Open a terminal, run \`npm install -g ${installPackage()}\` manually, then relaunch.`)
+    return
+  }
+  const resolved = findExecutable(serverCommand) ?? globalBinDsh()
   if (resolved === undefined) {
-    showFatal('The install finished, but `dsh` was not found on PATH. Open a new shell, run `npm install -g @deepseek-ai/dsh`, then relaunch.')
+    showFatal(`The install finished, but \`dsh\` was not found. Open a new shell, run \`npm install -g ${installPackage()}\`, then relaunch.`)
     return
   }
   startServer(resolved)
@@ -203,15 +238,49 @@ async function ensureServerInstalled(serverCommand: string): Promise<void> {
   showFatal(`The dsh server was installed but did not answer on http://127.0.0.1:${port} within 60s.`)
 }
 
-/** Pick the server mode: external URL, an already-running instance, an installed CLI, or install it. */
+/** Download + cache a fork-provided self-contained dsh server binary (a pkg exe,
+ *  so no Electron-ABI/native-module concerns). URL is a base like
+ *  https://<host>/dsh-server that serves `<platform>-<arch>` per file. */
+async function ensureDownloadedServer(): Promise<string | undefined> {
+  const base = process.env.DSH_DESKTOP_DOWNLOAD_URL
+  if (base === undefined) return undefined
+  const platform = process.platform === 'darwin' ? 'darwin' : 'win32'
+  const arch = process.arch === 'arm64' ? 'arm64' : 'x64'
+  const fileName = `dsh-server-${platform}-${arch}`
+  const target = join(homedir(), '.dsh-desktop', 'server', fileName)
+  try {
+    if (!existsSync(target)) {
+      const url = `${base.replace(/\/+$/, '')}/${fileName}`
+      const response = await fetch(url)
+      if (!response.ok) throw new Error(`HTTP ${response.status}`)
+      mkdirSync(dirname(target), { recursive: true })
+      writeFileSync(target, Buffer.from(await response.arrayBuffer()))
+      chmodSync(target, 0o755)
+    }
+    return target
+  } catch (error) {
+    console.error('dsh-desktop: server download failed', error)
+    return undefined
+  }
+}
+
+/** Pick the server mode: external URL, a running instance, a PATH CLI, a download, or install. */
 async function resolveServer(): Promise<void> {
   if (process.env.DSH_DESKTOP_URL !== undefined) return
   if (await serverUp()) return
   const serverCommand = process.env.DSH_DESKTOP_SERVER_CMD ?? 'dsh'
-  if (findOnPath(serverCommand) !== undefined) {
-    startServer(serverCommand)
+  const resolved = findExecutable(serverCommand)
+  if (resolved !== undefined) {
+    startServer(resolved)
     if (server !== undefined && await waitForServer()) return
     showFatal(`The '${serverCommand}' server did not answer on http://127.0.0.1:${port} within 60s.`)
+    return
+  }
+  const downloaded = await ensureDownloadedServer()
+  if (downloaded !== undefined) {
+    startServer(downloaded)
+    if (server !== undefined && await waitForServer()) return
+    showFatal(`The downloaded server did not answer on http://127.0.0.1:${port} within 60s.`)
     return
   }
   await ensureServerInstalled(serverCommand)
