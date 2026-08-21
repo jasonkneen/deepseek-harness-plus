@@ -4,10 +4,11 @@ import { spawn, spawnSync } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import type { SubprocessSpawnSpec } from '@deepseek-ai/dsh-subprocess'
 import type { BoundProcessOwner, ManagedProcessLaunch } from './managed-owner.ts'
-import { observeChildClose, waitWithAbort } from './managed-owner.ts'
+import { observeChildLifecycle } from './managed-owner.ts'
 import { childEnv } from './spawn.ts'
 import {
   cleanupAfterRunner,
+  type RunnerInvocation,
   runnerDirectResult,
   runnerFiles,
   spawnRunnerInvocation,
@@ -19,7 +20,7 @@ import { createWindowsStdioBridge } from './windows-stdio.ts'
 export interface WindowsJobInternals {
   spawn?: typeof spawn
   spawnSync?: typeof spawnSync
-  runnerInvocation?: string[]
+  runnerInvocation?: RunnerInvocation
 }
 
 /**
@@ -30,7 +31,6 @@ export interface WindowsJobInternals {
 export function probeWindowsJob(internals: WindowsJobInternals = {}): boolean {
   const invocation = internals.runnerInvocation ?? spawnRunnerInvocation()
   const [command, ...prefix] = invocation
-  if (command === undefined) return false
   const result = (internals.spawnSync ?? spawnSync)(command, [...prefix, '--mode', 'probe-win32'], {
     env: childEnv(),
     stdio: 'ignore',
@@ -69,7 +69,7 @@ class WindowsJobOwner implements BoundProcessOwner {
     void this.observation.catch(() => {})
   }
 
-  signal(_signal: NodeJS.Signals): void {
+  signal(_signal: 'SIGTERM' | 'SIGKILL'): void {
     if (this.stopped || this.runnerClosed || this.startupFailureReported || this.runner.pid === undefined) return
     try {
       if (this.runner.connected) {
@@ -84,8 +84,9 @@ class WindowsJobOwner implements BoundProcessOwner {
     }
   }
 
-  waitForExit(signal?: AbortSignal): Promise<boolean> {
-    return this.stopped ? Promise.resolve(true) : waitWithAbort(this.observation, signal)
+  async waitForExit(): Promise<void> {
+    if (this.stopped) return
+    await this.observation
   }
 }
 
@@ -102,7 +103,6 @@ export function launchWindowsJob(
   const run = internals.spawn ?? spawn
   const invocation = internals.runnerInvocation ?? spawnRunnerInvocation()
   const [command, ...prefix] = invocation
-  if (command === undefined) throw new Error('subprocess-local: Windows runner invocation is empty')
   const files = runnerFiles(spec)
   let stdio: ReturnType<typeof createWindowsStdioBridge>
   try {
@@ -134,14 +134,14 @@ export function launchWindowsJob(
     cleanupRunnerFiles(files)
     throw error
   }
-  const runnerClosed = observeChildClose(child)
-  const result = runnerDirectResult(child, files, runnerClosed)
+  const lifecycle = observeChildLifecycle(child)
+  const result = runnerDirectResult(child, files, lifecycle.exited)
   const owner = new WindowsJobOwner(child, result.failureReported)
   void result.direct.then(
     () => { stdio.closeInput() },
     () => { stdio.dispose() },
   )
-  cleanupAfterRunner(files, result.direct, runnerClosed)
+  cleanupAfterRunner(files, result.direct, lifecycle.closed)
   return {
     stdin: stdio.stdin,
     stdout: stdio.stdout,

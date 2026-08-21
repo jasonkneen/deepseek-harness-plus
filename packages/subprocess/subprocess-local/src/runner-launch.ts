@@ -17,7 +17,7 @@ import type { RunnerEvent, RunnerFiles, RunnerRequest } from './runner-protocol.
 import { DirectResultUnavailableError } from './managed-owner.ts'
 import { childEnv } from './spawn.ts'
 
-let handshakeWait: Int32Array | undefined
+const handshakeWait = new Int32Array(new SharedArrayBuffer(4))
 const RUNNER_HANDSHAKE_TIMEOUT_MS = 10_000
 const RUNNER_EVENT_POLL_MS = 100
 const PACKAGED_RUNNER_ARG = '--dsh-internal-subprocess-runner'
@@ -26,7 +26,9 @@ const PACKAGED_RUNNER_ARG = '--dsh-internal-subprocess-runner'
  * Resolve the runner entry from the current module's source or built plane.
  * @returns Node executable and runner argv prefix.
  */
-export function spawnRunnerInvocation(): string[] {
+export type RunnerInvocation = [string, ...string[]]
+
+export function spawnRunnerInvocation(): RunnerInvocation {
   if ('pkg' in process) return [process.execPath, PACKAGED_RUNNER_ARG]
   /* v8 ignore start -- source-plane coverage cannot execute the bundled module;
      the required built-runner smoke executes its published entry. */
@@ -106,7 +108,6 @@ function waitForRunnerHandshake(child: ChildProcess, files: RunnerFiles): Runner
     }
     if (child.pid === undefined) throw new Error('native subprocess runner failed to start')
     if (runnerExited(child, child.pid)) throw new Error('native subprocess runner exited before reporting target start')
-    handshakeWait ??= new Int32Array(new SharedArrayBuffer(4))
     Atomics.wait(handshakeWait, 0, 0, 5)
   }
   throw new Error(`native subprocess runner did not report target start within ${String(RUNNER_HANDSHAKE_TIMEOUT_MS)}ms`)
@@ -115,23 +116,23 @@ function waitForRunnerHandshake(child: ChildProcess, files: RunnerFiles): Runner
 async function waitForDirectResult(
   files: RunnerFiles,
   initial: RunnerEvent[],
-  closed: Promise<void>,
+  exited: Promise<void>,
 ): Promise<SubprocessOutcome> {
   let seen = 0
-  const wrapperState = { closed: false }
-  void closed.then(() => { wrapperState.closed = true })
+  const wrapperState = { exited: false }
+  void exited.then(() => { wrapperState.exited = true })
   for (;;) {
-    // A read started before close may return a stale snapshot after close has
-    // become visible. Only a read started after close can prove no terminal
+    // A read started before exit may return a stale snapshot after exit has
+    // become visible. Only a read started after exit can prove no terminal
     // event was written before the runner exited.
-    const closedBeforeRead = wrapperState.closed
+    const exitedBeforeRead = wrapperState.exited
     const events = await readRunnerEventsAsync(files.eventsPath)
     for (const event of events.slice(seen)) {
       if (event.type === 'exit') return { exitCode: event.exitCode, signal: event.signal }
       if (event.type === 'spawn-error' || event.type === 'runner-error') throw deserializeSpawnError(event.error)
     }
     seen = Math.max(seen, events.length, initial.length)
-    if (closedBeforeRead) {
+    if (exitedBeforeRead) {
       throw new DirectResultUnavailableError('native subprocess runner exited without a direct-command result')
     }
     await sleepMs(RUNNER_EVENT_POLL_MS)
@@ -142,13 +143,13 @@ async function waitForDirectResult(
  * Bind runner events into one direct result while preserving the target pid.
  * @param child - native wrapper process.
  * @param files - private request and result paths.
- * @param closed - wrapper close observation attached before the start handshake.
+ * @param exited - wrapper exit/error observation attached before the start handshake.
  * @returns target pid, direct result, and whether the runner already reported a pre-start terminal failure.
  */
 export function runnerDirectResult(
   child: ChildProcess,
   files: RunnerFiles,
-  closed: Promise<void>,
+  exited: Promise<void>,
 ): {
   pid: number
   direct: Promise<SubprocessOutcome>
@@ -163,7 +164,7 @@ export function runnerDirectResult(
   }
   return {
     pid: handshake.pid,
-    direct: waitForDirectResult(files, handshake.events, closed),
+    direct: waitForDirectResult(files, handshake.events, exited),
     failureReported: handshake.failureReported,
   }
 }

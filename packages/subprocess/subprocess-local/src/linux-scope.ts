@@ -6,10 +6,11 @@ import type { ChildProcess } from 'node:child_process'
 import { setTimeout as sleepMs } from 'node:timers/promises'
 import type { SubprocessOutcome, SubprocessSpawnSpec } from '@deepseek-ai/dsh-subprocess'
 import type { BoundProcessOwner, ManagedProcessLaunch } from './managed-owner.ts'
-import { DirectResultUnavailableError, observeChildClose, waitWithAbort } from './managed-owner.ts'
+import { DirectResultUnavailableError, observeChildLifecycle } from './managed-owner.ts'
 import { childEnv } from './spawn.ts'
 import {
   cleanupAfterRunner,
+  type RunnerInvocation,
   runnerDirectResult,
   runnerFiles,
   runnerStdio,
@@ -23,7 +24,7 @@ export interface LinuxScopeInternals {
   systemctlQuery?: (command: string, args: readonly string[]) => Promise<SystemctlResult>
   systemdRun?: string
   systemctl?: string
-  runnerInvocation?: string[]
+  runnerInvocation?: RunnerInvocation
 }
 
 interface SystemctlResult {
@@ -72,7 +73,6 @@ export function probeLinuxScope(internals: LinuxScopeInternals = {}): boolean {
   const runSync = internals.spawnSync ?? spawnSync
   const invocation = internals.runnerInvocation ?? spawnRunnerInvocation()
   const [runnerCommand, ...runnerPrefix] = invocation
-  if (runnerCommand === undefined) return false
   const systemdRun = internals.systemdRun ?? 'systemd-run'
   const systemctl = internals.systemctl ?? 'systemctl'
   const timeout = 5_000
@@ -117,7 +117,7 @@ class SystemdScopeOwner implements BoundProcessOwner {
     private readonly onForceKillAttempt: () => void,
   ) {}
 
-  signal(signal: NodeJS.Signals): void {
+  signal(signal: 'SIGTERM' | 'SIGKILL'): void {
     if (this.stopped) return
     const result = this.runSync(this.systemctl, [
       '--user',
@@ -165,13 +165,13 @@ class SystemdScopeOwner implements BoundProcessOwner {
     return true
   }
 
-  async waitForExit(signal?: AbortSignal): Promise<boolean> {
-    if (this.stopped) return true
+  async waitForExit(): Promise<void> {
+    if (this.stopped) return
     this.observation ??= (async () => {
       while (await this.active()) await sleepMs(SCOPE_POLL_INTERVAL_MS)
       this.stopped = true
     })()
-    return waitWithAbort(this.observation, signal)
+    await this.observation
   }
 }
 
@@ -212,7 +212,7 @@ export function launchLinuxScope(
     env: childEnv(),
     stdio: runnerStdio(spec),
   })
-  const closed = observeChildClose(child)
+  const lifecycle = observeChildLifecycle(child)
   let forceKillAttempted = false
   const owner = new SystemdScopeOwner(
     `${unitBase}.scope`,
@@ -222,13 +222,13 @@ export function launchLinuxScope(
     child,
     () => { forceKillAttempted = true },
   )
-  const result = runnerDirectResult(child, files, closed)
+  const result = runnerDirectResult(child, files, lifecycle.exited)
   const direct = result.direct.catch(async (error: unknown): Promise<SubprocessOutcome> => {
     if (!forceKillAttempted || !(error instanceof DirectResultUnavailableError)) throw error
     await owner.waitForExit()
     return { exitCode: null, signal: 'SIGKILL' }
   })
-  cleanupAfterRunner(files, direct, closed)
+  cleanupAfterRunner(files, direct, lifecycle.closed)
   return {
     stdin: child.stdin,
     stdout: child.stdout,

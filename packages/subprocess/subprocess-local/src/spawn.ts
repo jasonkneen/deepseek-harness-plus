@@ -406,15 +406,15 @@ function fallbackOwner(
       }
       signalTree(platform, pid, signal, child, taskkill)
     },
-    waitForExit: async (signal) => {
+    waitForExit: async () => {
       /* v8 ignore next -- bindManagedProcess memoizes this owner wait; the guard only
          protects direct internal re-entry after signal() observed absence. */
-      if (stopped) return true
+      if (stopped) return
       observation ??= (async () => {
         while (alive()) await sleepTick()
         stopped = true
       })()
-      return waitWithAbort(observation, signal)
+      await observation
     },
   }
 }
@@ -448,8 +448,8 @@ export function bindManagedProcess(
   }
   const stdoutCollector = collectStream(outMode, stdout, 'stdout')
   const stderrCollector = collectStream(errMode, stderr, 'stderr')
-  const observeCollectedStream = (mode: SubprocessOutputMode, stream: Readable | null): Promise<void> => {
-    if (!isCollect(mode) || stream === null || stream.readableEnded || stream.destroyed) return Promise.resolve()
+  const observeOutputStream = (mode: SubprocessOutputMode, stream: Readable | null): Promise<void> | undefined => {
+    if (mode === 'inherit' || stream === null || stream.readableEnded || stream.destroyed) return undefined
     return new Promise((resolve) => {
       const settle = (): void => {
         stream.off('end', settle)
@@ -462,10 +462,9 @@ export function bindManagedProcess(
       stream.once('error', settle)
     })
   }
-  const collectedStreamsClosed = Promise.all([
-    observeCollectedStream(outMode, stdout),
-    observeCollectedStream(errMode, stderr),
-  ])
+  const stdoutClosed = observeOutputStream(outMode, stdout)
+  const stderrClosed = observeOutputStream(errMode, stderr)
+  const outputStreamsClosed = Promise.all([stdoutClosed, stderrClosed])
   const stopCollectors = (): void => {
     if (stdoutCollector !== undefined) stdout?.destroy()
     if (stderrCollector !== undefined) stderr?.destroy()
@@ -494,7 +493,7 @@ export function bindManagedProcess(
     return rangeExitObservation
   }
 
-  const kill = (sig: NodeJS.Signals): void => {
+  const kill = (sig: 'SIGTERM' | 'SIGKILL'): void => {
     if (rangeExitObserved) return
     launch.owner.signal(sig)
   }
@@ -535,12 +534,12 @@ export function bindManagedProcess(
       resolve(outcome)
     }
     launch.direct.then((outcome) => {
-      if (stdoutCollector === undefined && stderrCollector === undefined) {
+      if (stdoutClosed === undefined && stderrClosed === undefined) {
         settle(outcome)
         return
       }
       pipeDrainTimer = setTimeout(() => { settle(outcome) }, spec.graceMs)
-      void collectedStreamsClosed.then(() => { settle(outcome) })
+      void outputStreamsClosed.then(() => { settle(outcome) })
     }, (error: unknown) => {
       /* v8 ignore next -- one Promise cannot reject after its fulfillment path has settled this handle. */
       if (settled) return

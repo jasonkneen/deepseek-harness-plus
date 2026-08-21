@@ -12,9 +12,9 @@ export class DirectResultUnavailableError extends Error {
 /** Platform owner used by termination and whole-range settlement. */
 export interface BoundProcessOwner {
   /** Signal the established managed range; a confirmed-stopped owner stays inert. */
-  signal(signal: NodeJS.Signals): void
+  signal(signal: 'SIGTERM' | 'SIGKILL'): void
   /** Wait for the same managed range to become empty; reject when its owner cannot be observed. */
-  waitForExit(signal?: AbortSignal): Promise<boolean>
+  waitForExit(): Promise<void>
 }
 
 /** Platform launch facts consumed by the common stdio and result lifecycle. */
@@ -27,19 +27,23 @@ export interface ManagedProcessLaunch {
   owner: BoundProcessOwner
 }
 
-/**
- * Observe wrapper close from the moment it is spawned and contain its error
- * event while the runner-result path converts launch failures into rejection.
- * @param child - direct child or native wrapper.
- * @returns promise settled by the ChildProcess close event.
- */
-export function observeChildClose(child: ChildProcess): Promise<void> {
-  return new Promise((resolve) => {
-    child.once('error', () => {
-      // runnerDirectResult reports the wrapper failure through the handle.
-    })
-    child.once('close', () => { resolve() })
+/** Observe runner exit separately from inherited stdio closure. */
+export function observeChildLifecycle(child: ChildProcess): {
+  exited: Promise<void>
+  closed: Promise<void>
+} {
+  const exited = Promise.withResolvers<void>()
+  const closed = Promise.withResolvers<void>()
+  child.once('error', () => {
+    // runnerDirectResult reports the wrapper failure through the handle.
+    exited.resolve()
   })
+  child.once('exit', () => { exited.resolve() })
+  child.once('close', () => {
+    exited.resolve()
+    closed.resolve()
+  })
+  return { exited: exited.promise, closed: closed.promise }
 }
 
 /**

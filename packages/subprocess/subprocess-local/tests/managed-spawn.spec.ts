@@ -50,16 +50,9 @@ describe('managed process binding', () => {
           stopped.resolve(undefined)
         }
       },
-      async waitForExit(signal) {
-        if (ownerStopped) return true
-        if (signal?.aborted) return false
-        if (signal === undefined) {
-          await stopped.promise
-          return true
-        }
-        const aborted = Promise.withResolvers<boolean>()
-        signal.addEventListener('abort', () => { aborted.resolve(false) }, { once: true })
-        return Promise.race([stopped.promise.then(() => true), aborted.promise])
+      async waitForExit() {
+        if (ownerStopped) return
+        await stopped.promise
       },
     }
     const handle = bindManagedProcess(spec(), {
@@ -93,28 +86,37 @@ describe('managed process binding', () => {
       stderr: wrapper.stderr,
       pid: 4242,
       direct: Promise.resolve({ exitCode: 0, signal: null }),
-      owner: { signal, waitForExit: async () => true },
+      owner: { signal, waitForExit: async () => {} },
     })
     handle.terminateForHostExit()
     expect(signal).toHaveBeenCalledExactlyOnceWith('SIGKILL')
   })
 
-  it('settles when collected streams close before the direct outcome arrives', async () => {
+  it('waits for raw and collected output streams after the direct outcome', async () => {
     const stdout = new PassThrough()
     const stderr = new PassThrough()
     const direct = Promise.withResolvers<{ exitCode: number | null; signal: NodeJS.Signals | null }>()
-    const handle = bindManagedProcess(spec(), {
+    const request = {
+      ...spec(),
+      stdio: { stdin: 'ignore', stdout: 'pipe', stderr: { maxBytes: 1024 } } as const,
+    }
+    const handle = bindManagedProcess(request, {
       stdin: null,
       stdout,
       stderr,
       pid: 4242,
       direct: direct.promise,
-      owner: { signal: vi.fn(), waitForExit: async () => true },
+      owner: { signal: vi.fn(), waitForExit: async () => {} },
     })
-    stdout.end()
-    stderr.end()
-    await new Promise(resolve => setImmediate(resolve))
+    let doneSettled = false
+    void handle.done.then(() => { doneSettled = true })
     direct.resolve({ exitCode: 23, signal: null })
+    await Promise.resolve()
+    expect(doneSettled).toBe(false)
+    stdout.end()
+    await Promise.resolve()
+    expect(doneSettled).toBe(false)
+    stderr.end()
     await expect(handle.done).resolves.toEqual({ exitCode: 23, signal: null })
   })
 
@@ -132,7 +134,7 @@ describe('managed process binding', () => {
       stderr: wrapper.stderr,
       pid: wrapper.pid as number,
       direct: direct.promise,
-      owner: { signal: vi.fn(), waitForExit: async () => true },
+      owner: { signal: vi.fn(), waitForExit: async () => {} },
     })
     try {
       direct.resolve({ exitCode: 23, signal: null })
@@ -181,7 +183,7 @@ describe('managed process binding', () => {
       stderr: wrapper.stderr,
       pid: wrapper.pid as number,
       direct,
-      owner: { signal, waitForExit: async () => true },
+      owner: { signal, waitForExit: async () => {} },
     })
     try {
       await expect(handle.done).rejects.toThrow('runner failed')
@@ -213,7 +215,7 @@ describe('managed process binding', () => {
       direct: direct.promise,
       owner: {
         signal,
-        waitForExit: async () => { await stopped.promise; return true },
+        waitForExit: async () => { await stopped.promise },
       },
     })
     direct.resolve({ exitCode: 0, signal: null })

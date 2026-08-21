@@ -9,6 +9,7 @@ import {
   pollProcessExit,
   spawnOrdinaryJobProcess,
   terminateJob,
+  waitForProcessExit,
   Win32Error,
 } from '@deepseek-ai/dsh-win32-process'
 import type { ChildStdioHandles, NativePtr } from '@deepseek-ai/dsh-win32-process'
@@ -71,7 +72,7 @@ function win32SpawnError(error: unknown, request: RunnerRequest): SerializedSpaw
     ? error.win32Code === 2 || error.win32Code === 3 || error.win32Code === 267
       ? 'ENOENT'
       : error.win32Code === 5
-        ? 'EPERM'
+        ? 'EACCES'
         : error.win32Code === 193
           ? 'EFTYPE'
           : 'UNKNOWN'
@@ -148,8 +149,6 @@ async function runWin32(
   const api = loadWin32ProcessBindings()
   let processHandle: NativePtr | undefined
   let jobHandle: NativePtr | undefined
-  let targetStarted = false
-  let targetCreationAttempted = false
   const openedStdio: Array<{ handle: NativePtr; label: string }> = []
   try {
     const stdio: ChildStdioHandles = {}
@@ -163,7 +162,6 @@ async function runWin32(
       stdio[key] = handle
       openedStdio.push({ handle, label: `ordinary target ${key} pipe` })
     }
-    targetCreationAttempted = true
     // Match Node's cwd-relative executable lookup and spawn-error attribution.
     const runnerCwd = process.cwd()
     process.chdir(request.cwd)
@@ -178,12 +176,11 @@ async function runWin32(
       processHandle = spawned.process
       jobHandle = spawned.job
       targetPid = spawned.pid
-      targetStarted = true
     } finally {
       process.chdir(runnerCwd)
     }
-    closeStdioHandles(api, openedStdio, true)
     appendRunnerEvent(eventsPath, { type: 'started', pid: targetPid })
+    closeStdioHandles(api, openedStdio, true)
 
     await new Promise<void>((resolve, reject) => {
       let settled = false
@@ -235,7 +232,8 @@ async function runWin32(
       }, 10)
     })
   } catch (error) {
-    const targetSpawnFailed = targetCreationAttempted && !targetStarted
+    const targetSpawnFailed = (error instanceof Win32Error && error.api === 'CreateProcessW')
+      || (error instanceof Error && (error as NodeJS.ErrnoException).syscall === 'chdir')
     appendRunnerEvent(eventsPath, {
       type: targetSpawnFailed ? 'spawn-error' : 'runner-error',
       error: targetSpawnFailed ? win32SpawnError(error, request) : serializeSpawnError(error),
@@ -252,11 +250,28 @@ async function runWin32(
   }
 }
 
+function probeWin32Job(): void {
+  const command = process.env.ComSpec ?? process.env.COMSPEC
+  if (command === undefined) throw new Error('subprocess runner cannot probe a Windows Job without ComSpec')
+  const api = loadWin32ProcessBindings()
+  const spawned = spawnOrdinaryJobProcess(api, {
+    command,
+    args: ['/d', '/s', '/c', 'exit 0'],
+    cwd: process.cwd(),
+  })
+  try {
+    const exitCode = waitForProcessExit(api, spawned.process)
+    if (exitCode !== 0) throw new Error(`subprocess Windows Job probe exited with code ${String(exitCode)}`)
+  } finally {
+    closeHandleChecked(api, spawned.job, 'subprocess Windows Job probe')
+  }
+}
+
 async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2))
   if (args.mode === 'probe-node') return
   if (args.mode === 'probe-win32') {
-    loadWin32ProcessBindings()
+    probeWin32Job()
     return
   }
   const request = consumeRunnerRequest(args.requestPath)

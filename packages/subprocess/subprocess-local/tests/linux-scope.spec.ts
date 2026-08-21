@@ -38,7 +38,7 @@ describe.skipIf(process.platform === 'win32')('Linux systemd scope adapter', () 
       environments.push(options?.env)
       return { status: 0, error: undefined }
     }) as unknown as typeof spawnSync
-    const runnerInvocation = ['node-runtime', 'runner-entry.js']
+    const runnerInvocation: [string, ...string[]] = ['node-runtime', 'runner-entry.js']
     try {
       expect(probeLinuxScope({
         spawnSync: runSync,
@@ -72,9 +72,6 @@ describe.skipIf(process.platform === 'win32')('Linux systemd scope adapter', () 
       spawnSync: vi.fn(() => ({ status: 1, error: undefined })) as unknown as typeof spawnSync,
     })).toBe(false)
 
-    const emptyInvocation = vi.fn() as unknown as typeof spawnSync
-    expect(probeLinuxScope({ spawnSync: emptyInvocation, runnerInvocation: [] })).toBe(false)
-    expect(emptyInvocation).not.toHaveBeenCalled()
   })
 
   it('keeps user argv out of systemd-run and reports the direct target outcome', async () => {
@@ -102,8 +99,8 @@ describe.skipIf(process.platform === 'win32')('Linux systemd scope adapter', () 
       runnerInvocation: spawnRunnerInvocation(),
     })
     await expect(launch.direct).resolves.toEqual({ exitCode: 9, signal: null })
-    await expect(launch.owner.waitForExit()).resolves.toBe(true)
-    await expect(launch.owner.waitForExit()).resolves.toBe(true)
+    await expect(launch.owner.waitForExit()).resolves.toBeUndefined()
+    await expect(launch.owner.waitForExit()).resolves.toBeUndefined()
     const callsBeforeStaleSignal = runSyncMock.mock.calls.length
     launch.owner.signal('SIGKILL')
     expect(runSyncMock).toHaveBeenCalledTimes(callsBeforeStaleSignal)
@@ -149,7 +146,7 @@ describe.skipIf(process.platform === 'win32')('Linux systemd scope adapter', () 
     launch.owner.signal('SIGTERM')
     launch.owner.signal('SIGKILL')
     await expect(launch.direct).resolves.toEqual({ exitCode: null, signal: 'SIGKILL' })
-    await expect(launch.owner.waitForExit()).resolves.toBe(true)
+    await expect(launch.owner.waitForExit()).resolves.toBeUndefined()
   })
 
   it('rejects wait when the selected native owner becomes unreadable', async () => {
@@ -232,7 +229,7 @@ describe.skipIf(process.platform === 'win32')('Linux systemd scope adapter', () 
         systemctlQuery: asyncQuery(runSync),
         runnerInvocation: spawnRunnerInvocation(),
       })
-      await expect(launch.owner.waitForExit()).resolves.toBe(true)
+      await expect(launch.owner.waitForExit()).resolves.toBeUndefined()
       await expect(launch.direct).resolves.toEqual({ exitCode: 0, signal: null })
     },
   )
@@ -255,7 +252,7 @@ describe.skipIf(process.platform === 'win32')('Linux systemd scope adapter', () 
       systemctlQuery: asyncQuery(runSync),
       runnerInvocation: spawnRunnerInvocation(),
     })
-    await expect(launch.owner.waitForExit()).resolves.toBe(true)
+    await expect(launch.owner.waitForExit()).resolves.toBeUndefined()
     await expect(launch.direct).resolves.toEqual({ exitCode: 0, signal: null })
     expect(runSyncMock.mock.calls.length).toBeGreaterThan(1)
   })
@@ -272,7 +269,7 @@ describe.skipIf(process.platform === 'win32')('Linux systemd scope adapter', () 
     })
     expect(launch.pid).toBe(-1)
     await expect(launch.direct).rejects.toThrow('runner failed to start')
-    await expect(launch.owner.waitForExit()).resolves.toBe(true)
+    await expect(launch.owner.waitForExit()).resolves.toBeUndefined()
   })
 
   it('does not fabricate a direct outcome after a non-forced scope signal', async () => {
@@ -300,7 +297,7 @@ describe.skipIf(process.platform === 'win32')('Linux systemd scope adapter', () 
     })
     launch.owner.signal('SIGTERM')
     await expect(launch.direct).rejects.toThrow('exited without a direct-command result')
-    await expect(launch.owner.waitForExit()).resolves.toBe(true)
+    await expect(launch.owner.waitForExit()).resolves.toBeUndefined()
   })
 
   it.each([
@@ -396,7 +393,7 @@ describe.skipIf(process.platform === 'win32')('Linux systemd scope adapter', () 
       expect(defaults.probeLinuxScope()).toBe(true)
       const launch = defaults.launchLinuxScope(spec([process.execPath, '-e', 'process.exit(0)']))
       await expect(launch.direct).resolves.toEqual({ exitCode: 0, signal: null })
-      await expect(launch.owner.waitForExit()).resolves.toBe(true)
+      await expect(launch.owner.waitForExit()).resolves.toBeUndefined()
       expect(run).toHaveBeenCalledWith('systemd-run', expect.any(Array), expect.any(Object))
       expect(runSync).toHaveBeenCalledWith('systemctl', expect.any(Array), expect.any(Object))
       expect(runAsync).toHaveBeenCalledWith('systemctl', expect.any(Array), expect.any(Object), expect.any(Function))

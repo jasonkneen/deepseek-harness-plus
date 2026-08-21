@@ -1,5 +1,6 @@
 import { spawn, spawnSync } from 'node:child_process'
 import type { ChildProcess } from 'node:child_process'
+import { EventEmitter } from 'node:events'
 import { existsSync, mkdirSync, mkdtempSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -13,7 +14,7 @@ import {
   runnerStdio,
   spawnRunnerInvocation,
 } from '../src/runner-launch.ts'
-import { observeChildClose } from '../src/managed-owner.ts'
+import { observeChildLifecycle } from '../src/managed-owner.ts'
 import {
   appendRunnerEvent,
   cleanupRunnerFiles,
@@ -61,20 +62,6 @@ function runRunner(invocation: string[], requestPath: string, eventsPath: string
 describe('spawn runner transport', () => {
   it('selects the source runner from source-plane execution', () => {
     expect(spawnRunnerInvocation()).toEqual(sourceInvocation)
-  })
-
-  it('does not require SharedArrayBuffer until a native handshake runs', async () => {
-    const descriptor = Object.getOwnPropertyDescriptor(globalThis, 'SharedArrayBuffer')
-    Object.defineProperty(globalThis, 'SharedArrayBuffer', { configurable: true, value: undefined })
-    vi.resetModules()
-    try {
-      const isolated = await import('../src/runner-launch.ts')
-      expect(isolated.runnerStdio(spec())).toEqual(['ignore', 'pipe', 'pipe'])
-    } finally {
-      if (descriptor === undefined) Reflect.deleteProperty(globalThis, 'SharedArrayBuffer')
-      else Object.defineProperty(globalThis, 'SharedArrayBuffer', descriptor)
-      vi.resetModules()
-    }
   })
 
   it('re-enters a packaged executable through its private runner dispatch', () => {
@@ -333,7 +320,7 @@ describe('spawn runner transport', () => {
 
   })
 
-  it('requires an event snapshot started after wrapper close before reporting a missing result', async () => {
+  it('requires an event snapshot started after wrapper exit before reporting a missing result', async () => {
     const staleRead = Promise.withResolvers<Awaited<ReturnType<typeof readRunnerEventsAsync>>>()
     let readCount = 0
     vi.resetModules()
@@ -351,12 +338,12 @@ describe('spawn runner transport', () => {
     const files = createRunnerFiles({ argv: ['node'], cwd: '.', env: {} })
     try {
       appendRunnerEvent(files.eventsPath, { type: 'started', pid: 456 })
-      const closed = Promise.withResolvers<undefined>()
+      const exited = Promise.withResolvers<undefined>()
       const isolated = await import('../src/runner-launch.ts')
-      const result = isolated.runnerDirectResult(fakeChild(123), files, closed.promise)
+      const result = isolated.runnerDirectResult(fakeChild(123), files, exited.promise)
       expect(result.failureReported).toBe(false)
       expect(readCount).toBe(1)
-      closed.resolve(undefined)
+      exited.resolve(undefined)
       await Promise.resolve()
       appendRunnerEvent(files.eventsPath, { type: 'exit', exitCode: 0, signal: null })
       staleRead.resolve([{ type: 'started', pid: 456 }])
@@ -369,18 +356,35 @@ describe('spawn runner transport', () => {
     }
   })
 
+  it('reports a missing direct result at runner exit without waiting for pipe close', async () => {
+    const files = createRunnerFiles({ argv: ['node'], cwd: '.', env: {} })
+    try {
+      appendRunnerEvent(files.eventsPath, { type: 'started', pid: 456 })
+      const child = new EventEmitter() as ChildProcess
+      Object.assign(child, { pid: 123, exitCode: null, signalCode: null })
+      const lifecycle = observeChildLifecycle(child)
+      const result = runnerDirectResult(child, files, lifecycle.exited)
+      child.emit('exit', 1, null)
+      await expect(result.direct).rejects.toThrow('exited without a direct-command result')
+      child.emit('close', 1, null)
+      await lifecycle.closed
+    } finally {
+      cleanupRunnerFiles(files)
+    }
+  })
+
   it('contains wrapper spawn errors while publishing the runner startup rejection', async () => {
     const files = createRunnerFiles({ argv: ['node'], cwd: '.', env: {} })
     try {
       const child = spawn(`missing-dsh-native-runner-${String(process.pid)}-${String(Date.now())}`, [], {
         stdio: 'ignore',
       })
-      const closed = observeChildClose(child)
-      const result = runnerDirectResult(child, files, closed)
+      const lifecycle = observeChildLifecycle(child)
+      const result = runnerDirectResult(child, files, lifecycle.exited)
       expect(result.pid).toBe(-1)
       expect(result.failureReported).toBe(false)
       await expect(result.direct).rejects.toThrow('runner failed to start')
-      await expect(closed).resolves.toBeUndefined()
+      await expect(lifecycle.closed).resolves.toBeUndefined()
     } finally {
       cleanupRunnerFiles(files)
     }
