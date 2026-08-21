@@ -42,7 +42,7 @@
 
 #### 模型看到的内容
 
-基线是生成的 [`dsh-tool-bash` schema](../../../docs/tool-catalog.md#deepseek-aidsh-tool-bash)。通过公布表明启用隔离的 `sandboxMode` 能力，此后端会为 `bash` 增加 `sandbox_permissions`，其 enum 为 `workspace-write` | `danger-full-access`，并增加 `justification`。策略归属方会另行贡献当前且不区分具体能力的 `sandbox:policy` 上下文。
+基线是生成的 [`dsh-tool-bash` schema](../../../docs/tool-catalog.zh.md#deepseek-aidsh-tool-bash)。通过公布表明启用隔离的 `sandboxMode` 能力，此后端会为 `bash` 增加 `sandbox_permissions`，其 enum 为 `workspace-write` | `danger-full-access`，并增加 `justification`。策略归属方会另行贡献当前且不区分具体能力的 `sandbox:policy` 上下文。
 
 #### Token 影响
 
@@ -70,7 +70,7 @@
 
 #### 模型看到的内容
 
-如果没有 runner 能强制执行受限模式，前台调用会传播 [`SANDBOX_UNAVAILABLE` 错误](../../sandbox/sandbox/README.md#confinement-error-indirectly)；该错误由 `dsh-sandbox` 定义。判定为 runner 失败的 spawn 错误会以原始 spawn 错误作为详细信息；如果拒绝没有通过 `ENOENT`／`EACCES` 的 `path` 或 `syscall` 证据指明 `argv[0]`，它仍是普通的命令启动错误。已结算的 runner 失败则以匹配到的致命 stderr 行作为详细信息，并保留原始 stderr 收集结果。如果追加了 `Runner failure: <detail>`，它就是权威诊断；前面的后端安装文本只是通用的 `SANDBOX_UNAVAILABLE` 前缀。
+如果没有 runner 能强制执行受限模式，前台调用会传播 [`SANDBOX_UNAVAILABLE` 错误](../../sandbox/sandbox/README.zh.md#confinement-error-indirectly)；该错误由 `dsh-sandbox` 定义。判定为 runner 失败的 spawn 错误会以原始 spawn 错误作为详细信息；如果拒绝没有通过 `ENOENT`／`EACCES` 的 `path` 或 `syscall` 证据指明 `argv[0]`，它仍是普通的命令启动错误。已结算的 runner 失败则以匹配到的致命 stderr 行作为详细信息，并保留原始 stderr 收集结果。如果追加了 `Runner failure: <detail>`，它就是权威诊断；前面的后端安装文本只是通用的 `SANDBOX_UNAVAILABLE` 前缀。
 
 #### Token 影响
 

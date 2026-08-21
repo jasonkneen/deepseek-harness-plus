@@ -16,7 +16,7 @@ Status: implemented
 - composer chip（ui-conversation 的 `PermissionSelect`）在 `/permission` 提交前拦截 Full-access 选择：`confirmation`/`acknowledged` 组件状态打开对话框，确认后经与其他选择完全相同的注入 `command` 通道提交 `/permission danger-full-access`；取消、Escape、关闭与遮罩点击均保持当前预设不变并重置复选框。会话锁定时确认自行撤销（`locked`／值缺席 effect），切换任务时随 `key={sessionId}` 重挂载而重置。文案经标准 `conversation` locale slot 以 `access.confirm.*` 键供给。
 - `/permission` popup（ui-permission 构建于 ui-commands 外壳之上）以数据而非第二套对话框实现完成把关：`SelectOption` 新增可选的 `confirmation` 载荷，popup 控制器拥有 `confirming`/`acknowledged` 状态迁移，`PopupSelectView` 在门控选项未决期间把选择卡换成同一个 `RiskConfirmation`。
 - 「通用」设置中的「权限」行在把 Full access 持久化为后续会话的默认值前，也使用同一个受控 `RiskConfirmation`。警示会明确说明该设置只影响后续会话；取消、Escape、关闭与点击遮罩均不会改动已存默认值。
-- 当 host 保留内置预设的规范名称时，完全权限产品标签会覆盖 kebab 转 Title Case 的显示变换；显式 host 标签优先。命令与 Settings 写入在 wire 上保留机器名，每份警示正文都保持中英文 locale 感知。同一个条件式本地化规则也适用于更安全的随附预设（[空白权限默认值刷新](../bug-fix/2026-08-17-blank-permission-default-refresh.md)）。
+- 当 host 保留内置预设的规范名称时，完全权限产品标签会覆盖 kebab 转 Title Case 的显示变换；显式 host 标签优先。命令与 Settings 写入在 wire 上保留机器名，每份警示正文都保持中英文 locale 感知。同一个条件式本地化规则也适用于更安全的随附预设（[空白权限默认值刷新](../bug-fix/2026-08-17-blank-permission-default-refresh.zh.md)）。
 
 ## 考虑过的替代方案
 

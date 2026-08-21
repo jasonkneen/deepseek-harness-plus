@@ -8,7 +8,7 @@ Status: implemented
 
 bwrap 后端挂载了全新的 `/proc`，但保留宿主 PID 命名空间。因此，受约束命令可以看到宿主进程，并沿 `/proc/<pid>/root`、`/proc/<pid>/fd`、`/proc/<pid>/cwd` 等 procfs 魔法链接进入宿主进程的挂载视图。当访问控制允许跟随其中某条链接时，该路径便可越过 profile 对宿主根目录的只读绑定挂载，以及 `workspace-write` 的 allow-list。宿主的 ptrace 限制有时会阻断该路径，但这类取决于部署环境的权限并不构成约束边界。
 
-最初的[沙箱决策](../feature/2026-07-06-sandbox.md)有意维持进程可见性不变，因为 `SandboxMode` 承诺的是文件影响，而不是一般性的进程隔离。对 bwrap 而言，procfs 魔法链接使宿主进程可见性成为文件影响边界的一部分，因此该选择无法维持这些模式承诺的边界。
+最初的[沙箱决策](../feature/2026-07-06-sandbox.zh.md)有意维持进程可见性不变，因为 `SandboxMode` 承诺的是文件影响，而不是一般性的进程隔离。对 bwrap 而言，procfs 魔法链接使宿主进程可见性成为文件影响边界的一部分，因此该选择无法维持这些模式承诺的边界。
 
 ## 决策
 

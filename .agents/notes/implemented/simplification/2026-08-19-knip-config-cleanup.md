@@ -2,7 +2,7 @@
 
 Status: implemented
 
-[中文](2026-08-19-knip-config-cleanup.zh.md) | English
+English | [中文](2026-08-19-knip-config-cleanup.zh.md)
 
 ## Problem
 

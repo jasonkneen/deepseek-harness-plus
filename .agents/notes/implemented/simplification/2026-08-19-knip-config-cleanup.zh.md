@@ -28,4 +28,4 @@ Status: implemented
 - `knip.json` 缩短了 135 行，并且只列出确实存在、且配置与通配默认有差异的包。
 - 仍然显式的条目（54 个）都带有真实的特例理由——`e2e`/fixture/tsx 的 `entry`、超出默认的 `project`、或 workspace 级的 `ignoreDependencies`。
 - knip 6.16 自身无法检测下一个失效键，因此删除包时仍须记得清理它的 `knip.json` 键；升级到 6.18+（在分析语义的改动被单独评估之后）会恢复这道守卫。
-- 本改动落实了包清单提案中「绝不复述默认 stanza」的标准（[议题](../../proposed/process/2026-06-20-discover-package-inventory.md)）；其剩余项——e2e 入口折叠与生成的清单——仍在提案中保持开放。
+- 本改动落实了包清单提案中「绝不复述默认 stanza」的标准（[议题](../../proposed/process/2026-06-20-discover-package-inventory.zh.md)）；其剩余项——e2e 入口折叠与生成的清单——仍在提案中保持开放。

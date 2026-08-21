@@ -223,10 +223,15 @@ describe('rewriteMarkdown', () => {
     )
   })
 
-  it('routes a pair switcher across locales while ordinary links stay in locale', () => {
+  it('routes switchers across locales and explicit locale siblings within their locale', () => {
     const { root, pages } = fixture()
     writeFileSync(join(root, 'docs/a.zh.md'), '# A\n')
-    const paired = pages.filter(page => page.source !== 'docs/a.md')
+    writeFileSync(join(root, 'docs/b.zh.md'), '# B\n')
+    const paired = pages.filter(page => page.source !== 'docs/a.md').map(page => (
+      page.locale === 'root' && page.source === 'docs/b.md'
+        ? { ...page, source: 'docs/b.zh.md', sourceAliases: ['docs/b.md'] }
+        : page
+    ))
     paired.push(
       {
         locale: 'root', contentLocale: 'zh-CN', source: 'docs/a.zh.md', sourceAliases: ['docs/a.md'],
@@ -237,7 +242,7 @@ describe('rewriteMarkdown', () => {
         route: 'en/guide/a.md', label: 'A', sidebar: 'en-guide', section: 'Test', order: 1,
       },
     )
-    expect(rewriteMarkdown('[English](a.md) [B](b.md)\n', {
+    expect(rewriteMarkdown('[English](a.md) [B](b.zh.md)\n', {
       locale: 'root',
       sourcePath: 'docs/a.zh.md',
       route: 'guide/a.md',
@@ -245,6 +250,14 @@ describe('rewriteMarkdown', () => {
       repoRoot: root,
       repositoryRef: 'abc123',
     })).toBe('[English](../en/guide/a.md) [B](../reference-root/b.md)\n')
+    expect(rewriteMarkdown('[中文](a.zh.md) [B](b.md)\n', {
+      locale: 'en',
+      sourcePath: 'docs/a.md',
+      route: 'en/guide/a.md',
+      pages: paired,
+      repoRoot: root,
+      repositoryRef: 'abc123',
+    })).toBe('[中文](../../guide/a.md) [B](../reference/b.md)\n')
   })
 
   it('fails loud when a relative target is missing', () => {
@@ -297,6 +310,37 @@ describe('docsPages locale routes', () => {
     }
   })
 
+  it('projects the audited tutorial entry links from explicit locale index pages', () => {
+    const entries = [
+      ['docs/user/develop/basic/config.md', '../framework/index.md'],
+      ['docs/user/develop/basic/publish.md', '../framework/index.md'],
+      ['docs/user/develop/basic/tool.md', './index.md'],
+      ['docs/user/develop/basic/tool.md', '../practice/index.md'],
+      ['docs/user/develop/framework/events.md', '../practice/index.md'],
+      ['docs/user/develop/framework/service.md', '../practice/index.md'],
+      ['docs/user/develop/practice/index.md', '../basic/index.md'],
+      ['docs/user/guide/index.md', '../develop/basic/index.md'],
+    ] as const
+
+    for (const [englishSource, englishTarget] of entries) {
+      for (const locale of ['en', 'root'] as const) {
+        const source = locale === 'root' ? englishSource.replace(/\.md$/, '.zh.md') : englishSource
+        const target = locale === 'root' ? englishTarget.replace(/\.md$/, '.zh.md') : englishTarget
+        const page = docsPages.find(candidate => candidate.locale === locale && candidate.source === source)
+        expect(page, `${locale}:${source}`).toBeDefined()
+        expect(readFileSync(resolve(repositoryRoot, source), 'utf8')).toContain(`](${target})`)
+        expect(rewriteMarkdown(`[Entry](${target})\n`, {
+          locale,
+          sourcePath: source,
+          route: page!.route,
+          pages: docsPages,
+          repoRoot: repositoryRoot,
+          repositoryRef: 'abc123',
+        })).toBe(`[Entry](${englishTarget})\n`)
+      }
+    }
+  })
+
   it('indexes every subsystem page in both sides of the folder README', () => {
     const pages = globSync(join(repositoryRoot, 'docs/subsystems/*.md'))
       .map(page => basename(page))
@@ -305,9 +349,20 @@ describe('docsPages locale routes', () => {
     expect(pages.length).toBeGreaterThan(0)
     for (const readme of ['README.md', 'README.zh.md']) {
       const rows = readFileSync(join(repositoryRoot, 'docs/subsystems', readme), 'utf8')
-      const missing = pages.filter(page => !rows.includes(`| [${page}](${page}) |`))
+      const missing = pages.filter((page) => {
+        const target = readme.endsWith('.zh.md') ? page.replace(/\.md$/, '.zh.md') : page
+        return !rows.includes(`| [${page}](${target}) |`)
+      })
       expect(missing, `${readme} must carry one table row per subsystem page`).toEqual([])
     }
+  })
+
+  it('places the shared todo fragment alias on the translated todo section', () => {
+    const catalog = readFileSync(resolve(repositoryRoot, 'docs/tool-catalog.zh.md'), 'utf8')
+    expect(catalog.match(/<a id="deepseek-aidsh-tool-todo"><\/a>/g)).toHaveLength(1)
+    expect(catalog).toContain(
+      '<a id="deepseek-aidsh-tool-todo"></a>\n\n## `@deepseek-ai/dsh-tool-todo`',
+    )
   })
 
   it('projects every published subsystem page in Chinese', () => {

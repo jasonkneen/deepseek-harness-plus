@@ -14,7 +14,7 @@ Web workspace runtime 负责选择候选会话：可复用会话必须保持空�
 
 `dsh-permission-presets` 会把每条 `permission/preset` 的来源记录为 `default`、`selection` 或 `inferred`。复用确认后，只有在会话尚未开始轮次、最近选择来自默认值，并且有效沙箱与审批旋钮仍匹配该选择时，服务才会将它推进到当前 `defaultPreset`。显式选择、由旧旋钮推断或没有来源标记的旧选择，以及独立变更的旋钮都会保持固定。更新仍走常规 preset writer，因此持久的 `permission/preset`、`sandbox/mode` 与 `approval/policy` 事实继续作为投影和执行的来源。
 
-这项修复部分细化了较早的[新会话权限默认值](../feature/2026-07-31-permission-default-for-new-sessions.md)决策：单独写入设置不会改变既有会话，而 Web 之后确认复用、且权限来自默认值的 Workspace 空白会话可以在 live 或冷接纳后推进。
+这项修复部分细化了较早的[新会话权限默认值](../feature/2026-07-31-permission-default-for-new-sessions.zh.md)决策：单独写入设置不会改变既有会话，而 Web 之后确认复用、且权限来自默认值的 Workspace 空白会话可以在 live 或冷接纳后推进。
 
 ## Alternatives considered
 

@@ -18,7 +18,7 @@
 
 投影状态和客户端值分别获得类型与校验，同时不引入第二套客户端 DTO 词汇。单元可以保留更丰富的 host 状态，并暴露紧凑或兼容既有结构的客户端值。畸形缓存状态不能为 `viewCheckpoint` 提供数据；恢复会拒绝畸形状态，并由缓存既有的全量读取回退从日志重建。host 消费方可以用同一套增量折叠替换私有日志扫描。
 
-原始 [session-projection 提案](../../proposed/architecture/2026-07-27-session-projection-and-command-log.md)已记录这次拆分。既有的 [subagent 身份投影](2026-08-06-subagent-list-identity-projection.md)与[投影化 token 用量](2026-07-29-projected-token-usage-and-request-context.md)决策仍然有效；其中的领域折叠迁入状态表，不改变面向用户的值。
+原始 [session-projection 提案](../../proposed/architecture/2026-07-27-session-projection-and-command-log.zh.md)已记录这次拆分。既有的 [subagent 身份投影](2026-08-06-subagent-list-identity-projection.zh.md)与[投影化 token 用量](2026-07-29-projected-token-usage-and-request-context.zh.md)决策仍然有效；其中的领域折叠迁入状态表，不改变面向用户的值。
 
 ## 考虑过的替代方案
 

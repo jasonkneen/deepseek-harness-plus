@@ -214,6 +214,17 @@ function bench(over?: BenchOptions) {
   }
 }
 
+/**
+ * Dispatch the native `beforeinput` the composer reads the pre-edit selection
+ * from. The DOM event carries no range for a textarea (`getTargetRanges()` is
+ * empty there), so the element's own selection plus `inputType` is the signal.
+ * The selection each gesture leaves is the engine-observed one: a delete over a
+ * selection reports that selection, a caret delete reports the bare caret.
+ */
+function beforeInput(el: HTMLTextAreaElement, inputType = 'insertText'): void {
+  el.dispatchEvent(new InputEvent('beforeinput', { bubbles: true, cancelable: true, inputType }))
+}
+
 function attachmentOwner(slotCalls: readonly { key: string; owner: unknown }[]): ComposerAttachmentsOwnerProps {
   for (let i = slotCalls.length - 1; i >= 0; i -= 1) {
     const call = slotCalls[i]
@@ -1224,6 +1235,105 @@ describe('decorations', () => {
     forwardDelete.textarea.setSelectionRange(2, 2)
     fireEvent.keyDown(forwardDelete.textarea, { key: 'Delete' })
     expect(forwardDelete.shell.snapshot).toMatchObject({ draft: '前  后', occurrences: [] })
+  })
+
+  it('typing the trigger char immediately before a reference keeps it structured', () => {
+    const { shell, textarea } = bench()
+    act(() => {
+      shell.setDraft('@w1')
+      shell.insertReference({
+        source: 'reference', ref: 'w1', label: '会话一', appearance: 'session', clipboardText: '@w1',
+      }, { start: 0, end: 3, draftRev: shell.snapshot.draftRev })
+    })
+    expect(shell.snapshot.draft).toBe('@会话一 ')
+    // The inserted char equals the reference's own leading trigger, so the two
+    // drafts alone cannot say whether it landed before or after that trigger.
+    textarea.setSelectionRange(0, 0)
+    act(() => {
+      beforeInput(textarea)
+      fireEvent.change(textarea, { target: { value: '@@会话一 ' } })
+    })
+    expect(shell.snapshot.draft).toBe('@@会话一 ')
+    expect(shell.snapshot.occurrences).toHaveLength(1)
+    expect(shell.snapshot.occurrences[0]).toMatchObject({ offset: 1, length: 4 })
+  })
+
+  it('a selection-replacing delete before a reference keeps it structured', () => {
+    const { shell, textarea } = bench()
+    act(() => {
+      shell.setDraft('@@w1')
+      shell.insertReference({
+        source: 'reference', ref: 'w1', label: '会话一', appearance: 'session', clipboardText: '@w1',
+      }, { start: 1, end: 4, draftRev: shell.snapshot.draftRev })
+    })
+    expect(shell.snapshot.draft).toBe('@@会话一 ')
+    textarea.setSelectionRange(0, 1)
+    act(() => {
+      beforeInput(textarea, 'deleteContentBackward')
+      fireEvent.change(textarea, { target: { value: '@会话一 ' } })
+    })
+    expect(shell.snapshot.draft).toBe('@会话一 ')
+    expect(shell.snapshot.occurrences).toHaveLength(1)
+    expect(shell.snapshot.occurrences[0]).toMatchObject({ offset: 0, length: 4 })
+  })
+
+  it('a caret Backspace before a reference keeps it structured', () => {
+    const { shell, textarea } = bench()
+    act(() => {
+      shell.setDraft('@@w1')
+      shell.insertReference({
+        source: 'reference', ref: 'w1', label: '会话一', appearance: 'session', clipboardText: '@w1',
+      }, { start: 1, end: 4, draftRev: shell.snapshot.draftRev })
+    })
+    expect(shell.snapshot.draft).toBe('@@会话一 ')
+    // A caret delete reports the bare caret, never the character it removes.
+    textarea.setSelectionRange(1, 1)
+    act(() => {
+      beforeInput(textarea, 'deleteContentBackward')
+      fireEvent.change(textarea, { target: { value: '@会话一 ' } })
+    })
+    expect(shell.snapshot.draft).toBe('@会话一 ')
+    expect(shell.snapshot.occurrences).toHaveLength(1)
+    expect(shell.snapshot.occurrences[0]).toMatchObject({ offset: 0, length: 4 })
+  })
+
+  it('a caret Delete before a reference keeps it structured', () => {
+    const { shell, textarea } = bench()
+    act(() => {
+      shell.setDraft('@@w1')
+      shell.insertReference({
+        source: 'reference', ref: 'w1', label: '会话一', appearance: 'session', clipboardText: '@w1',
+      }, { start: 1, end: 4, draftRev: shell.snapshot.draftRev })
+    })
+    textarea.setSelectionRange(0, 0)
+    act(() => {
+      beforeInput(textarea, 'deleteContentForward')
+      fireEvent.change(textarea, { target: { value: '@会话一 ' } })
+    })
+    expect(shell.snapshot.draft).toBe('@会话一 ')
+    expect(shell.snapshot.occurrences).toHaveLength(1)
+    expect(shell.snapshot.occurrences[0]).toMatchObject({ offset: 0, length: 4 })
+  })
+
+  it('a caret word delete before a reference keeps it structured', () => {
+    const { shell, textarea } = bench()
+    act(() => {
+      shell.setDraft('word @w1')
+      shell.insertReference({
+        source: 'reference', ref: 'w1', label: '会话一', appearance: 'session', clipboardText: '@w1',
+      }, { start: 5, end: 8, draftRev: shell.snapshot.draftRev })
+    })
+    expect(shell.snapshot.draft).toBe('word @会话一 ')
+    // One caret gesture can remove more than one character; the deleted span
+    // is whatever the draft lost, never a fixed step.
+    textarea.setSelectionRange(5, 5)
+    act(() => {
+      beforeInput(textarea, 'deleteWordBackward')
+      fireEvent.change(textarea, { target: { value: '@会话一 ' } })
+    })
+    expect(shell.snapshot.draft).toBe('@会话一 ')
+    expect(shell.snapshot.occurrences).toHaveLength(1)
+    expect(shell.snapshot.occurrences[0]).toMatchObject({ offset: 0, length: 4 })
   })
 
   it('copy and cut expand a partial reference selection to its structured range', () => {
