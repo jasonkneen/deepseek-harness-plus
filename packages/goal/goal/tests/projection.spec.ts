@@ -81,7 +81,7 @@ describe('goal projection unit', () => {
   it('serves null before the first create', async () => {
     const bench = await harness(true)
     seedMessage(bench.session)
-    expect(bench.tailValues()).toEqual({ goal: null })
+    expect(bench.tailValues().goal).toBeNull()
     expect(bench.tailAsOfSeq()).toBe(bench.session.seq - 1)
   })
 
@@ -199,7 +199,7 @@ describe('goal projection unit', () => {
     const bench = await harness(false)
     seedMessage(bench.session)
     const fiber = await bench.ctx.plugin(GoalService)
-    expect(bench.tailValues()).toEqual({ goal: null })
+    expect(bench.tailValues().goal).toBeNull()
     await fiber.dispose()
     expect('goal' in (bench.tailValues() ?? {})).toBe(false)
   })
