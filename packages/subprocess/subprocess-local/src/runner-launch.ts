@@ -16,7 +16,7 @@ import {
 import type { RunnerEvent, RunnerFiles, RunnerRequest } from './runner-protocol.ts'
 import { childEnv } from './spawn.ts'
 
-const handshakeWait = new Int32Array(new SharedArrayBuffer(4))
+let handshakeWait: Int32Array | undefined
 const RUNNER_HANDSHAKE_TIMEOUT_MS = 10_000
 const RUNNER_EVENT_POLL_MS = 100
 const PACKAGED_RUNNER_ARG = '--dsh-internal-subprocess-runner'
@@ -102,6 +102,7 @@ function waitForRunnerHandshake(child: ChildProcess, files: RunnerFiles): Runner
     if (terminal?.type === 'spawn-error' || terminal?.type === 'runner-error') return { pid: -1, events }
     if (child.pid === undefined) throw new Error('native subprocess runner failed to start')
     if (runnerExited(child, child.pid)) throw new Error('native subprocess runner exited before reporting target start')
+    handshakeWait ??= new Int32Array(new SharedArrayBuffer(4))
     Atomics.wait(handshakeWait, 0, 0, 5)
   }
   throw new Error(`native subprocess runner did not report target start within ${String(RUNNER_HANDSHAKE_TIMEOUT_MS)}ms`)
