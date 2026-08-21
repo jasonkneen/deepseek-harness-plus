@@ -175,7 +175,7 @@ The inbox is the delivery vocabulary — two ordered pending-message lists the a
 type InboxTarget = 'next-turn' | 'next-step'
 ```
 
-Every pending occurrence is its `UserMessage`; `MessageId` is the sole identity. `Inbox.append`, `prepend`, `replace`, `remove`, `clear`, `splice`, and `claim` record normalized durable `agent/inbox/spliced` mutations and reject duplicate pending ids. `replace(messageId, newMessage)` and `remove(messageId)` locate the pending message across both lists; replacement may change identity and emits the old message as discarded followed by the new message as inserted. Ordinary removals and `clear()` are cancellations. `claim(target)` removes the proposed step batch — all `next-step` input plus, at a turn boundary, one `next-turn` message — through pure deletion splices without emitting discarded notifications, then Inbox emits per-message claimed notifications. `InboxService` registers the standard `inbox` projection; its registry cell is the sole live state and the same fold serves cold consumers. Consumers following one message use the exact `agent/inbox/inserted`, `claimed`, and `discarded` notifications.
+Every pending occurrence is its `UserMessage`; `MessageId` is the sole identity. `Inbox.append`, `prepend`, `replace`, `remove`, `clear`, `splice`, and `claim` record normalized durable `agent/inbox/spliced` mutations and reject duplicate pending ids. `replace(messageId, newMessage)` and `remove(messageId)` locate the pending message across both lists; replacement may change identity and emits the old message as discarded followed by the new message as inserted. Ordinary removals and `clear()` are cancellations. `claim(target)` removes the proposed step batch — all `next-step` input plus, at a turn boundary, one `next-turn` message — through pure deletion splices without emitting discarded notifications, then Inbox emits per-message claimed notifications. `AgentRegistry` contributes the standard `inbox` projection whenever the projection registry is composed; its cell is the sole live state and the same fold serves cold consumers. Consumers following one message use the exact `agent/inbox/inserted`, `claimed`, and `discarded` notifications.
 
 Cancellation:
 
@@ -720,24 +720,7 @@ list(): Agent[]
 roots(): Agent[]
 ```
 
-Source: [`packages/core/agent/src/index.ts:256`](../../packages/core/agent/src/index.ts)
-
-<a id="ctxinboxes--inboxservice"></a>
-
-### `ctx.inboxes` — `InboxService`
-
-Root Inbox service: creates live inboxes and owns their durable projection.
-
-```ts cordis-catalog
-/**
- * Restore one live Inbox for an agent and publish its committed mutations.
- * @param agent - agent that owns the durable session and live Inbox events.
- * @returns the restored Inbox.
- */
-create(agent: Agent): Inbox
-```
-
-Source: [`packages/core/agent/src/inbox.ts:25`](../../packages/core/agent/src/inbox.ts)
+Source: [`packages/core/agent/src/index.ts:259`](../../packages/core/agent/src/index.ts)
 
 <a id="agent-events"></a>
 

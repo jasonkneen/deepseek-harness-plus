@@ -140,14 +140,6 @@ const SERVICE_ROLES: ServiceRole[] = [
     note: 'Owns append-only Session instances and emits the durable session event feed.',
   },
   {
-    key: 'inboxes',
-    pkg: 'agent',
-    title: 'Durable pending-input facade',
-    mode: 'core',
-    consumers: ['agent-loop'],
-    note: 'Registers the standard Inbox projection and creates command facades over its sole live state.',
-  },
-  {
     key: 'invariants',
     pkg: 'invariants',
     title: 'Package-owned invariant registry',

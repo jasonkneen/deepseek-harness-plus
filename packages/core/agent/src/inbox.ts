@@ -1,70 +1,25 @@
 /**
- * Incremental projection of durable agent inbox events.
+ * Command facade over the durable agent Inbox projection.
  *
  * @module @deepseek-ai/dsh-agent/inbox
  */
 
-import { Context, Service } from '@deepseek-ai/cordis'
+import type { Context } from '@deepseek-ai/cordis'
 import type { MessageId } from '@deepseek-ai/dsh-llm'
-import type { SessionEventMap, UserMessage } from '@deepseek-ai/dsh-session'
-import type { ProjectionDefinition } from '@deepseek-ai/dsh-session-projection'
-import { agentEvents } from './dispatch.ts'
+// Type-only: resolves ctx.sessionProjections for the required Inbox projection.
+import type {} from '@deepseek-ai/dsh-session-projection'
+import type { Session, SessionEventMap, UserMessage } from '@deepseek-ai/dsh-session'
 import type { AgentEventDispatch } from './dispatch.ts'
-import { inboxProjectionSchema } from './inbox-projection.ts'
 import type { InboxState } from './inbox-projection.ts'
-import type { Agent } from './runtime-types.ts'
 import type { InboxTarget } from './types.ts'
-
-declare module '@deepseek-ai/cordis' {
-  interface Context {
-    inboxes: InboxService
-  }
-}
-
-/** Root Inbox service: creates live inboxes and owns their durable projection. */
-export class InboxService extends Service {
-  static inject = ['sessionProjections']
-
-  constructor(ctx: Context) {
-    super(ctx, 'inboxes')
-    ctx.sessionProjections.register({
-      key: 'inbox',
-      schema: inboxProjectionSchema,
-      init: () => ({ 'next-turn': [], 'next-step': [] }),
-      apply(state, event) {
-        if (event.type !== 'agent/inbox/spliced') return state
-        const splice = event.data
-        const next = state[splice.target].toSpliced(
-          splice.start,
-          splice.removedCount ?? 0,
-          ...splice.inserted,
-        )
-        return splice.target === 'next-turn'
-          ? { 'next-turn': next, 'next-step': state['next-step'] }
-          : { 'next-turn': state['next-turn'], 'next-step': next }
-      },
-      view: state => state,
-      stateVersion: 1,
-    } satisfies ProjectionDefinition<'inbox', InboxState>)
-  }
-
-  /**
-   * Restore one live Inbox for an agent and publish its committed mutations.
-   * @param agent - agent that owns the durable session and live Inbox events.
-   * @returns the restored Inbox.
-   */
-  create(agent: Agent): Inbox {
-    return new Inbox(this.ctx, agent)
-  }
-}
 
 /** Agent-owned command facade over the standard durable Inbox projection. */
 export class Inbox {
-  private readonly dispatch: AgentEventDispatch
-
-  constructor(private readonly ctx: Context, private readonly agent: Agent) {
-    this.dispatch = agentEvents(ctx, agent)
-  }
+  constructor(
+    private readonly ctx: Context,
+    private readonly session: Session,
+    private readonly dispatch: AgentEventDispatch,
+  ) {}
 
   /** Prompts awaiting individual turns. */
   get nextTurn(): readonly UserMessage[] {
@@ -171,11 +126,11 @@ export class Inbox {
     return undefined
   }
 
-  /** Read the current durable projection value. */
+  /** Read the current durable projection state. */
   private current(): InboxState {
-    // InboxService registers this required projection before creating an Inbox.
+    // AgentLoop requires sessionProjections; AgentRegistry contributes this unit to it.
     // oxlint-disable-next-line typescript/no-non-null-assertion
-    return this.ctx.sessionProjections.snapshot(this.agent.session).values.inbox!
+    return this.ctx.sessionProjections.stateOf(this.session, 'inbox')!
   }
 
   /** Commit one normalized mutation and publish its live events. */
@@ -216,7 +171,7 @@ export class Inbox {
       ...(outcome === undefined ? {} : { outcome }),
     }
     const removed = inbox.slice(actualStart, actualStart + actualDeleteCount)
-    const event = this.agent.session.append('agent/inbox/spliced', splice)
+    const event = this.session.append('agent/inbox/spliced', splice)
     if (discardRemoved) {
       for (const message of removed) this.dispatch.emit('agent/inbox/discarded', { message })
     }
@@ -226,5 +181,3 @@ export class Inbox {
     return removed
   }
 }
-
-export default InboxService

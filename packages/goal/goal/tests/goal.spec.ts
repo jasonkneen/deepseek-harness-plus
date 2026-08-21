@@ -1,7 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
-import AgentRegistry, { agentEvents } from '@deepseek-ai/dsh-agent'
-import InboxService from '@deepseek-ai/dsh-agent/inbox'
+import AgentRegistry, { agentEvents, Inbox } from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { createUserMessage, HarnessError } from '@deepseek-ai/dsh-llm'
 import SessionStore, { Session, SessionId, type UserMessage } from '@deepseek-ai/dsh-session'
@@ -22,7 +21,7 @@ interface StubAgent {
 const isolatedInboxCtx = new Context()
 await isolatedInboxCtx.plugin(SessionStore)
 await isolatedInboxCtx.plugin(SessionProjectionRegistry)
-await isolatedInboxCtx.plugin(InboxService)
+await isolatedInboxCtx.plugin(AgentRegistry)
 const sessionStubs = new WeakMap<Session, StubAgent>()
 
 /** Number the next balanced test-fixture turn. */
@@ -59,7 +58,7 @@ function stubAgentForSession(session: Session, suppliedCtx?: Context): StubAgent
     runMaintenance: task => task(new AbortController().signal),
     whenIdle() { return Promise.resolve() },
   }
-  Object.assign(agent, { inbox: agentCtx.inboxes.create(agent) })
+  Object.assign(agent, { inbox: new Inbox(agentCtx, agent.session, agentEvents(agentCtx, agent)) })
   const stub = {
     agent,
     session,
@@ -84,7 +83,6 @@ async function harness(config: { defaultMaxGoalRounds?: number } = {}) {
   const ctx = new Context()
   await ctx.plugin(SessionStore)
   await ctx.plugin(SessionProjectionRegistry)
-  await ctx.plugin(InboxService)
   await ctx.plugin(AgentRegistry)
   await ctx.plugin(GoalService, config)
   const stub = stubAgent(`goal-test-${Math.random()}`)
@@ -195,7 +193,6 @@ describe('GoalService creation and replay', () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
     await ctx.plugin(SessionProjectionRegistry)
-    await ctx.plugin(InboxService)
     await ctx.plugin(AgentRegistry)
     await ctx.plugin(GoalService)
     const parent = stubAgentForSession(ctx.sessions.create(SessionId('goal-fork-parent')), ctx)
@@ -451,7 +448,6 @@ describe('GoalService mutations', () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
     await ctx.plugin(SessionProjectionRegistry)
-    await ctx.plugin(InboxService)
     await ctx.plugin(AgentRegistry)
     await ctx.plugin(GoalService)
     const stub = stubAgentForSession(ctx.sessions.create(SessionId('goal-reentrant-observer')), ctx)

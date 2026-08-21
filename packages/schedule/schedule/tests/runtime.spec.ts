@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
-import AgentRegistry, { Inbox } from '@deepseek-ai/dsh-agent'
+import AgentRegistry, { agentEvents, Inbox } from '@deepseek-ai/dsh-agent'
 import type { Agent, AgentCancelCause, InboxTarget } from '@deepseek-ai/dsh-agent'
 import type { UserMessage } from '@deepseek-ai/dsh-llm'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
@@ -96,7 +96,7 @@ async function harness(): Promise<RuntimeHarness> {
     steer(_message: UserMessage) {},
     inject(_message: UserMessage) {},
   }
-  Object.assign(agent, { inbox: new Inbox(agent.ctx, agent) })
+  Object.assign(agent, { inbox: new Inbox(agent.ctx, agent.session, agentEvents(agent.ctx, agent)) })
   const disposeAgent = ctx.agents.register(agent)
   ctx.on('session/event', (_session, event) => {
     if (event.type === 'schedule/change' && event.data.operation === 'dispatch') order.push('dispatch')

@@ -1,4 +1,3 @@
-import InboxService from '@deepseek-ai/dsh-agent/inbox'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -32,7 +31,6 @@ async function makeCoreContext(): Promise<Context> {
   await ctx.plugin(LlmRuntime)
   await ctx.plugin(SessionStore)
   await ctx.plugin(SessionProjectionRegistry)
-  await ctx.plugin(InboxService)
   await ctx.plugin(SystemPrompt)
   await ctx.plugin(ToolRuntime)
   await ctx.plugin(AgentRegistry)
@@ -332,7 +330,6 @@ describe('config-driven session id', () => {
     await ctx.plugin(LlmRuntime)
     await ctx.plugin(SessionStore)
     await ctx.plugin(SessionProjectionRegistry)
-    await ctx.plugin(InboxService)
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(ToolRuntime)
     await ctx.plugin(AgentRegistry)
@@ -359,7 +356,6 @@ describe('config-driven session id', () => {
     await ctx1.plugin(LlmRuntime)
     await ctx1.plugin(SessionStore)
     await ctx1.plugin(SessionProjectionRegistry)
-    await ctx1.plugin(InboxService)
     await ctx1.plugin(SystemPrompt)
     await ctx1.plugin(ToolRuntime)
     await ctx1.plugin(AgentRegistry)
@@ -380,7 +376,6 @@ describe('config-driven session id', () => {
     await ctx2.plugin(LlmRuntime)
     await ctx2.plugin(SessionStore)
     await ctx2.plugin(SessionProjectionRegistry)
-    await ctx2.plugin(InboxService)
     await ctx2.plugin(SystemPrompt)
     await ctx2.plugin(ToolRuntime)
     await ctx2.plugin(AgentRegistry)
@@ -406,7 +401,6 @@ describe('config-driven session id', () => {
     await ctx1.plugin(LlmRuntime)
     await ctx1.plugin(SessionStore)
     await ctx1.plugin(SessionProjectionRegistry)
-    await ctx1.plugin(InboxService)
     await ctx1.plugin(SystemPrompt)
     await ctx1.plugin(ToolRuntime)
     await ctx1.plugin(AgentRegistry)
@@ -424,7 +418,6 @@ describe('config-driven session id', () => {
     await ctx2.plugin(LlmRuntime)
     await ctx2.plugin(SessionStore)
     await ctx2.plugin(SessionProjectionRegistry)
-    await ctx2.plugin(InboxService)
     await ctx2.plugin(SystemPrompt)
     await ctx2.plugin(ToolRuntime)
     await ctx2.plugin(AgentRegistry)
@@ -451,7 +444,6 @@ describe('config-driven session id', () => {
     await ctx.plugin(LlmRuntime)
     await ctx.plugin(SessionStore)
     await ctx.plugin(SessionProjectionRegistry)
-    await ctx.plugin(InboxService)
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(ToolRuntime)
     await ctx.plugin(AgentRegistry)

@@ -54,7 +54,7 @@ function agentForCwd(cwd: string): Agent {
     runMaintenance: task => task(new AbortController().signal),
     whenIdle: () => Promise.resolve(),
   }
-  Object.assign(agent, { inbox: new Inbox(agent.ctx, agent) })
+  Object.assign(agent, { inbox: new Inbox(agent.ctx, agent.session, agentEvents(agent.ctx, agent)) })
   return agent
 }
 
@@ -74,7 +74,7 @@ function sessionAgent(session: Session, id = 'tool-skill-agent'): Agent {
     runMaintenance: task => task(new AbortController().signal),
     whenIdle: () => Promise.resolve(),
   }
-  Object.assign(agent, { inbox: new Inbox(agent.ctx, agent) })
+  Object.assign(agent, { inbox: new Inbox(agent.ctx, agent.session, agentEvents(agent.ctx, agent)) })
   return agent
 }
 

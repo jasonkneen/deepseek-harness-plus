@@ -1,8 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
-import AgentRegistry, { agentEvents } from '@deepseek-ai/dsh-agent'
-import InboxService from '@deepseek-ai/dsh-agent/inbox'
+import AgentRegistry, { agentEvents, Inbox } from '@deepseek-ai/dsh-agent'
 import type { Agent, AgentStatus } from '@deepseek-ai/dsh-agent'
 import GoalService, { GoalId } from '@deepseek-ai/dsh-goal'
 import type { GoalRef } from '@deepseek-ai/dsh-goal'
@@ -26,7 +25,7 @@ interface StubAgent {
 const isolatedInboxCtx = new Context()
 await isolatedInboxCtx.plugin(SessionStore)
 await isolatedInboxCtx.plugin(SessionProjectionRegistry)
-await isolatedInboxCtx.plugin(InboxService)
+await isolatedInboxCtx.plugin(AgentRegistry)
 
 /** Build one registry-compatible live agent whose injections enter the durable inbox. */
 function stubAgent(rawId: string, supplied?: Session, suppliedCtx?: Context): StubAgent {
@@ -55,7 +54,7 @@ function stubAgent(rawId: string, supplied?: Session, suppliedCtx?: Context): St
     runMaintenance: task => task(new AbortController().signal),
     whenIdle() { return Promise.resolve() },
   }
-  Object.assign(agent, { inbox: agentCtx.inboxes.create(agent) })
+  Object.assign(agent, { inbox: new Inbox(agentCtx, agent.session, agentEvents(agentCtx, agent)) })
   return { agent, session, setStatus(value) { status = value } }
 }
 
@@ -87,7 +86,6 @@ async function harness(config: toolGoal.Config = {}) {
   const ctx = new Context()
   await ctx.plugin(SessionStore)
   await ctx.plugin(SessionProjectionRegistry)
-  await ctx.plugin(InboxService)
   await ctx.plugin(SystemPrompt)
   await ctx.plugin(AgentRegistry)
   await ctx.plugin(ToolRuntime)

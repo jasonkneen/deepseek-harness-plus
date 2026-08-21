@@ -10,9 +10,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import { z } from 'zod'
-import AgentRegistry from '@deepseek-ai/dsh-agent'
-import InboxService from '@deepseek-ai/dsh-agent/inbox'
-import type {} from '@deepseek-ai/dsh-agent/inbox-projection'
+import AgentRegistry, { agentEvents, Inbox } from '@deepseek-ai/dsh-agent'
 import { AttachmentStore } from '@deepseek-ai/dsh-attachment'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
@@ -71,7 +69,6 @@ async function harness(withRegistry: boolean): Promise<{ ctx: Context; session: 
   await ctx.plugin(AgentRegistry)
   if (withRegistry) {
     await ctx.plugin(SessionProjectionRegistry)
-    await ctx.plugin(InboxService)
   }
   const session = ctx.sessions.create()
   const agent = {
@@ -89,7 +86,7 @@ async function harness(withRegistry: boolean): Promise<{ ctx: Context; session: 
     runMaintenance: task => task(new AbortController().signal),
     whenIdle: () => Promise.resolve(),
   } satisfies Agent
-  if (withRegistry) Object.assign(agent, { inbox: ctx.inboxes.create(agent) })
+  if (withRegistry) Object.assign(agent, { inbox: new Inbox(ctx, agent.session, agentEvents(ctx, agent)) })
   ctx.agents.register(agent)
   return { ctx, session }
 }

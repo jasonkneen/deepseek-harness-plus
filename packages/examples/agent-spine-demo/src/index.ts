@@ -20,7 +20,6 @@ import ToolRuntime, { type Config as ToolsConfig } from '@deepseek-ai/dsh-tools'
 import SkillRegistry, { type Config as SkillRegistryConfig } from '@deepseek-ai/dsh-skill'
 import * as SkillFileSystem from '@deepseek-ai/dsh-skill-filesystem'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
-import InboxService from '@deepseek-ai/dsh-agent/inbox'
 import GoalService, { type Config as GoalDomainConfig } from '@deepseek-ai/dsh-goal'
 import * as goalSession from '@deepseek-ai/dsh-goal-round-driver'
 import * as toolGoal from '@deepseek-ai/dsh-tool-goal'
@@ -238,7 +237,6 @@ export function apply(ctx: Context, config: Config): void {
     ctx.plugin(SkillFileSystem, Object.assign({}, config.skills?.filesystem, { dshHome }))
   }
   ctx.plugin(AgentRegistry)
-  ctx.plugin(InboxService)
   ctx.plugin(llmRetry)
   if (config.goals !== undefined && config.goals !== false) {
     ctx.plugin(GoalService, config.goals.domain ?? {})

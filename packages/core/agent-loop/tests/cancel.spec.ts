@@ -1,4 +1,3 @@
-import InboxService from '@deepseek-ai/dsh-agent/inbox'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import { CallId, createUserMessage } from '@deepseek-ai/dsh-llm'
 /**
@@ -28,7 +27,6 @@ async function harness(adapter: MockAdapter) {
   await ctx.plugin(LlmRuntime)
   await ctx.plugin(SessionStore)
   await ctx.plugin(SessionProjectionRegistry)
-  await ctx.plugin(InboxService)
   await ctx.plugin(SystemPrompt)
   await ctx.plugin(ToolRuntime)
   await ctx.plugin(AgentRegistry)
@@ -674,7 +672,6 @@ describe('Agent.cancel()', () => {
     await ctx.plugin(LlmRuntime)
     await ctx.plugin(SessionStore)
     await ctx.plugin(SessionProjectionRegistry)
-    await ctx.plugin(InboxService)
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(ToolRuntime)
     await ctx.plugin(AgentRegistry)

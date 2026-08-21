@@ -6,7 +6,6 @@ import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime, { defineContentToolFixture } from '@deepseek-ai/dsh-tools'
 import AgentRegistry, { type Agent } from '@deepseek-ai/dsh-agent'
-import InboxService from '@deepseek-ai/dsh-agent/inbox'
 
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import * as LlmDeepSeek from '@deepseek-ai/dsh-llm-deepseek'
@@ -44,7 +43,6 @@ async function loopHarness(): Promise<Context> {
   await created.plugin(LlmRuntime)
   await created.plugin(SessionStore)
   await created.plugin(SessionProjectionRegistry)
-  await created.plugin(InboxService)
   await created.plugin(SystemPrompt, { persona: SYSTEM })
   await created.plugin(ToolRuntime)
   await created.plugin(AgentRegistry)

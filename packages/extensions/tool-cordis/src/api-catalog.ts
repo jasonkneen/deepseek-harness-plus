@@ -808,19 +808,6 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
-    key: 'inboxes',
-    summary: 'Root Inbox service: creates live inboxes and owns their durable projection.',
-    description: 'Root Inbox service: creates live inboxes and owns their durable projection.',
-    methods: [
-      {
-        signature: 'create(agent: Agent): Inbox',
-        description: 'Restore one live Inbox for an agent and publish its committed mutations.',
-        parameters: [{ name: 'agent', description: 'agent that owns the durable session and live Inbox events.' }],
-        returns: 'the restored Inbox.',
-      },
-    ],
-  },
-  {
     key: 'invariants',
     summary: 'Package-owned invariant registry with global and regex-based selection.',
     description: 'Package-owned invariant registry with global and regex-based selection.',
@@ -2763,6 +2750,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type AgentCancelCause = {\n    readonly kind: \'user\';\n} | {\n    readonly kind: \'parent\';\n} | {\n    readonly kind: \'hook\';\n    readonly reason: string;\n} | {\n    readonly kind: \'disposed\';\n};',
   },
   {
+    name: 'AgentEventDispatch',
+    declaration: 'export interface AgentEventDispatch {\n    emit<K extends AgentSubjectEvent>(name: K, payload: PayloadRest<K>): void;\n    serial<K extends AgentSubjectEvent>(name: K, payload: PayloadRest<K>): Promise<Awaited<Return<Events[K]>>>;\n    waterfall<K extends AgentSubjectEvent>(name: K, payload: PayloadRest<K>, ...rest: Tail<K>): Return<Events[K]>;\n}',
+  },
+  {
     name: 'AgentFactory',
     declaration: 'export interface AgentFactory {\n    createAgent(ownerCtx: Context, options: CreateAgentOptions): Promise<AgentHandle>;\n    resume(ownerCtx: Context, options: ResumeAgentOptions): Promise<AgentHandle>;\n}',
   },
@@ -2789,6 +2780,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'AgentStatus',
     declaration: 'export type AgentStatus = \'idle\' | \'running\';',
+  },
+  {
+    name: 'AgentSubjectEvent',
+    declaration: 'export type AgentSubjectEvent = {\n    [K in keyof Events]: Events[K] extends (this: Scoped<Agent>, ...args: infer P) => unknown ? P extends [\n        infer Payload,\n        ...unknown[]\n    ] ? Payload extends {\n        agent: Agent;\n    } ? K : never : never : never;\n}[keyof Events];',
   },
   {
     name: 'ApprovalOutcome',
@@ -3300,7 +3295,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'Inbox',
-    declaration: 'export class Inbox {\n    constructor(private readonly ctx: Context, private readonly agent: Agent);\n    get nextTurn(): readonly UserMessage[];\n    get nextStep(): readonly UserMessage[];\n    get hasPending(): boolean;\n    clear(): void;\n    claim(target: InboxTarget, turn: number): UserMessage[];\n    append(target: InboxTarget, message: UserMessage): void;\n    prepend(target: InboxTarget, message: UserMessage): void;\n    replace(messageId: MessageId, newMessage: UserMessage): boolean;\n    remove(messageId: MessageId): boolean;\n    splice(target: InboxTarget, start: number, deleteCount: number, inserted: UserMessage[]): UserMessage[];\n}',
+    declaration: 'export class Inbox {\n    constructor(private readonly ctx: Context, private readonly session: Session, private readonly dispatch: AgentEventDispatch);\n    get nextTurn(): readonly UserMessage[];\n    get nextStep(): readonly UserMessage[];\n    get hasPending(): boolean;\n    clear(): void;\n    claim(target: InboxTarget, turn: number): UserMessage[];\n    append(target: InboxTarget, message: UserMessage): void;\n    prepend(target: InboxTarget, message: UserMessage): void;\n    replace(messageId: MessageId, newMessage: UserMessage): boolean;\n    remove(messageId: MessageId): boolean;\n    splice(target: InboxTarget, start: number, deleteCount: number, inserted: UserMessage[]): UserMessage[];\n}',
   },
   {
     name: 'InboxTarget',

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
-import AgentRegistry, { Inbox } from '@deepseek-ai/dsh-agent'
+import AgentRegistry, { agentEvents, Inbox } from '@deepseek-ai/dsh-agent'
 import type { Agent, AgentCancelCause, InboxTarget } from '@deepseek-ai/dsh-agent'
 import { CallId } from '@deepseek-ai/dsh-llm'
 import type { UserMessage } from '@deepseek-ai/dsh-llm'
@@ -39,7 +39,7 @@ function stubAgent(ctx: Context, id: string): Agent {
     steer(_message: UserMessage) {},
     inject(_message: UserMessage) {},
   }
-  Object.assign(agent, { inbox: new Inbox(agent.ctx, agent) })
+  Object.assign(agent, { inbox: new Inbox(agent.ctx, agent.session, agentEvents(agent.ctx, agent)) })
   return agent
 }
 

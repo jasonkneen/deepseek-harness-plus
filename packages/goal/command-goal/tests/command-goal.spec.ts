@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
-import AgentRegistry, { Inbox } from '@deepseek-ai/dsh-agent'
+import AgentRegistry, { agentEvents, Inbox } from '@deepseek-ai/dsh-agent'
 import type { Agent, AgentStatus } from '@deepseek-ai/dsh-agent'
 import CommandRuntime from '@deepseek-ai/dsh-commands'
 import GoalService from '@deepseek-ai/dsh-goal'
@@ -36,7 +36,7 @@ function stubAgent(ctx: Context, id: string): { agent: Agent; session: Session }
     runMaintenance: task => task(new AbortController().signal),
     whenIdle() { return Promise.resolve() },
   }
-  Object.assign(agent, { inbox: new Inbox(agent.ctx, agent) })
+  Object.assign(agent, { inbox: new Inbox(agent.ctx, agent.session, agentEvents(agent.ctx, agent)) })
   return { agent, session }
 }
 

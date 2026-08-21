@@ -1,4 +1,3 @@
-import InboxService from '@deepseek-ai/dsh-agent/inbox'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 /**
  * Loop-level reconstructability: every request the loop sends is a pure function of the
@@ -31,7 +30,6 @@ async function harnessRoutes(
   await ctx.plugin(LlmRuntime)
   await ctx.plugin(SessionStore)
   await ctx.plugin(SessionProjectionRegistry)
-  await ctx.plugin(InboxService)
   await ctx.plugin(SystemPrompt, { persona })
   await ctx.plugin(ToolRuntime)
   await ctx.plugin(AgentRegistry)
@@ -260,7 +258,6 @@ describe('request stability across the loop', () => {
     await ctx.plugin(LlmRuntime)
     await ctx.plugin(SessionStore)
     await ctx.plugin(SessionProjectionRegistry)
-    await ctx.plugin(InboxService)
     await ctx.plugin(SystemPrompt, { persona: 'stable base' })
     await ctx.plugin(ToolRuntime)
     await ctx.plugin(AgentRegistry)
@@ -380,7 +377,6 @@ describe('request stability across the loop', () => {
     await ctx.plugin(LlmRuntime)
     await ctx.plugin(SessionStore)
     await ctx.plugin(SessionProjectionRegistry)
-    await ctx.plugin(InboxService)
     await ctx.plugin(SystemPrompt, { persona: 'stable base' })
     await ctx.plugin(ToolRuntime)
     await ctx.plugin(AgentRegistry)

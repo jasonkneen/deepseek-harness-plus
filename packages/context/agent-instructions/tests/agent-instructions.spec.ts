@@ -7,8 +7,7 @@ import Loader from '@deepseek-ai/cordis-plugin-loader'
 import * as workspaceContext from '@deepseek-ai/dsh-agent-instructions'
 import LlmRuntime, { createUserMessage, CallId, type Message, type StreamChunk } from '@deepseek-ai/dsh-llm'
 import SessionStore, { SessionId, type SessionEvent, type UserMessage } from '@deepseek-ai/dsh-session'
-import AgentRegistry, { agentEvents, type Agent } from '@deepseek-ai/dsh-agent'
-import InboxService from '@deepseek-ai/dsh-agent/inbox'
+import AgentRegistry, { agentEvents, Inbox, type Agent } from '@deepseek-ai/dsh-agent'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import { FileSystem, FsTargetKey, FsVersion } from '@deepseek-ai/dsh-fs'
@@ -52,7 +51,7 @@ const testToolSignal = new AbortController().signal
 const isolatedInboxCtx = new Context()
 await isolatedInboxCtx.plugin(SessionStore)
 await isolatedInboxCtx.plugin(SessionProjectionRegistry)
-await isolatedInboxCtx.plugin(InboxService)
+await isolatedInboxCtx.plugin(AgentRegistry)
 let nextStubSession = 1
 
 async function tempRepo(): Promise<string> {
@@ -209,7 +208,7 @@ function stubAgent(cwd?: string, seed: SessionEvent[] = []): Agent {
     runMaintenance: task => task(new AbortController().signal),
     whenIdle: () => Promise.resolve(),
   }
-  Object.assign(agent, { inbox: agentCtx.inboxes.create(agent) })
+  Object.assign(agent, { inbox: new Inbox(agentCtx, agent.session, agentEvents(agentCtx, agent)) })
   return agent
 }
 
@@ -2523,7 +2522,6 @@ describe('dynamic nested workspace context injection', () => {
       await ctx.plugin(LlmRuntime)
       await ctx.plugin(SessionStore)
       await ctx.plugin(SessionProjectionRegistry)
-      await ctx.plugin(InboxService)
       await ctx.plugin(SystemPrompt)
       await ctx.plugin(ToolRuntime)
       await ctx.plugin(AgentRegistry)

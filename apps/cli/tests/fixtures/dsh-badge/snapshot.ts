@@ -1,6 +1,6 @@
 import { fileURLToPath } from 'node:url'
 import { Context } from '@deepseek-ai/cordis'
-import { agentEvents, type Agent } from '@deepseek-ai/dsh-agent'
+import { agentEvents, Inbox, type Agent } from '@deepseek-ai/dsh-agent'
 import { CallId } from '@deepseek-ai/dsh-llm'
 import { boot, loadOverlayPatches } from '@deepseek-ai/dsh-app-boot'
 import { SessionId } from '@deepseek-ai/dsh-session'
@@ -34,7 +34,7 @@ try {
     runMaintenance: job => job(new AbortController().signal),
     whenIdle: () => Promise.resolve(),
   }
-  Object.assign(agent, { inbox: ctx.inboxes.create(agent) })
+  Object.assign(agent, { inbox: new Inbox(ctx, agent.session, agentEvents(ctx, agent)) })
   const decision = await agentEvents(ctx, agent).waterfall(
     'agent/pre-step',
     { messages: [], turn: 1, step: 1, signal: new AbortController().signal },

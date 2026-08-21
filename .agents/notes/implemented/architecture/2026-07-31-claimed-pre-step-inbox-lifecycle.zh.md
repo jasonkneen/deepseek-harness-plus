@@ -18,11 +18,11 @@ Status: implemented
 
 持久 inbox 仍是两份通过 `MessageId` 寻址的 `UserMessage[]` 列表。`append`、`prepend` 与 `splice` 接受 target；`replace(messageId, newMessage)` 与 `remove(messageId)` 则在提交规范化 splice 前，通过 `MessageId` 跨两份列表定位待处理消息。替换可以改变标识，并先将旧消息作为 discarded 发布，再将新消息作为 inserted 发布。每次插入发出 `agent/inbox/inserted { message }`；普通删除记录 `outcome: 'canceled'` 并发出 `agent/inbox/discarded { message }`。领取记录不带 outcome 的纯删除，并由 Inbox 自行发出 claimed 事件。这些实时事件不增加 placement、outcome 或批次字段。
 
-两类事件接口服务不同消费方。跟踪单条消息的观察方使用 `agent/inbox/inserted`、`claimed` 与 `discarded`。`InboxService` 在持久 `agent/inbox/spliced` 流上注册标准 `inbox` 投影，供整体状态消费方与 live 恢复使用；UI 编辑与移除通过 Inbox 变更方法处理，从而让同一投影记录所有变化。
+两类事件接口服务不同消费方。跟踪单条消息的观察方使用 `agent/inbox/inserted`、`claimed` 与 `discarded`。`AgentRegistry` 会在投影注册表已组合时，在持久 `agent/inbox/spliced` 流上贡献标准 `inbox` 投影；UI 编辑与移除通过 Inbox 变更方法处理，从而让同一投影记录所有变化。
 
 必须对当前步骤进行原子改写的插件从 `agent/pre-step` 返回消息。只需要稍后上下文的插件可以直接修改 `agent.inbox`。Workspace context 同时使用两条路径：异步文件系统投影会暂存一条可替换的 `next-step` 消息，而下一次进入步骤的 pre-step 会把该消息或新组合的基线折入最终批次，并移除仍待处理的副本。reject 会让该条目继续排队。
 
-已归档的[可寻址队列项决策](../../archived/feature/2026-07-29-addressable-queue-operations.md)描述了已被取代的单次出现包装层设计。现在由 `MessageId` 负责寻址，而 `InboxService` 把 `inbox` 注册为持久 splice 上的标准会话投影。通用投影传输层会将该折叠结果用于实时更新、历史尾页的重连基线和冷进程重启恢复，无需 live Agent 镜像。
+已归档的[可寻址队列项决策](../../archived/feature/2026-07-29-addressable-queue-operations.md)描述了已被取代的单次出现包装层设计。`MessageId` 负责寻址，而 `AgentRegistry` 把 `inbox` 作为持久 splice 上的标准会话投影贡献给投影注册表。通用投影传输层会将该折叠结果用于实时更新、历史尾页的重连基线和冷进程重启恢复，无需 live Agent 镜像。
 
 ## 曾考虑的替代方案
 

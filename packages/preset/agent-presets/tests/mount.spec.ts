@@ -3,7 +3,6 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { Context } from '@deepseek-ai/cordis'
-import InboxService from '@deepseek-ai/dsh-agent/inbox'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
 import Include from '@deepseek-ai/cordis-plugin-include'
 import LlmRuntime from '@deepseek-ai/dsh-llm'
@@ -48,7 +47,6 @@ async function harness(roster: Config = { default: 'standard', roots: ROOTS, inc
   await ctx.plugin(LlmRuntime)
   await ctx.plugin(SessionStore)
   await ctx.plugin(SessionProjectionRegistry)
-  await ctx.plugin(InboxService)
   await ctx.plugin(SystemPrompt, { persona: '' })
   await ctx.plugin(ToolRuntime)
   await ctx.plugin(AgentRegistry)
@@ -419,7 +417,6 @@ describe('the preset file is an input, never a persistence target', () => {
     await scoped.plugin(LlmRuntime)
     await scoped.plugin(SessionStore)
     await scoped.plugin(SessionProjectionRegistry)
-    await scoped.plugin(InboxService)
     await scoped.plugin(SystemPrompt, { persona: '' })
     await scoped.plugin(ToolRuntime)
     await scoped.plugin(AgentRegistry)
@@ -586,7 +583,6 @@ describe('replacing a composition', () => {
     await scoped.plugin(LlmRuntime)
     await scoped.plugin(SessionStore)
     await scoped.plugin(SessionProjectionRegistry)
-    await scoped.plugin(InboxService)
     await scoped.plugin(SystemPrompt, { persona: '' })
     await scoped.plugin(ToolRuntime)
     await scoped.plugin(AgentRegistry)

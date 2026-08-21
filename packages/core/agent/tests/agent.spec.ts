@@ -4,10 +4,9 @@ import { createUserMessage, freezeMessage } from '@deepseek-ai/dsh-llm'
 import SessionStore, { Session, SessionId, type UserMessage } from '@deepseek-ai/dsh-session'
 import AgentRegistry, {
   agentEvents,
-  InboxService,
+  Inbox,
 } from '@deepseek-ai/dsh-agent'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
-import type {} from '@deepseek-ai/dsh-agent/inbox-projection'
 import TypertRegistry from '@deepseek-ai/dsh-typert-registry'
 
 import type {
@@ -48,10 +47,10 @@ async function inboxAgent(rawId: string): Promise<{ ctx: Context; session: Sessi
   const ctx = new Context()
   await ctx.plugin(SessionStore)
   await ctx.plugin(SessionProjectionRegistry)
-  await ctx.plugin(InboxService)
+  await ctx.plugin(AgentRegistry)
   const session = ctx.sessions.create(SessionId(rawId))
   const agent = stubAgent(rawId, { ctx, session })
-  Object.assign(agent, { inbox: ctx.inboxes.create(agent) })
+  Object.assign(agent, { inbox: new Inbox(ctx, agent.session, agentEvents(ctx, agent)) })
   return { ctx, session, agent }
 }
 
@@ -65,7 +64,7 @@ describe('Inbox', () => {
     parentAgent.inbox.append('next-turn', inherited)
     const child = ctx.sessions.fork(parent, undefined, SessionId('inbox-fork-child'))
     const childAgent = stubAgent('inbox-fork-child', { ctx, session: child })
-    Object.assign(childAgent, { inbox: ctx.inboxes.create(childAgent) })
+    Object.assign(childAgent, { inbox: new Inbox(ctx, childAgent.session, agentEvents(ctx, childAgent)) })
 
     expect(child.header.seedLength).toBe(parent.events.length)
     expect(childAgent.inbox.nextTurn).toEqual([inherited])
@@ -169,15 +168,15 @@ describe('Inbox', () => {
     expect(session.events).toHaveLength(beforeClear + 2)
   })
 
-  it('registers the durable Inbox projection from the Inbox service', async () => {
+  it('registers the durable Inbox projection from the Agent registry', async () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
     await ctx.plugin(SessionProjectionRegistry)
-    const inboxFiber = ctx.plugin(InboxService)
-    await inboxFiber
+    const agentFiber = ctx.plugin(AgentRegistry)
+    await agentFiber
     const session = ctx.sessions.create(SessionId('inbox-projection'))
     const agent = stubAgent('inbox-projection', { ctx, session })
-    Object.assign(agent, { inbox: ctx.inboxes.create(agent) })
+    Object.assign(agent, { inbox: new Inbox(ctx, agent.session, agentEvents(ctx, agent)) })
     const pending = createUserMessage({
       content: [{ type: 'text', text: 'pending' }],
       source: { kind: 'user' },
@@ -189,7 +188,7 @@ describe('Inbox', () => {
       'next-turn': [pending],
       'next-step': [],
     })
-    await inboxFiber.dispose()
+    await agentFiber.dispose()
     expect(ctx.sessionProjections.snapshot(session).values).toEqual({})
   })
 

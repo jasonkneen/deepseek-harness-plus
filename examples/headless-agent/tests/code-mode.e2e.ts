@@ -11,7 +11,6 @@ import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime, { RUN_CODE_NAME, defineTool } from '@deepseek-ai/dsh-tools'
 import type { ToolExecutionResult } from '@deepseek-ai/dsh-tools'
 import AgentRegistry, { type Agent } from '@deepseek-ai/dsh-agent'
-import InboxService from '@deepseek-ai/dsh-agent/inbox'
 
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { LocalBashExecutor } from '@deepseek-ai/dsh-bash-local'
@@ -56,7 +55,6 @@ async function codeModeHarness(cwd: string): Promise<Context> {
   await harness.plugin(LlmRuntime)
   await harness.plugin(SessionStore)
   await harness.plugin(SessionProjectionRegistry)
-  await harness.plugin(InboxService)
   await harness.plugin(SystemPrompt, { persona: PERSONA })
   await harness.plugin(ToolRuntime, { mode: 'code' })
   await harness.plugin(AgentRegistry)
@@ -75,7 +73,6 @@ async function workspaceCodeModeHarness(): Promise<Context> {
   await harness.plugin(LlmRuntime)
   await harness.plugin(SessionStore)
   await harness.plugin(SessionProjectionRegistry)
-  await harness.plugin(InboxService)
   await harness.plugin(SystemPrompt, { persona: PERSONA })
   await harness.plugin(ToolRuntime, { mode: 'code' })
   await harness.plugin(AgentRegistry)
