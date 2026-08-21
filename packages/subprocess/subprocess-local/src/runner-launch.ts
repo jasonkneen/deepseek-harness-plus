@@ -115,22 +115,23 @@ function waitForRunnerHandshake(child: ChildProcess, files: RunnerFiles): Runner
 async function waitForDirectResult(
   files: RunnerFiles,
   initial: RunnerEvent[],
-  resultFinalized: Promise<void>,
+  closed: Promise<void>,
 ): Promise<SubprocessOutcome> {
   let seen = 0
-  const resultState = { finalized: false }
-  void resultFinalized.then(() => { resultState.finalized = true })
+  const wrapperState = { closed: false }
+  void closed.then(() => { wrapperState.closed = true })
   for (;;) {
-    // A read started before finalization may return a stale snapshot. Only a
-    // read started afterward can prove no terminal event remains forthcoming.
-    const finalizedBeforeRead = resultState.finalized
+    // A read started before close may return a stale snapshot after close has
+    // become visible. Only a read started after close can prove no terminal
+    // event was written before the runner exited.
+    const closedBeforeRead = wrapperState.closed
     const events = await readRunnerEventsAsync(files.eventsPath)
     for (const event of events.slice(seen)) {
       if (event.type === 'exit') return { exitCode: event.exitCode, signal: event.signal }
       if (event.type === 'spawn-error' || event.type === 'runner-error') throw deserializeSpawnError(event.error)
     }
     seen = Math.max(seen, events.length, initial.length)
-    if (finalizedBeforeRead) {
+    if (closedBeforeRead) {
       throw new DirectResultUnavailableError('native subprocess runner exited without a direct-command result')
     }
     await sleepMs(RUNNER_EVENT_POLL_MS)
@@ -141,13 +142,13 @@ async function waitForDirectResult(
  * Bind runner events into one direct result while preserving the target pid.
  * @param child - native wrapper process.
  * @param files - private request and result paths.
- * @param resultFinalized - platform proof that no later runner event can arrive.
+ * @param closed - wrapper close observation attached before the start handshake.
  * @returns target pid, direct result, and whether the runner already reported a pre-start terminal failure.
  */
 export function runnerDirectResult(
   child: ChildProcess,
   files: RunnerFiles,
-  resultFinalized: Promise<void>,
+  closed: Promise<void>,
 ): {
   pid: number
   direct: Promise<SubprocessOutcome>
@@ -162,7 +163,7 @@ export function runnerDirectResult(
   }
   return {
     pid: handshake.pid,
-    direct: waitForDirectResult(files, handshake.events, resultFinalized),
+    direct: waitForDirectResult(files, handshake.events, closed),
     failureReported: handshake.failureReported,
   }
 }

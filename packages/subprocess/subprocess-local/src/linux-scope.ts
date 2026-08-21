@@ -214,7 +214,6 @@ export function launchLinuxScope(
   })
   const closed = observeChildClose(child)
   let forceKillAttempted = false
-  let scopeSettled = false
   const owner = new SystemdScopeOwner(
     `${unitBase}.scope`,
     systemctl,
@@ -223,20 +222,11 @@ export function launchLinuxScope(
     child,
     () => { forceKillAttempted = true },
   )
-  const resultFinalized = closed.then(async () => {
-    try {
-      await owner.waitForExit()
-      scopeSettled = true
-    } catch (_rangeObservationFailed) {
-      // waitForExit retains the authoritative owner failure for its caller.
-    }
-  })
-  const result = runnerDirectResult(child, files, resultFinalized)
-  const direct = result.direct.catch((error: unknown): SubprocessOutcome => {
-    if (forceKillAttempted && scopeSettled && error instanceof DirectResultUnavailableError) {
-      return { exitCode: null, signal: 'SIGKILL' }
-    }
-    throw error
+  const result = runnerDirectResult(child, files, closed)
+  const direct = result.direct.catch(async (error: unknown): Promise<SubprocessOutcome> => {
+    if (!forceKillAttempted || !(error instanceof DirectResultUnavailableError)) throw error
+    await owner.waitForExit()
+    return { exitCode: null, signal: 'SIGKILL' }
   })
   cleanupAfterRunner(files, direct, closed)
   return {

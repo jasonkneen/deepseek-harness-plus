@@ -113,7 +113,7 @@ describe.skipIf(process.platform === 'win32')('Linux systemd scope adapter', () 
     expect(systemdArgs).not.toContain('literal $VALUE')
   })
 
-  it('uses a successful scope KILL when the runner cannot publish the direct result', async () => {
+  it('uses a scope KILL after the owner proves the range empty', async () => {
     let wrapper: ReturnType<typeof spawn> | undefined
     const run = vi.fn((_command: string, args: readonly string[], options: Parameters<typeof spawn>[2]) => {
       const separator = args.indexOf('--')
