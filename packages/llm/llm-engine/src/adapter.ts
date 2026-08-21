@@ -39,6 +39,7 @@ import type {} from '@deepseek-ai/dsh-subagent'
 
 /** The engine routes this adapter serves, matching the backend provider names. */
 export const ENGINE_ROUTES = ['claude-code', 'codex'] as const
+/** One engine route name from {@link ENGINE_ROUTES}. */
 export type EngineRoute = (typeof ENGINE_ROUTES)[number]
 
 /** Model id meaning "the CLI's own configured default" (no override sent). */

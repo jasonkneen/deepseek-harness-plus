@@ -35,13 +35,17 @@ The `@deepseek-ai/dsh-multi-provider` bundle mounts this adapter together with t
 
 No keys: `claude` must be logged into claude.ai and/or `codex` into ChatGPT.
 
+## Permission decisions
+
+The engine's native permission flow applies inside its process (Claude Code's approvals, Codex's `approval_policy`); the harness approval seam is not involved. See each backend README's permission posture.
+
 ## Model Experience
 
 ### Prompt text
 
 #### What the model sees
 
-The engine receives the latest user message text only, as one task in a fresh run. It never sees the conversation history, the harness system prompt, or tool schemas; its own native system prompt, tools, and permissions apply inside its process.
+The engine receives the latest user message text only (`stream()` forwards it as one task in a fresh run, as the Claude Agent SDK `prompt` or the app-server `turn/start` input). It never sees the conversation history, the harness system prompt, or tool schemas; its own native system prompt, tools, and permissions apply inside its process.
 
 #### Token effect
 
@@ -50,10 +54,6 @@ Data-dependent; each engine run pays for an independent context that never enter
 #### KV Cache effect
 
 None; each run is a fresh engine process with its own provider state.
-
-### Permission decisions
-
-The engine's native permission flow applies inside its process (Claude Code's approvals, Codex's `approval_policy`); the harness approval seam is not involved. See each backend README's permission posture.
 
 ## Known Limitations and Deferred Work
 

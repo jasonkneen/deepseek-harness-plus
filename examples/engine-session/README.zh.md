@@ -2,9 +2,9 @@
 
 [English](README.md) | 中文
 
-实验性整会话模式的可运行演示：**不组合** harness agent loop；整个会话通过一个委派引擎运行——[官方 Claude Agent SDK 驱动的 Claude Code](../../packages/subagent/subagent-claude-code/README.md)（`claude-code`）或[官方 `codex app-server` 驱动的 Codex](../../packages/subagent/subagent-codex/README.md)（`codex`）——而 harness 拥有持久会话。位于 `packages/examples/engine-session-demo/src/bin.ts` 的引擎 bin 创建会话、记录用户提示词、委派整个任务、把引擎的最终回答与回合结果作为普通会话事件记录，并把会话 flush 到 JSONL 持久化。
+实验性整会话模式的可运行演示：**不组合** harness agent loop；整个会话通过一个委派引擎运行——[官方 Claude Agent SDK 驱动的 Claude Code](../../packages/subagent/subagent-claude-code/README.zh.md)（`claude-code`）或[官方 `codex app-server` 驱动的 Codex](../../packages/subagent/subagent-codex/README.zh.md)（`codex`）——而 harness 拥有持久会话。位于 `packages/examples/engine-session-demo/src/bin.ts` 的引擎 bin 创建会话、记录用户提示词、委派整个任务、把引擎的最终回答与回合结果作为普通会话事件记录，并把会话 flush 到 JSONL 持久化。
 
-这是 [`@deepseek-ai/dsh-multi-provider`](../../packages/bundle/multi-provider/README.md) pack 文档中记录的实验性路径：同样的后端原本每次只回答一次委派，现在可以回答整个会话，且对话记录保留在 harness 自己的会话日志中。它不是 harness agent loop——这里不运行工具执行、沙箱、审批或模型路由；运行内部由引擎自己的 loop 说了算。
+这是 [`@deepseek-ai/dsh-multi-provider`](../../packages/bundle/multi-provider/README.zh.md) pack 文档中记录的实验性路径：同样的后端原本每次只回答一次委派，现在可以回答整个会话，且对话记录保留在 harness 自己的会话日志中。它不是 harness agent loop——这里不运行工具执行、沙箱、审批或模型路由；运行内部由引擎自己的 loop 说了算。
 
 ## 运行
 

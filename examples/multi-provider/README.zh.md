@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-[`@deepseek-ai/dsh-multi-provider`](../../packages/bundle/multi-provider/README.md) pack 组合包的可运行参考：在 agent spine 之上用通用 pi-ai 适配器激活三个基于密钥的 provider（Gemini、MiniMax、Kimi），并组合 Claude Code 与 Codex 委派后端，作为一个 leaf 交付。`cordis.yml` 是组合基座；`cordis.snapshot.yml` 是它的回放孪生文件，供无密钥快照套件使用。
+[`@deepseek-ai/dsh-multi-provider`](../../packages/bundle/multi-provider/README.zh.md) pack 组合包的可运行参考：在 agent spine 之上用通用 pi-ai 适配器激活三个基于密钥的 provider（Gemini、MiniMax、Kimi），并组合 Claude Code 与 Codex 委派后端，作为一个 leaf 交付。`cordis.yml` 是组合基座；`cordis.snapshot.yml` 是它的回放孪生文件，供无密钥快照套件使用。
 
 ## 这个 leaf 证明什么
 

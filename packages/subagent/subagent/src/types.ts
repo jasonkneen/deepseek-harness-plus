@@ -264,8 +264,22 @@ export interface SubagentResult {
    * schema-agnostic.
    */
   readonly structured?: unknown
+  /**
+   * Provider-authored, non-assistant failure detail for a non-`completed`
+   * result. Providers keep this text free of tool inputs, file contents,
+   * environment values, credentials, and raw protocol payloads, and limit it
+   * to 4096 UTF-8 bytes. Consumers present it separately from {@link output}.
+   */
+  readonly diagnostic?: string
   /** Why the run ended. A non-`completed` reason means `output` may be partial. */
   readonly stopReason: SubagentStopReason
+}
+
+/** One incremental text update from a running engine, surfaced for streaming. */
+export type SubagentUpdate = {
+  /** Incremental assistant text produced since the previous update. */
+  kind: 'text-delta'
+  text: string
 }
 
 /**
@@ -277,13 +291,6 @@ export interface SubagentResult {
  * continuation manager holds their `AgentHandle` directly and orders every
  * turn through the child's own inbox.
  */
-/** One incremental text update from a running engine, surfaced for streaming. */
-export type SubagentUpdate = {
-  /** Incremental assistant text produced since the previous update. */
-  kind: 'text-delta'
-  text: string
-}
-
 export interface SubagentRun {
   /**
    * Parent-scoped run id. For a local run, this MUST equal the published child

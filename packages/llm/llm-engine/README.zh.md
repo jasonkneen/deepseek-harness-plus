@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-面向本地引擎 CLI 的 LLM seam 适配器。在 `ctx.llm` 上注册 `claude-code` 与 `codex` 两条 provider 路由，由对应的 [`ctx.subagents`](../../subagent/subagent/README.md) 后端支撑：[`dsh-subagent-claude-code`](../../subagent/subagent-claude-code/README.md) 运行官方 Claude Agent SDK，[`dsh-subagent-codex`](../../subagent/subagent-codex/README.md) 运行官方 `codex app-server`。把会话的 provider 选成这两条路由之一——无论是在 web Models 选择器、`agent-default-model` 还是任意模型选择里——每一次回合都会通过本地 CLI 运行，使用其**原生 OAuth 状态（claude.ai／ChatGPT 登录）；完全不需要任何 API 密钥**。
+面向本地引擎 CLI 的 LLM seam 适配器。在 `ctx.llm` 上注册 `claude-code` 与 `codex` 两条 provider 路由，由对应的 [`ctx.subagents`](../../subagent/subagent/README.zh.md) 后端支撑：[`dsh-subagent-claude-code`](../../subagent/subagent-claude-code/README.zh.md) 运行官方 Claude Agent SDK，[`dsh-subagent-codex`](../../subagent/subagent-codex/README.zh.md) 运行官方 `codex app-server`。把会话的 provider 选成这两条路由之一——无论是在 web Models 选择器、`agent-default-model` 还是任意模型选择里——每一次回合都会通过本地 CLI 运行，使用其**原生 OAuth 状态（claude.ai／ChatGPT 登录）；完全不需要任何 API 密钥**。
 
 ## 这个适配器做什么
 
@@ -20,7 +20,7 @@
 
 ## 组合
 
-`@deepseek-ai/dsh-multi-provider` 组合包会连同两个后端一起挂载本适配器；可运行参考是 [`examples/multi-provider`](../../../examples/multi-provider/README.md)。profile 需要 `dsh-subagent`（在 `dsh-base` 里）加上下面两个后端行与本行：
+`@deepseek-ai/dsh-multi-provider` 组合包会连同两个后端一起挂载本适配器；可运行参考是 [`examples/multi-provider`](../../../examples/multi-provider/README.zh.md)。profile 需要 `dsh-subagent`（在 `dsh-base` 里）加上下面两个后端行与本行：
 
 ```yaml
 - id: llm-engine
@@ -35,13 +35,17 @@
 
 不需要密钥：只要 `claude` 已登录 claude.ai 和／或 `codex` 已登录 ChatGPT。
 
+## 权限决策
+
+引擎的原生权限流程在其进程内生效（Claude Code 的审批、Codex 的 `approval_policy`）；不涉及 harness 的审批 seam。详见各后端 README 的权限姿态。
+
 ## 模型体验
 
 ### 提示词文本
 
 #### 模型看到什么
 
-引擎只收到最新一条用户消息的文本，作为一次全新运行里的单个任务。它看不到对话历史、harness 系统提示词或工具 schema；它自己的原生系统提示词、工具与权限在其进程内生效。
+引擎只收到最新一条用户消息的文本（`stream()` 把它作为一次全新运行里的单个任务转发，即 Claude Agent SDK 的 `prompt` 或 app-server 的 `turn/start` 输入）。它看不到对话历史、harness 系统提示词或工具 schema；它自己的原生系统提示词、工具与权限在其进程内生效。
 
 #### Token 影响
 
@@ -50,10 +54,6 @@
 #### KV Cache 影响
 
 无；每次运行都是全新的引擎进程，使用自己的 provider 状态。
-
-### 权限决策
-
-引擎的原生权限流程在其进程内生效（Claude Code 的审批、Codex 的 `approval_policy`）；不涉及 harness 的审批 seam。详见各后端 README 的权限姿态。
 
 ## 已知限制与暂缓事项
 
