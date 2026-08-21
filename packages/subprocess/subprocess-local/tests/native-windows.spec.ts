@@ -143,7 +143,7 @@ describe.skipIf(!windowsNative)('Windows Job native containment', () => {
         value: 'explicit',
         arg: 'literal $HOME ${UNCHANGED}',
       }))
-      rmSync(targetCwd)
+      rmSync(targetCwd, { recursive: true })
       await expect(handle.waitForExit(AbortSignal.timeout(30))).resolves.toBe(false)
       handle.terminate()
       await expect(handle.waitForExit()).resolves.toBe(true)
