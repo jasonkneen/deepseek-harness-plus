@@ -1,4 +1,4 @@
-/** Low-level Win32 process, stdio, and Job Object primitives used by the Windows ACL sandbox. */
+/** Low-level Win32 process, stdio, and Job Object primitives shared by sandbox and ordinary subprocess paths. */
 
 export { ERROR_INSUFFICIENT_BUFFER } from './abi.ts'
 export * from './errors.ts'
@@ -19,17 +19,20 @@ export type {
 } from './ffi.ts'
 export {
   closeHandleChecked,
+  createKillOnCloseJob,
   drainPipe,
   isJobEmpty,
+  openJobForAssignment,
   pollProcessExit,
   spawnInheritedJobProcess,
-  spawnOrdinaryJobProcess,
+  spawnOrdinaryProcessInJob,
   spawnPipedProcess,
   terminateJob,
   waitForProcessExit,
 } from './process.ts'
 export type {
   OrdinaryProcessSpawnOptions,
+  SpawnedAssignedProcess,
   SpawnedJobProcess,
   SpawnedPipedProcess,
 } from './process.ts'

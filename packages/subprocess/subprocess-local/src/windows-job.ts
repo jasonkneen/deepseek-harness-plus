@@ -1,7 +1,17 @@
 /** Windows Job runner launch and managed-range ownership. */
 
 import { spawn, spawnSync } from 'node:child_process'
+import { randomUUID } from 'node:crypto'
+import { setTimeout as sleepMs } from 'node:timers/promises'
 import type { SubprocessSpawnSpec } from '@deepseek-ai/dsh-subprocess'
+import {
+  closeHandleChecked,
+  createKillOnCloseJob,
+  isJobEmpty,
+  loadWin32ProcessBindings,
+  terminateJob,
+} from '@deepseek-ai/dsh-win32-process'
+import type { NativePtr } from '@deepseek-ai/dsh-win32-process'
 import type { BoundProcessOwner, ManagedProcessLaunch } from './managed-owner.ts'
 import { observeChildClose, waitWithAbort } from './managed-owner.ts'
 import { childEnv } from './spawn.ts'
@@ -12,12 +22,35 @@ import {
   runnerStdio,
   spawnRunnerInvocation,
 } from './runner-launch.ts'
+import { cleanupRunnerFiles } from './runner-protocol.ts'
+
+const JOB_POLL_INTERVAL_MS = 10
+
+/** Parent-side operations for one Windows Job handle. */
+export interface WindowsJobOperations {
+  create(name: string): NativePtr
+  empty(job: NativePtr): boolean
+  terminate(job: NativePtr): void
+  close(job: NativePtr): void
+}
+
+function nativeJobOperations(): WindowsJobOperations {
+  const api = loadWin32ProcessBindings()
+  return {
+    create: name => createKillOnCloseJob(api, name),
+    empty: job => isJobEmpty(api, job),
+    terminate: (job) => { terminateJob(api, job, 1) },
+    close: (job) => { closeHandleChecked(api, job, 'ordinary process Job') },
+  }
+}
 
 /** Test seams for the runner process. */
 export interface WindowsJobInternals {
   spawn?: typeof spawn
   spawnSync?: typeof spawnSync
   runnerInvocation?: string[]
+  jobs?: WindowsJobOperations
+  jobName?: () => string
 }
 
 /**
@@ -39,53 +72,57 @@ export function probeWindowsJob(internals: WindowsJobInternals = {}): boolean {
 
 class WindowsJobOwner implements BoundProcessOwner {
   private stopped = false
-  private runnerClosed = false
-  private readonly observation: Promise<void>
+  private closed = false
+  private terminationRequested = false
+  private terminationFailure: Error | undefined
+  private observation: Promise<void> | undefined
 
-  constructor(private readonly runner: ReturnType<typeof spawn>) {
-    this.observation = new Promise((resolve, reject) => {
-      runner.once('close', (exitCode, signal) => {
-        this.runnerClosed = true
-        if (exitCode === 0 && signal === null) {
-          this.stopped = true
-          resolve()
-          return
-        }
-        const status = signal !== null
-          ? `signal ${signal}`
-          : exitCode === null
-            ? 'without an exit status'
-            : `exit code ${String(exitCode)}`
-        reject(new Error(
-          `subprocess-local: Windows Job runner exited with ${status} before proving its managed range empty`,
-        ))
-      })
-    })
-    void this.observation.catch(() => {})
-  }
+  constructor(
+    private readonly job: NativePtr,
+    private readonly operations: WindowsJobOperations,
+    private readonly runnerClosed: Promise<void>,
+  ) {}
 
   signal(_signal: NodeJS.Signals): void {
-    if (this.stopped || this.runnerClosed) return
+    if (this.stopped || this.terminationRequested) return
+    this.terminationRequested = true
     try {
-      if (this.runner.connected) {
-        this.runner.send({ type: 'terminate' }, (error) => {
-          if (error !== null) this.runner.kill()
-        })
-      } else {
-        this.runner.kill()
-      }
-    } catch {
-      this.runner.kill()
+      this.operations.terminate(this.job)
+    } catch (error) {
+      this.terminationFailure = error instanceof Error ? error : new Error(String(error))
     }
   }
 
   waitForExit(signal?: AbortSignal): Promise<boolean> {
-    return this.stopped ? Promise.resolve(true) : waitWithAbort(this.observation, signal)
+    if (this.observation !== undefined) return waitWithAbort(this.observation, signal)
+    if (this.stopped) return Promise.resolve(true)
+    this.observation = (async () => {
+      try {
+        while (!this.operations.empty(this.job)) {
+          if (this.terminationFailure !== undefined) throw this.terminationFailure
+          await sleepMs(JOB_POLL_INTERVAL_MS)
+        }
+        this.stopped = true
+        this.close()
+        await this.runnerClosed
+      } catch (error) {
+        this.stopped = true
+        try { this.close() } catch { /* Preserve the observation failure. */ }
+        throw error
+      }
+    })()
+    return waitWithAbort(this.observation, signal)
+  }
+
+  private close(): void {
+    if (this.closed) return
+    this.operations.close(this.job)
+    this.closed = true
   }
 }
 
 /**
- * Launch one direct command through the Job-owning runner.
+ * Launch one direct command through a runner into a parent-owned Job.
  * @param spec - exact target argv, cwd, stdio, environment, and lifecycle settings.
  * @param internals - injected process runner used by tests.
  * @returns wrapper streams, target outcome, and the bound Job owner.
@@ -98,21 +135,40 @@ export function launchWindowsJob(
   const invocation = internals.runnerInvocation ?? spawnRunnerInvocation()
   const [command, ...prefix] = invocation
   if (command === undefined) throw new Error('subprocess-local: Windows runner invocation is empty')
+  /* v8 ignore next -- the native Windows suite exercises the real Job operations. */
+  const jobs = internals.jobs ?? nativeJobOperations()
+  const jobName = (internals.jobName ?? (() => `Local\\dsh-subprocess-${randomUUID()}`))()
   const files = runnerFiles(spec)
-  const child = run(command, [
-    ...prefix,
-    '--mode',
-    'win32',
-    '--request',
-    files.requestPath,
-    '--events',
-    files.eventsPath,
-  ], {
-    env: childEnv(),
-    stdio: runnerStdio(spec, true),
-  })
+  let job: NativePtr
+  try {
+    job = jobs.create(jobName)
+  } catch (error) {
+    cleanupRunnerFiles(files)
+    throw error
+  }
+  let child: ReturnType<typeof spawn>
+  try {
+    child = run(command, [
+      ...prefix,
+      '--mode',
+      'win32',
+      '--job',
+      jobName,
+      '--request',
+      files.requestPath,
+      '--events',
+      files.eventsPath,
+    ], {
+      env: childEnv(),
+      stdio: runnerStdio(spec),
+    })
+  } catch (error) {
+    try { jobs.close(job) } catch { /* Preserve the launch failure. */ }
+    cleanupRunnerFiles(files)
+    throw error
+  }
   const closed = observeChildClose(child)
-  const owner = new WindowsJobOwner(child)
+  const owner = new WindowsJobOwner(job, jobs, closed)
   const result = runnerDirectResult(child, files, closed)
   cleanupAfterRunner(files, result.direct, closed)
   return { child, pid: result.pid, direct: result.direct, closed, owner }

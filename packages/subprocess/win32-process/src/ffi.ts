@@ -53,7 +53,7 @@ export interface ProcessInfoOutput {
   dwThreadId: number
 }
 
-/** Generic Win32 calls consumed by restricted-token sandbox process operations. */
+/** Generic Win32 calls consumed by sandbox and ordinary process operations. */
 export interface Win32ProcessBindings {
   closeHandle(handle: NativePtr): number
   getLastError(): number
@@ -104,7 +104,8 @@ export interface Win32ProcessBindings {
   ): number
   waitForSingleObject(handle: NativePtr, milliseconds: number): number
   getExitCodeProcess(process: NativePtr, exitCode: NativePtr): number
-  createJobObjectW(attributes: null, name: null): NativePtr
+  createJobObjectW(attributes: null, name: string | null): NativePtr
+  openJobObjectW(desiredAccess: number, inheritHandle: number, name: string): NativePtr
   setInformationJobObject(job: NativePtr, cls: number, information: Buffer, length: number): number
   queryInformationJobObject(
     job: NativePtr,
@@ -121,7 +122,7 @@ export interface Win32ProcessBindings {
 }
 
 /** Koffi STARTUPINFOW layout. */
-export const STARTUPINFOW = koffi.struct('DSH_STARTUPINFOW', {
+export const STARTUPINFOW = koffi.struct({
   cb: 'uint32',
   lpReserved: 'str16',
   lpDesktop: 'str16',
@@ -143,7 +144,7 @@ export const STARTUPINFOW = koffi.struct('DSH_STARTUPINFOW', {
 })
 
 /** Koffi PROCESS_INFORMATION layout. */
-export const PROCESS_INFORMATION = koffi.struct('DSH_PROCESS_INFORMATION', {
+export const PROCESS_INFORMATION = koffi.struct({
   hProcess: PVOID,
   hThread: PVOID,
   dwProcessId: 'uint32',
@@ -272,6 +273,7 @@ function bindings(): Win32ProcessBindings {
     waitForSingleObject: bind(kernel32, 'WaitForSingleObject', 'uint32', [PVOID, 'uint32']),
     getExitCodeProcess: bind(kernel32, 'GetExitCodeProcess', 'int', [PVOID, koffi.pointer('uint32')]),
     createJobObjectW: bind(kernel32, 'CreateJobObjectW', PVOID, [PVOID, 'str16']),
+    openJobObjectW: bind(kernel32, 'OpenJobObjectW', PVOID, ['uint32', 'int', 'str16']),
     setInformationJobObject: bind(kernel32, 'SetInformationJobObject', 'int', [PVOID, 'int', PVOID, 'uint32']),
     queryInformationJobObject: bind(kernel32, 'QueryInformationJobObject', 'int', [
       PVOID, 'int', PVOID, 'uint32', PVOID,

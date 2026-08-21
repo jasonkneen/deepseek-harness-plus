@@ -16,7 +16,7 @@ Status: implemented
 
 该 listener使用本地实现私有的最终操作；公共 `SubprocessHandle`和 `SubprocessTerminalHandle`接口不包含这些操作：
 
-- 普通 handle在可用时同步向绑定的 native scope 或 Job runner 发信号；已披露的 fallback 会向 detached POSIX进程组发送 SIGKILL，或在 Windows运行 `taskkill /PID <pid> /T /F`。
+- 普通 handle在可用时同步向绑定的 native scope 或 parent-held Job 发信号；已披露的 fallback 会向 detached POSIX进程组发送 SIGKILL，或在 Windows运行 `taskkill /PID <pid> /T /F`。
 - Terminal handle同步向全部已捕获及当前可观察的后代发送 SIGKILL，终止 PTY root，然后再扫描一次并终止在该边界期间变得可观察的成员。
 - 服务分别包含每个目标的失败并继续处理其余 handle。回调不会创建 Promise或 timer，不写诊断，也不改变原始退出码或错误。
 

@@ -2,14 +2,17 @@ import koffi from 'koffi'
 import { describe, expect, it, vi } from 'vitest'
 import {
   closeHandleChecked,
+  createKillOnCloseJob,
   isJobEmpty,
+  openJobForAssignment,
   pollProcessExit,
-  spawnOrdinaryJobProcess,
+  spawnOrdinaryProcessInJob,
   terminateJob,
   Win32Error,
 } from '../src/index.ts'
 import {
   CREATE_SUSPENDED,
+  JOB_OBJECT_ASSIGN_PROCESS,
   JOBOBJECT_BASIC_ACCOUNTING_ACTIVE_PROCESSES_OFFSET,
   JOBOBJECT_BASIC_ACCOUNTING_SIZE,
   JobObjectBasicAccountingInformation,
@@ -21,6 +24,7 @@ import type { NativePtr, Win32ProcessBindings } from '../src/index.ts'
 function api(overrides: Partial<Win32ProcessBindings> = {}): Win32ProcessBindings {
   return {
     createJobObjectW: vi.fn(() => 50n),
+    openJobObjectW: vi.fn(() => 55n),
     setInformationJobObject: vi.fn(() => 1),
     queryInformationJobObject: vi.fn((_job: NativePtr, _cls: number, information: Buffer) => {
       information.writeUInt32LE(0, JOBOBJECT_BASIC_ACCOUNTING_ACTIVE_PROCESSES_OFFSET)
@@ -56,6 +60,7 @@ function api(overrides: Partial<Win32ProcessBindings> = {}): Win32ProcessBinding
 describe('ordinary Job process operations', () => {
   it('creates suspended, assigns the Job, and resumes before returning', () => {
     const events: string[] = []
+    const createJobObjectW = vi.fn(() => 50n as NativePtr)
     const createProcessW = vi.fn((
       _app: unknown,
       _line: unknown,
@@ -73,16 +78,19 @@ describe('ordinary Job process operations', () => {
       return 1
     })
     const bindings = api({
+      createJobObjectW,
       createProcessW,
       assignProcessToJobObject: vi.fn(() => { events.push('assign'); return 1 }),
       resumeThread: vi.fn(() => { events.push('resume'); return 0 }),
       closeHandle: vi.fn((handle: NativePtr) => { events.push(`close:${handle}`); return 1 }),
     })
-    expect(spawnOrdinaryJobProcess(bindings, {
+    const job = createKillOnCloseJob(bindings, 'Local\\test-job')
+    expect(spawnOrdinaryProcessInJob(bindings, {
       command: 'probe.exe',
       args: ['literal $VALUE', 'a b'],
       cwd: 'C:\\work',
-    })).toEqual({ pid: 1234, process: 60n, job: 50n })
+    }, job)).toEqual({ pid: 1234, process: 60n })
+    expect(createJobObjectW).toHaveBeenCalledWith(null, 'Local\\test-job')
     expect(createProcessW).toHaveBeenCalledWith(
       null,
       'probe.exe "literal $VALUE" "a b"',
@@ -104,11 +112,30 @@ describe('ordinary Job process operations', () => {
     const bindings = api({ createProcessW: vi.fn(() => 0) })
     let caught: unknown
     try {
-      spawnOrdinaryJobProcess(bindings, { command: 'missing.exe', args: [], cwd: 'C:\\work' })
+      spawnOrdinaryProcessInJob(bindings, { command: 'missing.exe', args: [], cwd: 'C:\\work' }, 50n as NativePtr)
     } catch (error) {
       caught = error
     }
     expect(caught).toMatchObject({ api: 'CreateProcessW', win32Code: 5 })
+  })
+
+  it('terminates an assigned suspended process when resume fails', () => {
+    const terminateProcess = vi.fn(() => 1)
+    const closeHandle = vi.fn(() => 1)
+    const bindings = api({
+      resumeThread: vi.fn(() => 0xFFFFFFFF),
+      terminateProcess,
+      closeHandle,
+    })
+    expect(() => spawnOrdinaryProcessInJob(bindings, {
+      command: 'probe.exe',
+      args: [],
+      cwd: 'C:\\work',
+    }, 50n as NativePtr)).toThrow(Win32Error)
+    expect(terminateProcess).toHaveBeenCalledWith(60n, 1)
+    expect(closeHandle).toHaveBeenCalledWith(61n)
+    expect(closeHandle).toHaveBeenCalledWith(60n)
+    expect(closeHandle).not.toHaveBeenCalledWith(50n)
   })
 
   it('polls direct exit and Job emptiness without blocking', () => {
@@ -158,5 +185,15 @@ describe('ordinary Job process operations', () => {
 
     const closeFailure = api({ closeHandle: vi.fn(() => 0) })
     expect(() => { closeHandleChecked(closeFailure, 50n as NativePtr, 'test Job') }).toThrow(Win32Error)
+  })
+
+  it('opens a named Job for process assignment', () => {
+    const openJobObjectW = vi.fn(() => 55n as NativePtr)
+    const bindings = api({ openJobObjectW })
+    expect(openJobForAssignment(bindings, 'Local\\test-job')).toBe(55n)
+    expect(openJobObjectW).toHaveBeenCalledWith(JOB_OBJECT_ASSIGN_PROCESS, 0, 'Local\\test-job')
+
+    const missing = api({ openJobObjectW: vi.fn(() => 0n as NativePtr) })
+    expect(() => openJobForAssignment(missing, 'Local\\missing-job')).toThrow(Win32Error)
   })
 })

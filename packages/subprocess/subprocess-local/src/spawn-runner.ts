@@ -1,14 +1,12 @@
 /** Native managed-range runner for ordinary local subprocesses. */
 
 import { spawn } from 'node:child_process'
-import { closeSync } from 'node:fs'
 import {
   closeHandleChecked,
-  isJobEmpty,
   loadWin32ProcessBindings,
+  openJobForAssignment,
   pollProcessExit,
-  spawnOrdinaryJobProcess,
-  terminateJob,
+  spawnOrdinaryProcessInJob,
   Win32Error,
 } from '@deepseek-ai/dsh-win32-process'
 import type { NativePtr } from '@deepseek-ai/dsh-win32-process'
@@ -22,10 +20,12 @@ import type { RunnerRequest, SerializedSpawnError } from './runner-protocol.ts'
 type RunnerArgs =
   | { mode: 'probe-node' }
   | { mode: 'probe-win32' }
-  | { mode: 'node' | 'win32'; requestPath: string; eventsPath: string }
+  | { mode: 'node'; requestPath: string; eventsPath: string }
+  | { mode: 'win32'; requestPath: string; eventsPath: string; jobName: string }
 
 function parseArgs(argv: string[]): RunnerArgs {
   let mode: string | undefined
+  let jobName: string | undefined
   let requestPath: string | undefined
   let eventsPath: string | undefined
   for (let index = 0; index < argv.length; index += 2) {
@@ -33,6 +33,7 @@ function parseArgs(argv: string[]): RunnerArgs {
     const value = argv[index + 1]
     if (value === undefined) throw new Error(`subprocess runner missing value after ${String(key)}`)
     if (key === '--mode') mode = value
+    else if (key === '--job') jobName = value
     else if (key === '--request') requestPath = value
     else if (key === '--events') eventsPath = value
     else throw new Error(`subprocess runner unknown argument: ${String(key)}`)
@@ -40,6 +41,10 @@ function parseArgs(argv: string[]): RunnerArgs {
   if (mode === 'probe-node' || mode === 'probe-win32') return { mode }
   if (mode !== 'node' && mode !== 'win32') throw new Error(`subprocess runner unknown mode: ${String(mode)}`)
   if (requestPath === undefined || eventsPath === undefined) throw new Error('subprocess runner requires request and event paths')
+  if (mode === 'win32') {
+    if (jobName === undefined || jobName.length === 0) throw new Error('subprocess runner requires a Windows Job name')
+    return { mode, requestPath, eventsPath, jobName }
+  }
   return { mode, requestPath, eventsPath }
 }
 
@@ -97,62 +102,21 @@ function replaceEnvironment(env: Record<string, string>): void {
   Object.assign(process.env, env)
 }
 
-interface MaterializedStdioStream {
-  readonly _handle?: { close(): void } | null
-}
-
-/** Release the runner's copies after the Windows target inherits its standard handles. */
-function releaseRunnerStdio(): void {
-  const stdin = process.stdin
-  const stdout = process.stdout
-  const stderr = process.stderr
-  const stdoutHandle = (stdout as unknown as MaterializedStdioStream)._handle
-  const stderrHandle = (stderr as unknown as MaterializedStdioStream)._handle
-  stdin.destroy()
-  for (const fd of [0, 1, 2]) {
-    try {
-      closeSync(fd)
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'EBADF') throw error
-    }
-  }
-  // Node deliberately keeps stdout/stderr alive when destroy() is called. A
-  // loader may already have materialized their libuv handles, so close those
-  // runner-owned references explicitly; the target keeps its inherited copies.
-  stdoutHandle?.close()
-  stderrHandle?.close()
-}
-
-async function runWin32(request: RunnerRequest, eventsPath: string): Promise<void> {
+async function runWin32(request: RunnerRequest, eventsPath: string, jobName: string): Promise<void> {
   replaceEnvironment(request.env)
   const api = loadWin32ProcessBindings()
   let processHandle: NativePtr | undefined
   let jobHandle: NativePtr | undefined
   let targetStarted = false
   try {
-    let spawned
-    try {
-      process.chdir(request.cwd)
-      const [command, ...args] = request.argv
-      spawned = spawnOrdinaryJobProcess(api, { command: command as string, args, cwd: request.cwd })
-    } catch (error) {
-      appendRunnerEvent(eventsPath, { type: 'spawn-error', error: win32SpawnError(error, request) })
-      return
-    }
+    process.chdir(request.cwd)
+    jobHandle = openJobForAssignment(api, jobName)
+    const [command, ...args] = request.argv
+    const spawned = spawnOrdinaryProcessInJob(api, { command: command as string, args, cwd: process.cwd() }, jobHandle)
     processHandle = spawned.process
-    jobHandle = spawned.job
     targetStarted = true
-    let terminationRequested = false
-    const terminate = (): void => {
-      if (terminationRequested || jobHandle === undefined) return
-      terminationRequested = true
-      terminateJob(api, jobHandle, 1)
-    }
-    process.on('message', (message: unknown) => {
-      if (message !== null && typeof message === 'object' && (message as { type?: unknown }).type === 'terminate') terminate()
-    })
-    process.on('disconnect', terminate)
-    releaseRunnerStdio()
+    closeHandleChecked(api, jobHandle, 'ordinary process Job assignment')
+    jobHandle = undefined
     appendRunnerEvent(eventsPath, { type: 'started', pid: spawned.pid })
 
     await new Promise<void>((resolve, reject) => {
@@ -164,13 +128,9 @@ async function runWin32(request: RunnerRequest, eventsPath: string): Promise<voi
               appendRunnerEvent(eventsPath, { type: 'exit', exitCode, signal: null })
               closeHandleChecked(api, processHandle, 'ordinary direct process')
               processHandle = undefined
+              clearInterval(timer)
+              resolve()
             }
-          }
-          if (processHandle === undefined && jobHandle !== undefined && isJobEmpty(api, jobHandle)) {
-            closeHandleChecked(api, jobHandle, 'ordinary process Job')
-            jobHandle = undefined
-            clearInterval(timer)
-            resolve()
           }
         } catch (error) {
           clearInterval(timer)
@@ -203,13 +163,7 @@ async function main(): Promise<void> {
   }
   const request = consumeRunnerRequest(args.requestPath)
   if (args.mode === 'node') runNode(request, args.eventsPath)
-  else {
-    try {
-      await runWin32(request, args.eventsPath)
-    } finally {
-      if (process.connected) process.disconnect()
-    }
-  }
+  else await runWin32(request, args.eventsPath, args.jobName)
 }
 
 main().catch((error: unknown) => {

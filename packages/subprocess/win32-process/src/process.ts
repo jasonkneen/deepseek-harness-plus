@@ -91,6 +91,14 @@ export interface SpawnedJobProcess {
   job: NativePtr
 }
 
+/** Suspended child already assigned to a caller-owned Job. */
+export interface SpawnedAssignedProcess {
+  /** Direct child process id. */
+  pid: number
+  /** Process handle closed by waitForProcessExit. */
+  process: NativePtr
+}
+
 interface PipePair {
   read: NativePtr
   write: NativePtr
@@ -299,8 +307,14 @@ export function waitForProcessExit(api: Win32ProcessBindings, process: NativePtr
   }
 }
 
-function createKillOnCloseJob(api: Win32ProcessBindings): NativePtr {
-  const job = api.createJobObjectW(null, null)
+/**
+ * Create a caller-owned Job whose final handle closure terminates all members.
+ * @param api - active binding table.
+ * @param name - optional name used when another process must open the same Job.
+ * @returns caller-owned Job handle.
+ */
+export function createKillOnCloseJob(api: Win32ProcessBindings, name: string | null = null): NativePtr {
+  const job = api.createJobObjectW(null, name)
   if (isNullPtr(job)) throwLastError(api, 'CreateJobObjectW')
   const information = Buffer.alloc(abi.JOBOBJECT_EXTENDED_LIMIT_SIZE)
   information.writeUInt32LE(
@@ -320,19 +334,30 @@ function createKillOnCloseJob(api: Win32ProcessBindings): NativePtr {
   return job
 }
 
+/**
+ * Open one named Job for assigning a process from another process.
+ * @param api - active binding table.
+ * @param name - name supplied by the Job's owner.
+ * @returns caller-owned Job handle with assignment access.
+ */
+export function openJobForAssignment(api: Win32ProcessBindings, name: string): NativePtr {
+  const job = api.openJobObjectW(abi.JOB_OBJECT_ASSIGN_PROCESS, 0, name)
+  if (isNullPtr(job)) throwLastError(api, 'OpenJobObjectW', name)
+  return job
+}
+
 /** Shared suspended-create, Job-assignment, and resume lifecycle. */
 function spawnJobProcess(
   api: Win32ProcessBindings,
   options: OrdinaryProcessSpawnOptions,
+  job: NativePtr,
   createName: 'CreateProcessAsUserW' | 'CreateProcessW',
   create: (startupInfo: NativePtr, processInfo: NativePtr) => number,
-): SpawnedJobProcess {
-  const job = createKillOnCloseJob(api)
+): SpawnedAssignedProcess {
   const getStdHandle = (selector: number, label: string): NativePtr => {
     const handle = api.getStdHandle(selector)
     if (!isNullPtr(handle)) return handle
     const win32Code = api.getLastError()
-    api.closeHandle(job)
     throwWin32(api, 'GetStdHandle', win32Code, `null ${label} handle`)
   }
   const stdIn = getStdHandle(abi.STD_INPUT_HANDLE, 'stdin')
@@ -367,7 +392,6 @@ function spawnJobProcess(
     if (created === 0) createFailureCode = api.getLastError()
   } catch (error) {
     freeNative(processInfo)
-    api.closeHandle(job)
     throw error
   } finally {
     freeNative(startupInfo)
@@ -378,7 +402,6 @@ function spawnJobProcess(
   }
   if (created === 0) {
     freeNative(processInfo)
-    api.closeHandle(job)
     throwWin32(
       api,
       createName,
@@ -394,7 +417,6 @@ function spawnJobProcess(
   }
   if (info.hProcess === null || info.hThread === null) {
     if (info.hProcess !== null) api.terminateProcess(info.hProcess, 1)
-    api.closeHandle(job)
     closeBestEffort(api, info.hThread)
     closeBestEffort(api, info.hProcess)
     throw new Error(`${createName} succeeded but returned null process/thread handles (pid ${info.dwProcessId})`)
@@ -404,18 +426,17 @@ function spawnJobProcess(
     api.terminateProcess(info.hProcess, 1)
     closeBestEffort(api, info.hThread)
     closeBestEffort(api, info.hProcess)
-    api.closeHandle(job)
     throwWin32(api, 'AssignProcessToJobObject', win32Code, `pid ${info.dwProcessId}`)
   }
   if (api.resumeThread(info.hThread) === 0xFFFFFFFF) {
     const win32Code = api.getLastError()
+    api.terminateProcess(info.hProcess, 1)
     closeBestEffort(api, info.hThread)
     closeBestEffort(api, info.hProcess)
-    api.closeHandle(job)
     throwWin32(api, 'ResumeThread', win32Code, `pid ${info.dwProcessId}`)
   }
   closeBestEffort(api, info.hThread)
-  return { pid: info.dwProcessId, process: info.hProcess, job }
+  return { pid: info.dwProcessId, process: info.hProcess }
 }
 
 /**
@@ -432,30 +453,41 @@ export function spawnInheritedJobProcess(
   api: Win32ProcessBindings,
   options: RestrictedProcessSpawnOptions,
 ): SpawnedJobProcess {
+  const job = createKillOnCloseJob(api)
   const commandLine = buildCommandLine(options.command, options.args)
-  return spawnJobProcess(api, options, 'CreateProcessAsUserW', (startupInfo, processInfo) =>
-    createRestrictedProcess(
-      api,
-      options,
-      commandLine,
-      abi.CREATE_SUSPENDED,
-      startupInfo,
-      processInfo,
-    ))
+  try {
+    return {
+      ...spawnJobProcess(api, options, job, 'CreateProcessAsUserW', (startupInfo, processInfo) =>
+        createRestrictedProcess(
+          api,
+          options,
+          commandLine,
+          abi.CREATE_SUSPENDED,
+          startupInfo,
+          processInfo,
+        )),
+      job,
+    }
+  } catch (error) {
+    api.closeHandle(job)
+    throw error
+  }
 }
 
 /**
- * Spawn an ordinary process suspended, assign its Job, then resume it.
+ * Spawn an ordinary process suspended, assign a caller-owned Job, then resume it.
  * @param api - active binding table.
  * @param options - command, cwd, and argv.
- * @returns caller-owned process and Job handles after successful resume.
+ * @param job - caller-owned Job handle that remains open after this call.
+ * @returns caller-owned process handle after successful resume.
  */
-export function spawnOrdinaryJobProcess(
+export function spawnOrdinaryProcessInJob(
   api: Win32ProcessBindings,
   options: OrdinaryProcessSpawnOptions,
-): SpawnedJobProcess {
+  job: NativePtr,
+): SpawnedAssignedProcess {
   const commandLine = buildCommandLine(options.command, options.args)
-  return spawnJobProcess(api, options, 'CreateProcessW', (startupInfo, processInfo) =>
+  return spawnJobProcess(api, options, job, 'CreateProcessW', (startupInfo, processInfo) =>
     api.createProcessW(
       null,
       commandLine,

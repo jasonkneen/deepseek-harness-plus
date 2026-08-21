@@ -85,11 +85,11 @@ describe('spawn runner transport', () => {
     expect(result.status).toBe(0)
   })
 
-  it('maps every target stdio disposition and optional IPC channel', () => {
+  it('maps every target stdio disposition', () => {
     expect(runnerStdio(spec())).toEqual(['ignore', 'pipe', 'pipe'])
     expect(runnerStdio(spec({
       stdio: { stdin: { data: 'input' }, stdout: 'inherit', stderr: 'inherit' },
-    }), true)).toEqual(['pipe', 'inherit', 'inherit', 'ipc'])
+    }))).toEqual(['pipe', 'inherit', 'inherit'])
   })
 
   it('materializes and consumes the exact runner request once', () => {

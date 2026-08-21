@@ -16,7 +16,7 @@ The public subprocess seam correctly promises awaited quiescence during normal d
 
 The listener uses local-only final operations that are absent from the public `SubprocessHandle` and `SubprocessTerminalHandle` interfaces:
 
-- An ordinary handle synchronously signals its bound native scope or Job runner when available; the disclosed fallback sends SIGKILL to its detached POSIX process group or runs `taskkill /PID <pid> /T /F` on Windows.
+- An ordinary handle synchronously signals its bound native scope or parent-held Job when available; the disclosed fallback sends SIGKILL to its detached POSIX process group or runs `taskkill /PID <pid> /T /F` on Windows.
 - A terminal handle synchronously signals every captured and currently observable descendant with SIGKILL, kills the PTY root, then rescans once for members that became observable during that boundary.
 - The service contains each target's failure and continues with the remaining handles. The callback creates no promise or timer, writes no diagnostic, and does not change the original exit code or error.
 
