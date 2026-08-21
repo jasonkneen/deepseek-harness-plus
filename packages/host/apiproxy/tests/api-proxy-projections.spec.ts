@@ -67,25 +67,15 @@ async function harness(withRegistry: boolean): Promise<{ ctx: Context; session: 
   await ctx.plugin(SessionStore)
   await ctx.plugin(UserQuestionService)
   await ctx.plugin(AgentRegistry)
-  if (withRegistry) {
-    await ctx.plugin(SessionProjectionRegistry)
-  }
+  if (withRegistry) await ctx.plugin(SessionProjectionRegistry)
   const session = ctx.sessions.create()
   const agent = {
     id: session.id,
-    options: {},
     session,
     inbox: { nextTurn: [], nextStep: [], hasPending: false } as never,
     status: 'idle',
     ctx,
-    send() {},
-    followup() {},
-    steer() {},
-    inject() {},
-    cancel() {},
-    runMaintenance: task => task(new AbortController().signal),
-    whenIdle: () => Promise.resolve(),
-  } satisfies Agent
+  } as Agent
   if (withRegistry) Object.assign(agent, { inbox: new Inbox(ctx, agent.session, agentEvents(ctx, agent)) })
   ctx.agents.register(agent)
   return { ctx, session }

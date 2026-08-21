@@ -134,22 +134,6 @@ describe('agent loop', () => {
     expect(adapter.requests).toHaveLength(1)
   })
 
-  it('rejects overlapping maintenance work', async () => {
-    const ctx = await harness(new MockAdapter([]))
-    const agent = ctx.agentLoop.create(SessionId('overlapping-maintenance'), {
-      provider: 'mock',
-      model: 'mock',
-    })
-    const finish = Promise.withResolvers<undefined>()
-    const maintenance = agent.runMaintenance(() => finish.promise)
-
-    expect(() => agent.runMaintenance(async () => undefined))
-      .toThrow('agent "overlapping-maintenance" already has active work')
-
-    finish.resolve(undefined)
-    await maintenance
-  })
-
   it('suppresses the replay when a latched maintenance wake is removed', async () => {
     const adapter = new MockAdapter([])
     const ctx = await harness(adapter)

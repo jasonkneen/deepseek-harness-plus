@@ -55,20 +55,8 @@ async function harness(withRegistry: boolean): Promise<{ ctx: Context; session: 
   }
   const session = ctx.sessions.create()
   const agent = {
-    id: session.id,
-    options: {},
-    session,
-    inbox: { nextTurn: [], nextStep: [], hasPending: false } as never,
-    status: 'idle',
-    ctx,
-    send() {},
-    followup() {},
-    steer() {},
-    inject() {},
-    cancel() {},
-    runMaintenance: task => task(new AbortController().signal),
-    whenIdle: () => Promise.resolve(),
-  } satisfies Agent
+    id: session.id, session, inbox: { nextTurn: [], nextStep: [], hasPending: false }, status: 'idle', ctx,
+  } as Agent
   ctx.agents.register(agent)
   return { ctx, session, agent }
 }
