@@ -149,9 +149,12 @@ if [ "$UPLOAD" = "1" ]; then
     echo "ERROR: gh not authenticated (run: gh auth login)"
     exit 1
   }
-  if ! gh release view "$TAG" >/dev/null 2>&1; then
+  # gh infers the repo from the git remote, which can pick `upstream` over the
+  # fork. Derive the fork (origin) explicitly so the release lands on the fork.
+  REPO="$(git config --get remote.origin.url | sed -E 's#.*github.com[:/]##; s#\.git$##')"
+  if ! gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1; then
     echo "Creating release $TAG…"
-    gh release create "$TAG" --title "DeepSeek Harness $TAG" --generate-notes
+    gh release create "$TAG" --repo "$REPO" --title "DeepSeek Harness $TAG" --generate-notes
   fi
   assets=("${dmgs[@]}" "${zips[@]}")
   for f in "${dmgs[@]}" "${zips[@]}"; do
@@ -159,7 +162,7 @@ if [ "$UPLOAD" = "1" ]; then
     assets+=("${f}.sha256")
   done
   echo "Uploading to release $TAG…"
-  gh release upload "$TAG" "${assets[@]}" --clobber
+  gh release upload "$TAG" --repo "$REPO" "${assets[@]}" --clobber
   echo "Uploaded: ${assets[*]}"
 fi
 
