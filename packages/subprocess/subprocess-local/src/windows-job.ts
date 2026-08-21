@@ -50,7 +50,6 @@ export interface WindowsJobInternals {
   spawnSync?: typeof spawnSync
   runnerInvocation?: string[]
   jobs?: WindowsJobOperations
-  jobName?: () => string
 }
 
 /**
@@ -137,7 +136,7 @@ export function launchWindowsJob(
   if (command === undefined) throw new Error('subprocess-local: Windows runner invocation is empty')
   /* v8 ignore next -- the native Windows suite exercises the real Job operations. */
   const jobs = internals.jobs ?? nativeJobOperations()
-  const jobName = (internals.jobName ?? (() => `Local\\dsh-subprocess-${randomUUID()}`))()
+  const jobName = `Local\\dsh-subprocess-${randomUUID()}`
   const files = runnerFiles(spec)
   let job: NativePtr
   try {

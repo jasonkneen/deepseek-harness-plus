@@ -503,25 +503,6 @@ export function spawnOrdinaryProcessInJob(
 }
 
 /**
- * Poll one process handle without blocking the runner event loop.
- * @param api - active binding table.
- * @param process - caller-owned process handle.
- * @returns the direct exit code when signalled, or undefined while running.
- */
-export function pollProcessExit(api: Win32ProcessBindings, process: NativePtr): number | undefined {
-  const waitResult = api.waitForSingleObject(process, 0)
-  if (waitResult === abi.WAIT_TIMEOUT) return undefined
-  if (waitResult === 0xFFFFFFFF) throwLastError(api, 'WaitForSingleObject')
-  const exitCodeSlot = allocUint32()
-  try {
-    if (api.getExitCodeProcess(process, exitCodeSlot) === 0) throwLastError(api, 'GetExitCodeProcess')
-    return decodeUint32(exitCodeSlot)
-  } finally {
-    koffi.free(exitCodeSlot)
-  }
-}
-
-/**
  * Return whether a Job has no active processes.
  * @param api - active binding table.
  * @param job - caller-owned Job handle.

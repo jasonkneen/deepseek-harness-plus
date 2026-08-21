@@ -67,12 +67,12 @@ describe('Windows Job runner adapter', () => {
       spawn,
       runnerInvocation: invocation,
       jobs: jobs.operations,
-      jobName: () => 'Local\\dsh-test-job',
     })
     expect(launch.pid).toBeGreaterThan(0)
     await expect(launch.direct).resolves.toEqual({ exitCode: 7, signal: null })
     await expect(launch.owner.waitForExit()).resolves.toBe(true)
-    expect(jobs.create).toHaveBeenCalledExactlyOnceWith('Local\\dsh-test-job')
+    expect(jobs.create).toHaveBeenCalledOnce()
+    expect(jobs.create.mock.calls[0]?.[0]).toMatch(/^Local\\dsh-subprocess-/u)
     expect(jobs.close).toHaveBeenCalledExactlyOnceWith(50n)
   })
 
@@ -99,7 +99,6 @@ describe('Windows Job runner adapter', () => {
       spawn: run,
       runnerInvocation: ['fake-runner'],
       jobs: jobs.operations,
-      jobName: () => 'Local\\dsh-test-job',
     })
     launch.owner.signal('SIGTERM')
     await expect(launch.direct).resolves.toEqual({ exitCode: 1, signal: null })
@@ -124,7 +123,6 @@ describe('Windows Job runner adapter', () => {
       spawn: run,
       runnerInvocation: ['fake-runner'],
       jobs: jobs.operations,
-      jobName: () => 'Local\\dsh-test-job',
     })
     const directFailure = launch.direct.catch((error: unknown) => error)
 
@@ -153,7 +151,6 @@ describe('Windows Job runner adapter', () => {
       spawn: run,
       runnerInvocation: ['fake-runner'],
       jobs: jobs.operations,
-      jobName: () => 'Local\\dsh-test-job',
     })
     void launch.direct.catch(() => {})
     launch.owner.signal('SIGTERM')
@@ -177,7 +174,6 @@ describe('Windows Job runner adapter', () => {
       spawn: run,
       runnerInvocation: ['fake-runner'],
       jobs: jobs.operations,
-      jobName: () => 'Local\\dsh-test-job',
     })
     appendRunnerEvent(eventsPath, { type: 'exit', exitCode: 0, signal: null })
     child.emit('close', 0, null)
@@ -194,7 +190,6 @@ describe('Windows Job runner adapter', () => {
       spawn: vi.fn(() => { throw failure }) as unknown as typeof spawn,
       runnerInvocation: ['fake-runner'],
       jobs: jobs.operations,
-      jobName: () => 'Local\\dsh-test-job',
     })).toThrow(failure)
     expect(jobs.close).toHaveBeenCalledExactlyOnceWith(50n)
   })
@@ -229,5 +224,6 @@ describe('Windows Job runner adapter', () => {
     await expect(launch.direct).resolves.toEqual({ exitCode: 0, signal: null })
     await expect(launch.owner.waitForExit()).resolves.toBe(true)
     expect(jobName).toMatch(/^Local\\dsh-subprocess-/u)
+    expect(jobs.create).toHaveBeenCalledExactlyOnceWith(jobName)
   })
 })

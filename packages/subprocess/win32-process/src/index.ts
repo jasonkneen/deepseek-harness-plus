@@ -23,7 +23,6 @@ export {
   drainPipe,
   isJobEmpty,
   openJobForAssignment,
-  pollProcessExit,
   spawnInheritedJobProcess,
   spawnOrdinaryProcessInJob,
   spawnPipedProcess,

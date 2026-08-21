@@ -5,8 +5,8 @@ import {
   closeHandleChecked,
   loadWin32ProcessBindings,
   openJobForAssignment,
-  pollProcessExit,
   spawnOrdinaryProcessInJob,
+  waitForProcessExit,
   Win32Error,
 } from '@deepseek-ai/dsh-win32-process'
 import type { NativePtr } from '@deepseek-ai/dsh-win32-process'
@@ -102,7 +102,7 @@ function replaceEnvironment(env: Record<string, string>): void {
   Object.assign(process.env, env)
 }
 
-async function runWin32(request: RunnerRequest, eventsPath: string, jobName: string): Promise<void> {
+function runWin32(request: RunnerRequest, eventsPath: string, jobName: string): void {
   replaceEnvironment(request.env)
   const api = loadWin32ProcessBindings()
   let processHandle: NativePtr | undefined
@@ -118,26 +118,10 @@ async function runWin32(request: RunnerRequest, eventsPath: string, jobName: str
     closeHandleChecked(api, jobHandle, 'ordinary process Job assignment')
     jobHandle = undefined
     appendRunnerEvent(eventsPath, { type: 'started', pid: spawned.pid })
-
-    await new Promise<void>((resolve, reject) => {
-      const timer = setInterval(() => {
-        try {
-          if (processHandle !== undefined) {
-            const exitCode = pollProcessExit(api, processHandle)
-            if (exitCode !== undefined) {
-              appendRunnerEvent(eventsPath, { type: 'exit', exitCode, signal: null })
-              closeHandleChecked(api, processHandle, 'ordinary direct process')
-              processHandle = undefined
-              clearInterval(timer)
-              resolve()
-            }
-          }
-        } catch (error) {
-          clearInterval(timer)
-          reject(error instanceof Error ? error : new Error(String(error)))
-        }
-      }, 10)
-    })
+    const directProcess = processHandle
+    processHandle = undefined
+    const exitCode = waitForProcessExit(api, directProcess)
+    appendRunnerEvent(eventsPath, { type: 'exit', exitCode, signal: null })
   } catch (error) {
     appendRunnerEvent(eventsPath, {
       type: targetStarted ? 'runner-error' : 'spawn-error',
@@ -154,7 +138,7 @@ async function runWin32(request: RunnerRequest, eventsPath: string, jobName: str
   }
 }
 
-async function main(): Promise<void> {
+function main(): void {
   const args = parseArgs(process.argv.slice(2))
   if (args.mode === 'probe-node') return
   if (args.mode === 'probe-win32') {
@@ -163,10 +147,12 @@ async function main(): Promise<void> {
   }
   const request = consumeRunnerRequest(args.requestPath)
   if (args.mode === 'node') runNode(request, args.eventsPath)
-  else await runWin32(request, args.eventsPath, args.jobName)
+  else runWin32(request, args.eventsPath, args.jobName)
 }
 
-main().catch((error: unknown) => {
+try {
+  main()
+} catch (error: unknown) {
   try {
     const args = parseArgs(process.argv.slice(2))
     if (args.mode !== 'probe-node' && args.mode !== 'probe-win32') {
@@ -176,4 +162,4 @@ main().catch((error: unknown) => {
     // No trustworthy transport remains; the parent reports the missing result.
   }
   process.exitCode = 127
-})
+}

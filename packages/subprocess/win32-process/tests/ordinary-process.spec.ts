@@ -5,7 +5,6 @@ import {
   createKillOnCloseJob,
   isJobEmpty,
   openJobForAssignment,
-  pollProcessExit,
   spawnOrdinaryProcessInJob,
   terminateJob,
   Win32Error,
@@ -16,7 +15,6 @@ import {
   JOBOBJECT_BASIC_ACCOUNTING_ACTIVE_PROCESSES_OFFSET,
   JOBOBJECT_BASIC_ACCOUNTING_SIZE,
   JobObjectBasicAccountingInformation,
-  WAIT_TIMEOUT,
 } from '../src/abi.ts'
 import { PROCESS_INFORMATION } from '../src/ffi.ts'
 import type { NativePtr, Win32ProcessBindings } from '../src/index.ts'
@@ -138,16 +136,12 @@ describe('ordinary Job process operations', () => {
     expect(closeHandle).not.toHaveBeenCalledWith(50n)
   })
 
-  it('polls direct exit and Job emptiness without blocking', () => {
+  it('reads Job emptiness without blocking', () => {
     const queryInformationJobObject = vi.fn((_job: NativePtr, _cls: number, information: Buffer) => {
       information.writeUInt32LE(1, JOBOBJECT_BASIC_ACCOUNTING_ACTIVE_PROCESSES_OFFSET)
       return 1
     })
-    const running = api({
-      waitForSingleObject: vi.fn(() => WAIT_TIMEOUT),
-      queryInformationJobObject,
-    })
-    expect(pollProcessExit(running, 60n as NativePtr)).toBeUndefined()
+    const running = api({ queryInformationJobObject })
     expect(isJobEmpty(running, 50n as NativePtr)).toBe(false)
     expect(queryInformationJobObject).toHaveBeenCalledWith(
       50n,
@@ -156,19 +150,10 @@ describe('ordinary Job process operations', () => {
       JOBOBJECT_BASIC_ACCOUNTING_SIZE,
       null,
     )
-
-    const exited = api()
-    expect(pollProcessExit(exited, 60n as NativePtr)).toBe(42)
-    expect(isJobEmpty(exited, 50n as NativePtr)).toBe(true)
+    expect(isJobEmpty(api(), 50n as NativePtr)).toBe(true)
   })
 
-  it('reports wait and exit-code query failures', () => {
-    const processWait = api({ waitForSingleObject: vi.fn(() => 0xFFFFFFFF) })
-    expect(() => pollProcessExit(processWait, 60n as NativePtr)).toThrow(Win32Error)
-
-    const exitCode = api({ getExitCodeProcess: vi.fn(() => 0) })
-    expect(() => pollProcessExit(exitCode, 60n as NativePtr)).toThrow(Win32Error)
-
+  it('reports a Job accounting query failure', () => {
     const jobQuery = api({ queryInformationJobObject: vi.fn(() => 0) })
     expect(() => isJobEmpty(jobQuery, 50n as NativePtr)).toThrow(Win32Error)
   })

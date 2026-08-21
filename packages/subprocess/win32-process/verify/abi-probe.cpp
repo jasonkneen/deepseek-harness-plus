@@ -21,7 +21,6 @@ int wmain()
   P(STARTF_USESTDHANDLES);
   P(HANDLE_FLAG_INHERIT);
   P(INFINITE);
-  P(WAIT_TIMEOUT);
   P(STD_INPUT_HANDLE);
   P(STD_OUTPUT_HANDLE);
   P(STD_ERROR_HANDLE);
@@ -43,7 +42,6 @@ int wmain()
   static_assert(CREATE_SUSPENDED == 0x4, "suspended process flag");
   static_assert(STARTF_USESTDHANDLES == 0x100, "std handles flag");
   static_assert(HANDLE_FLAG_INHERIT == 0x1, "inherit flag");
-  static_assert(WAIT_TIMEOUT == 258, "zero-time wait timeout");
   static_assert(sizeof(JOBOBJECT_BASIC_ACCOUNTING_INFORMATION) == 48, "job accounting size");
   static_assert(offsetof(JOBOBJECT_BASIC_ACCOUNTING_INFORMATION, ActiveProcesses) == 40, "active process offset");
   static_assert(JobObjectBasicAccountingInformation == 1, "basic accounting class");
