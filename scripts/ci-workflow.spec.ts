@@ -80,7 +80,14 @@ describe('CI workflow', () => {
     expect(windowsNative.env).toMatchObject({
       DSH_COVERAGE_TEST_TIMEOUT_MS: '30000',
     })
-    const nativeCommandSteps = (windowsNative.steps as unknown[]).filter((step): step is Record<string, unknown> & { run: string } => (
+    const nativeSteps = windowsNative.steps as unknown[]
+    const nativePnpmSetup = nativeSteps.find(step => (
+      isRecord(step)
+      && typeof step.uses === 'string'
+      && step.uses.startsWith('pnpm/action-setup@')
+    ))
+    expect(nativePnpmSetup).toMatchObject({ with: { standalone: true } })
+    const nativeCommandSteps = nativeSteps.filter((step): step is Record<string, unknown> & { run: string } => (
       isRecord(step) && typeof step.run === 'string'
     ))
     expect(nativeCommandSteps.map(step => step.run)).toContain('pnpm run check:ci:windows-complete')

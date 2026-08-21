@@ -10,7 +10,7 @@ DeepSeek 视觉部署使用 chat-completions 图片协议，但直接 `deepseek-
 
 ## Decision
 
-直接适配器允许已配置模型通过 `inputModalities: [text, image]` 选择加入；校验会拒绝空列表、未知模态或重复模态。Flash、Pro、未列出 id，以及省略 `inputModalities` 的已配置模型仍明确仅支持文本。在模型端点就绪前，随附目录不会公布 `deepseek-v4-flash-vision-exp`，因此模型选择器不会提供不可用路由；部署与 snapshot 目录可以独立启用其确切视觉模型。
+随附目录为 `deepseek-v4-flash-vision-exp` 声明 `inputModalities: [text, image]`；已配置目录可以用同一声明让另一个确切模型支持图片输入，校验会拒绝空列表、未知模态或重复模态。Flash、Pro、未列出 id，以及省略 `inputModalities` 的已配置模型仍明确仅支持文本。
 
 适配器会对每个图片请求解析 `ctx.attachments`，用请求 signal 读取每个保留的持久引用，并将校验后的字节按顺序序列化为 OpenAI 兼容的 `image_url` data URL。纯文本 user 消息保留字符串内容。工具结果保留仅字符串的 `tool` 消息；仅含图片的结果使用 `(see attached image)`，连续工具结果中保留的图片随后合并进一条以 `Attached image(s) from tool result:` 开头的 `user` 消息。System 与 assistant 历史图片会在附件或网络 I/O 前以 `UNSUPPORTED_CONTENT` 失败。
 
@@ -27,8 +27,8 @@ DeepSeek 视觉部署使用 chat-completions 图片协议，但直接 `deepseek-
 
 ## Verification
 
-包测试固定模型发现与回退能力、配置校验与存活 settings 更新、user 和工具结果协议消息、所有已准入 MIME 类型、取消、附件失败、413 分类、确切图片上限行为和 pi-ai 等价性。无需密钥的组装 ACP 请求会记录原生适配器的工具结果 data URL 与最旧图片占位文本。
+包测试固定模型发现与回退能力、配置校验与存活 settings 更新、user 和工具结果协议消息、所有已准入 MIME 类型、取消、附件失败、413 分类、确切图片上限行为和 pi-ai 等价性。无需密钥的组装 ACP 请求会记录原生适配器的工具结果 data URL 与最旧图片占位文本。真实 API 冒烟测试会配置明确支持图片的目录项，并且仅在提供方密钥之外还设置 `DEEPSEEK_VISION_E2E=1` 时发送确定性图片。
 
 ## Consequences
 
-已配置的 DeepSeek 视觉路由可以消费持久 user 与工具结果图片，而无需改变会话持久性或响应流。重复历史仍会扩张请求正文，但确定性的最旧优先 offload 会限制主导 payload，并在官方 30 MiB 请求正文上限下保留余量。由于官方图片 token 公式尚不可用，图片 token 定价仍由提供方掌握。
+官方 DeepSeek 视觉路由与已配置视觉路由可以消费持久 user 与工具结果图片，而无需改变会话持久性或响应流。重复历史仍会扩张请求正文，但确定性的最旧优先 offload 会限制主导 payload，并在官方 30 MiB 请求正文上限下保留余量。由于官方图片 token 公式尚不可用，图片 token 定价仍由提供方掌握。

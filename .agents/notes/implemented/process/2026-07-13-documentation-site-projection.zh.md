@@ -26,6 +26,8 @@ Status: implemented
 
 Mermaid 渲染权威图表。网站工作区显式声明 `vitepress-plugin-mermaid` 要求 Vite 预打包的 5 个包，因为 pnpm 的严格依赖隔离会使本地开发服务器无法使用这些传递依赖；Knip 将这种仅运行时使用记录为有意的依赖例外。
 
+配置后的 Markdown 渲染器会在单次构建期间缓存非 Mermaid、非 snippet 代码围栏，缓存键包含确切正文、info string、分隔符和 token 属性。双语投影中约半数代码围栏是重复内容，因此 Shiki 只渲染一次每种不同表示。Mermaid 围栏不会进入缓存，因为插件输出包含 token 位置 id；VitePress snippet 则在渲染期间解析源文件。缓存仅在生产构建中启用，每次构建后会随渲染器一同丢弃，并且不会改变生成的围栏 HTML。
+
 网站发布与网站构建保持分离。专用 GitHub Actions 工作流运行现有文档门禁，将 `website/.dist` 作为 Pages 产物上传，并只在构建成功后部署。`actions/configure-pages` 在构建时向 VitePress 提供目标位置的 base path，因此私有 Pages 源站、未来的公开项目路径和自定义域名不需要各自的检入配置。Pages 可见性仍是仓库托管设置，而不是工作流权限。
 
 ## 考虑过的替代方案

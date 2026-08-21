@@ -437,6 +437,8 @@ jobs:
       - uses: pnpm/action-setup@v4
         with:
           dest: ${{ runner.temp }}/setup-pnpm
+          # Exercise package-script re-entry through the native pnpm.exe distribution.
+          standalone: true
 
       - uses: actions/setup-node@v6
         with:
