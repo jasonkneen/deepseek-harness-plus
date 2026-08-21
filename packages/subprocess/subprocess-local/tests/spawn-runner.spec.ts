@@ -333,7 +333,7 @@ describe('spawn runner transport', () => {
 
   })
 
-  it('requires an event snapshot started after wrapper close before reporting a missing result', async () => {
+  it('requires an event snapshot started after result finalization before reporting a missing result', async () => {
     const staleRead = Promise.withResolvers<Awaited<ReturnType<typeof readRunnerEventsAsync>>>()
     let readCount = 0
     vi.resetModules()
@@ -351,12 +351,12 @@ describe('spawn runner transport', () => {
     const files = createRunnerFiles({ argv: ['node'], cwd: '.', env: {} })
     try {
       appendRunnerEvent(files.eventsPath, { type: 'started', pid: 456 })
-      const closed = Promise.withResolvers<undefined>()
+      const finalized = Promise.withResolvers<undefined>()
       const isolated = await import('../src/runner-launch.ts')
-      const result = isolated.runnerDirectResult(fakeChild(123), files, closed.promise)
+      const result = isolated.runnerDirectResult(fakeChild(123), files, finalized.promise)
       expect(result.failureReported).toBe(false)
       expect(readCount).toBe(1)
-      closed.resolve(undefined)
+      finalized.resolve(undefined)
       await Promise.resolve()
       appendRunnerEvent(files.eventsPath, { type: 'exit', exitCode: 0, signal: null })
       staleRead.resolve([{ type: 'started', pid: 456 }])

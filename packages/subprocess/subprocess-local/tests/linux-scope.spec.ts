@@ -113,7 +113,7 @@ describe.skipIf(process.platform === 'win32')('Linux systemd scope adapter', () 
     expect(systemdArgs).not.toContain('literal $VALUE')
   })
 
-  it('still escalates after a missing-unit TERM response without inventing a direct result', async () => {
+  it('uses a successful scope KILL when the runner cannot publish the direct result', async () => {
     let wrapper: ReturnType<typeof spawn> | undefined
     const run = vi.fn((_command: string, args: readonly string[], options: Parameters<typeof spawn>[2]) => {
       const separator = args.indexOf('--')
@@ -127,6 +127,12 @@ describe.skipIf(process.platform === 'win32')('Linux systemd scope adapter', () 
           return { status: 1, stdout: '', stderr: 'Unit could not be found', error: undefined }
         }
         if (wrapper?.pid !== undefined) process.kill(-wrapper.pid, 'SIGKILL')
+        return {
+          status: 1,
+          stdout: '',
+          stderr: 'Failed to send signal SIGKILL to auxiliary processes: Invalid argument',
+          error: undefined,
+        }
       }
       if (command === 'systemctl' && args[1] === 'show') {
         const active = wrapper?.exitCode === null && wrapper.signalCode === null
@@ -142,7 +148,7 @@ describe.skipIf(process.platform === 'win32')('Linux systemd scope adapter', () 
     })
     launch.owner.signal('SIGTERM')
     launch.owner.signal('SIGKILL')
-    await expect(launch.direct).rejects.toThrow('exited without a direct-command result')
+    await expect(launch.direct).resolves.toEqual({ exitCode: null, signal: 'SIGKILL' })
     await expect(launch.owner.waitForExit()).resolves.toBe(true)
   })
 

@@ -4,6 +4,11 @@ import type { ChildProcess } from 'node:child_process'
 import type { Readable, Writable } from 'node:stream'
 import type { SubprocessOutcome } from '@deepseek-ai/dsh-subprocess'
 
+/** Direct target started, but its runner closed before publishing an exit event. */
+export class DirectResultUnavailableError extends Error {
+  override name = 'DirectResultUnavailableError'
+}
+
 /** Platform owner used by termination and whole-range settlement. */
 export interface BoundProcessOwner {
   /** Signal the established managed range; a confirmed-stopped owner stays inert. */

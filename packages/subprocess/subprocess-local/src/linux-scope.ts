@@ -4,9 +4,9 @@ import { randomBytes } from 'node:crypto'
 import { execFile, spawn, spawnSync } from 'node:child_process'
 import type { ChildProcess } from 'node:child_process'
 import { setTimeout as sleepMs } from 'node:timers/promises'
-import type { SubprocessSpawnSpec } from '@deepseek-ai/dsh-subprocess'
+import type { SubprocessOutcome, SubprocessSpawnSpec } from '@deepseek-ai/dsh-subprocess'
 import type { BoundProcessOwner, ManagedProcessLaunch } from './managed-owner.ts'
-import { observeChildClose, waitWithAbort } from './managed-owner.ts'
+import { DirectResultUnavailableError, observeChildClose, waitWithAbort } from './managed-owner.ts'
 import { childEnv } from './spawn.ts'
 import {
   cleanupAfterRunner,
@@ -114,6 +114,7 @@ class SystemdScopeOwner implements BoundProcessOwner {
     private readonly runSync: typeof spawnSync,
     private readonly query: (command: string, args: readonly string[]) => Promise<SystemctlResult>,
     private readonly runner: ChildProcess,
+    private readonly onForceKillAttempt: () => void,
   ) {}
 
   signal(signal: NodeJS.Signals): void {
@@ -125,6 +126,7 @@ class SystemdScopeOwner implements BoundProcessOwner {
       `--signal=${signal}`,
       this.unit,
     ], { encoding: 'utf8', env: systemctlEnv(), timeout: SYSTEMCTL_TIMEOUT_MS })
+    if (signal === 'SIGKILL' && result.error === undefined) this.onForceKillAttempt()
     if (result.error === undefined && result.status === 0) {
       return
     }
@@ -211,15 +213,38 @@ export function launchLinuxScope(
     stdio: runnerStdio(spec),
   })
   const closed = observeChildClose(child)
-  const owner = new SystemdScopeOwner(`${unitBase}.scope`, systemctl, runSync, query, child)
-  const result = runnerDirectResult(child, files, closed)
-  cleanupAfterRunner(files, result.direct, closed)
+  let forceKillAttempted = false
+  let scopeSettled = false
+  const owner = new SystemdScopeOwner(
+    `${unitBase}.scope`,
+    systemctl,
+    runSync,
+    query,
+    child,
+    () => { forceKillAttempted = true },
+  )
+  const resultFinalized = closed.then(async () => {
+    try {
+      await owner.waitForExit()
+      scopeSettled = true
+    } catch (_rangeObservationFailed) {
+      // waitForExit retains the authoritative owner failure for its caller.
+    }
+  })
+  const result = runnerDirectResult(child, files, resultFinalized)
+  const direct = result.direct.catch((error: unknown): SubprocessOutcome => {
+    if (forceKillAttempted && scopeSettled && error instanceof DirectResultUnavailableError) {
+      return { exitCode: null, signal: 'SIGKILL' }
+    }
+    throw error
+  })
+  cleanupAfterRunner(files, direct, closed)
   return {
     stdin: child.stdin,
     stdout: child.stdout,
     stderr: child.stderr,
     pid: result.pid,
-    direct: result.direct,
+    direct,
     closed,
     owner,
   }
