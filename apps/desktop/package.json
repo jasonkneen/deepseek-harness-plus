@@ -1,0 +1,43 @@
+{
+  "name": "@deepseek-ai/dsh-desktop",
+  "description": "Electron desktop shell for the dsh Web UI: hidden title bar with native traffic lights and opt-in macOS liquid glass",
+  "version": "0.1.2",
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/deepseek-ai/deepseek-harness.git",
+    "directory": "apps/desktop"
+  },
+  "author": "DeepSeek AI <opensource@deepseek.com>",
+  "type": "module",
+  "main": "lib/main.js",
+  "files": [
+    "lib",
+    "!lib/**/*.map",
+    "electron-builder.yml",
+    "build"
+  ],
+  "scripts": {
+    "build": "tsc -p .",
+    "typecheck": "tsc -p . --noEmit",
+    "dev": "electron .",
+    "pack": "pnpm run build && electron-builder --dir",
+    "dist": "pnpm run build && electron-builder --mac",
+    "desktop:dist": "pnpm run build && electron-builder --publish never",
+    "desktop:ship": "scripts/ship-signed.sh",
+    "desktop:release": "scripts/release.sh",
+    "desktop:verify-sign": "node scripts/desktop-verify-sign.mjs",
+    "desktop:setup-signing-secrets": "scripts/setup-signing-secrets.sh"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "electron-liquid-glass": "1.1.1"
+  },
+  "devDependencies": {
+    "electron": "43.4.1",
+    "electron-builder": "^26.15.3",
+    "typescript": "^6.0.3"
+  }
+}

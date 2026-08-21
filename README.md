@@ -16,6 +16,8 @@ This repository is a fork of [deepseek-ai/deepseek-harness](https://github.com/d
 
 **Runnable demos and tests.** `pnpm run demo:multi-provider providers|run` lists providers and runs one task on any key-based or engine provider; `pnpm run demo:engine-session` runs a whole session through either engine. The `examples/multi-provider` and `examples/engine-session` leaves carry keyless Loader specs, byte-pinned listing snapshots, live per-provider turns, live OAuth delegation, and cross-turn memory e2e suites.
 
+**Desktop app.** [`@deepseek-ai/dsh-desktop`](apps/desktop/README.md) is an Electron shell that embeds the Web UI in a frameless window (hidden title bar with native macOS traffic lights, opt-in macOS 26 Tahoe liquid glass). It serves the UI through the `dsh` CLI, installing `@deepseek-ai/dsh` on first run with your permission when it isn't already present — no harness source is bundled. It ships as a signed + notarized macOS build: cut a release with `desktop:release` (bump + tag + build + notarize + upload) or the tag-triggered `.github/workflows/desktop-release.yml`. See [apps/desktop/README.md](apps/desktop/README.md).
+
 ## Developer preview
 
 DeepSeek Harness is currently in _developer preview_ and is iterating rapidly. **THERE WILL BE COMPATIBILITY-BREAKING CHANGES.**

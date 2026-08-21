@@ -16,6 +16,8 @@ DeepSeek Harness（`dsh`）是由 [DeepSeek AI](https://deepseek.com) 开发的�
 
 **可运行的演示与测试。** `pnpm run demo:multi-provider providers|run` 列出 provider 并在任意基于密钥或引擎 provider 上运行一个任务；`pnpm run demo:engine-session` 通过任一引擎运行整个会话。`examples/multi-provider` 与 `examples/engine-session` 两个 leaf 带有无密钥 Loader 测试、逐字节固定的列表快照、逐 provider 的真实回合、真实 OAuth 委派与跨回合记忆 e2e 套件。
 
+**桌面端应用。** [`@deepseek-ai/dsh-desktop`](apps/desktop/README.zh.md) 是一个 Electron 外壳，将 Web UI 内嵌到无边框窗口（隐藏标题栏并保留 macOS 原生红绿灯按钮，可选用 macOS 26 Tahoe 的 liquid glass）。它通过 `dsh` CLI 提供 UI；若 `dsh` 尚不存在，则在首次运行时经用户许可后安装 `@deepseek-ai/dsh`——不打包任何 harness 源码。它以签名 + 公证的 macOS 构建分发：用 `desktop:release`（bump + tag + build + notarize + upload）或 tag 触发的 `.github/workflows/desktop-release.yml` 发布。见 [apps/desktop/README.zh.md](apps/desktop/README.zh.md)。
+
 ## 开发者预览
 
 DeepSeek Harness 目前处于 _开发者预览_ 阶段，正在快速迭代。**未来将出现破坏兼容性的变更。**

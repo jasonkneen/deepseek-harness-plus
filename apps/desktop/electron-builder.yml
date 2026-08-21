@@ -1,0 +1,35 @@
+appId: ai.deepseek.dsh-desktop
+productName: DeepSeek Harness
+directories:
+  output: release
+  buildResources: build
+files:
+  - lib
+  - package.json
+asar: true
+npmRebuild: true
+mac:
+  category: public.app-category.developer-tools
+  hardenedRuntime: true
+  gatekeeperAssess: false
+  # Local builds: electron-builder picks this Developer ID cert from the login
+  # Keychain (see apps/desktop/README.md). In CI, CSC_LINK (base64 .p12) +
+  # CSC_KEY_PASSWORD override it. Match the identity that shares Apple team
+  # SW75ZJJ5R6 with the `infinitty` notary profile.
+  identity: "Jason Kneen (SW75ZJJ5R6)"
+  # Notarize during the build when APPLE_ID / APPLE_APP_SPECIFIC_PASSWORD /
+  # APPLE_TEAM_ID (or APPLE_API_KEY) are set — CI. The local `desktop:ship`
+  # path notarizes explicitly with notarytool instead.
+  notarize: true
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.plist
+  target:
+    - target: dmg
+      arch:
+        - arm64
+        - x64
+    - target: zip
+      arch:
+        - arm64
+        - x64
+  artifactName: dsh-desktop-${version}-mac-${arch}.${ext}

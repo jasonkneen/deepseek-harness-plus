@@ -1,0 +1,14 @@
+{
+  // Standalone Electron app: not part of the root tsc build graph, so no
+  // composite/incremental (keeps `tsc --noEmit` available for typecheck).
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "lib",
+    "composite": false,
+    "incremental": false
+  },
+  "include": [
+    "src"
+  ]
+}

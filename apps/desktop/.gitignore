@@ -1,0 +1,2 @@
+# electron-builder output (root .gitignore already covers lib/)
+release/

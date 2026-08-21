@@ -1,0 +1,84 @@
+name: Desktop Release
+
+# Tag-triggered macOS desktop build. The primary signed+notarized path is local
+# (keychain Developer ID + a notarytool profile, see apps/desktop/README.md):
+#
+#     pnpm --filter @deepseek-ai/dsh-desktop run desktop:ship
+#     pnpm --filter @deepseek-ai/dsh-desktop run desktop:ship -- --upload  # after tagging vX.Y.Z
+#
+# This workflow is the CI backup: on a v* tag (or manual dispatch) it builds the
+# desktop app with electron-builder, signs + notarizes when the CI secrets are
+# present, and uploads the installers to the matching GitHub Release. Without
+# CSC_LINK the mac job is UNSIGNED — do not ship those artifacts.
+#
+# Load CI secrets once: scripts/setup-signing-secrets.sh <cert.p12>
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build macOS
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.7.0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build + package desktop installers
+        run: pnpm --filter @deepseek-ai/dsh-desktop run desktop:dist
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          CSC_NAME: ${{ secrets.CSC_NAME }}
+          # Notarization (mac only; skipped when unset)
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          # Runners have no keychain cert unless CSC_LINK is set; disable auto
+          # discovery only when we have no imported identity (avoids ad-hoc noise).
+          CSC_IDENTITY_AUTO_DISCOVERY: ${{ secrets.CSC_LINK != '' && 'true' || 'false' }}
+
+      - name: Verify macOS Developer ID signature
+        if: runner.os == 'macOS' && secrets.CSC_LINK != ''
+        run: pnpm --filter @deepseek-ai/dsh-desktop run desktop:verify-sign
+
+      - name: Upload installers to GitHub Release
+        # Never publish an unsigned build: without CSC_LINK the tag build is
+        # unsigned, so it must not overwrite a signed release. Set the signing
+        # secrets (desktop:setup-signing-secrets) to let CI be the publisher.
+        if: startsWith(github.ref, 'refs/tags/') && secrets.CSC_LINK != ''
+        uses: softprops/action-gh-release@v2
+        with:
+          files: apps/desktop/release/*.dmg
+          fail_on_unmatched_files: true
+
+      - name: Upload build artifacts
+        if: always() && !startsWith(github.ref, 'refs/tags/')
+        uses: actions/upload-artifact@v4
+        with:
+          name: dsh-desktop-macos
+          path: |
+            apps/desktop/release/*.dmg
+            apps/desktop/release/*.zip
+          if-no-files-found: ignore
