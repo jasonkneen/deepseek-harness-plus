@@ -1,5 +1,5 @@
 import { spawn, spawnSync } from 'node:child_process'
-import { copyFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, describe, expect, it } from 'vitest'
@@ -99,10 +99,13 @@ describe.skipIf(!windowsNative)('Windows Job native containment', () => {
   it('reports direct exit before terminating its default-inheritance descendant', async () => {
     const pidFile = join(scratch, `job-survivor-${Date.now()}.pid`)
     const factsFile = join(scratch, `job-facts-${Date.now()}.json`)
+    const targetCwd = join(scratch, `target-cwd-${Date.now()}`)
+    mkdirSync(targetCwd)
     const script = `
       const { spawn } = require('node:child_process')
       const { writeFileSync } = require('node:fs')
-      const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore', detached: true })
+      const { dirname } = require('node:path')
+      const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { cwd: dirname(process.execPath), stdio: 'ignore', detached: true })
       writeFileSync(${JSON.stringify(pidFile)}, String(child.pid))
       writeFileSync(${JSON.stringify(factsFile)}, JSON.stringify({ cwd: process.cwd(), value: process.env.TARGET_VALUE, arg: process.argv[1] }))
       child.unref()
@@ -112,6 +115,7 @@ describe.skipIf(!windowsNative)('Windows Job native containment', () => {
     `
     const request = {
       ...spec([process.execPath, '-e', script, 'literal $HOME ${UNCHANGED}'], 100, { TARGET_VALUE: 'explicit' }),
+      cwd: targetCwd,
       stdio: { stdin: 'ignore', stdout: 'pipe', stderr: 'pipe' } as const,
     }
     const handle = bindManagedProcess(request, launchWindowsJob(request))
@@ -135,10 +139,11 @@ describe.skipIf(!windowsNative)('Windows Job native containment', () => {
         new Promise<boolean>(resolve => setTimeout(() => { resolve(false) }, 5_000)),
       ])).resolves.toBe(true)
       expect(readFileSync(factsFile, 'utf8')).toBe(JSON.stringify({
-        cwd: scratch,
+        cwd: targetCwd,
         value: 'explicit',
         arg: 'literal $HOME ${UNCHANGED}',
       }))
+      rmSync(targetCwd)
       await expect(handle.waitForExit(AbortSignal.timeout(30))).resolves.toBe(false)
       handle.terminate()
       await expect(handle.waitForExit()).resolves.toBe(true)

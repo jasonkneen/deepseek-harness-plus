@@ -165,18 +165,25 @@ async function runWin32(
     }
     targetCreationAttempted = true
     // Match Node's cwd-relative executable lookup and spawn-error attribution.
+    const runnerCwd = process.cwd()
     process.chdir(request.cwd)
-    const [command, ...args] = request.argv
-    const spawned = spawnOrdinaryJobProcess(
-      api,
-      { command: command as string, args, cwd: process.cwd() },
-      stdio,
-    )
-    processHandle = spawned.process
-    jobHandle = spawned.job
-    targetStarted = true
+    let targetPid: number
+    try {
+      const [command, ...args] = request.argv
+      const spawned = spawnOrdinaryJobProcess(
+        api,
+        { command: command as string, args, cwd: process.cwd() },
+        stdio,
+      )
+      processHandle = spawned.process
+      jobHandle = spawned.job
+      targetPid = spawned.pid
+      targetStarted = true
+    } finally {
+      process.chdir(runnerCwd)
+    }
     closeStdioHandles(api, openedStdio, true)
-    appendRunnerEvent(eventsPath, { type: 'started', pid: spawned.pid })
+    appendRunnerEvent(eventsPath, { type: 'started', pid: targetPid })
 
     await new Promise<void>((resolve, reject) => {
       let settled = false
