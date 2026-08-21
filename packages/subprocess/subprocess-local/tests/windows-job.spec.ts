@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url'
 import { describe, expect, it, vi } from 'vitest'
 import type { SubprocessSpawnSpec } from '@deepseek-ai/dsh-subprocess'
 import { appendRunnerEvent } from '../src/runner-protocol.ts'
+import { bindManagedProcess } from '../src/spawn.ts'
 import { launchWindowsJob, probeWindowsJob } from '../src/windows-job.ts'
 import type { WindowsStdioBridge } from '../src/windows-stdio.ts'
 
@@ -229,7 +230,7 @@ describe('Windows Job runner adapter', () => {
     }
   })
 
-  it('cleans synchronous setup failures and waits for collected streams', async () => {
+  it('cleans synchronous setup failures and leaves collected-stream settlement to common binding', async () => {
     const bridgeFailure = new Error('bridge failed')
     const spawnFailure = new Error('spawn threw')
     const bridges: Array<WindowsStdioBridge & { dispose: ReturnType<typeof vi.fn>; closeInput: ReturnType<typeof vi.fn> }> = []
@@ -278,24 +279,25 @@ describe('Windows Job runner adapter', () => {
         setImmediate(() => { child.emit('close', 0, null) })
         return child
       }) as unknown as typeof spawn
-      const launch = isolated.launchWindowsJob({
+      const request = {
         ...spec(['collect']),
         stdio: {
           stdin: 'ignore',
           stdout: { maxBytes: 1024 },
           stderr: { maxBytes: 1024 },
         },
-      }, { spawn: run, runnerInvocation: ['fake-runner'] })
-      let streamsSettled = false
-      void launch.closed.then(() => { streamsSettled = true })
-      await launch.direct
+      } satisfies SubprocessSpawnSpec
+      const launch = isolated.launchWindowsJob(request, { spawn: run, runnerInvocation: ['fake-runner'] })
+      const handle = bindManagedProcess(request, launch)
+      let doneSettled = false
+      void handle.done.then(() => { doneSettled = true })
       await new Promise(resolve => setImmediate(resolve))
-      expect(streamsSettled).toBe(false)
+      expect(doneSettled).toBe(false)
       collectedStreams?.stdout.emit('end')
       await Promise.resolve()
-      expect(streamsSettled).toBe(false)
+      expect(doneSettled).toBe(false)
       collectedStreams?.stderr.emit('error', new Error('stream closed'))
-      await expect(launch.closed).resolves.toBeUndefined()
+      await expect(handle.done).resolves.toEqual({ exitCode: 0, signal: null })
       expect(bridges.at(-1)?.closeInput).toHaveBeenCalledOnce()
     } finally {
       vi.doUnmock('../src/windows-stdio.ts')

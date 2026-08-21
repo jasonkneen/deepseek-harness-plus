@@ -1,8 +1,9 @@
 import { spawn } from 'node:child_process'
+import { PassThrough } from 'node:stream'
 import { describe, expect, it, vi } from 'vitest'
 import type { SubprocessSpawnSpec } from '@deepseek-ai/dsh-subprocess'
 import type { BoundProcessOwner } from '../src/managed-owner.ts'
-import { observeChildClose, waitWithAbort } from '../src/managed-owner.ts'
+import { waitWithAbort } from '../src/managed-owner.ts'
 import { bindManagedProcess } from '../src/spawn.ts'
 
 function spec(graceMs = 30): SubprocessSpawnSpec {
@@ -67,7 +68,6 @@ describe('managed process binding', () => {
       stderr: wrapper.stderr,
       pid: 4242,
       direct: direct.promise,
-      closed: observeChildClose(wrapper),
       owner,
     })
     direct.resolve({ exitCode: 42, signal: null })
@@ -93,34 +93,29 @@ describe('managed process binding', () => {
       stderr: wrapper.stderr,
       pid: 4242,
       direct: Promise.resolve({ exitCode: 0, signal: null }),
-      closed: observeChildClose(wrapper),
       owner: { signal, waitForExit: async () => true },
     })
     handle.terminateForHostExit()
     expect(signal).toHaveBeenCalledExactlyOnceWith('SIGKILL')
   })
 
-  it('settles when the wrapper closes before the direct outcome arrives', async () => {
-    const wrapper = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], {
-      stdio: ['ignore', 'pipe', 'pipe'],
-    })
+  it('settles when collected streams close before the direct outcome arrives', async () => {
+    const stdout = new PassThrough()
+    const stderr = new PassThrough()
     const direct = Promise.withResolvers<{ exitCode: number | null; signal: NodeJS.Signals | null }>()
     const handle = bindManagedProcess(spec(), {
-      stdin: wrapper.stdin,
-      stdout: wrapper.stdout,
-      stderr: wrapper.stderr,
-      pid: wrapper.pid as number,
+      stdin: null,
+      stdout,
+      stderr,
+      pid: 4242,
       direct: direct.promise,
-      closed: Promise.resolve(),
       owner: { signal: vi.fn(), waitForExit: async () => true },
     })
-    try {
-      await new Promise(resolve => setImmediate(resolve))
-      direct.resolve({ exitCode: 23, signal: null })
-      await expect(handle.done).resolves.toEqual({ exitCode: 23, signal: null })
-    } finally {
-      wrapper.kill('SIGKILL')
-    }
+    stdout.end()
+    stderr.end()
+    await new Promise(resolve => setImmediate(resolve))
+    direct.resolve({ exitCode: 23, signal: null })
+    await expect(handle.done).resolves.toEqual({ exitCode: 23, signal: null })
   })
 
   it('publishes direct outcome immediately when no collected stream needs draining', async () => {
@@ -137,7 +132,6 @@ describe('managed process binding', () => {
       stderr: wrapper.stderr,
       pid: wrapper.pid as number,
       direct: direct.promise,
-      closed: new Promise<void>(() => {}),
       owner: { signal: vi.fn(), waitForExit: async () => true },
     })
     try {
@@ -163,7 +157,6 @@ describe('managed process binding', () => {
       stderr: wrapper.stderr,
       pid: wrapper.pid as number,
       direct: new Promise(() => {}),
-      closed: new Promise<void>(() => {}),
       owner: { signal: vi.fn(), waitForExit: async () => { throw failure } },
     })
     try {
@@ -188,7 +181,6 @@ describe('managed process binding', () => {
       stderr: wrapper.stderr,
       pid: wrapper.pid as number,
       direct,
-      closed: new Promise<void>(() => {}),
       owner: { signal, waitForExit: async () => true },
     })
     try {
@@ -219,7 +211,6 @@ describe('managed process binding', () => {
       stderr: wrapper.stderr,
       pid: wrapper.pid as number,
       direct: direct.promise,
-      closed: Promise.resolve(),
       owner: {
         signal,
         waitForExit: async () => { await stopped.promise; return true },

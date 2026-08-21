@@ -235,7 +235,6 @@ export function launchLinuxScope(
     stderr: child.stderr,
     pid: result.pid,
     direct,
-    closed,
     owner,
   }
 }

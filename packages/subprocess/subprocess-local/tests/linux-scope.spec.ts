@@ -273,7 +273,6 @@ describe.skipIf(process.platform === 'win32')('Linux systemd scope adapter', () 
     expect(launch.pid).toBe(-1)
     await expect(launch.direct).rejects.toThrow('runner failed to start')
     await expect(launch.owner.waitForExit()).resolves.toBe(true)
-    await launch.closed
   })
 
   it('does not fabricate a direct outcome after a non-forced scope signal', async () => {

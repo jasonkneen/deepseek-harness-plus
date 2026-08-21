@@ -24,7 +24,6 @@ export interface ManagedProcessLaunch {
   stderr: Readable | null
   pid: number
   direct: Promise<SubprocessOutcome>
-  closed: Promise<void>
   owner: BoundProcessOwner
 }
 

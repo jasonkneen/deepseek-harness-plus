@@ -26,7 +26,7 @@ import type {
   SubprocessSpawnSpec,
 } from '@deepseek-ai/dsh-subprocess'
 import type { BoundProcessOwner, ManagedProcessLaunch } from './managed-owner.ts'
-import { observeChildClose, waitWithAbort } from './managed-owner.ts'
+import { waitWithAbort } from './managed-owner.ts'
 import { linuxProcessGroupHasLiveMembers } from './process-inspector.ts'
 
 /**
@@ -431,7 +431,6 @@ export function bindManagedProcess(
   launch: ManagedProcessLaunch,
   internals: Pick<SpawnInternals, 'spillDir'> = {},
 ): LocalSubprocessHandle {
-  validateSubprocessSpec(spec)
   const { spillDir } = prepareManagedProcessBinding(internals)
   const { stdin, stdout, stderr } = launch
 
@@ -449,6 +448,24 @@ export function bindManagedProcess(
   }
   const stdoutCollector = collectStream(outMode, stdout, 'stdout')
   const stderrCollector = collectStream(errMode, stderr, 'stderr')
+  const observeCollectedStream = (mode: SubprocessOutputMode, stream: Readable | null): Promise<void> => {
+    if (!isCollect(mode) || stream === null || stream.readableEnded || stream.destroyed) return Promise.resolve()
+    return new Promise((resolve) => {
+      const settle = (): void => {
+        stream.off('end', settle)
+        stream.off('close', settle)
+        stream.off('error', settle)
+        resolve()
+      }
+      stream.once('end', settle)
+      stream.once('close', settle)
+      stream.once('error', settle)
+    })
+  }
+  const collectedStreamsClosed = Promise.all([
+    observeCollectedStream(outMode, stdout),
+    observeCollectedStream(errMode, stderr),
+  ])
   const stopCollectors = (): void => {
     if (stdoutCollector !== undefined) stdout?.destroy()
     if (stderrCollector !== undefined) stderr?.destroy()
@@ -508,8 +525,6 @@ export function bindManagedProcess(
 
   const done = new Promise<SubprocessOutcome>((resolve, reject) => {
     let pipeDrainTimer: ReturnType<typeof setTimeout> | undefined
-    let directOutcome: SubprocessOutcome | undefined
-    let wrapperClosed = false
     const settle = (outcome: SubprocessOutcome): void => {
       if (settled) return
       settled = true
@@ -520,13 +535,12 @@ export function bindManagedProcess(
       resolve(outcome)
     }
     launch.direct.then((outcome) => {
-      directOutcome = outcome
       if (stdoutCollector === undefined && stderrCollector === undefined) {
         settle(outcome)
         return
       }
       pipeDrainTimer = setTimeout(() => { settle(outcome) }, spec.graceMs)
-      if (wrapperClosed) settle(outcome)
+      void collectedStreamsClosed.then(() => { settle(outcome) })
     }, (error: unknown) => {
       /* v8 ignore next -- one Promise cannot reject after its fulfillment path has settled this handle. */
       if (settled) return
@@ -535,10 +549,6 @@ export function bindManagedProcess(
       stopCollectors()
       cleanup()
       reject(error instanceof Error ? error : new Error(String(error)))
-    })
-    void launch.closed.then(() => {
-      wrapperClosed = true
-      if (directOutcome !== undefined) settle(directOutcome)
     })
     function cleanup(): void {
       // graceTimer deliberately NOT cleared: forced termination must still
@@ -578,7 +588,6 @@ export function bindManagedProcess(
  * @returns live subprocess handle.
  */
 export function spawnSubprocess(spec: SubprocessSpawnSpec, internals: SpawnInternals = {}): LocalSubprocessHandle {
-  validateSubprocessSpec(spec)
   const binding = prepareManagedProcessBinding(internals)
   const platform = internals.platform ?? process.platform
   const [program, ...args] = spec.argv
@@ -592,7 +601,6 @@ export function spawnSubprocess(spec: SubprocessSpawnSpec, internals: SpawnInter
     ],
     detached: platform !== 'win32',
   })
-  const closed = observeChildClose(child)
   const direct = directChildResult(child)
   const pid = child.pid ?? -1
   const owner = fallbackOwner(
@@ -609,7 +617,6 @@ export function spawnSubprocess(spec: SubprocessSpawnSpec, internals: SpawnInter
     stderr: child.stderr,
     pid,
     direct,
-    closed,
     owner,
   }, binding)
 }

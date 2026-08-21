@@ -2,7 +2,6 @@
 
 import { spawn, spawnSync } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
-import type { Readable } from 'node:stream'
 import type { SubprocessSpawnSpec } from '@deepseek-ai/dsh-subprocess'
 import type { BoundProcessOwner, ManagedProcessLaunch } from './managed-owner.ts'
 import { observeChildClose, waitWithAbort } from './managed-owner.ts'
@@ -15,26 +14,6 @@ import {
 } from './runner-launch.ts'
 import { cleanupRunnerFiles } from './runner-protocol.ts'
 import { createWindowsStdioBridge } from './windows-stdio.ts'
-
-function observeCollectedStream(
-  mode: SubprocessSpawnSpec['stdio']['stdout'],
-  stream: Readable | null,
-): Promise<void> {
-  if (mode === 'pipe' || mode === 'inherit') return Promise.resolve()
-  // The bridge creates collect streams synchronously before the runner starts.
-  const collected = stream as Readable
-  return new Promise((resolve) => {
-    const settle = (): void => {
-      collected.off('end', settle)
-      collected.off('close', settle)
-      collected.off('error', settle)
-      resolve()
-    }
-    collected.once('end', settle)
-    collected.once('close', settle)
-    collected.once('error', settle)
-  })
-}
 
 /** Test seams for the runner process. */
 export interface WindowsJobInternals {
@@ -156,10 +135,6 @@ export function launchWindowsJob(
     throw error
   }
   const runnerClosed = observeChildClose(child)
-  const closed = Promise.all([
-    observeCollectedStream(spec.stdio.stdout, stdio.stdout),
-    observeCollectedStream(spec.stdio.stderr, stdio.stderr),
-  ]).then(() => undefined)
   const result = runnerDirectResult(child, files, runnerClosed)
   const owner = new WindowsJobOwner(child, result.failureReported)
   void result.direct.then(
@@ -173,7 +148,6 @@ export function launchWindowsJob(
     stderr: stdio.stderr,
     pid: result.pid,
     direct: result.direct,
-    closed,
     owner,
   }
 }
