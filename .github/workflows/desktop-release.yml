@@ -21,6 +21,11 @@ on:
 permissions:
   contents: write
 
+# `secrets` is not allowed inside step `if` conditions, so materialize the
+# signing flag in `env` (where secrets IS allowed) and gate steps on it.
+env:
+  HAS_CI_SIGNING: ${{ secrets.CSC_LINK != '' }}
+
 jobs:
   build:
     name: Build macOS
@@ -60,14 +65,14 @@ jobs:
           CSC_IDENTITY_AUTO_DISCOVERY: ${{ secrets.CSC_LINK != '' && 'true' || 'false' }}
 
       - name: Verify macOS Developer ID signature
-        if: runner.os == 'macOS' && secrets.CSC_LINK != ''
+        if: runner.os == 'macOS' && env.HAS_CI_SIGNING == 'true'
         run: pnpm --filter @deepseek-ai/dsh-desktop run desktop:verify-sign
 
       - name: Upload installers to GitHub Release
         # Never publish an unsigned build: without CSC_LINK the tag build is
         # unsigned, so it must not overwrite a signed release. Set the signing
         # secrets (desktop:setup-signing-secrets) to let CI be the publisher.
-        if: startsWith(github.ref, 'refs/tags/') && secrets.CSC_LINK != ''
+        if: startsWith(github.ref, 'refs/tags/') && env.HAS_CI_SIGNING == 'true'
         uses: softprops/action-gh-release@v2
         with:
           files: apps/desktop/release/*.dmg
