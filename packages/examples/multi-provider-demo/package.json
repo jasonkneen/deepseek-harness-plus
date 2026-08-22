@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-multi-provider-demo",
   "description": "Multi-provider pack demo app: boots the examples/multi-provider composition, lists the registered providers and model catalogs, or runs one task through a chosen provider",
-  "version": "0.1.0-rc.5",
+  "version": "0.1.3",
   "publishConfig": {
     "access": "public"
   },
