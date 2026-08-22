@@ -108,7 +108,7 @@ describe('managed process binding', () => {
     let doneSettled = false
     void handle.done.then(() => { doneSettled = true })
     direct.resolve({ exitCode: 23, signal: null })
-    await Promise.resolve()
+    await new Promise(resolve => setImmediate(resolve))
     expect(doneSettled).toBe(false)
     stdout.end()
     await expect(Promise.race([
