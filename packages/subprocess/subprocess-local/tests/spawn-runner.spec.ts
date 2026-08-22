@@ -64,6 +64,20 @@ describe('spawn runner transport', () => {
     expect(spawnRunnerInvocation()).toEqual(sourceInvocation)
   })
 
+  it('does not require SharedArrayBuffer until a native handshake runs', async () => {
+    const descriptor = Object.getOwnPropertyDescriptor(globalThis, 'SharedArrayBuffer')
+    Object.defineProperty(globalThis, 'SharedArrayBuffer', { configurable: true, value: undefined })
+    vi.resetModules()
+    try {
+      const isolated = await import('../src/runner-launch.ts')
+      expect(isolated.runnerStdio(spec())).toEqual(['ignore', 'pipe', 'pipe'])
+    } finally {
+      if (descriptor === undefined) Reflect.deleteProperty(globalThis, 'SharedArrayBuffer')
+      else Object.defineProperty(globalThis, 'SharedArrayBuffer', descriptor)
+      vi.resetModules()
+    }
+  })
+
   it('re-enters a packaged executable through its private runner dispatch', () => {
     const packagedProcess = process as NodeJS.Process & { pkg?: unknown }
     const original = Object.getOwnPropertyDescriptor(packagedProcess, 'pkg')

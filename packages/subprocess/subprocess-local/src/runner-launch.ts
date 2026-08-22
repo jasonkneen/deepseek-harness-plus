@@ -17,7 +17,6 @@ import type { RunnerEvent, RunnerFiles, RunnerRequest } from './runner-protocol.
 import { DirectResultUnavailableError } from './managed-owner.ts'
 import { childEnv } from './spawn.ts'
 
-const handshakeWait = new Int32Array(new SharedArrayBuffer(4))
 const RUNNER_HANDSHAKE_TIMEOUT_MS = 10_000
 const RUNNER_EVENT_POLL_MS = 100
 const PACKAGED_RUNNER_ARG = '--dsh-internal-subprocess-runner'
@@ -99,6 +98,7 @@ function runnerExited(child: ChildProcess, pid: number): boolean {
 
 /** Wait synchronously only until the runner reports target start or spawn failure. */
 function waitForRunnerHandshake(child: ChildProcess, files: RunnerFiles): RunnerHandshake {
+  const handshakeWait = new Int32Array(new SharedArrayBuffer(4))
   const deadline = Date.now() + RUNNER_HANDSHAKE_TIMEOUT_MS
   while (Date.now() < deadline) {
     const events = readRunnerEvents(files.eventsPath)
