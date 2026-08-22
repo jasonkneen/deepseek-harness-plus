@@ -57,7 +57,12 @@ export function observeChildLifecycle(child: ChildProcess): {
  * @returns true on completion, false when the bound aborts first.
  */
 export async function waitWithAbort(pending: Promise<void>, signal?: AbortSignal): Promise<boolean> {
-  if (signal?.aborted) return false
+  if (signal?.aborted) {
+    void pending.catch(() => {
+      // This caller declined the wait; a later caller still observes the cached rejection.
+    })
+    return false
+  }
   if (signal === undefined) {
     await pending
     return true

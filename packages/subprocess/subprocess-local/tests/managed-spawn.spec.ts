@@ -3,6 +3,7 @@ import { PassThrough } from 'node:stream'
 import { describe, expect, it, vi } from 'vitest'
 import type { SubprocessSpawnSpec } from '@deepseek-ai/dsh-subprocess'
 import type { BoundProcessOwner } from '../src/managed-owner.ts'
+import { waitWithAbort } from '../src/managed-owner.ts'
 import { bindManagedProcess } from '../src/spawn.ts'
 
 function spec(graceMs = 30): SubprocessSpawnSpec {
@@ -15,6 +16,16 @@ function spec(graceMs = 30): SubprocessSpawnSpec {
 }
 
 describe('managed process binding', () => {
+  it('contains owner failure after an already-aborted wait returns false', async () => {
+    const controller = new AbortController()
+    const ownerFailure = Promise.withResolvers<undefined>()
+    controller.abort()
+
+    await expect(waitWithAbort(ownerFailure.promise, controller.signal)).resolves.toBe(false)
+    ownerFailure.reject(new Error('owner unavailable'))
+    await new Promise(resolve => setImmediate(resolve))
+  })
+
   it('keeps direct outcome separate from managed-range quiescence', async () => {
     const wrapper = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], {
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -75,32 +86,31 @@ describe('managed process binding', () => {
     expect(signal).toHaveBeenCalledExactlyOnceWith('SIGKILL')
   })
 
-  it('waits for raw and collected output streams after the direct outcome', async () => {
+  it.each([
+    ['raw', 'pipe'],
+    ['collected', { maxBytes: 1024 }],
+  ] as const)('waits for %s output EOF after the direct outcome', async (_label, stdoutMode) => {
     const stdout = new PassThrough()
-    const stderr = new PassThrough()
     const direct = Promise.withResolvers<{ exitCode: number | null; signal: NodeJS.Signals | null }>()
     const request = {
       ...spec(1_000),
-      stdio: { stdin: 'ignore', stdout: 'pipe', stderr: { maxBytes: 1024 } } as const,
+      stdio: { stdin: 'ignore', stdout: stdoutMode, stderr: 'inherit' } as const,
     }
     const handle = bindManagedProcess(request, {
       stdin: null,
       stdout,
-      stderr,
+      stderr: null,
       pid: 4242,
       direct: direct.promise,
       owner: { signal: vi.fn(), waitForExit: async () => {} },
     })
-    stdout.resume()
+    if (stdoutMode === 'pipe') stdout.resume()
     let doneSettled = false
     void handle.done.then(() => { doneSettled = true })
     direct.resolve({ exitCode: 23, signal: null })
     await Promise.resolve()
     expect(doneSettled).toBe(false)
     stdout.end()
-    await Promise.resolve()
-    expect(doneSettled).toBe(false)
-    stderr.end()
     await expect(Promise.race([
       handle.done,
       new Promise<'timeout'>(resolve => setTimeout(() => { resolve('timeout') }, 100)),

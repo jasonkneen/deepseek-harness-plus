@@ -2,6 +2,7 @@ import { spawn, spawnSync } from 'node:child_process'
 import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { pathToFileURL } from 'node:url'
 import { afterAll, describe, expect, it } from 'vitest'
 import type { SubprocessSpawnSpec } from '@deepseek-ai/dsh-subprocess'
 import { bindManagedProcess } from '../src/spawn.ts'
@@ -150,6 +151,46 @@ describe.skipIf(!windowsNative)('Windows Job native containment', () => {
       await waitGone(descendant)
     } finally {
       cleanup(descendant)
+    }
+  })
+
+  it('publishes target identity before reporting cwd restoration failure', async () => {
+    const preload = join(scratch, `fail-runner-cwd-restore-${Date.now()}.mjs`)
+    writeFileSync(preload, `
+      const originalChdir = process.chdir.bind(process)
+      let calls = 0
+      process.chdir = (path) => {
+        calls += 1
+        if (calls === 2) {
+          const error = new Error('injected runner cwd restoration failure')
+          error.code = 'ENOENT'
+          error.syscall = 'chdir'
+          throw error
+        }
+        originalChdir(path)
+      }
+    `)
+    const previousNodeOptions = process.env.NODE_OPTIONS
+    process.env.NODE_OPTIONS = [previousNodeOptions, `--import=${pathToFileURL(preload).href}`]
+      .filter((value): value is string => value !== undefined && value.length > 0)
+      .join(' ')
+    try {
+      const command = process.env.ComSpec ?? process.env.COMSPEC
+      if (command === undefined) throw new Error('expected ComSpec for the Windows runner test')
+      const request = spec([command, '/d', '/s', '/c', 'exit 0'])
+      const launch = launchWindowsJob(request)
+      expect(launch.pid).toBeGreaterThan(0)
+      const failure = await launch.direct.catch((error: unknown) => error)
+      expect(failure).toMatchObject({
+        message: 'injected runner cwd restoration failure',
+        code: 'ENOENT',
+        syscall: 'chdir',
+      })
+      expect(failure).not.toHaveProperty('path')
+      await expect(launch.owner.waitForExit()).rejects.toThrow('before proving its managed range empty')
+    } finally {
+      if (previousNodeOptions === undefined) Reflect.deleteProperty(process.env, 'NODE_OPTIONS')
+      else process.env.NODE_OPTIONS = previousNodeOptions
     }
   })
 
