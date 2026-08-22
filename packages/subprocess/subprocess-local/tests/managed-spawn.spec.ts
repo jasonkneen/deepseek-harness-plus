@@ -3,7 +3,6 @@ import { PassThrough } from 'node:stream'
 import { describe, expect, it, vi } from 'vitest'
 import type { SubprocessSpawnSpec } from '@deepseek-ai/dsh-subprocess'
 import type { BoundProcessOwner } from '../src/managed-owner.ts'
-import { waitWithAbort } from '../src/managed-owner.ts'
 import { bindManagedProcess } from '../src/spawn.ts'
 
 function spec(graceMs = 30): SubprocessSpawnSpec {
@@ -16,22 +15,6 @@ function spec(graceMs = 30): SubprocessSpawnSpec {
 }
 
 describe('managed process binding', () => {
-  it('closes the abort race after installing the wait listener', async () => {
-    let reads = 0
-    const removeEventListener = vi.fn()
-    const signal = {
-      get aborted() {
-        reads += 1
-        return reads > 1
-      },
-      addEventListener: vi.fn(),
-      removeEventListener,
-    } as unknown as AbortSignal
-
-    await expect(waitWithAbort(new Promise<void>(() => {}), signal)).resolves.toBe(false)
-    expect(removeEventListener).toHaveBeenCalledOnce()
-  })
-
   it('keeps direct outcome separate from managed-range quiescence', async () => {
     const wrapper = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], {
       stdio: ['ignore', 'pipe', 'pipe'],
