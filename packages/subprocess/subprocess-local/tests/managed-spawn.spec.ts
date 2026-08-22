@@ -80,7 +80,7 @@ describe('managed process binding', () => {
     const stderr = new PassThrough()
     const direct = Promise.withResolvers<{ exitCode: number | null; signal: NodeJS.Signals | null }>()
     const request = {
-      ...spec(),
+      ...spec(1_000),
       stdio: { stdin: 'ignore', stdout: 'pipe', stderr: { maxBytes: 1024 } } as const,
     }
     const handle = bindManagedProcess(request, {
@@ -91,6 +91,7 @@ describe('managed process binding', () => {
       direct: direct.promise,
       owner: { signal: vi.fn(), waitForExit: async () => {} },
     })
+    stdout.resume()
     let doneSettled = false
     void handle.done.then(() => { doneSettled = true })
     direct.resolve({ exitCode: 23, signal: null })
@@ -100,7 +101,10 @@ describe('managed process binding', () => {
     await Promise.resolve()
     expect(doneSettled).toBe(false)
     stderr.end()
-    await expect(handle.done).resolves.toEqual({ exitCode: 23, signal: null })
+    await expect(Promise.race([
+      handle.done,
+      new Promise<'timeout'>(resolve => setTimeout(() => { resolve('timeout') }, 100)),
+    ])).resolves.toEqual({ exitCode: 23, signal: null })
   })
 
   it('publishes direct outcome immediately when no collected stream needs draining', async () => {

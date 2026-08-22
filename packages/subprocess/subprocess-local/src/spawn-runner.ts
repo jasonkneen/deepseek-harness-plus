@@ -165,7 +165,6 @@ async function runWin32(
     // Match Node's cwd-relative executable lookup and spawn-error attribution.
     const runnerCwd = process.cwd()
     process.chdir(request.cwd)
-    let targetPid: number
     try {
       const [command, ...args] = request.argv
       const spawned = spawnOrdinaryJobProcess(
@@ -175,11 +174,10 @@ async function runWin32(
       )
       processHandle = spawned.process
       jobHandle = spawned.job
-      targetPid = spawned.pid
+      appendRunnerEvent(eventsPath, { type: 'started', pid: spawned.pid })
     } finally {
       process.chdir(runnerCwd)
     }
-    appendRunnerEvent(eventsPath, { type: 'started', pid: targetPid })
     closeStdioHandles(api, openedStdio, true)
 
     await new Promise<void>((resolve, reject) => {
@@ -233,7 +231,9 @@ async function runWin32(
     })
   } catch (error) {
     const targetSpawnFailed = (error instanceof Win32Error && error.api === 'CreateProcessW')
-      || (error instanceof Error && (error as NodeJS.ErrnoException).syscall === 'chdir')
+      || (processHandle === undefined
+        && error instanceof Error
+        && (error as NodeJS.ErrnoException).syscall === 'chdir')
     appendRunnerEvent(eventsPath, {
       type: targetSpawnFailed ? 'spawn-error' : 'runner-error',
       error: targetSpawnFailed ? win32SpawnError(error, request) : serializeSpawnError(error),
