@@ -23,7 +23,7 @@ Composition splits into two planes, decided by what must be shared rather than b
 
 Model routing stays out of presets. `installAgentLlmTarget` is already the per-agent seam for provider, model, and reasoning effort, and an LLM adapter mounted inside a preset would never be resolved by `agent-loop`, which lives in the host plane.
 
-The presets the deployment ships are the directories under `apps/cli/config/agent-presets/`; the roster is that listing, not a list restated here.
+The presets the deployment ships are the directories under `packages/preset/agent-presets/presets/`; the roster is that listing, not a list restated here.
 
 Mounting is per-session by default. Measured cost for a twelve-row composition is ~3ms and ~600KB per session, so isolation is the cheaper default than any sharing scheme, and a preset authored by a user or by an agent then has the smallest possible blast radius. A preset that genuinely owns an expensive singleton opts into sharing with Cordis's own `isolate` vocabulary: a named realm label is process-global, so two subtrees naming the same label resolve one instance.
 

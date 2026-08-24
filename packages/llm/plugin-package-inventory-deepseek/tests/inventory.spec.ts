@@ -44,7 +44,7 @@ async function harness(enabled?: boolean): Promise<{ ctx: Context; root: string;
   await ctx.plugin(Loader)
   ctx.loader.builtins.include = Include
   await ctx.plugin(AgentRegistry)
-  await ctx.plugin(AgentPresets, { default: 'fixture', roots: [], includeUserRoot: false })
+  await ctx.plugin(AgentPresets, { default: 'fixture', roots: [], includeShippedRoot: false, includeUserRoot: false })
   await ctx.plugin(DeepSeekLlmApiExtensionRegistry)
   const inventory = enabled === undefined
     ? ctx.plugin(PluginInventory)

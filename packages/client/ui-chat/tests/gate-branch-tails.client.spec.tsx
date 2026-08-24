@@ -168,22 +168,24 @@ describe('render branch tails', () => {
     expect(view.getByText('该调用不在当前窗口内')).toBeTruthy()
   })
 
-  it('DetailsPanel resolves a nested run_code leaf to its full logged args and output', () => {
+  it('DetailsPanel passes the existing parentCallId through to the Tool details seat', () => {
     localStorage.clear()
     const session = sessionSnapshot()
     const longText = 'x'.repeat(1_000)
     const runningCalls: readonly RunningToolCall[] = [{
       callId: 'p1', name: 'run_code', argsRaw: '{}', turn: 1, step: 1,
-      time: 7_000, callView: null, subCalls: [{
+      time: 7_000, subCalls: [{
         kind: 'tool-result', seq: 8, time: 8_000, callId: 'p1:code:1',
+        parentCallId: 'p1',
         call: { name: 'run_code', argsRaw: '{"code":"return 1"}' },
         callTime: 8_000,
-        content: [], isError: false, callView: null, resultView: null,
+        content: [], isError: false,
         subCalls: [{
           kind: 'tool-result', seq: 9, time: 9_000, callId: 'p1:code:1:code:1',
+          parentCallId: 'p1:code:1',
           call: { name: 'read', argsRaw: '{"path":"notes/demo.txt"}' },
           callTime: 8_500,
-          content: [{ type: 'text', text: longText }], isError: false, callView: null, resultView: null,
+          content: [{ type: 'text', text: longText }], isError: false,
           subCalls: [],
         }],
       }],
@@ -224,13 +226,14 @@ describe('render branch tails', () => {
         t={t}
       />,
     )
-    // Chat resolves the selected sub-call and hands its complete
-    // frozen block to the Tool-owned details seat.
+    // Chat resolves the selected sub-call and keeps its Code Dispatch parent
+    // identity on the block handed to the Tool-owned details seat.
     expect(view.getByText('read')).toBeTruthy()
     expect(view.getByTestId('tool-details-seat')).toBeTruthy()
     expect(owners).toHaveLength(1)
     expect(owners[0]?.block).toMatchObject({
       callId: 'p1:code:1:code:1',
+      parentCallId: 'p1:code:1',
       call: { name: 'read', argsRaw: '{"path":"notes/demo.txt"}' },
       content: [{ type: 'text', text: longText }],
     })

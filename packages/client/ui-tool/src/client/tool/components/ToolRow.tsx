@@ -7,7 +7,9 @@ import type { TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
 import { CHAT_DIFF_MAX_LINES, type DiffCardModel } from '../models/diff-card-model.ts'
 import { CHAT_READ_MAX_LINES, type ReadCardModel } from '../models/read-card-model.ts'
 import { CHAT_SEARCH_MAX_LINES, type SearchCardModel } from '../models/search-card-model.ts'
-import { terminalBlockLabels, type TerminalCardModel } from '../models/terminal-card-model.ts'
+import {
+  localizeTerminalCardModel, terminalBlockLabels, type TerminalCardModel,
+} from '../models/terminal-card-model.ts'
 import {
   diffBlockLabels, readBlockLabels, searchBlockLabels, webBlockLabels,
 } from '../models/primitive-labels.ts'
@@ -106,7 +108,9 @@ export function ToolRow({
   const readLabels = useMemo(() => readBlockLabels(t), [t])
   const searchLabels = useMemo(() => searchBlockLabels(t), [t])
   const webLabels = useMemo(() => webBlockLabels(t), [t])
-  const terminalBody = terminal ?? null
+  const terminalBody = terminal === undefined || terminal === null
+    ? null
+    : localizeTerminalCardModel(terminal, t)
   const diffBody = diff ?? null
   const readBody = read ?? null
   const searchBody = search ?? null
@@ -118,7 +122,7 @@ export function ToolRow({
   const status = stateStatus(state, t)
   // A failure must replace, not supplement, the normal summary.
   const failureLine = state === 'error' ? errorSummary ?? null : null
-  const summaryText = failureLine ?? summary
+  const summaryText = failureLine ?? terminalBody?.description ?? summary
   const suffix = failureLine === null ? summarySuffix ?? null : null
   const fileLink = filePath !== undefined && onOpenFile !== undefined && failureLine === null
   const toggleExpand = () => {

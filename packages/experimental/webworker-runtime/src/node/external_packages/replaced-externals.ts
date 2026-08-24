@@ -8,10 +8,8 @@
 
 /** External packages served from the worker bundle instead of the VFS. */
 export const REPLACED_EXTERNAL_PACKAGES: readonly string[] = [
-  '@deepseek-ai/node-addon-landlock-run',
   '@earendil-works/pi-ai',
   '@vscode/ripgrep',
-  'chokidar',
   'koffi',
   'node-pty',
   'sharp',

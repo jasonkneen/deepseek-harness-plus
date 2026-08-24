@@ -87,17 +87,20 @@ Every read failure degrades to no metadata — absent, malformed, wrongly typed,
 |---|---|---|
 | `default` | required | Preset id mounted when a caller names none |
 | `roots` | `[]` | Scanned directories in precedence order; each supplies `path` (a leading `~` expands) and `trust` (defaults to `user`) |
+| `includeShippedRoot` | `true` | Prepend the package's bundled shipped presets as a `system` root, before every configured root |
 | `includeUserRoot` | `true` | Append `<dshHome>/.agent-presets` as a `user` root, after every configured root |
 
 An absent root supplies no presets rather than failing: the user root does not exist until the first locally authored preset, and naming a default no root supplies already fails loud at resolution.
 
-### The writable root is this package's, the shipped root is the app's
+### The shipped and writable roots are this package's
+
+The shipped presets travel inside this package, beside `lib/`, the way each preset's own skills travel inside its directory. Their root is PREPENDED before every configured root, so the built-in set always mounts and wins a duplicate id — no patch layer replacing the roster row's `config` can accidentally drop it, and the schema default keeps the set through a whole-`config` replacement. The compositions require the host's agent-plane services, not any one surface: a host lacking a service a preset row injects leaves that row waiting, exactly as under any other root.
 
 `<dshHome>/.agent-presets` is where a person's own presets live, the way `<dshHome>/skills` is where their own skills live ([`dsh-skill-filesystem`](../../skill/skill-filesystem/README.md)), so the roster derives it rather than waiting for a deployment to remember it — a launcher that configures nothing still finds and authors presets. It is appended AFTER every configured root, which keeps an earlier root winning a duplicate id: a shipped `standard` still shadows a home directory that claimed the name, and `copy()` refuses that id rather than landing a preset nothing would resolve.
 
 The roots are resolved once, when the service is constructed. A root set that changed between a `list()` and the `copy()` acting on its answer would author into a directory the caller never saw.
 
-`includeUserRoot: false` mounts a roster over `roots` alone. A deployment that confines presets to its own directories needs it, and so does any test pinning an exact roster — otherwise the machine's real `<dshHome>` decides what the roster contains.
+`includeShippedRoot: false` drops the built-in set — for a deployment supplying purely its own presets, or an embedder using the roster as bare machinery. `includeUserRoot: false` drops the derived writable root — for a deployment that confines presets to its own directories. A test pinning an exact roster sets both off; otherwise the package's shipped presets and the machine's real `<dshHome>` decide what the roster contains.
 
 The SHIPPED root stays an assembly fact: it sits beside the installed app's own config, a path only that app can resolve.
 

@@ -23,7 +23,7 @@ Status: implemented
 
 模型路由不进 preset。`installAgentLlmTarget` 已经是 provider、model 与 reasoning effort 的按 agent 可替换点；而挂在 preset 内部的 LLM 适配器永远不会被 `agent-loop` 解析到，因为后者位于宿主平面。
 
-部署交付哪些 preset，取决于 `apps/cli/config/agent-presets/` 下有哪些目录；清单是那份目录列表，而不是在此另抄一份。
+部署交付哪些 preset，取决于 `packages/preset/agent-presets/presets/` 下有哪些目录；清单是那份目录列表，而不是在此另抄一份。
 
 挂载默认按会话进行。实测一份十二行组装每会话约 3ms、约 600KB，因此隔离比任何共享方案都更划算；而由用户或 agent 写出的 preset 也因此拥有尽可能小的影响面。确实自带昂贵单例的 preset，可以用 Cordis 自身的 `isolate` 词汇显式选择共享：命名 realm 的 label 是进程级全局的，因此两棵子树只要写同一个 label 就解析到同一个实例。
 

@@ -24,8 +24,6 @@ function settled(over: Partial<ToolResultNode> = {}): ToolResultNode {
     callTime: 2_000,
     content: [{ type: 'text', text: 'Follow the issue workflow.\nKeep project fields in sync.' }],
     isError: false,
-    callView: null,
-    resultView: null,
     subCalls: [],
     ...over,
   }
@@ -33,7 +31,7 @@ function settled(over: Partial<ToolResultNode> = {}): ToolResultNode {
 
 function running(argsRaw = '{"name":"dsh-manage-issues"}'): RunningToolCall {
   return {
-    callId: 'call-skill', name: 'skill', argsRaw, turn: 1, step: 1, time: 2_000, callView: null, subCalls: [],
+    callId: 'call-skill', name: 'skill', argsRaw, turn: 1, step: 1, time: 2_000, subCalls: [],
   }
 }
 
@@ -42,6 +40,7 @@ function props(block: SkillRowProps['block'], inspect?: () => void): SkillRowPro
     callId: block.callId,
     toolName: 'skill',
     block,
+
     openFile: vi.fn(),
     inspect,
     t,

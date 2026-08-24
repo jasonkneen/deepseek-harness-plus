@@ -22,7 +22,6 @@ import type {
   SessionQueuedItem,
   SessionRequestId,
   SessionError,
-  SessionToolView,
 } from '../../types.ts'
 import type { ClientFailure, ClientResult } from '../contract/result.ts'
 import { transportResult } from '../contract/result.ts'
@@ -74,9 +73,6 @@ export interface SessionOptions {
 export class Session implements SessionFace {
   // ---- Window and derived state (all private; the snapshot is the only read API) ----
   private eventWindow: SessionEvent[] = []
-  /** Wire views aligned with `eventWindow` by index (envelope annotations; undefined = no view).
-   *  Kept parallel so `eventWindow` remains the raw log slice (model-visible ⟺ logged). */
-  private views: (SessionToolView | undefined)[] = []
   private baseSeq = 0
   private hasMore = false
   private openState: OpenState = 'cold'
@@ -405,7 +401,6 @@ export class Session implements SessionFace {
     this.openState = 'cold'
     this.openError = null
     this.eventWindow = []
-    this.views = []
     this.baseSeq = 0
     this.notifier.markDirty()
     await this.open()
@@ -582,7 +577,6 @@ export class Session implements SessionFace {
   /** Replace the complete contiguous window and apply page-owned projection metadata. */
   private installWindow(entries: readonly SessionEventEntry[], hasMore: boolean, projections?: ProjectionsBaseline): void {
     this.eventWindow = entries.map(entry => entry.event as SessionEvent)
-    this.views = entries.map(entry => entry.view)
     this.baseSeq = this.eventWindow[0]?.seq ?? 0
     this.hasMore = hasMore
     if (this.eventWindow.some(event => event.type === 'turn/start')) this.firstPromptPendingTurn = false
@@ -594,7 +588,6 @@ export class Session implements SessionFace {
   /** Prepend one stream-validated history page. */
   private prependWindow(entries: readonly SessionEventEntry[], hasMore: boolean): void {
     this.eventWindow = [...entries.map(entry => entry.event as SessionEvent), ...this.eventWindow]
-    this.views = [...entries.map(entry => entry.view), ...this.views]
     this.baseSeq = this.eventWindow[0]?.seq ?? 0
     this.hasMore = hasMore
     this.eventSource.prepend(entries, hasMore)
@@ -604,7 +597,6 @@ export class Session implements SessionFace {
   private appendLive(entry: SessionEventEntry): boolean {
     const event = entry.event as SessionEvent
     this.eventWindow.push(event)
-    this.views.push(entry.view)
     const awaitingFirstTurn = this.firstPromptPendingTurn
     if (event.type === 'turn/start') this.firstPromptPendingTurn = false
     const queueChanged = this.queueMirror.acceptDurable(event)

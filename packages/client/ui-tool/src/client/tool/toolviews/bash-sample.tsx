@@ -6,7 +6,9 @@ import {
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
 import type { ToolCallViewProps } from '../../contract/slots.ts'
-import { terminalBlockLabels, terminalCardModel, terminalFailed } from '../models/terminal-card-model.ts'
+import {
+  localizeTerminalCardModel, terminalBlockLabels, terminalCardModel, terminalFailed,
+} from '../models/terminal-card-model.ts'
 import { toolRowModel, type ToolRowState } from '../models/tool-call-model.ts'
 import { CONVERSATION_NS as NS } from '../../locale.ts'
 import css from './bash-sample.module.css'
@@ -35,19 +37,20 @@ function stateStatus(state: ToolRowState, t: BashRowProps['t']): string | null {
 /** Renders expandable Bash output with an accessible lifecycle label. */
 export function BashRow({ toolName, block, sessionId, useSessions, inspect, t }: BashRowProps) {
   const model = toolRowModel(toolName, block)
-  // Session workspace root: the terminal view's cwd resolves against it (an
-  // omitted workdir IS the workspace), which the pure presenter cannot do.
+  // An omitted shell workdir is the session workspace; relative values resolve
+  // against it before reaching the terminal primitive.
   const cwd = useSessions(list => list.byId[sessionId]?.cwd)
-  const terminal = terminalCardModel(block, cwd)
+  const terminalModel = terminalCardModel(block, cwd)
+  const terminal = terminalModel === null ? null : localizeTerminalCardModel(terminalModel, t)
   // A failing exit status is the terminal card's own error signal (the call
   // itself settles isError:false), surfaced as the row's red state dot.
-  const state = model.state === 'ok' && terminal !== null && terminalFailed(terminal)
+  const state = model.state === 'ok' && terminalModel !== null && terminalFailed(terminalModel)
     ? 'error'
     : model.state
   const status = stateStatus(state, t)
   const [expanded, setExpanded] = useState(false)
   // Execution failures (for example cancellation before the process reports a
-  // terminal result) use the generic presenter. Keep their recorded args and
+  // terminal result) use the generic body. Keep their recorded args and
   // full error reachable instead of collapsing the row to the first line.
   const genericError = terminal === null
     && model.state === 'error'

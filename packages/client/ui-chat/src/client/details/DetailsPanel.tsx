@@ -47,8 +47,8 @@ function rawResultText(block: ToolCallBlock): string {
 
 export function DetailsPanel({ useChat, useSessions, sessionId, useStore, renderSlot, closeDetails, t }: DetailsPanelProps) {
   const selection = useStore(s => s.selection)
-  // Session workspace root: an omitted or relative terminal cwd resolves
-  // against it, which the pure presenter cannot see.
+  // Session workspace root: a card model resolves omitted or relative
+  // tool paths against it without reading Session services.
   const sessionCwd = useSessions(list => list.byId[sessionId]?.cwd)
   const callId = selection?.callId
   // materialFor builds a fresh wrapper; shallowEqual short-circuits on its
@@ -56,7 +56,6 @@ export function DetailsPanel({ useChat, useSessions, sessionId, useStore, render
   const material = useChat(
     s => (callId === undefined ? null : materialFor(s, callId)),
     (a, b) => shallowEqual(a, b))
-
   return (
     <div className={css.root}>
       <div className={css.header}>

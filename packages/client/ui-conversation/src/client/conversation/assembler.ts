@@ -189,7 +189,7 @@ export class ConversationNodeAssembler implements ConversationViewSnapshotStore 
 
   /**
    * Add one contiguous live tail event without scanning existing Contexts.
-   * @param input - appended Event and optional wire view.
+   * @param input - appended Session event.
    * @returns highest requested publication cadence.
    */
   append(input: ConversationEventInput): ConversationPublication {

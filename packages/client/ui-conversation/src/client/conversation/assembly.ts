@@ -128,10 +128,7 @@ class BoundConversation implements ConversationBinding {
 }
 
 function conversationInput(entry: SessionEventEntry): ConversationEventInput {
-  return {
-    event: entry.event as unknown as SessionEvent,
-    ...(entry.view === undefined ? {} : { view: entry.view }),
-  }
+  return { event: entry.event as unknown as SessionEvent }
 }
 
 interface BindingRecord {

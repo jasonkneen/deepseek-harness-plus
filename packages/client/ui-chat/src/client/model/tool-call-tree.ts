@@ -59,12 +59,12 @@ export class ToolCallTree {
       const data = event.data
       const running: RunningToolCall = {
         callId: data.subCallId,
+        parentCallId: data.parentCallId,
         name: data.name,
         argsRaw: JSON.stringify(data.arguments),
         turn: 0,
         step: 0,
         time: event.time,
-        callView: null,
         subCalls: [],
       }
       const siblings = this.childrenByParent.get(data.parentCallId) ?? []
@@ -84,12 +84,11 @@ export class ToolCallTree {
       seq: event.seq,
       time: event.time,
       callId: data.subCallId,
+      parentCallId: data.parentCallId,
       call: { name: data.name, argsRaw: JSON.stringify(data.arguments) },
       callTime: started?.time ?? null,
       content: data.content,
       isError: data.isError,
-      callView: null,
-      resultView: null,
       subCalls: [],
     }
     this.childrenByParent.set(

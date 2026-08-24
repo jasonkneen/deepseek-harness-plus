@@ -52,7 +52,7 @@ export type {
   MessageId, ModelCatalogFailure, ModelProviderGroup, ModelReasoningEffort, ModelSelection,
   RpcError, RpcId, RpcRequest, RpcResponse, RpcResult, SessionId,
   SettingsNamespaceView, SettingsPathOpView, SkillEntry, StreamChunk,
-  SubagentAddress, SubagentCatalog, ToolCallView, ToolResultView,
+  SubagentAddress, SubagentCatalog,
 } from '@deepseek-ai/dsh-client-connection/client'
 export type {} from '@deepseek-ai/dsh-api-gateway/client'
 export type {} from '@deepseek-ai/dsh-cordis-host-runner/remote'

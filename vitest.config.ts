@@ -57,6 +57,17 @@ const windowsUnsupportedTests = process.platform === 'win32'
     ]
   : []
 
+// These suites compare against or assemble the Worker's fixed Linux platform.
+// Host-native Windows and macOS behavior is not their oracle.
+const nonLinuxWebWorkerTests = process.platform === 'linux'
+  ? []
+  : [
+      'packages/experimental/webworker-runtime/tests/node/fs-watch-stream.spec.ts',
+      'packages/experimental/webworker-runtime/tests/node/sandbox-stack.spec.ts',
+    ]
+
+const platformUnsupportedTests = [...windowsUnsupportedTests, ...nonLinuxWebWorkerTests]
+
 const windowsUnsupportedCoveragePackages = process.platform === 'win32'
   ? [...windowsUnsupportedPackages, 'packages/subprocess/*']
   : []
@@ -142,7 +153,7 @@ export default defineConfig({
     setupFiles: ['./scripts/test-invariants.ts'],
     // .tsx: client component specs (jsdom via per-file @vitest-environment pragma).
     include: testIncludes,
-    exclude: windowsUnsupportedTests,
+    exclude: platformUnsupportedTests,
     // One coverage invocation aggregates both projects. Every suite forks for
     // Node stability; process-bound suites stay separate for inventory control.
     projects: [
@@ -158,7 +169,7 @@ export default defineConfig({
           setupFiles: ['./scripts/test-invariants.ts'],
           include: testIncludes,
           exclude: [
-            ...windowsUnsupportedTests,
+            ...platformUnsupportedTests,
             ...processBoundTests,
             ...coverageExemptExcludes,
           ],
@@ -173,7 +184,7 @@ export default defineConfig({
           setupFiles: ['./scripts/test-invariants.ts'],
           include: processBoundTests,
           exclude: [
-            ...windowsUnsupportedTests,
+            ...platformUnsupportedTests,
             ...coverageExemptExcludes,
           ],
         },

@@ -1,6 +1,6 @@
 /** Test adapter for the production conversation.details.tool registration. */
 import type { HostDescription } from '@deepseek-ai/dsh-client-connection/client'
-import type { SessionEventEntry, SessionToolCallView } from '@deepseek-ai/dsh-api-session-controller/types'
+import type { SessionEventEntry } from '@deepseek-ai/dsh-api-session-controller/types'
 import { isJsonValue, type JsonValue } from '@deepseek-ai/dsh-session'
 import type {
   ChatConversationViewNode, ChatSnapshot, ConversationNode, DetailsSlotProps,
@@ -26,12 +26,6 @@ export const useEmptyTrajectory: DetailsSlotProps['useTrajectory'] = selector =>
 function jsonFixture(value: unknown): JsonValue {
   if (!isJsonValue(value)) throw new Error('tool event fixture must be lossless JSON')
   return value as JsonValue
-}
-
-function sessionCallView(view: NonNullable<ToolResultNode['callView']>): SessionToolCallView {
-  if (view.card !== 'generic') return view
-  const { rawInput, ...wireView } = view
-  return rawInput === undefined ? wireView : { ...wireView, rawInput: jsonFixture(rawInput) }
 }
 
 /** Build the canonical Chat slice consumed by Tool rows and details tests. */
@@ -110,7 +104,6 @@ export function toolSessionEvents(nodes: readonly ToolResultNode[]): readonly Se
           arguments: node.call.argsRaw,
         },
       },
-      ...(node.callView === null ? {} : { view: { for: 'call', view: sessionCallView(node.callView) } }),
     }
     entries.push(callEntry)
     const resultEntry: SessionEventEntry = {
@@ -137,7 +130,6 @@ export function toolSessionEvents(nodes: readonly ToolResultNode[]): readonly Se
         }),
         surfaceOp: 'append',
       },
-      ...(node.resultView === null ? {} : { view: { for: 'result', view: node.resultView } }),
     }
     entries.push(resultEntry)
   }

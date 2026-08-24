@@ -30,7 +30,7 @@ interface RuntimePlatform {
 
 type RuntimePlatformManifest = Record<string, RuntimePlatform>
 
-const AGENT_PRESET_GLOB = 'apps/cli/config/agent-presets/*/agent.cordis.yml'
+const AGENT_PRESET_GLOB = 'packages/preset/agent-presets/presets/*/agent.cordis.yml'
 
 export interface RuntimeClosureResult {
   failures: string[]

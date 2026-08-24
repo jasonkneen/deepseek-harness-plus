@@ -127,8 +127,16 @@ export interface Config {
   /** Scanned roots in precedence order; an earlier root wins a duplicate id. */
   roots: PresetRoot[]
   /**
+   * Prepend this package's bundled shipped presets as a `system` root, before
+   * every configured root, so the shipped set always mounts and wins a
+   * duplicate id. The default survives a whole-`config` patch replacement;
+   * only an explicit `false` — a deployment supplying purely its own presets,
+   * or an embedder using the roster as bare machinery — drops the set.
+   */
+  includeShippedRoot: boolean
+  /**
    * Append the harness home's `USER_PRESET_DIR` as a `user` root, after every
-   * configured root. False mounts a roster over `roots` alone.
+   * configured root. False mounts a roster without the derived writable root.
    */
   includeUserRoot: boolean
 }
@@ -271,7 +279,7 @@ export interface Config {
 
 ## `@deepseek-ai/dsh-api-session-controller`
 
-需要：`agentDefaultModel` · `agents` · `attachments` · `llm` · `sessions` · `sessionQuery` · `tools` · `typert` · `workspaceRegistry`
+需要：`agentDefaultModel` · `agents` · `attachments` · `llm` · `sessions` · `sessionQuery` · `typert` · `workspaceRegistry`
 
 ```ts config-catalog
 /** Session Controller deployment policy. */
@@ -2992,7 +3000,7 @@ export interface Config {
 export type ToolPresentationMode = 'native' | 'code' | 'both'
 ```
 
-来源：[`packages/core/tools/src/index.ts:654`](../packages/core/tools/src/index.ts)
+来源：[`packages/core/tools/src/index.ts:655`](../packages/core/tools/src/index.ts)
 
 <a id="deepseek-aidsh-typert-loader"></a>
 

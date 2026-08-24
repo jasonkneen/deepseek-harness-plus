@@ -4,7 +4,6 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { RemoteStreamError } from '@deepseek-ai/dsh-api-gateway/client'
 import type { SessionEvent } from '@deepseek-ai/dsh-session/types'
 import type { SessionId } from '@deepseek-ai/dsh-api-remotes/client'
-import type { SessionToolView } from '@deepseek-ai/dsh-api-session-controller/types'
 import { Session, type SessionOptions } from '../src/client/sessions/session.ts'
 import { FakeApiClient, deferred, err, fakeRemote, ok } from './fake-api.client.ts'
 import { entries, ev, plainTurn } from './event-script.client.ts'
@@ -26,12 +25,10 @@ function makeSession(
 function follow(
   api: FakeApiClient,
   event: SessionEvent,
-  view?: SessionToolView,
 ): Promise<void> {
   return api.pushFollow(SID, {
     type: 'event',
     event: event as never,
-    ...(view === undefined ? {} : { view }),
   })
 }
 
@@ -44,7 +41,7 @@ function eventSeqs(session: Session): number[] {
 }
 
 function histResponse(events: SessionEvent[], hasMore = false) {
-  // history returns HistoryEntry[] ({event, view?}); these tests are view-less.
+  // History returns raw journal envelopes around each event.
   return Promise.resolve(ok({ events: entries(events) as never[], hasMore }))
 }
 
@@ -601,39 +598,30 @@ describe('remaining branches', () => {
     await expect(session.dispose()).resolves.toBeUndefined()
   })
 
-  it('carries history-entry and follow-frame views through the event feed', async () => {
+  it('carries raw history and follow events through the event feed', async () => {
     const { api, session } = makeSession()
-    const callView = { for: 'call', view: { card: 'generic', title: '历史卡' } }
+    const historyCall = ev.toolCall(6, 1, 'h1', 'bash', '{"cmd":"pwd"}')
+    const historyResult = ev.toolResult(7, 1, 'h1', 'done')
     api.onHistory = () => Promise.resolve(ok({
       events: [
         ...entries(plainTurn(0, 0, 'a', 'b')),
-        { event: ev.toolCall(6, 1, 'h1', 'bash', '{}'), view: callView },
-        { event: ev.toolResult(7, 1, 'h1', 'done'), view: { for: 'result', view: { card: 'generic', title: '历史果' } } },
+        { event: historyCall },
+        { event: historyResult },
       ] as never[],
       hasMore: false,
       modelSelection: { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
     }))
     await session.open()
-    expect(windowEntries(session).slice(-2).map(item => item.view)).toEqual([
-      callView,
-      { for: 'result', view: { card: 'generic', title: '历史果' } },
+    expect(windowEntries(session).slice(-2)).toEqual([
+      { event: historyCall },
+      { event: historyResult },
     ])
-    await follow(
-      api,
-      ev.toolCall(8, 2, 'l1', 'write', '{}'),
-      { for: 'call', view: { card: 'generic', title: '直播卡' } },
-    )
-    expect(windowEntries(session).at(-1)?.view).toEqual({
-      for: 'call', view: { card: 'generic', title: '直播卡' },
-    })
-    await follow(
-      api,
-      ev.toolResult(9, 2, 'l1', 'ok'),
-      { for: 'result', view: { card: 'generic', title: '直播果' } },
-    )
-    expect(windowEntries(session).at(-1)?.view).toEqual({
-      for: 'result', view: { card: 'generic', title: '直播果' },
-    })
+    const liveCall = ev.toolCall(8, 2, 'l1', 'write', '{"file_path":"a.ts"}')
+    await follow(api, liveCall)
+    expect(windowEntries(session).at(-1)).toEqual({ event: liveCall })
+    const liveResult = ev.toolResult(9, 2, 'l1', 'ok')
+    await follow(api, liveResult)
+    expect(windowEntries(session).at(-1)).toEqual({ event: liveResult })
   })
 })
 

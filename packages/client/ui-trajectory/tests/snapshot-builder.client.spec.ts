@@ -160,7 +160,6 @@ describe('TrajectorySnapshotBuilder', () => {
           turn: 1,
           step: 2,
           time: 7,
-          callView: null,
           subCalls: [],
         },
       }),

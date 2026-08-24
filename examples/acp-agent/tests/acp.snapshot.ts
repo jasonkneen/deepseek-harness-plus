@@ -39,7 +39,7 @@ const AGENT = {
   tsconfigPath: fileURLToPath(new URL('../../../tsconfig.json', import.meta.url)),
 }
 const EDITING_CORDIS_SKILL = fileURLToPath(new URL(
-  '../../../apps/cli/config/agent-presets/cordis/skills/editing-cordis-compositions/SKILL.md',
+  '../../../packages/preset/agent-presets/presets/cordis/skills/editing-cordis-compositions/SKILL.md',
   import.meta.url,
 ))
 

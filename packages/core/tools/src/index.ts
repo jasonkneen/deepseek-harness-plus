@@ -294,9 +294,10 @@ export interface ToolResult {
   /** Whether the call failed. */
   isError: boolean
   /**
-   * The tool-private presentation payload projected by its output declaration
-   * and threaded verbatim from the `tool/result` event. Absent when the tool
-   * declared no projector or the call was nested under a composite transport.
+   * The tool-private presentation payload projected by its output declaration.
+   * It is persisted verbatim on `tool/result` for Host presenters and Client
+   * renderers to narrow independently. Absent when the tool declared no
+   * projector or the call was nested under a composite transport.
    */
   meta?: JsonValue
 }

@@ -124,8 +124,12 @@ export class ClientModuleSystem implements ClientModuleLoader {
     return task
   }
 
-  /** Register each unresolved dynamic request before registering its consumer. */
-  private async arriveGraphRow(row: BootModuleRow, open: readonly string[] = []): Promise<void> {
+  /** Register each injected package and unresolved dynamic request before its consumer. */
+  private async arriveGraphRow(
+    row: BootModuleRow,
+    open: readonly string[] = [],
+    visited = new Set<string>(),
+  ): Promise<void> {
     const cycleStart = open.indexOf(row.id)
     if (cycleStart !== -1) {
       throw new Error(
@@ -133,12 +137,18 @@ export class ClientModuleSystem implements ClientModuleLoader {
         + '(the host must reject this graph before serving it)',
       )
     }
+    if (visited.has(row.id)) return
+    visited.add(row.id)
     const next = [...open, row.id]
     for (const request of row.external) {
       const id = stripClientSuffix(request)
       if (this.seed.has(request) || this.loadCache.has(id)) continue
       const dependency = this.graphRows.get(id)
-      if (dependency !== undefined) await this.arriveGraphRow(dependency, next)
+      if (dependency !== undefined) await this.arriveGraphRow(dependency, next, visited)
+    }
+    for (const packageName of row.inject) {
+      const dependency = this.graphRows.get(packageName)
+      if (dependency !== undefined) await this.arriveGraphRow(dependency, [], visited)
     }
     await this.arrive(row)
   }

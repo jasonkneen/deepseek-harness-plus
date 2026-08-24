@@ -8,9 +8,6 @@ import type { ContentBlock } from '@deepseek-ai/dsh-llm/types'
 import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import type { LlmRetryEventData } from '@deepseek-ai/dsh-llm-retry/types'
 import type { TodoItem } from '@deepseek-ai/dsh-tool-todo/client'
-import type {
-  ToolCallView, ToolResultView,
-} from '@deepseek-ai/dsh-api-remotes/client'
 import type { ContextProvenanceView, KnownContextForm } from './context-provenance.ts'
 export type { TodoItem }
 
@@ -161,6 +158,8 @@ export interface ToolResultNode {
   /** Unix epoch ms from the tool/result session event. */
   time: number
   callId: string
+  /** Parent Tool call for a Code Dispatch result; absent on a root Session result. */
+  parentCallId?: string
   /** Call head backfilled from the in-window tool/call; null when window truncation left the call outside (card head shows callId). */
   call: { name: string; argsRaw: string } | null
   /** Unix epoch ms of the paired tool/call when the call is still in-window; used for call-row duration. */
@@ -169,10 +168,6 @@ export interface ToolResultNode {
   isError: boolean
   error?: { name: string; code: string }
   meta?: unknown
-  /** Host-computed render intent from the paired tool/call's wire view; null = generic JSON card (documented default). */
-  callView: ToolCallView | null
-  /** Host-computed render intent from this tool/result's wire view; null = same default. */
-  resultView: ToolResultView | null
   /** Child calls owned by this call, in dispatch order. */
   subCalls: readonly ToolCallBlock[]
 }
@@ -268,14 +263,14 @@ export type ConversationNode =
 /** In-flight tool card material: tool/call seen, tool/result not yet. */
 export interface RunningToolCall {
   callId: string
+  /** Parent Tool call for a Code Dispatch start; absent on a root Session call. */
+  parentCallId?: string
   name: string
   argsRaw: string
   turn: number
   step: number
   /** Unix epoch ms when the tool/call event was logged. */
   time: number
-  /** Host-computed render intent riding the tool/call frame; null = generic JSON card. */
-  callView: ToolCallView | null
   /** Child calls owned by this call, in dispatch order. */
   subCalls: readonly ToolCallBlock[]
 }

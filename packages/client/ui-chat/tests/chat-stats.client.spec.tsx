@@ -78,7 +78,7 @@ describe('deriveStats', () => {
   it('ignores tool results with no call time', () => {
     const tool: ToolResultNode = {
       kind: 'tool-result', seq: 5, time: 5_000, callId: 'c', call: null, callTime: null, content: [],
-      isError: false, callView: null, resultView: null, subCalls: [],
+      isError: false, subCalls: [],
     }
     const stats = deriveStats([tool, assistant(1, 1)])
     expect(stats.steps).toBe(1)
@@ -96,7 +96,7 @@ describe('deriveStats', () => {
     }
     const tool: ToolResultNode = {
       kind: 'tool-result', seq: 5, time: 7_000, callId: 'c', call: null, callTime: 4_000, content: [],
-      isError: false, callView: null, resultView: null, subCalls: [],
+      isError: false, subCalls: [],
     }
     const stats = deriveStats([timed, untimed, tool])
     expect(stats.llmMs).toBe(2_500)

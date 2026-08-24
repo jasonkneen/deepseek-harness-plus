@@ -2,9 +2,8 @@
  * Pure row-model derivation for tool summary rows: variant classification,
  * one-line summary, expanded-body text, and flattened result output from the
  * frozen call slice. Input material comes from the call ARGUMENTS; output and
- * error material from the settled result node. A call whose render intent is
- * a terminal card gets its expanded body from the views instead, through
- * `terminalCardModel` in terminal-card-model.ts.
+ * error material from the settled result node. A supported terminal call gets
+ * its expanded body from `terminalCardModel` instead.
  */
 // The block union's defining home is runtime (fold-product types); this
 // contract only forwards it (type-definition authority stays with the layer

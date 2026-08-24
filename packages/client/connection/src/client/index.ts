@@ -32,7 +32,6 @@ declare module '@deepseek-ai/cordis' {
 export type {
   ApiProxy, HostApi,
   DirectoryEntry, DirectoryListing,
-  ToolCallView, ToolResultView,
   SkillsApi, SkillEntry,
   ModelCatalogFailure, ModelCatalogModel, ModelProviderGroup, ModelReasoning,
   MessageId, ModelReasoningEffort, ModelSelection,

@@ -1,7 +1,5 @@
-// Web e2e scenario: agent-preset selection. The roster's `roots` is an
-// assembly fact the CLI entry resolves and patches in, so every other lane
-// boots with an empty roster and no preset surface at all; this is the one
-// lane that mounts the SHIPPED presets and puts them in front of a browser.
+// Web e2e scenario: agent-preset selection. Every lane mounts the plugin's
+// own shipped presets; this is the lane that puts them in front of a browser.
 //
 // Two surfaces, one host rule: a session's composition is fixed when the
 // session starts. Before that, the new-session chip stages the choice beside
@@ -30,8 +28,6 @@ const SNAPSHOT_DIR = fileURLToPath(new URL('./snapshots/agent-preset-selection',
 const HERO_EXPECTED = join(SNAPSHOT_DIR, 'hero.expected.md')
 const MENU_EXPECTED = join(SNAPSHOT_DIR, 'menu.expected.md')
 const HEADER_EXPECTED = join(SNAPSHOT_DIR, 'header.expected.md')
-/** The shipped roster, beside the composition that names it. */
-const SHIPPED_PRESETS = fileURLToPath(new URL('../../cli/config/agent-presets', import.meta.url))
 const MODE = webSnapshotMode()
 const SEED_ID = 'agent-preset-selection-web-e2e'
 /** A project skill only a preset that mounts `skill-filesystem` can discover. */
@@ -173,9 +169,9 @@ describe('web e2e: agent-preset selection', () => {
   let tripwire: ReturnType<typeof watchConsole>
 
   beforeAll(async () => {
-    scaffold = await launchWebScaffold({
-      agentPresets: { roots: [{ path: SHIPPED_PRESETS, trust: 'system' }], default: 'standard' },
-    })
+    // The scaffold's default roster pin is exactly this scenario's shape: the
+    // plugin's shipped presets, default `standard`.
+    scaffold = await launchWebScaffold({})
     // A resumed session runs what it was created with; seeding one that
     // records `minimal` is what makes the header label a claim about the
     // session rather than an echo of the current default.

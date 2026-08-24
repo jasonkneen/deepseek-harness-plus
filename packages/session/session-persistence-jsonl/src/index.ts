@@ -450,6 +450,7 @@ export class JsonlSessionPersistence extends SessionPersistence implements Persi
     if (tornMarker !== undefined) await this.repair(meta, tornMarker.truncateTo)
     const repairedEvents = [...(tornMarker?.recoveredEvents ?? []), ...closers]
     if (repairedEvents.length > 0) await this.appendLines(meta, repairedEvents)
+    if (tornMarker !== undefined) this.ctx.logger.warn(`${this.name}: session "${meta.id}" recovered from a torn tail; incomplete tail bytes were discarded`)
   }
 
   /** List valid unique stored sessions' metadata (header line only — no full-log parse). */

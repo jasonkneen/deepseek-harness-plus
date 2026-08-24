@@ -24,7 +24,6 @@
     { "path": "../../core/agent-default-model" },
     { "path": "../../core/scope" },
     { "path": "../../core/session" },
-    { "path": "../../core/tools" },
     { "path": "../../attachment/attachment" },
     { "path": "../../interaction/permission-presets" },
     { "path": "../../jobs/jobs" },

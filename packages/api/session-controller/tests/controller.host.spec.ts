@@ -5,6 +5,7 @@ import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import type { SessionEvent, SessionHeader } from '@deepseek-ai/dsh-session'
 import { describe, expect, it, vi } from 'vitest'
+import SessionController from '../src/index.ts'
 import { createSessionTestController } from './test-remote.ts'
 
 const defaults = {
@@ -13,6 +14,10 @@ const defaults = {
 }
 
 describe('SessionController facade', () => {
+  it('does not require the Tools service', () => {
+    expect(SessionController.inject).not.toContain('tools')
+  })
+
   it('owns Host service methods and publishes Agent lifecycle projections', async () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)

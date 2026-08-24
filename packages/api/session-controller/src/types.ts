@@ -10,12 +10,6 @@ import type { JsonValue, SessionId, SurfaceOp } from '@deepseek-ai/dsh-session/t
 import type { SessionProjectionMap } from '@deepseek-ai/dsh-session-projection/types'
 import type { JobId } from '@deepseek-ai/dsh-jobs/brand'
 import type { WorkspaceId } from '@deepseek-ai/dsh-workspace/types'
-import type {
-  DiffCallView,
-  GenericCallView,
-  TerminalCallView,
-  ToolResultView,
-} from '@deepseek-ai/dsh-tools/presentation'
 
 declare module '@deepseek-ai/dsh-session-projection/types' {
   interface SessionProjectionStateMap {
@@ -333,21 +327,9 @@ export type SessionAddress =
     readonly mode: 'one-shot' | 'continuable'
   }
 
-/** JSON-safe call render intent crossing the Session Remote boundary. */
-export type SessionToolCallView =
-  | (Omit<GenericCallView, 'rawInput'> & { readonly rawInput?: JsonValue })
-  | TerminalCallView
-  | DiffCallView
-
-/** Host-computed render intent accompanying one tool event. */
-export type SessionToolView =
-  | { readonly for: 'call'; readonly view: SessionToolCallView }
-  | { readonly for: 'result'; readonly view: ToolResultView }
-
-/** One raw Session event plus its optional transient render intent. */
+/** One raw Session event in the Remote journal. */
 export interface SessionEventEntry {
   readonly event: SessionWireEvent
-  readonly view?: SessionToolView
 }
 
 /** Session event wire form; durable readers own recognition of merge-extensible event names. */

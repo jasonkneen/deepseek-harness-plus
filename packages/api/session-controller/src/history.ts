@@ -1,14 +1,10 @@
 /** Cold Session history pagination and live-event source. */
 
 import type { Context } from '@deepseek-ai/cordis'
-import type { Agent } from '@deepseek-ai/dsh-agent'
-import { resolveSessionPreset } from '@deepseek-ai/dsh-agent-presets'
 import { isAppendSurfaceEvent } from '@deepseek-ai/dsh-session'
 import type { Session, SessionEvent, SessionHeader, SessionId } from '@deepseek-ai/dsh-session'
 import type { SessionInspection } from '@deepseek-ai/dsh-session-persistence'
-import type { ScopeKey } from '@deepseek-ai/dsh-scope'
 import { foldSubagentDescriptor } from '@deepseek-ai/dsh-subagent'
-import type { ToolCallView, ToolResultView } from '@deepseek-ai/dsh-tools/presentation'
 import { TypertRemoteFailure } from '@deepseek-ai/dsh-typert-protocol'
 import type {
   SessionAddress,
@@ -19,34 +15,21 @@ import type {
   SessionPageRequest,
   SessionProjectionsBlock,
   SessionProjectionValues,
-  SessionToolCallView,
-  SessionToolView,
   SessionWireEvent,
 } from './types.ts'
 
 const DEFAULT_MAX_MESSAGES = 50
 const MESSAGE_TYPES = new Set(['user/message', 'assistant/message'])
 
-interface ToolCallData {
-  readonly callId: string
-  readonly name: string
-  readonly arguments: string
-}
-
 type SessionSource =
   | { readonly kind: 'attached'; readonly session: Session }
   | { readonly kind: 'detached'; readonly header: SessionHeader; readonly events: readonly SessionEvent[] }
-
-interface BufferedEvent {
-  readonly session: Session
-  readonly event: SessionEvent
-}
 
 /** Implements cold-safe history operations delegated by the Session Controller. */
 export class SessionHistoryController {
   private readonly closeFollowers = new Set<() => void>()
 
-  /** @param ctx - Host context carrying Session, persistence, presenter, and projection services. */
+  /** @param ctx - Host context carrying Session, persistence, and projection services. */
   constructor(private readonly ctx: Context) {
     ctx.effect(() => () => {
       for (const close of this.closeFollowers) close()
@@ -57,7 +40,7 @@ export class SessionHistoryController {
   /**
    * Read one message-aligned history page without activating an Agent.
    * @param request - durable address and backwards-page cursor.
-   * @param signal - caller cancellation for persistence and preset reads.
+   * @param signal - caller cancellation for persistence reads.
    * @returns a contiguous event page and a projection baseline on tail reads.
    */
   async page(request: SessionPageRequest, signal: AbortSignal): Promise<SessionPage> {
@@ -77,11 +60,8 @@ export class SessionHistoryController {
     if ((events.at(-1)?.seq ?? -1) !== request.throughSeq) {
       reject('internal', `session log does not contain through seq ${String(request.throughSeq)}`, {})
     }
-    const scope = await this.presenterScopeFor(addressId(request.address), source, events)
-    signal.throwIfAborted()
     const page = paginate(events, request.beforeSeq, request.maxMessages ?? DEFAULT_MAX_MESSAGES)
-    const argsFor = (callId: string) => backscanArgs(page.events, callId)
-    const entries = page.events.map(event => entryFor(this.ctx, event, argsFor, scope))
+    const entries = page.events.map(entryFor)
     const projections = request.beforeSeq === undefined
       ? this.projectionsFor(request.address, source, events)
       : undefined
@@ -102,12 +82,7 @@ export class SessionHistoryController {
     validateFollowRequest(request)
     const { address, afterSeq } = request
     const target = addressId(address)
-    const buffered: BufferedEvent[] = []
-    const openCalls = new Map<string, { readonly name: string; readonly args: unknown }>()
-    let fallbackEvents: readonly SessionEvent[] = []
-    const argsFor = (callId: string): { readonly name: string; readonly args: unknown } | undefined => (
-      openCalls.get(callId) ?? backscanArgs(fallbackEvents, callId)
-    )
+    const buffered: SessionEvent[] = []
     let wake: (() => void) | undefined
     const notify = (): void => {
       const resume = wake
@@ -122,7 +97,7 @@ export class SessionHistoryController {
     this.closeFollowers.add(close)
     const disposeEvent = this.ctx.on('session/event', (session, event) => {
       if (session.id !== target) return
-      buffered.push({ session, event })
+      buffered.push(event)
       notify()
     }, { global: true })
     const disposeCreated = this.ctx.on('session/created', (session) => {
@@ -130,7 +105,7 @@ export class SessionHistoryController {
       // Session construction appends session/end-seed before attachment, so the
       // marker has no session/event notification. Earlier session/created listeners
       // may publish later setup events first; this suffix must precede those notifications.
-      const suffix = session.events.slice(session.firstLiveSeq).map(event => ({ session, event }))
+      const suffix = session.events.slice(session.firstLiveSeq)
       buffered.unshift(...suffix)
       notify()
     }, { global: true })
@@ -139,8 +114,6 @@ export class SessionHistoryController {
     try {
       const source = await this.sourceFor(address, signal)
       const events = [...sourceEvents(source)]
-      fallbackEvents = events
-      const scope = await this.presenterScopeFor(target, source, events)
       signal.throwIfAborted()
       const cursor = events.at(-1)?.seq ?? -1
       if (afterSeq !== undefined && afterSeq > cursor) {
@@ -155,7 +128,7 @@ export class SessionHistoryController {
             reject('internal', `session event replay skipped seq ${String(nextSeq)}`, {})
           }
           nextSeq++
-          yield { type: 'event', ...entryFor(this.ctx, event, argsFor, scope) }
+          yield { type: 'event', ...entryFor(event) }
         }
       }
       while (!follower.closed && !signal.aborted) {
@@ -164,26 +137,12 @@ export class SessionHistoryController {
           await new Promise<void>((resolve) => { wake = resolve })
           continue
         }
-        if (item.event.seq < nextSeq) continue
-        if (item.event.seq !== nextSeq) {
+        if (item.seq < nextSeq) continue
+        if (item.seq !== nextSeq) {
           reject('internal', `session event stream skipped seq ${String(nextSeq)}`, {})
         }
         nextSeq++
-        if (item.event.type === 'tool/call') {
-          const data = item.event.data as ToolCallData
-          const call = parseToolCall(data)
-          /* v8 ignore next -- malformed durable tool arguments intentionally skip the live presentation cache. */
-          if (call !== undefined) openCalls.set(data.callId, call)
-        } else if (item.event.type === 'turn/end') {
-          openCalls.clear()
-        }
-        if (item.event.type === 'tool/result'
-          && !openCalls.has(item.event.data.message.source.callId)) {
-          fallbackEvents = item.session.events
-        }
-        const liveScope: Agent | undefined = this.ctx.get('agents')?.get(target)
-        const entry = entryFor(this.ctx, item.event, argsFor, liveScope ?? scope)
-        yield { type: 'event', ...entry }
+        yield { type: 'event', ...entryFor(item) }
       }
     } finally {
       this.closeFollowers.delete(close)
@@ -212,25 +171,6 @@ export class SessionHistoryController {
     if (inspected.meta.cwd === undefined) rejectNotFound(address)
     validateAddress(address, inspected.meta, inspected.events)
     return { kind: 'detached', header: inspected.meta, events: inspected.events }
-  }
-
-  private async presenterScopeFor(
-    sessionId: SessionId,
-    source: SessionSource,
-    events: readonly SessionEvent[],
-  ): Promise<ScopeKey | undefined> {
-    const live = this.ctx.get('agents')?.get(sessionId)
-    if (live !== undefined) return live
-    const presets = this.ctx.get('agentPresets')
-    if (presets === undefined) return undefined
-    const session = source.kind === 'attached'
-      ? { header: source.session.header, events }
-      : { header: source.header, events }
-    try {
-      return await presets.standingKeyFor(resolveSessionPreset(session))
-    } catch {
-      return undefined
-    }
   }
 
   private projectionsFor(
@@ -368,76 +308,9 @@ function paginate(
   return { events: window.filter(event => event.seq >= cut), hasMore: cut > 0 }
 }
 
-function entryFor(
-  ctx: Context,
-  event: SessionEvent,
-  argsFor: (callId: string) => { readonly name: string; readonly args: unknown } | undefined,
-  scope?: ScopeKey,
-): SessionEventEntry {
-  const view = viewFor(ctx, event, argsFor, scope)
+function entryFor(event: SessionEvent): SessionEventEntry {
   return {
     // Session.append validates and freezes event data as JSON before publication.
     event: event as unknown as SessionWireEvent,
-    ...(view === undefined ? {} : { view }),
   }
-}
-
-function viewFor(
-  ctx: Context,
-  event: SessionEvent,
-  argsFor: (callId: string) => { readonly name: string; readonly args: unknown } | undefined,
-  scope?: ScopeKey,
-): SessionToolView | undefined {
-  if (event.type !== 'tool/call' && event.type !== 'tool/result') return undefined
-  const tools = ctx.get('tools')
-  /* v8 ignore next -- deployments without the optional Tools service omit presentation metadata. */
-  if (tools === undefined) return undefined
-  try {
-    if (event.type === 'tool/call') {
-      const data = event.data as ToolCallData
-      const view: ToolCallView | undefined = tools.get(data.name, scope)?.presentCall?.(JSON.parse(data.arguments))
-      return view === undefined ? undefined : { for: 'call', view: jsonView(view) }
-    }
-    const [result] = event.data.message.content
-    const call = argsFor(event.data.message.source.callId)
-    if (call === undefined) return undefined
-    const view: ToolResultView | undefined = tools.get(call.name, scope)?.presentResult?.(call.args, {
-      content: result.content,
-      isError: result.isError === true,
-      ...(event.data.meta === undefined ? {} : { meta: event.data.meta }),
-    })
-    return view === undefined ? undefined : { for: 'result', view: jsonView(view) }
-  } catch (error) {
-    ctx.logger.warn(`session: presenter failed for ${event.type}: ${String(error)}`)
-  }
-  return undefined
-}
-
-function backscanArgs(
-  events: readonly SessionEvent[],
-  callId: string,
-): { readonly name: string; readonly args: unknown } | undefined {
-  for (let index = events.length - 1; index >= 0; index--) {
-    const event = events[index] as SessionEvent
-    if (event.type !== 'tool/call') continue
-    const data = event.data as ToolCallData
-    if (data.callId !== callId) continue
-    return parseToolCall(data)
-  }
-  return undefined
-}
-
-function parseToolCall(data: ToolCallData): { readonly name: string; readonly args: unknown } | undefined {
-  try {
-    return { name: data.name, args: JSON.parse(data.arguments) }
-  } catch {
-    return undefined
-  }
-}
-
-function jsonView(view: ToolCallView): SessionToolCallView
-function jsonView(view: ToolResultView): ToolResultView
-function jsonView(view: ToolCallView | ToolResultView): SessionToolCallView | ToolResultView {
-  const encoded = JSON.stringify(view)
-  return JSON.parse(encoded) as SessionToolCallView | ToolResultView
 }

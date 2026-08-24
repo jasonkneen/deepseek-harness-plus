@@ -54,6 +54,27 @@ function stubWorker(): {
   }
 }
 
+// The opening frame preserves overlay order for deterministic pre-boot mounts.
+{
+  const { worker, sent } = stubWorker()
+  const tunnel = new WorkerTunnel(worker)
+  tunnel.init('https://preview.test/base.tar.gz', [
+    'https://preview.test/first.tar.gz',
+    'https://preview.test/second.tar.gz',
+  ])
+  check('the init frame carries ordered overlays', sent[0], {
+    t: 'init',
+    image: 'https://preview.test/base.tar.gz',
+    overlays: ['https://preview.test/first.tar.gz', 'https://preview.test/second.tar.gz'],
+  })
+
+  const direct = stubWorker()
+  new WorkerTunnel(direct.worker).init('https://preview.test/base.tar.gz')
+  check('the direct init path defaults to no overlays', direct.sent[0], {
+    t: 'init', image: 'https://preview.test/base.tar.gz', overlays: [],
+  })
+}
+
 // A normal reply resolves and says nothing on the console.
 {
   const { worker, sent, deliver } = stubWorker()

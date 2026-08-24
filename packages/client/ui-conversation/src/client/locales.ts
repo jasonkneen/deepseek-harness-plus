@@ -145,6 +145,8 @@ export const zh = {
   'terminal.collapseAria': '收起输出',
   'terminal.expandAria': '展开其余 {n} 行输出',
   'terminal.expandRest': '… 其余 {n} 行',
+  'terminal.sendInput': '（发送输入）',
+  'terminal.session': '终端 {sessionId}',
 } satisfies Record<string, string>
 
 /** The conversation namespace key union. */
@@ -288,4 +290,8 @@ export const en = {
   'terminal.collapseAria': 'Collapse output',
   'terminal.expandAria': 'Expand the remaining {n} output lines',
   'terminal.expandRest': '… {n} more lines',
+  // The Host terminal_send presenter has no locale seat; keep its fallbacks
+  // aligned with these English values.
+  'terminal.sendInput': '(send input)',
+  'terminal.session': 'Terminal {sessionId}',
 } satisfies Record<ConversationKey, string>

@@ -106,7 +106,7 @@ function assistantMessage(id: string, text: string) {
   }
 }
 
-function toolResult(callId: string, text: string) {
+function toolResult(callId: string, text: string, isError = false) {
   return {
     id: `result-${callId}`,
     role: 'user',
@@ -115,7 +115,7 @@ function toolResult(callId: string, text: string) {
       type: 'tool-result',
       toolCallId: callId,
       content: [{ type: 'text', text }],
-      isError: false,
+      isError,
     }],
   }
 }
@@ -310,7 +310,9 @@ describe('built-in conversation node Definitions', () => {
     value.append(at(4, 'tool/result', {
       turn: 1,
       step: 1,
-      message: toolResult('root', 'done'),
+      message: toolResult('root', 'done', true),
+      error: { name: 'ToolError', code: 'failed' },
+      meta: { presentation: 'raw' },
     }, { surfaceOp: 'append' }))
     value.flush()
 
@@ -318,7 +320,15 @@ describe('built-in conversation node Definitions', () => {
     const settled = node(settledSnapshot, 'tool-call')
     expect(settled?.key).toBe(running?.key)
     expect(settledSnapshot.order).toBe(order)
-    expect((settled?.data as ToolChatData).root).toMatchObject({ kind: 'tool-result', callId: 'root' })
+    expect((settled?.data as ToolChatData).root).toMatchObject({
+      kind: 'tool-result',
+      callId: 'root',
+      call: { name: 'code', argsRaw: '{}' },
+      content: [{ type: 'text', text: 'done' }],
+      isError: true,
+      error: { name: 'ToolError', code: 'failed' },
+      meta: { presentation: 'raw' },
+    })
 
     const history = assembler([
       at(14, 'tool/code-dispatch-start', {
@@ -345,7 +355,7 @@ describe('built-in conversation node Definitions', () => {
     ], true)
     const before = node(snapshot(history), 'tool-call')
     expect((before?.data as ToolChatData).root.subCalls).toMatchObject([
-      { kind: 'tool-result', callId: 'child', call: { name: 'read' } },
+      { kind: 'tool-result', callId: 'child', parentCallId: 'history-root', call: { name: 'read' } },
     ])
 
     history.prepend([
@@ -364,7 +374,7 @@ describe('built-in conversation node Definitions', () => {
     const after = node(snapshot(history), 'tool-call')
     expect(after?.key).toBe(before?.key)
     expect((after?.data as ToolChatData).root.subCalls).toMatchObject([
-      { kind: 'tool-result', callId: 'child', call: { name: 'read' } },
+      { kind: 'tool-result', callId: 'child', parentCallId: 'history-root', call: { name: 'read' } },
     ])
 
     const firstChild = (after?.data as ToolChatData).root.subCalls[0]
@@ -1011,7 +1021,6 @@ describe('built-in conversation node Definitions', () => {
     // behavior of both required Definition members anyway.
     const match = (seq: number, type: string, data: unknown) => ({
       event: { seq, time: seq * 1_000, type, data },
-      view: undefined,
       role: 'start',
       location: undefined,
     }) as unknown as Parameters<typeof turnMaxTokensDefinition.start>[1]

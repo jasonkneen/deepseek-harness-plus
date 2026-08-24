@@ -34,9 +34,13 @@ export {
 } from './worker-host.ts'
 export {
   DEFAULT_ROOT, IMAGE_CONFIG_PATH, IMAGE_EMPTY_DIRECTORIES, IMAGE_FILE_NAME, IMAGE_HOME_DIRECTORY,
-  IMAGE_MANIFEST_PATH, LOWERING_VERSION, WRAPPER_PARAMS,
+  IMAGE_MANIFEST_PATH, IMAGE_OVERLAY_DIRECTORIES, LOWERING_VERSION, WRAPPER_PARAMS,
 } from './image-layout.ts'
-export { loadVfsImage, MemoryVfs } from './storage/memory.ts'
+export {
+  parsePreviewFixtureManifest, PREVIEW_FIXTURE_MANIFEST_FILE, PREVIEW_FIXTURE_MANIFEST_VERSION,
+  type PreviewFixtureManifest, type PreviewFixtureManifestEntry,
+} from './fixture-manifest.ts'
+export { loadVfsImage, loadVfsOverlay, MemoryVfs } from './storage/memory.ts'
 export { inflateImage, inflateImageStream } from './storage/image-gzip.ts'
 export { packTar, parseTar, type TarEntry } from './storage/tar.ts'
 export { requireActiveVfs, setActiveVfs } from './storage/active.ts'

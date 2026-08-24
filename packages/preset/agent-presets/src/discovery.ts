@@ -16,6 +16,7 @@
 
 import { readdir, readFile, stat } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { load } from 'js-yaml'
 import { entryListSchema } from '@deepseek-ai/cordis-plugin-include'
 import { expandHomePath } from '@deepseek-ai/dsh-home-paths'
@@ -29,16 +30,24 @@ export const COMPOSITION_FILE = 'agent.cordis.yml'
  * Harness-home directory holding locally authored presets.
  *
  * This package owns the writable root the way `dsh-skill-filesystem` owns
- * `<dshHome>/skills`. An app must assemble the SHIPPED root, whose path only
- * the installed app can resolve; where a person's own presets go is the same
- * place in every deployment that does not say otherwise, so a launcher that
- * forgets to configure one still finds them.
+ * `<dshHome>/skills`: where a person's own presets go is the same place in
+ * every deployment that does not say otherwise, so a launcher that forgets to
+ * configure one still finds them.
  *
  * Package-internal on purpose: no consumer outside this package addresses the
  * directory by name, and a test that imported it could not catch this value
  * being wrong — the expected segment is spelled out where it is asserted.
  */
 export const USER_PRESET_DIR = '.agent-presets'
+
+/**
+ * The shipped presets, bundled inside this package: the roster's built-in
+ * compositions travel with the machinery that mounts them, the way each
+ * preset's own skills travel inside its directory. Resolved relative to this
+ * module so both launch layouts work — `src/` under tsx and the bundled
+ * `lib/` sit one level below the package root.
+ */
+export const SHIPPED_PRESET_ROOT = fileURLToPath(new URL('../presets/', import.meta.url))
 
 /**
  * Why `rows` cannot be an entry list, or undefined when it can.

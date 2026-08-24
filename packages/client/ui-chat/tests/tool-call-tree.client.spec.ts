@@ -21,7 +21,7 @@ const settle = (seq: number, parentCallId: string, subCallId: string): SessionEv
 
 const root = (callId: string): RunningToolCall => ({
   callId, name: 'run_code', argsRaw: '{}', turn: 1, step: 1,
-  time: 1_700_000_000_000, callView: null, subCalls: [],
+  time: 1_700_000_000_000, subCalls: [],
 })
 
 describe('ToolCallTree', () => {
@@ -42,8 +42,8 @@ describe('ToolCallTree', () => {
     expect(tree.projectRunningCalls([root('a')])).toMatchObject([{
       callId: 'a',
       subCalls: [{
-        callId: 'b',
-        subCalls: [{ callId: 'c', subCalls: [] }],
+        callId: 'b', parentCallId: 'a',
+        subCalls: [{ callId: 'c', parentCallId: 'b', subCalls: [] }],
       }],
     }])
   })

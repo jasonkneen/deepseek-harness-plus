@@ -87,7 +87,7 @@ describe('deriveTrajectoryLayout', () => {
       {
         kind: 'tool-result', seq: 3, time: 7_500, callId: 'c1',
         call: { name: 'bash', argsRaw: '{"command":"ls"}' }, callTime: 6_200,
-        content: [{ type: 'text', text: 'a.txt' }], isError: false, callView: null, resultView: null,
+        content: [{ type: 'text', text: 'a.txt' }], isError: false,
       },
     ] as unknown as LegacyConversationSlice['nodes']
     const turns = deriveTrajectoryLayout({ nodes, partial: null, runningCalls: [] })
@@ -113,7 +113,7 @@ describe('deriveTrajectoryLayout', () => {
       partial: null,
       runningCalls: [{
         callId: 'r1', name: 'bash', argsRaw: '{"command":"pwd"}',
-        turn: 1, step: 2, time: 9_000, callView: null, subCalls: [],
+        turn: 1, step: 2, time: 9_000, subCalls: [],
       }],
     })
     expect(turns[0]?.groups.map(g => g.title)).toEqual(['Step 2'])
@@ -177,7 +177,7 @@ describe('deriveTrajectoryLayout', () => {
       partial: { ...partial, blocks: [] },
       runningCalls: [{
         callId: 'c1', name: 'bash', argsRaw: '{"command":"pwd"}',
-        turn: 1, step: 1, time: 9_000, callView: null, subCalls: [],
+        turn: 1, step: 1, time: 9_000, subCalls: [],
       }],
     })
 
@@ -218,12 +218,12 @@ describe('deriveTrajectoryLayout', () => {
       {
         kind: 'tool-result', seq: 2, time: 2_500, callId: 'a',
         call: { name: 'bash', argsRaw: '{}' }, callTime: 1_100,
-        content: [], isError: false, callView: null, resultView: null,
+        content: [], isError: false,
       },
       {
         kind: 'tool-result', seq: 3, time: 4_000, callId: 'b',
         call: { name: 'bash', argsRaw: '{}' }, callTime: 2_600,
-        content: [], isError: false, callView: null, resultView: null,
+        content: [], isError: false,
       },
     ] as unknown as LegacyConversationSlice['nodes']
     const turns = deriveTrajectoryLayout({ nodes, partial: null, runningCalls: [] })
@@ -447,7 +447,7 @@ describe('deriveTrajectoryLayout', () => {
       {
         kind: 'tool-result', seq: 3, time: 3_000, callId: 'c1',
         call: { name: 'bash', argsRaw: '{}' }, callTime: 2_100,
-        content: [], isError: false, callView: null, resultView: null,
+        content: [], isError: false,
       },
       {
         kind: 'context', seq: 4, time: 9_000,
@@ -502,7 +502,7 @@ describe('run_code sub-dispatch cells', () => {
     {
       kind: 'tool-result', seq: 3, time: 9_000, callId: 'p1',
       call: { name: 'run_code', argsRaw: '{"code":"…","description":"批量读取"}' }, callTime: 6_200,
-      content: [{ type: 'text', text: 'done' }], isError: false, callView: null, resultView: null,
+      content: [{ type: 'text', text: 'done' }], isError: false,
       subCalls: [],
     },
   ] as unknown as LegacyConversationSlice['nodes']
@@ -511,7 +511,7 @@ describe('run_code sub-dispatch cells', () => {
     kind: 'tool-result' as const, seq: 100 + n, time: end,
     callId: `p1:code:${n}`,
     call: { name, argsRaw: '{"x":1}' }, callTime: start,
-    content: [{ type: 'text' as const, text: 'ok' }], isError: false, callView: null, resultView: null,
+    content: [{ type: 'text' as const, text: 'ok' }], isError: false,
     subCalls: [],
   })
 
@@ -538,7 +538,7 @@ describe('run_code sub-dispatch cells', () => {
   it('a running (unsettled) sub-call renders a subtool cell with blank time', () => {
     const running = {
       callId: 'p1:code:1', name: 'grep', argsRaw: '{"pattern":"x"}',
-      turn: 0, step: 0, time: 6_400, callView: null, subCalls: [],
+      turn: 0, step: 0, time: 6_400, subCalls: [],
     }
     const turns = deriveTrajectoryLayout({ nodes: withSubCalls([running]), partial: null, runningCalls: [] })
     const sub = turns[0]!.groups.flatMap(g => g.cells).find(c => c.kind === 'subtool')

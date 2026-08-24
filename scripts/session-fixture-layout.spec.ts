@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { type SessionEvent } from '@deepseek-ai/dsh-session'
 import { parseSessionLog } from '@deepseek-ai/dsh-llm-replay'
-import { canonicalSessionFixture } from './session-fixture-layout.ts'
+import { canonicalSessionFixture, isPhysicalSessionFixture } from './session-fixture-layout.ts'
 
 const HEADER = '  {"type":"session","version":0,"id":"fixture","createdAt":1,"delegationDepth":0}  '
 
@@ -66,5 +66,17 @@ describe('canonicalSessionFixture', () => {
   it('labels malformed packed rows with the fixture path and line', () => {
     expect(() => canonicalSessionFixture(`${HEADER}\n{"type":"text-chunks"}\n`, 'broken.jsonl'))
       .toThrow(/broken\.jsonl: session snapshot line 2: malformed text-chunks storage row/)
+  })
+})
+
+describe('isPhysicalSessionFixture', () => {
+  it('excludes only persisted logs under the WebWorker example root', () => {
+    expect(isPhysicalSessionFixture(
+      'packages/experimental/webworker-runtime/tests/fixtures/vfs-example/home/sessions/--dsh-workspace--/main/session.jsonl',
+    )).toBe(true)
+    expect(isPhysicalSessionFixture(
+      'packages/experimental/webworker-runtime/tests/fixtures/vfs-example/home/sessions/README.jsonl',
+    )).toBe(false)
+    expect(isPhysicalSessionFixture('apps/web/tests/snapshots/example/session.jsonl')).toBe(false)
   })
 })

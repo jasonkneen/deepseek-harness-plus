@@ -105,8 +105,6 @@ const BASE_PATCH_PATH = join(REPO_ROOT, 'packages/bundle/base/cordis.patch.yml')
 const WEB_PATCH_PATH = join(REPO_ROOT, 'packages/bundle/web-app/cordis.patch.yml')
 /** The installation anchor whose dependency surface the profile module fallback mirrors. */
 const INSTALL_ANCHOR = join(REPO_ROOT, 'apps/cli/package.json')
-/** The deployment's own agent-preset root, shipped beside the app's config. */
-const SHIPPED_PRESET_DIR = join(REPO_ROOT, 'apps/cli/config/agent-presets')
 
 // Replay publishes the provider catalog the gateway routes to (providers
 // mode, never catch-all: with llm-deepseek disabled no adapter exists, so a
@@ -272,15 +270,14 @@ export interface LaunchOptions {
     apiKeyEnv: string
   }
   /**
-   * Replace the roster the scaffold mounts by default (the shipped directory
-   * at `system` trust, default `standard`). Supply this only to change WHICH
-   * presets a scenario sees — a writable user root, a different default —
-   * never to turn the roster on: without one every session composes an agent
-   * with no tools, no persona, and no token meter, which is not a shape the
-   * product ever boots in. The patch lands after the default, so it wins.
+   * Replace the roster row the scaffold pins by default (no configured roots,
+   * default `standard` — the plugin's own shipped presets). Supply this only
+   * to change WHICH presets a scenario sees beyond the shipped set — a
+   * writable user root, a different default. The patch lands after the
+   * default, so it wins.
    */
   agentPresets?: {
-    /** Roots to discover, in precedence order; the shipped directory is `system`. */
+    /** Roots to discover after the plugin's shipped root, in precedence order. */
     roots: { path: string; trust: 'system' | 'user' }[]
     /** The preset a session that names none is composed from. */
     default: string
@@ -405,19 +402,14 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
     ...basePatches,
     ...surfacePatches,
     ...extraOverlayPatches,
-    // The roster's `roots` is an assembly fact AppCLIEntry resolves and patches
-    // in, exactly like `distIndex` on the webserver row — the shipped preset
-    // directory sits beside the composition that names it, and no config author
-    // chooses it. This lane boots the shipped tree WITHOUT AppCLIEntry, so it
-    // has to supply the same fact or the roster resolves nothing and every
-    // session composes an agent with no tools, no persona, and no token meter.
-    // Only the shipped root: a developer's own `~/.dsh/.agent-presets` must not be
-    // able to change a golden.
+    // The roster's shipped presets are the plugin's own, bundled inside
+    // `dsh-agent-presets` and prepended by it. Pin only the machine-local
+    // root away: a developer's own `~/.dsh/.agent-presets` must not be able
+    // to change a golden.
     {
       id: 'agent-presets',
       config: {
         default: 'standard',
-        roots: [{ path: SHIPPED_PRESET_DIR, trust: 'system' }],
         includeUserRoot: false,
       },
     },

@@ -84,7 +84,7 @@ const NODES: LegacyConversationSlice['nodes'] = [
   },
   {
     kind: 'tool-result', seq: 3, time: 3_000, callId: 'c1', call: null, callTime: 2_200,
-    content: [], isError: false, callView: null, resultView: null, subCalls: [],
+    content: [], isError: false, subCalls: [],
   },
   {
     kind: 'assistant', seq: 4, time: 4_000, turn: 2, step: 1, blocks: [],

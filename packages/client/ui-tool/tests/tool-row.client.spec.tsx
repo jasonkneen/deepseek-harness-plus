@@ -18,14 +18,14 @@ const t: GenericToolCardProps['t'] = makeTranslate(zh, commonZh)
 
 const running = (over?: Partial<RunningToolCall>): RunningToolCall => ({
   callId: 'c1', name: 'bash', argsRaw: '{"command":"ls -la","description":"List files"}',
-  turn: 1, step: 1, time: 1_000, callView: null, subCalls: [], ...over,
+  turn: 1, step: 1, time: 1_000, subCalls: [], ...over,
 })
 
 const result = (over?: Partial<ToolResultNode>): ToolResultNode => ({
   kind: 'tool-result', seq: 10, time: 2_000, callId: 'c1',
   call: { name: 'bash', argsRaw: '{"command":"ls -la","description":"List files"}' },
   callTime: 1_000,
-  content: [], isError: false, callView: null, resultView: null, subCalls: [], ...over,
+  content: [], isError: false, subCalls: [], ...over,
 })
 
 describe('tool-call-model', () => {

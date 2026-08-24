@@ -20,7 +20,7 @@ afterEach(() => {
 })
 
 const row = (id: string, fields: Partial<BootModuleRow> = {}): BootModuleRow =>
-  ({ id, url: `/plugins/${id}/client.js?rev=0`, rev: '0', external: [], ...fields })
+  ({ id, url: `/plugins/${id}/client.js?rev=0`, rev: '0', inject: [], external: [], ...fields })
 
 interface Bench {
   loader: ClientModuleLoader
@@ -145,6 +145,22 @@ describe('lazy CJS arrival', () => {
     ])
     expect(exports.provider.marker).toBe('provider')
     expect(exports.react.marker).toBe('react')
+  })
+
+  it('registers injected package factories before materializing a consumer', async () => {
+    const b = bench([
+      row('consumer', { inject: ['provider'] }),
+      row('provider', { inject: ['consumer'] }),
+    ], {
+      consumer: req => ({ provider: req('provider/client') }),
+      provider: () => ({ marker: 'provider' }),
+    })
+    const exports = await b.loader.import('consumer', '', {}) as { provider: { marker: string } }
+    expect(b.fetched).toEqual([
+      '/plugins/provider/client.js?rev=0',
+      '/plugins/consumer/client.js?rev=0',
+    ])
+    expect(exports.provider.marker).toBe('provider')
   })
 
   it('concurrent callers share one in-flight arrival and materialize once', async () => {
@@ -306,13 +322,13 @@ describe('boot manifest wire', () => {
     const manifest = parseBootManifest({
       rev: 'graph',
       entries: [
-        { id: 'a', url: '/plugins/a/client.js', rev: '1' },
+        { id: 'a', url: '/plugins/a/client.js', rev: '1', inject: ['b'] },
         { id: 'b', url: '/plugins/b/client.js', rev: '2', external: ['react'] },
       ],
     })
     expect(manifest.modules).toEqual([
-      { id: 'a', url: '/plugins/a/client.js', rev: '1', external: [] },
-      { id: 'b', url: '/plugins/b/client.js', rev: '2', external: ['react'] },
+      { id: 'a', url: '/plugins/a/client.js', rev: '1', inject: ['b'], external: [] },
+      { id: 'b', url: '/plugins/b/client.js', rev: '2', inject: [], external: ['react'] },
     ])
   })
 

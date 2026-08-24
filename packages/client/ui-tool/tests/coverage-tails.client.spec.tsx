@@ -57,7 +57,7 @@ describe('Tool presentation tails', () => {
       kind: 'tool-result', seq: 2, time: 2_000, callId: 'c5',
       call: { name: 'todo_write', argsRaw: '{"note":"x"}' },
       callTime: 1_000,
-      content: [], isError: false, callView: null, resultView: null, subCalls: [],
+      content: [], isError: false, subCalls: [],
     }
     const props: GenericToolCardProps = {
       callId: 'c5', toolName: 'todo_write', block: settled, openFile: vi.fn(), t,
@@ -72,7 +72,7 @@ describe('Tool presentation tails', () => {
       kind: 'tool-result', seq: 3, time: 3_000, callId: 'c1',
       call: { name: 'bash', argsRaw: '{"command":"make build","description":"Build"}' },
       callTime: 2_000,
-      content: [], isError: false, callView: null, resultView: null, subCalls: [],
+      content: [], isError: false, subCalls: [],
     }
     const view = render(<BashRow {...bashProps(settled)} />)
     const row = view.container.querySelector('[data-sample="bash"]')!
@@ -84,13 +84,13 @@ describe('Tool presentation tails', () => {
   it('BashRow carries data-state for running and StateDots for error/stopped', () => {
     const running: RunningToolCall = {
       callId: 'c1', name: 'bash', argsRaw: '{"command":"ls","description":"List"}',
-      turn: 1, step: 1, time: 1_000, callView: null, subCalls: [],
+      turn: 1, step: 1, time: 1_000, subCalls: [],
     }
     const errorResult: ToolResultNode = {
       kind: 'tool-result', seq: 1, time: 1_000, callId: 'c1',
       call: { name: 'bash', argsRaw: '{"command":"boom"}' },
       callTime: 500,
-      content: [], isError: true, callView: null, resultView: null, subCalls: [],
+      content: [], isError: true, subCalls: [],
     }
     const stoppedResult: ToolResultNode = {
       ...errorResult,

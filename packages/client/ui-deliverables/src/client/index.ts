@@ -2,8 +2,8 @@
  * Deliverables plugin, browser half: registers the produced-files row into
  * the chat view's turn-tail chain, and provides the `chatFileMentions`
  * service that links inline-code mentions of produced files in the closing
- * prose. All policy lives here — the derivation from the mutation tools'
- * `locations`, the mention matching, the chip cap, and the copy — so
+ * prose. All policy lives here — the supported mutation calls, mention
+ * matching, chip cap, and copy — so
  * composing this plugin out of cordis.yml removes both surfaces entirely;
  * the owning view renders an empty chain and inert prose at zero cost.
  */

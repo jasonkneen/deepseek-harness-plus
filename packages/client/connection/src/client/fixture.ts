@@ -17,6 +17,7 @@ import type {
 } from '@deepseek-ai/dsh-llm'
 import type { AttachmentIdType, ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import type {
+  JsonValue,
   SessionEvent,
   SessionId,
 } from '@deepseek-ai/dsh-session/types'
@@ -29,7 +30,6 @@ import { deriveEventMessage, foldSurface } from '@deepseek-ai/dsh-session/surfac
 import type {
   ApiProxy, ClientRequest,
   ModelProviderGroup, ModelSelection, RpcRequest, RpcResponse, RpcResult, ServerResponse,
-  ToolCallView, ToolResultView,
 } from './api.ts'
 import type { RequestPayload, ResponseValue, RpcMethodMap } from '@deepseek-ai/dsh-host-apiproxy/api'
 import { AbstractApiClient, RpcId } from './api.ts'
@@ -71,13 +71,8 @@ interface FixtureProjectionsBlock {
   readonly values: Readonly<Record<string, unknown>>
 }
 
-type FixtureToolView =
-  | { readonly for: 'call'; readonly view: ToolCallView }
-  | { readonly for: 'result'; readonly view: ToolResultView }
-
 interface FixtureHistoryEntry {
   readonly event: SessionEvent
-  readonly view?: FixtureToolView
 }
 
 type FixtureSessionAddress =
@@ -362,11 +357,9 @@ function sgr(code: number, body: string): string {
  * basic-16 SGR foreground runs (green, red, bright-black) that must resolve to
  * `--dsw-*` tokens, a bold run, column-aligned table rows that must scroll
  * rather than fold, more than DEFAULT_TERMINAL_MAX_LINES (16) lines so the
- * height cap collapses the middle. The exit status is authored separately in
- * TERMINAL_EXIT_STATUS and deliberately absent from this text: the real bash
- * presenter CONSUMES its `[exit code: N]` marker out of the body, because a
- * terminal card shows the exit as its own pill and leaving the marker in would
- * render it twice (packages/shell/tool-bash/src/render.ts).
+ * height cap collapses the middle. This constant is the visible body; the call
+ * site appends the shell result's `[exit code: N]` marker so Client derivation
+ * can consume it into the terminal status pill.
  */
 const TERMINAL_OUTPUT_FIXTURE = [
   sgr(1, 'Running 4 checks'),
@@ -393,20 +386,10 @@ const TERMINAL_OUTPUT_FIXTURE = [
 ].join('\n')
 
 /**
- * Exit status for each terminal sample, keyed by its output text. Authored
- * alongside the sample rather than parsed back out of its trailing marker,
- * which is the bash tool's own job and not something to reimplement here.
- */
-const TERMINAL_EXIT_STATUS: Record<string, { exitCode: number } | { signal: string }> = {
-  [TERMINAL_OUTPUT_FIXTURE]: { exitCode: 1 },
-}
-
-/**
- * Structured grep result for the search sample (turn 67): matches grouped by
- * file, authored inline because the client-side fixture cannot import the tool
- * that produces the canonical value. `truncated` with a larger `total` than the
- * retained match count exercises the search card's capped indicator; the file
- * with more than CHAT_SEARCH_MAX_LINES rows exercises its head/tail height cap.
+ * Structured grep metadata for the search sample (turn 67). `truncated` with a
+ * larger `total` than the retained match count exercises the search card's
+ * capped indicator; the file with more than CHAT_SEARCH_MAX_LINES rows
+ * exercises its head/tail height cap.
  */
 const SEARCH_MATCHES_FIXTURE: { path: string; matches: { lineNumber: number; line: string }[] }[] = [
   {
@@ -475,18 +458,23 @@ const READ_SAMPLE_SOURCE = [
 const READ_SAMPLE_LINES = READ_SAMPLE_SOURCE.map((text, index) => ({ number: READ_SAMPLE_FIRST_LINE + index, text }))
 const READ_SAMPLE_PATH = 'packages/client/ui-primitives/src/ReadBlock.tsx'
 const READ_SAMPLE_TOTAL = 180
-const READ_SAMPLE_TEXT = READ_SAMPLE_SOURCE.map((text, index) => `${READ_SAMPLE_FIRST_LINE + index}: ${text}`).join('\n')
+const READ_SAMPLE_LAST_LINE = READ_SAMPLE_FIRST_LINE + READ_SAMPLE_SOURCE.length - 1
+const READ_SAMPLE_TEXT = [
+  `<path>${READ_SAMPLE_PATH}</path>`,
+  '<type>file</type>',
+  '<content>',
+  ...READ_SAMPLE_SOURCE.map((text, index) => `${READ_SAMPLE_FIRST_LINE + index}: ${text}`),
+  '',
+  `(Showing lines ${READ_SAMPLE_FIRST_LINE}-${READ_SAMPLE_LAST_LINE} of ${READ_SAMPLE_TOTAL}. Use offset=${READ_SAMPLE_LAST_LINE + 1} to continue.)`,
+  '</content>',
+].join('\n')
 
 /**
- * The structured `web_search` result view for the web-search turn, authored inline
- * because this client-side fixture cannot import the web tool that projects it.
- * The sources exercise the citation list's features: a titled source with a
- * snippet and a date, a source with no title (its hostname labels the link) and
- * a snippet but no date, and a source with a title and a date but no snippet.
- * `truncated` marks the capped indicator. The shape is the contract's own
- * search view minus its wire discriminants.
+ * The `web_search` result metadata for the web-search turn. The sources cover a
+ * titled source with a snippet and date, a hostname-label fallback, and a
+ * titled source without a snippet; `truncated` exercises the capped indicator.
  */
-const WEB_SEARCH_RESULT: Omit<Extract<ToolResultView, { card: 'web'; kind: 'search' }>, 'card' | 'kind'> = {
+const WEB_SEARCH_META = {
   answer: 'DeepSeek Harness is a plugin-based agent harness on vendored Cordis where **every capability is a plugin**.',
   sources: [
     {
@@ -506,14 +494,14 @@ const WEB_SEARCH_RESULT: Omit<Extract<ToolResultView, { card: 'web'; kind: 'sear
     },
   ],
   truncated: true,
-}
+} satisfies JsonValue
 
-/** The `web_fetch` result view for the web-fetch turn, authored inline for the same reason. */
-const WEB_FETCH_RESULT: Omit<Extract<ToolResultView, { card: 'web'; kind: 'fetch' }>, 'card' | 'kind'> = {
+/** The `web_fetch` result metadata for the web-fetch turn. */
+const WEB_FETCH_META = {
   url: 'https://www.deepseek.com/blog/harness-architecture',
   statusCode: 200,
   truncated: false,
-}
+} satisfies JsonValue
 
 const DEEPSEEK_REASONING = {
   efforts: [
@@ -649,10 +637,16 @@ function buildAlphaLog(): SessionEvent[] {
     }
     push({ type: 'turn/end', data: { turn, reason: { kind: 'completed' } } })
   }
-  // Three view-sample turns (60-62) cover the built-in card types. The real filesystem names in
-  // turns 62-63 also exercise their dedicated generic-row icon/title/path summaries. `echo` above
-  // stays presenter-less as the unknown fallback.
-  const toolTurn = (turn: number, name: string, args: string, resultText: string): void => {
+  // The structured samples use real first-party names and result metadata so
+  // the fixture follows the same event-to-card path as a persisted Session.
+  // `echo` above remains the unknown-tool fallback.
+  const toolTurn = (
+    turn: number,
+    name: string,
+    args: string,
+    resultText: string,
+    resultMeta?: JsonValue,
+  ): void => {
     const callId = `fx-call-${turn}`
     push({ type: 'turn/start', data: { turn } })
     push({ type: 'user/message', surfaceOp: 'append', data: userMessage(text(`问题 ${turn}：${name} 样本。`)) })
@@ -662,23 +656,66 @@ function buildAlphaLog(): SessionEvent[] {
       data: { turn, step: 0, message: assistantMessage([{ type: 'tool-call', id: callId, name, arguments: args } as ContentBlock]) },
     })
     push({ type: 'tool/call', data: { turn, step: 0, callId, name, arguments: args } })
-    push({ type: 'tool/result', surfaceOp: 'append', data: { turn, step: 0, message: toolResultMessage(callId, text(resultText), false) } })
+    push({
+      type: 'tool/result',
+      surfaceOp: 'append',
+      data: {
+        turn,
+        step: 0,
+        message: toolResultMessage(callId, text(resultText), false),
+        ...resultMeta === undefined ? {} : { meta: resultMeta },
+      },
+    })
     push({ type: 'step/end', data: { turn, step: 0 } })
     push({ type: 'turn/end', data: { turn, reason: { kind: 'completed' } } })
   }
   // A two-line command, so the fixture covers the terminal card's one-row-per-
   // command-line prompt (and that the card still marks the call exactly once).
-  toolTurn(60, 'fx-bash', '{"command":"ls -la\\necho done","cwd":"/tmp/fixture"}', 'total 2\ndrwxr-xr-x fixture\n-rw-r--r-- demo.txt')
-  toolTurn(61, 'fx-write', '{"path":"notes/demo.txt","content":"hello fixture\\n"}', 'wrote notes/demo.txt')
-  toolTurn(62, 'edit', '{"file_path":"notes/demo.txt","old_string":"hello","new_string":"hello fixture"}', '已编辑')
-  toolTurn(63, 'write', '{"file_path":"notes/new-demo.txt","content":"hello fixture\\n"}', '已写入')
+  toolTurn(
+    60,
+    'bash',
+    '{"command":"ls -la\\necho done","description":"fixture 终端样本","workdir":"/tmp/fixture"}',
+    'total 2\ndrwxr-xr-x fixture\n-rw-r--r-- demo.txt',
+  )
+  toolTurn(
+    61,
+    'write',
+    '{"file_path":"notes/demo.txt","content":"hello fixture\\n"}',
+    'wrote notes/demo.txt',
+    { diffs: [{ path: 'notes/demo.txt', oldText: null, newText: 'hello fixture\n' }] },
+  )
+  toolTurn(
+    62,
+    'edit',
+    '{"file_path":"notes/demo.txt","old_string":"hello","new_string":"hello fixture"}',
+    '已编辑',
+    { diffs: [{ path: 'notes/demo.txt', oldText: 'hello', newText: 'hello fixture' }] },
+  )
+  toolTurn(
+    63,
+    'write',
+    '{"file_path":"notes/new-demo.txt","content":"hello fixture\\n"}',
+    '已写入',
+    { diffs: [{ path: 'notes/new-demo.txt', oldText: null, newText: 'hello fixture\n' }] },
+  )
   // Turn 64: a multi-hunk edit — two scattered replacements in one file. Named
   // `edit` so it lands on the keyed FileMutationRow (the resident diff card the
-  // single-hunk turn 62 also uses), and file_path `src/config.ts` is the marker
-  // the presenter reads to emit the two-hunk sample: the card draws one path
-  // header, the first hunk, a `⋯` gap, then the second (the same-file
+  // single-hunk turn 62 also uses). Its result metadata carries two scattered
+  // hunks under one path header, so the card draws the first hunk, a `⋯` gap,
+  // then the second (the same-file
   // second-hunk arm turns 62/63 cannot reach).
-  toolTurn(64, 'edit', '{"file_path":"src/config.ts","old_string":"const timeout = 30","new_string":"const timeout = 60"}', '已编辑')
+  toolTurn(
+    64,
+    'edit',
+    '{"file_path":"src/config.ts","old_string":"const timeout = 30","new_string":"const timeout = 60"}',
+    '已编辑',
+    {
+      diffs: [
+        { path: 'src/config.ts', oldText: 'const timeout = 30', newText: 'const timeout = 60' },
+        { path: 'src/config.ts', oldText: 'retries: 1', newText: 'retries: 3' },
+      ],
+    },
+  )
   // Turn 65: one run_code turn with three logged sub-dispatches — the Code
   // Mode acceptance surface (parent code row + nested native-identical rows,
   // including an isError sub-call and a bash sub-call that must hit the same
@@ -734,52 +771,75 @@ function buildAlphaLog(): SessionEvent[] {
   ]
   // Turn 66: the terminal sample turn 60's two clean prompt rows cannot cover —
   // ANSI SGR coloring, output past the terminal card's height cap, a nested cwd
-  // whose prompt label is its last segment, and a non-zero exit authored beside
-  // the sample in TERMINAL_EXIT_STATUS — its body deliberately carries no
-  // `[exit code: N]` marker, since the real presenter consumes that one out of
-  // the body. Named `bash`, so it also covers
-  // the keyed toolview row (turn 60's `fx-bash` covers the render-site fallback
-  // row) — the two chat-row shapes the terminal card renders in.
+  // whose prompt label is its last segment, and a non-zero exit. The raw result
+  // includes an `[exit code: N]` marker below; Client
+  // derivation consumes it into the status pill before rendering the body.
   //
   // Ordered BEFORE the todo turn deliberately: the standing plan retires at the
   // next `turn/start`, so a turn appended after it would leave the dock's plan
   // strip empty and take the todo surfaces' own coverage with it.
-  toolTurn(66, 'bash', '{"command":"pnpm run check","cwd":"/tmp/fixture/deep/nested"}', TERMINAL_OUTPUT_FIXTURE)
+  toolTurn(
+    66,
+    'bash',
+    '{"command":"pnpm run check","description":"fixture 终端样本","workdir":"/tmp/fixture/deep/nested"}',
+    `${TERMINAL_OUTPUT_FIXTURE}\n[exit code: 1]`,
+  )
 
-  // Turns 67-68: the search card's two shapes. `grep` emits a `card: 'search'`
-  // `shape: 'matches'` result view (grouped-by-file matches, truncated with a
-  // larger `total`), `glob` emits `shape: 'paths'` (a flat path list, likewise
-  // truncated). Both ride the keyed SearchRow registration under their own
-  // names; the render-site fallback row is covered by the model derivation
-  // tests, since every fixture search tool has a keyed row. Ordered before the
-  // todo turn for the same standing-plan reason the bash turn is.
-  toolTurn(67, 'grep', '{"pattern":"SEARCH_MAX_LINES","path":"packages/client"}', SEARCH_MATCHES_TEXT)
-  toolTurn(68, 'glob', '{"pattern":"**/SearchBlock*","path":"packages/client"}', SEARCH_PATHS_TEXT)
+  // Turns 67-68 carry the search card's two metadata variants: grouped matches
+  // and a flat path list, both truncated with a larger pre-cap total. Both use
+  // the keyed SearchRow registration. They stay before the todo turn for the
+  // same standing-plan reason as the bash turn.
+  toolTurn(
+    67,
+    'grep',
+    '{"pattern":"SEARCH_MAX_LINES","path":"packages/client"}',
+    SEARCH_MATCHES_TEXT,
+    { shape: 'matches', files: SEARCH_MATCHES_FIXTURE, truncated: true, total: 42 },
+  )
+  toolTurn(
+    68,
+    'glob',
+    '{"pattern":"**/SearchBlock*","path":"packages/client"}',
+    SEARCH_PATHS_TEXT,
+    { shape: 'paths', paths: SEARCH_PATHS_FIXTURE, truncated: true, total: 23 },
+  )
 
   // Turn 69: the read sample — a WINDOW past an offset so the card draws file
   // line numbers starting above 1 and a "showing N of M" note (the window is
   // shorter than READ_SAMPLE_TOTAL), with a `ts` language hint the shiki path
   // highlights. Named `read`, so it exercises the keyed ReadRow registration.
-  // The render-site fallback ROW SHAPE (a read call on the generic flattened
-  // path) is covered by the turn 65 run_code read sub-dispatches, which
-  // session.ts folds with resultView: null; the fallback-row + read-CARD
-  // combination is pinned by the web_fetch case in read-card.spec.tsx, not by
-  // this fixture. The read render intent is result-side only, so its pending
-  // call stays a generic `kind: 'read'` card; presentResult carries the
-  // structured window.
-  toolTurn(69, 'read', `{"file_path":${JSON.stringify(READ_SAMPLE_PATH)},"offset":${READ_SAMPLE_FIRST_LINE}}`, READ_SAMPLE_TEXT)
+  // The run_code sub-dispatches above cover nested read calls without result
+  // metadata; this top-level result carries the structured window.
+  toolTurn(
+    69,
+    'read',
+    `{"file_path":${JSON.stringify(READ_SAMPLE_PATH)},"offset":${READ_SAMPLE_FIRST_LINE}}`,
+    READ_SAMPLE_TEXT,
+    {
+      path: READ_SAMPLE_PATH,
+      offset: READ_SAMPLE_FIRST_LINE,
+      lines: READ_SAMPLE_LINES,
+      totalLines: READ_SAMPLE_TOTAL,
+      lang: 'ts',
+    },
+  )
 
-  // Turns 70-71: the web render intent — a web_search whose result view carries
-  // structured sources plus an answer (the citation list, one source lacking a
-  // title so its hostname labels the link, the capped indicator on), and a
-  // web_fetch whose result view carries the fetched URL and its HTTP status.
-  // Both keep a generic pending call view and add the `web` card only at
-  // result time, which is the contract's result-only web shape. Named after
-  // the real tools so they hit the keyed WebRow registration. Ordered BEFORE
-  // the todo turn for the same reason turn 66 is: the standing plan retires at
-  // the next turn/start, so a turn after it would empty the dock's plan strip.
-  toolTurn(70, 'web_search', '{"queries":["deepseek harness architecture"]}', 'Search results for deepseek harness architecture.')
-  toolTurn(71, 'web_fetch', '{"url":"https://www.deepseek.com/blog/harness-architecture"}', '# Harness architecture\n\nEverything is a plugin.')
+  // Turns 70-71 carry the web tools' result metadata. They stay before the todo
+  // turn because a later turn/start retires the standing plan projection.
+  toolTurn(
+    70,
+    'web_search',
+    '{"queries":["deepseek harness architecture"]}',
+    'Search results for deepseek harness architecture.',
+    WEB_SEARCH_META,
+  )
+  toolTurn(
+    71,
+    'web_fetch',
+    '{"url":"https://www.deepseek.com/blog/harness-architecture"}',
+    '# Harness architecture\n\nEverything is a plugin.',
+    WEB_FETCH_META,
+  )
 
   // Turn 72: max-tokens sample — the provider ends the turn at its output cap
   // mid-sentence, so the chat flow must render the turn-max-tokens notice
@@ -830,151 +890,6 @@ function buildAlphaLog(): SessionEvent[] {
   events.splice(callIndex + 1, 0, { type: 'todo/write', time: callTime + 400, data: { todos: fixtureTodos } })
   events.forEach((e, i) => { e.seq = i })
   return events as unknown as SessionEvent[]
-}
-
-/** Narrows a parsed-JSON field to string; fixture args are authored in-file, so non-strings only mean a typo here. */
-/* v8 ignore next -- the fallback arm is the same in-file-typo guard as the JSON.parse catch above. */
-const str = (value: unknown, fallback = ''): string => typeof value === 'string' ? value : fallback
-
-/** Fixture presenter registry (mirrors host viewFor): pure derivation, undefined = no view. */
-function presentCall(name: string, argsRaw: string): ToolCallView | undefined {
-  let args: Record<string, unknown>
-  try {
-    args = JSON.parse(argsRaw) as Record<string, unknown>
-  } catch {
-    /* v8 ignore next 2 -- defensive: fixture args are authored in-file as valid JSON; only an in-file typo could reach the catch. */
-    return undefined
-  }
-  switch (name) {
-    // Both names present the same terminal card: `fx-bash` lands on the
-    // render-site fallback row, `bash` on the keyed BashRow registration.
-    case 'fx-bash':
-    case 'bash':
-      return { card: 'terminal', title: str(args.command), cwd: str(args.cwd, '/tmp/fixture'), description: 'fixture 终端样本' }
-    case 'fx-write':
-      return {
-        card: 'diff', title: `Write ${str(args.path)}`,
-        diffs: [{ path: str(args.path), oldText: null, newText: str(args.content) }],
-      }
-    // A read pending call is a GENERIC card (kind: 'read', a follow-along
-    // location): the read render intent is result-side only, because a call
-    // carries no file content until execute returns. The rich read card arrives
-    // in presentResult.
-    case 'read':
-      return { card: 'generic', title: `Read ${str(args.file_path)}`, kind: 'read', locations: [{ path: str(args.file_path) }] }
-    case 'edit':
-      // The multi-hunk sample (turn 64) is keyed on its file_path, so the two
-      // scattered hunks share one path header and the card draws the `⋯` gap.
-      if (str(args.file_path) === 'src/config.ts') {
-        return {
-          card: 'diff', title: `Edit ${str(args.file_path)}`,
-          diffs: [
-            { path: str(args.file_path), oldText: 'const timeout = 30', newText: 'const timeout = 60' },
-            { path: str(args.file_path), oldText: 'retries: 1', newText: 'retries: 3' },
-          ],
-        }
-      }
-      return {
-        card: 'diff', title: `Edit ${str(args.file_path)}`,
-        diffs: [{ path: str(args.file_path), oldText: str(args.old_string), newText: str(args.new_string) }],
-      }
-    case 'write':
-      return {
-        card: 'diff', title: `Write ${str(args.file_path)}`,
-        diffs: [{ path: str(args.file_path), oldText: null, newText: str(args.content) }],
-      }
-    // A search call stays a generic card (kind: 'search'): the structured
-    // matches/paths exist only after execute, so the search card is result-time
-    // only (presentResult builds it). This mirrors the real grep/glob presenters.
-    case 'grep':
-      return { card: 'generic', title: `Grep ${str(args.pattern)}`, kind: 'search', rawInput: args }
-    case 'glob':
-      return { card: 'generic', title: `Glob ${str(args.pattern)}`, kind: 'search', rawInput: args }
-    // The web tools keep a GENERIC pending card and add the `web` result card
-    // only at result time (the contract's result-only web shape); their pending
-    // kind matches the result kind so a call and its result read as one category.
-    case 'web_search': {
-      const queries = Array.isArray(args.queries) ? args.queries.filter((query): query is string => typeof query === 'string' && query !== '') : []
-      const title = queries.join(', ')
-      return { card: 'generic', title: `Search ${title}`, kind: 'search', rawInput: args }
-    }
-    case 'web_fetch':
-      return { card: 'generic', title: `Fetch ${str(args.url)}`, kind: 'fetch', rawInput: args }
-    default:
-      return undefined // echo et al: the documented no-view fallback path
-  }
-}
-
-function presentResult(name: string, argsRaw: string, resultText: string): ToolResultView | undefined {
-  const call = presentCall(name, argsRaw)
-  if (call === undefined) return undefined
-  // Search is result-time only: the call stays a generic search card, and the
-  // result view carries the structured shape the card renders. The view holds no
-  // result text — a UI without a search card falls back to the raw tool/result
-  // content — so the truncation recovery footer rides that raw content (the
-  // `toolTurn` message text), not the view. `total` exceeds the retained count so
-  // the card shows its capped indicator.
-  if (name === 'grep') {
-    return { card: 'search', shape: 'matches', files: SEARCH_MATCHES_FIXTURE, truncated: true, total: 42 }
-  }
-  if (name === 'glob') {
-    return { card: 'search', shape: 'paths', paths: SEARCH_PATHS_FIXTURE, truncated: true, total: 23 }
-  }
-  // The read result is the structured window the tool projects through
-  // `presentationMeta`; the fixture authors it inline (it cannot import the
-  // tool). Keyed on the name because the read pending call is a generic card,
-  // so `call.card` alone does not distinguish it from edit/write.
-  if (name === 'read') {
-    return {
-      card: 'read', path: READ_SAMPLE_PATH, offset: READ_SAMPLE_FIRST_LINE, lines: READ_SAMPLE_LINES,
-      totalLines: READ_SAMPLE_TOTAL, lang: 'ts', content: text(resultText),
-    }
-  }
-  // The web tools keep a generic pending card, so their result card is chosen
-  // by tool name rather than by the pending card tag: the structured `web` card
-  // the frontend consumes. The view carries no `content` copy (per the contract
-  // and the web-result-card note); a capability-less UI falls back to the raw
-  // `tool/result` content, which this fixture emits from `resultText`.
-  if (name === 'web_search') {
-    return { card: 'web', kind: 'search', ...WEB_SEARCH_RESULT }
-  }
-  if (name === 'web_fetch') {
-    return { card: 'web', kind: 'fetch', ...WEB_FETCH_RESULT }
-  }
-  switch (call.card) {
-    case 'terminal':
-      // The sample's own exit status, authored beside it: re-parsing the
-      // trailing marker here would duplicate the bash tool's `parseExitStatus`,
-      // which this client-side fixture cannot import.
-      return { card: 'terminal', output: resultText, ...(TERMINAL_EXIT_STATUS[resultText] ?? { exitCode: 0 }) }
-    case 'diff':
-      return { card: 'diff', diffs: call.diffs }
-    case 'generic':
-      return { card: 'generic', content: text(resultText) }
-  }
-}
-
-/** Host-side viewFor mirror: tool/call presents from its own args; tool/result back-scans the log for the paired call. */
-function viewFor(event: SessionEvent, log: readonly SessionEvent[]): FixtureToolView | undefined {
-  if (event.type === 'tool/call') {
-    const view = presentCall(event.data.name, event.data.arguments)
-    return view === undefined ? undefined : { for: 'call', view }
-  }
-  if (event.type === 'tool/result') {
-    const callId = String(event.data.message.source.callId)
-    for (let i = log.length - 1; i >= 0; i--) {
-      const candidate = log[i]
-      /* v8 ignore next -- dense-array guard: i stays within [0, log.length),
-      so the undefined arm needs a sparse log no code path builds. */
-      if (candidate !== undefined && candidate.type === 'tool/call' && String(candidate.data.callId) === callId) {
-        const resultText = event.data.message.content[0].content.map(b => (b.type === 'text' ? b.text : '')).join('')
-        const view = presentResult(candidate.data.name, candidate.data.arguments, resultText)
-        return view === undefined ? undefined : { for: 'result', view }
-      }
-    }
-    return undefined // cross-page unpaired: documented default
-  }
-  return undefined
 }
 
 /**
@@ -1422,11 +1337,9 @@ function projectionFramesOf(
 }
 
 /**
- * Message-boundary paging (mirrors the host's paging contract): count
- * maxMessages messages
- *  backwards from end, cut at a turn/start boundary.
- Entries carry pagination-time views
- *  (the host analogue computes viewFor per entry at page time). */
+ * Message-boundary paging mirrors the Host contract: count `maxMessages`
+ * backwards from the end and cut at a turn/start boundary.
+ */
 function pageOf(
   log: readonly SessionEvent[],
   beforeSeq: number | undefined,
@@ -1445,10 +1358,7 @@ function pageOf(
       break
     }
   }
-  const events = log.slice(start, end).map((event): FixtureHistoryEntry => {
-    const view = viewFor(event, log)
-    return view === undefined ? { event } : { event, view }
-  })
+  const events = log.slice(start, end).map((event): FixtureHistoryEntry => ({ event }))
   return { events, hasMore: start > 0 }
 }
 
@@ -1974,12 +1884,7 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
     const log = logOf(id)
     const event = { seq: log.length, time: Date.now(), ...e } as unknown as SessionEvent
     log.push(event)
-    // Emission-time view derivation (mirrors the host's live path).
-    const view = viewFor(event, log)
-    /* v8 ignore next 2 -- the view-present arm needs a live tool/call emission,
-    but the fixture replay produces text-only turns; view vocabulary is
-    exercised through the history samples (turns 60-62). */
-    emitFollow(id, view === undefined ? { event } : { event, view })
+    emitFollow(id, { event })
     // Host eager-drive parallel: a unit-advancing event pushes its finished value.
     for (const frame of projectionFramesOf(id, log, event)) emitControl(frame)
     if (event.type === 'user/message' && event.data.source.kind === 'user') {
@@ -3007,8 +2912,7 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
             throw new Error(`fixture: session event replay skipped seq ${String(nextSeq)}`)
           }
           nextSeq++
-          const view = viewFor(event, snapshot)
-          yield view === undefined ? { type: 'event', event } : { type: 'event', event, view }
+          yield { type: 'event', event }
         }
       }
       for await (const frame of conn.drain(signal)) {

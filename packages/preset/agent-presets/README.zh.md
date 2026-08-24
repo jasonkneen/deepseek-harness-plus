@@ -87,17 +87,20 @@ description: 仅提供持久 bash 与 str_replace_editor 的双工具编码 Agen
 |---|---|---|
 | `default` | 必填 | 调用方未指定时挂载的 preset id |
 | `roots` | `[]` | 按优先级排列的扫描目录；每项提供 `path`（开头的 `~` 会展开）与 `trust`（默认为 `user`） |
+| `includeShippedRoot` | `true` | 在全部已配置根目录之前，前置本包随附的内置 preset 作为 `system` 根目录 |
 | `includeUserRoot` | `true` | 在全部已配置根目录之后，追加 `<dshHome>/.agent-presets` 作为 `user` 根目录 |
 
 根目录不存在时视为不提供任何 preset，而非失败：用户根目录在写出第一个本地 preset 之前并不存在，而指定了没有任何根目录提供的默认值，在解析时本就会明确报错。
 
-### 可写根目录属于本包，随附根目录属于 app
+### 随附根目录与可写根目录都属于本包
+
+随附的 preset 就在本包内部、`lib/` 旁随行分发，正如每个 preset 自己的 skill 随其目录一起走。其根目录前置在全部已配置根目录**之前**，因此内置集合始终挂载并赢得重复 id——任何整体替换 roster 行 `config` 的补丁层都不会意外弄丢它，schema 默认值让该集合在整份 `config` 被替换后依然保留。这些组合依赖的是宿主的 agent-plane 服务，而不是某个特定表面：宿主缺少某个 preset 行注入的服务时，该行保持等待，与任何其他根目录下的 preset 无异。
 
 `<dshHome>/.agent-presets` 是个人自有 preset 的所在，正如 `<dshHome>/skills` 是其自有 skill 的所在（[`dsh-skill-filesystem`](../../skill/skill-filesystem/README.zh.md)），因此 roster 自行推导它，而不等某个部署记得配置——一个什么都没配的启动器同样能发现并创作 preset。它追加在全部已配置根目录**之后**，从而保持靠前的根目录赢得重复 id：随附的 `standard` 仍然遮蔽一个占用该名字的家目录目录，而 `copy()` 会拒绝该 id，不会落下一个无人解析得到的 preset。
 
 根目录在服务构造时解析一次。若根目录集合在一次 `list()` 与依据其答案执行的 `copy()` 之间发生变化，写入的将是调用方从未见过的目录。
 
-`includeUserRoot: false` 使 roster 只覆盖 `roots`。把 preset 限制在自有目录内的部署需要它，任何钉住确切 roster 的测试同样需要——否则将由这台机器真实的 `<dshHome>` 决定 roster 的内容。
+`includeShippedRoot: false` 去掉内置集合——适用于只提供自有 preset 的部署，或把 roster 当作纯机制使用的嵌入方。`includeUserRoot: false` 去掉推导出的可写根目录——适用于把 preset 限制在自有目录内的部署。钉住确切 roster 的测试两者都要关——否则将由本包的随附 preset 与这台机器真实的 `<dshHome>` 决定 roster 的内容。
 
 随附根目录仍然是装配事实：它位于已安装 app 自身配置的旁边，那个路径只有该 app 能解析。
 

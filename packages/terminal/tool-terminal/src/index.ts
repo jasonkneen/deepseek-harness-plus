@@ -284,6 +284,8 @@ export function apply(ctx: Context, config: Config = {}): void {
       if (parsed.run_in_background === true) {
         return { card: 'generic', title: `Send to terminal ${parsed.sessionId as string} in background`, kind: 'execute', rawInput: parsed.text }
       }
+      // Keep these Host-only fallbacks aligned with the conversation locale
+      // keys `terminal.sendInput` and `terminal.session` used by Web.
       return { card: 'terminal', title: parsed.text || '(send input)', description: `Terminal ${parsed.sessionId as string}` }
     },
     presentResult(args, result) {

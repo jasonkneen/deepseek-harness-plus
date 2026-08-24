@@ -19,6 +19,7 @@ import { gzipSync } from 'node:zlib'
 import {
   lowerModuleSource, MemoryVfs, packTar, WorkerModuleLoader,
   DEFAULT_ROOT, IMAGE_CONFIG_PATH, IMAGE_EMPTY_DIRECTORIES, IMAGE_MANIFEST_PATH,
+  IMAGE_OVERLAY_DIRECTORIES,
 } from '@deepseek-ai/dsh-experimental-webworker-runtime'
 import picomatch from 'picomatch'
 import yaml from 'js-yaml'
@@ -52,12 +53,16 @@ const workspaceExcluded = picomatch([...EXCLUDE, ...EXCLUDE_WORKSPACE], { dot: t
 /** Page-asset matcher over image paths ({@link PAGE_ASSETS}). */
 const pageAsset = picomatch([...PAGE_ASSETS], { dot: true })
 
-/** One directory tree to copy in verbatim beside the composition. */
-export interface ConfigTree {
+/** One directory tree to copy into the image at a caller-selected mount. */
+export interface ImageTree {
   /** Image path to mount it at, relative to the virtual root. */
   readonly mount: string
   /** Absolute source directory. */
   readonly directory: string
+}
+
+/** One configuration tree whose plugin rows may extend the package roster. */
+export interface ConfigTree extends ImageTree {
   /**
    * Whether plugin names inside its `.yml` files join the materialization closure.
    * An agent preset mounts plugins the base composition never lists, and creating a
@@ -117,6 +122,14 @@ export interface PackResult {
   readonly transform: TransformOutcome
   /** Wrapper contract recorded in the manifest; every packed body meets it. */
   readonly contract: string
+}
+
+/** One deterministic data-overlay archive and its uncompressed entries. */
+export interface PackOverlayResult {
+  /** Gzip-compressed ustar bytes consumed by the Worker host. */
+  readonly image: Uint8Array
+  /** Every path in the overlay before compression. */
+  readonly files: ImageFiles
 }
 
 const readJson = (file: string): Record<string, unknown> =>
@@ -204,20 +217,28 @@ function resolveDependency(fromDirectory: string, name: string): string | undefi
 
 /**
  * Collect files under one directory. Traversal mechanics live here — nested
- * `node_modules` never mounts (the image is flat) and dot directories are
- * tooling residue at any depth — while every judgement call comes in through
- * `keep` (the {@link EXCLUDE} tables and the npm publish view).
+ * package/config collection flattens nested `node_modules` and prunes dot
+ * directories, while seed collection preserves every directory. Every file
+ * judgement comes in through `keep` (the {@link EXCLUDE} tables and the npm
+ * publish view, or an unconditional seed predicate).
  * @param root - Source directory.
  * @param into - Image entries to add to.
  * @param prefix - Image path prefix.
  * @param keep - Filter over root-relative paths.
+ * @param preserveDirectories - Whether dot directories and nested `node_modules`
+ *   are ordinary fixture content rather than package-manager residue.
  */
-function collectTree(root: string, into: ImageFiles, prefix: string, keep: (relativePath: string) => boolean): void {
+function collectTree(
+  root: string,
+  into: ImageFiles,
+  prefix: string,
+  keep: (relativePath: string) => boolean,
+  preserveDirectories = false,
+): void {
   const walk = (directory: string): void => {
     for (const entry of readdirSync(directory, { withFileTypes: true })) {
       if (entry.isDirectory()) {
-        if (entry.name === 'node_modules') continue
-        if (entry.name.startsWith('.')) continue
+        if (!preserveDirectories && (entry.name === 'node_modules' || entry.name.startsWith('.'))) continue
         walk(join(directory, entry.name))
         continue
       }
@@ -620,4 +641,33 @@ export function packVfsImage(options: PackOptions): PackResult {
     transform,
     contract: WRAPPER_CONTRACT,
   }
+}
+
+/**
+ * Pack opaque data trees into one ordered VFS overlay.
+ *
+ * Overlay mounts are restricted to the runtime-owned data directories, so an
+ * overlay cannot replace configuration, the lowering manifest, or modules.
+ * Files bypass package excludes and module reachability processing; later
+ * trees replace earlier files at the same path.
+ * @param trees - Absolute source directories and their data-directory mounts.
+ * @returns Deterministic compressed archive plus its uncompressed entries.
+ */
+export function packVfsOverlay(trees: readonly ImageTree[]): PackOverlayResult {
+  const files: ImageFiles = {}
+  for (const tree of trees) {
+    if (!existsSync(tree.directory)) {
+      throw new Error(`vfs overlay: tree ${tree.mount} is missing at ${tree.directory}`)
+    }
+    const mount = tree.mount.replace(/^\.\//, '').replace(/\/$/, '')
+    const first = mount.split('/')[0]
+    if (mount === '' || first === undefined || !IMAGE_OVERLAY_DIRECTORIES.includes(first)
+      || mount.split('/').some(segment => segment === '' || segment === '.' || segment === '..')) {
+      throw new Error(
+        `vfs overlay: mount ${JSON.stringify(tree.mount)} must stay under ${IMAGE_OVERLAY_DIRECTORIES.join(' or ')}`,
+      )
+    }
+    collectTree(tree.directory, files, mount, () => true, true)
+  }
+  return { image: compressImage(packTar(files)), files }
 }

@@ -15,12 +15,11 @@
     "dsh": "lib/bin.js"
   },
   "files": [
-    "lib/*.js",
-    "config"
+    "lib/*.js"
   ],
   "dsh": {
     "configTrees": [
-      { "mount": "config/agent-presets", "path": "config/agent-presets", "scanRoster": true }
+      { "mount": "config/agent-presets", "path": "../../packages/preset/agent-presets/presets", "scanRoster": true }
     ]
   },
   "license": "MIT",

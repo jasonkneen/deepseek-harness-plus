@@ -12,9 +12,17 @@ import { MemoryVfs } from '@deepseek-ai/dsh-experimental-webworker-runtime/src/s
 import { setActiveVfs } from '@deepseek-ai/dsh-experimental-webworker-runtime/src/storage/active.ts'
 import * as fs from '@deepseek-ai/dsh-experimental-webworker-runtime/src/node/builtin_modules/implemented/fs.ts'
 import * as fsp from '@deepseek-ai/dsh-experimental-webworker-runtime/src/node/builtin_modules/implemented/fs/promises.ts'
-import type { VfsBigIntStats, VfsStats } from '@deepseek-ai/dsh-experimental-webworker-runtime/src/storage/types.ts'
+import type { VfsBigIntStats, VfsMutationSink, VfsStats } from '@deepseek-ai/dsh-experimental-webworker-runtime/src/storage/types.ts'
 
-const vfs = new MemoryVfs()
+let flushes = 0
+const sink: VfsMutationSink = {
+  record: () => {},
+  flush: () => {
+    flushes += 1
+    return Promise.resolve()
+  },
+}
+const vfs = new MemoryVfs({ sink })
 setActiveVfs(vfs)
 
 // Identity precondition: the bridge must read this exact mounted VFS; successful
@@ -76,9 +84,6 @@ throws('readFileSync missing', () => fs.readFileSync('/dsh/missing'), 'ENOENT')
 throws('statSync missing', () => fs.statSync('/dsh/missing'), 'ENOENT')
 throws('accessSync missing', () =>{  fs.accessSync('/dsh/missing') }, 'ENOENT')
 throws('readdirSync missing', () => fs.readdirSync('/dsh/missing'), 'ENOENT')
-throws('watchFile is loud', () => fs.watchFile('/dsh/config/cordis.yml'), 'not implemented')
-throws('createReadStream is loud', () => fs.createReadStream('/dsh/config/cordis.yml'), 'not implemented')
-
 const appendFd = fs.openSync('/dsh/log.jsonl', 'a')
 fs.writeSync(appendFd, '{"a":1}\n')
 fs.writeSync(appendFd, '{"a":2}\n')
@@ -112,6 +117,7 @@ const appendHandle = await fsp.open('/dsh/log-handle.jsonl', 'a')
 check('append handle sees the existing size', (await appendHandle.stat()).size, 7)
 await appendHandle.writeFile('batch-1\n')
 await appendHandle.sync()
+check('handle.sync flushes the active VFS', flushes, 1)
 await appendHandle.close()
 const secondHandle = await fsp.open('/dsh/log-handle.jsonl', 'a')
 await secondHandle.writeFile('batch-2\n')

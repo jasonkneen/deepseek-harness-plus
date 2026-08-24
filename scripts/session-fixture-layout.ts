@@ -7,6 +7,10 @@ import { resolve } from 'node:path'
 import { packChunkRuns, type SessionEvent } from '@deepseek-ai/dsh-session'
 import { parseSessionLog } from '@deepseek-ai/dsh-llm-replay'
 
+/** Physical persistence artifacts validated by the WebWorker runtime fixture spec. */
+const PHYSICAL_SESSION_FIXTURE_ROOT =
+  'packages/experimental/webworker-runtime/tests/fixtures/vfs-example/home/sessions/'
+
 /** One repository session fixture and its canonical projected representation. */
 export interface SessionFixtureLayout {
   /** Repository-relative path with `/` separators. */
@@ -15,6 +19,16 @@ export interface SessionFixtureLayout {
   source: string
   /** Canonical projected fixture bytes. */
   canonical: string
+}
+
+/**
+ * Whether a repository JSONL is a production-layout persistence artifact rather
+ * than an envelope-free replay snapshot owned by this script.
+ * @param path - Repository-relative path with `/` separators.
+ * @returns True only for Session logs under the WebWorker VFS example root.
+ */
+export function isPhysicalSessionFixture(path: string): boolean {
+  return path.startsWith(PHYSICAL_SESSION_FIXTURE_ROOT) && path.endsWith('/session.jsonl')
 }
 
 function isSessionHeader(value: unknown): boolean {
@@ -109,6 +123,7 @@ function discoverJsonlFiles(root: string): string[] {
  */
 export function inspectSessionFixtureLayouts(root: string): SessionFixtureLayout[] {
   return discoverJsonlFiles(root).flatMap((path) => {
+    if (isPhysicalSessionFixture(path)) return []
     const source = readFileSync(resolve(root, path), 'utf8')
     const canonical = canonicalSessionFixture(source, path)
     return canonical === undefined ? [] : [{ path, source, canonical }]

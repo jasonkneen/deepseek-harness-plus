@@ -46,7 +46,7 @@ const todoResult = (seq: number): ToolResultNode => ({
   kind: 'tool-result', seq, time: seq * 1_000, callId: `todo-${seq}`,
   call: { name: 'todo_write', argsRaw: JSON.stringify({ todos: TODOS }) },
   callTime: seq * 1_000 - 500,
-  content: [], isError: false, callView: null, resultView: null, subCalls: [],
+  content: [], isError: false, subCalls: [],
 })
 
 const bashResult = (seq: number, callId: string, over?: Partial<ToolResultNode>): ToolResultNode => ({
@@ -54,8 +54,6 @@ const bashResult = (seq: number, callId: string, over?: Partial<ToolResultNode>)
   call: { name: 'bash', argsRaw: '{"command":"ls -la","description":"List files"}' },
   callTime: seq * 1_000 - 500,
   content: [{ type: 'text', text: 'total 2\ndemo.txt\n' }], isError: false,
-  callView: { card: 'terminal', title: 'ls -la', description: 'List files' },
-  resultView: { card: 'terminal', output: 'total 2\ndemo.txt\n', exitCode: 0 },
   subCalls: [],
   ...over,
 })
@@ -142,8 +140,10 @@ describe('terminal card assembly', () => {
   it('both the keyed bash row and the fallback row reach the terminal card through the whole-row expand', async () => {
     const runtime = await bench([
       bashResult(3, 'c-keyed'),
-      // An unregistered tool with terminal views: GenericToolCard fallback.
-      bashResult(4, 'c-fallback', { call: { name: 'fx-bash', argsRaw: '{"command":"ls -la"}' } }),
+      // pwsh has no package-local keyed row, so GenericToolCard owns its raw terminal card.
+      bashResult(4, 'c-fallback', {
+        call: { name: 'pwsh', argsRaw: '{"command":"ls -la","description":"List files"}' },
+      }),
     ])
     const view = runtime.renderRoot()
 
@@ -157,7 +157,7 @@ describe('terminal card assembly', () => {
     })
 
     // Fallback row: same unified expand interaction.
-    const fallback = view.container.querySelector('[data-tool="fx-bash"]')
+    const fallback = view.container.querySelector('[data-tool="pwsh"]')
     expect(fallback).not.toBeNull()
     expect(fallback!.querySelector('[data-terminal]')).toBeNull()
     fireEvent.click(fallback!.querySelector('[data-expandable]')!)

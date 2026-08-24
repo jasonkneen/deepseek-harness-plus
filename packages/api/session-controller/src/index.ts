@@ -69,7 +69,6 @@ export class SessionController extends TypertRemoteService {
     'llm',
     'sessions',
     'sessionQuery',
-    'tools',
     'typert',
     'workspaceRegistry',
   ]
@@ -260,7 +259,7 @@ export class SessionController extends TypertRemoteService {
   /**
    * Read one cold-safe, message-aligned Session history page.
    * @param request - durable address, backward cursor, and page budget.
-   * @param signal - cancellation for persistence and presentation reads.
+   * @param signal - cancellation for persistence reads.
    * @returns one chronological page and optional latest projections.
    */
   @Remote('page')

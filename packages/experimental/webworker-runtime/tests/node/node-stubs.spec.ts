@@ -16,17 +16,14 @@ import { notAvailableError, notImplementedFail } from '../../src/node/notImpleme
 import * as childProcess from '../../src/node/builtin_modules/implemented/child_process.ts'
 import * as net from '../../src/node/builtin_modules/mock/net.ts'
 import * as sqlite from '../../src/node/builtin_modules/mock/sqlite.ts'
-import * as stream from '../../src/node/builtin_modules/mock/stream.ts'
+import * as stream from '../../src/node/builtin_modules/implemented/stream.ts'
 import * as vm from '../../src/node/builtin_modules/mock/vm.ts'
 import * as workerThreads from '../../src/node/builtin_modules/mock/worker_threads.ts'
-import * as chokidar from '../../src/node/external_packages/chokidar.ts'
-import * as landlock from '../../src/node/external_packages/node-addon-landlock-run.ts'
 import * as nodePty from '../../src/node/external_packages/node-pty.ts'
 import * as piAi from '../../src/node/external_packages/pi-ai.ts'
 import * as ripgrep from '../../src/node/external_packages/ripgrep.ts'
 import * as ws from '../../src/node/external_packages/ws.ts'
 import { REPLACED_EXTERNAL_PACKAGES } from '../../src/node/external_packages/replaced-externals.ts'
-import * as fs from '../../src/node/builtin_modules/implemented/fs.ts'
 import * as os from '../../src/node/builtin_modules/implemented/os.ts'
 import * as perfHooks from '../../src/node/builtin_modules/implemented/perf_hooks.ts'
 import { DSH_HOME, DSH_TMP } from '../../src/storage/paths.ts'
@@ -43,9 +40,7 @@ const CALLED: [string, Record<string, unknown>, readonly string[]][] = [
   // The rest of `node:child_process` runs commands (see child-process.spec.ts);
   // these three need a real process, so they stay refusals.
   ['node:child_process', childProcess, ['execFileSync', 'execSync', 'fork']],
-  ['node:stream', stream, ['Readable', 'Writable', 'Duplex', 'Transform', 'PassThrough', 'pipeline', 'finished']],
   ['node-pty', nodePty, ['spawn', 'open']],
-  ['@deepseek-ai/node-addon-landlock-run', landlock, ['probe']],
   ['@deepseek-ai/pi-ai', piAi, [
     'createProvider', 'createModels', 'openAICompletionsApi', 'openAIResponsesApi', 'anthropicMessagesApi',
     'isContextOverflow', 'getSupportedThinkingLevels',
@@ -95,7 +90,7 @@ describe('not-implemented stubs', () => {
   }
 
   it('keeps the CommonJS interop marker and a default export on every replaced module', () => {
-    for (const namespace of [net, sqlite, vm, workerThreads, childProcess, stream, chokidar, ws, nodePty, piAi, os, perfHooks]) {
+    for (const namespace of [net, sqlite, vm, workerThreads, childProcess, stream, ws, nodePty, piAi, os, perfHooks]) {
       const holder = namespace as { __esModule?: unknown; default?: unknown }
       expect(holder.__esModule).toBe(true)
       expect(holder.default).toBeDefined()
@@ -104,19 +99,6 @@ describe('not-implemented stubs', () => {
 })
 
 describe('constructible-but-inert fakes', () => {
-  // These two are constructed in `[Service.init]` bodies and field initializers,
-  // so construction must succeed; only the members that would move bytes refuse.
-  it('chokidar watches nothing and says so by never emitting', async () => {
-    const watcher = chokidar.watch()
-    expect(watcher).toBeInstanceOf(chokidar.FSWatcher)
-    expect(watcher.on()).toBe(watcher)
-    expect(watcher.once()).toBe(watcher)
-    expect(watcher.add()).toBe(watcher)
-    expect(watcher.unwatch()).toBe(watcher)
-    expect(watcher.getWatched()).toEqual({})
-    await expect(watcher.close()).resolves.toBeUndefined()
-  })
-
   it('a ws server constructs, accepts listeners, and refuses to carry an upgrade', () => {
     quiet()
     expect(ws.Server).toBe(ws.WebSocketServer)
@@ -133,16 +115,14 @@ describe('constructible-but-inert fakes', () => {
 
 describe('replaced external packages', () => {
   it('lists the packages the loader serves from the bundle', () => {
-    expect(REPLACED_EXTERNAL_PACKAGES).toContain('chokidar')
+    expect(REPLACED_EXTERNAL_PACKAGES).not.toContain('chokidar')
+    expect(REPLACED_EXTERNAL_PACKAGES).not.toContain('@deepseek-ai/node-addon-landlock-run')
     expect(REPLACED_EXTERNAL_PACKAGES).toContain('ws')
   })
 
   it('answers the values callers read without invoking anything', () => {
-    // The ripgrep binary path and the landlock launcher are read as data by
-    // consumers that then fail on their own terms.
+    // The ripgrep binary path is read as data by its consumer.
     expect(typeof ripgrep.rgPath).toBe('string')
-    expect(typeof landlock.LAUNCHER_BIN).toBe('string')
-    expect(typeof landlock.LAUNCHER_FAILURE_EXIT).toBe('number')
   })
 })
 
@@ -188,19 +168,5 @@ describe('node:perf_hooks', () => {
   it("hands over the worker's own clock", () => {
     expect(perfHooks.performance).toBe(globalThis.performance)
     expect(perfHooks.performance.now()).toBeGreaterThan(0)
-  })
-})
-
-describe('watching', () => {
-  // Watching stays a loud refusal because `skill-filesystem` AWAITS watcher
-  // progress rather than merely registering a listener; an inert watcher left
-  // its discovery hanging. `fs.ts` records the experiment and the mechanism.
-  it('refuses, naming the member, so an awaiting caller fails fast', () => {
-    quiet()
-    expect(() => fs.watchFile('/dsh/config/cordis.yml')).toThrow(/watchFile is not implemented in the worker host/)
-  })
-
-  it('accepts the unconditional teardown call, since nothing was watched', () => {
-    expect(() => { fs.unwatchFile() }).not.toThrow()
   })
 })

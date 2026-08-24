@@ -8,7 +8,7 @@
 
 `UiConversation.events` 是 event Definition 的唯一 registry，`UiConversation.views` 是 target snapshot builder 的唯一 registry。两者都拒绝重复 key、保持注册顺序、返回幂等 disposer，并在 contribution roster 变化时重建现有 binding。`UiConversation.binding(bindingOrSessionId)` 为当前 Session Controller binding 返回 identity 稳定的 Conversation binding，不会另开 event source。
 
-adapter 将每个 `SessionEventEntry` 转换成 `{ event, view? }` 形式的 `ConversationEventInput`：原始 Session event 保持不变，仅在 envelope-level tool view 存在时携带 `view`。连续 revision 的 append 和 prepend 使用增量组装；replace window 或 revision 断档从完整已加载窗口重建。assembler 拥有 Context 匹配、Turn/Step location、target node 物化、target activity 和稳定 target source。`ConversationSnapshot` 只包含与 target 无关的 View 与 active-target 事实；Session lifecycle 状态仍属于 `SessionSnapshot`。
+adapter 将每个 `SessionEventEntry` 转换成 `{ event }` 形式的 `ConversationEventInput`，并保留原始 Session event，包括工具结果 metadata。连续 revision 的 append 和 prepend 使用增量组装；replace window 或 revision 断档从完整已加载窗口重建。assembler 拥有 Context 匹配、Turn/Step location、target node 物化、target activity 和稳定 target source。`ConversationSnapshot` 只包含与 target 无关的 View 与 active-target 事实；Session lifecycle 状态仍属于 `SessionSnapshot`。
 
 target package 通过 declaration merge 扩展 snapshot 与 Location data map，再调用 `ctx.uiConversation.events.register(...)` 和 `ctx.uiConversation.views.register(...)`。target 通过 `ctx.uiConversation.binding(binding).target(targetId)` 读取其 Session-owned source。注册属于 Cordis effect，返回的 disposer 从同一个 registry 移除 contribution。
 

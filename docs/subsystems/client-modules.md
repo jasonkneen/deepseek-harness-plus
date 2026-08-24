@@ -14,11 +14,10 @@ The graph is the wire single source between the Node and browser halves: the hos
 /**
  * One composed client entry pushed by the host (a graph row). Wire
  * single source: the host node half (package root) produces this same shape.
- * `immediately` marks stage-one prefetch; `inject` is informational graph
- * metadata (the authoritative edges live in each package's `dsh.client`
- * declaration and reach fibers through entry creation). `external` carries
- * module-graph edges: unlike `inject`, they constrain code arrival because
- * `require` is synchronous (see {@link WebBootGraph.entries}).
+ * `immediately` marks stage-one prefetch. `inject` names package rows whose
+ * factories must arrive before this row materializes, while Cordis separately
+ * uses the same package edges to compose entries. `external` carries exact
+ * non-inject module requests (see {@link WebBootGraph.entries}).
  */
 interface WebBootEntry {
   /** Entry name == package name. */
@@ -27,7 +26,7 @@ interface WebBootEntry {
   url: string
   /** Bundle content hash (cache-busting consistency anchor). */
   rev: string
-  /** Package-name dependency edges, informational (preflight display / HMR diffing). */
+  /** Package-name dependency edges used for factory arrival and plugin composition. */
   inject?: string[]
   /** Stage-one prefetch mark: load the script for factory registration during module-face boot. */
   immediately?: boolean

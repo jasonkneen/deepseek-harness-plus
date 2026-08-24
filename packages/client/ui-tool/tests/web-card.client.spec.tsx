@@ -8,7 +8,6 @@ import type {
 } from '@deepseek-ai/dsh-client-ui-chat/client'
 import type { SessionListState } from '@deepseek-ai/dsh-api-session-controller/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
-import type { ToolResultView } from '@deepseek-ai/dsh-api-remotes/client'
 import {
   bindSnapshotSelector, conversationSnapshot, sessionSnapshot, workspaceSnapshot,
 } from '@deepseek-ai/dsh-client-test-runtime'
@@ -32,12 +31,24 @@ const SID = 's1' as SessionId
 const t = makeTranslate(zh, commonZh)
 const chatT = makeTranslate(chatZh, commonZh)
 
-const SEARCH_ARGS = '{"query":"deepseek harness"}'
+const SEARCH_ARGS = '{"queries":["deepseek harness"]}'
 const FETCH_ARGS = '{"url":"https://example.com/page"}'
 
-/** A web_search result view; overrides tune the sources / answer / truncation. */
-const resultSearch = (over?: Partial<Extract<ToolResultView, { card: 'web'; kind: 'search' }>>): ToolResultView => ({
-  card: 'web', kind: 'search', truncated: false,
+interface SearchMeta {
+  sources: { url: string; title?: string; snippet?: string; publishedAt?: string }[]
+  truncated: boolean
+  answer?: string
+}
+
+interface FetchMeta {
+  url: string
+  statusCode: number
+  truncated: boolean
+}
+
+/** Persisted web_search result metadata. */
+const searchMeta = (over?: Partial<SearchMeta>): SearchMeta => ({
+  truncated: false,
   answer: 'A short answer.',
   sources: [
     { url: 'https://example.com/a', title: 'Titled', snippet: 'excerpt', publishedAt: '2026-07-01' },
@@ -46,14 +57,14 @@ const resultSearch = (over?: Partial<Extract<ToolResultView, { card: 'web'; kind
   ...over,
 })
 
-/** A web_fetch result view. */
-const resultFetch = (over?: Partial<Extract<ToolResultView, { card: 'web'; kind: 'fetch' }>>): ToolResultView => ({
-  card: 'web', kind: 'fetch', url: 'https://example.com/page', statusCode: 200, truncated: false, ...over,
+/** Persisted web_fetch result metadata. */
+const fetchMeta = (over?: Partial<FetchMeta>): FetchMeta => ({
+  url: 'https://example.com/page', statusCode: 200, truncated: false, ...over,
 })
 
 const runningSearch = (over?: Partial<RunningToolCall>): RunningToolCall => ({
   callId: 'c1', name: 'web_search', argsRaw: SEARCH_ARGS,
-  turn: 1, step: 1, time: 1_000, callView: { card: 'generic', title: 'Search', kind: 'search' }, subCalls: [], ...over,
+  turn: 1, step: 1, time: 1_000, subCalls: [], ...over,
 })
 
 const settledSearch = (over?: Partial<ToolResultNode>): ToolResultNode => ({
@@ -61,7 +72,7 @@ const settledSearch = (over?: Partial<ToolResultNode>): ToolResultNode => ({
   call: { name: 'web_search', argsRaw: SEARCH_ARGS },
   callTime: 1_000,
   content: [{ type: 'text', text: 'search text' }], isError: false,
-  callView: { card: 'generic', title: 'Search', kind: 'search' }, resultView: resultSearch(), subCalls: [], ...over,
+  meta: searchMeta(), subCalls: [], ...over,
 })
 
 const settledFetch = (over?: Partial<ToolResultNode>): ToolResultNode => ({
@@ -69,53 +80,59 @@ const settledFetch = (over?: Partial<ToolResultNode>): ToolResultNode => ({
   call: { name: 'web_fetch', argsRaw: FETCH_ARGS },
   callTime: 1_000,
   content: [{ type: 'text', text: 'fetch body' }], isError: false,
-  callView: { card: 'generic', title: 'Fetch', kind: 'fetch' }, resultView: resultFetch(), subCalls: [], ...over,
+  meta: fetchMeta(), subCalls: [], ...over,
 })
 
 describe('webCardModel', () => {
-  it('derives a search card from the result view, projecting every source field', () => {
+  it('derives a search card from result metadata, projecting every source field', () => {
     expect(webCardModel(settledSearch())).toEqual({
       kind: 'search',
       answer: 'A short answer.',
       truncated: false,
       sources: [
         { url: 'https://example.com/a', title: 'Titled', snippet: 'excerpt', publishedAt: '2026-07-01' },
-        { url: 'https://plain.example.org/b', title: undefined, snippet: undefined, publishedAt: undefined },
+        { url: 'https://plain.example.org/b' },
       ],
     })
   })
 
   it('carries the search truncation flag and an absent answer', () => {
-    const model = webCardModel(settledSearch({ resultView: { card: 'web', kind: 'search', truncated: true, sources: [] } }))
+    const model = webCardModel(settledSearch({ meta: { truncated: true, sources: [] } }))
     expect(model).toEqual({ kind: 'search', answer: undefined, truncated: true, sources: [] })
   })
 
-  it('derives a fetch card from the result view', () => {
+  it('derives a fetch card from result metadata', () => {
     expect(webCardModel(settledFetch())).toEqual({
       kind: 'fetch', url: 'https://example.com/page', statusCode: 200, truncated: false,
     })
-    expect(webCardModel(settledFetch({ resultView: resultFetch({ statusCode: 404, truncated: true }) })))
+    expect(webCardModel(settledFetch({ meta: fetchMeta({ statusCode: 404, truncated: true }) })))
       .toEqual({ kind: 'fetch', url: 'https://example.com/page', statusCode: 404, truncated: true })
   })
 
   it('returns null for a running call, since the web card is result-only', () => {
     expect(webCardModel(runningSearch())).toBeNull()
-    // Even a running call that somehow carried a web call view stays generic:
-    // the derivation reads resultView only.
-    expect(webCardModel(runningSearch({ callView: null }))).toBeNull()
   })
 
-  it('returns null for a settled call whose result view is not a web card', () => {
-    expect(webCardModel(settledSearch({ resultView: null }))).toBeNull()
-    expect(webCardModel(settledSearch({ resultView: { card: 'generic' } }))).toBeNull()
-    // A card tag this UI version does not know arrives over the wire; the
-    // documented generic-card default takes it, not a crash.
-    const future = { card: 'chart', kind: 'search' } as unknown as ToolResultView
-    expect(webCardModel(settledSearch({ resultView: future }))).toBeNull()
-    // A web card whose kind this UI version does not know (a newer host's
-    // value) also takes the generic path, not a malformed fetch.
-    const futureKind = { card: 'web', kind: 'timeline' } as unknown as ToolResultView
-    expect(webCardModel(settledSearch({ resultView: futureKind }))).toBeNull()
+  it('returns null for missing calls, errors, malformed args/meta, unrelated tools, and children', () => {
+    expect(webCardModel(settledSearch({ call: null }))).toBeNull()
+    expect(webCardModel(settledSearch({ isError: true }))).toBeNull()
+    expect(webCardModel(settledSearch({ call: { name: 'web_search', argsRaw: '{' } }))).toBeNull()
+    expect(webCardModel(settledSearch({ meta: undefined }))).toBeNull()
+    expect(webCardModel(settledSearch({ meta: { sources: [], truncated: 'yes' } }))).toBeNull()
+    expect(webCardModel(settledSearch({ call: { name: 'echo', argsRaw: '{}' } }))).toBeNull()
+    expect(webCardModel(settledSearch({ parentCallId: 'parent' }))).toBeNull()
+  })
+
+  it('accepts open-root extensions while validating declared web arguments', () => {
+    expect(webCardModel(settledSearch({
+      call: { name: 'web_search', argsRaw: '{"queries":["deepseek"],"extension":1}' },
+    }))).not.toBeNull()
+    expect(webCardModel(settledSearch({
+      call: { name: 'web_search', argsRaw: '{"queries":[7]}' },
+    }))).toBeNull()
+    expect(webCardModel(settledFetch({
+      call: { name: 'web_fetch', argsRaw: '{"url":" "}' },
+    }))).toBeNull()
   })
 })
 
@@ -172,7 +189,7 @@ describe('chat row web body', () => {
 
   it('a failed web call keeps the summary row without the card', () => {
     const view = render(<WebRow {...rowProps(settledSearch({
-      isError: true, resultView: { card: 'generic' },
+      isError: true,
     }), 'web_search')} />)
     expect(view.getByText('网页搜索')).toBeTruthy()
     expect(view.container.querySelector('[data-web]')).toBeNull()
@@ -180,19 +197,19 @@ describe('chat row web body', () => {
     expect(view.container.querySelector('[data-state="error"]')).not.toBeNull()
   })
 
-  it('the GenericToolCard fallback also expands to a web card for a web-declaring tool', () => {
+  it('the GenericToolCard fallback does not promote an unknown tool from metadata alone', () => {
     const view = render(<GenericToolCard {...ownerProps(settledSearch({
       call: { name: 'fx-web', argsRaw: SEARCH_ARGS },
     }), 'fx-web')} t={t} />)
-    expect(view.container.querySelector('[data-web]')).toBeNull()
     toggleRow(view)
-    expect(view.getByText('Titled')).toBeTruthy()
-    expect(view.container.querySelector('[data-web="search"]')).not.toBeNull()
+    expect(view.container.querySelector('[data-web]')).toBeNull()
+    expect(view.getByText('search text')).toBeTruthy()
   })
 
   it('the GenericToolCard fallback keeps the plain row for a non-web call', () => {
     const view = render(<GenericToolCard {...ownerProps(settledSearch({
-      call: { name: 'echo', argsRaw: '{}' }, callView: null, resultView: null,
+      call: { name: 'echo', argsRaw: '{}' },
+      meta: undefined,
     }), 'echo')} t={t} />)
     expect(view.container.querySelector('[data-web]')).toBeNull()
   })
@@ -254,7 +271,7 @@ describe('DetailsPanel web Output section', () => {
     expect(view.getByText('Titled')).toBeTruthy()
     expect(view.getByText('excerpt')).toBeTruthy()
     // The Input JSON section survives beside it.
-    expect(view.getByText(/"query"/)).toBeTruthy()
+    expect(view.getByText(/"queries"/)).toBeTruthy()
   })
 
   it('renders the fetch card and keeps the fetched body below it', () => {
@@ -270,7 +287,7 @@ describe('DetailsPanel web Output section', () => {
 
   it('a non-web result keeps the flattened pre form', () => {
     const view = mount(snapshot({
-      nodes: [settledSearch({ callView: null, resultView: null })],
+      nodes: [settledSearch({ meta: undefined })],
     }), { turnSeq: 10, callId: 'c1', toolName: 'web_search' })
     expect(view.container.querySelector('[data-web]')).toBeNull()
     const output = view.getByText('输出').closest('section')

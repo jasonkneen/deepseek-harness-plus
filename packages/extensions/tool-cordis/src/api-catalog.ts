@@ -1275,7 +1275,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       {
         signature: '@Remote(\'page\') page(request: SessionPageRequest, signal: AbortSignal): Promise<SessionPage>',
         description: 'Read one cold-safe, message-aligned Session history page.',
-        parameters: [{ name: 'request', description: 'durable address, backward cursor, and page budget.' }, { name: 'signal', description: 'cancellation for persistence and presentation reads.' }],
+        parameters: [{ name: 'request', description: 'durable address, backward cursor, and page budget.' }, { name: 'signal', description: 'cancellation for persistence reads.' }],
         returns: 'one chronological page and optional latest projections.',
       },
       {
@@ -4415,7 +4415,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SessionEventEntry',
-    declaration: 'export interface SessionEventEntry {\n    readonly event: SessionWireEvent;\n    readonly view?: SessionToolView;\n}',
+    declaration: 'export interface SessionEventEntry {\n    readonly event: SessionWireEvent;\n}',
   },
   {
     name: 'SessionEventMap',
@@ -4752,14 +4752,6 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'SessionTitleUserMessage',
     declaration: 'export interface SessionTitleUserMessage {\n    readonly seq: number;\n    readonly text: string;\n}',
-  },
-  {
-    name: 'SessionToolCallView',
-    declaration: 'export type SessionToolCallView = (Omit<GenericCallView, \'rawInput\'> & {\n    readonly rawInput?: JsonValue;\n}) | TerminalCallView | DiffCallView;',
-  },
-  {
-    name: 'SessionToolView',
-    declaration: 'export type SessionToolView = {\n    readonly for: \'call\';\n    readonly view: SessionToolCallView;\n} | {\n    readonly for: \'result\';\n    readonly view: ToolResultView;\n};',
   },
   {
     name: 'SessionUpdateQueueRequest',

@@ -29,7 +29,7 @@ import { installProcessGlobal } from './node/globals/process.ts'
 import type { RequestListener } from './transport/synthetic-http.ts'
 import { TunnelServer, type TunnelPort } from './transport/tunnel.ts'
 import { inflateImage, inflateImageStream } from './storage/image-gzip.ts'
-import { loadVfsImage, MemoryVfs } from './storage/memory.ts'
+import { loadVfsImage, loadVfsOverlay, MemoryVfs } from './storage/memory.ts'
 import { setActiveVfs } from './storage/active.ts'
 import {
   DEFAULT_ROOT, IMAGE_CONFIG_PATH, IMAGE_EMPTY_DIRECTORIES, IMAGE_HOME_DIRECTORY, IMAGE_MANIFEST_PATH,
@@ -87,6 +87,8 @@ export interface WorkerHostOptions {
   readonly requestListener: () => Promise<RequestListener>
   /** Image bytes, or the URL the worker fetches them from. */
   readonly image: Uint8Array | string
+  /** Ordered data overlays applied after the base image and before boot. */
+  readonly overlays?: readonly (Uint8Array | string)[]
   /** Virtual root; defaults to {@link DEFAULT_ROOT}. */
   readonly root?: string
   /** Composed configuration inside the image; defaults to `<root>/config/cordis.yml`. */
@@ -182,8 +184,12 @@ export function createWorkerHost(options: WorkerHostOptions): WorkerHost {
       const home = join(root, IMAGE_HOME_DIRECTORY)
       installProcessGlobal({ cwd: root, env: { DSH_HOME: home, HOME: home, ...options.env } })
 
-      const bytes = await readImage(options.image)
+      const [bytes, overlays] = await Promise.all([
+        readImage(options.image),
+        Promise.all((options.overlays ?? []).map(readImage)),
+      ])
       const mounted = loadVfsImage(bytes, root)
+      for (const overlay of overlays) loadVfsOverlay(overlay, root, mounted)
       // Belt and braces over the image's own empty-directory entries: a hand
       // -built image without them still boots.
       for (const directory of IMAGE_EMPTY_DIRECTORIES) {
@@ -248,7 +254,7 @@ export function createWorkerHost(options: WorkerHostOptions): WorkerHost {
       const shared = ctx.get('connection') !== undefined
       const handler = directFetchHandler(ctx, toFetchHandler(apiProxy))
       const usage = loader.usage()
-      console.info(`webworker host: tree active (modules=${String(usage.modules)}, preset root overlay=${presetOverlay ? 'applied' : 'already in roster'}, direct lane=${shared ? 'connection.createSharedFetchHandler (interceptors kept)' : 'api surface only'}, als causality=${options.alsCausality === undefined ? 'inert' : 'snapshot/restore'}, image lowering=${LOWERING_VERSION})`)
+      console.info(`webworker host: tree active (modules=${String(usage.modules)}, data overlays=${String(overlays.length)}, preset root overlay=${presetOverlay ? 'applied' : 'already in roster'}, direct lane=${shared ? 'connection.createSharedFetchHandler (interceptors kept)' : 'api surface only'}, als causality=${options.alsCausality === undefined ? 'inert' : 'snapshot/restore'}, image lowering=${LOWERING_VERSION})`)
 
       tunnel.serve({
         directFetch: (request: Request) => handler.fetch(request),

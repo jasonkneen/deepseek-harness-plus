@@ -46,12 +46,12 @@ const codeResult = (seq: number, callId: string): ToolResultNode => ({
   kind: 'tool-result', seq, time: seq * 1_000, callId,
   call: { name: 'run_code', argsRaw: RUN_CODE_ARGS },
   callTime: seq * 1_000 - 500,
-  content: [{ type: 'text', text: 'demo.txt' }], isError: false, callView: null, resultView: null,
+  content: [{ type: 'text', text: 'demo.txt' }], isError: false,
   subCalls: [],
 })
 
 const runningCode = (callId: string): RunningToolCall => ({
-  callId, name: 'run_code', argsRaw: RUN_CODE_ARGS, turn: 9, step: 0, time: 9_000, callView: null,
+  callId, name: 'run_code', argsRaw: RUN_CODE_ARGS, turn: 9, step: 0, time: 9_000,
   subCalls: [],
 })
 
@@ -60,9 +60,10 @@ const subCall = (
 ): ToolCallBlock => ({
   kind: 'tool-result', seq, time: seq * 1_000,
   callId: `${parent}:code:${n}`,
+  parentCallId: parent,
   call: { name, argsRaw: JSON.stringify(args) },
   callTime: seq * 1_000,
-  content: [{ type: 'text', text: resultText }], isError, callView: null, resultView: null,
+  content: [{ type: 'text', text: resultText }], isError,
   subCalls: [],
 })
 
@@ -244,7 +245,8 @@ describe('run_code sub-calls through the real chat machinery', () => {
     const parent = 'call-live'
     const runningSub: ToolCallBlock = {
       callId: `${parent}:code:1`, name: 'grep', argsRaw: '{"pattern":"todo"}',
-      turn: 0, step: 0, time: 21_000, callView: null, subCalls: [],
+      parentCallId: parent,
+      turn: 0, step: 0, time: 21_000, subCalls: [],
     }
     const b = await bench(snapshotWith([], [runningSub], [runningCode(parent)]))
     const view = mountApp(b.runtime)
@@ -260,7 +262,7 @@ describe('run_code sub-calls through the real chat machinery', () => {
       kind: 'tool-result', seq: 10, time: 10_000, callId: parent,
       call: { name: 'mystery', argsRaw: '{"n":1}' },
       callTime: 9_500,
-      content: [], isError: false, callView: null, resultView: null, subCalls: [],
+      content: [], isError: false, subCalls: [],
     }
     const b = await bench(snapshotWith([plain], []))
     const view = mountApp(b.runtime)

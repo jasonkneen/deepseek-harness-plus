@@ -2,7 +2,7 @@
 
 English | [中文](README.zh.md)
 
-The VFS image packer: turns one composed profile into the single gzip-compressed tar the browser worker inflates and mounts as its filesystem ([experimental stance](../../../.agents/notes/implemented/architecture/2026-08-20-webworker-pack-lowering-and-preview.md)). Nothing is compiled from source — the image carries the repository's real build products, so a preview deployment debugs exactly what the served deployment ships.
+The VFS image packer: turns one composed profile into the gzip-compressed base tar the browser worker mounts as its filesystem, and opaque data trees into ordered overlay tars ([experimental stance](../../../.agents/notes/implemented/architecture/2026-08-20-webworker-pack-lowering-and-preview.md)). Nothing is compiled from source — the base image carries the repository's real build products, so a preview deployment debugs exactly what the served deployment ships.
 
 The pack is a three-layer standard stack:
 
@@ -10,7 +10,9 @@ The pack is a three-layer standard stack:
 2. **Publish view** — each workspace package contributes the slice npm would publish (`files` through picomatch) minus the rule tables in `src/rules.ts` (no sources, no workspace `dist/`; external packages keep their trees minus the same exclude globs).
 3. **Reachability sweep** — the runtime loader's own resolution walks from every workspace export face plus the worker assembly's seeds (`IMAGE_ENTRY_SEEDS`), lowering each reached module to the wrapper contract at pack time. Page assets (`lib/client.js` behind `./client` exports) ship verbatim; an unresolvable request from our own code fails the pack, third-party ones are tolerated to fail loud at require time.
 
-`repository.ts` owns the repo-shaped inputs (workspace scan of `vendor/`, `packages/`, `apps/`; profile composition through the real CLI dump path); `pack.ts` owns none of them, so the same library packs a different tree by being called differently. The CLI is `dsh-pack-vfs-image --out <file> [--profile web]`; `apps/web`'s `build:preview` runs it after the preview shell build.
+`repository.ts` owns the repo-shaped inputs (workspace scan of `vendor/`, `packages/`, `native/landlock-run/packages/`, and `apps/`; profile composition through the real CLI dump path); `pack.ts` owns none of them, so the same library packs a different tree by being called differently. The native scan makes the Landlock entry package an ordinary published-view dependency while its executable remains a Worker platform implementation. The CLI is `dsh-pack-vfs-image --out <file> [--profile web]`; `apps/web`'s `build:preview` runs it after the preview shell build.
+
+The repository adapter also declares the preview-only fixture trees under `webworker-runtime/tests/fixtures/`. The CLI packs each named fixture into a separate deterministic overlay archive plus a browser-readable manifest. Overlay files bypass npm publish-view and module-reachability exclusions, so dot directories and example source files remain intact; their mounts are limited to `home/` and `workspace/`. `pack.ts` treats them as opaque bytes, and Session and Workspace interpretation stays in the runtime packages that own those formats.
 
 ## Model Experience
 

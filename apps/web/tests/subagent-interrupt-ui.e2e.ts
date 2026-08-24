@@ -203,6 +203,7 @@ describe.skipIf(MODE === 'record')('web e2e: composer interrupt for a running co
         name: 'Parent session offline; sending is unavailable but you can still stop the run',
       })
       await input.waitFor({ timeout: 15_000 })
+      await page.getByText(INITIAL, { exact: true }).waitFor({ timeout: 15_000 })
       expect(await input.isDisabled()).toBe(true)
       const stop = page.getByRole('button', { name: 'Stop generating' })
       expect(await stop.count()).toBe(1)
@@ -247,7 +248,7 @@ describe.skipIf(MODE === 'record')('web e2e: composer interrupt for a running co
       await waitFor(() => existsSync(rearmedReadyFile), 'the re-armed child turn to open')
       expect(scaffold.ctx.agents.get(childId)?.status).toBe('running')
     } finally {
-      await page.unroute(pattern)
+      await page.unrouteAll({ behavior: 'wait' })
     }
   }, 60_000)
 

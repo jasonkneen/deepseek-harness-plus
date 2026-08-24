@@ -33,12 +33,13 @@ export interface TunnelAbortFrame {
 
 /** Frames the worker accepts. */
 /**
- * First inbound frame: the image URL, the one input the worker assembly
- * takes from outside.
+ * First inbound frame: the base image URL and ordered data overlays selected
+ * before the worker assembly starts.
  */
 export interface TunnelInitFrame {
   readonly t: 'init'
   readonly image: string
+  readonly overlays: readonly string[]
 }
 
 /** Every frame the page sends the worker. */
@@ -142,7 +143,10 @@ export function parseInboundFrame(data: unknown): TunnelInboundFrame {
     if (typeof frame.image !== 'string') {
       throw new Error('webworker tunnel: init frame needs a string image url')
     }
-    return { t: 'init', image: frame.image }
+    if (!Array.isArray(frame.overlays) || frame.overlays.some(overlay => typeof overlay !== 'string')) {
+      throw new Error('webworker tunnel: init frame needs an array of string overlay urls')
+    }
+    return { t: 'init', image: frame.image, overlays: frame.overlays as string[] }
   }
   const id = frame.id
   if (typeof id !== 'string' && typeof id !== 'number') {

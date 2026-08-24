@@ -20,7 +20,7 @@ tools:
 - `ctx.tools.register(definition: ToolDefinition): () => void`：注册一个受信任、带类型的同进程定义，其中必须包含规范的 `output` 声明。所在层由调用上下文的作用域决定：普通插件上下文会全局注册；agent 的 `agent.ctx` 只为该 agent 注册，并在此处遮蔽同名全局工具。同一层内名称重复会抛出；非原生模式还会拒绝保留的 `run_code` 传输名称。缺失或不受支持的输出声明，以及非正数或非有限的 `timeoutMs`，都会使注册失败。可选的同步 `finalizeContent` 回调会在调用开始时纳入快照；在所有流水线结果（包括实体化其他结果字段时发现的错误）规范化之后，它只能替换最终面向模型的内容。该注册会随调用方 fiber 一同 dispose（资源释放）。
 - `ctx.tools.presentAs(mode: ToolPresentationMode): () => void`：为本 agent 选择面向模型的呈现方式，仅对该 agent 遮蔽 `mode` 配置；从普通上下文调用会抛出（进程级呈现方式是那个配置字段），同一 scope 内第二次声明也会抛出。code 类模式还会为该 agent 注册它自己的 `tools:sdk` 段。工具目录保持不变：`schemas(agent)` 仍会报告该 agent 的能力；只有组装结果中的工具列表会按所选呈现方式收束。随调用方 fiber dispose。
 - `ctx.tools.restrict(filter)`：对全局工具应用 agent 作用域的允许／拒绝掩码；从普通上下文调用会抛出。筛选器在注册时创建快照；多个掩码取交集，随后再合并作用域本地工具。拒绝掩码会接纳后来出现且未点名的全局工具，而允许掩码会排除后来出现的名称。未知、本地或保留名称以及空筛选器都会被拒绝。这是实时可见性组合，不是权限边界；参见[作用域安全非目标](../../../.agents/notes/implemented/architecture/2026-07-08-agent-scope-contexts.zh.md#security-and-authority-are-non-goals)。
-- `ctx.tools.get(name: string, scope?: ScopeKey): ToolDefinition | undefined`：返回指定作用域可见的解析结果，其中已应用名称遮蔽；被作用域限制排除的全局工具会被视为不存在。呈现器会传入发起调用的 agent，使卡片与实际执行内容一致。
+- `ctx.tools.get(name: string, scope?: ScopeKey): ToolDefinition | undefined`：返回指定作用域可见的解析结果，其中已应用名称遮蔽；被作用域限制排除的全局工具会被视为不存在。需要匹配实际执行 definition 的 Host 本地 presenter 消费方会传入发起调用的 agent。
 - `ctx.tools.schemas(scope?: ScopeKey): ToolSchema[]`：返回该作用域可见的所有 schema（不含 `execute` 函数）。已交付工具的 schema 收录在 [docs/tool-catalog.md](../../../docs/tool-catalog.zh.md) 中；该目录通过启动每个工具插件并采集此方法的结果生成（参见[工具 schema 目录 Agent Note](../../../.agents/notes/implemented/process/2026-07-02-tool-schema-catalog.zh.md)）。
 - `ctx.tools.guard(guard: ToolGuard): () => void`：在 `tools/pre-execute` 之后注册单调同步执行守卫：返回理由会拒绝调用，返回 `undefined` 则保持原决定。普通上下文守卫全局生效；`agent.ctx` 守卫只对该 agent 生效。后续 waterfall（瀑布式事件）监听器无法将守卫的拒绝重新变为允许。随调用 fiber dispose。
 - `ctx.tools.execute(exec)`：以无损方式快照并冻结参数，分配不透明 token，运行完整的策略／分发／结果流水线，然后在最终观测前独立快照权威结果。无效参数会进入同一结果路径，但不会到达策略或工具主体。环绕包装层只能替换 `signal`；注册表会在进入工具主体之前，立即将调用方的原始信号重新合并到当前信号中。
@@ -49,7 +49,7 @@ tools:
 - `PreToolDecision`：`{kind:'allow'}` | `{kind:'deny', reason}` | `{kind:'ask', reason?}`。该类型有意不提供输入改写；`ask` 在挂载 [`ctx.approval`](../../interaction/user-approval/README.zh.md) 时由它处理，否则退化为拒绝。
 - `PostToolDecision`：接受决定可以替换 `content` 或 `value`（不能同时替换），并可附加 `additionalContexts`；阻止决定会把反馈变成无值失败。替换内容会保留规范值和元数据。替换值会重新验证，并重新呈现内容／元数据。接受决定会先保留工具延迟的上下文，再附加决定上下文；阻止决定会丢弃工具延迟的上下文，只公开阻止决定显式提供的上下文。
 - `ToolGuard`：`(execution) => string | undefined`；返回的字符串是最终单调拒绝理由，在可重排的前置执行 waterfall 之后、分发之前求值。
-- `ToolCallView` / `ToolResultView`：提供方无关、带 `card` 标签的呈现意图；工具通过 `presentCall` / `presentResult` 返回该意图，从而拥有 UI 呈现其自身调用的方式（参见「工具拥有的 UI 呈现」）。
+- `ToolCallView` / `ToolResultView`：保留的 Host 侧 `presentCall` / `presentResult` 扩展所返回的、提供方无关且带 `card` 标签的值（参见「Host 展示描述」）。内置 Web Client 不消费这些值。
 
 <a id="extension-points"></a>
 
@@ -106,14 +106,14 @@ ctx.tools.register(defineTool({
 
 `JsonSchemaNode` 是工具输出、Code Mode 生成、subagent 和工作流共享的原始 JSON Schema 对应类型。它允许任意 JSON 根、仅含注解且不施加约束的 JSON 节点，以及恰好匹配一个分支的 `oneOf`；注解必须保持为无损 JSON。`assertSupportedJsonSchema()` 拒绝不受支持的构造，而 `validateJsonSchemaValue()` 返回带路径的违规信息。subagent 和工作流通过 `assertObjectJsonSchema()` 与 `ObjectJsonSchema` 保留调用方定义的对象根要求，而不是依赖共享词汇的限制。
 
-### 由工具定义的 UI 呈现
+### Host 展示描述
 
-工具可以选择通过纯函数 `presentCall()` 和 `presentResult()` 定义呈现意图，使 UI 无需针对工具名称编写特殊逻辑：
+工具可以为 Host 本地消费方保留纯函数 `presentCall()` 和 `presentResult()` 呈现意图：
 
 - 调用视图为 `{ card: 'generic', title, kind?, rawInput?, content?, locations? }`、`{ card: 'terminal', title, description?, cwd? }` 或 `{ card: 'diff', title, diffs, locations? }`。
 - 结果视图为 `{ card: 'generic', title?, content? }`、`{ card: 'terminal', title?, output?, exitCode?, signal? }`、`{ card: 'diff', title?, diffs }`、`{ card: 'search', shape, title?, truncated, total, … }`（已完成的发现型搜索——`shape: 'matches'`（grep）为按文件分组的匹配，`shape: 'paths'`（glob）为扁平路径列表，配 `truncated`/`total` 使 UI 永不把被截断的结果当作完整结果呈现；该视图不携带结果文本，且搜索没有 `card: 'search'` 的调用时对应视图）、`{ card: 'read', title?, path, offset, lines, totalLines, lang?, content? }`（已完成的文件读取→带行号、可选语法高亮的代码视图；`offset` 是窗口请求的 1-based 起始行，即使 `lines` 为空也保留；`lines` 是 `{ number, text }[]`，保留每一行的文件行号，`content` 是去除读取结果外层封装后的正文，供不支持读取视图的 UI 回退显示）或 `{ card: 'web', kind: 'search' | 'fetch', title?, … }`（已完成的 web 检索；`kind` 各分支携带结构化的搜索来源或抓取摘要，不具备 `web` 能力的 UI 回退到原始结果内容）。
 
-返回 `undefined` 会选择通用回退。呈现器只依赖其参数和持久结果，因为 UI 会在实时流式输出和日志回放期间调用它们。`output.presentationMeta(args, value)` 为直接的顶层调用派生 JSON 元数据；该元数据随 `tool/result` 持久化并传回 `presentResult`，而规范值本身仍只存在于执行局部，绝不会回放。嵌套 Code 分发不会计算元数据。`defineTool` 会软验证较旧的日志参数并回退，而不会使回放崩溃。`dsh-tool-bash` 与 `dsh-tool-fs` 是参考实现；[规范输出 Agent Note](../../../.agents/notes/implemented/architecture/2026-07-20-canonical-tool-output-contract.zh.md) 规定值／呈现拆分，[呈现意图 Agent Note](../../../.agents/notes/implemented/architecture/2026-07-02-tool-render-intent-union.zh.md) 规定卡片词汇。
+返回 `undefined` 会让调用 presenter 的消费方选择通用回退。presenter 只依赖其参数和持久结果，因此消费方可以在实时流式输出或日志回放期间使用。`output.presentationMeta(args, value)` 为直接顶层调用派生 JSON metadata；该 metadata 随 `tool/result` 持久化，既可供 `presentResult` 使用，也可供自行派生展示的 Client 使用，而规范值本身仍只存在于执行局部，绝不会回放。嵌套 Code 分发不会计算 metadata。`defineTool` 会软验证旧日志参数，并在不匹配时返回 `undefined`。Session Remote 不调用也不运输这些 presenter：内置 Web Client 通过 `tool.call.toolview` 选择 renderer，并从原始调用参数、结果内容、失败状态和持久 metadata 派生 card props。`dsh-tool-bash` 与 `dsh-tool-fs` 仍是 presenter 参考实现；[规范输出 Agent Note](../../../.agents/notes/implemented/architecture/2026-07-20-canonical-tool-output-contract.zh.md) 规定值／呈现拆分，[呈现意图 Agent Note](../../../.agents/notes/implemented/architecture/2026-07-02-tool-render-intent-union.zh.md) 规定保留的卡片词汇，[Client 派生展示决定](../../../.agents/notes/implemented/architecture/2026-08-23-client-derived-tool-presentation.zh.md) 规定 Web transport 的拆分。
 
 ### Code Mode
 

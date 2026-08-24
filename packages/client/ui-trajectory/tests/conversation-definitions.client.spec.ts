@@ -184,7 +184,7 @@ describe('Trajectory conversation Definitions', () => {
     }])
   })
 
-  it('keeps parallel interrupted roots and nests Code Dispatch results', () => {
+  it('keeps parallel roots, raw Tool facts, and nested Code Dispatch results', () => {
     const current = snapshot(assembler([
       at(1, 'turn/start', { turn: 1 }),
       at(2, 'step/start', { turn: 1, step: 1 }),
@@ -209,16 +209,44 @@ describe('Trajectory conversation Definitions', () => {
         arguments: { path: 'README.md' },
         content: [{ type: 'text', text: 'contents' }],
       }),
-      at(7, 'step/end', { turn: 1, step: 1 }),
+      at(7, 'tool/result', {
+        turn: 1,
+        step: 1,
+        message: {
+          id: 'result-root-a',
+          role: 'user',
+          source: { kind: 'tool', callId: 'root-a' },
+          content: [{
+            type: 'tool-result',
+            toolCallId: 'root-a',
+            content: [{ type: 'text', text: 'root failed' }],
+            isError: true,
+          }],
+        },
+        error: { name: 'ToolError', code: 'failed' },
+        meta: { presentation: 'raw' },
+      }, { surfaceOp: 'append' }),
+      at(8, 'step/end', { turn: 1, step: 1 }),
     ]))
 
     const tools = current.eventNodes.filter(node => node.kind === 'tool-result')
     expect(tools.map(node => node.callId).sort()).toEqual(['root-a', 'root-b'])
-    expect(tools.find(node => node.callId === 'root-a')?.subCalls).toMatchObject([{
+    expect(tools.find(node => node.callId === 'root-a')).toMatchObject({
       kind: 'tool-result',
-      callId: 'child',
-      call: { name: 'read' },
-    }])
+      callId: 'root-a',
+      call: { name: 'code', argsRaw: '{}' },
+      content: [{ type: 'text', text: 'root failed' }],
+      isError: true,
+      error: { name: 'ToolError', code: 'failed' },
+      meta: { presentation: 'raw' },
+      subCalls: [{
+        kind: 'tool-result', callId: 'child', parentCallId: 'root-a', call: { name: 'read' },
+      }],
+    })
+    expect(tools.find(node => node.callId === 'root-b')).toMatchObject({
+      isError: true,
+      error: { name: 'Interrupted', code: 'interrupted' },
+    })
   })
 
   it('assembles compaction lifecycle, checkpoint replacement, and orphan interruption', () => {

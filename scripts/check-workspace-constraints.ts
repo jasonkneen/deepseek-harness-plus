@@ -59,7 +59,7 @@ const privateCarrierDirectories = new Set(['packages/sdk/python-runtime'])
 
 const localArtifactDirs = new Set(['node_modules'])
 const appPackageFiles: Readonly<Record<string, readonly string[]>> = {
-  '@deepseek-ai/dsh': ['lib/*.js', 'config'],
+  '@deepseek-ai/dsh': ['lib/*.js'],
   // Sourcemaps stay out by payload policy; the worker-preview surface
   // (dist/preview.html and dist/preview/) backs private experimental
   // packages and is not published.
@@ -154,6 +154,8 @@ const packageFileExtras: Readonly<Record<string, readonly string[]>> = {
   '@deepseek-ai/dsh-client-ui-theme': ['lib/styles'],
   // The CPython side ships as source .py files, published as-is rather than built.
   '@deepseek-ai/dsh-code-runtime-python': ['py/**/*.py'],
+  // The shipped preset compositions travel inside the roster package.
+  '@deepseek-ai/dsh-agent-presets': ['presets'],
   // The private Python carrier ships only its closed-resolution entry.
   '@deepseek-ai/dsh-sdk-python-runtime': ['lib/packaged-bin.js'],
   // The argv-prefix runner entry ships beside the lib as its own bundle;

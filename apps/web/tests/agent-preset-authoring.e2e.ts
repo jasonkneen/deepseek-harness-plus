@@ -27,8 +27,8 @@ const SECTION_EXPECTED = join(SNAPSHOT_DIR, 'section.expected.md')
 const COPY_DIALOG_EXPECTED = join(SNAPSHOT_DIR, 'copy-dialog.expected.md')
 const CREATED_EXPECTED = join(SNAPSHOT_DIR, 'created.expected.md')
 const DAMAGED_EXPECTED = join(SNAPSHOT_DIR, 'damaged.expected.md')
-/** The shipped roster, beside the composition that names it. */
-const SHIPPED_PRESETS = fileURLToPath(new URL('../../cli/config/agent-presets', import.meta.url))
+/** The shipped roster, bundled inside the `dsh-agent-presets` package. */
+const SHIPPED_PRESETS = fileURLToPath(new URL('../../../packages/preset/agent-presets/presets', import.meta.url))
 const OVERLAY = fileURLToPath(new URL('./agent-preset-authoring.overlay.yml', import.meta.url))
 const MODE = webSnapshotMode()
 
@@ -60,10 +60,8 @@ describe('web e2e: agent-preset authoring is a host-side copy', () => {
     scaffold = await launchWebScaffold({
       extraOverlayPath: OVERLAY,
       agentPresets: {
-        roots: [
-          { path: SHIPPED_PRESETS, trust: 'system' },
-          { path: userRoot, trust: 'user' },
-        ],
+        // The shipped root is the plugin's own, prepended before this.
+        roots: [{ path: userRoot, trust: 'user' }],
         default: 'standard',
       },
     })

@@ -4,9 +4,9 @@
  * listener; the assembly owns everything else (process global, VFS image,
  * Cordis tree, tunnel server).
  *
- * The assembly needs the image location before it can exist, and it arrives in
- * the tunnel's opening `init` frame — this bundle reads nothing from its own
- * URL, so the deployment decides where both the bundle and the image live.
+ * The assembly needs the base image and selected overlays before it can exist;
+ * they arrive in the tunnel's opening `init` frame. This bundle reads nothing
+ * from its own URL, so the deployment decides where every archive lives.
  * Messages before `init` queue here; requests during boot queue inside the
  * host, which attaches its handler before its first await.
  */
@@ -52,12 +52,16 @@ self.addEventListener('message', (event: MessageEvent) => {
     if (typeof data.image !== 'string') {
       throw new Error('webworker: init frame needs a string image url')
     }
+    if (!Array.isArray(data.overlays) || data.overlays.some(overlay => typeof overlay !== 'string')) {
+      throw new Error('webworker: init frame needs an array of string overlay urls')
+    }
     const created = createWorkerHost({
       staticModules: createNodeBuiltins(),
       staticModulePrefixes: REPLACED_PREFIXES,
       requestListener: whenRequestListener,
       alsCausality,
       image: data.image,
+      overlays: data.overlays as string[],
     })
     host = created
     for (const queued of pending) {

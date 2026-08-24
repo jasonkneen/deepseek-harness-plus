@@ -56,7 +56,7 @@ export const MODULE_PROXIES: Record<string, string> = {
   'node:child_process': './node/builtin_modules/implemented/child_process.ts',
   // Structural mocks: every symbol exists, every call throws.
   'node:net': './node/builtin_modules/mock/net.ts',
-  'node:stream': './node/builtin_modules/mock/stream.ts',
+  'node:stream': './node/builtin_modules/implemented/stream.ts',
   'node:vm': './node/builtin_modules/mock/vm.ts',
   'node:worker_threads': './node/builtin_modules/mock/worker_threads.ts',
   'node:sqlite': './node/builtin_modules/mock/sqlite.ts',
@@ -66,10 +66,8 @@ export const MODULE_PROXIES: Record<string, string> = {
   'node-pty': './node/external_packages/node-pty.ts',
   '@vscode/ripgrep': './node/external_packages/ripgrep.ts',
   '@earendil-works/pi-ai': './node/external_packages/pi-ai.ts',
-  '@deepseek-ai/node-addon-landlock-run': './node/external_packages/node-addon-landlock-run.ts',
   // Constructible fakes whose methods are never reached.
   'ws': './node/external_packages/ws.ts',
-  'chokidar': './node/external_packages/chokidar.ts',
 }
 
 

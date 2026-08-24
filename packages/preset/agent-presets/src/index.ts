@@ -29,7 +29,7 @@ import { bindScopeParent, createScope, scopeOf, type Scope, type ScopeKey, type 
 import type {} from '@deepseek-ai/dsh-agent'
 import { settingsNamespace, type SettingsScope, type default as SettingsService } from '@deepseek-ai/dsh-settings'
 import { dshHomePath } from '@deepseek-ai/dsh-home-paths'
-import { discoverPresets, USER_PRESET_DIR } from './discovery.ts'
+import { discoverPresets, SHIPPED_PRESET_ROOT, USER_PRESET_DIR } from './discovery.ts'
 import { copyComposition, deleteComposition, readComposition } from './authoring.ts'
 import { mountPreset, serviceForAgent, standingMountFor } from './mount.ts'
 import { PresetExistsError } from './authoring.ts'
@@ -50,7 +50,7 @@ export const AgentPresetSettingsSchema: z<AgentPresetSettings> = z.object({
   default: z.string(),
 })
 
-export { COMPOSITION_FILE, discoverPresets, scanRoot } from './discovery.ts'
+export { COMPOSITION_FILE, discoverPresets, scanRoot, SHIPPED_PRESET_ROOT } from './discovery.ts'
 export {
   METADATA_FILE, readPresetMetadata, renderPresetMetadata, type PresetMetadata,
 } from './metadata.ts'
@@ -89,18 +89,21 @@ export class AgentPresets extends Service {
       path: z.string().required(),
       trust: z.union(['system', 'user'] as const).default('user'),
     })).default([]),
+    includeShippedRoot: z.boolean().default(true),
     includeUserRoot: z.boolean().default(true),
   }) as z<Config>
 
   /**
-   * The roots discovery and authoring actually scan: every configured root in
+   * The roots discovery and authoring actually scan: the package's shipped
+   * root unless `includeShippedRoot` is false, then every configured root in
    * order, then the harness-home user root unless `includeUserRoot` is false.
    *
    * Derived once, because a root set that changed between `list()` and the
    * `copy()` acting on its answer would author into a directory the caller
-   * never saw. Appending rather than prepending keeps an earlier configured
-   * root winning a duplicate id, so a shipped preset still shadows a
-   * locally authored directory that claimed its name.
+   * never saw. The shipped root comes FIRST and the user root LAST because an
+   * earlier root wins a duplicate id: a shipped preset shadows any directory
+   * that claimed its name, and a configured root still shadows a locally
+   * authored one.
    */
   private readonly resolvedRoots: readonly PresetRoot[]
 
@@ -130,9 +133,11 @@ export class AgentPresets extends Service {
   constructor(ctx: Context, public config: Config) {
     super(ctx, 'agentPresets')
     this.selfCtx = ctx
-    this.resolvedRoots = config.includeUserRoot
-      ? [...config.roots, { path: dshHomePath(USER_PRESET_DIR), trust: 'user' }]
-      : [...config.roots]
+    this.resolvedRoots = [
+      ...config.includeShippedRoot ? [{ path: SHIPPED_PRESET_ROOT, trust: 'system' } satisfies PresetRoot] : [],
+      ...config.roots,
+      ...config.includeUserRoot ? [{ path: dshHomePath(USER_PRESET_DIR), trust: 'user' } satisfies PresetRoot] : [],
+    ]
     // Deliberately not `installSettingsSection`: that helper exists to re-judge
     // what a consumer DERIVED from the source — memoized resolutions,
     // registration-level facts — across attach, detach, and change. Nothing
@@ -338,10 +343,11 @@ export class AgentPresets extends Service {
   }
 
   /**
-   * The roots this roster scans, which is not `config.roots`: it is every
-   * configured root in order, then the harness-home user root unless
-   * `includeUserRoot` is false. Read this — not the config field — to answer
-   * whether a roster is composed at all, so one derivation decides it.
+   * The roots this roster scans, which is not `config.roots`: the package's
+   * shipped root unless `includeShippedRoot` is false, every configured root
+   * in order, then the harness-home user root unless `includeUserRoot` is
+   * false. Read this — not the config field — to answer whether a roster is
+   * composed at all, so one derivation decides it.
    */
   get roots(): readonly PresetRoot[] {
     return this.resolvedRoots

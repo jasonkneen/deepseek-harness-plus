@@ -241,7 +241,8 @@
     "packages/experimental/webworker-runtime": {
       "entry": [
         "tests/**/*.spec.ts",
-        "tests/compile/transform-corpus-check.ts"
+        "tests/compile/transform-corpus-check.ts",
+        "tests/fixtures/vfs-example/workspace/src/preview.ts"
       ],
       "project": [
         "src/**/*.ts",

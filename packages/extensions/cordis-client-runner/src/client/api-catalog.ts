@@ -647,7 +647,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SessionEventEntry',
-    declaration: 'export interface SessionEventEntry {\n    readonly event: SessionWireEvent;\n    readonly view?: SessionToolView;\n}',
+    declaration: 'export interface SessionEventEntry {\n    readonly event: SessionWireEvent;\n}',
   },
   {
     name: 'SessionEventSource',
@@ -684,14 +684,6 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'SessionStandardProps',
     declaration: 'export interface SessionStandardProps {\n}',
-  },
-  {
-    name: 'SessionToolCallView',
-    declaration: 'export type SessionToolCallView = (Omit<GenericCallView, \'rawInput\'> & {\n    readonly rawInput?: JsonValue;\n}) | TerminalCallView | DiffCallView;',
-  },
-  {
-    name: 'SessionToolView',
-    declaration: 'export type SessionToolView = {\n    readonly for: \'call\';\n    readonly view: SessionToolCallView;\n} | {\n    readonly for: \'result\';\n    readonly view: ToolResultView;\n};',
   },
   {
     name: 'SessionWireEvent',

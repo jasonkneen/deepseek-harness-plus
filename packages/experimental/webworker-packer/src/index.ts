@@ -7,9 +7,10 @@ export {
   type ImageFiles, type TransformOutcome,
 } from './transform-image.ts'
 export {
-  CONFIG_PATH, DEFAULT_ROOT, MANIFEST_PATH, packVfsImage,
-  type ConfigTree, type PackOptions, type PackResult,
+  CONFIG_PATH, DEFAULT_ROOT, MANIFEST_PATH, packVfsImage, packVfsOverlay,
+  type ConfigTree, type ImageTree, type PackOptions, type PackOverlayResult, type PackResult,
 } from './pack.ts'
 export {
-  composeProfile, configTrees, describePack, indexWorkspacePackages,
+  composeProfile, configTrees, describePack, indexWorkspacePackages, previewFixtures,
+  type PreviewFixture,
 } from './repository.ts'

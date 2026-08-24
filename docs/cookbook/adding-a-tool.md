@@ -87,7 +87,13 @@ Hard rules (they bite if broken):
 - **UI-only formatting stays out of the model result.** A fenced ` ```console ` block, a diff, a relativized path—none of these belongs in the canonical value or Native content merely to serve a UI. `output.render` owns model-facing prose; `presentationMeta` plus the card presenters own replayable UI state. A `terminal` result view carries raw output and the adapter adds any fallback framing.
 - **`defineTool` soft-validates the display path.** Malformed or older logged arguments make the wrapper return `undefined` (a generic fallback) rather than throw — display must never crash a replay.
 
-The neutral vocabulary lives in `dsh-tools`; tools never import a UI or transport type. Host/client runtimes map each `card` into their own view. The design and the why are in [the render-intent-union Agent Note](../../.agents/notes/implemented/architecture/2026-07-02-tool-render-intent-union.md); `dsh-tool-fs` (generic/diff) and `dsh-tool-bash` (terminal) are the reference implementations.
+The neutral vocabulary lives in `dsh-tools`; tools never import a UI or transport type. Consumers of this API map each `card` into their own view. The design and the why are in [the render-intent-union Agent Note](../../.agents/notes/implemented/architecture/2026-07-02-tool-render-intent-union.md); `dsh-tool-fs` (generic/diff) and `dsh-tool-bash` (terminal) are the reference implementations.
+
+## Web Client presentation
+
+The built-in Web Client does not consume `presentCall` or `presentResult`. Session `page` and `follow` transport raw `tool/call` and `tool/result` events, including persisted `result.meta`. A Client plugin registers its wire tool name in the `tool.call.toolview` keyed slot and derives component props from the `ToolCallBlock` arguments, content, error, metadata, existing Code Dispatch `parentCallId`, and Session path facts. It validates these wire values locally and returns the generic row for malformed or unsupported input.
+
+Use `output.presentationMeta(args, value)` when an existing Web card needs bounded structured result facts that model-facing content cannot preserve losslessly. Do not store React props or a selected card in metadata, import a Host tool implementation into a browser bundle, or create another Client presenter registry. Defining Host presentation methods alone does not add a specialized Web card. The [Client-derived presentation Agent Note](../../.agents/notes/implemented/architecture/2026-08-23-client-derived-tool-presentation.md) defines ownership, fallback, and equivalence requirements.
 
 ## Verification
 

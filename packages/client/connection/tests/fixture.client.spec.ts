@@ -37,7 +37,6 @@ interface FixtureSessionSummary {
 
 interface FixtureHistoryEntry {
   readonly event: SessionEvent
-  readonly view?: unknown
 }
 
 interface FixturePage {
@@ -646,6 +645,49 @@ describe('createFixtureApi', () => {
         },
       } },
     })
+  })
+
+  it('serves raw history entries with replayable tool-result metadata', async () => {
+    const api = createFixtureApi()
+    const response = await api.sessions.history(req({ sessionId: sid('fx-alpha'), maxMessages: 200 }))
+    if (!response.result.ok) throw new Error('history failed')
+
+    const entries = response.result.value.events
+    expect(entries.every(entry => !Object.hasOwn(entry, 'view'))).toBe(true)
+    const results = entries
+      .map(entry => entry.event)
+      .filter(event => event.type === 'tool/result')
+
+    expect(results.find(event => event.data.turn === 64)).toMatchObject({
+      data: {
+        meta: {
+          diffs: [
+            { path: 'src/config.ts', oldText: 'const timeout = 30', newText: 'const timeout = 60' },
+            { path: 'src/config.ts', oldText: 'retries: 1', newText: 'retries: 3' },
+          ],
+        },
+      },
+    })
+    expect(results.find(event => event.data.turn === 67)).toMatchObject({
+      data: { meta: { shape: 'matches', truncated: true, total: 42 } },
+    })
+    expect(results.find(event => event.data.turn === 69)).toMatchObject({
+      data: { meta: { path: 'packages/client/ui-primitives/src/ReadBlock.tsx', offset: 41, totalLines: 180 } },
+    })
+    const webSearch = results.find(event => event.data.turn === 70)
+    expect(webSearch).toHaveProperty('data.meta.truncated', true)
+    expect(webSearch).toHaveProperty('data.meta.sources', expect.arrayContaining([
+      expect.objectContaining({ url: 'https://github.com/deepseek-ai/deepseek-harness' }),
+    ]))
+    expect(results.find(event => event.data.turn === 71)).toMatchObject({
+      data: { meta: { url: 'https://www.deepseek.com/blog/harness-architecture', statusCode: 200 } },
+    })
+    const terminal = results.find(event => event.data.turn === 66)
+    expect(terminal).toHaveProperty('data.message.content.0.content.0.type', 'text')
+    expect(terminal).toHaveProperty(
+      'data.message.content.0.content.0.text',
+      expect.stringContaining('\n[exit code: 1]'),
+    )
   })
 
   it('serves grouped models and keeps a selection for later history and fixture requests', async () => {
