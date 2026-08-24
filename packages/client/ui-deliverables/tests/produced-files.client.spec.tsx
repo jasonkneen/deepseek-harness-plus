@@ -9,15 +9,16 @@ import { Context } from '@deepseek-ai/cordis'
 import { act, cleanup, fireEvent, render, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
-  ConversationEventRegistry, ConversationNodeAssembler, SlotRegistry,
-} from '@deepseek-ai/dsh-client-runtime/client'
+  ConversationNodeAssembler, UiConversation,
+} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type {
   ConversationEventInput, ConversationLocationDataStore, ConversationMatch, ConversationNodeDefinition,
   ConversationTimelineSnapshot, ConversationTurnDataMap, ConversationViewDefinition,
-  ConversationViewNode, ToolResultNode, TurnLocation,
-} from '@deepseek-ai/dsh-client-runtime/client'
+  ConversationViewNode, TurnLocation,
+} from '@deepseek-ai/dsh-client-ui-conversation/client'
+import { SlotRegistry } from '@deepseek-ai/dsh-client-ui-renderer/client'
 import { apply as applyLocale, inject as localeInject } from '@deepseek-ai/dsh-client-locale/client'
-import type { ChatFileMentions, TurnTailOwnerProps } from '@deepseek-ai/dsh-client-ui-conversation/client'
+import type { ChatFileMentions, TurnTailOwnerProps } from '@deepseek-ai/dsh-client-ui-chat/client'
 import { makeTranslate, stubSettingsScope } from '@deepseek-ai/dsh-client-test-runtime'
 import {
   fitProducedFiles, ProducedFiles, type ProducedFilesProps,
@@ -115,7 +116,7 @@ function at(
       seq, time: seq * 1_000, type, data,
       ...(type === 'tool/result' ? { surfaceOp: 'append' } : {}),
     } as ConversationEventInput['event'],
-    view,
+    ...(view === undefined ? {} : { view }),
   }
 }
 
@@ -123,10 +124,12 @@ function matched(input: ConversationEventInput, role: ConversationMatch['role'])
   return { ...input, role, location: { kind: 'unresolved' } }
 }
 
+type WireCallView = Extract<NonNullable<ConversationEventInput['view']>, { for: 'call' }>['view']
+
 function call(
   seq: number,
   callId: string,
-  view: ToolResultNode['callView'],
+  view: WireCallView | null,
   turn = 1,
 ): ConversationEventInput {
   return at(
@@ -148,7 +151,7 @@ function result(seq: number, callId: string, isError = false, turn = 1): Convers
   })
 }
 
-function diff(...paths: string[]): ToolResultNode['callView'] {
+function diff(...paths: string[]): WireCallView {
   return {
     card: 'diff', title: `Write ${paths[0] ?? ''}`,
     diffs: paths.map(path => ({ path, oldText: null, newText: 'x' })),
@@ -156,7 +159,7 @@ function diff(...paths: string[]): ToolResultNode['callView'] {
   }
 }
 
-function edit(path: string): ToolResultNode['callView'] {
+function edit(path: string): WireCallView {
   return { card: 'generic', title: `insert ${path}`, kind: 'edit', locations: [{ path }] }
 }
 
@@ -454,7 +457,7 @@ describe('plugin registration', () => {
   it('registers the tail entry and fiber disposal removes it', async () => {
     const ctx = new Context()
     await ctx.plugin(SlotRegistry).await()
-    await ctx.plugin(ConversationEventRegistry).await()
+    new UiConversation(ctx, { binding: () => undefined } as never)
     // The owning view's child declaration, stood up by a bench root entry.
     ctx.slots.register({
       name: 'root',

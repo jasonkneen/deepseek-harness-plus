@@ -97,6 +97,10 @@ class MemoryPersistence extends SessionPersistence implements PersistenceBackend
     return this.coordinator.create(m)
   }
 
+  override ensureMaterialized(session: Session): Promise<void> {
+    return this.coordinator.ensureMaterialized(session)
+  }
+
   append(id: SessionId, events: readonly SessionEvent[]): Promise<void> {
     return this.coordinator.append(id, events)
   }
@@ -149,6 +153,11 @@ class MemoryPersistence extends SessionPersistence implements PersistenceBackend
     } else {
       existing.events.push(...structuredClone(events) as SessionEvent[])
     }
+  }
+
+  materializeHeader(m: SessionHeader): Promise<void> {
+    this.store.set(m.id, { meta: structuredClone(m), events: [] })
+    return Promise.resolve()
   }
 
   async commitRepair(m: SessionHeader, _tornMarker: undefined, closers: readonly SessionEvent[]): Promise<void> {
@@ -239,7 +248,6 @@ class ControlledBackend implements PersistenceBackend<never> {
   }
 }
 
-// Run the shared contract against the in-memory backend.
 runPersistenceContract('memory', async () => {
   const ctx = new Context()
   await ctx.plugin(SessionStore)
@@ -1781,6 +1789,72 @@ describe('PersistenceCoordinator retirement', () => {
 })
 
 describe('SessionPersistence service registration', () => {
+  it('materializes an explicitly durable live session without adding events', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    await ctx.plugin(MemoryPersistence)
+    const session = ctx.sessions.create(SessionId('durable-empty'), { meta: { cwd: '/workspace' } })
+
+    await ctx.sessionPersistence.ensureMaterialized(session)
+    await ctx.sessionPersistence.ensureMaterialized(session)
+
+    await expect(ctx.sessionPersistence.list()).resolves.toEqual([session.header])
+    await expect(ctx.sessionPersistence.load(session.id)).resolves.toEqual({ meta: session.header, events: [] })
+    await ctx.fiber.dispose()
+  })
+
+  it('fails loud when a direct backend does not support empty materialization', async () => {
+    const session = Session.create(SessionId('unsupported-empty'))
+    await expect(SessionPersistence.prototype.ensureMaterialized.call({} as SessionPersistence, session))
+      .rejects.toThrow(/cannot materialize an empty session/)
+  })
+
+  it('fails loud when a coordinator backend omits empty materialization', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    let coordinator!: PersistenceCoordinator
+    await ctx.plugin(Object.assign((inner: Context) => {
+      coordinator = new PersistenceCoordinator(inner, new ControlledBackend())
+    }, { inject: ['sessions'] }))
+    const session = ctx.sessions.create(SessionId('unsupported-coordinator'))
+
+    await expect(coordinator.ensureMaterialized(session)).rejects.toThrow(/cannot materialize an empty session/)
+    await ctx.fiber.dispose()
+  })
+
+  it('accepts current aborted and error turn endings without legacy conversion', async () => {
+    const store: MemoryStore = new Map()
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const endings: SessionEvent[] = [
+      {
+        type: 'turn/end', seq: 5, time: 6,
+        data: { turn: 1, reason: { kind: 'aborted', reason: { kind: 'user' } } },
+      },
+      {
+        type: 'turn/end', seq: 5, time: 6,
+        data: { turn: 1, reason: { kind: 'error', error: { message: 'failed', code: 'UNKNOWN' } } },
+      },
+    ]
+    for (const [index, ending] of endings.entries()) {
+      const m = meta(`current-ending-${index}`)
+      store.set(m.id, { meta: m, events: [...oneTurnLog().slice(0, -1), ending] })
+    }
+    await ctx.plugin(MemoryPersistence, { store })
+    await Promise.all([...store.keys()].map(id => ctx.sessionPersistence.load(SessionId(id))))
+    await ctx.fiber.dispose()
+  })
+
+  it('rejects preparing an id that already has a live Session', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    await ctx.plugin(MemoryPersistence)
+    const session = ctx.sessions.create(SessionId('live-prepare-conflict'))
+
+    await expect(ctx.sessionPersistence.prepare(session.id)).rejects.toThrow(/while it is live/)
+    await ctx.fiber.dispose()
+  })
+
   it('provides a cancellation-aware default preparation for simple backends', async () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)

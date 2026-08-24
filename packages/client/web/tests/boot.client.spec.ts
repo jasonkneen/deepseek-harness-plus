@@ -9,13 +9,19 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { AppWebEntry } from '../src/boot.ts'
 
 const MODULES_ID = '@deepseek-ai/dsh-client-modules'
+const PROVIDER_CLIENT_ID = 'provider/client'
+const RUNTIME_CLIENT_ID = 'runtime/client'
 const win = globalThis as DshWindow
+const transportGlobal = globalThis as {
+  __DSH_TRANSPORT__?: { loadBundle(url: string): Promise<void> }
+}
 const moduleFace = modulesClient as unknown as Record<string, unknown>
 
 afterEach(() => {
   vi.restoreAllMocks()
   delete win.__DSH_BOOT__
   delete win.__ModuleLoader__
+  delete transportGlobal.__DSH_TRANSPORT__
   document.body.innerHTML = ''
 })
 
@@ -80,6 +86,69 @@ describe('bootstrap failure rendering', () => {
 })
 
 describe('plugin activation', () => {
+  it('prefetches a parser-loaded immediate row through the injected bundle transport', async () => {
+    const container = document.createElement('div')
+    document.body.append(container)
+    const target = installFacade()
+    const entries: WebBootEntry[] = [
+      { id: 'consumer', url: '/consumer.js', rev: '1' },
+      {
+        id: 'runtime',
+        url: '/runtime.js',
+        rev: '1',
+        external: [PROVIDER_CLIENT_ID],
+        immediately: true,
+      },
+      { id: 'provider', url: '/provider.js', rev: '1' },
+      { id: 'renderer', url: '/renderer.js', rev: '1' },
+    ]
+    win.__DSH_BOOT__ = { rev: 'graph', entries }
+    target.load({
+      id: 'runtime',
+      factory: require => ({
+        apply: () => {},
+        marker: (require(PROVIDER_CLIENT_ID) as { marker: string }).marker,
+      }),
+    })
+    const loaded: string[] = []
+    const registrations = new Map<string, ClientBundleRegistration>([
+      ['/consumer.js', {
+        id: 'consumer',
+        factory: require => ({
+          apply: () => {
+            expect((require(RUNTIME_CLIENT_ID) as { marker: string }).marker).toBe('provider')
+          },
+        }),
+      }],
+      ['/provider.js', {
+        id: 'provider',
+        factory: () => ({ apply: () => {}, marker: 'provider' }),
+      }],
+      ['/renderer.js', {
+        id: 'renderer',
+        factory: () => ({
+          apply: (ctx: Context) => {
+            ctx.reflect.provide('uiRenderer', { mount: () => () => {} })
+          },
+        }),
+      }],
+    ])
+    transportGlobal.__DSH_TRANSPORT__ = {
+      loadBundle: async (url) => {
+        loaded.push(url)
+        const registration = registrations.get(url)
+        if (registration === undefined) throw new Error(`missing fixture registration ${url}`)
+        target.load(registration)
+      },
+    }
+
+    const entry = new AppWebEntry(container)
+    await entry.run()
+
+    expect(loaded).toEqual(['/provider.js', '/consumer.js', '/renderer.js'])
+    await entry.dispose()
+  })
+
   it('allows a modules-dependent row to be created before the modules row', async () => {
     const events: string[] = []
     const container = document.createElement('div')

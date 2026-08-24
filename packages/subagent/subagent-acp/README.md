@@ -33,15 +33,18 @@ ACP advertises no start-time capabilities because this process cannot enforce th
 | `disposeEofGraceMs` | `6000` | Positive grace after stdin EOF before platform termination; it cannot exceed [`MAX_TIMER_DELAY_MS`](../../util/timeout/README.md). |
 | `disposeGraceMs` | `3000` | Positive POSIX grace after SIGTERM before SIGKILL (Windows force-terminates directly); it cannot exceed [`MAX_TIMER_DELAY_MS`](../../util/timeout/README.md). |
 
+A DeepSeek Harness child uses the product launcher and an explicit absolute `DSH_HOME`. The isolated home prevents a nested runtime from discovering the launching person's profiles or credentials; the generic ACP provider does not impose this requirement on non-DSH agents.
+
 ```yaml
 - id: subagent-acp
   name: '@deepseek-ai/dsh-subagent-acp'
   config:
     providerName: acp
-    command: node
-    args: ['--import', 'tsx', './packages/examples/acp-demo/src/bin.ts', '--config', './examples/acp-agent/cordis.yml']
+    command: dsh
+    args: ['--profile', 'acp', '--patch', '/absolute/path/to/acp.patch.yml']
     permission: reject
     env:
+      DSH_HOME: /absolute/path/to/isolated-child-home
       DEEPSEEK_API_KEY: !!js process.env.DEEPSEEK_API_KEY
 ```
 

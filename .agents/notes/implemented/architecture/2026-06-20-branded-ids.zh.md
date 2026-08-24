@@ -6,7 +6,7 @@ Status: implemented
 
 ## 问题
 
-harness 使用 `Branded<B> = string & { readonly [BRAND]: B }` 机制，为 `CallId`（`packages/llm/llm/src/brand.ts`）和 agent（智能体）/会话共享的 `SessionId`（`packages/core/session/src/types.ts`）做 brand 处理；该机制由纯类型包 `@deepseek-ai/dsh-brand` 拥有，位于 `packages/util/brand/`，见其 [README](../../../../packages/util/brand/README.zh.md)，并为每个类型提供零开销的 cast 工厂。`dsh-brand` 还声明了治理策略：*「Branding 用于跨包边界且可能被混淆的 id；不是每个 string 都需要 brand。」* 这条策略是正确的；问题在于它只落实了一半。两处缺口使得结构相同但语义错误的 string 今天仍能通过类型检查器。
+harness 使用 `Branded<B> = string & { readonly [BRAND]: B }` 机制，为 `CallId`（`packages/llm/llm/src/brand.ts`）和 agent（智能体）/会话共享的 `SessionId`（`packages/core/session/src/types.ts`）做 brand 处理；该机制由纯类型包 `@deepseek-ai/dsh-brand` 拥有，位于 `packages/util/brand/`，见其 [README](../../../../packages/util/brand/README.zh.md)，并为每个类型提供零开销的 cast 工厂。`dsh-brand` 还声明了治理策略：*「Branding 用于跨包边界且可能被混淆的 id；不是每个 string 都需要 brand。」* 这条策略是正确的；问题在于它只落实了一半。两处缺口使得结构相同但语义错误的 string 仍能通过类型检查器。
 
 **缺口 1：bash seam 中未 brand 的跨边界 ID。** 后台 job id 是普通 `string`：`BashTask.id: string`（`packages/shell/shell/src/types.ts`），作为 `string` 贯穿整个执行器 seam（`packages/shell/shell/src/index.ts` 中的 `ShellExecutor.get`/`ownerOf`/`readOutput`/`kill(id: string)`），再由面向模型的工具以 `string` 校验并传递（`validateJobId`、`assertTaskAccess`、`packages/shell/tool-bash/src/index.ts` 中 `job_id` 的 schema 参数）。它由每执行器计数器生成——`packages/shell/bash-local/src/index.ts` 中的 `` `bash-${this.nextTaskId++}` ``——其形状与 `SessionId` 的默认值**完全相同，都是 `name-N`**（`packages/core/session/src/index.ts` 中的 `` `session-${++counter}` ``）。bash job id 和会话 id 在调用点轻易就能互换，而编译器毫无反应。它是面向模型的 id（模型会把 `job_id` 传回 `bash_output`/`bash_kill`），所以该混淆可由不受信任的输入触达。
 
@@ -56,7 +56,7 @@ export function OwnerToken(id: string): OwnerToken {
 - **`ToolName`**（`ToolRuntime` 的键）：由作者定义、人类可读，且很少与其他 id 混淆；最弱的候选，可能不值得加 brand。
 - **`ErrorCode`**（`HarnessError.code`）：一个封闭词汇（`ABORTED`、`NO_ADAPTER`……），不是逐实例的 id；如果要做，string 字面量联合类型比 brand 更合适。
 - **数值序号**：轮次号、步骤号和事件 `seq` 是 `number` 而非 `string`，`Branded<string>` 不适用；可以用并行的 `number & { readonly [BRAND]: B }` 变体来 brand 它们，但它们是位置序号、很少跨边界传递，收益较低。
-- **带校验的构造**：brand 工厂是纯 cast，无运行时检查，且每个边界（ACP `sessionId`、提供方签发的 `call.id`、`dsh-llm-deepseek` 中的空字符串回退）今天都信任裸 string。一个在边界处对格式错误的输入抛异常的 `SessionId.parse()` / `isValid()` 配套工具确实是缺口，但它是*运行时行为*变更，有自己的设计问题（什么算「格式错误」？失败时会怎样？），应在独立决策中处理，不应捆绑进这次纯类型变更。
+- **带校验的构造**：brand 工厂是纯 cast，无运行时检查，且每个边界（ACP `sessionId`、提供方签发的 `call.id`、`dsh-llm-deepseek` 中的空字符串回退）都信任裸 string。一个在边界处对格式错误的输入抛异常的 `SessionId.parse()` / `isValid()` 配套工具确实是缺口，但它是*运行时行为*变更，有自己的设计问题（什么算「格式错误」？失败时会怎样？），应在独立决策中处理，不应捆绑进这次纯类型变更。
 
 ## 验证
 

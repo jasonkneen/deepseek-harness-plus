@@ -294,22 +294,23 @@ jobs:
       - name: Run complete keyless Python suite
         run: uv run --python 3.10 --group test --project python/sdk pytest
 
-  # One native target makes the complete release-shaped Python path required
-  # without duplicating platform-independent behavior across the release matrix.
-  # The reusable builder owns the executable, snapshot, wheel, clean-install,
-  # GLIBC, and manylinux checks; release validation retains all native targets.
+  # The reusable builder owns each published executable, wheel, clean-install,
+  # keyless black-box, and trusted real-API path. All native release targets are
+  # required because a platform wheel cannot be validated by another carrier.
   python-runtime:
     if: github.event_name == 'pull_request'
-    name: python runtime / release-shaped Linux x64
+    name: python runtime / release-shaped matrix
     uses: ./.github/workflows/build-exe-for-python-sdk.yml
     with:
-      targets: node24-linux-x64
+      targets: node24-linux-x64,node24-linux-arm64,node24-macos-arm64
       ci: true
+    secrets:
+      DEEPSEEK_API_KEY_EXTERNAL: ${{ secrets.DEEPSEEK_API_KEY_EXTERNAL }}
 
-  # The required pull-request Windows signal: the two blocking win32 surfaces
-  # (workspace build, production site) execute with real, checksum-verified
-  # Windows Node under Wine on standard hosted Linux. The independent
-  # windows-native job below keeps the complete native-kernel inventory —
+  # The pull-request Windows signals cover complementary hosts. The two fast
+  # win32 toolchain surfaces (workspace build, production site) execute with
+  # real, checksum-verified Windows Node under Wine on standard hosted Linux.
+  # The windows-native job below keeps the complete native-kernel inventory —
   # including the observational portability gates this lane does not run —
   # on real Windows. This job only provisions runner state (caches,
   # apt); scripts/wine-windows-gates.sh owns the gate logic and is the same
@@ -396,13 +397,12 @@ jobs:
         if: always()
         run: wineserver -k 2>/dev/null || true
 
-  # Every pull request also gets a real Windows-kernel signal. This job keeps
-  # its own unmasked conclusion but is deliberately absent from
-  # all-checks-passed.needs, so it never delays or changes that required
-  # verdict. Under normal operation it runs on the hosted larger runner; under
-  # Windows failover (DSH_CI_FAILOVER_WINDOWS=selfhosted) it retargets onto the
-  # in-house self-hosted Windows pool. Dependabot PRs are excluded from the
-  # self-hosted pool and stay queued for the hosted runner — see the failover
+  # Every pull request also gets a real Windows-kernel signal. Its unmasked
+  # conclusion is a dependency of all-checks-passed, so failure, cancellation,
+  # or omission blocks the required verdict. Under normal operation it runs on
+  # the hosted larger runner. DSH_CI_FAILOVER_WINDOWS=selfhosted retargets it
+  # onto the in-house self-hosted Windows pool. Dependabot PRs are excluded
+  # from the self-hosted pool and stay queued for the hosted runner — see the failover
   # runbook. This Windows switch is independent of the Linux
   # DSH_CI_FAILOVER_LINUX variable that retargets the three required Linux jobs
   # and the all-checks-passed verdict above.
@@ -416,12 +416,16 @@ jobs:
     name: windows node 24 / native complete
     timeout-minutes: 120
     env:
-      DSH_COVERAGE_MAX_WORKERS: '6'
-      DSH_COVERAGE_PARTITIONS: '8'
+      # Partitioned coverage finishes before the heavy uninstrumented gate;
+      # the latter can use four workers without competing with sixteen shards.
+      DSH_COVERAGE_MAX_WORKERS: '12'
+      DSH_COVERAGE_PARTITIONS: '16'
       # Instrumented process and polling fixtures can exceed Vitest's defaults
       # under the complete lane's concurrent gate load.
       DSH_COVERAGE_TEST_TIMEOUT_MS: '30000'
-      DSH_GATE_CONCURRENCY: '4'
+      # After the threshold merge, the heavy gate overlaps lightweight
+      # observational checks within this post-coverage worker budget.
+      DSH_GATE_CONCURRENCY: '8'
       DSH_PUBLINT_CONCURRENCY: '8'
     steps:
       - uses: actions/checkout@v6
@@ -436,9 +440,7 @@ jobs:
 
       - uses: pnpm/action-setup@v4
         with:
-          dest: ${{ runner.temp }}/setup-pnpm
-          # Exercise package-script re-entry through the native pnpm.exe distribution.
-          standalone: true
+          dest: ${{ runner.temp }}/setup-pnpm-js
 
       - uses: actions/setup-node@v6
         with:
@@ -459,10 +461,10 @@ jobs:
   # Single stable required check for branch protection: require "all checks
   # passed" instead of enumerating matrix legs whose names change as lanes and
   # node versions evolve. Every blocking job in THIS workflow must be listed in
-  # `needs`. The required Wine job is listed as `windows`; `windows-native` is
-  # deliberately absent so its independent result never delays or changes this
-  # verdict. (`needs` cannot reach across workflow files; the master-only jobs in
-  # ci-master.yml are intentionally not part of this PR verdict.)
+  # `needs`, including both the Wine `windows` job and the real-kernel
+  # `windows-native` job. (`needs` cannot reach across workflow files; the
+  # master-only jobs in ci-master.yml are intentionally not part of this PR
+  # verdict.)
   # `if: always()` is load-bearing: without it a failed dependency
   # would SKIP this job, and GitHub counts a skipped required check as passing
   # — so this job always runs and fails on any non-success result, including
@@ -473,14 +475,15 @@ jobs:
     # provisioning — and under Linux failover it follows the same selector as
     # the worker jobs it aggregates, so a standard-hosted outage cannot strand
     # the branch-protection verdict either. It retargets with the Linux switch
-    # (DSH_CI_FAILOVER_LINUX), not the Windows one, because it aggregates the
-    # required Linux workers and runs on the vm-backup pool.
+    # (DSH_CI_FAILOVER_LINUX), not the Windows one, because this bookkeeping job
+    # itself runs on Linux; the native dependency resolves its Windows pool
+    # independently.
     runs-on: >-
       ${{ vars.DSH_CI_FAILOVER_LINUX == 'selfhosted'
           && github.event.pull_request.user.login != 'dependabot[bot]'
           && fromJSON('["self-hosted", "linux", "x64", "vm-backup"]')
           || 'ubuntu-latest' }}
-    needs: [node-24, node-24-coverage, node-24-consumers, node-compat, python-sdk, python-runtime, windows]
+    needs: [node-24, node-24-coverage, node-24-consumers, node-compat, python-sdk, python-runtime, windows, windows-native]
     if: always() && github.event_name == 'pull_request'
     steps:
       - name: Fail if any needed job did not succeed

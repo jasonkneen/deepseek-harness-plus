@@ -1,7 +1,7 @@
 // Web e2e scenario: seeded history. A recorded session seeded cold through
 // the REAL persistence API renders purely from the log — the surface nothing
-// else covers: sidebar cold listing, the implicit resume/attach inside the
-// history RPC, history-page tool views, and the client's log-ordered transcript
+// else covers: sidebar cold listing, cold history paging without Agent
+// activation, history-page tool views, and the client's log-ordered transcript
 // events — with ZERO model calls in replay (no replay fixture; a stray stream
 // fails loud on the open llm seam). The cold session also carries keyless
 // command-row surfaces: the seeded manual `/compact` lifecycle folds into its
@@ -182,6 +182,7 @@ describe('web e2e: seeded history renders through cold resume', () => {
   let browser: Browser
   let page: Page
   let tripwire: ReturnType<typeof watchConsole>
+  let seededThroughSeq = -1
 
   beforeAll(async () => {
     scaffold = await launchWebScaffold({})
@@ -201,6 +202,7 @@ describe('web e2e: seeded history renders through cold resume', () => {
       const meter = scaffold.ctx.get('tokenMeter')
       if (meter === undefined) throw new Error('seeded-history requires the host token meter')
       const realizedWithCompaction = withCompaction(realizeSeedFixture(scaffold, raw, SEED_ID), meter)
+      seededThroughSeq = parseSeedFixture(realizedWithCompaction).events.at(-1)?.seq ?? -1
       await seedSession(scaffold, realizedWithCompaction, SEED_ID)
     }
     browser = await chromium.launch()
@@ -232,12 +234,17 @@ describe('web e2e: seeded history renders through cold resume', () => {
     // injection stays silent and this block disappears (no titles/todos on
     // the web), while fixture-level suites stay green. Assert through the
     // real HTTP wire against the booted real host.
-    const response = await fetch(`${scaffold.baseUrl}/api/session.history`, {
+    const response = await fetch(`${scaffold.baseUrl}/api/session/page`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
-        type: 'client-request', rpcId: 'seeded-projections', method: 'session.history',
-        payload: { sessionId: SEED_ID },
+        type: 'client-request', rpcId: 'seeded-projections', method: 'session/page',
+        payload: {
+          args: { request: {
+            address: { kind: 'session', sessionId: SEED_ID },
+            throughSeq: seededThroughSeq,
+          } },
+        },
       }),
     })
     expect(response.ok).toBe(true)

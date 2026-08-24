@@ -241,6 +241,7 @@ describe('the shipped Web composition', () => {
         'subagent', 'subagent_fork', 'todo_write', 'update_goal', 'web_search',
         'workflow', 'write',
       ])
+      expect(ctx.commands.find(handle.agent, 'goal')).toBeDefined()
     } finally {
       await handle.dispose()
     }
@@ -260,6 +261,7 @@ describe('the shipped Web composition', () => {
       expect(assembly.tools.find(tool => tool.name === 'bash')?.description).toBe(MINIMAL_BASH_DESCRIPTION)
       expect(JSON.stringify(assembly.tools.find(tool => tool.name === 'str_replace_editor')?.parameters))
         .toContain('Absolute path')
+      expect(ctx.commands.find(handle.agent, 'goal')).toBeUndefined()
       expect(ctx.agentPresets.serviceFor(handle.agent, 'compaction')).toBeUndefined()
       expect(handle.agent.ctx.get('compaction')).toBeUndefined()
     } finally {
@@ -305,6 +307,7 @@ describe('the shipped Web composition', () => {
       // And it keeps the standard agent's own tools rather than replacing them.
       expect(tools).toEqual(expect.arrayContaining(['bash', 'read', 'edit', 'skill']))
       expect(tools).not.toContain('str_replace_editor')
+      expect(ctx.commands.find(handle.agent, 'goal')).toBeDefined()
 
       // The preset's own authoring skill registers into ITS layer of the host
       // registry: the cordis agent's view carries it, the global view does not.
@@ -332,6 +335,7 @@ describe('the shipped Web composition', () => {
       const assembly = await ctx.systemPrompt.assemble({ scope: coded.agent })
       expect(assembly.tools.map(tool => tool.name)).toEqual(['run_code'])
       expect(toolNames(ctx, coded.agent)).not.toContain('str_replace_editor')
+      expect(ctx.commands.find(coded.agent, 'goal')).toBeDefined()
       const sdk = assembly.sections.find(section => section.name === 'tools:sdk')?.text ?? ''
       expect(sdk).not.toContain('str_replace_editor')
       expect(sdk).toContain('web_search')
@@ -598,8 +602,10 @@ describe('a switch survives the session', () => {
     })
     try {
       // The api-proxy's select does exactly this pair while the session is blank.
+      expect(ctx.commands.find(handle.agent, 'goal')).toBeDefined()
       await ctx.agentPresets.recompose(handle.agent.ctx, 'minimal')
       handle.agent.session.append('agent-preset/selected', { agentPreset: 'minimal' })
+      expect(ctx.commands.find(handle.agent, 'goal')).toBeUndefined()
 
       // The header keeps the creation fact; the log carries what it runs.
       expect(handle.agent.session.header.agentPreset).toBe('standard')

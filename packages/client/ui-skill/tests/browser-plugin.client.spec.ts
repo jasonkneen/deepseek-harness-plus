@@ -15,8 +15,8 @@
  */
 import { Context } from '@deepseek-ai/cordis'
 import { describe, expect, it, vi } from 'vitest'
-import type { SessionId } from '@deepseek-ai/dsh-client-runtime/client'
-import { SlotRegistry } from '@deepseek-ai/dsh-client-runtime/client'
+import type { SessionId } from '@deepseek-ai/dsh-session/types'
+import { SlotRegistry } from '@deepseek-ai/dsh-client-ui-renderer/client'
 import { InputTriggerService } from '@deepseek-ai/dsh-client-ui-input-trigger/client'
 import { TestRemote } from '@deepseek-ai/dsh-client-test-runtime'
 import type { ClientSessionContext, InputTriggerSource } from '@deepseek-ai/dsh-client-ui-input-trigger/client'
@@ -74,10 +74,10 @@ async function bench(list: ListFn, addressed?: SessionId, invoke?: InvokeFn) {
       ? { parentSessionId: sid('parent'), childSessionId: id, mode: 'continuable' as const }
       : undefined,
   })
-  new TestRemote(ctx)
+  const remote = new TestRemote(ctx)
   providePresentation(ctx)
   await ctx.plugin({ inject: [...inject], apply }).await()
-  return { ctx, source: captured! }
+  return { ctx, source: captured!, remote }
 }
 
 const CATALOG: SkillRow[] = [
@@ -125,17 +125,21 @@ describe('apply', () => {
     expect(presentation.dictionaries).toEqual([{
       namespace: 'skill', dictionaries: {
         zh: {
+          'row.title': 'Skill',
           'row.running': '正在加载 skill',
           'row.failed': 'skill 加载失败',
           'row.stopped': 'skill 加载已中止',
           'row.instructions': '说明',
+          'row.inspect': '查看',
           'menu.userOnly': '仅用户',
         },
         en: {
+          'row.title': 'Skill',
           'row.running': 'Loading skill',
           'row.failed': 'Skill load failed',
           'row.stopped': 'Skill load stopped',
           'row.instructions': 'Instructions',
+          'row.inspect': 'Inspect',
           'menu.userOnly': 'user-only',
         },
       },
@@ -269,13 +273,13 @@ describe('catalog cache', () => {
 
   it('agent-preset/selected clears only the recomposed session', async () => {
     const { list, payloads } = countingList()
-    const { ctx, source } = await bench(list)
+    const { source, remote } = await bench(list)
     await source.candidates(proj('s1'), req(''))
     await source.candidates(proj('s2'), req(''))
     expect(payloads).toHaveLength(2)
     // The catalog a preset supplies is the preset's; the other session's
     // composition did not change, so its cached catalog still holds.
-    ctx.remote.$dispatch('agent-preset/selected', [sid('s1'), 'minimal'])
+    remote.emit('agent-preset/selected', [sid('s1'), 'minimal'])
     await source.candidates(proj('s1'), req(''))
     await source.candidates(proj('s2'), req(''))
     expect(payloads).toHaveLength(3)

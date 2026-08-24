@@ -219,7 +219,7 @@ describe('web e2e: persisted subagent conversation and human continuation', () =
       },
     ])
     // These two cold fixtures were authored after the page's initial
-    // session.list and intentionally emitted no session-added frame. Reload
+    // session.list and intentionally emitted no api-session/added event. Reload
     // to exercise the restart baseline that discovers their full lineage.
     const warningStart = tripwire.warnings.length
     await page.reload({ waitUntil: 'load' })
@@ -352,7 +352,7 @@ describe('web e2e: persisted subagent conversation and human continuation', () =
     await compareOrRefreshGolden(SIDEBAR_EXPECTED, sidebar, MODE)
   })
 
-  it('continues through FIFO follow-up admission and receives the child mux events', async () => {
+  it('continues through FIFO follow-up admission and receives the child follow events', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-subagent-followup'))
     const ended = new Promise<void>((resolveEnded, reject) => {
       const timer = setTimeout(() => {
@@ -451,7 +451,7 @@ describe('web e2e: persisted subagent conversation and human continuation', () =
     await page.getByRole('treeitem', { name: new RegExp(LABEL) }).click()
     await page.getByRole('textbox', { name: 'Message the agent' }).waitFor()
     const forkResponse = page.waitForResponse(response =>
-      new URL(response.url()).pathname === '/api/session.fork')
+      new URL(response.url()).pathname === '/api/session/fork')
     await page.getByRole('button', { name: 'Branch into a new conversation' }).last().click()
     const forkReceipt = await (await forkResponse).json() as { result: { ok: boolean } }
     expect(forkReceipt.result).toMatchObject({ ok: true })
@@ -479,7 +479,7 @@ describe('web e2e: persisted subagent conversation and human continuation', () =
     expect(scaffold.ctx.agents.get(childId)).toBeUndefined()
 
     const forkResponse = page.waitForResponse(response =>
-      new URL(response.url()).pathname === '/api/session.fork')
+      new URL(response.url()).pathname === '/api/session/fork')
     await page.getByRole('button', { name: 'Branch into a new conversation' }).last().click()
     const forkReceipt = await (await forkResponse).json() as {
       result: { ok: true; value: { sessionId: string } } | { ok: false }
@@ -490,7 +490,7 @@ describe('web e2e: persisted subagent conversation and human continuation', () =
     await expect.poll(() => scaffold.ctx.agents.get(forkId)).not.toBeUndefined()
 
     await sessions.getByRole('treeitem', { name: /Ask a research subagent to/ }).click()
-    await page.getByRole('button', { name: '3 subagents' }).hover()
+    await page.getByRole('button', { name: '3 subagents' }).press('ArrowDown')
     await page.getByRole('treeitem', { name: new RegExp(LABEL) }).click()
     const input = page.locator('textarea:enabled').first()
     await input.waitFor()

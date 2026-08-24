@@ -1,8 +1,8 @@
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, readdir, realpath, rm, symlink, writeFile } from 'node:fs/promises'
 import { once } from 'node:events'
 import { tmpdir } from 'node:os'
 import { delimiter, join, relative, sep } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { afterAll, describe, expect, it, vi } from 'vitest'
 import { PROTOCOL_VERSION } from '@agentclientprotocol/sdk'
 import { runScenario, snapshotSpillRoot, type AgentUnderTest, type InputStep } from '../src/harness.ts'
@@ -42,6 +42,13 @@ const AGENT: AgentUnderTest = {
   // The fake bin ignores its config argv; any real path documents the shape.
   configPath: fakeAgent,
   tsconfigPath: fileURLToPath(new URL('../../../../tsconfig.json', import.meta.url)),
+}
+
+async function materializedPatch(root: string, filename: string): Promise<string> {
+  const entries = await readdir(root, { recursive: true })
+  const matches = entries.filter(entry => entry.endsWith(filename))
+  expect(matches).toHaveLength(1)
+  return join(root, matches[0] as string)
 }
 
 /** Temp scenario dirs to drop after the suite. */
@@ -140,6 +147,110 @@ describe('runScenario', () => {
     await expect(minimal.close('SIGTERM')).rejects.toBe(childFailure)
     // close rejects only after the fallback SIGKILL has produced an exit edge.
     expect(exited).toBe(true)
+  })
+
+  it('builds dsh profile argv and rebases relative modules in live and replay patches', async () => {
+    const { dir, fixtureFile } = await scenario({})
+    const patchDir = join(dir, 'patches')
+    const basePatch = join(patchDir, 'base.cordis.yml')
+    const selectedPatch = join(patchDir, 'selected.cordis.yml')
+    const replayPatch = join(patchDir, 'selected.cordis.snapshot.yml')
+    const packageDir = join(dir, 'node_modules', 'example-package')
+    const scopedPackageDir = join(dir, 'node_modules', '@fixture', 'example-package')
+    await Promise.all([
+      mkdir(patchDir, { recursive: true }),
+      mkdir(packageDir, { recursive: true }),
+      mkdir(scopedPackageDir, { recursive: true }),
+    ])
+    await Promise.all([
+      writeFile(basePatch, [
+        '- id: asserted',
+        '  name: ./plugin.mjs',
+        '  disabled: true',
+        '- insert:',
+        '    - id: relative',
+        '      name: ./plugin.mjs',
+        '    - id: package',
+        '      name: example-package',
+        '    - id: scoped-package',
+        "      name: '@fixture/example-package/subpath'",
+        '    - id: builtin',
+        '      name: fs',
+        '    - id: group',
+        '      name: cordis:group',
+        '      group: true',
+        '      config:',
+        '        - id: nested',
+        '          name: ../nested.mjs',
+        '',
+      ].join('\n')),
+      writeFile(selectedPatch, '[]\n'),
+      writeFile(replayPatch, '[]\n'),
+      writeFile(join(patchDir, 'plugin.mjs'), 'export function apply() {}\n'),
+      writeFile(join(packageDir, 'package.json'), '{"name":"example-package","version":"1.0.0"}\n'),
+      writeFile(join(scopedPackageDir, 'package.json'), '{"name":"@fixture/example-package","version":"1.0.0"}\n'),
+    ])
+    const profileAgent: AgentUnderTest = { ...AGENT, configPath: basePatch, profile: 'acp' }
+
+    const live = launchAcpTestAgent({
+      agent: profileAgent,
+      cwd: dir,
+      configPath: selectedPatch,
+      env: { DSH_SNAPSHOT: 'record', DSH_SNAPSHOT_FILE: fixtureFile },
+    })
+    await live.spawned
+    await live.close()
+    const materializedRoot = join(dir, '.dsh-profile-patches')
+    const materialized = await readFile(await materializedPatch(materializedRoot, '0-base.cordis.yml'), 'utf8')
+    expect(materialized).toContain(pathToFileURL(join(patchDir, 'plugin.mjs')).href)
+    expect(materialized).toContain(pathToFileURL(join(dir, 'nested.mjs')).href)
+    expect(materialized).toContain('example-package')
+    expect(await realpath(join(dir, '.dsh', 'profiles', 'node_modules', 'example-package')))
+      .toBe(await realpath(packageDir))
+    expect(await realpath(join(dir, '.dsh', 'profiles', 'node_modules', '@fixture', 'example-package')))
+      .toBe(await realpath(scopedPackageDir))
+    expect(await readFile(await materializedPatch(materializedRoot, '1-selected.cordis.yml'), 'utf8')).toContain('[]')
+
+    const replay = launchAcpTestAgent({
+      agent: profileAgent,
+      cwd: dir,
+      configPath: selectedPatch,
+      env: { DSH_SNAPSHOT: 'replay', DSH_SNAPSHOT_FILE: fixtureFile },
+    })
+    await replay.spawned
+    await replay.close()
+    expect(await readFile(await materializedPatch(materializedRoot, '1-selected.cordis.snapshot.yml'), 'utf8'))
+      .toContain('[]')
+    expect((await readdir(materializedRoot, { withFileTypes: true })).filter(entry => entry.isDirectory()))
+      .toHaveLength(2)
+
+    const conflictPatch = join(dir, 'conflict.cordis.yml')
+    const conflictPackage = join(dir, 'node_modules', 'conflict-package')
+    const otherPackage = join(dir, 'other-conflict-package')
+    const conflictLink = join(dir, '.dsh', 'profiles', 'node_modules', 'conflict-package')
+    await Promise.all([
+      mkdir(conflictPackage, { recursive: true }),
+      mkdir(otherPackage, { recursive: true }),
+      writeFile(conflictPatch, '- id: conflict\n  name: conflict-package\n'),
+    ])
+    await Promise.all([
+      writeFile(join(conflictPackage, 'package.json'), '{"name":"conflict-package","version":"1.0.0"}\n'),
+      writeFile(join(otherPackage, 'package.json'), '{"name":"conflict-package","version":"2.0.0"}\n'),
+    ])
+    await symlink(otherPackage, conflictLink, process.platform === 'win32' ? 'junction' : 'dir')
+    expect(() => launchAcpTestAgent({
+      agent: { ...profileAgent, configPath: conflictPatch },
+      cwd: dir,
+      env: { DSH_SNAPSHOT: 'record', DSH_SNAPSHOT_FILE: fixtureFile },
+    })).toThrow('ACP profile package conflict-package resolves to two directories')
+
+    const invalidPatch = join(dir, 'invalid.cordis.yml')
+    await writeFile(invalidPatch, 'not: a-list\n')
+    expect(() => launchAcpTestAgent({
+      agent: { ...profileAgent, configPath: invalidPatch },
+      cwd: dir,
+      env: { DSH_SNAPSHOT: 'record', DSH_SNAPSHOT_FILE: fixtureFile },
+    })).toThrow(`ACP profile patch must be a top-level array: ${invalidPatch}`)
   })
 
   it('waits for inherited stdio and buffered ACP parsing after the parent exits', { timeout: 20_000 }, async () => {
@@ -705,9 +816,9 @@ describe('runScenario', () => {
   it('waitForTurnStart rejects missing, earlier, and malformed durable turns', { timeout: 20_000 }, async () => {
     const missing = await scenario({})
     await expect(runScenario(
-      { steps: [...boot, { op: 'waitForTurnStart', timeoutMs: 20 }] },
+      { steps: [...boot, { op: 'waitForTurnStart', timeoutMs: 200 }] },
       { agent: AGENT, mode: 'replay', fixtureFile: missing.fixtureFile },
-    )).rejects.toThrow(/did not persist turn\/start within 20ms/)
+    )).rejects.toThrow(/did not persist turn\/start within 200ms/)
 
     const earlier = await scenario({
       prompt: 'hang-until-cancel',
@@ -725,11 +836,11 @@ describe('runScenario', () => {
         steps: [
           ...boot,
           { op: 'promptAndCancel', text: 'hang' },
-          { op: 'waitForTurnStart', minimumTurn: 3, timeoutMs: 20 },
+          { op: 'waitForTurnStart', minimumTurn: 3, timeoutMs: 200 },
         ],
       },
       { agent: AGENT, mode: 'replay', fixtureFile: earlier.fixtureFile },
-    )).rejects.toThrow(/turn\/start at or beyond turn 3 within 20ms/)
+    )).rejects.toThrow(/turn\/start at or beyond turn 3 within 200ms/)
 
     const closed = await scenario({
       prompt: 'hang-until-cancel',
@@ -748,11 +859,11 @@ describe('runScenario', () => {
         steps: [
           ...boot,
           { op: 'promptAndCancel', text: 'hang' },
-          { op: 'waitForTurnStart', timeoutMs: 20 },
+          { op: 'waitForTurnStart', timeoutMs: 200 },
         ],
       },
       { agent: AGENT, mode: 'replay', fixtureFile: closed.fixtureFile },
-    )).rejects.toThrow(/did not persist turn\/start within 20ms/)
+    )).rejects.toThrow(/did not persist turn\/start within 200ms/)
 
     for (const turn of [undefined, 0]) {
       const malformed = await scenario({

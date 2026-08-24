@@ -13,7 +13,7 @@ import { cleanupAcpExampleTest } from './cleanup.ts'
 
 /**
  * End-to-end: boot examples/acp-agent as a real subprocess speaking ACP over
- * its stdio, drive it with a real ClientSideConnection, send a real prompt, and
+ * its stdio, drive it with a real ACP SDK client app, send a real prompt, and
  * verify the WORLD (a file the agent wrote), not the agent's self-report. Owns
  * and disposes the subprocess in afterEach. Key-gated.
  *
@@ -22,8 +22,9 @@ import { cleanupAcpExampleTest } from './cleanup.ts'
  */
 
 const AGENT: AgentUnderTest = {
-  binScript: fileURLToPath(new URL('../../../packages/examples/acp-demo/src/bin.ts', import.meta.url)),
+  binScript: fileURLToPath(new URL('../../../apps/cli/src/bin.ts', import.meta.url)),
   configPath: fileURLToPath(new URL('../cordis.yml', import.meta.url)),
+  profile: 'acp',
   tsconfigPath: fileURLToPath(new URL('../../../tsconfig.json', import.meta.url)),
 }
 const DANGER_FULL_ACCESS_ENV = { DSH_PERMISSION_MODE: 'danger-full-access' }
@@ -118,9 +119,10 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('acp-agent e2e: real prompt over 
     const proof = await readFile(join(workdir, 'proof.txt'), 'utf8')
     expect(proof).toContain('ACP_OK')
 
-    // The transport exposes only committed assistant text; tool execution is
-    // proved by the world effect above and remains session-log data.
-    expect(updates.length).toBeGreaterThan(0)
-    expect(updates.every(update => update.sessionUpdate === 'agent_message_chunk')).toBe(true)
+    // The transport exposes committed semantic facts without UI projections;
+    // the world effect independently proves that the standard tool lifecycle ran.
+    expect(updates.some(update => update.sessionUpdate === 'agent_message_chunk')).toBe(true)
+    expect(updates.some(update => update.sessionUpdate === 'tool_call')).toBe(true)
+    expect(updates.some(update => update.sessionUpdate === 'tool_call_update')).toBe(true)
   }, 180_000)
 })

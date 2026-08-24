@@ -4,8 +4,9 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import clsx from 'clsx'
-import type { WorkspaceId } from '@deepseek-ai/dsh-client-runtime/client'
+import type { WorkspaceId } from '@deepseek-ai/dsh-workspace/types'
 import type { ConversationSlotProps, InputZone } from '../contract/slots.ts'
+import { conversationPhase } from '../contract/snapshot.ts'
 import { HeroGlow, HeroShell, WorkspaceChip, workspaceLabel } from './EmptyHero.tsx'
 import css from './ConversationRoot.module.css'
 
@@ -13,13 +14,18 @@ import css from './ConversationRoot.module.css'
 export type ConversationRootProps = ConversationSlotProps
 
 export function ConversationRoot({
-  sessionId, useSession, useSessions, useWorkspaces, useInput, useComposerBlock,
+  sessionId, useSession, useSessions, useSessionPendingInteraction,
+  useWorkspaces, useConversation, useInput, useComposerBlock,
   renderSlot, renderSlotChain, selectWorkspace, t,
 }: ConversationRootProps) {
-  const openState = useSession(s => s.openState)
-  const composerPhase = useSession(s => s.composerPhase)
-  const pending = useSession(s => s.pending) ?? []
   const session = useSession(s => s)
+  const pendingInteraction = useSessionPendingInteraction(snapshot =>
+    sessionId === undefined ? undefined : snapshot.get(sessionId))
+  const conversation = useConversation(s => s)
+  const shellPhase = session === undefined || conversation === undefined
+    ? 'blank'
+    : conversationPhase(session, conversation)
+  const openState = session?.openState
   const inputState = useInput(s => s)
   const cwd = useSessions(s => sessionId === undefined ? undefined : s.byId[sessionId]?.cwd)
   const summaryBlank = useSessions(s => sessionId === undefined ? undefined : s.byId[sessionId]?.blank)
@@ -33,7 +39,7 @@ export function ConversationRoot({
   const pickerAnchor = useRef<HTMLButtonElement>(null)
 
   // Publishes the seat's live height as --dsh-composer-height on the scroll
-  // body so floating controls (ChatView back-to-bottom) clear the composer as
+  // body so floating View controls clear the composer as
   // it grows. Callback ref, not an effect; stable identity prevents observer
   // churn while the first blank session fills the resident body outlet.
   const seatObserver = useRef<ResizeObserver | null>(null)
@@ -74,10 +80,10 @@ export function ConversationRoot({
   // The exemption is deliberately open-state-wide, not loading-only: a
   // summary-blank session is the hero before its open starts (`cold`) and
   // after one fails (`error`) for the same reason — there is no history.
-  const settling = sessionId !== undefined && composerPhase === 'blank' && openState === 'loading'
+  const settling = sessionId !== undefined && shellPhase === 'blank' && openState === 'loading'
     && summaryBlank !== true
   const hero = sessionId === undefined
-    || (composerPhase === 'blank' && (openState === 'open' || summaryBlank === true))
+    || (shellPhase === 'blank' && (openState === 'open' || summaryBlank === true))
   const zone: InputZone | undefined =
     session === undefined || inputState === undefined ? undefined : { session, input: inputState }
 
@@ -148,11 +154,10 @@ export function ConversationRoot({
         // user clears it.
         ? { blocked: composerBlock, placeholder: composerBlock.reason }
         : hero ? { placeholder: t('placeholder.hero') } : {}),
-    overlay: renderSlot('conversation.input.overlay', {}),
+    overlay: sessionId === undefined ? undefined : renderSlot('conversation.input.overlay', {}),
     leftItems: zone === undefined ? null : renderSlot('conversation.input.left', zone),
     rightItems: zone === undefined ? null : renderSlot('conversation.input.right', zone),
-    // Stats band under the card, inside the bar's width column so both
-    // share one constraint (composer.dock = stats-line family).
+    // Ambient dock under the card shares the composer's width constraint.
     footer: !hero && zone !== undefined ? renderSlot('conversation.composer.dock', zone) : null,
   })
 
@@ -169,13 +174,13 @@ export function ConversationRoot({
   const phase = settling ? 'settling' : hero ? 'hero' : 'active'
   const composer = renderSlotChain(
     'conversation.composer',
-    { interactions: pending, session },
-    { fallback: composerBar, overlay: true },
+    { sessionId, session, pendingInteraction },
+    { fallback: composerBar, fallbackOnly: sessionId === undefined, overlay: true },
   )
 
   // Sticky wraps the whole chain output (fallback + elected overlay), not
   // only `.composerStack`: overlay:true renders those as siblings, and sticky
-  // on the fallback alone would leave Question/Approval panels at the content
+  // on the fallback alone would leave a business-owned takeover at the content
   // end off-screen when the user is not pinned to the floor.
   const composerSeat = (
     <div ref={seatResizeRef} className={css.composerSeat} data-composer-seat="">
@@ -185,9 +190,9 @@ export function ConversationRoot({
 
   return (
     <div className={css.root} data-phase={phase}>
-      {renderSlot('conversation.session.header', {})}
+      {sessionId === undefined ? null : renderSlot('conversation.session.header', {})}
       <div className={css.scrollBody} data-conversation-scroll="">
-        {renderSlot('conversation.session', {})}
+        {sessionId === undefined ? null : renderSlot('conversation.session', {})}
         {composerSeat}
       </div>
     </div>

@@ -7,6 +7,7 @@
 import { Context, Service } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import type {
+  Session,
   SessionEvent,
   SessionHeader,
   SessionId,
@@ -96,6 +97,10 @@ export class SqliteSessionPersistence extends SessionPersistence {
 
   create(meta: SessionHeader): Promise<void> {
     return this.coordinator.create(meta)
+  }
+
+  override ensureMaterialized(session: Session): Promise<void> {
+    return this.coordinator.ensureMaterialized(session)
   }
 
   append(id: SessionId, events: readonly SessionEvent[]): Promise<void> {

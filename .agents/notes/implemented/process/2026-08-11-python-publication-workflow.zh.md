@@ -10,7 +10,7 @@ Python SDK 由一个平台无关的客户端 wheel 包和三个原生运行时 w
 
 ## 决策
 
-GitHub 的 `Release (Python)` 工作流为带有 `python-release-dry-run` 标签的拉取请求和设置 `publish=false` 的手动运行提供无凭据验证。两条路径都会为全部三个平台调用原生 wheel 包构建器，在 Python 3.10 和 3.14 上安装 Linux 发行集合，下载所得四份产物，验证其精确文件名和包元数据，执行 PyPI 默认单文件大小限制，记录 SHA-256 哈希，并保留一份汇总候选发行版。这些作业只有仓库读取权限，没有注册表凭据或 OIDC 权限，拉取请求事件无法进入任何发布作业。
+GitHub 的 `Release (Python)` 工作流为设置 `publish=false` 的手动运行提供无凭据验证。该运行会为全部三个平台调用原生 wheel 包构建器，在 Python 3.10 和 3.14 上安装 Linux 发行集合，下载所得四份产物，验证其精确文件名和包元数据，执行 PyPI 默认单文件大小限制，记录 SHA-256 哈希，并保留一份汇总候选发行版。这些作业只有仓库读取权限，没有注册表凭据或 OIDC 权限，dry-run 运行无法进入任何发布作业。
 
 设置 `publish=true` 时，运行必须在私有自动化仓库使用 `python-v<repository-version>` 标签，将该仓库的 `github.repository` 与其仓库级 `PYPI_PUBLISHER_REPOSITORY` 变量匹配，找到 `PUBLIC_PYPI_RELEASE_ENABLED=true`，并分别获得 GitHub `pypi-runtime` 和 `pypi` 环境对运行时与 SDK 发布的批准。只读公开镜像提供包元数据 URL，但不运行发布 Actions。只有两个发布作业获得 `id-token: write`；PyPI Trusted Publishing 会把私有仓库身份换成短期项目凭据，因此仓库不保存 PyPI token。
 

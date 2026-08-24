@@ -1,14 +1,12 @@
 /**
- * Four-quadrant RPC message model. Channels and messages are decoupled: HTTP,
- * WebSocket, and in-process SSE are physical carriers, while logical messages
- * are channel-independent and form a four-member discriminated union.
+ * API Proxy request and response message model. Logical messages remain
+ * independent of their physical carrier.
  * api/ contract layer: zero Node dependencies, importable from the browser.
  */
 
 import type { z as zCore } from 'zod'
 type ZodIssue = zCore.core.$ZodIssue
 import type { Branded } from '@deepseek-ai/dsh-brand'
-import type { MessageId } from '@deepseek-ai/dsh-llm/brand'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 
 /**
@@ -18,9 +16,8 @@ import type { SessionId } from '@deepseek-ai/dsh-session/types'
 export type RpcId = Branded<'rpc-id'>
 
 /**
- * Brands a string as RpcId (same precedent as core `SessionId()`). Minted by the initiator:
- * client-request → client mints; server-request → host mints (answerable frames get a stable
- * logical id, pure pushes mint a fresh one each time).
+ * Brands a string as RpcId (same precedent as core `SessionId()`). The Client
+ * mints each request id and the Host echoes it in the response.
  * @param id - Raw id string (implementations mint UUIDs; tests may pass fixtures).
  * @returns The same string, branded (compile-time cast, zero runtime cost).
  */
@@ -33,31 +30,16 @@ export interface RpcErrorDetailsMap {
   'bad-request': { issues: ZodIssue[] }
   'cancelled': {}
   'session-not-found': { sessionId: SessionId }
-  'model-unavailable': { provider: string; model: string }
-  'session-conflict': { sessionId: SessionId; requestedCwd: string; existingCwd?: string }
   'invalid-time-zone': { value: string }
-  'workspace-attach-failed': { sessionId: SessionId; workspaceId: string }
-  'workspace-not-found': { workspaceId: string }
-  'workspace-invalid-path': { path: string }
-  'workspace-name-conflict': { name: string }
-  'workspace-move-invalid': { workspaceId: string; sessionId: SessionId; beforeSessionId?: SessionId }
   'directory-unreadable': { path: string }
   'directory-exists': { path: string }
   'directory-create-failed': { path: string }
   'directory-picker-unavailable': { capability: string }
   'agent-preset-read-only': { agentPreset: string; reason: string }
   'agent-preset-locked': { sessionId: SessionId; agentPreset: string }
-  'agent-preset-conflict': { sessionId: SessionId; requestedPreset: string; existingPreset?: string }
-  'agent-preset-not-found': { agentPreset: string; available: string[] }
+  'agent-preset-not-found': { agentPreset: string; available: readonly string[] }
   'agent-preset-invalid': { agentPreset: string; reason: string }
   'agent-busy': { reason: string }
-  'attachment-error': { reason: string }
-  'queue-item-not-found': { itemId: MessageId }
-  'steer-unavailable': { itemId: MessageId }
-  /** A known slash command reported a usage/state error; the message is the command's own text. */
-  'command-error': {}
-  /** A leading-/ prompt named no registered command; the message names the token. */
-  'unknown-command': {}
   /**
    * A settings write was refused (schema validation, unknown namespace,
    * read-only provider, or storage failure); the message is the seam's text.
@@ -80,8 +62,6 @@ export interface RpcErrorDetailsMap {
    * details name the endpoint asked, never the credential offered.
    */
   'model-discovery-failed': { settingsNs: string; baseURL?: string }
-  'title-invalid': { sessionId: SessionId }
-  'fork-unavailable': { sessionId: SessionId }
   'subagent-parent-unavailable': { parentSessionId: SessionId }
   'subagent-not-found': { parentSessionId: SessionId; childSessionId: SessionId }
   'subagent-catalog-diagnostic': {
@@ -139,7 +119,7 @@ export interface RpcResponse<T> {
   result: RpcResult<T>
 }
 
-// ---- Wire full forms: four named members of a discriminated union (discriminant = the four `type` literals) ----
+// ---- Wire full forms ----
 
 /** Call initiated by the client (wire carrier: POST /api/<method> body). */
 export interface ClientRequest {
@@ -156,32 +136,5 @@ export interface ServerResponse {
   result: RpcResult<unknown>
 }
 
-/**
- * Message initiated by the server (wire carrier: downstream stream frame). Answerable interactions
- * (approval/question requested — stable rpcId, reused on replay) and pure pushes
- * (session/event etc. — rpcId identifies that one push) share this shape; whether a
- * response is expected is determined statically by method (a strict dichotomy, no third kind).
- */
-export interface ServerRequest {
-  type: 'server-request'
-  rpcId: RpcId
-  method: string
-  payload: unknown
-}
-
-/** Response to a ServerRequest (wire carrier: POST /api/respond body); rpcId echoed, never minted anew. */
-export interface ClientResponse {
-  type: 'client-response'
-  rpcId: RpcId
-  result: RpcResult<unknown>
-}
-
 /** Authoritative wire full-form union; narrow via `switch (message.type)`. */
-export type RpcMessage = ClientRequest | ServerResponse | ServerRequest | ClientResponse
-
-/**
- * Carrier receipt (not an RpcMessage — it belongs to the carrier layer, same
- * discipline as "HTTP status describes only the carrier"): the HTTP response
- * body of the POST carrying a client-response. Late/duplicate responses yield not-pending.
- */
-export type RpcReceipt = { accepted: true } | { accepted: false; reason: 'not-pending' | 'bad-response' }
+export type RpcMessage = ClientRequest | ServerResponse

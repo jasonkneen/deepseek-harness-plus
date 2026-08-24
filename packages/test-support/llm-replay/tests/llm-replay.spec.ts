@@ -1,10 +1,11 @@
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import { CompactionId } from '@deepseek-ai/dsh-compaction'
+import DeepSeekLlmApiExtensionRegistry from '@deepseek-ai/dsh-deepseek-llm-api-extensions'
 import LlmRuntime, { CallId, createUserMessage, GenerateOptions, LlmAdapter, StreamChunk } from '@deepseek-ai/dsh-llm'
 import {
   type Config,
@@ -21,6 +22,12 @@ import {
   parseSessionLog,
   resolveScriptedEntry,
 } from '../src/index.ts'
+
+declare module '@deepseek-ai/dsh-deepseek-llm-api-extensions/types' {
+  interface DeepSeekLlmApiExtensionMap {
+    test_replay: { readonly version: 1 }
+  }
+}
 
 /**
  * Unit tests for the replay llm/stream plugin. These drive the listener through
@@ -700,6 +707,90 @@ describe('installLlmReplay (through the real LlmRuntime)', () => {
     installLlmReplay(ctx, { file })
     expect(await drain(ctx.llm.stream({ provider: 'm', model: 'm', messages: [] }))).toEqual(TEXT_CHUNKS)
     expect(await drain(ctx.llm.stream({ provider: 'm', model: 'm', messages: [] }))).toEqual(second)
+  })
+
+  it('settles official DeepSeek request extensions before replayed chunks', async () => {
+    writeLog(TEXT_CHUNKS, TEXT_CHUNKS, TEXT_CHUNKS)
+    const ctx = new Context()
+    await ctx.plugin(LlmRuntime)
+    await ctx.plugin(DeepSeekLlmApiExtensionRegistry)
+    const accepted = vi.fn()
+    ctx.deepseekLlmApiExtensions.register('test_replay', {
+      prepare: () => ({ value: { version: 1 }, accept: accepted }),
+    })
+    installLlmReplay(ctx, { file })
+
+    const sessionId = 'deepseek-replay' as NonNullable<GenerateOptions['sessionId']>
+    await drain(ctx.llm.stream({ provider: 'deepseek-official', model: 'm', messages: [], sessionId }))
+    expect(accepted).toHaveBeenCalledOnce()
+    await drain(ctx.llm.stream({
+      provider: 'deepseek-official',
+      model: 'm',
+      messages: [],
+      sessionId,
+      signal: new AbortController().signal,
+      purpose: 'compaction',
+    }))
+    expect(accepted).toHaveBeenCalledTimes(2)
+    await drain(ctx.llm.stream({ provider: 'another-provider', model: 'm', messages: [], sessionId }))
+    expect(accepted).toHaveBeenCalledTimes(2)
+  })
+
+  it('accepts anonymous official extensions and tolerates an absent optional registry', async () => {
+    writeLog(TEXT_CHUNKS)
+    const withRegistry = new Context()
+    await withRegistry.plugin(LlmRuntime)
+    await withRegistry.plugin(DeepSeekLlmApiExtensionRegistry)
+    const accepted = vi.fn()
+    withRegistry.deepseekLlmApiExtensions.register('test_replay', {
+      prepare: () => ({ value: { version: 1 }, accept: accepted }),
+    })
+    installLlmReplay(withRegistry, { file })
+    await drain(withRegistry.llm.stream({ provider: 'deepseek-official', model: 'm', messages: [] }))
+    expect(accepted).toHaveBeenCalledOnce()
+
+    const withoutRegistry = new Context()
+    await withoutRegistry.plugin(LlmRuntime)
+    installLlmReplay(withoutRegistry, { file })
+    await expect(drain(withoutRegistry.llm.stream({ provider: 'deepseek-official', model: 'm', messages: [] })))
+      .resolves.toEqual(TEXT_CHUNKS)
+  })
+
+  it('accepts only throw entries that reached the post-2xx point', async () => {
+    writeFileSync(file, sessionJsonl([]), 'utf8')
+    const overrideFile = join(dir, 'replay.override.json')
+    writeFileSync(overrideFile, JSON.stringify([
+      { kind: 'throw', chunks: [{ type: 'block-start', index: 0, blockType: 'text' }], message: 'partial', code: 'STREAM_CLOSED' },
+      { kind: 'throw', chunks: [], message: 'unauthorized', code: 'AUTH' },
+      { kind: 'throw', chunks: [], message: 'empty body', code: 'EMPTY_RESPONSE', accepted: true },
+    ]), 'utf8')
+    const ctx = new Context()
+    await ctx.plugin(LlmRuntime)
+    await ctx.plugin(DeepSeekLlmApiExtensionRegistry)
+    const accepted = vi.fn()
+    ctx.deepseekLlmApiExtensions.register('test_replay', {
+      prepare: () => ({ value: { version: 1 }, accept: accepted }),
+    })
+    installLlmReplay(ctx, { file, overrideFile })
+    const request = { provider: 'deepseek-official', model: 'm', messages: [] }
+
+    await expect(drain(ctx.llm.stream(request))).rejects.toThrow('partial')
+    expect(accepted).toHaveBeenCalledOnce()
+    await expect(drain(ctx.llm.stream(request))).rejects.toThrow('unauthorized')
+    expect(accepted).toHaveBeenCalledOnce()
+    await expect(drain(ctx.llm.stream(request))).rejects.toThrow('empty body')
+    expect(accepted).toHaveBeenCalledTimes(2)
+  })
+
+  it('rejects a non-boolean throw acceptance override', async () => {
+    writeFileSync(file, sessionJsonl([]), 'utf8')
+    const overrideFile = join(dir, 'replay.override.json')
+    writeFileSync(overrideFile, JSON.stringify([
+      { kind: 'throw', chunks: [], message: 'bad', code: 'X', accepted: 'yes' },
+    ]), 'utf8')
+    const ctx = new Context()
+    await ctx.plugin(LlmRuntime)
+    expect(() => { installLlmReplay(ctx, { file, overrideFile }) }).toThrow(/accepted must be a boolean/)
   })
 
   it('replays a sidecar throw-entry as an LlmError with its stable code, after its prefix chunks', async () => {

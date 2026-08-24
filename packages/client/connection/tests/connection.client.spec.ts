@@ -1,32 +1,24 @@
 /**
- * ConnectionController: stream pumping into sinks, the strict readiness
- * handshake (describe + both streams' onOpen, timeout-guarded), generation
+ * ConnectionController: strict readiness handshake (describe + incremental
+ * source ready), generation
  * abort on loss, backoff reconnection, state transitions, and sink-exception
  * isolation. Real (short) timers — the timeout and backoff are configurable,
  * so tests run them at millisecond scale.
  */
 
 import { describe, expect, it, vi } from 'vitest'
-import type { SessionId } from '../src/client/api.ts'
 import type { ConnectionState } from '../src/client/connection.ts'
 import { ConnectionController } from '../src/client/connection.ts'
 import { FakeApiClient, deferred, ok } from './fake-api.client.ts'
 
-const SID = 'fk-c1' as SessionId
-const FAST = { backoffBaseMs: 10, backoffFactor: 1, backoffMaxMs: 10, streamOpenTimeoutMs: 500 }
-
-function subscribedFrame(lastSeq = 0) {
-  return { type: 'session/subscribed', sessionId: SID, lastSeq } as const
-}
+const FAST = { backoffBaseMs: 10, backoffFactor: 1, backoffMaxMs: 10, generationReadyTimeoutMs: 500 }
 
 describe('connection lifecycle', () => {
-  it('announces connected after describe + both streams open, then pumps frames to sinks', async () => {
+  it('announces connected after describe plus generation readiness', async () => {
     const api = new FakeApiClient()
-    const muxSeen: string[] = []
     const descriptions: boolean[] = []
     let connected = 0
-    const controller = new ConnectionController(api, {
-      onMuxEnvelope: envelope => muxSeen.push(envelope.payload.type),
+    const controller = new ConnectionController(api, api.generation, {
       onConnected: (description) => {
         connected++
         descriptions.push(description.canOpenPath)
@@ -35,8 +27,6 @@ describe('connection lifecycle', () => {
     controller.start()
     try {
       await vi.waitFor(() => { expect(connected).toBe(1) })
-      api.pushMux(subscribedFrame())
-      await vi.waitFor(() => { expect(muxSeen).toEqual(['session/subscribed']) })
       expect(api.callsOf('host.describe')).toHaveLength(1)
       expect(descriptions).toEqual([true])
     } finally {
@@ -44,25 +34,25 @@ describe('connection lifecycle', () => {
     }
   })
 
-  it('reconnects with a fresh generation when a stream fails, and stop() ends the loop', async () => {
+  it('reconnects with a fresh generation when its source fails, and stop() ends the loop', async () => {
     const api = new FakeApiClient()
     let connected = 0
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
-    const controller = new ConnectionController(api, { onConnected: () => { connected++ } }, FAST)
+    const controller = new ConnectionController(api, api.generation, { onConnected: () => { connected++ } }, FAST)
     controller.start()
     try {
       await vi.waitFor(() => { expect(connected).toBe(1) })
       api.failStreams(new Error('stream torn'))
       await vi.waitFor(() => { expect(connected).toBe(2) }) // new generation after backoff
-      expect(api.openMuxCount).toBe(1) // the dead generation's stream is gone, exactly one live
+      expect(api.openGenerationCount).toBe(1)
     } finally {
       controller.stop()
       warnSpy.mockRestore()
     }
-    // stop() aborts the live generation (streams tear down) and no reconnect follows.
-    await vi.waitFor(() => { expect(api.openMuxCount).toBe(0) })
+    // stop() aborts the live generation and no reconnect follows.
+    await vi.waitFor(() => { expect(api.openGenerationCount).toBe(0) })
     await new Promise(resolve => setTimeout(resolve, 40))
-    expect(api.openMuxCount).toBe(0)
+    expect(api.openGenerationCount).toBe(0)
   })
 
   it('treats describe failure as generation failure and retries', async () => {
@@ -75,7 +65,7 @@ describe('connection lifecycle', () => {
     }
     let connected = 0
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
-    const controller = new ConnectionController(api, { onConnected: () => { connected++ } }, FAST)
+    const controller = new ConnectionController(api, api.generation, { onConnected: () => { connected++ } }, FAST)
     controller.start()
     try {
       await vi.waitFor(() => { expect(describeCalls).toBe(2) }) // retried after backoff
@@ -106,7 +96,7 @@ describe('connection lifecycle', () => {
     }
     let connected = 0
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
-    const controller = new ConnectionController(api, { onConnected: () => { connected++ } }, FAST)
+    const controller = new ConnectionController(api, api.generation, { onConnected: () => { connected++ } }, FAST)
     controller.start()
     try {
       await vi.waitFor(() => { expect(describeCalls).toBe(2) })
@@ -117,70 +107,45 @@ describe('connection lifecycle', () => {
     }
   })
 
-  it('converges stream/error frames into reconnect instead of dispatching them', async () => {
+  it('isolates a connected sink exception from the generation', async () => {
     const api = new FakeApiClient()
-    const muxSeen: string[] = []
-    let connected = 0
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
-    const controller = new ConnectionController(api, {
-      onMuxEnvelope: envelope => muxSeen.push(envelope.payload.type),
-      onConnected: () => { connected++ },
-    }, FAST)
-    controller.start()
-    try {
-      await vi.waitFor(() => { expect(connected).toBe(1) })
-      api.pushMux({ type: 'stream/error', error: { code: 'internal', message: 'impl broke', details: {} } })
-      await vi.waitFor(() => { expect(connected).toBe(2) }) // treated as loss → reconnect
-      expect(muxSeen).toEqual([]) // never forwarded to the business sink
-    } finally {
-      controller.stop()
-      warnSpy.mockRestore()
-    }
-  })
-
-  it('isolates sink exceptions from the pump', async () => {
-    const api = new FakeApiClient()
-    const seen: string[] = []
     let connected = 0
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
-    const controller = new ConnectionController(api, {
-      onMuxEnvelope: (envelope) => {
-        seen.push(envelope.payload.type)
+    const controller = new ConnectionController(api, api.generation, {
+      onConnected: () => {
+        connected++
         throw new Error('business layer bug')
       },
-      onConnected: () => { connected++ },
     }, FAST)
     controller.start()
     try {
       await vi.waitFor(() => { expect(connected).toBe(1) })
-      api.pushMux(subscribedFrame(1))
-      api.pushMux(subscribedFrame(2))
-      await vi.waitFor(() => { expect(seen).toHaveLength(2) }) // second frame still pumped
-      expect(connected).toBe(1) // no reconnect triggered by the sink throw
+      expect(api.openGenerationCount).toBe(1)
+      expect(errorSpy).toHaveBeenCalledWith('[connection] connection sink threw:', expect.any(Error))
     } finally {
       controller.stop()
       errorSpy.mockRestore()
     }
   })
 
-  it('holds onConnected until both streams establish even after describe succeeds', async () => {
+  it('holds onConnected until the incremental source is ready after describe succeeds', async () => {
     const api = new FakeApiClient()
-    api.holdStreamOpen = true // describe resolves immediately; stream establishment is in the case's hand
+    api.holdGenerationReady = true
     let connected = 0
-    const controller = new ConnectionController(api, { onConnected: () => { connected++ } }, FAST)
+    const controller = new ConnectionController(api, api.generation, { onConnected: () => { connected++ } }, FAST)
     controller.start()
     try {
       await vi.waitFor(() => { expect(api.callsOf('host.describe')).toHaveLength(1) })
       await new Promise(resolve => setTimeout(resolve, 30))
       expect(connected).toBe(0) // describe alone must not announce
-      api.releaseStreamOpens()
+      api.releaseGenerationReady()
       await vi.waitFor(() => { expect(connected).toBe(1) })
     } finally {
       controller.stop()
     }
   })
 
-  it('rejects a generation whose streams end during readiness and retries', async () => {
+  it('rejects a generation whose source ends during readiness and retries', async () => {
     const api = new FakeApiClient()
     const firstDescribe = deferred<Awaited<ReturnType<FakeApiClient['onDescribe']>>>()
     let describeCalls = 0
@@ -193,13 +158,13 @@ describe('connection lifecycle', () => {
     const states: ConnectionState[] = []
     let connected = 0
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
-    const controller = new ConnectionController(api, {
+    const controller = new ConnectionController(api, api.generation, {
       onConnected: () => { connected++ },
       onStateChange: state => states.push(state),
     }, FAST)
     controller.start()
     try {
-      await vi.waitFor(() => { expect(api.openMuxCount).toBe(1) })
+      await vi.waitFor(() => { expect(api.openGenerationCount).toBe(1) })
       api.endStreams()
       firstDescribe.resolve(ok({ version: '0', cwd: '/f', attachedSessions: 0, home: '/h', canOpenPath: true }))
 
@@ -212,16 +177,54 @@ describe('connection lifecycle', () => {
     }
   })
 
-  it('proceeds as connected via the timeout guard when a carrier never fires onOpen', async () => {
+  it.each([
+    { label: 'ends normally', fail: () => Promise.resolve() },
+    {
+      label: 'rejects with a non-Error reason',
+      // oxlint-disable-next-line typescript/prefer-promise-reject-errors -- non-Error source normalization is the scenario.
+      fail: () => Promise.reject('fixture offline'),
+    },
+  ])('retries when the generation source $label before reporting ready', async ({ fail }) => {
     const api = new FakeApiClient()
-    api.suppressStreamOpen = true // misbehaving carrier: streams open but onOpen never fires
+    let sourceCalls = 0
     let connected = 0
-    const controller = new ConnectionController(api, { onConnected: () => { connected++ } }, { ...FAST, streamOpenTimeoutMs: 20 })
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const controller = new ConnectionController(api, (signal, ready) => {
+      sourceCalls++
+      if (sourceCalls === 1) return fail()
+      ready()
+      return new Promise<void>((resolve) => {
+        signal.addEventListener('abort', () => { resolve() }, { once: true })
+      })
+    }, { onConnected: () => { connected++ } }, FAST)
     controller.start()
     try {
-      await vi.waitFor(() => { expect(connected).toBe(1) }) // handshake resolved by the guard, not wedged
+      await vi.waitFor(() => { expect(sourceCalls).toBe(2) })
+      await vi.waitFor(() => { expect(connected).toBe(1) })
     } finally {
       controller.stop()
+      warnSpy.mockRestore()
+    }
+  })
+
+  it('rejects and retries a generation whose source never reports ready', async () => {
+    const api = new FakeApiClient()
+    api.suppressGenerationReady = true
+    let connected = 0
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const controller = new ConnectionController(
+      api,
+      api.generation,
+      { onConnected: () => { connected++ } },
+      { ...FAST, generationReadyTimeoutMs: 20 },
+    )
+    controller.start()
+    try {
+      await vi.waitFor(() => { expect(api.callsOf('host.describe').length).toBeGreaterThan(1) })
+      expect(connected).toBe(0)
+    } finally {
+      controller.stop()
+      warnSpy.mockRestore()
     }
   })
 
@@ -230,7 +233,7 @@ describe('connection lifecycle', () => {
     const states: ConnectionState[] = []
     let connected = 0
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
-    const controller = new ConnectionController(api, {
+    const controller = new ConnectionController(api, api.generation, {
       onConnected: () => { connected++ },
       onStateChange: state => states.push(state),
     }, FAST)
@@ -251,7 +254,7 @@ describe('connection lifecycle', () => {
     const api = new FakeApiClient()
     const states: ConnectionState[] = []
     let connected = 0
-    const controller = new ConnectionController(api, {
+    const controller = new ConnectionController(api, api.generation, {
       onConnected: () => { connected++ },
       onStateChange: (state) => {
         states.push(state)
@@ -261,7 +264,7 @@ describe('connection lifecycle', () => {
 
     controller.start()
     await vi.waitFor(() => { expect(states).toEqual(['connected']) })
-    await vi.waitFor(() => { expect(api.openMuxCount).toBe(0) })
+    await vi.waitFor(() => { expect(api.openGenerationCount).toBe(0) })
     expect(connected).toBe(0)
   })
 
@@ -276,7 +279,7 @@ describe('connection lifecycle', () => {
     const states: ConnectionState[] = []
     let connected = 0
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
-    const controller = new ConnectionController(api, {
+    const controller = new ConnectionController(api, api.generation, {
       onConnected: () => { connected++ },
       onStateChange: state => states.push(state),
     }, FAST)
@@ -294,11 +297,10 @@ describe('connection lifecycle', () => {
 
   it('runs with no sinks at all (every callback slot optional)', async () => {
     const api = new FakeApiClient()
-    const controller = new ConnectionController(api, {}, FAST)
+    const controller = new ConnectionController(api, api.generation, {}, FAST)
     controller.start()
     try {
       await vi.waitFor(() => { expect(api.callsOf('host.describe')).toHaveLength(1) })
-      api.pushMux(subscribedFrame()) // pumped with sink undefined: dropped silently
       await new Promise(resolve => setTimeout(resolve, 20))
     } finally {
       controller.stop()
@@ -308,12 +310,12 @@ describe('connection lifecycle', () => {
   it('start() is idempotent (one loop, one stream set)', async () => {
     const api = new FakeApiClient()
     let connected = 0
-    const controller = new ConnectionController(api, { onConnected: () => { connected++ } }, FAST)
+    const controller = new ConnectionController(api, api.generation, { onConnected: () => { connected++ } }, FAST)
     controller.start()
     controller.start()
     try {
       await vi.waitFor(() => { expect(connected).toBe(1) })
-      expect(api.openMuxCount).toBe(1)
+      expect(api.openGenerationCount).toBe(1)
       expect(api.callsOf('host.describe')).toHaveLength(1)
     } finally {
       controller.stop()

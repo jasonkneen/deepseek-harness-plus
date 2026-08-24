@@ -1,9 +1,7 @@
 /**
- * Host transport for the settings-namespace scope contract. The contract types
- * live in `dsh-client-runtime` (the common dependency of every feature that
- * owns a preference); this file owns the per-namespace derivation over the
- * shared {@link SettingsDescribeMirror} and the serialized write path, both of
- * which are Settings-surface concerns. Reads never touch the wire here: the
+ * Host transport for the settings-namespace scope contract. This file owns the
+ * per-namespace derivation over the shared {@link SettingsDescribeMirror} and
+ * the serialized write path. Reads never touch the wire here: the
  * mirror is the one `settings.describe` reader, and every scope is a selector
  * over its snapshot.
  */
@@ -13,10 +11,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import type {
   ConnectionHandle, IApiClient, SettingsNamespaceView, SettingsPathOpView,
 } from '@deepseek-ai/dsh-api-remotes/client'
-import {
-  createSnapshotStore, type SettingsScope, type SettingsScopeSnapshot,
-  type SettingsScopeSpec, type SnapshotStore,
-} from '@deepseek-ai/dsh-client-runtime/client'
+import { createSnapshotStore, type SnapshotStore } from '@deepseek-ai/dsh-client-store'
 // Type-only, and deliberately NOT `@deepseek-ai/dsh-api-remotes/client`: this
 // package is reachable from the Host build graph through its feature-package
 // callers, and api-remotes' Client face imports a Host-tsdown-generated
@@ -34,6 +29,7 @@ import type {} from '@deepseek-ai/dsh-api-remotes/types'
 // cordis `Events` entry (and with it the branded `SettingsNamespace`).
 import type {} from '@deepseek-ai/dsh-settings/types'
 import type { SettingsSchemaService } from './schema.ts'
+import type { SettingsScope, SettingsScopeSnapshot, SettingsScopeSpec } from './settings-contract.ts'
 import { SettingsDescribeMirror, type SettingsDescribeFace } from './settings-mirror.ts'
 
 type SettingsFace = Pick<IApiClient, 'settings'>

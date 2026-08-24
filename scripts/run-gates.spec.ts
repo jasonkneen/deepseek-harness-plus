@@ -84,13 +84,19 @@ describe('gate graph validation', () => {
     expect(ids).toContain('public-repository-links')
   })
 
+  it('keeps package-group subsystem ownership in the documentation gate', () => {
+    const ids = withPnpmEntrypoint(() => gatesForMode('doc-sync').map(subject => subject.id))
+
+    expect(ids).toContain('subsystem-pages')
+  })
+
   it('keeps the hygiene aggregate aligned with the package script checks', () => {
     const ids = withPnpmEntrypoint(() => gatesForMode('hygiene').map(subject => subject.id))
 
     expect(ids).toEqual([
-      'rescope-vendor', 'knip', 'publint', 'constraints', 'dsh-package-licenses',
-      'package-invariants', 'built-package-invariants', 'node-next-types',
-      'optional-dependency-imports', 'client-packages', 'cordis-config',
+      'rescope-vendor', 'knip', 'publint', 'constraints', 'application-entrypoints',
+      'dsh-package-licenses', 'package-invariants', 'built-package-invariants', 'node-next-types',
+      'optional-dependency-imports', 'client-packages', 'client-ui-i18n', 'cordis-config',
       'runtime-closure', 'vendored-links',
     ])
     expect(defaultConcurrency('hygiene', ids.length, 8)).toEqual({
@@ -104,7 +110,7 @@ describe('gate graph validation', () => {
 
     expect(ids.slice(0, 10)).toEqual([
       'doc-typecheck', 'docs-site-build', 'doc-graphs', 'markdown-links', 'type-equivalence',
-      'cordis-catalog', 'mermaid', 'scoped-events', 'translation-pairing', 'markdown-wrap',
+      'cordis-catalog', 'cordis-inspect-catalog', 'mermaid', 'scoped-events', 'translation-pairing',
     ])
   })
 
@@ -136,6 +142,24 @@ describe('gate graph validation', () => {
     },
   )
 
+  it.each(['ci-primary', 'ci-static', 'check-all', 'hygiene'] as const)(
+    'keeps hard-coded Client UI copy enforcement in %s',
+    (mode) => {
+      const ids = withPnpmEntrypoint(() => gatesForMode(mode).map(subject => subject.id))
+
+      expect(ids).toContain('client-ui-i18n')
+    },
+  )
+
+  it.each(['ci-primary', 'ci-static', 'check-all', 'hygiene'] as const)(
+    'keeps application entrypoint enforcement in %s',
+    (mode) => {
+      const ids = withPnpmEntrypoint(() => gatesForMode(mode).map(subject => subject.id))
+
+      expect(ids).toContain('application-entrypoints')
+    },
+  )
+
   it('keeps native Windows coverage blocking while retaining the observational inventory', () => {
     const complete = withPnpmEntrypoint(() => gatesForMode('ci-windows-complete'))
     const observational = withPnpmEntrypoint(() => gatesForMode('ci-windows-observational'))
@@ -145,14 +169,13 @@ describe('gate graph validation', () => {
     expect(byId.get('coverage')?.allowFailure).not.toBe(true)
     expect(byId.get('coverage-exempt-heavy')?.allowFailure).not.toBe(true)
     expect(byId.get('coverage-exempt-heavy')?.needs).toContain('build')
+    expect(byId.get('coverage-exempt-heavy')?.after).toContain('coverage')
     expect(observational).not.toHaveLength(0)
     for (const gate of observational) {
       const completeGate = byId.get(gate.id)
       expect(completeGate?.allowFailure).toBe(true)
-      expect(completeGate?.after).toEqual(expect.arrayContaining([
-        'coverage',
-        'coverage-exempt-heavy',
-      ]))
+      expect(completeGate?.after).toContain('coverage')
+      expect(completeGate?.after).not.toContain('coverage-exempt-heavy')
       expect(completeGate?.needs).toEqual(gate.needs)
     }
   })

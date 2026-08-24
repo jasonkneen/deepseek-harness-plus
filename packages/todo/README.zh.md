@@ -10,4 +10,4 @@
 
 子级 README 负责工具、持久化和渲染约定。
 
-事件载荷记录在 [docs/subsystems/session.md](../../docs/subsystems/session.zh.md)。
+事件载荷记录在 [docs/subsystems/todo.md](../../docs/subsystems/todo.zh.md)。

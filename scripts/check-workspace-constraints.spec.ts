@@ -1,9 +1,12 @@
 /** Experimental-package publication and dependency constraints. */
 
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import {
   checkExperimentalDependencyIsolation,
   checkExperimentalManifest,
+  checkWorkspaceManifest,
   type WorkspaceManifest,
 } from './check-workspace-constraints.ts'
 
@@ -71,6 +74,27 @@ describe('experimental workspace constraints', () => {
 
     expect(checkExperimentalDependencyIsolation(manifests)).toEqual([
       '@deepseek-ai/dsh-python-runtime: dependencies.@deepseek-ai/dsh-experimental-prototype must not reference an experimental package',
+    ])
+  })
+})
+
+describe('private Python runtime carrier', () => {
+  const manifest = JSON.parse(
+    readFileSync(new URL('../packages/sdk/python-runtime/package.json', import.meta.url), 'utf8'),
+  ) as WorkspaceManifest['manifest']
+
+  it('participates in dsh package checks without becoming an npm release member', () => {
+    expect(checkWorkspaceManifest({ dir: 'packages/sdk/python-runtime', manifest })).toEqual([])
+  })
+
+  it('rejects publication metadata on the private carrier', () => {
+    const path = join('packages', 'sdk', 'python-runtime', 'package.json')
+    expect(checkWorkspaceManifest({
+      dir: 'packages/sdk/python-runtime',
+      manifest: { ...manifest, private: false, publishConfig: { access: 'public' } },
+    })).toEqual([
+      `${path}: @deepseek-ai/dsh-sdk-python-runtime: private carrier must set "private": true`,
+      `${path}: @deepseek-ai/dsh-sdk-python-runtime: private carrier must omit publishConfig`,
     ])
   })
 })

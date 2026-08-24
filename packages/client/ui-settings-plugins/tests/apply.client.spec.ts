@@ -3,7 +3,7 @@
 import { Context } from '@deepseek-ai/cordis'
 import { describe, expect, it, vi } from 'vitest'
 import { resolveSlotLabel } from '@deepseek-ai/dsh-client-ui-slots'
-import { SlotRegistry } from '@deepseek-ai/dsh-client-runtime/client'
+import { SlotRegistry } from '@deepseek-ai/dsh-client-ui-renderer/client'
 import { LocaleRuntime } from '@deepseek-ai/dsh-client-locale/client'
 import { TestRemote } from '@deepseek-ai/dsh-client-test-runtime'
 import { apply as settingsApply, inject as settingsInject } from '@deepseek-ai/dsh-client-ui-settings/client'
@@ -42,10 +42,7 @@ async function bench(served?: string[]) {
         },
       },
     }))
-  // The section binds its scopes through the Settings surface's service, and
-  // forwarded Host events reach it through the same `$dispatch` handoff the
-  // connection sink makes.
-  new TestRemote(ctx)
+  const remote = new TestRemote(ctx)
   ctx.provide('connection', {
     isLoopback: true,
     api: {
@@ -54,7 +51,7 @@ async function bench(served?: string[]) {
     },
   } as never)
   await ctx.plugin({ inject: [...settingsInject], apply: settingsApply }).await()
-  return { ctx, slots: ctx.get('slots') as SlotRegistry, describeCredentials, describeSettings }
+  return { ctx, slots: ctx.get('slots') as SlotRegistry, describeCredentials, describeSettings, remote }
 }
 
 function declareRoot(slots: SlotRegistry): () => void {
@@ -148,13 +145,13 @@ describe('ui-settings-plugins apply', () => {
     // Which namespaces the Host serves is a registration fact the wire never
     // announces on its own, so the tab rides the invalidation that can
     // accompany a changed composition.
-    const { ctx, slots, describeSettings } = await bench(['bash'])
+    const { ctx, slots, describeSettings, remote } = await bench(['bash'])
     declareRoot(slots)
     await ctx.plugin({ inject: [...inject], apply }).await()
     await vi.waitFor(() => { expect(describeSettings).toHaveBeenCalled() })
     describeSettings.mockClear()
 
-    ctx.remote.$dispatch('settings/document-updated', ['bash', 1])
+    remote.emit('settings/document-updated', ['bash', 1])
 
     await vi.waitFor(() => { expect(describeSettings).toHaveBeenCalled() })
   })
@@ -172,7 +169,7 @@ describe('ui-settings-plugins apply', () => {
   })
 
   it('re-reads the credential when the Host reports the watched reference changed', async () => {
-    const { ctx, slots, describeCredentials } = await bench()
+    const { ctx, slots, describeCredentials, remote } = await bench()
     declareRoot(slots)
     await ctx.plugin({ inject: [...inject], apply }).await()
     await vi.waitFor(() => { expect(describeCredentials).toHaveBeenCalled() })
@@ -180,19 +177,19 @@ describe('ui-settings-plugins apply', () => {
 
     // A key written on another surface changes no settings section, so this
     // event is the only thing that reaches the card.
-    ctx.remote.$dispatch('credentials/reference-updated', ['DEEPSEEK_API_KEY'])
+    remote.emit('credentials/reference-updated', ['DEEPSEEK_API_KEY'])
 
     await vi.waitFor(() => { expect(describeCredentials).toHaveBeenCalledTimes(1) })
   })
 
   it('ignores a credential change for a reference no card watches', async () => {
-    const { ctx, slots, describeCredentials } = await bench()
+    const { ctx, slots, describeCredentials, remote } = await bench()
     declareRoot(slots)
     await ctx.plugin({ inject: [...inject], apply }).await()
     await vi.waitFor(() => { expect(describeCredentials).toHaveBeenCalled() })
     describeCredentials.mockClear()
 
-    ctx.remote.$dispatch('credentials/reference-updated', ['SOME_OTHER_KEY'])
+    remote.emit('credentials/reference-updated', ['SOME_OTHER_KEY'])
     await Promise.resolve()
 
     expect(describeCredentials).not.toHaveBeenCalled()

@@ -314,18 +314,18 @@ const TOOL_PACKAGES: ToolPackage[] = [
     pkg: '@deepseek-ai/dsh-tool-fs',
     dir: 'tool-fs',
     source: 'packages/fs/tool-fs/src/index.ts',
-    requires: ['ctx.tools', 'ctx.fs', 'ctx.systemPrompt', 'ctx.attachments (read_image registration)', 'ctx.llm + an image-capable route (read_image execution)'],
+    requires: ['ctx.tools', 'ctx.fs', 'ctx.systemPrompt', 'ctx.attachments (image-tool registration)', 'ctx.llm + an image-capable route (image-tool execution)'],
     writes: ['tool/call', 'fs/write-intent or fs/edit-intent for mutations', 'fs/observed after read presence/absence or successful file operation', 'durable attachment (read_image)', 'tool/result'],
     async mount(ctx) {
       // The tool needs `fs`; the bare provider is sufficient because policy
       // changes behavior, not schema shape. The catalog seam marker opts into
-      // the attachments-conditional read_image schema without attachment I/O.
+      // the attachments-conditional image schema without attachment I/O.
       await ctx.plugin(LocalFileSystem)
       await ctx.plugin(CatalogAttachmentStore)
       await ctx.plugin(ToolFs)
     },
     note:
-      'The read-before-write/edit policy is added by `@deepseek-ai/dsh-fs-observation-policy` (an `fs/*` event-gate plugin, no schema change); a deployment that loads these tools is expected to also load it. `read_image` is not registered without `ctx.attachments`; its schema is route-independent, and execution refuses unless the exact routed model declares image input.',
+      'The read-before-write/edit policy is added by `@deepseek-ai/dsh-fs-observation-policy` (an `fs/*` event-gate plugin, no schema change); a deployment that loads these tools is expected to also load it. The image tool is not registered without `ctx.attachments`; its schema is route-independent, and execution refuses unless the exact routed model declares image input.',
   },
   {
     pkg: '@deepseek-ai/dsh-tool-fs-search',
@@ -651,9 +651,9 @@ export function assertManifestComplete(packages: ToolPackage[] = TOOL_PACKAGES, 
  * A tool package that boots without registering anything is a broken boot, not
  * an empty catalog section. The usual cause is an `inject` the entry's `mount`
  * does not satisfy: cordis leaves the plugin PENDING, every step here still
- * succeeds, and the generator writes a catalog missing that package's tools —
- * with the freshness gate green on it, because the omission is now what the
- * generator produces. {@link assertManifestComplete} cannot see this: the
+ * succeeds, and the generator writes a catalog missing that package's tools.
+ * The freshness gate stays green because regeneration reproduces the omission.
+ * {@link assertManifestComplete} cannot see this: the
  * package IS listed, it just contributed nothing.
  * @param entry - the manifest entry that was booted.
  * @param harvested - how many schemas its boot registered.
@@ -808,7 +808,6 @@ async function main(): Promise<void> {
   console.log(`gen-tool-catalog: wrote ${OUT}.`)
 }
 
-// Run only when invoked as a script, not when imported by a test.
 if (process.argv[1] && import.meta.filename === resolve(process.argv[1])) {
   await main()
 }

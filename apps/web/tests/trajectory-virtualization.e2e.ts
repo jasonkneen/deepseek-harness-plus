@@ -218,12 +218,13 @@ describe('web e2e: Trajectory virtualization over tail-paged history', () => {
     let finishHeldRequest: () => void = () => {}
     const gate = new Promise<void>((resolve) => { releaseHistory = resolve })
     const heldRequestFinished = new Promise<void>((resolve) => { finishHeldRequest = resolve })
-    await page.route('**/api/session.history', async (route) => {
+    await page.route('**/api/session/page', async (route) => {
       const request = route.request().postDataJSON() as {
         method?: string
-        payload?: { beforeSeq?: number }
+        payload?: { args?: { request?: { beforeSeq?: number } } }
       }
-      if (!held && request.method === 'session.history' && request.payload?.beforeSeq !== undefined) {
+      if (!held && request.method === 'session/page'
+        && request.payload?.args?.request?.beforeSeq !== undefined) {
         held = true
         await gate
         try {
@@ -340,7 +341,7 @@ describe('web e2e: Trajectory virtualization over tail-paged history', () => {
     } finally {
       releaseHistory()
       if (held) await heldRequestFinished
-      await page.unroute('**/api/session.history')
+      await page.unroute('**/api/session/page')
     }
   }, 180_000)
 })

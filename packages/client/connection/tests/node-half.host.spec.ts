@@ -1,7 +1,7 @@
 /** Node half: registers the /api prefix route bridging to the api gateway. */
-import { EventEmitter, once } from 'node:events'
+import { EventEmitter } from 'node:events'
 import { createServer, request as httpRequest } from 'node:http'
-import { PassThrough, Readable } from 'node:stream'
+import { Readable } from 'node:stream'
 import { Context } from '@deepseek-ai/cordis'
 import { describe, expect, it } from 'vitest'
 import type { AddressInfo } from 'node:net'
@@ -10,7 +10,8 @@ import type { ApiProxy } from '@deepseek-ai/dsh-host-apiproxy/api'
 import type { AttachmentStore } from '@deepseek-ai/dsh-attachment'
 import { RpcId, type ClientRequest } from '@deepseek-ai/dsh-host-apiproxy/api'
 import type { WebServer, WebRoute, WebUpgradeRoute } from '@deepseek-ai/dsh-host-webserver'
-import { API_PATH, apply, HOST_EVENTS_PATH, inject, MUX_EVENTS_PATH, type HostConnectionHandle } from '../src/index.ts'
+import { API_PATH, apply, inject, type HostConnectionHandle } from '../src/index.ts'
+import { DEFAULT_MAX_REQUEST_BODY_BYTES } from '../src/http-bridge.ts'
 
 /** Structural webServer fake recording both route registries. */
 function fakeHttpServer(
@@ -77,6 +78,7 @@ function fakeResponse(): { response: ServerResponse; state: { status?: number; b
 async function mounted(config?: { trustedHosts?: string[] }): Promise<{
   routes: WebRoute[]
   upgrades: WebUpgradeRoute[]
+  connection: HostConnectionHandle
   dispose: () => Promise<void>
 }> {
   const ctx = new Context()
@@ -86,10 +88,20 @@ async function mounted(config?: { trustedHosts?: string[] }): Promise<{
   ctx.provide('apiProxy', {} as unknown as ApiProxy)
   const fiber = ctx.plugin({ inject: [...inject], apply }, config)
   await fiber.await()
-  return { routes, upgrades, dispose: () => fiber.dispose() }
+  return {
+    routes,
+    upgrades,
+    connection: ctx.get('connection') as HostConnectionHandle,
+    dispose: () => fiber.dispose(),
+  }
 }
 
 describe('connection node half', () => {
+  it('reserves enough default carrier capacity for the 200 MiB image batch', () => {
+    expect(DEFAULT_MAX_REQUEST_BODY_BYTES).toBe(300 * 1024 * 1024)
+    expect(DEFAULT_MAX_REQUEST_BODY_BYTES).toBeGreaterThan(Math.ceil(200 * 1024 * 1024 * 4 / 3) + 1024 * 1024)
+  })
+
   it('fails loud when the carrier cap cannot hold the configured image batch', () => {
     const ctx = new Context()
     const routes: WebRoute[] = []
@@ -115,39 +127,14 @@ describe('connection node half', () => {
     expect(upgrades).toHaveLength(0)
   })
 
-  it('registers one HTTP route plus one upgrade route per downlink and removes all three with the fiber', async () => {
+  it('registers only the HTTP route and removes it with the fiber', async () => {
     const { routes, upgrades, dispose } = await mounted()
     expect(routes).toHaveLength(1)
     expect(routes[0]).toMatchObject({ kind: 'prefix', path: API_PATH })
-    expect(upgrades.map(route => route.path)).toEqual([MUX_EVENTS_PATH, HOST_EVENTS_PATH])
+    expect(upgrades).toHaveLength(0)
     await dispose()
     expect(routes).toHaveLength(0)
     expect(upgrades).toHaveLength(0)
-  })
-
-  it('requires WebSocket upgrade for network GETs to either event path', async () => {
-    const { routes, dispose } = await mounted()
-    for (const path of [MUX_EVENTS_PATH, HOST_EVENTS_PATH]) {
-      const { response, state } = fakeResponse()
-      await routes[0]!.handler(fakeRequest({ host: '127.0.0.1:3080' }, path), response)
-      expect(state.status).toBe(426)
-      expect(state.body).toBe('upgrade required')
-    }
-    await dispose()
-  })
-
-  it('rejects an untrusted WebSocket upgrade before protocol negotiation', async () => {
-    const { upgrades, dispose } = await mounted()
-    const socket = new PassThrough()
-    const chunks: Buffer[] = []
-    socket.on('data', (chunk: Buffer) => { chunks.push(chunk) })
-    const ended = once(socket, 'end')
-    await upgrades[0]!.handler(fakeRequest({
-      host: 'harness.example', origin: 'http://harness.example', 'sec-fetch-site': 'same-origin',
-    }, MUX_EVENTS_PATH), socket, Buffer.alloc(0))
-    await ended
-    expect(Buffer.concat(chunks).toString()).toContain('HTTP/1.1 403 Forbidden')
-    await dispose()
   })
 
   it('refuses an untrusted Host on any /api path before the bridge runs', async () => {
@@ -210,6 +197,17 @@ describe('connection node half', () => {
       host: 'harness.example:3080', origin: 'http://harness.example:3080', 'sec-fetch-site': 'same-origin',
     }), declared.response)
     expect(declared.state.status).toBe(404)
+    await dispose()
+  })
+
+  it('shares its configured trust policy with sibling routes', async () => {
+    const { connection, dispose } = await mounted({ trustedHosts: ['harness.example'] })
+    const loopback = fakeRequest({ host: '127.0.0.1:3080' })
+    const declared = fakeRequest({ host: 'harness.example' })
+
+    expect(connection.isTrustedRequest(loopback, 'loopback')).toBe(true)
+    expect(connection.isTrustedRequest(declared, 'loopback')).toBe(false)
+    expect(connection.isTrustedRequest(declared, 'trusted-host')).toBe(true)
     await dispose()
   })
 

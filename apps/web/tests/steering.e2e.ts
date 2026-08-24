@@ -19,7 +19,7 @@ import { connectFreshWorkspace, newEnglishPage, saveFailureShot } from './suppor
 const SNAPSHOT_DIR = fileURLToPath(new URL('./snapshots/steering', import.meta.url))
 const FIXTURE = join(SNAPSHOT_DIR, 'session.jsonl')
 // Two goldens pin the transient Host projection and its durable handoff: the
-// mid-turn state renders accepted steering from session/queue while the
+// mid-turn state renders accepted steering from the Session control queue while the
 // question blocks admission, then the settled state renders the same message
 // from user/message beside the reply that obeys it.
 const MID_EXPECTED = join(SNAPSHOT_DIR, 'mid-steer.expected.md')

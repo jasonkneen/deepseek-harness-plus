@@ -1,7 +1,6 @@
 /**
- * downloads domain contract: host-only download surfaces — the GET-download
- * channel family, the mirror of the SSE-stream `events` domain. No wire
- * envelope: the carrier's GET routes answer these directly, and the browser
+ * downloads domain contract: Host-only GET download surfaces with no wire
+ * envelope. Carrier routes answer these directly, and the browser
  * `IApiClient` never exposes them.
  */
 

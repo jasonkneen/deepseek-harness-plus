@@ -2,7 +2,7 @@
 
 Status: implemented
 
-> Path update (2026-07-22, plugin-system refactor): the three-tier philosophy and golden-path method here remain current; homes moved — object-layer specs now live in `packages/client/runtime/tests/` (was web-runtime), wire specs in `packages/client/connection/tests/`, and the `web-ui` coverage exclusion is gone with the package (component specs are per-plugin jsdom suites under each `packages/client/*/tests/`). Component-spec shape follows the [slot system standard](../architecture/2026-07-22-slot-type-chain-implementation.md): feed props directly — the store share comes from `createXXXStore().create()` (the real engine, the sanctioned zero-machinery path), framework hooks are plain stubs; no render machinery, no provider mounting. Slot ownership/registry semantics are tier-2 territory (`runtime` + `ui-slots` suites), not component specs.
+> Path update (2026-08-23, Controller split): the three-tier philosophy and golden-path method here remain current; object-layer specs now live across `packages/api/session-controller/tests/` and `packages/test-support/client-runtime/tests/`, while wire specs remain in `packages/client/connection/tests/`. Component specs are per-plugin jsdom suites under each `packages/client/*/tests/`. Component-spec shape follows the [slot system standard](../architecture/2026-07-22-slot-type-chain-implementation.md): feed props directly — the store share comes from `createXXXStore().create()` (the real engine, the sanctioned zero-machinery path), framework hooks are plain stubs; no render machinery, no provider mounting. Slot ownership and registry semantics are tier-2 territory (`ui-renderer` + `ui-slots` suites), not component specs.
 
 English | [中文](2026-07-20-gui-testing-system.zh.md)
 

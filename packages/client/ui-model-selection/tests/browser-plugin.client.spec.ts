@@ -10,11 +10,11 @@
  */
 import { Context } from '@deepseek-ai/cordis'
 import { describe, expect, it } from 'vitest'
-import { createScope } from '@deepseek-ai/dsh-client-runtime/client'
-import type { SessionId } from '@deepseek-ai/dsh-client-runtime/client'
+import { createScope } from '@deepseek-ai/dsh-api-session-controller/client'
+import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import { LocaleRuntime } from '@deepseek-ai/dsh-client-locale/client'
 import { TestRemote } from '@deepseek-ai/dsh-client-test-runtime'
-import type { ModelSelection } from '@deepseek-ai/dsh-api-remotes/client'
+import type { ModelSelection } from '@deepseek-ai/dsh-api-session-controller/types'
 import type { CommandContribution, SelectOption } from '@deepseek-ai/dsh-client-ui-commands/client'
 import type { ModelSelectInjected } from '../src/client/slots.ts'
 import { apply, inject } from '../src/client/index.ts'
@@ -58,12 +58,10 @@ async function bench() {
   const ctx = new Context()
   let current: ModelSelection = { provider: 'deepseek-official', model: 'deepseek-v4-flash' }
   const calls = { models: 0, select: 0 }
-  ctx.provide('connection', { api: { sessions: {
+  const sessionRemote = {
     models: () => {
       calls.models += 1
-      return Promise.resolve({
-        result: { ok: true as const, value: { current, routable, groups: GROUPS, failures: [] } },
-      })
+      return Promise.resolve({ ok: true as const, value: { current, routable, groups: GROUPS, failures: [] } })
     },
     selectModel: (payload: { provider: string; model: string; reasoningEffort?: string }) => {
       calls.select += 1
@@ -74,9 +72,11 @@ async function bench() {
           ? {}
           : { reasoningEffort: payload.reasoningEffort },
       }
-      return Promise.resolve({ result: { ok: true as const, value: { selected: current } } })
+      return Promise.resolve({ ok: true as const, value: { selected: current } })
     },
-  } } })
+  }
+  const remote = Object.assign(new TestRemote(ctx), { session: sessionRemote })
+  ctx.reflect.provide('remote.session', sessionRemote)
   // Whether the Host reports an adapter for the current route; the composer
   // block follows this, never catalog membership.
   let routable = true
@@ -118,7 +118,6 @@ async function bench() {
       ? { parentSessionId: sid('parent'), childSessionId: id, mode: 'continuable' as const }
       : undefined,
   })
-  new TestRemote(ctx)
   const fiber = ctx.plugin({ inject: [...inject], apply })
   await fiber.await()
   await ctx.plugin(function probe() {}).await()
@@ -128,7 +127,7 @@ async function bench() {
     return handle
   }
   return {
-    ctx, fiber, mint, calls,
+    ctx, fiber, mint, calls, remote,
     contribution: () => contribution!,
     seat: () => seats.get('conversation.input.model')!,
     hostCurrent: () => current,
@@ -252,14 +251,14 @@ describe('ui-model-selection dual entry', () => {
     expect(b.blockOf('s1')).toBeUndefined()
 
     b.setRoutable(false)
-    b.ctx.remote.$dispatch('llm/adapters-updated', [])
+    b.remote.emit('llm/adapters-updated', [])
     await Promise.resolve()
     await Promise.resolve()
     expect(b.blockOf('s1')?.reason).toBe(zh['blocked.composer'])
 
     // Recovering clears it without a reload of the surface.
     b.setRoutable(true)
-    b.ctx.remote.$dispatch('settings/document-updated', ['llm-deepseek', 1])
+    b.remote.emit('settings/document-updated', ['llm-deepseek', 1])
     await Promise.resolve()
     await Promise.resolve()
     expect(b.blockOf('s1')).toBeUndefined()

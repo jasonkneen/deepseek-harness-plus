@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest'
 
 const root = resolve(import.meta.dirname, '..')
 const runnerPrivatePnpmDestination = '${{ runner.temp }}/setup-pnpm'
+const nativeWindowsPnpmDestination = '${{ runner.temp }}/setup-pnpm-js'
 
 describe('CI workflow', () => {
   it('isolates every pnpm action setup destination per runner', () => {
@@ -25,12 +26,17 @@ describe('CI workflow', () => {
     expect(setups.length).toBeGreaterThan(0)
     for (const { jobName, step } of setups) {
       expect(step, `${jobName} must not share pnpm/action-setup's default destination`).toMatchObject({
-        with: { dest: runnerPrivatePnpmDestination },
+        with: {
+          dest: jobName === 'windows-native'
+            ? nativeWindowsPnpmDestination
+            : runnerPrivatePnpmDestination,
+        },
       })
+      if (jobName === 'windows-native') expect(step).not.toMatchObject({ with: { standalone: true } })
     }
   })
 
-  it('keeps a required Wine Windows job, a non-blocking native Windows job with failover, and a master-only standby', () => {
+  it('keeps required Wine and native Windows jobs with failover, plus a master-only standby', () => {
     const workflow = loadWorkflow('.github/workflows/ci.yml')
     const masterWorkflow = loadWorkflow('.github/workflows/ci-master.yml')
     if (!isRecord(workflow.jobs)
@@ -67,7 +73,7 @@ describe('CI workflow', () => {
     expect(windows.if).toBe("github.event_name == 'pull_request'")
     expect(commandSteps.some(step => step.run.includes('wine-windows-gates.sh'))).toBe(true)
 
-    // windows-native: non-blocking native job with failover, runs windows-complete.
+    // windows-native: blocking native job with failover, runs windows-complete.
     // Its pool is resolved by the Windows-specific switch.
     expect(typeof windowsNative['runs-on']).toBe('string')
     expect(windowsNative['runs-on']).toContain('DSH_CI_FAILOVER_WINDOWS')
@@ -78,15 +84,12 @@ describe('CI workflow', () => {
     expect(windowsNative.name).toBe('windows node 24 / native complete')
     expect(windowsNative.if).toBe("github.event_name == 'pull_request'")
     expect(windowsNative.env).toMatchObject({
+      DSH_COVERAGE_MAX_WORKERS: '12',
+      DSH_COVERAGE_PARTITIONS: '16',
       DSH_COVERAGE_TEST_TIMEOUT_MS: '30000',
+      DSH_GATE_CONCURRENCY: '8',
     })
     const nativeSteps = windowsNative.steps as unknown[]
-    const nativePnpmSetup = nativeSteps.find(step => (
-      isRecord(step)
-      && typeof step.uses === 'string'
-      && step.uses.startsWith('pnpm/action-setup@')
-    ))
-    expect(nativePnpmSetup).toMatchObject({ with: { standalone: true } })
     const nativeCommandSteps = nativeSteps.filter((step): step is Record<string, unknown> & { run: string } => (
       isRecord(step) && typeof step.run === 'string'
     ))
@@ -101,9 +104,9 @@ describe('CI workflow', () => {
     expect(serialWindows['runs-on']).toEqual(['self-hosted', 'dsh-win-ci', 'windows'])
     expect(serialWindows.name).toBe('serial / windows (self-hosted standby)')
 
-    // Aggregate: Wine `windows` required, native `windows-native` excluded.
+    // Aggregate: both complementary Windows jobs are required.
     expect(aggregate.needs).toContain('windows')
-    expect(aggregate.needs).not.toContain('windows-native')
+    expect(aggregate.needs).toContain('windows-native')
     expect(aggregate.needs).not.toContain('serial-windows')
 
     // Linux failover is a separate switch: the three required Linux workers
@@ -118,6 +121,14 @@ describe('CI workflow', () => {
     expect(aggregate['runs-on']).toContain('DSH_CI_FAILOVER_LINUX')
     expect(aggregate['runs-on']).not.toContain('DSH_CI_FAILOVER_WINDOWS')
     expect(aggregate['runs-on']).toContain('vm-backup')
+  })
+
+  it('gives the Wine Host TypeScript compile the repository heap budget', () => {
+    const wineGates = readFileSync(resolve(root, 'scripts/wine-windows-gates.sh'), 'utf8')
+
+    expect(wineGates).toContain(
+      'wine_node "$scratch/logs/host-tsc.log" --max-old-space-size=4096 "$tsc_js" -b tsconfig.host.json --pretty false',
+    )
   })
 
   it('exempts push from cancellation in ci-master, so one master merge does not cancel the running drill', () => {
@@ -207,7 +218,7 @@ describe('CI workflow', () => {
     expect(config).not.toContain('packages/lsp/lsp-stdio/src/instance.ts')
   })
 
-  it('requires one release-shaped Python runtime target on every pull request', () => {
+  it('requires release-shaped Python runtime validation on every published target', () => {
     const workflow = loadWorkflow('.github/workflows/ci.yml')
     const pythonRuntime = workflowJob(workflow, 'python-runtime')
     const aggregate = workflowJob(workflow, 'all-checks-passed')
@@ -217,11 +228,14 @@ describe('CI workflow', () => {
 
     expect(pythonRuntime).toMatchObject({
       if: "github.event_name == 'pull_request'",
-      name: 'python runtime / release-shaped Linux x64',
+      name: 'python runtime / release-shaped matrix',
       uses: './.github/workflows/build-exe-for-python-sdk.yml',
       with: {
-        targets: 'node24-linux-x64',
+        targets: 'node24-linux-x64,node24-linux-arm64,node24-macos-arm64',
         ci: true,
+      },
+      secrets: {
+        DEEPSEEK_API_KEY_EXTERNAL: '${{ secrets.DEEPSEEK_API_KEY_EXTERNAL }}',
       },
     })
     expect(aggregate.needs).toContain('python-runtime')
@@ -246,6 +260,15 @@ describe('DeepSeek e2e workflow', () => {
       run: 'bash scripts/prepare-ci-bubblewrap.sh',
     })
     expect(JSON.stringify(steps)).not.toContain('apt-get')
+  })
+
+  it('bounds profile subprocess fan-out to the tested e2e default', () => {
+    const workflow = loadWorkflow('.github/workflows/e2e.yml')
+    const e2e = workflowJob(workflow, 'e2e')
+    if (!Array.isArray(e2e.steps)) throw new TypeError('DeepSeek e2e workflow must define steps')
+
+    const step = e2e.steps.filter(isRecord).find(candidate => candidate.name === 'E2E tests (real DeepSeek API)')
+    expect(step).toMatchObject({ env: { DSH_E2E_MAX_WORKERS: 4 } })
   })
 })
 
@@ -280,7 +303,6 @@ describe('Python release workflows', () => {
   it('keeps complete wheel validation separate from protected public publication', () => {
     const workflow = loadWorkflow('.github/workflows/python-release.yml')
     const dispatch = workflowEvent(workflow, 'workflow_dispatch')
-    const pullRequest = workflowEvent(workflow, 'pull_request')
     const build = workflowJob(workflow, 'build')
     const pythonCompat = workflowJob(workflow, 'python-compat')
     const validate = workflowJob(workflow, 'validate')
@@ -296,9 +318,9 @@ describe('Python release workflows', () => {
     }
 
     expect(dispatch.inputs.publish).toMatchObject({ type: 'boolean', default: false })
-    expect(pullRequest).toEqual({ types: ['labeled'] })
+    if (!isRecord(workflow.on)) throw new TypeError('python-release workflow must define on')
+    expect(Object.keys(workflow.on)).toEqual(['workflow_dispatch'])
     expect(build).toMatchObject({
-      if: "github.event_name == 'workflow_dispatch' || github.event.label.name == 'python-release-dry-run'",
       uses: './.github/workflows/build-exe-for-python-sdk.yml',
       with: {
         targets: 'node24-linux-x64,node24-linux-arm64,node24-macos-arm64',
@@ -363,7 +385,7 @@ describe('Python release workflows', () => {
     const call = workflowEvent(workflow, 'workflow_call')
     const plan = workflowJob(workflow, 'plan')
     const build = workflowJob(workflow, 'build')
-    if (!isRecord(call.inputs) || !Array.isArray(plan.steps) || !Array.isArray(build.steps)) {
+    if (!isRecord(call.inputs) || !isRecord(call.secrets) || !Array.isArray(plan.steps) || !Array.isArray(build.steps)) {
       throw new TypeError('Python wheel builder must define workflow_call inputs and plan steps')
     }
 
@@ -371,10 +393,19 @@ describe('Python release workflows', () => {
     const manylinuxAddon = buildSteps.find(step => isRecord(step) && step.name === 'Rebuild Linux node-pty against manylinux 2.28')
     const macosCheck = buildSteps.find(step => isRecord(step) && step.name === 'Check macOS deployment target')
     const manylinuxSmoke = buildSteps.find(step => isRecord(step) && step.name === 'Run wheel in a manylinux 2.28 container')
+    const installedKeyless = buildSteps.find(step => isRecord(step) && step.name === 'Run installed-wheel keyless black-box tests')
+    const realApiPreflight = buildSteps.find(step => isRecord(step) && step.name === 'Preflight installed-wheel real API test')
+    const installedRealApi = buildSteps.find(step => isRecord(step) && step.name === 'Run installed-wheel real API black-box test')
+    if (!isRecord(installedKeyless) || !isRecord(realApiPreflight) || !isRecord(installedRealApi)) {
+      throw new TypeError('Python wheel builder must define installed-wheel keyless and real API steps')
+    }
     expect(call.inputs).toHaveProperty('targets')
     expect(call.inputs).toMatchObject({
       ci: { type: 'boolean', default: false },
       release: { type: 'boolean', default: false },
+    })
+    expect(call.secrets).toMatchObject({
+      DEEPSEEK_API_KEY_EXTERNAL: { required: false },
     })
     expect(workflow.concurrency).toMatchObject({
       group: 'build-single-exe-${{ github.workflow }}-${{ github.ref }}',
@@ -400,6 +431,26 @@ describe('Python release workflows', () => {
     expect(macosCheck).toMatchObject({ if: "runner.os == 'macOS'" })
     expect(JSON.stringify(macosCheck)).toContain('scripts/check-macos-deployment-target.py')
     expect(JSON.stringify(macosCheck)).toContain('$EXE-spawn-helper')
+    expect(JSON.stringify(installedKeyless)).toContain('--scenario all')
+    expect(JSON.stringify(installedKeyless)).toContain('--installed-wheel')
+    expect(JSON.stringify(installedKeyless)).toContain('env -u PYTHONPATH')
+    expect(JSON.stringify(installedKeyless)).toContain('-u DSH_RUNTIME_MODE')
+    expect(realApiPreflight).toMatchObject({
+      env: { DEEPSEEK_API_KEY: '${{ secrets.DEEPSEEK_API_KEY_EXTERNAL }}' },
+    })
+    expect(String(realApiPreflight.if)).toContain('inputs.ci')
+    expect(String(realApiPreflight.if)).toContain('head.repo.fork')
+    expect(String(realApiPreflight.if)).toContain('dependabot[bot]')
+    expect(installedRealApi).toMatchObject({
+      env: {
+        DEEPSEEK_API_KEY: '${{ secrets.DEEPSEEK_API_KEY_EXTERNAL }}',
+        DEEPSEEK_BASE_URL: 'https://api.deepseek.com',
+      },
+    })
+    expect(installedRealApi.if).toBe(realApiPreflight.if)
+    expect(JSON.stringify(installedRealApi)).toContain('--scenario sdk-live')
+    expect(JSON.stringify(installedRealApi)).toContain('--installed-wheel')
+    expect(JSON.stringify(installedRealApi)).toContain('-u DSH_RUNTIME_MODE')
     expect(manylinuxSmoke).toMatchObject({ if: "runner.os == 'Linux'" })
     expect(JSON.stringify(manylinuxSmoke)).toContain('-e DSH_TELEMETRY_DISABLED')
   })
@@ -478,6 +529,46 @@ describe('npm release workflows', () => {
       expect(publish.environment).toBe('npm-publish')
       expect(publish.concurrency).toMatchObject({ group: 'Release-publish' })
     }
+  })
+})
+
+describe('Documentation site publication', () => {
+  it('keeps Pages deployment dispatch-only from a dsh-v* tag', () => {
+    const workflow = loadWorkflow('.github/workflows/docs-pages.yml')
+    const build = workflowJob(workflow, 'build')
+    const deploy = workflowJob(workflow, 'deploy')
+    if (!isRecord(workflow.on) || !isRecord(workflow.env) || !Array.isArray(build.steps)) {
+      throw new TypeError('Documentation deployment must define on, env, and build steps')
+    }
+
+    // The site presents a released snapshot: a merge must never publish it, and
+    // publication must never appear as a PR check.
+    expect(Object.keys(workflow.on)).toEqual(['workflow_dispatch'])
+
+    // RELEASE_PUBLISH makes release:verify reject every ref that is not a dsh-v*
+    // tag naming this tree's version, so the site and the npm sequence share one
+    // definition of a released version.
+    const steps = build.steps.filter(isRecord)
+    const verify = steps.find(step => step.name === 'Verify release version')
+    const checkout = steps.find(
+      step => typeof step.uses === 'string' && step.uses.startsWith('actions/checkout@'),
+    )
+    expect(verify).toMatchObject({
+      env: { RELEASE_PUBLISH: 'true' },
+      run: 'pnpm run release:verify --family dsh',
+    })
+    // Complete history: the release scripts read tags.
+    expect(checkout).toMatchObject({ with: { 'fetch-depth': 0 } })
+
+    // Projected source links stay on the public repository's master. That
+    // repository advances only to each release commit, so its master never
+    // carries unreleased work, while it retains only the most recent tags:
+    // following the dispatched tag would leave every source link on a deploy
+    // from an older tag unresolvable.
+    expect(workflow.env.DOCS_REPOSITORY_REF).toBe('master')
+
+    // The environment owns the deployment tag policy and the required reviewers.
+    expect(deploy.environment).toMatchObject({ name: 'github-pages' })
   })
 })
 

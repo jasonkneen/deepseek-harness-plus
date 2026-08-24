@@ -40,7 +40,7 @@ export DEEPSEEK_API_KEY=sk-your-key-here
 针对隔离的 workspace 和会话目录运行一个任务：
 
 ```sh
-python examples/jsonrpc-agent/minimal.py \
+python examples/python-sdk-agent/minimal.py \
   --workspace /absolute/path/to/workspace \
   --session-root /absolute/path/to/sessions \
   --session-id example-001 \
@@ -58,7 +58,7 @@ from pathlib import Path
 
 from deepseek_harness import DeepSeekHarness
 
-config = Path("examples/jsonrpc-agent/minimal.cordis.yml").resolve()
+config = Path("examples/python-sdk-agent/minimal.cordis.yml").resolve()
 workspace = Path("/absolute/path/to/workspace").resolve()
 sessions = Path("/absolute/path/to/sessions").resolve()
 
@@ -101,4 +101,4 @@ print(result.final_response)
 
 该组合使用 `danger-full-access`。只能在可丢弃的 checkout 或容器内运行：Bash 与编辑器可以修改运行时进程有权访问的任何路径。持久 PTY 后端需要 POSIX 终端环境，因此该组合不支持 Windows agent。
 
-准确的组合内容归 [`jsonrpc-agent` 示例参考](../../../examples/jsonrpc-agent/README.zh.md)所有。[Python SDK 参考](../../../python/sdk/README.zh.md)介绍生命周期、结果、通知、运行时选择和配置；[Cordis primer](../../cordis-primer.zh.md)介绍组合语法。
+准确的组合内容归 [`python-sdk-agent` 示例参考](../../../examples/python-sdk-agent/README.zh.md)所有。[Python SDK 参考](../../../python/sdk/README.zh.md)介绍生命周期、结果、通知、运行时选择和配置；[Cordis primer](../../cordis-primer.zh.md)介绍组合语法。

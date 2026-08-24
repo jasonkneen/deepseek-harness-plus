@@ -1,5 +1,5 @@
 /**
- * Shared boot glue for the app bins (`dsh`, `dsh-acp-demo`): load the gitignored
+ * Shared boot glue for `dsh` profiles and the temporarily packaged Python SDK runtime: load the gitignored
  * `.env`, install the fail-loud Loader guards, resolve the config path (snapshot-aware), load the
  * optional user patch layers from the Harness home (`~/.dsh`), expose its path resolver to
  * config expressions, and drive the Cordis Loader against a leaf `cordis.yml` until the tree settles.
@@ -31,6 +31,7 @@ declare module '@deepseek-ai/cordis' {
 export {
   composeEntries,
   DEFAULT_PROFILE_BUNDLES,
+  DEFAULT_PROFILE_PATCH_RELOAD,
   healProfilesModuleFallback,
   initProfile,
   loadProfile,
@@ -47,6 +48,8 @@ export {
   type Profile,
   type ProfileLayer,
   type ProfileManifest,
+  type ProfilePatchReload,
+  type ProfileTemplate,
 } from './profile.ts'
 
 /**
@@ -239,9 +242,8 @@ export async function watchUserPatches(
   const entry = bootstrapIncludes.get(ctx)
   if (entry === undefined) throw new Error(`${binName}: user patch-layer watching requires the root Include entry`)
   const register = hmr.registerConfig(filename, async () => {
-    // Re-read the include's non-patch options per refresh: a writer that
-    // updates the root Include's other options between refreshes (none exists
-    // today) must not have them silently reverted by a user-layer reload.
+    // Re-read the include's non-patch options per refresh so a writer that
+    // updates another option between refreshes is not silently reverted.
     const { patches: _previousPatches, ...includeConfig } = entry.options.config as Include.Config
     const userPatches = loadOptionalPatches(binName, filename) ?? []
     const patches = compose(userPatches)
@@ -304,6 +306,19 @@ export function loadOverlayPatches(binName: string, file: string): PatchOptions[
   }
   return parsePatchList(binName, file, content, 'overlay')
 }
+
+/** Resolve relative plugin paths in one patch file's `insert` rows without changing assertion names. */
+function anchorInsertedPluginNames(patches: PatchOptions[], file: string): PatchOptions[] {
+  const base = dirname(resolve(file))
+  const visit = (entry: EntryOptions): void => {
+    if (typeof entry.name === 'string' && (entry.name.startsWith('./') || entry.name.startsWith('../'))) {
+      entry.name = pathToFileURL(resolve(base, entry.name)).href
+    }
+    if (entry.group && Array.isArray(entry.config)) entry.config.forEach(visit)
+  }
+  for (const patch of patches) patch.insert?.forEach(visit)
+  return patches
+}
 /**
  * Parse one loader patch list: a top-level YAML array of
  * `@deepseek-ai/cordis-plugin-include` `PatchOptions` (id-targeted config overrides and
@@ -334,7 +349,7 @@ function parsePatchList(
       throw new Error(`${binName}: ${label} entry ${index + 1} in ${file} must be a mapping (a loader patch entry)`)
     }
   })
-  return parsed as PatchOptions[]
+  return anchorInsertedPluginNames(parsed as PatchOptions[], file)
 }
 
 /** One overlay patch list with the source label printed in dump comments. */

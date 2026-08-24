@@ -1,10 +1,3 @@
-/* Per-message feedback controls. The rating buttons mirror the shared message
-   IconActions chrome so the strip reads as one row. The note editor is a
-   popover portaled to document.body and fixed from the note trigger's rect,
-   so it neither competes with the row for inline width nor gets cropped by the
-   conversation column's overflow clip. Surface recipe follows the Menu card:
-   r12, inverted hairline border, shadow-lv3. */
-
 .action {
   display: inline-flex;
   align-items: center;

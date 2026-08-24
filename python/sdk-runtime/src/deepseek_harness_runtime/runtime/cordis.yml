@@ -17,6 +17,15 @@
 # credential seam and, with no provider mounted here, from the launching
 # environment; DEEPSEEK_BASE_URL follows the same environment ladder. Neither
 # is inlined, so this file names no secret and no route.
+- id: deepseek-llm-api-extensions
+  name: '@deepseek-ai/dsh-deepseek-llm-api-extensions'
+
+- id: session-log-deepseek
+  name: '@deepseek-ai/dsh-session-log-deepseek'
+
+- id: plugin-package-inventory-deepseek
+  name: '@deepseek-ai/dsh-plugin-package-inventory-deepseek'
+
 - id: llm-deepseek
   name: '@deepseek-ai/dsh-llm-deepseek'
 

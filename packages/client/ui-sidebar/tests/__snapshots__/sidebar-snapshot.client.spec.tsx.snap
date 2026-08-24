@@ -266,7 +266,7 @@ exports[`sidebar shell snapshots > renders the expanded column in the default lo
               <span
                 class="fallbackBrandName"
               >
-                DSH Local Build
+                DSH 本地构建
               </span>
               <span
                 class="buildRevision"

@@ -19,10 +19,19 @@ import { cleanupAcpExampleTest } from './cleanup.ts'
  */
 
 const AGENT: AgentUnderTest = {
-  binScript: fileURLToPath(new URL('../../../packages/examples/acp-demo/src/bin.ts', import.meta.url)),
+  binScript: fileURLToPath(new URL('../../../apps/cli/src/bin.ts', import.meta.url)),
   configPath: fileURLToPath(new URL('../cordis.yml', import.meta.url)),
+  profile: 'acp',
   tsconfigPath: fileURLToPath(new URL('../../../tsconfig.json', import.meta.url)),
 }
+
+const STANDARD_EXECUTION_UPDATES = new Set([
+  'agent_message_chunk',
+  'agent_thought_chunk',
+  'tool_call',
+  'tool_call_update',
+  'usage_update',
+])
 
 let spawned: LaunchedAcpTestAgent | undefined
 let workdir: string | undefined
@@ -65,8 +74,8 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('acp-agent e2e: a PreToolUse hook
     // Assert the denied operation independently of the model response.
     await expect(access(join(workdir, 'proof.txt'))).rejects.toThrow()
 
-    // ACP publishes only the committed answer; hook/tool trace stays in the session log.
-    expect(updates.length).toBeGreaterThan(0)
-    expect(updates.every(update => update.sessionUpdate === 'agent_message_chunk')).toBe(true)
+    // ACP publishes committed semantic execution facts, never hook internals or UI projections.
+    expect(updates.some(update => update.sessionUpdate === 'agent_message_chunk')).toBe(true)
+    expect(updates.every(update => STANDARD_EXECUTION_UPDATES.has(update.sessionUpdate))).toBe(true)
   }, 180_000)
 })

@@ -12,6 +12,12 @@ flowchart LR
   cfg --> plugin_headless_settings
   plugin_headless_credentials["credentials<br/>@deepseek-ai/dsh-credentials-local"]
   cfg --> plugin_headless_credentials
+  plugin_headless_deepseek_llm_api_extensions["deepseek-llm-api-extensions<br/>@deepseek-ai/dsh-deepseek-llm-api-extensions"]
+  cfg --> plugin_headless_deepseek_llm_api_extensions
+  plugin_headless_session_log_deepseek["session-log-deepseek<br/>@deepseek-ai/dsh-session-log-deepseek"]
+  cfg --> plugin_headless_session_log_deepseek
+  plugin_headless_plugin_package_inventory_deepseek["plugin-package-inventory-deepseek<br/>@deepseek-ai/dsh-plugin-package-inventory-deepseek"]
+  cfg --> plugin_headless_plugin_package_inventory_deepseek
   plugin_headless_llm_deepseek["llm-deepseek<br/>@deepseek-ai/dsh-llm-deepseek"]
   cfg --> plugin_headless_llm_deepseek
   plugin_headless_subprocess["subprocess<br/>@deepseek-ai/dsh-subprocess-local"]
@@ -64,6 +70,9 @@ flowchart LR
 | --- | --- |
 | `settings` | `@deepseek-ai/dsh-settings-file` |
 | `credentials` | `@deepseek-ai/dsh-credentials-local` |
+| `deepseek-llm-api-extensions` | `@deepseek-ai/dsh-deepseek-llm-api-extensions` |
+| `session-log-deepseek` | `@deepseek-ai/dsh-session-log-deepseek` |
+| `plugin-package-inventory-deepseek` | `@deepseek-ai/dsh-plugin-package-inventory-deepseek` |
 | `llm-deepseek` | `@deepseek-ai/dsh-llm-deepseek` |
 | `subprocess` | `@deepseek-ai/dsh-subprocess-local` |
 | `bash` | `@deepseek-ai/dsh-bash-local` |

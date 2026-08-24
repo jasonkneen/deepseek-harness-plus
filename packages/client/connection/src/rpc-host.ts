@@ -9,7 +9,6 @@ import {
   type RpcError,
   type RpcErrorDetailsMap,
   type RpcId as RpcIdType,
-  type ServerResponse as RpcServerResponse,
 } from '@deepseek-ai/dsh-host-apiproxy/api'
 import { bridge, type FetchHandler } from './http-bridge.ts'
 import { isTrustedApiRequest } from './api-request-trust.ts'
@@ -18,6 +17,9 @@ import type {
   ConnectionRpcEndpointMatcher,
   ConnectionRpcHandler,
   ConnectionRpcHandlerOptions,
+  ConnectionRpcResult,
+  ConnectionRpcAuthority,
+  ConnectionTrustRequest,
   HostConnectionHandle,
   HostConnectionRpc,
 } from './rpc.ts'
@@ -30,6 +32,12 @@ interface ConnectionRpcInterceptor {
   readonly matches: ConnectionRpcEndpointMatcher
   readonly fetchHandler: FetchHandler
   readonly options: ConnectionRpcHandlerOptions
+}
+
+interface ConnectionServerResponse {
+  readonly type: 'server-response'
+  readonly rpcId: RpcIdType
+  readonly result: ConnectionRpcResult<unknown>
 }
 
 declare module '@deepseek-ai/cordis' {
@@ -60,6 +68,11 @@ export class HostConnectionService extends Service implements HostConnectionHand
       intercept: (channel, matches, handler, options) =>
         this.registerInterceptor(owner, channel, matches, handler, options),
     }
+  }
+
+  /** Apply the existing configured request trust policy to a sibling Web route. */
+  isTrustedRequest(request: ConnectionTrustRequest, authority: ConnectionRpcAuthority): boolean {
+    return isTrustedApiRequest(request, authority === 'loopback' ? [] : this.trustedHosts)
   }
 
   /**
@@ -212,8 +225,8 @@ function errorResponse(rpcId: RpcIdType, error: RpcError): Response {
   return fullResponse(rpcId, { ok: false, error })
 }
 
-function fullResponse(rpcId: RpcIdType, result: RpcServerResponse['result']): Response {
-  const body: RpcServerResponse = { type: 'server-response', rpcId, result }
+function fullResponse(rpcId: RpcIdType, result: ConnectionRpcResult<unknown>): Response {
+  const body: ConnectionServerResponse = { type: 'server-response', rpcId, result }
   return Response.json(body)
 }
 

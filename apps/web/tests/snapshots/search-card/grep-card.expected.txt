@@ -1,5 +1,5 @@
 kind=matches
-summary=显示 9 / 共 42 处匹配 · 3 个文件
+summary=Showing 9 of 42 matches · 3 files
 file=packages/client/ui-primitives/src/SearchBlock.tsx3
 file=packages/client/ui-tool/src/client/tool/toolviews/search-row.tsx4
 line=16: export const DEFAULT_SEARCH_MAX_LINES = 16
@@ -8,7 +8,7 @@ line=141:   const [collapsed, setCollapsed] = useState<ReadonlySet<number>>(() =
 line=36:   const search = searchCardModel(block)
 line=56:       search={search}
 line=78:       yield ctx.slots.register({ name: 'tool.call.toolview', key: 'grep', locale: NS }, SearchRow)
-expand=… 其余 4 行
+expand=… 4 more lines
 recovery=Found 9 of 42 matches
 
 packages/client/ui-primitives/src/SearchBlock.tsx

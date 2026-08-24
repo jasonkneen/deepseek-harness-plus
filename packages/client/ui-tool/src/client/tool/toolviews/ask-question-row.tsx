@@ -1,11 +1,3 @@
-// ask_user_question toolview: question-flavored summary row replacing the
-// generic "Tool call" card, registered into the keyed
-// 'tool.call.toolview' hole like todo-row. The row composes ToolRow
-// (chrome, running sweep, whole-row expand) and swaps in the interaction
-// outcome — `waiting` while pending, answered-count once settled, `cancelled`
-// when the user dismissed the whole set — because the questions themselves
-// render in the composer takeover.
-
 import { IconQuestionOutline14 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { Context } from '@deepseek-ai/cordis'
 import type { PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
@@ -39,11 +31,9 @@ function answeredSummary(text: string, t: AskQuestionRowProps['t']): string | nu
   return t('ask.answered', { answered, total: answers.length })
 }
 
-/** Full row props: the toolview runtime share plus the standard locale seat. */
 type AskQuestionRowProps = ToolCallViewProps & PropsLocale<'conversation'>
 
-/** One-line question-interaction row (the whole row toggles the call's
- *  Input/Output sections, ToolRow's unified expand). */
+/** Summarizes a pending, answered, cancelled, or interrupted question set. */
 export function AskQuestionRow({ toolName, block, inspect, t }: AskQuestionRowProps) {
   const model = toolRowModel(toolName, block)
   // Composer verdicts settle the call as specific UserQuestionErrors
@@ -82,17 +72,10 @@ export function AskQuestionRow({ toolName, block, inspect, t }: AskQuestionRowPr
   )
 }
 
-/**
- * The ask-question row as a plain registrant plugin following the chat
- * toolview declaration across independent activation and reload lifetimes.
- */
+/** Registers the ask-user-question conversation row. */
 export const askQuestionToolview = {
   name: 'ask-question-toolview',
   inject: ['slots'],
-  /**
-   * Register the ask-question row into the Tool-owned keyed view slot.
-   * @param ctx - registrant context (disposal rides ctx.effect inside slots.register).
-   */
   apply(ctx: Context): void {
     ctx.slots.inject('tool.call.toolview', () => ctx.slots.register({
       name: 'tool.call.toolview', key: 'ask_user_question', locale: NS,

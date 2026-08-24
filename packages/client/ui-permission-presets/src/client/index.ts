@@ -10,18 +10,21 @@
  * write through one path and the pushed projection frame is the one
  * confirmation. The Full access row carries the same explicit risk gate as
  * the composer chip; the shared popup shell owns the modal mechanics.
- * The General-settings row separately writes the default preset for fresh
- * sessions and eligible confirmed blank reuse through the host Settings API.
+ * The General-settings row separately writes the default preset for sessions
+ * created later through the host Settings API.
  */
+import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import type { ConnectionHandle } from '@deepseek-ai/dsh-api-remotes/client'
+import type { SessionFace } from '@deepseek-ai/dsh-api-session-controller/client'
 // Type-only: pulls the locale plugin's Context merge (ctx.locale).
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 // Type-only: the settings slot types (this package registers a General row).
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
+import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
+import type {} from '@deepseek-ai/dsh-client-ui-session/client'
 // Type-only: pulls the ctx.remote merge and the forwarded-event key face
 // (the settings invalidation rides the allowlist) into this program.
 import type {} from '@deepseek-ai/dsh-api-remotes/client'
-import type { ClientContext, SessionFace } from '@deepseek-ai/dsh-client-runtime/client'
 import type { CommandUiContract, SelectOption } from '@deepseek-ai/dsh-client-ui-commands/client'
 import type { ClientSessionContext } from '@deepseek-ai/dsh-client-ui-input-trigger/client'
 import type { PermissionSelect } from '@deepseek-ai/dsh-permission-presets/client'
@@ -56,7 +59,7 @@ function optionsOf(value: PermissionSelect, t: (key: string) => string): SelectO
     .filter(option => option.value !== 'custom')
     .map(option => ({
       id: option.value,
-      label: displayPermissionPreset(option.value, option.name, t),
+      label: displayPermissionPreset(option.value, option.name),
       ...(option.description !== undefined ? { detail: option.description } : {}),
       ...(option.value === value.currentValue ? { active: true } : {}),
       ...(option.value === FULL_ACCESS_PRESET
@@ -87,9 +90,6 @@ export function apply(ctx: ClientContext): void {
   ctx.effect(() => {
     const disposers = [
       ctx.locale.register(ACCESS_NS, 'zh', {
-        'preset.readOnly': accessZh['preset.readOnly'],
-        'preset.workspaceWrite': accessZh['preset.workspaceWrite'],
-        'preset.fullAccess': accessZh['preset.fullAccess'],
         'confirm.title': accessZh['confirm.title'],
         'confirm.description': accessZh['confirm.description'],
         'confirm.acknowledge': accessZh['confirm.acknowledge'],
@@ -97,9 +97,6 @@ export function apply(ctx: ClientContext): void {
         'confirm.enable': accessZh['confirm.enable'],
       }),
       ctx.locale.register(ACCESS_NS, 'en', {
-        'preset.readOnly': accessEn['preset.readOnly'],
-        'preset.workspaceWrite': accessEn['preset.workspaceWrite'],
-        'preset.fullAccess': accessEn['preset.fullAccess'],
         'confirm.title': accessEn['confirm.title'],
         'confirm.description': accessEn['confirm.description'],
         'confirm.acknowledge': accessEn['confirm.acknowledge'],
@@ -117,8 +114,7 @@ export function apply(ctx: ClientContext): void {
   ctx.effect(() => ctx.locale.register('settings.permission', { zh, en }), 'ui-permission: settings row dictionaries')
 
   const connection = ctx.get('connection') as ConnectionHandle
-  // The row follows the shared describe mirror, whose owning plugin already
-  // refreshes it on document commits and reconnects.
+  // The shared SettingsScope mirror updates after document commits and reconnects.
   const controller = new PermissionPresetSettingsController(
     ctx.settingsScope.describe(), connection.api, ctx.settingsSchema)
   const load = (): Promise<void> => controller.load()

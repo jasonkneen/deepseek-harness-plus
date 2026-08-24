@@ -133,7 +133,7 @@ export class HarnessSdkJsonRpcServer {
     const rec = await this.getOrCreateSession(params.sessionId)
     // An agent-loop-only reload disposes the loop's agents while this record
     // survives; a retained agent accepts followup() silently, so validate the
-    // record against the live registry before delivery (as the ACP bridge does).
+    // record against the live registry before delivery.
     if (this.ctx.agents.get(rec.handle.agent.id) !== rec.handle.agent) {
       throw new Error(`session agent was disposed outside the server: ${params.sessionId}`)
     }

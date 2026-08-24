@@ -12,7 +12,7 @@ Status: implemented
 
 ## 决策
 
-随附的 `headless` profile 包含 `dsh-base` 与 `dsh-headless`。headless 组合包提供自身的 persona 与工具模式、禁用 HMR（热模块替换）、显式挂载 Code Mode worker，并插入 `headless-runner`。其插件树不包含任何 `@deepseek-ai/dsh-host-*` 包、ApiProxy、HTTP server、Web 运行时或浏览器客户端。Code Mode 与会话持久化均为独立于 Web 呈现的一次性 Agent 能力。
+随附的 `headless` profile 包含 `dsh-base` 与 `dsh-headless`。base 提供默认禁用模块 HMR（热模块替换）的策略；headless 组合包提供自身的 persona 与工具模式、显式挂载 Code Mode worker，并在不覆盖该策略的情况下插入 `headless-runner`。其插件树不包含任何 `@deepseek-ai/dsh-host-*` 包、ApiProxy、HTTP server、Web 运行时或浏览器客户端。Code Mode 与会话持久化均为独立于 Web 呈现的一次性 Agent 能力。
 
 `headless-runner` 是直接使用核心服务的入口。Loader 完全加载后，它读取 `ctx.agentDefaultModel.currentSelection()`，通过 `ctx.agents.create` 创建一个新的持久化 Agent，在 Agent 作用域中安装该 `ModelSelection`，等待启动工作完全停稳，锚定会话事件序号，提交一条普通用户消息，再次等待完全停稳。随后，它等待 `ctx.sessions.flush`，折叠自身持有的持久事件区间，以取得最后一条非空 assistant 文本和最终 `turn/end` 结束原因，将文本连同一个换行写入 stdout，并且仅在结束原因为 `completed` 时请求启动器以退出状态 0 有界关闭。结束原因为 `error` 时，其持久化错误码与消息写入 stderr；驱动器的意外失败也写入 stderr 并以 1 退出。
 

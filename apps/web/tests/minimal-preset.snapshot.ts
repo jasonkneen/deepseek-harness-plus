@@ -100,6 +100,7 @@ describe('minimal agent preset', () => {
     expect({
       prompt: requestHeader.system,
       tools: requestHeader.tools?.map(tool => tool.name),
+      goalCommand: scaffold.ctx.commands.find(agentHandle.agent, 'goal') !== undefined,
       bash: text(bash),
       editor: text(editor),
     }).toMatchInlineSnapshot(`
@@ -108,6 +109,7 @@ describe('minimal agent preset', () => {
         "editor": "Here's the content of {{cwd}}/preset-smoke.txt with line numbers (which has a total of 2 lines):
            1  MINIMAL_EDITOR_OK
            2",
+        "goalCommand": false,
         "prompt": "You are a helpful software engineer assistant.",
         "tools": [
           "bash",

@@ -30,9 +30,6 @@
       "path": "../locale"
     },
     {
-      "path": "../runtime"
-    },
-    {
       "path": "../ui-input-trigger"
     },
     {

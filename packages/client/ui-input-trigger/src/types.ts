@@ -1,14 +1,22 @@
 /**
- * Frozen cross-package contract for the input trigger pipeline. Types only —
- * no runtime code. Sources (ui-commands / ui-skill / ui-reference) and the
- * conversation input layer import from here; changes require main-thread
- * arbitration.
+ * Input-trigger provider contract. Types only — no runtime code. The
+ * conversation input layer owns and exports the shared machine currency;
+ * this module re-exports it for trigger providers.
  *
  * Providers receive a {@link ClientSessionContext} projection per call —
  * never a Cordis context or the mutable Session. RPC and service access go
  * through the provider plugin's own root context captured at registration.
  */
-import type { ClientContext, SessionId } from '@deepseek-ai/dsh-client-runtime/client'
+import type {
+  PickOutcome, TokenSpan,
+} from '@deepseek-ai/dsh-client-ui-conversation/client'
+import type { SessionId } from '@deepseek-ai/dsh-session/types'
+
+export type {
+  ArbitrateKey, ArbitrateOutcome, BeginCommandRequest, CommandClaim, ConsumeTokenRequest,
+  InsertReferenceRequest, InsertTextRequest, PickOutcome, ReferenceInsert, SubmitImageAttachment,
+  SubmitOutcome, TokenSpan,
+} from '@deepseek-ai/dsh-client-ui-conversation/client'
 
 /**
  * The provider-facing projection of one client session. It carries stable
@@ -40,85 +48,6 @@ export interface InputTriggerCandidate {
   /** Opaque source-owned pick payload. */
   readonly value?: string
 }
-
-/** Pick-moment snapshot of the trigger token span. CAS: stale draftRev ⇒ the whole action no-ops. */
-export interface TokenSpan {
-  readonly start: number
-  readonly end: number
-  readonly draftRev: number
-}
-
-/** Base64-encoded composer image accompanying one claimed submit transaction. */
-export interface SubmitImageAttachment {
-  /** Declared media type; the host verifies it against the decoded bytes. */
-  readonly mediaType: 'image/png' | 'image/jpeg' | 'image/webp' | 'image/gif'
-  /** Canonical base64 encoding of the image bytes. */
-  readonly data: string
-  /** Optional display name; never interpreted as a path. */
-  readonly name?: string
-}
-
-/**
- * Command-mode entry credential. Pure data + a closure method — no class, no
- * cross-package runtime value (client bundle purity).
- */
-export interface CommandClaim {
-  /** Integrity-watched draft prefix, e.g. `'/goal '` — breaking startsWith releases the claim. */
-  readonly token: string
-  /** Ghost-text hint rendered while the claim's args are blank. */
-  readonly hint?: string
-  /**
-   * Whether composer image attachments may accompany this command's submit.
-   * Absent = the composer refuses to submit while images are attached, keeping
-   * the draft and the images in place behind a visible notice.
-   */
-  readonly images?: boolean
-  /**
-   * Enter transaction, supplied by the source as a closure.
-   * @param images - serialized composer images accompanying the submission;
-   *   the composer passes them only when {@link CommandClaim.images} is true.
-   */
-  submit(args: string, actx: ClientContext, images: readonly SubmitImageAttachment[]): Promise<SubmitOutcome>
-}
-
-/**
- * Inline reference insertion. The draft holds the complete display text while
- * the occurrence retains its range; the owner supplies both user-facing projections at insert time
- * (the model representation is serialized on submit via the source codec).
- */
-export interface ReferenceInsert {
-  readonly source: string
-  readonly ref: string
-  /** Inline display label (fallback-cached on the occurrence). */
-  readonly label: string
-  /** Optional domain glyph shown beside the label. */
-  readonly appearance?: 'session' | 'file' | 'folder'
-  /** Clipboard / persistence projection, e.g. `/name` (never the model form). */
-  readonly clipboardText: string
-}
-
-/** Settled result of a command submit transaction. */
-export interface SubmitOutcome {
-  readonly kind: 'success' | 'error'
-  readonly text?: string
-}
-
-/**
- * Unified pick return. `undefined` = miss → default sink; `'handled'` = the
- * source dealt with it internally (e.g. opened its popup shell). The `text`
- * arm is the plain-text reference path (decision recorded in
- * .agents/notes/implemented/architecture/2026-07-25-web-input-machine-and-slash-pipeline.md):
- * the token span is
- * replaced with literal text — no occurrence identity, no placeholder; any
- * chip visual is derived downstream by scanning the draft against the
- * source lexicons.
- */
-export type PickOutcome =
-  | { readonly claim: CommandClaim }
-  | { readonly insert: ReferenceInsert }
-  | { readonly text: string; readonly continue?: boolean }
-  | 'handled'
-  | undefined
 
 /**
  * Non-text composer submission state visible to enter adjudication. The
@@ -234,74 +163,4 @@ export interface InputTriggerSource {
 export interface TriggerGuard {
   /** plain: '/' and '@' live; claimed: '/' suppressed, '@' live; frozen: none. */
   readonly tier: 'plain' | 'claimed' | 'frozen'
-}
-
-/** Keys the menu intercepts while open (all behind the IME composition guard). */
-export type ArbitrateKey = 'up' | 'down' | 'enter' | 'escape'
-
-/** consumed = key handled; pick-highlighted = enter picked the highlight; pass = let the input see it. */
-export type ArbitrateOutcome = 'consumed' | 'pick-highlighted' | 'pass'
-
-/** Request payload of the scoped begin-command input event. */
-export interface BeginCommandRequest {
-  readonly claim: CommandClaim
-  readonly span: TokenSpan
-}
-
-/** Request payload of the scoped insert-reference input event. */
-export interface InsertReferenceRequest {
-  readonly reference: ReferenceInsert
-  readonly span: TokenSpan
-}
-
-/** Request payload of the scoped consume-token input event. */
-export interface ConsumeTokenRequest {
-  readonly guard:
-    | { readonly kind: 'span'; readonly span: TokenSpan }
-    | { readonly kind: 'bare-token'; readonly token: string }
-}
-
-/** Request payload of the scoped insert-text input event (the plain-text reference path). */
-export interface InsertTextRequest {
-  /** Literal replacement for the trigger token span (e.g. `/name `). */
-  readonly text: string
-  readonly span: TokenSpan
-  /** Keep completion open after the splice (directory descent): the input re-tracks at the caret. */
-  readonly continue?: boolean
-}
-
-declare module '@deepseek-ai/cordis' {
-  interface Events {
-    /**
-     * Applies one command claim to the scoped Input. Dispatched with the
-     * session's scope carrier; the owning session's input listener returns
-     * `true` only after the phase and span CAS checks pass and the machine
-     * actually mutated — producers treat anything else as "not applied".
-     * @param request - Claim and menu-time span CAS.
-     * @mode bail
-     */
-    'slash/input-begin-command'(request: BeginCommandRequest): true | undefined
-    /**
-     * Inserts one reference into the scoped Input (same carrier routing and
-     * applied-truth contract as begin-command).
-     * @param request - Reference and menu-time span CAS.
-     * @mode bail
-     */
-    'slash/input-insert-reference'(request: InsertReferenceRequest): true | undefined
-    /**
-     * Consumes one command token after business success (popup settle /
-     * menu-pick execute). Same carrier routing and applied-truth contract.
-     * @param request - Exact span or bare-token guard.
-     * @mode bail
-     */
-    'slash/input-consume-token'(request: ConsumeTokenRequest): true | undefined
-    /**
-     * Replaces the trigger token span with literal text — the plain-text
-     * reference path. Same carrier routing and applied-truth
-     * contract; the draft gains ordinary characters, no occurrence entry.
-     * @param request - Replacement text and menu-time span CAS.
-     * @mode bail
-     */
-    'slash/input-insert-text'(request: InsertTextRequest): true | undefined
-  }
 }

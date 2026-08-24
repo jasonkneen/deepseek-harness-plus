@@ -1,38 +1,36 @@
 // @vitest-environment jsdom
-// The diff render intent on the web side: the pure diffCardModel derivation
-// over callView/resultView, and both conversation render sites that consume it
-// — the chat tool row's expanded body (GenericToolCard / FileMutationRow) and
-// the details panel's Output section.
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render } from '@testing-library/react'
-import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-test-runtime'
 import {
-  createSnapshotStore, EMPTY_CONVERSATION_VIEWS,
-} from '@deepseek-ai/dsh-client-runtime/client'
+  bindSnapshotSelector, conversationSnapshot, sessionSnapshot, workspaceSnapshot,
+} from '@deepseek-ai/dsh-client-test-runtime'
+import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
 import type {
-  ConversationSnapshot, RunningToolCall, SessionId, SessionListState, ToolResultNode, WorkspaceListState,
-} from '@deepseek-ai/dsh-client-runtime/client'
+  ChatSnapshot, ConversationNode, RunningToolCall, SelectionTarget, ToolResultNode,
+} from '@deepseek-ai/dsh-client-ui-chat/client'
+import type { SessionListState } from '@deepseek-ai/dsh-api-session-controller/client'
+import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { ToolCallView, ToolResultView } from '@deepseek-ai/dsh-api-remotes/client'
-import type { SelectionTarget } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
 import { zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/zh.ts'
 import { CHAT_DIFF_MAX_LINES, diffCardModel } from '../src/client/tool/models/diff-card-model.ts'
-import { createChatStore } from '@deepseek-ai/dsh-client-ui-conversation/src/client/stores.ts'
+import { createChatStore } from '@deepseek-ai/dsh-client-ui-chat/src/client/stores.ts'
 import { GenericToolCard, type GenericToolCardProps } from '../src/client/tool/toolviews/GenericToolCard.tsx'
-import { DetailsPanel } from '@deepseek-ai/dsh-client-ui-conversation/src/client/skeleton/DetailsPanel.tsx'
+import { DetailsPanel } from '@deepseek-ai/dsh-client-ui-chat/src/client/details/DetailsPanel.tsx'
 import { FileMutationRow, fileMutationToolview } from '../src/client/tool/toolviews/file-mutation-row.tsx'
-import { renderToolDetails, SessionProviderStub, toolChatSnapshot } from './tool-details-render.client.tsx'
+import { renderToolDetails, toolChatSnapshot, useEmptyTrajectory } from './tool-details-render.client.tsx'
 import { zh } from '@deepseek-ai/dsh-client-ui-conversation/src/client/locales.ts'
+import { zh as chatZh } from '@deepseek-ai/dsh-client-ui-chat/src/client/locale.ts'
 
 afterEach(cleanup)
 
-/** FileMutationRow's full prop shape (ToolRow runtime share + conversation locale seat). */
 type FileMutationRowProps = Parameters<typeof FileMutationRow>[0]
 
 const SID = 's1' as SessionId
 
 const t = makeTranslate(zh, commonZh)
+const chatT = makeTranslate(chatZh, commonZh)
 
 const ARGS = '{"file_path":"notes/demo.txt","old_string":"hello","new_string":"hello fixture"}'
 
@@ -204,7 +202,7 @@ describe('FileMutationRow diff card', () => {
     }), 'write')} />)
     // The footer counts live inside the collapsed diff card.
     toggleRow(view)
-    expect(view.getByText('└ +1 -0 · 1 file')).toBeTruthy()
+    expect(view.getByText('└ +1 -0 · 1 个文件')).toBeTruthy()
   })
 
   it('reflects the run state on its leading slot', () => {
@@ -306,7 +304,7 @@ describe('fileMutationToolview registration', () => {
 })
 
 describe('DetailsPanel diff Output section', () => {
-  function mount(snapshot: ConversationSnapshot, selection: SelectionTarget | null, cwd?: string) {
+  function mount(snapshot: ChatSnapshot, selection: SelectionTarget | null, cwd?: string) {
     localStorage.clear()
     const chat = createChatStore().create()
     if (selection !== null) chat.actions.select(selection)
@@ -320,18 +318,22 @@ describe('DetailsPanel diff Output section', () => {
         subagentsByParent: {}, jobsBySession: {},
         currentAddress: undefined,
       })
-    const workspaces = createSnapshotStore<WorkspaceListState>({
-      items: [], archivedSessionIds: [], state: 'idle', phase: 'ready', error: null,
-      baselinesReady: true, recentWorkspaceId: undefined,
-    })
+    const session = createSnapshotStore(sessionSnapshot(SID))
+    const conversation = createSnapshotStore(conversationSnapshot())
+    const workspaces = createSnapshotStore(workspaceSnapshot())
+    const attention = createSnapshotStore(new Map())
     return render(
       <DetailsPanel
-        SessionProvider={SessionProviderStub}
         renderSlot={renderToolDetails(t)}
+        SessionProvider={({ children }) => children}
         sessionId={SID}
-        useSession={bindSnapshotSelector({ getSnapshot: () => snapshot, subscribe: () => () => {} })}
+        useSession={bindSnapshotSelector(session)}
         useSessions={bindSnapshotSelector(sessions)}
+        useSessionPendingInteraction={bindSnapshotSelector(attention)}
         useWorkspaces={bindSnapshotSelector(workspaces)}
+        useConversation={bindSnapshotSelector(conversation)}
+        useChat={bindSnapshotSelector({ getSnapshot: () => snapshot, subscribe: () => () => {} })}
+        useTrajectory={useEmptyTrajectory}
         useInput={(() => { throw new Error('unused') })}
         inputActions={{
           setDraft: () => {},
@@ -344,22 +346,18 @@ describe('DetailsPanel diff Output section', () => {
         useStore={bindSnapshotSelector(chat)}
         actions={chat.actions}
         closeDetails={vi.fn()}
-        t={t}
+        t={chatT}
       />,
     )
   }
 
-  function snapshot(over: Partial<ConversationSnapshot> = {}): ConversationSnapshot {
+  function snapshot(over: {
+    nodes?: readonly ConversationNode[]
+    runningCalls?: readonly RunningToolCall[]
+  } = {}): ChatSnapshot {
     const nodes = over.nodes ?? []
     const runningCalls = over.runningCalls ?? []
-    return {
-      sessionId: SID, views: EMPTY_CONVERSATION_VIEWS,
-      chat: over.chat ?? toolChatSnapshot(nodes, runningCalls),
-      nodes: [], turnTimings: new Map(), turnEnds: new Map(), partial: null, runningCalls: [],
-      pending: [], queue: [], running: false, composerPhase: 'active', removed: false,
-      openState: 'open', openError: null, hasMore: false, loadingOlder: false,
-      promptError: null, blank: false, subagent: null, lastAgentError: null, ...over,
-    }
+    return toolChatSnapshot(nodes, runningCalls)
   }
 
   const target: SelectionTarget = { turnSeq: 10, callId: 'c1', toolName: 'edit' }

@@ -68,6 +68,7 @@ describe.skipIf(MODE === 'record')('web e2e: dedicated Skill tool row', () => {
 
     const snapshot = (await captureStableAria(page, '[class*="centerCol"]', scaffold.workspaceCwd))
       .replace(/\b\d{1,2}\/\d{1,2}(?= \{\{clock\}\})/g, '{{date}}')
+      .replace(/\{\{date\}\} (?=\{\{clock\}\} Ran for)/g, '')
       .split(SEED_ID).join('{{seededId}}')
     await compareOrRefreshGolden(UI_EXPECTED, snapshot, MODE)
     expect(tripwire.pageErrors).toEqual([])

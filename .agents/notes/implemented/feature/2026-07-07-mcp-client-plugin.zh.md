@@ -83,7 +83,7 @@ type Config = StdioConfig | StreamableHttpConfig
 
 ### 生命周期
 
-启动时从 `cordis.yml` 加载。HMR（热模块替换）（`@cordisjs/plugin-hmr`）提供热替换：编辑 yml 条目触发旧实例的 dispose（资源释放）（断开连接、注销工具），并创建新实例（连接、发现、注册）。目前不提供运行时动态 API。公开名称是 `(serverName, rawName)` 的纯函数，因此保持 `serverName` 不变的 HMR 替换会重建完全相同的模型可见名称——会话历史和权限规则保持有效——而添加或移除不相关的服务器永远不会重命名已有工具。
+启动时从 `cordis.yml` 加载。HMR（热模块替换）（`@cordisjs/plugin-hmr`）提供热替换：编辑 yml 条目触发旧实例的 dispose（资源释放）（断开连接、注销工具），并创建新实例（连接、发现、注册）。不提供运行时动态 API。公开名称是 `(serverName, rawName)` 的纯函数，因此保持 `serverName` 不变的 HMR 替换会重建完全相同的模型可见名称——会话历史和权限规则保持有效——而添加或移除不相关的服务器永远不会重命名已有工具。
 
 ### 工具发现与注册
 
@@ -167,7 +167,7 @@ MCP 仅保证工具名在[单个服务器内](https://modelcontextprotocol.io/sp
 
 ### 指数退避自动重连
 
-v1 否决：引入了部分可用状态（工具已注册但暂时不可用），且 stdio 崩溃往往表明配置问题，重试无法修复；HMR 曾是恢复路径。运营反馈扭转了该延期决定——[自动重连 Agent Note](2026-08-06-mcp-client-auto-reconnect.zh.md) 以有界的单次故障预算和 opt-out 实现了自动重连。
+单次连接设计否决了该方案：它会引入部分可用状态（工具已注册但暂时不可用），且 stdio 崩溃往往表明配置问题，重试无法修复；HMR 曾是恢复路径。运营反馈扭转了该延期决定——[自动重连 Agent Note](2026-08-06-mcp-client-auto-reconnect.zh.md)以有界的单次故障预算和 opt-out 实现了自动重连。
 
 ### 桥接 Resources 和 Prompts
 
@@ -179,7 +179,7 @@ v1 否决：引入了部分可用状态（工具已注册但暂时不可用）�
 
 ### 仅服务器命名空间（`github__create_issue`，无 `mcp__` 前缀）
 
-v1 否决。它能防止跨服务器冲突，但无法将 MCP 注册与原生 harness 工具分离，也丧失了 MCP 全局策略匹配模式（`mcp__*`）。前缀仅多花 5 个字符；`mcp__<server>__<tool>` 拼写与 Claude Code 和 Codex 一致，最大化模型的熟悉度。如果 ToolRuntime 未来引入源感知命名空间，届时可作为命名策略变更重新考虑去掉字面前缀。
+不予采纳。它能防止跨服务器冲突，但无法将 MCP 注册与原生 harness 工具分离，也丧失了 MCP 全局策略匹配模式（`mcp__*`）。前缀仅多花 5 个字符；`mcp__<server>__<tool>` 拼写与 Claude Code 和 Codex 一致，最大化模型的熟悉度。如果 ToolRuntime 未来引入源感知命名空间，届时可作为命名策略变更重新考虑去掉字面前缀。
 
 ### 从服务器公告的 `serverInfo.name` 派生命名空间
 
@@ -212,7 +212,7 @@ v1 否决。它能防止跨服务器冲突，但无法将 MCP 注册与原生 ha
 ## 后果
 
 - 每个 MCP 服务器只需 `cordis.yml` 中的一条配置即完成集成：`serverName: filesystem` 加一条 stdio 命令（或一个 Streamable HTTP URL），就能将 `mcp__filesystem__read_file` 放入模型的工具列表，可调用，协议上使用原始的 `read_file`。
-- 公开名称是会话历史和权限/配置 API 的一部分；命名算法是由测试固定的 v1 约定，发布后变更即为破坏性变更。
+- 公开名称是会话历史和权限／配置 API 的一部分；测试固定了命名算法，发布后变更即为破坏性变更。
 - `mcp__<serverName>__` 限定符在每个名称上消耗 token。已接受：描述和 JSON Schema 在工具定义 token 中占主导，而限定符换来了稳定标识、冲突隔离和 MCP 全局策略匹配模式（`mcp__*`、`mcp__github__*`）。
 - **MCP SDK 稳定性**：`@modelcontextprotocol/sdk` 仍在演进中；破坏性变更需要更新桥接。版本已固定，且该 SDK 被广泛采用（Claude Desktop、Cursor、VS Code），因此破坏性变更不太可能悄然发生。
 - **工具 schema 质量**：MCP 服务器可能暴露描述不佳的工具（模糊的描述、不完整的 JSON Schema）。harness 原样透传——垃圾进垃圾出；这是服务器作者的责任，不是桥接的。

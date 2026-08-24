@@ -16,10 +16,8 @@ export const inject = ['invariants']
 
 /**
  * No runtime invariant: this package is the wire contract layer plus the
- * host-side gateway over services owned elsewhere — it emits no cordis events
- * of its own; the session/agent event streams it projects are asserted by
- * their owning packages' companions. rpcId round-trip and schema acceptance
- * are enforced at the carrier boundary and exercised by the
+ * host-side unary gateway over services owned elsewhere. rpcId round-trip and
+ * schema acceptance are enforced at the carrier boundary and exercised by the
  * protocol-isomorphism suite.
  */
 const install: InvariantInstaller = () => {}

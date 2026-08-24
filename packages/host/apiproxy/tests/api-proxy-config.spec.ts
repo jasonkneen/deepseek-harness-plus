@@ -1,5 +1,5 @@
 /**
- * Settings/credentials/llm RPC domains and their host-stream frames over
+ * Settings/credentials/llm RPC domains and their owner events over
  * createApiProxy: layered redacted describe, write-path rejection mapping,
  * value-free credential views, the directory/live-route merge, and the three
  * invalidation frames (settings/credentials/models changed).
@@ -12,7 +12,6 @@ import AgentRegistry from '@deepseek-ai/dsh-agent'
 import SessionStore from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
-import UserQuestionService from '@deepseek-ai/dsh-user-questions'
 import LlmRuntime, { LlmAdapter } from '@deepseek-ai/dsh-llm'
 import type { GenerateOptions, LlmModelInfo, LlmProviderInfo, StreamChunk } from '@deepseek-ai/dsh-llm'
 import { SettingsProvider, settingsNamespace } from '@deepseek-ai/dsh-settings'
@@ -27,7 +26,6 @@ import type {
   CredentialRef,
   ResolvedCredential,
 } from '@deepseek-ai/dsh-credentials'
-import type { HostFrame } from '../src/api/index.ts'
 import type { RpcRequest, RpcResponse } from '../src/api/rpc.ts'
 import { RpcId } from '../src/api/rpc.ts'
 import { AGENT_DEFAULT_MODEL_SETTINGS_NAMESPACE } from '@deepseek-ai/dsh-agent-default-model'
@@ -211,7 +209,6 @@ async function harness(options?: {
   await ctx.plugin(SessionStore)
   await ctx.plugin(SystemPrompt, { persona: '' })
   await ctx.plugin(ToolRuntime)
-  await ctx.plugin(UserQuestionService)
   await ctx.plugin(AgentRegistry)
   await ctx.plugin(LlmRuntime)
   if (options?.settings !== false) await ctx.plugin(MemorySettings, options?.settings)
@@ -223,48 +220,53 @@ async function harness(options?: {
       { provider: 'deepseek-official', displayName: 'DeepSeek', settingsNs: 'llm-deepseek', settingsPath: [] },
     ])
   }
-  // Host-stream opener reads the committed-workspace baseline; the stub
-  // suffices — the real workspace composition is api-proxy-workspace.spec's.
-  ctx.provide('workspaceRegistry', { list: () => [] } as never)
   return ctx
 }
 
-/** Drain `count` host frames matching `types`, then abort the stream. */
-async function collectHost(
-  api: ReturnType<typeof createApiProxy>,
-  types: string[],
-  count: number,
+/** Observe settings commits while one API operation runs. */
+async function captureSettingsUpdates(
+  ctx: Context,
   run: () => Promise<void>,
-): Promise<HostFrame[]> {
-  const abort = new AbortController()
-  const frames: HostFrame[] = []
-  const stream = api.events.host(request({}), abort.signal)
-  const consume = (async () => {
-    for await (const frame of stream) {
-      if (!types.includes(frame.payload.type)) continue
-      frames.push(frame.payload)
-      if (frames.length >= count) abort.abort()
-    }
-  })()
-  await run()
-  await consume
-  return frames
+): Promise<Array<readonly [SettingsNamespace, number]>> {
+  const updates: Array<readonly [SettingsNamespace, number]> = []
+  const dispose = ctx.on('settings/document-updated', (namespace, revision) => {
+    updates.push([namespace, revision])
+  })
+  try {
+    await run()
+    return updates
+  } finally {
+    dispose()
+  }
 }
 
-/**
- * One forwarded `settings/document-updated` frame for `ns`. The revision rides
- * the host's own argument list, so it is matched by shape rather than pinned to
- * a per-test count.
- * @param ns - the namespace whose stored section changed.
- * @returns the expected wrapper frame.
- */
-function forwardedSettings(ns: string): HostFrame {
-  return {
-    type: 'host/remote-event',
-    event: 'settings/document-updated',
-    // The revision is the Host's own counter, so the matcher is the assertion.
-    args: [ns, expect.any(Number)], // oxlint-disable-line typescript/no-unsafe-assignment
+/** Observe credential commits while one API operation runs. */
+async function captureCredentialUpdates(ctx: Context, run: () => Promise<void>): Promise<CredentialRef[]> {
+  const updates: CredentialRef[] = []
+  const dispose = ctx.on('credentials/reference-updated', (ref) => { updates.push(ref) })
+  try {
+    await run()
+    return updates
+  } finally {
+    dispose()
   }
+}
+
+/** Count model-adapter topology commits while one API operation runs. */
+async function countAdapterUpdates(ctx: Context, run: () => Promise<void>): Promise<number> {
+  let updates = 0
+  const dispose = ctx.on('llm/adapters-updated', () => { updates += 1 })
+  try {
+    await run()
+    return updates
+  } finally {
+    dispose()
+  }
+}
+
+/** Expected settings event tuple with its owner-assigned revision. */
+function expectedSettingsUpdate(ns: string): readonly unknown[] {
+  return [ns, expect.any(Number)]
 }
 
 describe('settings domain', () => {
@@ -446,7 +448,7 @@ describe('settings domain', () => {
     const api = createApiProxy(ctx, DEFAULTS)
     expect(expectOk(await api.settings.describe(request({}))).namespaces.map(view => view.ns))
       .toEqual(['ui-onboarding', 'ui-theme'])
-    const frames = await collectHost(api, ['host/remote-event'], 2, async () => {
+    const updates = await captureSettingsUpdates(ctx, async () => {
       expectOk(await api.settings.mutate(request({
         ns: 'ui-onboarding',
         ops: [{ op: 'set', path: ['welcomeNoticeVersion'], value: 'v1' }],
@@ -456,7 +458,10 @@ describe('settings domain', () => {
         ops: [{ op: 'set', path: ['preference'], value: 'dark' }],
       })))
     })
-    expect(frames).toEqual([forwardedSettings('ui-onboarding'), forwardedSettings('ui-theme')])
+    expect(updates).toEqual([
+      expectedSettingsUpdate('ui-onboarding'),
+      expectedSettingsUpdate('ui-theme'),
+    ])
   })
 
   it('serves the agent-preset namespace, so a browser preset picker can persist its choice', async () => {
@@ -496,10 +501,10 @@ describe('settings domain', () => {
     const ctx = await harness()
     ctx.settings.register(NS, AdapterConfig, { base: { baseURL: 'https://base' } })
     const api = createApiProxy(ctx, DEFAULTS)
-    const frames = await collectHost(api, ['host/remote-event'], 1, async () => {
+    const updates = await captureSettingsUpdates(ctx, async () => {
       await api.settings.update(request({ ns: 'llm-deepseek', patch: { baseURL: 'https://base' } }))
     })
-    expect(frames).toEqual([forwardedSettings('llm-deepseek')])
+    expect(updates).toEqual([expectedSettingsUpdate('llm-deepseek')])
     // The resolved value never moved: base already said https://base.
     expect(expectOk(await api.settings.describe(request({}))).namespaces[0]!.value)
       .toEqual({ apiKeyEnv: 'DEEPSEEK_API_KEY', baseURL: 'https://base' })
@@ -512,11 +517,10 @@ describe('settings domain', () => {
     }), {
       base: { defaultPreset: 'read-only' },
     })
-    const api = createApiProxy(ctx, DEFAULTS)
-    const frames = await collectHost(api, ['host/remote-event'], 1, async () => {
+    const updates = await captureSettingsUpdates(ctx, async () => {
       await permission.update({ defaultPreset: 'workspace-write' })
     })
-    expect(frames).toEqual([forwardedSettings('permission')])
+    expect(updates).toEqual([expectedSettingsUpdate('permission')])
   })
 
   it('forwards an Agent-default settings change for model-catalog consumers', async () => {
@@ -525,14 +529,13 @@ describe('settings domain', () => {
       provider: z.string().required(),
       model: z.string().required(),
     }), { base: { provider: 'deepseek-official', model: 'deepseek-v4-flash' } })
-    const api = createApiProxy(ctx, DEFAULTS)
     // The shared section names the selection every blank session resolves to,
     // so an externally edited default — another tab, a
     // hand-edited settings.yaml — has to reach an open selector as well.
-    const frames = await collectHost(api, ['host/remote-event'], 1, async () => {
+    const updates = await captureSettingsUpdates(ctx, async () => {
       await defaultModel.replace({ provider: 'deepseek-official', model: 'deepseek-reasoner' })
     })
-    expect(frames).toEqual([forwardedSettings('agent-default-model')])
+    expect(updates).toEqual([expectedSettingsUpdate('agent-default-model')])
   })
 
   it('maps a stale expectedRevision to settings-conflict carrying both revisions', async () => {
@@ -553,14 +556,14 @@ describe('settings domain', () => {
     const ctx = await harness()
     ctx.settings.register(NS, AdapterConfig, { base: { baseURL: 'https://base' } })
     const api = createApiProxy(ctx, DEFAULTS)
-    const frames = await collectHost(api, ['host/remote-event'], 1, async () => {
+    const updates = await captureSettingsUpdates(ctx, async () => {
       const view = expectOk(await api.settings.update(request({ ns: 'llm-deepseek', patch: { apiKey: 'sk-new', baseURL: 'https://next' } })))
       expect(view.value).toEqual({ apiKeyEnv: 'DEEPSEEK_API_KEY', baseURL: 'https://next' })
       expect(view.user).toEqual({ baseURL: 'https://next' })
       expect(view.secrets).toEqual([{ path: ['apiKey'], set: true }])
       expect(JSON.stringify(view)).not.toContain('sk-new')
     })
-    expect(frames).toEqual([forwardedSettings('llm-deepseek')])
+    expect(updates).toEqual([expectedSettingsUpdate('llm-deepseek')])
   })
 
   it('replace resets the user layer wholesale', async () => {
@@ -624,17 +627,14 @@ describe('credentials domain', () => {
     const api = createApiProxy(ctx, DEFAULTS)
     const before = expectOk(await api.credentials.describe(request({ refs: ['OPENAI_API_KEY'] })))
     expect(before.credentials).toEqual({ OPENAI_API_KEY: { configured: false, writable: true } })
-    const frames = await collectHost(api, ['host/remote-event'], 2, async () => {
+    const updates = await captureCredentialUpdates(ctx, async () => {
       expectOk(await api.credentials.set(request({ ref: 'OPENAI_API_KEY', value: 'sk-secret' })))
       const after = expectOk(await api.credentials.describe(request({ refs: ['OPENAI_API_KEY'] })))
       expect(after.credentials).toEqual({ OPENAI_API_KEY: { configured: true, source: 'file', writable: true } })
       expect(JSON.stringify(after)).not.toContain('sk-secret')
       expectOk(await api.credentials.unset(request({ ref: 'OPENAI_API_KEY' })))
     })
-    expect(frames).toEqual([
-      { type: 'host/remote-event', event: 'credentials/reference-updated', args: ['OPENAI_API_KEY'] },
-      { type: 'host/remote-event', event: 'credentials/reference-updated', args: ['OPENAI_API_KEY'] },
-    ])
+    expect(updates).toEqual(['OPENAI_API_KEY', 'OPENAI_API_KEY'])
   })
 
   it('maps a shadowed write onto credential-rejected for set and unset alike', async () => {
@@ -692,16 +692,12 @@ describe('llm domain', () => {
 
   it('forwards llm/adapters-updated at every topology commit point', async () => {
     const ctx = await harness()
-    const api = createApiProxy(ctx, DEFAULTS)
-    const frames = await collectHost(api, ['host/remote-event'], 2, async () => {
+    const updates = await countAdapterUpdates(ctx, async () => {
       const dispose = ctx.llm.registerAdapter(['deepseek-official'], new CatalogAdapter('DeepSeek', []))
       dispose()
       return Promise.resolve()
     })
-    expect(frames).toEqual([
-      { type: 'host/remote-event', event: 'llm/adapters-updated', args: [] },
-      { type: 'host/remote-event', event: 'llm/adapters-updated', args: [] },
-    ])
+    expect(updates).toBe(2)
   })
 })
 

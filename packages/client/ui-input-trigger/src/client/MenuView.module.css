@@ -1,9 +1,3 @@
-/* Trigger candidate menu (figma SLASH 39:26572 MenuDropdown): menu surface,
- * r12, hairline border, shadow-lv3, 4px inset padding; anchored to the
- * composer top edge, left-aligned with the input text. Cells follow
- * .Menu_cell (min-h 40, r10, pad 10/8, gap 8, 14/22 primary label) with a
- * trailing dimmed description. */
-
 .menu {
   position: absolute;
   bottom: calc(100% + 4px);

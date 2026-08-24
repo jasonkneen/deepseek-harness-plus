@@ -6,7 +6,7 @@
  * It boots the REAL agent bin subprocess via the cordis Loader (so the
  * export-shape bug class stays guarded — see docs/postmortem/0001), drives it
  * over real ACP JSON-RPC stdio with a deterministic input script, tees raw
- * stdout (for the expected-output and purity checks) into an SDK `ClientSideConnection`,
+ * stdout (for the expected-output and purity checks) into an SDK client app,
  * and — in record mode — harvests the persisted session JSONL after a graceful
  * shutdown flush. The pure normalizers in ./normalize.ts turn the captured
  * stdout frames and the session-log events into stable, snapshot-able text.
@@ -23,14 +23,18 @@ import { tmpdir } from 'node:os'
 import { basename, dirname, join, delimiter } from 'node:path'
 import { vi } from 'vitest'
 import {
-  ClientSideConnection,
   PROTOCOL_VERSION,
   type ContentBlock as AcpContentBlock,
   type RequestPermissionRequest,
   type RequestPermissionResponse,
   type SessionNotification,
 } from '@agentclientprotocol/sdk'
-import { launchAcpTestAgent, type AgentUnderTest, type LaunchedAcpTestAgent } from './launcher.ts'
+import {
+  launchAcpTestAgent,
+  type AcpTestClient,
+  type AgentUnderTest,
+  type LaunchedAcpTestAgent,
+} from './launcher.ts'
 
 export type { AgentUnderTest } from './launcher.ts'
 
@@ -188,12 +192,9 @@ export interface RunOptions {
    */
   workspaceParent?: string
   /**
-   * Alternate LIVE config path for the boot (absolute), overriding
-   * {@link AgentUnderTest.configPath} for this run. A scenario needing a
-   * differently-composed tree (the Code Mode scenarios) ships an overlay
-   * whose basename still ends in `cordis.yml`, so the bin's replay swap
-   * resolves the sibling `*cordis.snapshot.yml` the same way it does for
-   * the default.
+   * Alternate live profile patch (absolute), overriding
+   * {@link AgentUnderTest.configPath} for this run. Its basename still ends
+   * in `cordis.yml` so the launcher can select the replay sibling.
    */
   configPath?: string
 }
@@ -377,7 +378,7 @@ export async function runScenario(input: InputScript, opts: RunOptions): Promise
 
 /** Drive one input step over the client connection. */
 async function runStep(
-  client: ClientSideConnection,
+  client: AcpTestClient,
   step: InputStep,
   cwd: string,
   waitForUpdate: (match: (u: SessionNotification['update']) => boolean) => Promise<SessionNotification['update']>,

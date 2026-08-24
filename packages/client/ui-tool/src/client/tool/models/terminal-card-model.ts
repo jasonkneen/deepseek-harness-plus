@@ -8,9 +8,9 @@
  * are derived once.
  * @module
  */
-import { resolveWorkspacePath } from '@deepseek-ai/dsh-client-runtime/client'
 import type { TerminalBlockLabels, TerminalBlockProps } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
+import { resolveWorkspacePath } from '@deepseek-ai/dsh-util-workspace-path'
 import type { ToolCallBlock } from './tool-call-model.ts'
 
 /**
@@ -169,10 +169,9 @@ function collapse(body: string, rooted: boolean, separator = '/'): string {
  *   returns a generic fenced card for an execution error or a background
  *   start, whose text and error styling the generic path preserves.
  *
- * Window truncation can drop the call head from a settled result (see
- * `ToolResultNode.call`/`callView` in dsh-client-runtime), leaving a terminal
- * result with no call side. That still renders: the command falls back to the
- * result view's replacement title, then to an empty command (the prompt line
+ * Window truncation can drop the call head from a settled `ToolResultNode`,
+ * leaving a terminal result with no call side. That still renders: the command
+ * falls back to the result view's replacement title, then to an empty command (the prompt line
  * draws bare), and the prompt shows no cwd.
  * @param block - RunningToolCall or ToolResultNode off the snapshot caches.
  * @param sessionCwd - the session workspace root, which resolves an omitted or

@@ -21,12 +21,20 @@ describe('ACP machine permission policy', () => {
     const { sessionId } = await harness.client.newSession({ cwd: process.cwd(), mcpServers: [] })
     const agent = harness.ctx.agents.get(SessionId(sessionId))!
     agent.session.append('turn/start', { turn: 1 })
+    agent.session.append('step/start', { turn: 1, step: 1 })
+    agent.session.append('tool/call', { turn: 1, step: 1, callId: CallId('call-9'), name: 'bash', arguments: '{}' })
     return { agent, toolName: 'bash', callId: CallId('call-9'), ...overrides }
   }
 
   it('maps the two advertised one-shot choices', async () => {
     harness = await makeBridgeHarness()
-    harness.onPermission = () => ({ outcome: { outcome: 'selected', optionId: 'allow-once' } })
+    harness.onPermission = () => {
+      expect(harness?.sessionUpdates.at(-1)?.update).toMatchObject({
+        sessionUpdate: 'tool_call',
+        toolCallId: 'call-9',
+      })
+      return { outcome: { outcome: 'selected', optionId: 'allow-once' } }
+    }
     const request = await ownedRequest()
     await expect(harness.ctx.approval.request(request)).resolves.toBe('allowed-once')
     expect(harness.permissionRequests[0]).toMatchObject({

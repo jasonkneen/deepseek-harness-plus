@@ -10,23 +10,20 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import type { ChangeEvent, KeyboardEvent, MouseEvent, ReactNode } from 'react'
 import clsx from 'clsx'
 import {
-  IconPlusOutline16, IconWarningOutline16, Toast, Tooltip,
+  IconPlusOutline16, IconWarningOutline16, ReferenceIcon, Toast, Tooltip,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 // Type-only: the `plan` projection key merge (the TodoDock posture — the
 // composer reads a host-computed value; the domain owns the key).
 import type {} from '@deepseek-ai/dsh-plan-mode/client'
 // Type-only: the `goal` projection key merge (hint disambiguation).
 import type {} from '@deepseek-ai/dsh-goal/client'
-// The `imageLimits` projection key merge (intake pre-check) arrives with the
-// wire types: apiproxy's sessions contract declares it, and client-runtime's
-// api-remotes import already places it in every client program.
+// The `imageLimits` projection key merge supplies the intake pre-check.
 import type { Translate } from '@deepseek-ai/dsh-client-ui-slots'
 import type { ComposerBarProps } from '../contract/slots.ts'
-import { deriveDecorations } from '../input/decorations.ts'
-import type { DraftDecorations } from '../input/decorations.ts'
-import type { EditRange } from '../input/contract.ts'
+import { deriveDecorations } from './decorations.ts'
+import type { DraftDecorations } from './decorations.ts'
+import type { EditRange } from '../contract/input.ts'
 import { attachmentErrorText, imageSizeText } from '../image-labels.ts'
-import { ReferenceIcon } from '../reference/ReferenceIcon.tsx'
 import { ContextMeter } from './ContextMeter.tsx'
 import { PermissionSelect } from './PermissionSelect.tsx'
 import { isSafariBrowser, repairSafariTextareaLayout } from './safari.ts'
@@ -235,7 +232,7 @@ export function InputBar({
     else if (rect.top + line < box.top) scrollEl.scrollTop -= box.top - rect.top - line
   }
 
-  // Reveal the focus end of the current selection. Today's entry paths leave a
+  // Reveal the focus end of the current selection. Every shipped entry path leaves a
   // collapsed selection, but honoring direction keeps a future range-preserving
   // path from revealing its anchor instead of its focus.
   const revealSelectionFocus = (el: HTMLTextAreaElement): void => {
@@ -502,7 +499,7 @@ export function InputBar({
     keyboard.track(keyboard.snapshot.draft, caret)
   }
 
-  // Intake pre-check (DeepSeek Chat semantics): an addition that would break
+  // Intake pre-check: an addition that would break
   // a projected limit is refused as a whole batch, announced immediately, and
   // never enters the rail — no more submit-time failure rolling the rail
   // back. The host enforces the same limits at submit for callers that bypass
@@ -511,7 +508,7 @@ export function InputBar({
     if (addImages === undefined || files.length === 0) return
     const rejected = ((): string | null => {
       if (imageLimits !== undefined) {
-        // Format precedes limits (DeepSeek Chat's filter order): a batch with
+        // Format precedes limits: a batch with
         // a non-image must announce the format problem, not a count or size
         // it could never pass anyway — addImages rejects it authoritatively.
         if (files.some(file => !(imageLimits.mediaTypes as readonly string[]).includes(file.type))) {
@@ -785,13 +782,13 @@ export function InputBar({
             </Tooltip>
             <div className={css.modes}>
               {accessSelect}
-              {renderSlot('conversation.input.plan', { locked })}
+              {sessionId === undefined ? null : renderSlot('conversation.input.plan', { locked })}
             </div>
             {leftItems}
           </div>
           <div className={css.trailing}>
             {rightItems}
-            {renderSlot('conversation.input.model', { locked: modelSeatLocked })}
+            {sessionId === undefined ? null : renderSlot('conversation.input.model', { locked: modelSeatLocked })}
             <ContextMeter useProjection={useProjection} t={t} />
             {interruptible && (
               <Tooltip label={t('input.stop')} side="top" delayMs={500}>

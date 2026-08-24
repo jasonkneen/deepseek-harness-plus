@@ -1,4 +1,4 @@
-import { copyFile, mkdir, readFile, readdir, writeFile } from 'node:fs/promises'
+import { readFile, readdir, writeFile } from 'node:fs/promises'
 import { createServer } from 'node:http'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { delimiter, dirname, join } from 'node:path'
@@ -56,10 +56,10 @@ const dshBinScript = fileURLToPath(new URL('../../../apps/cli/src/bin.ts', impor
 const tsconfigPath = fileURLToPath(new URL('../../../tsconfig.json', import.meta.url))
 const reasoningConfigPath = fileURLToPath(new URL('./fixtures/cli.cordis.yml', import.meta.url))
 const deepseekDefaultsConfigPath = fileURLToPath(new URL('./fixtures/deepseek-defaults.cordis.yml', import.meta.url))
+const piAiDefaultsConfigPath = fileURLToPath(new URL('./fixtures/pi-ai-defaults.cordis.yml', import.meta.url))
 const headlessOverlayPath = fileURLToPath(new URL('./fixtures/headless-profile.cordis.yml', import.meta.url))
 const headlessSessionExpected = join(snapshotsDir, 'headless-profile', 'session.expected.jsonl')
 const headlessFailureExpected = join(snapshotsDir, 'headless-profile', 'stderr.expected.txt')
-const cliMockLlmPluginPath = fileURLToPath(new URL('./fixtures/cli-mock-llm.ts', import.meta.url))
 const refreshing = process.env.DSH_SNAPSHOT === 'refresh'
 
 interface JsonObject {
@@ -232,16 +232,6 @@ async function persistedLogs(cwd: string, root: string = join(cwd, '.sessions'))
   }))
 }
 
-/** Install the keyless product-CLI adapter into the temporary headless profile. */
-async function prepareCliMockFixture(cwd: string): Promise<void> {
-  const fixtureDir = join(cwd, '.dsh', 'profiles', 'headless', 'snapshot-fixtures')
-  await mkdir(fixtureDir, { recursive: true })
-  await Promise.all([
-    copyFile(cliMockLlmPluginPath, join(fixtureDir, 'cli-mock-llm.ts')),
-    writeFile(join(fixtureDir, 'package.json'), '{"type":"module"}\n'),
-  ])
-}
-
 describe('headless stream-json snapshots', () => {
   it('runs one task through the product headless profile command', async () => {
     const task = 'Prove the product headless profile path with one real tool round trip.'
@@ -257,7 +247,6 @@ describe('headless stream-json snapshots', () => {
         DSH_TELEMETRY_DISABLED: '1',
         NODE_OPTIONS: [process.env.NODE_OPTIONS, '--disable-warning=ExperimentalWarning'].filter(Boolean).join(' '),
       },
-      prepare: prepareCliMockFixture,
       inspect: async (cwd) => {
         const logs = await persistedLogs(cwd, join(cwd, '.dsh', 'sessions'))
         expect(logs).toHaveLength(1)
@@ -290,7 +279,6 @@ describe('headless stream-json snapshots', () => {
         DSH_TELEMETRY_DISABLED: '1',
         NODE_OPTIONS: [process.env.NODE_OPTIONS, '--disable-warning=ExperimentalWarning'].filter(Boolean).join(' '),
       },
-      prepare: prepareCliMockFixture,
     })
 
     expect(result.stdout).toBe('\n')
@@ -580,6 +568,57 @@ describe('headless stream-json snapshots', () => {
           "maxTokens": 256000,
           "model": "deepseek-v4-flash",
           "provider": "deepseek-official",
+          "reasoningEffort": "low",
+        }
+      `)
+      expect(header?.adapterDefaults).toEqual({
+        maxTokens: true,
+        reasoningEffort: true,
+      })
+    } finally {
+      await server.close()
+    }
+  }, LOADER_SMOKE_TEST_TIMEOUT_MS)
+
+  it('sends pi-ai DeepSeek compatibility through the one-shot app', async () => {
+    const server = await deepseekDefaultsServer()
+    try {
+      const result = await runLoaderSmoke({
+        label: 'pi-ai DeepSeek compatibility headless stream-json snapshot',
+        tempDirPrefix: 'headless-snapshot-pi-ai-defaults-',
+        binScript,
+        libBinScript: binScript,
+        configPath: piAiDefaultsConfigPath,
+        binArgs: [
+          piAiDefaultsConfigPath,
+          'return the deterministic response',
+        ],
+        tsconfigPath,
+        env: {
+          DEEPSEEK_API_KEY: 'snapshot-key',
+          DSH_SNAPSHOT_BASE_URL: server.url,
+          NODE_OPTIONS: [process.env.NODE_OPTIONS, '--disable-warning=ExperimentalWarning'].filter(Boolean).join(' '),
+        },
+      })
+
+      expect(result.stderr).toBe('')
+      expect(server.requests).toHaveLength(1)
+      expect(server.requests[0]?.max_tokens).toBe(1024)
+      expect(server.requests[0]).not.toHaveProperty('max_completion_tokens')
+      const header = (parseJsonl(result.stdout)
+        .map(record => record.event)
+        .find((event): event is JsonObject => (
+          event !== null
+          && typeof event === 'object'
+          && !Array.isArray(event)
+          && 'type' in event
+          && event.type === 'request/header'
+        ))?.data as JsonObject | undefined)?.header as JsonObject | undefined
+      expect(header?.config).toMatchInlineSnapshot(`
+        {
+          "maxTokens": 1024,
+          "model": "deepseek-v4-flash",
+          "provider": "deepseek",
           "reasoningEffort": "low",
         }
       `)

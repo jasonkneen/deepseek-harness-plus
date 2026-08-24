@@ -153,7 +153,7 @@ describe('web e2e: fresh round trip through the real assembly', () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-round-trip-think'))
     // Interaction over the REAL wire-delivered transcript (the fixture-client
     // tier pins the same gesture against FixtureApiClient; this one runs on
-    // mux-frame-fed state). Runs after the golden capture so the committed
+    // follow-stream-fed state). Runs after the golden capture so the committed
     // aria surface stays the untouched settled state.
     const think = page.getByRole('button', { name: /^Think/ }).first()
     expect(await think.getAttribute('aria-expanded')).toBe('false')

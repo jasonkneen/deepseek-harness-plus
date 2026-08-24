@@ -11,9 +11,8 @@
  */
 
 import type { IApiClient } from '@deepseek-ai/dsh-api-remotes/client'
-import {
-  createSnapshotStore, type SessionId, type SnapshotStore,
-} from '@deepseek-ai/dsh-client-runtime/client'
+import { createSnapshotStore, type SnapshotStore } from '@deepseek-ai/dsh-client-store'
+import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import { messageOf, presetOptions } from './settings-store.ts'
 import type { AgentPresetOption } from './settings-store.ts'
 

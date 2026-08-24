@@ -1,8 +1,8 @@
 import type { Context } from '@deepseek-ai/cordis'
 import type {
-  ConversationMatch, ConversationNodeContext, ConversationNodeDefinition,
-  RunningToolCall, ToolCallBlock, ToolResultNode,
-} from '@deepseek-ai/dsh-client-runtime/client'
+  ConversationMatch, ConversationNodeContext, ConversationNodeDefinition, RunningToolCall,
+  ToolCallBlock, ToolResultNode,
+} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type {} from '@deepseek-ai/dsh-tools/types'
 import { trajectoryNode } from './trajectory-definition-common.ts'
 
@@ -269,5 +269,5 @@ const trajectoryToolDefinition: ConversationNodeDefinition<ToolState> = {
  * @param ctx - Plugin context receiving the Definition.
  */
 export function registerTrajectoryToolDefinition(ctx: Context): void {
-  ctx.conversationEvents.register(trajectoryToolDefinition)
+  ctx.uiConversation.events.register(trajectoryToolDefinition)
 }

@@ -15,7 +15,7 @@ import type { ReactNode } from 'react'
 import {
   Button, IconBrowseOutline16, IconCopyOutline16, IconFolderOpenOutline16, IconPlusOutline16, IconTrashOutline16, Modal, Tooltip,
 } from '@deepseek-ai/dsh-client-ui-primitives'
-import type { SnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
+import type { SnapshotStore } from '@deepseek-ai/dsh-client-store'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import { draftBlocker, type AgentPresetSectionState } from './section-store.ts'
 import { presetDisplayText, type AgentPresetSettingsKey } from './locales.ts'
@@ -221,7 +221,6 @@ export function AgentPresetSection(props: AgentPresetSectionProps): ReactNode {
           props.close()
         }}
       >
-        {/* Same glyph as the Models page's add affordances. */}
         <IconPlusOutline16 size={14} />
         {t('creatorDraft')}
       </button>

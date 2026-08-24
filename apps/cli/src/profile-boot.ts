@@ -2,8 +2,8 @@
  * Shared profile boot for every `dsh` surface: resolve the profile, stack its
  * patch layers (bundle layers in `dsh.profile.bundles` order, the profile's
  * own `cordis.patch.yml`, `--patch` overlays, the telemetry switch), mount the
- * tree over the profile's empty root config, keep the profile patch layer
- * live, and wire fail-loud plus bounded shutdown.
+ * tree over the profile's empty root config, apply its selected patch-reload
+ * lifecycle, and wire fail-loud plus bounded shutdown.
  *
  * App flags are not the launcher's business: the invocation's inner arguments
  * are provided to the tree through `ctx.cmdlineArgs`, where any injected app
@@ -35,10 +35,34 @@ import { resolveDshHome } from '@deepseek-ai/dsh-home-paths'
 const SHIPPED_PRESET_ROOT = fileURLToPath(new URL('../config/agent-presets/', import.meta.url))
 
 import { DSH_LAUNCH_ENVIRONMENT_KEY, type LaunchEnvironmentSnapshot } from '@deepseek-ai/dsh-launch-environment'
-import { provideCmdline } from '@deepseek-ai/dsh-cmdline'
+import { provideCmdline, type AppReady } from '@deepseek-ai/dsh-cmdline'
 import { createProcessShutdown, type ProcessShutdown } from './process-shutdown.ts'
 
 const NAME = 'dsh'
+
+/** Launcher-owned readiness signal committed only after boot and host setup succeed. */
+function createAppReady(): { service: AppReady; commit(): void } {
+  let ready = false
+  const listeners = new Set<() => void>()
+  return {
+    service: {
+      onReady(listener) {
+        if (ready) {
+          listener()
+          return () => {}
+        }
+        listeners.add(listener)
+        return () => { listeners.delete(listener) }
+      },
+    },
+    commit() {
+      if (ready) return
+      ready = true
+      for (const listener of [...listeners]) listener()
+      listeners.clear()
+    },
+  }
+}
 
 /**
  * The home-level user patch layer (`$DSH_HOME/cordis.patch.yml`), applied
@@ -207,6 +231,7 @@ function suppressShutdownError(ctx: Context, signal: AbortSignal, error: unknown
 export async function runProfile(options: RunProfileOptions): Promise<{ ctx: Context; shutdown: ProcessShutdown }> {
   const composed = composeProfile(options.profile, options.patchFiles)
   const app: { current?: Context } = {}
+  const appReady = createAppReady()
   const shutdown = createProcessShutdown(async () => { await app.current?.fiber.dispose() })
   const signalShutdown = new AbortController()
   const interrupt = (code: number): void => {
@@ -255,27 +280,26 @@ export async function runProfile(options: RunProfileOptions): Promise<{ ctx: Con
     provideCmdline(hostCtx, {
       args: options.args,
       exit: code => void shutdown.shutdown(code),
+      ready: appReady.service,
     })
   })
   app.current = ctx
-  // A surface can dispose the whole tree while boot or this post-boot watcher
-  // setup is still in flight — a signal, or a fast one-shot's appExit. Loader
-  // presence and fiber state own liveness; the initial check skips a tree
-  // that already exited, and the catch below re-checks for an exit that
-  // landed mid-setup. Watching is unconditional: a one-shot surface exits
-  // through its bounded shutdown, which disposes the watchers before the
-  // loop drains.
-  if (!signalShutdown.signal.aborted
+  // A live-reload profile can dispose the whole tree while post-boot watcher
+  // setup is in flight — a signal or appExit. Loader presence and fiber state
+  // own liveness; the initial check skips a tree that already exited, and the
+  // catch below re-checks for an exit that landed mid-setup. Startup-frozen
+  // profiles apply every user layer above but install no HMR fallback or watcher.
+  if (composed.profile.patchReload === 'live'
+    && !signalShutdown.signal.aborted
     && ctx.fiber.state === FiberState.ACTIVE
     && ctx.get('loader') !== undefined) {
     try {
-      // Config-only HMR for the live profile patch layer: the web bundle
-      // disables the shared module-reload `hmr` row (its reload lifecycle is
-      // untested), so when the composition leaves no HMR service, mount a
-      // watch-only instance with no module roots — cordis.patch.yml edits stay
-      // live on every long-lived surface. A silent skip would break the
-      // documented hot-reload contract. HMR injects the timer service, which a
-      // bare custom profile may not mount either.
+      // Config-only HMR for the live profile patch layer: dsh-base disables
+      // module reload by default, so when no profile explicitly enabled that
+      // service, mount a watch-only instance with no module roots —
+      // cordis.patch.yml edits stay live without replacing source modules. A
+      // silent skip would break the documented reload contract. HMR injects
+      // the timer service, which a bare custom profile may not mount either.
       if (ctx.get('hmr') === undefined) {
         if (ctx.get('timer') === undefined) {
           await ctx.loader.create({ name: '@deepseek-ai/cordis-plugin-timer' })
@@ -295,6 +319,11 @@ export async function runProfile(options: RunProfileOptions): Promise<{ ctx: Con
     } catch (error) {
       suppressShutdownError(ctx, signalShutdown.signal, error)
     }
+  }
+  if (!signalShutdown.signal.aborted
+    && ctx.fiber.state === FiberState.ACTIVE
+    && ctx.get('loader') !== undefined) {
+    appReady.commit()
   }
   return { ctx, shutdown }
 }

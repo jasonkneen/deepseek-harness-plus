@@ -116,11 +116,10 @@ function pwshDescription(backgroundEnabled: boolean, escalationModes: readonly S
   if (escalationModes.length === 0) return base
   // The language-mode and named-pipe contracts below are Windows-restricted-token
   // behavior, but the gate is 'any confining executor is mounted'
-  // (escalationModes non-empty). The conflation is safe today because every
-  // shipped composition pairing tool-pwsh with a confining executor is
-  // win32-only; a future POSIX pwsh-sandbox composition must gate both
-  // sentences on the platform instead (tracked in the pwsh-tool-and-executor
-  // Agent Note).
+  // (escalationModes non-empty). Every shipped composition pairing tool-pwsh
+  // with a confining executor is win32-only, so the gate is equivalent. A POSIX
+  // pwsh-sandbox composition must gate both sentences on the platform instead
+  // (tracked in the pwsh-tool-and-executor Agent Note).
   return base + ' Under the Windows sandbox, read-only pwsh runs in PowerShell ConstrainedLanguage mode, while '
     + 'workspace-write stays in FullLanguage unless host policy says otherwise. In read-only, prefer cmdlets and core types (`[string]`, `[datetime]`, `[regex]`, `[guid]`); '
     + '.NET static calls (`[System.IO.*]::`, `[math]::`), `Add-Type`, COM objects, and reflection fail '

@@ -2,8 +2,8 @@ import type { Context } from '@deepseek-ai/cordis'
 import { describe, expect, it } from 'vitest'
 import type {
   ConversationEventInput, ConversationNodeDefinition, ConversationViewDefinition,
-} from '@deepseek-ai/dsh-client-runtime/client'
-import { ConversationNodeAssembler } from '@deepseek-ai/dsh-client-runtime/client'
+} from '@deepseek-ai/dsh-client-ui-conversation/client'
+import { ConversationNodeAssembler } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import { registerTrajectoryAssistantDefinition } from '../src/client/trajectory-assistant-definition.ts'
 import { registerTrajectoryCompactionDefinitions } from '../src/client/trajectory-compaction-definition.ts'
 import type { TrajectorySnapshot } from '../src/client/trajectory-contract.ts'
@@ -14,10 +14,12 @@ import { registerTrajectoryToolDefinition } from '../src/client/trajectory-tool-
 
 const DEFINITIONS: ConversationNodeDefinition[] = []
 const registrationContext = {
-  conversationEvents: {
-    register: (definition: ConversationNodeDefinition) => {
-      DEFINITIONS.push(definition)
-      return () => {}
+  uiConversation: {
+    events: {
+      register: (definition: ConversationNodeDefinition) => {
+        DEFINITIONS.push(definition)
+        return () => {}
+      },
     },
   },
 } as unknown as Context
@@ -58,7 +60,6 @@ function at(
       data,
       ...extra,
     } as unknown as ConversationEventInput['event'],
-    view: undefined,
   }
 }
 
@@ -73,7 +74,7 @@ function assembler(events: readonly ConversationEventInput[]): ConversationNodeA
 }
 
 function snapshot(value: ConversationNodeAssembler): TrajectorySnapshot {
-  const current = value.snapshot('trajectory') as TrajectorySnapshot | undefined
+  const current = value.get('trajectory')
   if (current === undefined) throw new Error('trajectory view was not registered')
   return current
 }
@@ -142,6 +143,8 @@ describe('Trajectory conversation Definitions', () => {
     expect(settled.requests).toMatchObject([{
       purpose: 'assistant',
       status: 'error',
+      error: 'temporary failure',
+      errorCode: 'TRANSPORT',
       retry: 1,
       maxRetries: 2,
       retryDelayMs: 25,

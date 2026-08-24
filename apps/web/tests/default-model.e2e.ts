@@ -39,22 +39,16 @@ describe('web e2e: the composer model switch is the default for later sessions',
 
   /** Create one session and its agent through the same wire face the browser uses. */
   const createSession = async (sessionId: string): Promise<string> => {
-    const response = await scaffold.ctx.apiProxy.sessions.create({
-      rpcId: `default-model-create-${sessionId}` as never,
-      payload: { sessionId: SessionId(sessionId), cwd: scaffold.workspaceCwd },
+    const response = await scaffold.ctx.sessionController.create({
+      sessionId: SessionId(sessionId),
+      cwd: scaffold.workspaceCwd,
     })
-    if (!response.result.ok) throw new Error(`session.create failed: ${response.result.error.message}`)
-    return response.result.value.sessionId
+    return response.sessionId
   }
 
   /** The route the gateway reports for one session, through the real wire face. */
   const currentOf = async (sessionId: string): Promise<unknown> => {
-    const response = await scaffold.ctx.apiProxy.sessions.models({
-      rpcId: `default-model-${sessionId}` as never,
-      payload: { sessionId: SessionId(sessionId) },
-    })
-    if (!response.result.ok) throw new Error(`session.models failed: ${response.result.error.message}`)
-    return response.result.value.current
+    return (await scaffold.ctx.sessionController.models({ sessionId: SessionId(sessionId) })).current
   }
 
   beforeAll(async () => {
@@ -144,15 +138,12 @@ describe('web e2e: the composer model switch is the default for later sessions',
 
     // The block is an affordance; the refusal is the Host's. A client that
     // never disabled anything still cannot start a turn on a dead route.
-    const refused = await scaffold.ctx.apiProxy.sessions.prompt({
-      rpcId: 'default-model-refused' as never,
-      payload: {
-        sessionId: SessionId(await createSession('default-model-refusal')),
-        mode: 'queue' as const,
-        content: [{ type: 'text' as const, text: 'hi' }],
-      },
-    })
-    expect(refused.result).toMatchObject({ ok: false, error: { code: 'model-unavailable' } })
+    await expect(scaffold.ctx.sessionController.prompt({
+      requestId: 'default-model-refused' as never,
+      sessionId: SessionId(await createSession('default-model-refusal')),
+      mode: 'queue',
+      content: [{ type: 'text', text: 'hi' }],
+    }, new AbortController().signal)).rejects.toMatchObject({ failure: { code: 'model-unavailable' } })
 
     // The way out stays open. Locking the model seat with everything else
     // would leave the composer asking for the one thing it prevents.

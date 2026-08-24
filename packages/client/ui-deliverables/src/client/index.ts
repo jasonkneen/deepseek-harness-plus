@@ -8,9 +8,11 @@
  * the owning view renders an empty chain and inert prose at zero cost.
  */
 import type { ConnectionHandle } from '@deepseek-ai/dsh-client-connection/client'
-import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
-import type { ChatFileMentions } from '@deepseek-ai/dsh-client-ui-conversation/client'
+import type { Context as ClientContext } from '@deepseek-ai/cordis'
+import type { ChatFileMentions } from '@deepseek-ai/dsh-client-ui-chat/client'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
+import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
+import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import { ProducedFiles } from './ProducedFiles.tsx'
 import { en, NS, zh, type DeliverablesKey } from './locales.ts'
 import {
@@ -28,7 +30,7 @@ export { ProducedFiles, type ProducedFilesProps } from './ProducedFiles.tsx'
 export { producedForClosing } from './turn-deliverables.ts'
 
 /** Required services for the tail-slot registration and its dictionaries. */
-export const inject = ['slots', 'locale', 'conversationEvents', 'connection']
+export const inject = ['slots', 'locale', 'uiConversation', 'connection']
 
 /**
  * Client plugin body: register the dictionaries and the turn-tail entry.
@@ -36,7 +38,7 @@ export const inject = ['slots', 'locale', 'conversationEvents', 'connection']
  */
 export function apply(ctx: ClientContext): void {
   const connection = ctx.get('connection') as ConnectionHandle
-  ctx.conversationEvents.register(deliverablesDefinition)
+  ctx.uiConversation.events.register(deliverablesDefinition)
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'ui-deliverables: dictionaries')
   ctx.slots.inject(
     'conversation.chat.turnTail',

@@ -1,27 +1,36 @@
 # Both mode adds `ctx.codeRuntime` while keeping native tools on the wire and
-# adding `run_code` plus its generated TypeScript SDK prompt. The app bin selects
-# this overlay for snapshot recording and the sibling overlay for replay. A config
-# patch replaces the whole app config, so unchanged base fields are restated below.
-- id: base
-  name: '@deepseek-ai/cordis-plugin-include'
+# adding `run_code` plus its generated TypeScript SDK prompt. Recording applies
+# this profile patch; replay applies its sibling patch.
+- id: acp
+  name: '@deepseek-ai/dsh-acp'
   config:
-    path: ./cordis.yml
-    patches:
-      - id: acp-agent
-        name: '@deepseek-ai/dsh-acp-demo'
-        config:
-          provider: deepseek-official
-          model: deepseek-v4-pro
-          persistenceRoot: !!js process.env.DSH_SNAPSHOT_SESSIONS_ROOT ?? './.sessions'
-          persistenceCompression: !!js "process.env.DSH_SNAPSHOT === undefined ? 'zstd' : 'none'"
-          workspaceContext:
-            maxBytes: 65536
-          tools:
-            mode: both
-          persona: |
-            You are a coding assistant powered by the {{model}} model. Your working directory is {{cwd}}.
+    provider: deepseek-official
+    model: deepseek-v4-pro
 
-            Verify your work by running the code or tests. Keep answers brief and factual.
-      - insert:
-          - id: code-runtime
-            name: '@deepseek-ai/dsh-code-runtime-worker-thread'
+- id: session-persistence-jsonl
+  name: '@deepseek-ai/dsh-session-persistence-jsonl'
+  config:
+    root: !!js process.env.DSH_SNAPSHOT_SESSIONS_ROOT ?? './.sessions'
+    compression: !!js 'process.env.DSH_SNAPSHOT === undefined ? ''zstd'' : ''none'''
+
+- id: agent-instructions
+  name: '@deepseek-ai/dsh-agent-instructions'
+  config:
+    maxBytes: 65536
+
+- id: tools
+  name: '@deepseek-ai/dsh-tools'
+  config:
+    mode: both
+
+- id: system-prompt
+  name: '@deepseek-ai/dsh-system-prompt'
+  config:
+    persona: |
+      You are a coding assistant powered by the {{model}} model. Your working directory is {{cwd}}.
+
+      Verify your work by running the code or tests. Keep answers brief and factual.
+
+- insert:
+    - id: code-runtime
+      name: '@deepseek-ai/dsh-code-runtime-worker-thread'

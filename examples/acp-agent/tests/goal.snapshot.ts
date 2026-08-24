@@ -24,8 +24,9 @@ const wrapupDir = join(dirname(fileURLToPath(import.meta.url)), 'goal-snapshots/
 const refreshing = process.env.DSH_SNAPSHOT === 'refresh'
 
 const agent: AgentUnderTest = {
-  binScript: fileURLToPath(new URL('../../../packages/examples/acp-demo/src/bin.ts', import.meta.url)),
+  binScript: fileURLToPath(new URL('../../../apps/cli/src/bin.ts', import.meta.url)),
   configPath: fileURLToPath(new URL('../cordis.yml', import.meta.url)),
+  profile: 'acp',
   tsconfigPath: fileURLToPath(new URL('../../../tsconfig.json', import.meta.url)),
 }
 

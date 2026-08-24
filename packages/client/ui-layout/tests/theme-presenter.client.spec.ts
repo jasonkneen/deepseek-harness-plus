@@ -1,8 +1,4 @@
 // @vitest-environment jsdom
-// ThemePresenter behavior account: root color-scheme and the palette attribute
-// follow active.colorScheme only, token variables replace the previous apply's
-// set, theme-color metadata follows the rendered body background, and dispose
-// retracts everything the presenter wrote.
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { ThemeSnapshot } from '@deepseek-ai/dsh-client-ui-theme/client'

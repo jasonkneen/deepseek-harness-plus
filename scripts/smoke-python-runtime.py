@@ -5,6 +5,8 @@ from __future__ import annotations
 
 import argparse
 import difflib
+import importlib
+import importlib.metadata
 import json
 import os
 import queue
@@ -22,6 +24,7 @@ if TYPE_CHECKING:
 
 
 EXPECTED_TEXT = "runtime smoke ok"
+LIVE_API_SENTINEL = "PYTHON_SDK_LIVE_OK"
 CODE_PROMPT = "Use run_code to compute the packaged worker smoke value."
 CODE_WORKER_TEXT = "code worker smoke ok"
 WORKFLOW_PROMPT = "Use workflow to compute the packaged worker smoke value without agents."
@@ -35,7 +38,7 @@ FS_SEARCH_MARKER = "PACKAGED_FS_SEARCH_OK"
 MCP_PROMPT = "Exercise the packaged MCP client with one external stdio server."
 MCP_TEXT = "MCP client smoke ok"
 MINIMAL_CORDIS = (
-    Path(__file__).resolve().parent.parent / "examples" / "jsonrpc-agent" / "minimal.cordis.yml"
+    Path(__file__).resolve().parent.parent / "examples" / "python-sdk-agent" / "minimal.cordis.yml"
 )
 MINIMAL_BASH_COMMAND = (
     "counter=$(( ${counter:-0} + 1 )); export counter; "
@@ -47,6 +50,12 @@ SNAPSHOT_SESSION_ID = "advanced-executable"
 SNAPSHOT_DIRECT_CHILD_PROMPT = "Reply with exactly DIRECT_CHILD_OK and nothing else."
 SNAPSHOT_WORKFLOW_CHILD_PROMPT = "Reply with exactly WORKFLOW_CHILD_OK and nothing else."
 SNAPSHOT_FINAL_TEXT = "ADVANCED_EXECUTABLE_OK"
+RESTART_FIRST_PROMPT = "Complete the first isolated Python SDK process turn."
+RESTART_FIRST_TEXT = "PROCESS_ONE_OK"
+RESTART_SECOND_PROMPT = "Complete the second isolated Python SDK process turn."
+RESTART_SECOND_TEXT = "PROCESS_TWO_OK"
+RESTART_FIRST_SESSION_ID = "process-one"
+RESTART_SECOND_SESSION_ID = "process-two"
 SNAPSHOT_PLUGIN_CODE = """\
 return (ctx) => {
   harness.registerTool(ctx, harness.defineTool({
@@ -78,6 +87,10 @@ MINIMAL_SNAPSHOT_DIRECTORY = (
     Path(__file__).resolve().parent / "snapshots" / "python-sdk-single-exe" / "minimal"
 )
 MINIMAL_SNAPSHOT_FILENAMES = ("model-visible.json",)
+RESTART_SNAPSHOT_DIRECTORY = (
+    Path(__file__).resolve().parent / "snapshots" / "python-sdk-single-exe" / "restart"
+)
+RESTART_SNAPSHOT_FILENAMES = ("result.json", "requests.json", "session.1.jsonl", "session.2.jsonl")
 # The agent loop's dynamic runtime-context snapshot is the one model-visible message this
 # expected output cannot carry: the same composition emits it on macOS and not on Linux
 # (deepseek-harness#2488), and the file must replay on both. Everything else is compared.
@@ -85,6 +98,12 @@ RUNTIME_CONTEXT_PREFIX = "Current runtime context"
 CUSTOM_CORDIS = """\
 - id: sdk-jsonrpc-server
   name: '@deepseek-ai/dsh-sdk-jsonrpc-server'
+- id: deepseek-llm-api-extensions
+  name: '@deepseek-ai/dsh-deepseek-llm-api-extensions'
+- id: session-log-deepseek
+  name: '@deepseek-ai/dsh-session-log-deepseek'
+  config:
+    enabled: true
 - id: agent-core
   name: '@deepseek-ai/dsh-agent-spine-demo'
   config:
@@ -180,9 +199,9 @@ for line in sys.stdin:
             },
         })
     elif method == "tools/list":
-        # Keep discovery pending longer than the old smoke's 100 ms grace
-        # period. An SDK runtime that answers initialize too early will make
-        # its first model request without this tool and fail deterministically.
+        # Keep discovery pending long enough that an SDK runtime answering
+        # initialize before discovery completes makes its first model request
+        # without this tool and fails deterministically.
         time.sleep(0.25)
         send({
             "jsonrpc": "2.0",
@@ -343,6 +362,8 @@ def completion_chunks(body: dict[str, object]) -> list[dict[str, object]]:
         WORKFLOW_PROMPT,
         FS_SEARCH_PROMPT,
         MCP_PROMPT,
+        RESTART_FIRST_PROMPT,
+        RESTART_SECOND_PROMPT,
     }
     prompt = next(
         (candidate for candidate in user_prompts if candidate in scenario_prompts),
@@ -364,6 +385,16 @@ def completion_chunks(body: dict[str, object]) -> list[dict[str, object]]:
                 "code": {"host": SNAPSHOT_PLUGIN_CODE},
             },
         )
+    if prompt == RESTART_FIRST_PROMPT:
+        return text_chunks(RESTART_FIRST_TEXT)
+    if prompt == RESTART_SECOND_PROMPT:
+        if any(
+            isinstance(message, dict)
+            and RESTART_FIRST_TEXT in message_text(message.get("content"))
+            for message in messages
+        ):
+            raise AssertionError("second isolated process inherited the first process history")
+        return text_chunks(RESTART_SECOND_TEXT)
     if prompt == CODE_PROMPT:
         assert_advertised_tool(body, "run_code")
         return tool_call_chunks(
@@ -679,18 +710,34 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--scenario",
-        choices=("all", "sdk-default", "sdk-custom", "sdk-minimal", "sdk-fs-search", "sdk-mcp", "sdk-snapshot", "direct"),
+        choices=("all", "sdk-default", "sdk-custom", "sdk-minimal", "sdk-fs-search", "sdk-mcp", "sdk-snapshot", "sdk-restart", "sdk-live", "direct"),
         default="all",
     )
     parser.add_argument("--exe", type=Path)
+    parser.add_argument(
+        "--installed-wheel",
+        action="store_true",
+        help="require a clean virtual environment containing matching installed SDK and runtime wheels",
+    )
     parser.add_argument("--update-snapshots", action="store_true")
     args = parser.parse_args()
-    if args.scenario in {"all", "sdk-custom", "sdk-minimal", "sdk-fs-search", "sdk-snapshot", "direct"} and args.exe is None:
+    if args.installed_wheel and args.exe is not None:
+        parser.error("--installed-wheel resolves the wheel's own runtime and cannot be combined with --exe")
+    if args.scenario == "sdk-live" and not args.installed_wheel:
+        parser.error("--scenario sdk-live requires --installed-wheel")
+    if args.installed_wheel:
+        args.exe = assert_installed_wheel_environment()
+    if args.scenario in {"all", "sdk-custom", "sdk-minimal", "sdk-fs-search", "sdk-snapshot", "sdk-restart", "direct"} and args.exe is None:
         parser.error("--exe is required for custom, minimal, snapshot, and direct scenarios")
-    if args.update_snapshots and args.scenario not in {"all", "sdk-minimal", "sdk-snapshot"}:
-        parser.error("--update-snapshots requires --scenario sdk-minimal, sdk-snapshot, or all")
+    if args.update_snapshots and args.scenario not in {"all", "sdk-minimal", "sdk-snapshot", "sdk-restart"}:
+        parser.error("--update-snapshots requires --scenario sdk-minimal, sdk-snapshot, sdk-restart, or all")
     if args.exe is not None and not args.exe.is_file():
         parser.error(f"runtime executable does not exist: {args.exe}")
+
+    if args.scenario == "sdk-live":
+        smoke_sdk_live()
+        print("smoke-python-runtime: sdk-live passed")
+        return
 
     with MockModel() as model:
         if args.scenario in {"all", "sdk-default"}:
@@ -709,12 +756,153 @@ def main() -> None:
         if args.scenario in {"all", "sdk-snapshot"}:
             assert args.exe is not None
             smoke_sdk_snapshot(model.url, args.exe.resolve(), args.update_snapshots)
+        if args.scenario in {"all", "sdk-restart"}:
+            assert args.exe is not None
+            smoke_sdk_restart_snapshot(model.url, args.exe.resolve(), args.update_snapshots)
         if args.scenario in {"all", "direct"}:
             assert args.exe is not None
             smoke_direct(model.url, args.exe.resolve())
         if not MockModelHandler.requests:
             raise AssertionError("mock model endpoint received no requests")
     print(f"smoke-python-runtime: {args.scenario} passed")
+
+
+def assert_installed_wheel_environment() -> Path:
+    """Prove that this process imports matching non-editable wheel installations."""
+    if sys.prefix == sys.base_prefix:
+        raise AssertionError("installed-wheel smoke must run inside a virtual environment")
+    if os.environ.get("PYTHONPATH"):
+        raise AssertionError("installed-wheel smoke requires PYTHONPATH to be unset")
+    if os.environ.get("DSH_RUNTIME_MODE"):
+        raise AssertionError("installed-wheel smoke requires DSH_RUNTIME_MODE to be unset")
+
+    repo_root = Path(__file__).resolve().parent.parent
+    cwd = Path.cwd().resolve()
+    if cwd.is_relative_to(repo_root):
+        raise AssertionError(f"installed-wheel smoke must run outside the repository, got {cwd}")
+
+    sdk_version = importlib.metadata.version("deepseek-harness-sdk")
+    runtime_version = importlib.metadata.version("deepseek-harness-runtime-bin")
+    if sdk_version != runtime_version:
+        raise AssertionError(
+            f"installed SDK/runtime versions differ: {sdk_version} != {runtime_version}"
+        )
+    expected_runtime_requirement = f"deepseek-harness-runtime-bin=={sdk_version}"
+    requirements = importlib.metadata.requires("deepseek-harness-sdk") or []
+    if expected_runtime_requirement not in requirements:
+        raise AssertionError(
+            f"installed SDK does not require {expected_runtime_requirement}: {requirements}"
+        )
+
+    prefix = Path(sys.prefix).resolve()
+    imported: dict[str, Path] = {}
+    for name in ("deepseek_harness", "deepseek_harness_runtime"):
+        module = importlib.import_module(name)
+        module_file = getattr(module, "__file__", None)
+        if not isinstance(module_file, str):
+            raise AssertionError(f"installed module {name} has no filesystem location")
+        path = Path(module_file).resolve()
+        if not path.is_relative_to(prefix):
+            raise AssertionError(f"installed module {name} came from outside the virtual environment: {path}")
+        if path.is_relative_to(repo_root):
+            raise AssertionError(f"installed module {name} came from the repository checkout: {path}")
+        imported[name] = path
+
+    runtime_module = sys.modules["deepseek_harness_runtime"]
+    executable = runtime_module.bundled_runtime_path().resolve()
+    runtime_package = imported["deepseek_harness_runtime"].parent
+    if not executable.is_relative_to(runtime_package):
+        raise AssertionError(f"bundled runtime came from outside the installed runtime wheel: {executable}")
+    runtime_files = importlib.metadata.files("deepseek-harness-runtime-bin") or []
+    if not any(Path(file).name == executable.name for file in runtime_files):
+        raise AssertionError(f"runtime executable is absent from installed distribution records: {executable}")
+    return executable
+
+
+def smoke_sdk_live() -> None:
+    """Run a real-model, tool-using two-turn task through installed wheels."""
+    from deepseek_harness import DeepSeekHarness
+
+    api_key = os.environ.get("DEEPSEEK_API_KEY")
+    base_url = os.environ.get("DEEPSEEK_BASE_URL")
+    if not api_key:
+        raise AssertionError("sdk-live requires DEEPSEEK_API_KEY")
+    if not base_url:
+        raise AssertionError("sdk-live requires an explicit DEEPSEEK_BASE_URL")
+
+    with tempfile.TemporaryDirectory(prefix="dsh-sdk-live-") as temporary:
+        root = Path(temporary).resolve()
+        sessions = root / "sessions"
+        marker = root / "live-api-marker.txt"
+        session_id = "installed-wheel-live-api"
+        create_prompt = (
+            "Use the bash tool to create the file at the absolute path below with exactly one line "
+            f"containing {LIVE_API_SENTINEL}. Then reply with exactly {LIVE_API_SENTINEL}.\n{marker}"
+        )
+        verify_prompt = (
+            "Use a tool to read the file created in the previous turn. "
+            f"If its only line is {LIVE_API_SENTINEL}, reply with exactly {LIVE_API_SENTINEL}."
+        )
+        with DeepSeekHarness(
+            provider="deepseek-official",
+            model="deepseek-v4-flash",
+            cwd=str(root),
+            session_root=str(sessions),
+            api_key=api_key,
+            base_url=base_url,
+            request_timeout_seconds=180,
+        ) as harness:
+            created = harness.run(create_prompt, session_id=session_id)
+            verified = harness.run(verify_prompt, session_id=session_id)
+
+        for label, result in (("create", created), ("verify", verified)):
+            if result.finish_reason != "completed":
+                event_types = [event.get("type") for event in result.events]
+                turn_end_data = next(
+                    (event.get("data") for event in reversed(result.events) if event.get("type") == "turn/end"),
+                    None,
+                )
+                turn_end = safe_turn_end(turn_end_data)
+                raise AssertionError(
+                    f"{label} turn ended with {result.finish_reason!r}; "
+                    f"final={result.final_response!r}; turn_end={turn_end!r}; events={event_types}"
+                )
+            if not any(event.get("type") == "tool/call" for event in result.events):
+                raise AssertionError(
+                    f"{label} turn made no model-requested tool call; "
+                    f"final={result.final_response!r}"
+                )
+            if result.final_response.strip() != LIVE_API_SENTINEL:
+                raise AssertionError(f"{label} turn returned {result.final_response!r}")
+        if not marker.is_file():
+            raise AssertionError(f"real-model tool turn did not create {marker}")
+        if marker.read_bytes() != f"{LIVE_API_SENTINEL}\n".encode():
+            raise AssertionError(f"real-model tool turn wrote unexpected bytes to {marker}")
+        assert_zstd_session_log(sessions)
+
+
+def safe_turn_end(value: object) -> object:
+    """Project a live-provider failure without retaining credential-bearing text."""
+    if not isinstance(value, dict):
+        return value
+    reason = value.get("reason")
+    if not isinstance(reason, dict):
+        return {"turn": value.get("turn"), "reason": reason}
+    error = reason.get("error")
+    safe_error = None
+    if isinstance(error, dict):
+        safe_error = {
+            key: error.get(key)
+            for key in ("code", "status")
+            if error.get(key) is not None
+        }
+    return {
+        "turn": value.get("turn"),
+        "reason": {
+            "kind": reason.get("kind"),
+            **({"error": safe_error} if safe_error is not None else {}),
+        },
+    }
 
 
 def smoke_sdk_default(base_url: str) -> None:
@@ -906,6 +1094,61 @@ def smoke_sdk_snapshot(base_url: str, executable: Path, update_snapshots: bool) 
         files = build_snapshot_files(result, logs, child_ids, root)
         compare_snapshot_files(
             files, update_snapshots, ADVANCED_SNAPSHOT_DIRECTORY, ADVANCED_SNAPSHOT_FILENAMES,
+        )
+
+
+def smoke_sdk_restart_snapshot(base_url: str, executable: Path, update_snapshots: bool) -> None:
+    """Snapshot two isolated sessions across complete SDK runtime restarts."""
+    from deepseek_harness import DeepSeekHarness
+
+    with tempfile.TemporaryDirectory(prefix="dsh-sdk-restart-") as temporary:
+        root = Path(temporary).resolve()
+        sessions = root / "sessions"
+        cordis = root / "cordis.yml"
+        cordis.write_text(CUSTOM_CORDIS)
+        first_request = len(MockModelHandler.requests)
+
+        def run(prompt: str, session_id: str) -> "RunResult":
+            with DeepSeekHarness(
+                provider="deepseek-official",
+                model="smoke-model",
+                cwd=str(root),
+                session_root=str(sessions),
+                cordis=str(cordis),
+                runtime_bin=str(executable),
+                api_key="sk-keyless-smoke",
+                base_url=base_url,
+                request_timeout_seconds=60,
+            ) as harness:
+                return harness.run(prompt, session_id=session_id)
+
+        first = run(RESTART_FIRST_PROMPT, RESTART_FIRST_SESSION_ID)
+        second = run(RESTART_SECOND_PROMPT, RESTART_SECOND_SESSION_ID)
+        requests = MockModelHandler.requests[first_request:]
+        if len(requests) != 2:
+            raise AssertionError(f"restart snapshot expected two model requests: {requests}")
+        if first.final_response != RESTART_FIRST_TEXT or second.final_response != RESTART_SECOND_TEXT:
+            raise AssertionError(
+                f"restart snapshot responses differ: {first.final_response!r}, {second.final_response!r}"
+            )
+
+        logs = read_session_logs(sessions)
+        expected_ids = {RESTART_FIRST_SESSION_ID, RESTART_SECOND_SESSION_ID}
+        if set(logs) != expected_ids:
+            raise AssertionError(f"restart snapshot expected two durable sessions: {sorted(logs)}")
+        for session_id, expected in (
+            (RESTART_FIRST_SESSION_ID, RESTART_FIRST_TEXT),
+            (RESTART_SECOND_SESSION_ID, RESTART_SECOND_TEXT),
+        ):
+            records = logs[session_id]
+            if sum(record.get("type") == "turn/end" for record in records) != 1:
+                raise AssertionError(f"restart snapshot {session_id} has an unexpected turn count")
+            if expected not in render_jsonl(records):
+                raise AssertionError(f"restart snapshot durable log has no {expected}")
+
+        files = build_restart_snapshot_files(first, second, requests, logs, root, sessions)
+        compare_snapshot_files(
+            files, update_snapshots, RESTART_SNAPSHOT_DIRECTORY, RESTART_SNAPSHOT_FILENAMES,
         )
 
 
@@ -1194,6 +1437,69 @@ def build_snapshot_files(
             ])
         )
     return files
+
+
+def build_restart_snapshot_files(
+    first: "RunResult",
+    second: "RunResult",
+    requests: list[dict[str, object]],
+    logs: dict[str, list[dict[str, object]]],
+    cwd: Path,
+    sessions: Path,
+) -> dict[str, str]:
+    """Render two SDK processes, isolated model histories, and durable logs."""
+    replacements = [
+        (str(sessions), "{{sessions}}"),
+        (str(cwd), "{{cwd}}"),
+        (RESTART_FIRST_SESSION_ID, "{{session-1}}"),
+        (RESTART_SECOND_SESSION_ID, "{{session-2}}"),
+    ]
+    result_value = [
+        {
+            "session_id": result.session_id,
+            "final_response": result.final_response,
+            "finish_reason": result.finish_reason,
+            "eventTypes": [event.get("type") for event in result.events],
+            "notificationMethods": [notification.method for notification in result.notifications],
+            "session_root": result.session_root,
+        }
+        for result in (first, second)
+    ]
+    request_value = [
+        {
+            "model": request.get("model"),
+            "messages": restart_request_messages(request),
+            "toolNames": sorted(advertised_tool_names(request)),
+        }
+        for request in requests
+    ]
+    return {
+        "result.json": json.dumps(
+            normalize_snapshot_value(result_value, replacements), indent=2, ensure_ascii=False,
+        ) + "\n",
+        "requests.json": json.dumps(
+            normalize_snapshot_value(request_value, replacements), indent=2, ensure_ascii=False,
+        ) + "\n",
+        "session.1.jsonl": render_jsonl(project_session_snapshot([
+            normalize_snapshot_value(record, replacements) for record in logs[RESTART_FIRST_SESSION_ID]
+        ])),
+        "session.2.jsonl": render_jsonl(project_session_snapshot([
+            normalize_snapshot_value(record, replacements) for record in logs[RESTART_SECOND_SESSION_ID]
+        ])),
+    }
+
+
+def restart_request_messages(request: dict[str, object]) -> list[object]:
+    """Project model history while tokenizing composition-owned system prose."""
+    messages = request.get("messages")
+    if not isinstance(messages, list):
+        raise AssertionError(f"restart snapshot request has no messages: {request}")
+    return [
+        {"role": "system", "content": "{{system}}"}
+        if isinstance(message, dict) and message.get("role") == "system"
+        else message
+        for message in messages
+    ]
 
 
 def snapshot_workflow_run_id(result: "RunResult") -> str:

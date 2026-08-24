@@ -44,7 +44,7 @@ class MockCompletionHandler(BaseHTTPRequestHandler):
 
 def run_smoke(repo_root: Path, keep_sessions: bool) -> None:
     session_root = Path(tempfile.mkdtemp(prefix="dsh-sdk-smoke-sessions-"))
-    runtime_entry = repo_root / "packages/examples/jsonrpc-demo/src/bin.ts"
+    runtime_entry = repo_root / "packages/sdk/python-runtime/src/packaged-bin.ts"
     server = ThreadingHTTPServer(("127.0.0.1", 0), MockCompletionHandler)
     thread = threading.Thread(target=server.serve_forever, name="mock-openai-compatible-server", daemon=True)
     thread.start()

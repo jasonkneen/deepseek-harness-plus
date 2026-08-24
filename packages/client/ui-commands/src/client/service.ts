@@ -13,7 +13,9 @@ import type { Context } from '@deepseek-ai/cordis'
 // (`commands/change` rides the allowlist) into this program.
 import type {} from '@deepseek-ai/dsh-api-remotes/client'
 import type { CommandResult } from '@deepseek-ai/dsh-commands/types'
-import type { ClientContext, ISessions, SessionId } from '@deepseek-ai/dsh-client-runtime/client'
+import type { Context as ClientContext } from '@deepseek-ai/cordis'
+import type { ISessions } from '@deepseek-ai/dsh-api-session-controller/client'
+import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { TranslateNS } from '@deepseek-ai/dsh-client-locale/client'
 import type {
   CandidateRequest, ClientSessionContext, CommandClaim, PickOutcome, InputTriggerCandidate, InputTriggerPick,

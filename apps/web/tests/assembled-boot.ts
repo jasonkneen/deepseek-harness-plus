@@ -22,6 +22,11 @@ interface AssembledPlugin extends WebBootEntry {
   bundlePath: string
 }
 
+interface AssembledBootOptions {
+  /** Package ids omitted from this mounted composition. */
+  readonly exclude?: readonly string[]
+}
+
 interface ClientPackageManifest {
   name?: string
   exports?: Record<string, string | { default?: string }>
@@ -187,24 +192,25 @@ export function installAssembledBootEnv(): void {
  * Mount the assembled application on the fixture transport; the teardown
  * registered by installAssembledBootEnv disposes it.
  * @param search - fixture query string used to select deterministic host behavior.
+ * @param options - composition changes applied to this mount.
  */
-export function mountAssembledApp(search = '?fixture'): void {
+export function mountAssembledApp(search = '?fixture', options: AssembledBootOptions = {}): void {
+  const excluded = new Set(options.exclude)
+  const plugins = PLUGINS.filter(plugin => !excluded.has(plugin.id))
   history.replaceState(null, '', `/${search}`)
   const root = document.createElement('div')
   root.id = 'root'
   document.body.appendChild(root)
-  win.__DSH_BOOT__ = { rev: 'fx', entries: PLUGINS.map(({ bundlePath: _bundlePath, ...plugin }) => plugin) }
+  win.__DSH_BOOT__ = { rev: 'fx', entries: plugins.map(({ bundlePath: _bundlePath, ...plugin }) => plugin) }
   const [facadeRow] = bootInjections(win.__DSH_BOOT__)
   if (facadeRow?.kind !== 'script') throw new Error('missing injected ModuleLoader facade row')
   ;(0, eval)(facadeRow.text)
-  // Mirror the blocking Host-injected scripts before the Vite entry calls create().
-  for (const id of ['@deepseek-ai/dsh-client-modules', '@deepseek-ai/dsh-client-runtime']) {
-    const plugin = PLUGINS.find(candidate => candidate.id === id)
-    if (plugin === undefined) throw new Error(`missing parser-preloaded fixture row ${id}`)
-    const code = bundles.get(plugin.url)
-    if (code === undefined) throw new Error(`missing built bundle ${plugin.url}`)
-    ;(0, eval)(code)
-  }
+  // Mirror the blocking Host-injected modules script before the Vite entry calls create().
+  const modules = plugins.find(candidate => candidate.id === '@deepseek-ai/dsh-client-modules')
+  if (modules === undefined) throw new Error('missing parser-preloaded fixture row @deepseek-ai/dsh-client-modules')
+  const modulesCode = bundles.get(modules.url)
+  if (modulesCode === undefined) throw new Error(`missing built bundle ${modules.url}`)
+  ;(0, eval)(modulesCode)
   act(() => {
     const entry = new AppWebEntry(root, {
       loadBundle: async (url) => {

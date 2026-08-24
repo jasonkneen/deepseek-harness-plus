@@ -10,7 +10,7 @@
  */
 
 import type { IApiClient, SettingsNamespaceView } from '@deepseek-ai/dsh-api-remotes/client'
-import { createSnapshotStore, type SnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
+import { createSnapshotStore, type SnapshotStore } from '@deepseek-ai/dsh-client-store'
 
 type SettingsFace = Pick<IApiClient, 'settings'>
 

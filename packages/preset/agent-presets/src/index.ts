@@ -160,9 +160,9 @@ export class AgentPresets extends Service {
     // Note](../../../../.agents/notes/implemented/architecture/2026-08-10-host-plane-ownership-after-presets.md).
     //
     // Known false positive: a session created bare and bound later by
-    // `recompose` is warned about once, before its first bind. No shipped flow
-    // does that today — the Web surface mounts in `setup` and children join
-    // through `composeFrom` before publication.
+    // `recompose` is warned about once, before its first bind. Shipped Web
+    // sessions mount in `setup`, and children join through `composeFrom`
+    // before publication.
     ctx.on('agent/created', ({ agent }) => {
       if (this.resolvedRoots.length === 0) return
       if (this.composedPreset(agent.ctx) !== undefined) return

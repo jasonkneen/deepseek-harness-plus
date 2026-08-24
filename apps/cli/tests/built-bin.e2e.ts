@@ -1,7 +1,16 @@
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { createInterface } from 'node:readline'
+import { Readable, Writable } from 'node:stream'
 import { fileURLToPath, pathToFileURL } from 'node:url'
+import {
+  client as createAcpClientApp,
+  methods,
+  ndJsonStream,
+  PROTOCOL_VERSION,
+  type SessionNotification,
+} from '@agentclientprotocol/sdk'
 import { startMockLlmServer } from '@deepseek-ai/dsh-llm-mock-server'
 import { execa } from 'execa'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -356,6 +365,22 @@ describe.skipIf(!existsSync(dshBin))('dsh BUILT bin (node lib/bin.js, no tsx)', 
       expect(headlessHelp.stderr).toBe('')
       expect(headlessHelp.stdout).toContain('Usage: dsh --profile headless')
 
+      const sdkHelp = await runBuiltBin(['--profile', 'sdk', '--help'], {
+        DSH_HOME: home,
+        DSH_TELEMETRY_DISABLED: '1',
+      })
+      expect(sdkHelp.code).toBe(0)
+      expect(sdkHelp.stderr).toBe('')
+      expect(sdkHelp.stdout).toContain('Usage: dsh --profile sdk')
+
+      const acpHelp = await runBuiltBin(['--profile', 'acp', '--help'], {
+        DSH_HOME: home,
+        DSH_TELEMETRY_DISABLED: '1',
+      })
+      expect(acpHelp.code).toBe(0)
+      expect(acpHelp.stderr).toBe('')
+      expect(acpHelp.stdout).toContain('Usage: dsh --profile acp')
+
       const missingTask = await runBuiltBin(['--profile', 'headless'], {
         DSH_HOME: home,
         DSH_TELEMETRY_DISABLED: '1',
@@ -363,6 +388,169 @@ describe.skipIf(!existsSync(dshBin))('dsh BUILT bin (node lib/bin.js, no tsx)', 
       expect(missingTask.code).toBe(1)
       expect(missingTask.stderr).toContain('a task is required')
     } finally {
+      rmSync(home, { recursive: true, force: true })
+    }
+  }, 30_000)
+
+  it('reports SDK startup failure when stdin reaches EOF first', async () => {
+    const home = mkdtempSync(join(tmpdir(), 'dsh-built-sdk-startup-failure-'))
+    const patch = join(home, 'broken-sdk.cordis.yml')
+    writeFileSync(patch, [
+      '- insert:',
+      '    - id: missing-sdk-startup-plugin',
+      '      name: "@deepseek-ai/dsh-missing-sdk-startup-plugin"',
+      '',
+    ].join('\n'))
+    try {
+      const result = await runBuiltBin(['--profile', 'sdk', '--patch', patch], {
+        DSH_HOME: home,
+        DSH_TELEMETRY_DISABLED: '1',
+        DEEPSEEK_API_KEY: 'built-sdk-startup-failure-no-call',
+      }, home)
+      expect(result.code).toBe(1)
+      expect(result.stdout).toBe('')
+      expect(result.stderr).toContain('plugin tree failed to load')
+      expect(result.stderr).toContain('@deepseek-ai/dsh-missing-sdk-startup-plugin')
+    } finally {
+      rmSync(home, { recursive: true, force: true })
+    }
+  }, 30_000)
+
+  it('serves the SDK protocol through the sdk profile and exits after shutdown', async () => {
+    const home = mkdtempSync(join(tmpdir(), 'dsh-built-sdk-'))
+    const child = execa(process.execPath, [dshBin, '--profile', 'sdk'], {
+      cwd: home,
+      reject: false,
+      timeout: 25_000,
+      killSignal: 'SIGKILL',
+      env: {
+        ...process.env,
+        DSH_HOME: home,
+        DSH_TELEMETRY_DISABLED: '1',
+        DEEPSEEK_API_KEY: 'built-sdk-profile-no-call',
+      },
+      extendEnv: false,
+    })
+    const stdoutLines = createInterface({ input: child.stdout, crlfDelay: Infinity })[Symbol.asyncIterator]()
+    let stderr = ''
+    child.stderr.on('data', (chunk: Buffer) => { stderr += chunk.toString('utf8') })
+    const response = async (id: number): Promise<Record<string, unknown>> => {
+      for (;;) {
+        const line = await stdoutLines.next()
+        if (line.done) throw new Error(`SDK profile stdout closed before response ${String(id)}; stderr=${stderr}`)
+        let value: Record<string, unknown>
+        try {
+          value = JSON.parse(line.value) as Record<string, unknown>
+        } catch {
+          throw new Error(`SDK profile wrote non-JSON stdout: ${line.value}`)
+        }
+        if (value.id === id) return value
+      }
+    }
+    try {
+      child.stdin.write(`${JSON.stringify({
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'initialize',
+        params: { cwd: home, provider: 'deepseek-official', model: 'deepseek-v4-flash' },
+      })}\n`)
+      expect(await response(1)).toMatchObject({
+        jsonrpc: '2.0',
+        id: 1,
+        result: { serverInfo: { name: 'deepseek-harness-sdk-runtime' } },
+      })
+      child.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'shutdown' })}\n`)
+      expect(await response(2)).toEqual({ jsonrpc: '2.0', id: 2, result: {} })
+      const result = await child
+      expect(result.exitCode, `signal=${String(result.signal)}; stderr=${stderr}`).toBe(0)
+      expect(stderr).toBe('')
+    } finally {
+      child.kill('SIGKILL')
+      await child
+      rmSync(home, { recursive: true, force: true })
+    }
+  }, 30_000)
+
+  it('runs a mock-backed ACP turn through the acp profile and exits on disconnect', async () => {
+    const apiKey = 'built-acp-profile-key'
+    const server = await startMockLlmServer({
+      sequence: ['success'],
+      apiKey,
+      successText: 'ACP BUILT PROFILE OK',
+    })
+    const home = mkdtempSync(join(tmpdir(), 'dsh-built-acp-'))
+    const child = execa(process.execPath, [dshBin, '--profile', 'acp'], {
+      cwd: home,
+      reject: false,
+      timeout: 25_000,
+      killSignal: 'SIGKILL',
+      env: {
+        ...process.env,
+        DSH_HOME: home,
+        DSH_TELEMETRY_DISABLED: '1',
+        DEEPSEEK_API_KEY: apiKey,
+        DEEPSEEK_BASE_URL: server.baseURL,
+        DSH_PERMISSION_MODE: 'danger-full-access',
+      },
+      extendEnv: false,
+    })
+    const rawOut: string[] = []
+    const passthrough = new Readable({ read() {} })
+    child.stdout.on('data', (chunk: Buffer) => {
+      rawOut.push(chunk.toString('utf8'))
+      passthrough.push(chunk)
+    })
+    child.stdout.on('end', () => { passthrough.push(null) })
+    const stream = ndJsonStream(
+      Writable.toWeb(child.stdin) as WritableStream<Uint8Array>,
+      Readable.toWeb(passthrough) as ReadableStream<Uint8Array>,
+    )
+    const updates: SessionNotification['update'][] = []
+    const clientApp = createAcpClientApp({ name: 'dsh-built-acp-profile' })
+      .onNotification(methods.client.session.update, ({ params }) => {
+        updates.push(params.update)
+        return Promise.resolve()
+      })
+      .onRequest(methods.client.session.requestPermission, () => {
+        return Promise.resolve({ outcome: { outcome: 'cancelled' } })
+      })
+    const client = clientApp.connect(stream).agent
+    try {
+      const initialized = await client.request(methods.agent.initialize, {
+        protocolVersion: PROTOCOL_VERSION,
+        clientCapabilities: {},
+      })
+      expect(initialized.agentInfo).toMatchObject({ name: 'deepseek-harness-acp' })
+      expect(initialized.agentCapabilities).toEqual({
+        mcpCapabilities: { http: true },
+        promptCapabilities: { image: false, audio: false, embeddedContext: false },
+        sessionCapabilities: { close: {}, list: {}, resume: {} },
+      })
+      expect('_meta' in initialized).toBe(false)
+      const session = await client.request(methods.agent.session.new, { cwd: home, mcpServers: [] })
+      expect(session.sessionId).toBeTruthy()
+      expect(await client.request(methods.agent.session.prompt, {
+        sessionId: session.sessionId,
+        prompt: [{ type: 'text', text: 'reply from the built ACP profile' }],
+      })).toEqual({ stopReason: 'end_turn' })
+      expect(updates).toContainEqual(expect.objectContaining({
+        sessionUpdate: 'agent_message_chunk',
+        content: { type: 'text', text: 'ACP BUILT PROFILE OK' },
+      }))
+      const message = updates.find(update => update.sessionUpdate === 'agent_message_chunk')
+      expect(message !== undefined && 'messageId' in message && typeof message.messageId === 'string').toBe(true)
+      expect(server.requests).toHaveLength(1)
+      child.stdin.end()
+      const result = await child
+      expect(result.exitCode, `signal=${String(result.signal)}; stderr=${result.stderr}`).toBe(0)
+      expect(result.stderr).toBe('')
+      for (const line of rawOut.join('').split('\n').filter(value => value.trim() !== '')) {
+        expect(() => JSON.parse(line) as unknown).not.toThrow()
+      }
+    } finally {
+      child.kill('SIGKILL')
+      await child
+      await server.close()
       rmSync(home, { recursive: true, force: true })
     }
   }, 30_000)

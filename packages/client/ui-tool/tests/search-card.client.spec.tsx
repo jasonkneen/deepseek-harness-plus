@@ -1,39 +1,34 @@
 // @vitest-environment jsdom
-// The search render intent on the web side: the pure searchCardModel derivation
-// over resultView, and the conversation render sites that consume it — the chat
-// tool row (GenericToolCard's fallback body and SearchRow, both composing the
-// shared ToolRow with the search card collapsed by default) and the details
-// panel's Output section (resident, full height). The keyed registration under
-// both grep and glob is pinned here too.
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render } from '@testing-library/react'
-import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-test-runtime'
 import {
-  createSnapshotStore, EMPTY_CONVERSATION_VIEWS,
-} from '@deepseek-ai/dsh-client-runtime/client'
+  bindSnapshotSelector, conversationSnapshot, sessionSnapshot, workspaceSnapshot,
+} from '@deepseek-ai/dsh-client-test-runtime'
+import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
 import type {
-  ConversationSnapshot, RunningToolCall, SessionId, SessionListState, ToolResultNode, WorkspaceListState,
-} from '@deepseek-ai/dsh-client-runtime/client'
+  ChatSnapshot, ConversationNode, RunningToolCall, SelectionTarget, ToolResultNode,
+} from '@deepseek-ai/dsh-client-ui-chat/client'
+import type { SessionListState } from '@deepseek-ai/dsh-api-session-controller/client'
+import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { ToolResultView } from '@deepseek-ai/dsh-api-remotes/client'
-import type { SelectionTarget } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
 import { zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/zh.ts'
 import { CHAT_SEARCH_MAX_LINES, searchCardModel } from '../src/client/tool/models/search-card-model.ts'
 import { zh } from '@deepseek-ai/dsh-client-ui-conversation/src/client/locales.ts'
-import { createChatStore } from '@deepseek-ai/dsh-client-ui-conversation/src/client/stores.ts'
+import { zh as chatZh } from '@deepseek-ai/dsh-client-ui-chat/src/client/locale.ts'
+import { createChatStore } from '@deepseek-ai/dsh-client-ui-chat/src/client/stores.ts'
 import { GenericToolCard, type GenericToolCardProps } from '../src/client/tool/toolviews/GenericToolCard.tsx'
-import { DetailsPanel } from '@deepseek-ai/dsh-client-ui-conversation/src/client/skeleton/DetailsPanel.tsx'
+import { DetailsPanel } from '@deepseek-ai/dsh-client-ui-chat/src/client/details/DetailsPanel.tsx'
 import { SearchRow, searchToolview } from '../src/client/tool/toolviews/search-row.tsx'
-import { renderToolDetails, SessionProviderStub, toolChatSnapshot } from './tool-details-render.client.tsx'
+import { renderToolDetails, toolChatSnapshot, useEmptyTrajectory } from './tool-details-render.client.tsx'
 
-/** SearchRow now composes ToolRow, so its props include the locale `t` seat. */
 type SearchRowProps = Parameters<typeof SearchRow>[0]
 
 afterEach(cleanup)
 
-/** Conversation-locale translate stub for the render sites' `t` seat. */
 const t: GenericToolCardProps['t'] = makeTranslate(zh, commonZh)
+const chatT = makeTranslate(chatZh, commonZh)
 
 /** The rendered search card's kind attribute, so a render site cannot silently drop it. */
 function searchKindOf(container: HTMLElement): string | null {
@@ -377,7 +372,7 @@ describe('SearchRow keyed card', () => {
 })
 
 describe('DetailsPanel Output section (search)', () => {
-  function mount(snapshot: ConversationSnapshot, selection: SelectionTarget | null) {
+  function mount(snapshot: ChatSnapshot, selection: SelectionTarget | null) {
     localStorage.clear()
     const chat = createChatStore().create()
     if (selection !== null) chat.actions.select(selection)
@@ -385,18 +380,22 @@ describe('DetailsPanel Output section (search)', () => {
       ids: [], byId: {}, current: undefined, phase: 'ready',
       subagentsByParent: {}, jobsBySession: {}, currentAddress: undefined,
     })
-    const workspaces = createSnapshotStore<WorkspaceListState>({
-      items: [], archivedSessionIds: [], state: 'idle', phase: 'ready', error: null,
-      baselinesReady: true, recentWorkspaceId: undefined,
-    })
+    const session = createSnapshotStore(sessionSnapshot(SID))
+    const conversation = createSnapshotStore(conversationSnapshot())
+    const workspaces = createSnapshotStore(workspaceSnapshot())
+    const attention = createSnapshotStore(new Map())
     return render(
       <DetailsPanel
-        SessionProvider={SessionProviderStub}
         renderSlot={renderToolDetails(t)}
+        SessionProvider={({ children }) => children}
         sessionId={SID}
-        useSession={bindSnapshotSelector({ getSnapshot: () => snapshot, subscribe: () => () => {} })}
+        useSession={bindSnapshotSelector(session)}
         useSessions={bindSnapshotSelector(sessions)}
+        useSessionPendingInteraction={bindSnapshotSelector(attention)}
         useWorkspaces={bindSnapshotSelector(workspaces)}
+        useConversation={bindSnapshotSelector(conversation)}
+        useChat={bindSnapshotSelector({ getSnapshot: () => snapshot, subscribe: () => () => {} })}
+        useTrajectory={useEmptyTrajectory}
         useInput={(() => { throw new Error('unused') })}
         inputActions={{
           setDraft: () => {},
@@ -409,22 +408,18 @@ describe('DetailsPanel Output section (search)', () => {
         useStore={bindSnapshotSelector(chat)}
         actions={chat.actions}
         closeDetails={vi.fn()}
-        t={t}
+        t={chatT}
       />,
     )
   }
 
-  function snapshot(over: Partial<ConversationSnapshot> = {}): ConversationSnapshot {
+  function snapshot(over: {
+    nodes?: readonly ConversationNode[]
+    runningCalls?: readonly RunningToolCall[]
+  } = {}): ChatSnapshot {
     const nodes = over.nodes ?? []
     const runningCalls = over.runningCalls ?? []
-    return {
-      sessionId: SID, views: EMPTY_CONVERSATION_VIEWS,
-      chat: over.chat ?? toolChatSnapshot(nodes, runningCalls),
-      nodes: [], turnTimings: new Map(), turnEnds: new Map(), partial: null, runningCalls: [],
-      pending: [], queue: [], running: false, composerPhase: 'active', removed: false,
-      openState: 'open', openError: null, hasMore: false, loadingOlder: false,
-      promptError: null, blank: false, subagent: null, lastAgentError: null, ...over,
-    }
+    return toolChatSnapshot(nodes, runningCalls)
   }
 
   const grepTarget: SelectionTarget = { turnSeq: 10, callId: 'c1', toolName: 'grep' }

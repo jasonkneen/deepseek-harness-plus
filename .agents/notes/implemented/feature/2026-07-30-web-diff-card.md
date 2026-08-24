@@ -30,7 +30,7 @@ The chat row renders the diff resident under its path-link summary, capped at `C
 
 ## Alternatives considered
 
-**A side-by-side (two-column) diff.** Rejected for now by the owner: it is denser but does not fit the narrow chat row, and the goal was parity with the TUI's single-column unified form. A two-column mode in the details panel is a later props change, not a redesign.
+**A side-by-side (two-column) diff.** Rejected: it is denser but does not fit the narrow chat row, and the selected design matches the TUI's single-column unified form. A two-column details-panel mode remains separable from this card design.
 
 **Git-style line-number gutters.** The `FileDiff` contract carries only `{ path, oldText, newText }` — `structuredPatch`'s hunk start lines are dropped in `diff.ts`, so no line number reaches the client. Rendering a numbered gutter needs a backend contract change (carry `oldStart`/`newStart`) and a matching TUI upgrade to stay consistent; deferred so this change stays a pure Web consumer of the existing contract.
 
@@ -40,7 +40,7 @@ The chat row renders the diff resident under its path-link summary, capped at `C
 
 `DiffBlock` reads only the diff view's fields, so it stays a pure function of what the render intent carries — replay-safe like the presenters that produce the view. A UI without the diff capability still gets the bridge's generic fallback; nothing about the tool's result shape changed. No new runtime dependency: unlike the terminal card's `anser`, a diff needs no parser.
 
-The multi-file arm of `DiffBlock` (one card, several path headers) has no producer today: `write`/`edit` each mutate one file per call, so a real card shows one file with one or more hunks. The arm is built and tested for a future multi-file mutation tool, not for a current consumer.
+The multi-file arm of `DiffBlock` (one card, several path headers) has no shipped producer: `write`/`edit` each mutate one file per call, so a real card shows one file with one or more hunks. The arm is built and tested for a future multi-file mutation tool, not for a current consumer.
 
 ## Testing
 

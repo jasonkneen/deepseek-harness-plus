@@ -3,7 +3,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, render } from '@testing-library/react'
 import type { HostDescription } from '@deepseek-ai/dsh-client-connection/client'
-import type { ConversationSnapshot, ToolResultNode } from '@deepseek-ai/dsh-client-runtime/client'
+import type { SessionSnapshot } from '@deepseek-ai/dsh-api-session-controller/client'
+import type { ToolResultNode } from '@deepseek-ai/dsh-client-ui-chat/client'
 import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
 import { zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/zh.ts'
 import type { ToolTreeProps } from '../src/client/contract/slots.ts'
@@ -24,8 +25,8 @@ function props(
   selectedCallId?: string,
   description?: HostDescription,
 ): ToolTreeProps {
-  const snapshot = {} as ConversationSnapshot
-  const useSession = ((selector: (value: ConversationSnapshot) => unknown) => selector(snapshot)) as ToolTreeProps['useSession']
+  const snapshot = {} as SessionSnapshot
+  const useSession = ((selector: (value: SessionSnapshot) => unknown) => selector(snapshot)) as ToolTreeProps['useSession']
   const renderSlot = ((_key: string, _owner: object, options?: { fallback?: React.ReactNode }) =>
     options?.fallback ?? null) as unknown as ToolTreeProps['renderSlot']
   return {

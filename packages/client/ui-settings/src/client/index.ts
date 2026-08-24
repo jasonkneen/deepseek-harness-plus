@@ -11,8 +11,10 @@
  * ui-sidebar would close a reference cycle through ui-layout and ui-theme.
  * Export discipline: packages/client/AGENTS.md.
  */
-import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
+import type { Context } from '@deepseek-ai/cordis'
 import type { ConnectionHandle } from '@deepseek-ai/dsh-api-remotes/client'
+// Type-only service merge for the connection lifecycle event.
+import type {} from '@deepseek-ai/dsh-client-connection/client'
 // Type-only pair supplying `$on` and its key face without dragging a build
 // artifact into the Host graph (rationale beside the same pair in
 // settings-scope.ts).
@@ -27,6 +29,7 @@ export type {
   SettingsPluginsTabOwnerProps, SettingsSectionOwnerProps, SettingsTriggerOwnerProps,
 } from './contract/slots.ts'
 export type { SettingsScopeController, SettingsScopeBinder } from './settings-scope.ts'
+export type { SettingsScope, SettingsScopeSnapshot, SettingsScopeSpec } from './settings-contract.ts'
 export type { SettingsSchemaService } from './schema.ts'
 export type { SchemaNode } from './schema.ts'
 export type { SettingsDescribeFace, SettingsDescribeView, SettingsMirrorSnapshot } from './settings-mirror.ts'
@@ -46,7 +49,7 @@ export const inject = ['connection', 'remote']
  * bound to each consuming plugin's context.
  * @param ctx - client root context.
  */
-export function apply(ctx: ClientContext): void {
+export function apply(ctx: Context): void {
   const schema = new SettingsSchemaService(ctx)
   const connection = ctx.get('connection') as ConnectionHandle
   const mirror = new SettingsDescribeMirror(
@@ -55,7 +58,7 @@ export function apply(ctx: ClientContext): void {
   )
   ctx.effect(() => {
     const disposers = [
-      (ctx.get('remote') as ClientContext['remote']).$on('settings/document-updated', () => { void mirror.load() }),
+      ctx.remote.$on('settings/document-updated', () => { void mirror.load() }),
       ctx.on('connection/reset', () => { void mirror.load() }),
     ]
     // The first connection also emits connection/reset, so startup normally

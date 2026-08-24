@@ -1,10 +1,10 @@
 /**
  * TypeScript client SDK for the DeepSeek Harness runtime: spawn the
- * `dsh-jsonrpc-agent` runtime as a subprocess and drive agent turns over
- * stdio JSON-RPC. `DeepSeekHarness` is the high-level run API;
+ * same-version `dsh --profile sdk` runtime as a subprocess and drive agent
+ * turns over stdio JSON-RPC. `DeepSeekHarness` is the high-level run API;
  * `HarnessClient` is the lower-level protocol client. A pure library — it
- * registers nothing on a Cordis context; the runtime process it spawns is a
- * complete harness configured by its own `cordis.yml`.
+ * registers nothing on a Cordis context; named profiles and ordered patch
+ * files customize the runtime process it spawns.
  *
  * @module @deepseek-ai/dsh-sdk-client
  */

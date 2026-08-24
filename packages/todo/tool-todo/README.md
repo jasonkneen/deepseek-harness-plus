@@ -24,6 +24,8 @@ The flag moves the model-facing instruction and the accepted input together — 
 
 Beyond the schema's type/required/enum checks, `execute` rejects an empty or duplicate `content`, and any item key beyond `content`/`status` — an extended item shape (ids, nesting) fails loud instead of silently flattening, keeping the logged snapshot equal to what the model believes it wrote. How many tasks may be `in_progress` at once is the deployment's call (§ Configuration): a composition that chooses `true` permits parallel work (concurrent subagents, background commands) to mark several tasks simultaneously. Ordering and the discipline of keeping the list current are left to the model via the tool description.
 
+This package's invariant companion validates every durable `todo/write` payload and requires the event to occur inside an open turn. It validates existing and newly announced sessions once, then advances a committed per-session turn trace for live appends. Core session treats declaration-merged events generically; the producing package owns these todo-specific rules ([event ownership](../../../.agents/notes/implemented/architecture/2026-07-20-todo-event-ownership.md)).
+
 ## Rendering
 
 The canonical result is `{ todos, counts: { pending, inProgress, completed } }`; its Native renderer returns the compact update acknowledgement. The tool also writes the full `todo/write` session event. UIs subscribe to the event stream and render that durable list themselves: the [web client](../../client/ui-conversation) shows a plan strip plus a dedicated tool row off the standing plan — latest `todo/write` with no later `turn/start` ([display](../../../.agents/notes/implemented/feature/2026-07-23-web-todo-display.md), [lifetime](../../../.agents/notes/implemented/feature/2026-07-28-todo-plan-clears-on-next-turn.md)).
@@ -34,7 +36,7 @@ When the composition mounts `ctx.sessionProjections` ([`@deepseek-ai/dsh-session
 
 ## Export shape
 
-A function/namespace plugin: it exports `name` / `inject` / `apply` and NO default. A stray `export default` would collapse the module via the Loader's `unwrapExports` and drop `inject` (see [docs/postmortem/0001](../../../docs/postmortem/0001-acp-default-export-drops-inject.md)).
+A function/namespace plugin: it exports `name` / `inject` / `apply` and NO default. Its type-only outlet declares `TodoItem` and the `todo/write` `SessionEventMap` member; the root and `/client` entrypoints both export `TodoItem`. A stray `export default` would collapse the module via the Loader's `unwrapExports` and drop `inject` (see [docs/postmortem/0001](../../../docs/postmortem/0001-acp-default-export-drops-inject.md)).
 
 ## Model Experience
 

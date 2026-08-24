@@ -9,11 +9,11 @@ pnpm run demo:acp             # needs DEEPSEEK_API_KEY (repo-root .env or env)
 pnpm run demo:code-mode       # same protocol with the Code Mode tool transport
 ```
 
-The leaf loads the ACP app, DeepSeek adapter, sandboxed bash and filesystem stacks, one-shot approval policy, compaction, subagents, workflows, hooks, a derived session-query index, and repeat guard. The app creates one fresh agent per `session/new`, persists sessions to JSONL, and keeps stdout protocol-pure. Optional overlays add session queries, filesystem spill storage, Code Mode, or web fetching.
+The `dsh` launcher applies the shipped `acp` profile (`dsh-base` plus [`dsh-acp-app`](../../packages/bundle/acp-app/README.md)), then this leaf's `cordis.yml` patch. The profile supplies the ACP bridge, DeepSeek adapter, sandboxed shell and filesystem stacks, approval policy, compaction, subagents, workflows, a session-query index, and repeat guard; the leaf pins demo and snapshot values and adds hook bridges. The bridge creates one fresh agent per `session/new`, persists sessions to JSONL, and keeps stdout protocol-pure. Optional patch overlays add session-query tools, spill settings, Code Mode, or web fetching.
 
 ## Protocol channel
 
-Stdout carries only newline-delimited ACP JSON-RPC. `@deepseek-ai/dsh-acp-demo` installs no stdout logger; leaf additions must use stderr for diagnostics.
+Stdout carries only newline-delimited ACP JSON-RPC. `@deepseek-ai/dsh-acp-app` and this patch install no stdout logger; added plugins must use stderr for diagnostics.
 
 The automation contract — supported methods, baseline prompt content, committed-text output, and the intentionally absent UI surfaces — lives in [`@deepseek-ai/dsh-acp`](../../packages/acp/acp/README.md).
 

@@ -662,6 +662,20 @@ describe('SessionPersistenceSqlite schema ownership', () => {
 })
 
 describe('SessionPersistenceSqlite edge behavior', () => {
+  it('materializes an explicitly durable empty live session', async () => {
+    const path = await freshDbPath('dsh-sqlite-empty-')
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    await ctx.plugin(SessionPersistenceSqlite, { path })
+    const session = ctx.sessions.create(SessionId('empty'), { meta: { cwd: '/workspace' } })
+
+    await ctx.sessionPersistence.ensureMaterialized(session)
+
+    await expect(ctx.sessionPersistence.list()).resolves.toEqual([session.header])
+    await expect(ctx.sessionPersistence.load(session.id)).resolves.toEqual({ meta: session.header, events: [] })
+    await ctx.fiber.dispose()
+  })
+
   it('keeps a fresh database unopened until the first persistence operation', async () => {
     const path = await freshDbPath('dsh-sqlite-lazy-')
     const ctx = new Context()

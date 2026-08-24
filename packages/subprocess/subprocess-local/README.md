@@ -17,7 +17,7 @@ Local Service Provider for the [`@deepseek-ai/dsh-subprocess`](../subprocess/REA
 
 ## Model Experience
 
-Indirectly, through Consumers (today the bash executor family behind `dsh-tool-bash`), which own all model-facing rendering of process output and lifecycle.
+Indirectly, through Consumers (the bash executor family behind `dsh-tool-bash`), which own all model-facing rendering of process output and lifecycle.
 
 #### KV Cache effect
 

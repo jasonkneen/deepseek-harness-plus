@@ -8,9 +8,13 @@ if (process.argv.length > 2) {
 
 const child = spawn(process.execPath, [
   '--import',
-  'tsx',
-  'packages/examples/acp-demo/src/bin.ts',
-  '--config',
+  'tsx/esm',
+  'apps/cli/src/bin.ts',
+  '--profile',
+  'acp',
+  '--patch',
+  'examples/acp-agent/cordis.yml',
+  '--patch',
   'examples/acp-agent/code-mode.cordis.yml',
 ], { stdio: 'inherit' })
 child.on('exit', (code, signal) => { process.exit(signal !== null ? 1 : code ?? 1) })

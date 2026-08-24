@@ -33,7 +33,7 @@ Registry 注册是 Cordis effect，Definition 卸载会触发现有 Session 的�
 
 ### `ConversationNodeDefinition` 总体契约
 
-每个 [`ConversationNodeDefinition`](../../../../packages/client/runtime/src/client/contract/conversation.ts) 独立拥有一种业务对象从 Event 到 State 和最终 view Node 的转换。Definition 的 `kind` 是 Registry 内唯一名称，也是业务 ID 的命名空间。
+每个 [`ConversationNodeDefinition`](../../../../packages/client/ui-conversation/src/client/contract/conversation.ts) 独立拥有一种业务对象从 Event 到 State 和最终 view Node 的转换。Definition 的 `kind` 是 Registry 内唯一名称，也是业务 ID 的命名空间。
 
 同一个 Event 可以被多个普通 Definition 认领。例如一条 Assistant Event 同时更新 Assistant Node 和 Turn Tail；一条 Retry Event 同时更新 Retry、Assistant 和 Turn Tail。Assembler 只有在全部普通 Definition 都返回 `null` 时才询问 fallback。
 
@@ -160,7 +160,7 @@ ID 不复用，完成的 Context 继续存在于当前窗口，既提供稳定�
 
 ### Location 是一级引擎事实
 
-[`ConversationLocationIndex`](../../../../packages/client/runtime/src/client/sessions/conversation-location-index.ts) 根据 `turn/start`、`step/start`、显式 turn/step payload、`step/end` 和 `turn/end` 建立 Event 到 Location 的映射。
+[`ConversationLocationIndex`](../../../../packages/client/ui-conversation/src/client/conversation/location-index.ts) 根据 `turn/start`、`step/start`、显式 turn/step payload、`step/end` 和 `turn/end` 建立 Event 到 Location 的映射。
 
 Location 有 `session`、`turn`、`step` 和 `unresolved` 四种形状。Turn/Step 各自带 `open`、`closed` 或 `unknown` 状态，以及已加载的 start/end Event。
 
@@ -302,19 +302,19 @@ Unknown fallback 展示了 Registry ownership：fallback 只处理没有任何�
 
 ## View Builder 与 React identity
 
-[`ConversationViewRegistry`](../../../../packages/client/runtime/src/client/conversation/view-registry.ts) 为每个 target 创建独立的 per-Session builder。Registry 保存 factory，不共享某个 Session 的排序或缓存。
+[`ConversationViewRegistry`](../../../../packages/client/ui-conversation/src/client/conversation/view-registry.ts) 为每个 target 创建独立的 per-Session builder。Registry 保存 factory，不共享某个 Session 的排序或缓存。
 
 Assembler 低频完整替换时调用 `replace({ nodes, timeline })`；普通 prepend/append flush 调用 `apply({ upserts, timeline })`。Builder 只接收 Definition 已构造完成的 target Nodes。
 
-[`ChatSnapshotBuilder`](../../../../packages/client/ui-conversation/src/client/conversation-nodes/chat-snapshot-builder.ts) 维护 `order`、keyed `nodes` store、turn/step `locations` index、`timeline`，以及由 StatsLine 使用并镜像到顶层公共兼容字段的 `legacy` slice。
+[`ChatSnapshotBuilder`](../../../../packages/client/ui-chat/src/client/conversation-nodes/chat-snapshot-builder.ts) 维护 `order`、keyed `nodes` store、turn/step `locations` index、`timeline`，以及由 StatsLine 使用并镜像到顶层公共兼容字段的 `legacy` slice。
 
 Chat 结构变化只由新 key、`anchorSeq`、visibility 或 Location identity 变化触发。普通内容变化不重建 `order`；keyed Node store 只替换该 key 的 value。
 
 Builder 遇到结构变化时从 store 的当前 values 计算 visible order，并按未变化引用复用索引数组。Prepend 可以增加前部历史 key，append 可以增加尾部或按业务 anchor 落位，既有 key 不因排序变化而重命名。
 
-[`ChatView`](../../../../packages/client/ui-conversation/src/client/chat/ChatView.tsx) 只遍历 `order`。每个 [`ChatNodeSeat`](../../../../packages/client/ui-conversation/src/client/chat/ChatNodeSeat.tsx) 以 Context key 固定在同一个父列表中，并按 `node.kind` 分发 `'conversation.chat.node'` keyed slot。
+[`ChatView`](../../../../packages/client/ui-chat/src/client/chat/ChatView.tsx) 只遍历 `order`。每个 [`ChatNodeSeat`](../../../../packages/client/ui-chat/src/client/chat/ChatNodeSeat.tsx) 以 Context key 固定在同一个父列表中，并按 `node.kind` 分发 `'conversation.chat.node'` keyed slot。
 
-[`ChatNodeDataMap`](../../../../packages/client/ui-conversation/src/client/contract/chat-nodes.ts) 是 declaration-merged 的 renderer payload registry。每个业务模块分别注册自己的 Definition 和 keyed renderer；`registerConversationNodes()` 与 `registerChatNodeRenderers()` 只负责装配这些独立贡献，不通过 closed union 或中心 switch 解释业务。内建实现仍位于 `ui-conversation`，但该类型和注册边界允许业务迁入独立 package 而不修改 Chat dispatcher。
+[`ChatNodeDataMap`](../../../../packages/client/ui-chat/src/client/contract/chat-nodes.ts) 是 declaration-merged 的 renderer payload registry。每个业务模块分别注册自己的 Definition 和 keyed renderer；`registerConversationNodes()` 与 `registerChatNodeRenderers()` 只负责装配这些独立贡献，不通过 closed union 或中心 switch 解释业务。内建实现位于 `ui-chat`，且该类型和注册边界允许业务迁入独立 package 而不修改 Chat dispatcher。
 
 `conversation.view` 的 Chat entry 在声明 `conversation.chat.node` child slot 时统一注册 `ChatNodeTurnDataInjected`。`ChatNodeSeat` 只把稳定 Node key 作为 `hookContext` 传给 slot；Slot renderer 用官方 standard props 中的 `useSession` 和该 key 构造 `useTurnData(businessKey)`，因此每个 keyed Chat renderer 都能读取自己 Node 所属 Turn 的强类型只读 data，Assistant renderer 不拥有特殊注入权限。
 

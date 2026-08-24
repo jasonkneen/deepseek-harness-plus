@@ -304,8 +304,11 @@ const subsystemGroups = [
   ]],
   ['平台与接入', 'Platform and access', [
     ['web-server.md', 'HTTP 服务器', 'HTTP server'],
-    ['typert.md', 'Typert', 'Typert'],
+    ['web-client.md', 'Web Client 架构', 'Web Client architecture'],
     ['client-modules.md', '客户端模块', 'Client modules'],
+    ['slots.md', '客户端 Slots', 'Client slots'],
+    ['conversation.md', 'Conversation 组装', 'Conversation assembly'],
+    ['typert.md', 'Typert', 'Typert'],
     ['storage.md', '存储', 'Storage'],
     ['workspace.md', '工作区', 'Workspaces'],
     ['settings.md', '用户设置', 'User settings'],
@@ -328,6 +331,8 @@ const subsystemsReference = subsystemGroups.flatMap(([rootSection, enSection, fi
 ))
 
 const reference = [
+  // `docs/deepseek-llm-api-wire-extensions.md` is a repository-only provider protocol reference.
+  // Projected links intentionally resolve to its GitHub source instead of a public site route.
   ...pairedPages(([
     ['docs/architecture.md', 'reference/index.md', '架构', 'Architecture', 0],
   ] as const).map(([source, route, rootLabel, enLabel, order]): PairedPage => ({
@@ -342,6 +347,7 @@ const reference = [
     ['docs/capability-seams.md', 'reference/capability-seams.md', '能力服务', 'Capability services', 2],
     ['docs/agent-lifecycle.md', 'reference/agent-lifecycle.md', 'Agent 生命周期', 'Agent lifecycle', 3],
     ['docs/tool-execution-pipeline.md', 'reference/tool-execution-pipeline.md', 'Tool 执行', 'Tool execution', 4],
+    ['docs/api-gateway.md', 'reference/api-gateway.md', 'API Gateway', 'API Gateway', 5],
   ] as const).map(([source, route, rootLabel, enLabel, order]): PairedPage => ({
     source,
     route,
@@ -402,14 +408,6 @@ const reference = [
     section: { root: '开发手册', en: 'Cookbook' },
     order,
   }))),
-  ...pairedPages([{
-    source: 'docs/cookbook/adding-a-conversation-node.md',
-    route: 'reference/cookbook/adding-a-conversation-node.md',
-    label: { root: '新增 Conversation Node', en: 'Adding a Conversation Node' },
-    sidebar: { root: 'zh-reference', en: 'en-reference' },
-    section: { root: '开发手册', en: 'Cookbook' },
-    order: 5,
-  }]),
 ]
 
 /**

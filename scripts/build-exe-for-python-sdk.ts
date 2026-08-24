@@ -16,9 +16,10 @@ import { resolveLinuxNodePtyAddon } from './build-exe-for-python-sdk-native-pty.
 const root = resolve(import.meta.dirname, '..')
 
 /** The closure manifest whose dependencies define the executable. */
-const DEPLOY_ROOT_PACKAGE = 'dsh-jsonrpc-agent-pkg'
+const DEPLOY_ROOT_PACKAGE = 'dsh-sdk-python-runtime-closure'
 /** The closed-runtime app entry inside the deployed closure. */
-const ENTRY_BIN = 'node_modules/@deepseek-ai/dsh-sdk-jsonrpc-demo/lib/packaged-bin.js'
+const ENTRY_BIN = 'node_modules/@deepseek-ai/dsh-sdk-python-runtime/lib/packaged-bin.js'
+/** Stable Python-visible executable basename; rename with the later Python runtime migration. */
 const OUTPUT_BASENAME = 'dsh-jsonrpc-agent-pkg'
 /** Default Node major; SEA mode requires at least Node 22. */
 const DEFAULT_NODE_RANGE = 'node24'

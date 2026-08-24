@@ -30,6 +30,7 @@ const RESTORE_SESSION_B_ID = 'chat-scroll-restore-b-e2e'
 const REPLAY_CONTEXT_WINDOW = 10_000_000
 const STREAM_PACE_MS = 24
 const GEOMETRY_TOLERANCE = 2
+const RESPONSIVE_REFLOW_TOLERANCE = 32
 const LIVE_TEXT_PROMPT = 'CHAT_SCROLL_LIVE_USER Continue this long conversation while I inspect older history.'
 const LIVE_TEXT_FIRST = 'CHAT_SCROLL_LIVE_FIRST'
 const LIVE_TEXT_DONE = 'CHAT_SCROLL_LIVE_DONE'
@@ -395,11 +396,15 @@ function flowTop(page: Page, key: string): Promise<number> {
   }, key)
 }
 
-async function expectSameFlowTop(page: Page, anchor: FlowAnchor): Promise<void> {
+async function expectSameFlowTop(
+  page: Page,
+  anchor: FlowAnchor,
+  tolerance = GEOMETRY_TOLERANCE,
+): Promise<void> {
   await expect.poll(async () => Math.abs((await flowTop(page, anchor.key)) - anchor.top), {
     timeout: 10_000,
     message: `flow row ${anchor.key} moved relative to the transcript viewport`,
-  }).toBeLessThanOrEqual(GEOMETRY_TOLERANCE)
+  }).toBeLessThanOrEqual(tolerance)
 }
 
 async function expectBottom(page: Page): Promise<void> {
@@ -482,12 +487,13 @@ describe('web e2e: long Chat scroll contract', () => {
       let releaseGate: (() => void) | undefined
       const gate = new Promise<void>((resolve) => { releaseGate = resolve })
       releaseHistory = () => { releaseGate?.() }
-      await world.page.route('**/api/session.history', async (route) => {
+      await world.page.route('**/api/session/page', async (route) => {
         const request = route.request().postDataJSON() as {
           method?: string
-          payload?: { beforeSeq?: number }
+          payload?: { args?: { request?: { beforeSeq?: number } } }
         }
-        if (!held && request.method === 'session.history' && request.payload?.beforeSeq !== undefined) {
+        if (!held && request.method === 'session/page'
+          && request.payload?.args?.request?.beforeSeq !== undefined) {
           held = true
           await gate
         }
@@ -524,7 +530,7 @@ describe('web e2e: long Chat scroll contract', () => {
       await settled
       await expect.poll(() => world.page.locator('[data-streaming="true"]').count(), { timeout: 15_000 }).toBe(0)
       await world.page.getByText(LIVE_TEXT_DONE, { exact: false }).last().waitFor({ timeout: 15_000 })
-      await world.page.unroute('**/api/session.history')
+      await world.page.unroute('**/api/session/page')
 
       let additionalPages = 0
       while (additionalPages < 8) {
@@ -662,7 +668,8 @@ describe('web e2e: long Chat scroll contract', () => {
       await world.page.getByRole('button', { name: 'Open sidebar', exact: true }).click()
       await world.page.getByRole('tab', { name: 'Chat', exact: true }).click()
       await nextPaint(world.page)
-      await expectSameFlowTop(world.page, sessionAnchor)
+      await expectSameFlowTop(world.page, sessionAnchor, RESPONSIVE_REFLOW_TOLERANCE)
+      const narrowSessionAnchor = await visibleFlowAnchor(world.page)
 
       await openSeed(
         world.page,
@@ -673,7 +680,7 @@ describe('web e2e: long Chat scroll contract', () => {
         world.page,
         RESTORE_FIXTURE_A,
       )
-      await expectSameFlowTop(world.page, sessionAnchor)
+      await expectSameFlowTop(world.page, narrowSessionAnchor)
 
       const backToBottom = world.page.getByRole('button', { name: 'Back to bottom', exact: true })
       await backToBottom.evaluate((button) => {

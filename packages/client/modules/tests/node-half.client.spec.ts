@@ -14,7 +14,7 @@ import { ClientModuleRegistry, bootInjections, orderByModuleGraph } from '../src
 import type { ClientModuleLoaderTarget, WebBootEntry, WebBootGraph } from '../src/client/index.ts'
 
 const MODULES_ID = '@deepseek-ai/dsh-client-modules'
-const RUNTIME_ID = '@deepseek-ai/dsh-client-runtime'
+const UI_RENDERER_ID = '@deepseek-ai/dsh-client-ui-renderer'
 
 let root: string | undefined
 
@@ -99,7 +99,7 @@ const bootGraph = (): WebBootGraph => ({
   rev: 'graph',
   entries: [
     { id: MODULES_ID, url: '/plugins/modules.js?rev=m', rev: 'm' },
-    { id: RUNTIME_ID, url: '/plugins/runtime.js?rev=r', rev: 'r' },
+    { id: UI_RENDERER_ID, url: '/plugins/ui-renderer.js?rev=r', rev: 'r' },
   ],
 })
 
@@ -109,22 +109,22 @@ describe('HTML bootstrap facade', () => {
     const { html, target } = injectedFacade(graph)
     const facadeAt = html.indexOf('window.__ModuleLoader__=')
     const modulesAt = html.indexOf('<script src="/plugins/modules.js?rev=m"></script>')
-    const runtimeAt = html.indexOf('<script src="/plugins/runtime.js?rev=r"></script>')
     const graphAt = html.indexOf('globalThis["__DSH_BOOT__"] = ')
     const entryAt = html.indexOf('<script type="module" src="/index.js"></script>')
-    expect([facadeAt, modulesAt, runtimeAt, graphAt, entryAt]).toEqual([...new Set([
-      facadeAt, modulesAt, runtimeAt, graphAt, entryAt,
+    expect(html).not.toContain('<script src="/plugins/ui-renderer.js?rev=r"></script>')
+    expect([facadeAt, modulesAt, graphAt, entryAt]).toEqual([...new Set([
+      facadeAt, modulesAt, graphAt, entryAt,
     ])].sort((a, b) => a - b))
 
     target.load({ id: MODULES_ID, factory: () => modulesClient })
-    target.load({ id: RUNTIME_ID, factory: () => ({ marker: 'runtime' }) })
+    target.load({ id: UI_RENDERER_ID, factory: () => ({ marker: 'ui-renderer' }) })
     const system = target.create({ boot: graph, staticModules: {} })
 
     expect(target.mode).toBe('live')
     expect(target.pendingQueue).toEqual([])
     expect(system.manifest.rev).toBe('graph')
     expect(await system.import(MODULES_ID)).toBe(modulesClient)
-    expect(await system.import(`${RUNTIME_ID}/client`)).toEqual({ marker: 'runtime' })
+    expect(await system.import(`${UI_RENDERER_ID}/client`)).toEqual({ marker: 'ui-renderer' })
     expect(() => target.create({ boot: graph, staticModules: {} }))
       .toThrow('create called after module-system boot')
   })

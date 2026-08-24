@@ -6,14 +6,17 @@
  * quiescent disposal are all exercised end to end. No model, no key.
  */
 
-import { describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import { existsSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import SubagentRuntime from '@deepseek-ai/dsh-subagent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
+import { createProcessDeepSeekHarness } from '../../../sdk/client/src/api.ts'
+import type { RuntimeProcessOptions } from '../../../sdk/client/src/launch.ts'
+import type { DeepSeekHarnessOptions } from '@deepseek-ai/dsh-sdk-client'
 import * as sdk from '../src/index.ts'
 import {
   DEFAULT_DISPOSE_EOF_GRACE_MS,
@@ -21,10 +24,41 @@ import {
   DEFAULT_SHUTDOWN_TIMEOUT_MS,
   sdkStopReason,
   startSdkRun,
+  internals as runInternals,
   type SdkRunSpec,
 } from '../src/run.ts'
 
 const fakeRuntime = fileURLToPath(new URL('../../../sdk/client/tests/fake-runtime.ts', import.meta.url))
+const existingPatch = fileURLToPath(new URL(
+  '../../../../examples/python-sdk-agent/tests/fixtures/subagent/subagent-dsh-sdk/child.cordis.yml',
+  import.meta.url,
+))
+const defaultCreateHarness = runInternals.createHarness.bind(runInternals)
+let createdHarnessOptions: DeepSeekHarnessOptions[] = []
+
+beforeEach(() => {
+  createdHarnessOptions = []
+  runInternals.createHarness = (options) => {
+    createdHarnessOptions.push(options)
+    const runtime: RuntimeProcessOptions = {
+      command: process.execPath,
+      args: [fakeRuntime],
+      ...options.processCwd === undefined ? {} : { cwd: options.processCwd },
+      environment: () => options.env ?? process.env,
+      description: 'scripted SDK subagent runtime',
+      initializeTimeoutMs: options.initializeTimeoutMs ?? 5_000,
+      ...options.requestTimeoutMs === undefined ? {} : { requestTimeoutMs: options.requestTimeoutMs },
+      ...options.shutdownTimeoutMs === undefined ? {} : { shutdownTimeoutMs: options.shutdownTimeoutMs },
+      ...options.disposeEofGraceMs === undefined ? {} : { disposeEofGraceMs: options.disposeEofGraceMs },
+      ...options.disposeGraceMs === undefined ? {} : { disposeGraceMs: options.disposeGraceMs },
+    }
+    return createProcessDeepSeekHarness(runtime, options)
+  }
+})
+
+afterEach(() => {
+  runInternals.createHarness = defaultCreateHarness
+})
 
 /** A parent Agent stub. The SDK backend reads exactly one thing off it: the session header's cwd (the workspace its child inherits). */
 const fakeParent = { id: 'parent', session: { header: { cwd: process.cwd() } } } as unknown as Agent
@@ -42,8 +76,9 @@ async function setup(fakeEnv: Record<string, string> = {}, config: Partial<sdk.C
   // exercises the schemastery default end to end.
   await ctx.plugin(sdk, {
     providerName: 'dsh-sdk',
-    command: process.execPath,
-    args: [fakeRuntime],
+    profile: 'sdk',
+    patches: [],
+    dshHome: process.cwd(),
     provider: 'fake-provider',
     model: 'fake-model',
     env: fakeEnv,
@@ -86,6 +121,12 @@ describe('sdkStopReason', () => {
 })
 
 describe('dsh-subagent-dsh-sdk provider', () => {
+  it('constructs the production dsh-backed harness lazily', async () => {
+    const harness = defaultCreateHarness({})
+    expect(harness).toBeInstanceOf((await import('@deepseek-ai/dsh-sdk-client')).DeepSeekHarness)
+    await harness.close()
+  })
+
   it('runs a child turn end to end with a parent-unique run id', async () => {
     const ctx = await setup({ FAKE_TEXT: 'hello from sdk child' })
     const run = await ctx.subagents.start('dsh-sdk', request('do X'))
@@ -102,6 +143,21 @@ describe('dsh-subagent-dsh-sdk provider', () => {
     expect(nextRun.id).not.toBe(run.id)
     await nextRun.result
     await nextRun.dispose()
+    await ctx.fiber.dispose()
+  })
+
+  it('resolves relative launch files at load and forwards absolute paths', async () => {
+    const ctx = await setup({ FAKE_TEXT: 'explicit dsh child' }, {
+      dshBin: relative(process.cwd(), fakeRuntime),
+      patches: [relative(process.cwd(), existingPatch)],
+    })
+    const run = await ctx.subagents.start('dsh-sdk', request())
+    expect(text((await run.result).output)).toBe('explicit dsh child')
+    expect(createdHarnessOptions[0]).toMatchObject({
+      dshBin: fakeRuntime,
+      patches: [existingPatch],
+    })
+    await run.dispose()
     await ctx.fiber.dispose()
   })
 
@@ -222,8 +278,9 @@ describe('dsh-subagent-dsh-sdk provider', () => {
     try {
       const controller = new AbortController()
       const spec: SdkRunSpec = {
-        command: process.execPath,
-        args: [fakeRuntime],
+        profile: 'sdk',
+        patches: [],
+        dshHome: process.cwd(),
         cwd: process.cwd(),
         provider: 'p',
         model: 'm',
@@ -272,10 +329,10 @@ describe('dsh-subagent-dsh-sdk provider', () => {
       controller.abort()
       await expect(startSdkRun(
         request('p', controller.signal),
-        // `touch <sentinel>` — runs only if the process is actually spawned.
         {
-          command: 'touch',
-          args: [sentinel],
+          profile: 'sdk',
+          patches: [],
+          dshHome: sentinel,
           cwd: tmp,
           provider: 'p',
           model: 'm',
@@ -305,8 +362,9 @@ describe('dsh-subagent-dsh-sdk provider', () => {
   it('cancelling mid-handshake rejects start after reaping the child', async () => {
     const controller = new AbortController()
     const spec: SdkRunSpec = {
-      command: process.execPath,
-      args: [fakeRuntime],
+      profile: 'sdk',
+      patches: [],
+      dshHome: process.cwd(),
       cwd: process.cwd(),
       provider: 'p',
       model: 'm',
@@ -323,8 +381,9 @@ describe('dsh-subagent-dsh-sdk provider', () => {
   it('routes a post-publication child failure through onError and settles error', async () => {
     const seen: string[] = []
     const spec: SdkRunSpec = {
-      command: process.execPath,
-      args: [fakeRuntime],
+      profile: 'sdk',
+      patches: [],
+      dshHome: process.cwd(),
       cwd: process.cwd(),
       provider: 'p',
       model: 'm',
@@ -364,8 +423,9 @@ describe('dsh-subagent-dsh-sdk provider', () => {
     await ctx.plugin(SubagentRuntime)
     const fiber = await ctx.plugin(sdk, {
       providerName: 'sdk-hmr',
-      command: process.execPath,
-      args: [fakeRuntime],
+      profile: 'sdk',
+      patches: [],
+      dshHome: process.cwd(),
       provider: 'p',
       model: 'm',
       env: {},
@@ -386,10 +446,45 @@ describe('dsh-subagent-dsh-sdk provider', () => {
   it('rejects non-positive timing bounds at load', async () => {
     const ctx = new Context()
     await ctx.plugin(SubagentRuntime)
-    const base = { providerName: 'sdk', command: 'true', args: [], provider: 'p', model: 'm', env: {} }
+    const base = { providerName: 'sdk', profile: 'sdk', patches: [], dshHome: process.cwd(), provider: 'p', model: 'm', env: {} }
     await expect(ctx.plugin(sdk, { ...base, shutdownTimeoutMs: 0 })).rejects.toThrow('shutdownTimeoutMs must be a positive finite number')
     await expect(ctx.plugin(sdk, { ...base, disposeEofGraceMs: -1 })).rejects.toThrow('disposeEofGraceMs must be a positive finite number')
     await expect(ctx.plugin(sdk, { ...base, disposeGraceMs: Number.NaN })).rejects.toThrow('disposeGraceMs must be a positive finite number')
+    await ctx.fiber.dispose()
+  })
+
+  it('requires an explicit absolute Harness home for nested dsh runtimes', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SubagentRuntime)
+    await expect(ctx.plugin(sdk, {
+      providerName: 'sdk',
+      profile: 'sdk',
+      patches: [],
+      dshHome: './personal-home',
+      provider: 'p',
+      model: 'm',
+      env: {},
+    })).rejects.toThrow('dshHome must be an absolute path')
+    await ctx.fiber.dispose()
+  })
+
+  it.each([
+    { field: 'dshBin', override: { dshBin: './missing-dsh-bin' } },
+    { field: 'dshBin', override: { dshBin: '.' } },
+    { field: 'patches[0]', override: { patches: ['./missing-child-patch.yml'] } },
+  ])('rejects an invalid $field at load', async ({ field, override }) => {
+    const ctx = new Context()
+    await ctx.plugin(SubagentRuntime)
+    await expect(ctx.plugin(sdk, {
+      providerName: 'sdk',
+      profile: 'sdk',
+      patches: [],
+      dshHome: process.cwd(),
+      provider: 'p',
+      model: 'm',
+      env: {},
+      ...override,
+    })).rejects.toThrow(`${field} must name an existing file`)
     await ctx.fiber.dispose()
   })
 
@@ -400,8 +495,9 @@ describe('dsh-subagent-dsh-sdk provider', () => {
       await ctx.plugin(SubagentRuntime)
       await expect(ctx.plugin(sdk, {
         providerName: 'sdk',
-        command: 'true',
-        args: [],
+        profile: 'sdk',
+        patches: [],
+        dshHome: process.cwd(),
         provider: 'p',
         model: 'm',
         maxTokens,
@@ -418,8 +514,9 @@ describe('dsh-subagent-dsh-sdk provider', () => {
       await ctx.plugin(SubagentRuntime)
       expect(() => { sdk.apply(ctx, {
         providerName: 'sdk',
-        command: 'true',
-        args: [],
+        profile: 'sdk',
+        patches: [],
+        dshHome: process.cwd(),
         provider: 'p',
         model: 'm',
         maxTokens,
@@ -437,8 +534,9 @@ describe('dsh-subagent-dsh-sdk provider', () => {
     await ctx.plugin(SubagentRuntime)
     await expect(ctx.plugin(sdk, {
       providerName: 'sdk',
-      command: 'true',
-      args: [],
+      profile: 'sdk',
+      patches: [],
+      dshHome: process.cwd(),
       cwd: '',
       provider: 'p',
       model: 'm',

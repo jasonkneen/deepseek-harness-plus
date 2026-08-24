@@ -2,13 +2,12 @@
  * downloads domain zod schemas. The download surface has no wire
  * envelope: the request arrives as query parameters (all strings), so its
  * request schema parses the raw query-parameter object into the method's
- * exact request shape. SessionId brand cast point: sessionIdSchema, and only
- * there (hosted in sessions.schema like every other cast).
+ * exact request shape.
  */
 
 import { z } from 'zod'
 import type { DownloadsApi } from './downloads.ts'
-import { sessionIdSchema } from './sessions.schema.ts'
+import { sessionIdSchema } from './ids.schema.ts'
 
 /**
  * session.export query params → the sessionLog request. `includeDescendants`

@@ -6,10 +6,12 @@
  * either entry is what the other shows next.
  */
 import type {
-  IApiClient, ModelCatalogFailure, ModelProviderGroup, ModelSelection, SessionId, SessionModels,
-} from '@deepseek-ai/dsh-api-remotes/client'
-import type { SnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
-import { createSnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
+  ModelCatalogFailure, ModelProviderGroup, ModelSelection, SessionModels,
+} from '@deepseek-ai/dsh-api-session-controller/types'
+import type { SessionId } from '@deepseek-ai/dsh-api-remotes/client'
+import type { TypertClientRemote } from '@deepseek-ai/dsh-typert-protocol'
+import type { SnapshotStore } from '@deepseek-ai/dsh-client-store'
+import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
 
 /** Directory snapshot both entries render from. */
 export interface ModelDirectoryState {
@@ -50,7 +52,7 @@ export class ModelDirectory {
    * @param available - whether this session may use Agent-bound model RPCs.
    */
   constructor(
-    private readonly sessions: Pick<IApiClient['sessions'], 'models' | 'selectModel'>,
+    private readonly sessions: Pick<TypertClientRemote['session'], 'models' | 'selectModel'>,
     private readonly sessionId: SessionId,
     private readonly available: () => boolean,
   ) {}
@@ -64,7 +66,7 @@ export class ModelDirectory {
     this.assertAvailable()
     const generation = ++this.generation
     this.store.update((s) => { s.status = 'loading'; s.error = null })
-    const { result } = await this.sessions.models({ sessionId: this.sessionId })
+    const result = await this.sessions.models({ sessionId: this.sessionId })
     if (this.disposed || generation !== this.generation) {
       if (!result.ok) throw new Error(`${result.error.code}: ${result.error.message}`)
       return result.value
@@ -95,7 +97,7 @@ export class ModelDirectory {
     this.assertAvailable()
     const generation = ++this.generation
     this.store.update((s) => { s.status = 'selecting'; s.error = null })
-    const { result } = await this.sessions.selectModel({
+    const result = await this.sessions.selectModel({
       sessionId: this.sessionId,
       provider: selection.provider,
       model: selection.model,

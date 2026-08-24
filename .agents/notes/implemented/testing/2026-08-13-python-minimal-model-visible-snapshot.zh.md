@@ -6,7 +6,7 @@ Status: implemented
 
 ## 问题
 
-Python 通道从未比对极简组合实际展示给模型的内容。动态运行时上下文以 user 消息进入历史，因此 mock 模型"system 角色消息等于部署 persona"的断言看不见它；而进阶可执行文件快照会把每个请求头中已组装的系统提示词换成占位符、把每个工具 schema 换成其名称。于是 sandbox-policy 的运行时上下文消息一直搭车留在签入的[极简组合](../../../../examples/jsonrpc-agent/minimal.cordis.yml)里，而 `python-runtime` 始终是绿的；任何新增系统分段、工具或其他上下文消息的插件都能照此蒙混过关。
+Python 通道从未比对极简组合实际展示给模型的内容。动态运行时上下文以 user 消息进入历史，因此 mock 模型"system 角色消息等于部署 persona"的断言看不见它；而进阶可执行文件快照会把每个请求头中已组装的系统提示词换成占位符、把每个工具 schema 换成其名称。于是 sandbox-policy 的运行时上下文消息一直搭车留在签入的[极简组合](../../../../examples/python-sdk-agent/minimal.cordis.yml)里，而 `python-runtime` 始终是绿的；任何新增系统分段、工具或其他上下文消息的插件都能照此蒙混过关。
 
 ## 决策
 

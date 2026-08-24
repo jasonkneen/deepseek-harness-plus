@@ -284,8 +284,8 @@ export function apply(ctx: Context, config: Config): void {
   const backgroundEnabled = config.enableRunInBackground !== false
   const continuable = (config.backgroundMode ?? 'one-shot') === 'continuable'
   const toolName = config.toolName ?? 'subagent'
-  // Mirror provider lifecycle because sibling load order and HMR replacement
-  // can change provider availability while this fiber remains active.
+  // Load order and HMR replacement can change provider availability while
+  // this fiber remains active.
   let disposeTool: (() => void) | undefined
   const mount = (provider: SubagentProvider): void => {
     // A numeric cap the provider cannot enforce is a misconfiguration — fail at

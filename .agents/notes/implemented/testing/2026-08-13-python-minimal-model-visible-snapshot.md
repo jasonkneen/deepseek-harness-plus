@@ -6,7 +6,7 @@ English | [中文](2026-08-13-python-minimal-model-visible-snapshot.zh.md)
 
 ## Problem
 
-The Python lane never compared what the minimal composition actually shows the model. Dynamic runtime context reaches history as a user message, so the mock model's assertion that system-role messages equal the deployment persona could not see it, and the advanced executable snapshot replaces each request header's assembled system prompt with a token and each tool schema with its name. The sandbox-policy runtime-context message therefore rode along in the checked-in [minimal composition](../../../../examples/jsonrpc-agent/minimal.cordis.yml) while `python-runtime` stayed green, and any plugin that adds a system section, a tool, or another context message could do the same.
+The Python lane never compared what the minimal composition actually shows the model. Dynamic runtime context reaches history as a user message, so the mock model's assertion that system-role messages equal the deployment persona could not see it, and the advanced executable snapshot replaces each request header's assembled system prompt with a token and each tool schema with its name. The sandbox-policy runtime-context message therefore rode along in the checked-in [minimal composition](../../../../examples/python-sdk-agent/minimal.cordis.yml) while `python-runtime` stayed green, and any plugin that adds a system section, a tool, or another context message could do the same.
 
 ## Decision
 

@@ -222,16 +222,13 @@ export function orderByModuleGraph(entries: readonly WebBootEntry[]): WebBootEnt
 /** Bootstrap package whose ordinary client bundle supplies the module-system implementation. */
 const CLIENT_MODULES_ID = '@deepseek-ai/dsh-client-modules'
 
-/** Dynamic package whose ordinary client bundle must be registered before plugin boot starts. */
-const CLIENT_RUNTIME_ID = '@deepseek-ai/dsh-client-runtime'
-
 /** Ordinary dynamic bundles the HTML parser executes before the Vite shell. */
-const PARSER_PRELOAD_IDS = [CLIENT_MODULES_ID, CLIENT_RUNTIME_ID] as const
+const PARSER_PRELOAD_IDS = [CLIENT_MODULES_ID] as const
 
 /**
  * The boot protocol as index injection rows. The inline registration queue
- * precedes blocking classic scripts for modules' and runtime's ordinary
- * `lib/client.js` artifacts. Its `create()` method materializes the modules
+ * precedes the blocking classic script for modules' ordinary `lib/client.js`
+ * artifact. Its `create()` method materializes the modules
  * bundle, delegates construction to that bundle, and leaves the same facade
  * in live-registration mode. The graph global follows before the shell reads
  * it.

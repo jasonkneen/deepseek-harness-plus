@@ -15,6 +15,15 @@
 - id: credentials
   name: '@deepseek-ai/dsh-credentials-local'
 
+- id: deepseek-llm-api-extensions
+  name: '@deepseek-ai/dsh-deepseek-llm-api-extensions'
+
+- id: session-log-deepseek
+  name: '@deepseek-ai/dsh-session-log-deepseek'
+
+- id: plugin-package-inventory-deepseek
+  name: '@deepseek-ai/dsh-plugin-package-inventory-deepseek'
+
 # The DeepSeek adapter. Swap to '@deepseek-ai/dsh-llm-pi-ai' for the pi-ai-backed
 # twin (a `providers` dict keyed by route; `reasoning: high` replaces
 # thinking/reasoningEffort). Shipped default: full thinking at max effort on

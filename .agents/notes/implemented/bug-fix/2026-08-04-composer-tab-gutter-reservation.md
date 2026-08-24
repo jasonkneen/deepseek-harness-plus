@@ -36,7 +36,7 @@ The reservation is worth what it costs only because the bar takes layout space h
 
 - Chat's content column is permanently 8px narrower — in the hero phase and while the transcript is short as well, where no bar is drawn. That is the trade: one card position at every content height, instead of the widest possible column.
 - The card holds one position across three transitions, by two mechanisms: the reservation keeps Chat's seat at one width across its own phases (short ↔ scrolling transcript, hero ↔ first scrolling turn), and the overlay seat's compensation matches it on the Chat ↔ Trajectory transition ([the seat-width compensation](2026-08-12-composer-overlay-seat-width-compensation.md)).
-- The overlay state is now a scroll container. Nothing in it can overflow today; a future view that let its content exceed the column would scroll this box instead of clipping, and would need its own clip the way the Trajectory view already has one.
+- The overlay state is now a scroll container. No shipped content can overflow it; a future view that let its content exceed the column would scroll this box instead of clipping, and would need its own clip the way the Trajectory view already has one.
 - The committed golden records the reserved band, so a change to the sheet's `::-webkit-scrollbar` width — the value that decides how wide the reservation is — arrives as a reviewable diff in this scenario as well as in the sidebar's.
 
 ## Testing

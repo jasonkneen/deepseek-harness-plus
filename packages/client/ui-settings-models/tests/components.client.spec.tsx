@@ -385,9 +385,9 @@ describe('ModelsSection', () => {
       credentialOnly
       credentialRequired
       autoFocusCredential
-      cancelLabel="onboardingLater"
-      submitLabel="onboardingSave"
-      submitBusyLabel="onboardingSaving"
+      cancelLabelKey="onboardingLater"
+      submitLabelKey="onboardingSave"
+      submitBusyLabelKey="onboardingSaving"
       onClose={onClose}
     />)
 

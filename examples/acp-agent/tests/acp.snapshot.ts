@@ -29,12 +29,13 @@ import { OFFLOADED_IMAGE_TEXT } from '@deepseek-ai/dsh-llm'
  * .agents/notes/implemented/testing/2026-06-19-acp-snapshot-tests.md.
  */
 
-// The dsh-acp-demo bin (the demo:acp entry), this example's cordis.yml, and
+// The dsh CLI, this example's profile patch, and
 // the repo-root tsconfig (four levels up from examples/acp-agent/tests) — all
 // ABSOLUTE: the subprocess cwd is a temp dir outside the repo.
 const AGENT = {
-  binScript: fileURLToPath(new URL('../../../packages/examples/acp-demo/src/bin.ts', import.meta.url)),
+  binScript: fileURLToPath(new URL('../../../apps/cli/src/bin.ts', import.meta.url)),
   configPath: fileURLToPath(new URL('../cordis.yml', import.meta.url)),
+  profile: 'acp',
   tsconfigPath: fileURLToPath(new URL('../../../tsconfig.json', import.meta.url)),
 }
 const EDITING_CORDIS_SKILL = fileURLToPath(new URL(
@@ -42,8 +43,8 @@ const EDITING_CORDIS_SKILL = fileURLToPath(new URL(
   import.meta.url,
 ))
 
-// The Code Mode overlay configs (include-patched variants of cordis.yml; the
-// replay swap resolves each one's sibling `*cordis.snapshot.yml`).
+// The Code Mode profile patches; replay selects each one's sibling
+// `*cordis.snapshot.yml`.
 const CODE_MODE_CONFIG = fileURLToPath(new URL('../code-mode.cordis.yml', import.meta.url))
 const CODE_MODE_IMAGE_CONFIG = fileURLToPath(new URL('../code-mode-image.cordis.yml', import.meta.url))
 const CODE_MODE_WORKSPACE_CONTEXT_CONFIG = fileURLToPath(new URL('../code-mode-workspace-context.cordis.yml', import.meta.url))
@@ -238,6 +239,7 @@ const SCENARIOS: Scenario[] = [
     recorded: false,
     pinsHeader: true,
     headerClass: 'image',
+    toolSchemasSource: 'text-turn',
     configPath: IMAGE_CONFIG,
   },
   {
@@ -247,13 +249,13 @@ const SCENARIOS: Scenario[] = [
     pinsHeader: true,
     headerClass: 'image-text-route',
     systemPromptSource: 'text-turn',
-    toolSchemasSource: 'read-image',
+    toolSchemasSource: 'text-turn',
     configPath: IMAGE_TEXT_ROUTE_CONFIG,
   },
-  // Authored keyless replay of the oversized-image refusal: admission rejects
-  // the 2001x1 fixture at the default 2000px per-side limit, the model sees a
-  // recoverable tool error, and the turn still completes — the image never
-  // enters durable history.
+  // Authored keyless replay of wide-image admission: the 2001x1 fixture sits
+  // inside the wide source envelope and the canonical budget, so read_image
+  // succeeds and the attachment keeps the source bytes byte-identically —
+  // the same read the pre-canonicalization 2000px admission cap refused.
   {
     name: 'read-image-dimension',
     hasModelTurn: true,
@@ -702,30 +704,70 @@ defineAcpSnapshotSuite({
   hasPwsh,
 })
 
-it('pins native DeepSeek image offload in the request sent by the assembled app', async () => {
+it('pins native DeepSeek Files offload and inline fallback in assembled requests', async () => {
   const requests: Record<string, unknown>[] = []
+  const fileRequests: Array<{ method: string; path: string; bytes: number }> = []
+  let rejectFiles = false
   const server = createServer((request: IncomingMessage, response: ServerResponse) => {
-    let body = ''
-    request.setEncoding('utf8')
-    request.on('data', (chunk: string) => { body += chunk })
+    const chunks: Buffer[] = []
+    request.on('data', (chunk: Buffer) => { chunks.push(chunk) })
     request.on('end', () => {
-      requests.push(JSON.parse(body) as Record<string, unknown>)
-      response.writeHead(200, { 'content-type': 'text/event-stream' })
-      const events = requests.length === 1
-        ? [
-          'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"native-read-image","type":"function","function":{"name":"read_image","arguments":"{\\"file_path\\":\\"red.png\\"}"}}]},"index":0,"finish_reason":null}]}',
-          'data: {"choices":[{"delta":{},"index":0,"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":3,"completion_tokens":1}}',
-          'data: [DONE]',
-          '',
-        ]
-        : [
-          'data: {"choices":[{"delta":{"role":"assistant","content":""},"index":0,"finish_reason":null}]}',
-          'data: {"choices":[{"delta":{"content":"DONE"},"index":0,"finish_reason":null}]}',
-          'data: {"choices":[{"delta":{},"index":0,"finish_reason":"stop"}],"usage":{"prompt_tokens":3,"completion_tokens":1}}',
-          'data: [DONE]',
-          '',
-        ]
-      response.end(events.join('\n\n'))
+      void (async () => {
+        const url = new URL(request.url ?? '/', 'http://localhost')
+        const body = Buffer.concat(chunks)
+        if (url.pathname === '/files' && request.method === 'POST') {
+          const headers = new Headers()
+          for (const [name, value] of Object.entries(request.headers)) {
+            if (value !== undefined) headers.set(name, Array.isArray(value) ? value.join(', ') : value)
+          }
+          const form = await new Request('http://localhost/files', {
+            method: 'POST', headers, body,
+          }).formData()
+          const file = form.get('file')
+          if (!(file instanceof Blob)) throw new Error('snapshot Files upload omitted file')
+          fileRequests.push({ method: 'POST', path: url.pathname, bytes: file.size })
+          if (rejectFiles) {
+            response.writeHead(503, { 'content-type': 'application/json' }).end(JSON.stringify({
+              error: { message: 'Files temporarily unavailable' },
+            }))
+            return
+          }
+          const createdAt = Math.floor(Date.now() / 1_000)
+          response.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({
+            id: 'file-api-snapshot-1',
+            object: 'file',
+            bytes: file.size,
+            created_at: createdAt,
+            filename: 'dsh-snapshot.png',
+            purpose: 'user_data',
+            expires_at: createdAt + Number(form.get('expires_after[seconds]')),
+          }))
+          return
+        }
+        if (url.pathname !== '/chat/completions') {
+          response.writeHead(404).end()
+          return
+        }
+        requests.push(JSON.parse(body.toString('utf8')) as Record<string, unknown>)
+        response.writeHead(200, { 'content-type': 'text/event-stream' })
+        const events = requests.length === 1
+          ? [
+            'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"native-read-image","type":"function","function":{"name":"read_image","arguments":"{\\"file_path\\":\\"red.png\\"}"}}]},"index":0,"finish_reason":null}]}',
+            'data: {"choices":[{"delta":{},"index":0,"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":3,"completion_tokens":1}}',
+            'data: [DONE]',
+            '',
+          ]
+          : [
+            'data: {"choices":[{"delta":{"role":"assistant","content":""},"index":0,"finish_reason":null}]}',
+            'data: {"choices":[{"delta":{"content":"DONE"},"index":0,"finish_reason":null}]}',
+            'data: {"choices":[{"delta":{},"index":0,"finish_reason":"stop"}],"usage":{"prompt_tokens":3,"completion_tokens":1}}',
+            'data: [DONE]',
+            '',
+          ]
+        response.end(events.join('\n\n'))
+      })().catch((error: unknown) => {
+        response.writeHead(500, { 'content-type': 'text/plain' }).end(String(error))
+      })
     })
   })
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
@@ -764,34 +806,21 @@ it('pins native DeepSeek image offload in the request sent by the assembled app'
     })
     expect(result.stderr).toBe('')
     expect(requests).toHaveLength(2)
+    expect(fileRequests).toEqual([{ method: 'POST', path: '/files', bytes: 69 }])
     const messages = requests[0]?.messages as { content?: unknown }[] | undefined
     const offloaded = messages?.find(message => JSON.stringify(message.content).includes('[image omitted'))
-    expect(offloaded?.content).toMatchInlineSnapshot(`
-      [
-        {
-          "text": "Compare the older image ",
-          "type": "text",
-        },
-        {
-          "text": "[image omitted to keep the request within its image limit; older images are omitted first. If this image is still needed, read its file again when a path is available; otherwise ask the user to attach it again.]",
-          "type": "text",
-        },
-        {
-          "text": " with the newer image ",
-          "type": "text",
-        },
-        {
-          "image_url": {
-            "url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4z8AAAAMBAQDJ/pLvAAAAAElFTkSuQmCC",
-          },
-          "type": "image_url",
-        },
-        {
-          "text": ", then use read_image on red.png and reply with DONE.",
-          "type": "text",
-        },
-      ]
-    `)
+    expect(offloaded?.content).toEqual([
+      { type: 'text', text: 'Compare the older image ' },
+      { type: 'text', text: OFFLOADED_IMAGE_TEXT },
+      { type: 'text', text: ' with the newer image ' },
+      {
+        type: 'text',
+        text: '\nImage sha256:b1ff9c8ea3a780bad09b346c423d2d0e46815926879b18e841d928376a946640; '
+          + 'request image 1x1px.',
+      },
+      { type: 'file', file_id: 'file-api-snapshot-1' },
+      { type: 'text', text: ', then use read_image on red.png and reply with DONE.' },
+    ])
 
     const followup = structuredClone((requests[1]?.messages as unknown[]).slice(1)) as Array<{
       role?: unknown
@@ -830,18 +859,49 @@ it('pins native DeepSeek image offload in the request sent by the assembled app'
       {
         role: 'tool',
         tool_call_id: 'native-read-image',
-        content: '<path>{{cwd}}/red.png</path>\n<type>image</type>\n<content>\nimage/png image, 1x1 px, 69 bytes\n</content>',
+        content: '<path>{{cwd}}/red.png</path>\n<type>image</type>\n<content>\nimage/png image, 1x1 px, 69 bytes\n'
+          + '</content>\nImage sha256:b1ff9c8ea3a780bad09b346c423d2d0e46815926879b18e841d928376a946640; request image 1x1px.',
       },
       {
         role: 'user',
         content: [
           { type: 'text', text: 'Attached image(s) from tool result:' },
-          {
-            type: 'image_url',
-            image_url: { url: `data:image/png;base64,${image}` },
-          },
+          { type: 'file', file_id: 'file-api-snapshot-1' },
         ],
       },
+    ])
+
+    rejectFiles = true
+    const fallback = await runScenario(input, {
+      agent: AGENT,
+      mode: 'record',
+      configPath: IMAGE_OFFLOAD_CONFIG,
+      fixtureFile: join(SNAPSHOTS_DIR, 'image-offload-request', 'session.jsonl'),
+      workspaceDir: join(SNAPSHOTS_DIR, 'read-image', 'workspace'),
+      env: {
+        DSH_SNAPSHOT_API_KEY: 'snapshot-fallback-key',
+        DSH_SNAPSHOT_BASE_URL: `http://127.0.0.1:${address.port}`,
+      },
+    })
+    expect(fallback.stderr).toBe('')
+    expect(fileRequests).toEqual([
+      { method: 'POST', path: '/files', bytes: 69 },
+      { method: 'POST', path: '/files', bytes: 69 },
+    ])
+    expect(requests).toHaveLength(3)
+    const fallbackMessages = requests[2]?.messages as { content?: unknown }[] | undefined
+    const fallbackInput = fallbackMessages?.find(message => JSON.stringify(message.content).includes('[image omitted'))
+    expect(fallbackInput?.content).toEqual([
+      { type: 'text', text: 'Compare the older image ' },
+      { type: 'text', text: OFFLOADED_IMAGE_TEXT },
+      { type: 'text', text: ' with the newer image ' },
+      {
+        type: 'text',
+        text: '\nImage sha256:b1ff9c8ea3a780bad09b346c423d2d0e46815926879b18e841d928376a946640; '
+          + 'request image 1x1px.',
+      },
+      { type: 'image_url', image_url: { url: `data:image/png;base64,${image}` } },
+      { type: 'text', text: ', then use read_image on red.png and reply with DONE.' },
     ])
   } finally {
     await new Promise<void>(resolve => server.close(() => { resolve() }))

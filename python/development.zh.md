@@ -27,14 +27,16 @@ uv run --project python/sdk pytest
 
 `python/sdk/tests/test_bundled_runtime.py` 会运行可用的内置载体；某个载体的产物尚未构建时，会跳过该载体。仓库级测试政策见 [测试](../docs/testing.zh.md)。
 
-该套件面向的是伪造的运行时对端。`scripts/smoke-python-runtime.py` 面向真实的打包运行时；必需的 `python-runtime` CI 任务会用新构建的可执行文件运行全部场景：
+该套件面向的是伪造的运行时对端。`scripts/smoke-python-runtime.py` 面向打包运行时。必需的 `python-runtime` CI 任务会构建每个已发布原生目标，把匹配的 SDK wheel 包与运行时 wheel 包安装进新的 Python 3.10 虚拟环境，在 checkout 外清除 `PYTHONPATH` 与 `DSH_RUNTIME_MODE` 后运行，证明两个模块及可执行文件都来自这些 distribution，然后运行全部 keyless 场景。聚焦的本地源码 SDK 运行可以选择一个已构建可执行文件与场景：
 
 ```sh
 uv run --project python/sdk python scripts/smoke-python-runtime.py \
   --scenario sdk-minimal --exe dist-exe/dsh-jsonrpc-agent-pkg-macos-arm64
 ```
 
-其中两个场景会比对 `scripts/snapshots/python-sdk-single-exe/` 下已提交的期望输出。`minimal/model-visible.json` 固定了签入的极简组合所组装的系统提示词、对外公布的工具 schema 以及模型可见消息，因此插件一旦贡献出计划外的系统分段或 user 消息，该任务即失败；它会丢弃动态运行时上下文快照——同一组合在 macOS 上会发出它，在 Linux 上不会（[#2488](https://github.com/deepseek-harness/deepseek-harness/issues/2488)）。`advanced/` 固定 SDK 结果与持久化的会话日志。重新运行对应场景时加上 `--update-snapshots`，并在提交前审阅该差异。
+其中三个场景会比对 `scripts/snapshots/python-sdk-single-exe/` 下已提交的期望输出。`minimal/model-visible.json` 固定了签入的极简组合所组装的系统提示词、对外公布的工具 schema 以及模型可见消息，因此插件一旦贡献出计划外的系统分段或 user 消息，该任务即失败；它会丢弃动态运行时上下文快照——同一组合在 macOS 上会发出它，在 Linux 上不会（[#2488](https://github.com/deepseek-harness/deepseek-harness/issues/2488)）。`advanced/` 固定一个复杂进程的 SDK 结果及父／子会话日志。`restart/` 针对同一持久化根目录启动两个完整 SDK 运行时进程，并固定其彼此隔离的模型历史、高层结果与独立持久日志。重新运行对应场景时加上 `--update-snapshots`，并在提交前审阅该差异。
+
+可信拉取请求还会在每个原生目标上运行 `--scenario sdk-live --installed-wheel`。该场景面向 `https://api.deepseek.com` 执行两个使用工具的轮次，从外部验证已创建文件，并在仓库密钥缺失时失败而不是自行 skip。Fork 与 Dependabot 拉取请求会运行完整的 keyless 安装后 wheel 路径，但不会获得密钥。
 
 交互式冒烟测试需要环境变量或仓库根目录 `.env` 中存在 `DEEPSEEK_API_KEY`：
 
@@ -50,7 +52,7 @@ with DeepSeekHarness() as harness:
 仓库贡献者可以选择以下任一开发载体：
 
 - 设置 `DSH_RUNTIME_MODE=node`，在系统 Node `>=22.19` 上使用已构建的 Node 载体。构建脚本会刷新该载体，但分发物绝不会包含或自动选择它。
-- 将仓库根目录设为 `cwd`，并设置 `launch_args_override=("./node_modules/.bin/tsx", "packages/examples/jsonrpc-demo/src/bin.ts")`，以运行未构建的 TypeScript 源码。默认配置不合适时，请提供 `cordis=...`。
+- 将仓库根目录设为 `cwd`，并设置 `launch_args_override=("./node_modules/.bin/tsx", "packages/sdk/python-runtime/src/packaged-bin.ts")`，以运行私有载体未构建的 TypeScript 源码。默认配置不合适时，请提供 `cordis=...`。
 
 完整的源码模式调用见 `python/sdk/tests/manual_sdk_agent_smoke.py`。
 
@@ -79,7 +81,7 @@ pip install \
 
 ## 验证候选发行版
 
-为拉取请求添加 `python-release-dry-run` 标签，或手动运行 GitHub 的 `Release (Python)` 工作流并设置 `publish=false`，即可构建全部四个 wheel 包，在 Python 3.10 和 3.14 上安装 Linux 发行集合，检查精确文件名和元数据，执行 PyPI 默认单文件大小限制，并保留一份带 SHA-256 哈希的汇总产物。两条路径都没有注册表凭据，拉取请求运行无法进入任何发布作业。
+手动运行 GitHub 的 `Release (Python)` 工作流并设置 `publish=false`，即可构建全部四个 wheel 包，在 Python 3.10 和 3.14 上安装 Linux 发行集合，检查精确文件名和元数据，执行 PyPI 默认单文件大小限制，并保留一份带 SHA-256 哈希的汇总产物。该运行没有注册表凭据，dry-run 运行无法进入任何发布作业。
 
 公开发布从私有自动化仓库运行；包元数据指向独立的只读公开源码镜像，该镜像不运行发布 Actions。私有仓库把仓库变量 `PYPI_PUBLISHER_REPOSITORY` 定义为自身的 `owner/name`，并且只在有意发布期间把 `PUBLIC_PYPI_RELEASE_ENABLED` 从 `false` 改为 `true`。
 

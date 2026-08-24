@@ -3,7 +3,7 @@ import z from '@deepseek-ai/schemastery'
 import { describe, expect, it, vi } from 'vitest'
 import type { RpcResponse, SettingsNamespaceView } from '@deepseek-ai/dsh-api-remotes/client'
 import { TestRemote } from '@deepseek-ai/dsh-client-test-runtime'
-import type { SettingsScope } from '@deepseek-ai/dsh-client-runtime/client'
+import type { SettingsScope } from '@deepseek-ai/dsh-client-ui-settings/client'
 import { SettingsSchemaService } from '../src/client/schema.ts'
 import { SettingsScopeController, SettingsScopeBinder } from '../src/client/settings-scope.ts'
 import { SettingsDescribeMirror } from '../src/client/settings-mirror.ts'
@@ -244,6 +244,7 @@ describe('SettingsScopeController', () => {
   })
 
   it('keeps the write queue usable when a subscriber throws', async () => {
+    const report = vi.spyOn(console, 'error').mockImplementation(() => {})
     const describeCall = vi.fn()
       .mockResolvedValueOnce(described({ preference: 'dark' }, 1))
       .mockResolvedValueOnce(described({ preference: 'light' }, 2))
@@ -254,12 +255,17 @@ describe('SettingsScopeController', () => {
       thrown = true
       throw new Error('subscriber failed')
     })
-    await expect(mirror.load()).rejects.toThrow('subscriber failed')
+    await expect(mirror.load()).resolves.toBeUndefined()
     await expect(mirror.load()).resolves.toBeUndefined()
     expect(scope.getSnapshot()).toMatchObject({ value: { preference: 'light' }, revision: 2 })
+    expect(report).toHaveBeenCalledWith('[client-store] subscriber failed:', expect.objectContaining({
+      message: 'subscriber failed',
+    }))
+    report.mockRestore()
   })
 
   it('keeps the write queue usable when a write publication listener throws', async () => {
+    const report = vi.spyOn(console, 'error').mockImplementation(() => {})
     const describeCall = vi.fn().mockResolvedValueOnce(described({ preference: 'system' }, 1))
     const mutate = vi.fn()
       .mockResolvedValueOnce(ok(view({ preference: 'dark' }, 2)))
@@ -273,10 +279,37 @@ describe('SettingsScopeController', () => {
       throw new Error('write subscriber failed')
     })
 
-    await expect(scope.set('preference', 'dark')).rejects.toThrow('write subscriber failed')
+    await expect(scope.set('preference', 'dark')).resolves.toBeUndefined()
     await expect(scope.set('preference', 'light')).resolves.toBeUndefined()
 
     expect(mutate).toHaveBeenCalledTimes(2)
+    expect(scope.getSnapshot()).toMatchObject({ value: { preference: 'light' }, revision: 3 })
+    expect(report).toHaveBeenCalledWith('[client-store] subscriber failed:', expect.objectContaining({
+      message: 'write subscriber failed',
+    }))
+    report.mockRestore()
+  })
+
+  it('keeps the write queue usable after a failed mirror fold', async () => {
+    const describeCall = vi.fn().mockResolvedValueOnce(described({ preference: 'system' }, 1))
+    const mutate = vi.fn()
+      .mockResolvedValueOnce(ok(view({ preference: 'dark' }, 2)))
+      .mockResolvedValueOnce(ok(view({ preference: 'light' }, 3)))
+    const { mirror, scope } = derivedScope({ describe: describeCall, mutate })
+    await mirror.load()
+    vi.spyOn(mirror, 'acceptView').mockImplementationOnce(() => {
+      throw new Error('mirror fold failed')
+    })
+
+    await expect(scope.set('preference', 'dark')).rejects.toThrow('mirror fold failed')
+    await expect(scope.set('preference', 'light')).resolves.toBeUndefined()
+
+    expect(mutate).toHaveBeenCalledTimes(2)
+    expect(mutate).toHaveBeenNthCalledWith(2, {
+      ns: 'ui-test',
+      ops: [{ op: 'set', path: ['preference'], value: 'light' }],
+      expectedRevision: 1,
+    })
     expect(scope.getSnapshot()).toMatchObject({ value: { preference: 'light' }, revision: 3 })
   })
 

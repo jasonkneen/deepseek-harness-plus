@@ -55,7 +55,6 @@ async function harness(roster: Config = { default: 'standard', roots: ROOTS, inc
   return ctx
 }
 
-/** Create one agent composed from `presetId`, exactly as a factory `setup` would. */
 async function agentOn(ctx: Context, id: string, presetId?: string): Promise<Agent> {
   const handle = await ctx.agents.create({
     sessionId: SessionId(id),

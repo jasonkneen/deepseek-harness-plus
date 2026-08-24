@@ -1,14 +1,9 @@
 // @vitest-environment jsdom
-/**
- * What the section and its cards show: the empty line when no plugin
- * contributed one, a card that renders nothing while its namespace is
- * unavailable, and the save footer that decides when staged edits are written.
- */
 
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-test-runtime'
-import { createSnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
+import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
 import { AgentLoopCard } from '../src/client/AgentLoopCard.tsx'
 import type { AgentLoopCardProps } from '../src/client/AgentLoopCard.tsx'
 import { BashCard } from '../src/client/BashCard.tsx'
@@ -30,7 +25,6 @@ afterEach(cleanup)
 
 const t = (key: keyof typeof en) => en[key]
 
-/** A settled form: nothing staged, everything served. */
 const settled: CardShell = {
   available: true,
   writable: true,
@@ -40,7 +34,6 @@ const settled: CardShell = {
   failed: false,
 }
 
-/** One control's state, defaulting to an inherited value. */
 function field(text: string, rest: Partial<CardFieldState> = {}): CardFieldState {
   return { text, overridden: false, invalid: false, ...rest }
 }
@@ -60,11 +53,6 @@ function renderSection(rows: readonly PluginsSettingsTabEntry[]) {
   render(<PluginsSettingsSection {...props} />)
 }
 
-/**
- * Render the tab over the namespaces it was told to dispatch, with `cards`
- * standing in for the slot ledger: a key it names renders that text, and one
- * it does not renders nothing, exactly as an unclaimed key does.
- */
 function renderConfigurable(namespaces: string[], cards: Record<string, string> = {}, loaded = true) {
   const store = createSnapshotStore<ConfigurablePluginsTabState>({ loaded, namespaces })
   const props = {

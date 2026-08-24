@@ -21,7 +21,7 @@ import {
   type SessionInspection, type SessionPersistenceRevision as PersistenceRevision, type SessionRawArtifact,
   type StoredPrefix,
 } from '@deepseek-ai/dsh-session-persistence'
-import type { SessionEvent, SessionId, SessionHeader, SessionPreparation } from '@deepseek-ai/dsh-session'
+import type { Session, SessionEvent, SessionId, SessionHeader, SessionPreparation } from '@deepseek-ai/dsh-session'
 import {
   encodeSegment, eventLines, logPath, logSuffix, parseHeaderMeta, projectDir, scanLog, sessionDir,
   SessionLogScanner, toHeaderLine,
@@ -175,6 +175,10 @@ export class JsonlSessionPersistence extends SessionPersistence implements Persi
 
   create(meta: SessionHeader): Promise<void> {
     return this.coordinator.create(meta)
+  }
+
+  override ensureMaterialized(session: Session): Promise<void> {
+    return this.coordinator.ensureMaterialized(session)
   }
 
   append(id: SessionId, events: readonly SessionEvent[]): Promise<void> {
@@ -428,6 +432,11 @@ export class JsonlSessionPersistence extends SessionPersistence implements Persi
     }
   }
 
+  /** Materialize a header-only JSONL artifact for an explicitly durable empty session. */
+  async materializeHeader(meta: SessionHeader): Promise<void> {
+    await this.materialize(meta, [])
+  }
+
   /**
    * Make a crash repair durable: truncate a torn tail, restore complete events
    * decoded from it, then append synthetic closers. Two fsync'd steps — the seam
@@ -559,7 +568,7 @@ export class JsonlSessionPersistence extends SessionPersistence implements Persi
     // parent directory's metadata is synced.
     await this.syncDirPosix(dir)
     // Best-effort temp cleanup: the log is already published and durable, so a
-    // failure to remove the (now-redundant) temp hard link must NOT reject the
+    // failure to remove the redundant temp hard link must NOT reject the
     // append. Swallow only the rm failure; nothing else of consequence runs here.
     try {
       await rm(tmp, { force: true })
@@ -618,6 +627,9 @@ export class JsonlSessionPersistence extends SessionPersistence implements Persi
   /** Encode the header and first batch without combining their frame boundaries. */
   private async encodeMaterialization(meta: SessionHeader, events: readonly SessionEvent[]): Promise<Buffer | string> {
     const header = JSON.stringify(toHeaderLine(meta)) + '\n'
+    if (events.length === 0) {
+      return this.compression === 'none' ? header : compressZstdFrame(header)
+    }
     const body = eventLines(events, this.packChunks) + '\n'
     if (this.compression === 'none') return header + body
     const headerFrame = await compressZstdFrame(header)

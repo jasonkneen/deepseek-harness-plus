@@ -1,8 +1,6 @@
 /**
- * `@deepseek-ai/dsh-web-fetch-http`: registers an anonymous public HTTP(S)
- * `WebFetchProvider` with `ctx.web`. A function/namespace plugin (NOT a
- * default-export service): it registers INTO the seam's fetch registry, like the
- * search providers register into the search registry.
+ * Anonymous public HTTP(S) `WebFetchProvider` plugin. It contributes to the
+ * `ctx.web` registry without owning the service.
  *
  * @module @deepseek-ai/dsh-web-fetch-http
  */

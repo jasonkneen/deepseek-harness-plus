@@ -9,15 +9,16 @@
  * ui-slots): in THIS unit the map holds only this package's own merges, but
  * consumers merge more namespaces in and the intersection keeps them
  * string-typed. The rule fires on the narrow-map view, not real redundancy. */
-import type { Context } from '@deepseek-ai/cordis'
+import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import {
   type BoundActions, type LocaleDictOf, type LocaleNamespaceMap, type Translate, type TranslateNS,
 } from '@deepseek-ai/dsh-client-ui-slots'
-import type { ClientContext, SettingsScope } from '@deepseek-ai/dsh-client-runtime/client'
 // Type-only: the ctx.settingsScope Context merge and the settings slot types.
 // Cross-plugin collaboration goes through the service, never a value import
 // (client bundle purity gate).
-import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
+import type { SettingsScope } from '@deepseek-ai/dsh-client-ui-settings/client'
+// Type-only: pulls the SlotRegistry service merge (ctx.slots).
+import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import {
   LOCALE_PREFERENCE_FIELD, LOCALE_SETTINGS_NAMESPACE, type LocaleId, type LocaleSettings,
 } from '../locale-settings.ts'
@@ -146,7 +147,7 @@ export class LocaleRuntime {
   private bound = new Map<string, Translate>()
   private snapshot: LocaleSnapshot
   private listeners = new Set<() => void>()
-  private readonly ctx: Context
+  private readonly ctx: ClientContext
   private readonly host: SettingsScope<LocaleSettings> | undefined
   /** Browser-derived locale standing wherever no explicit Host selection does. */
   private readonly provisional: LocaleId
@@ -157,7 +158,7 @@ export class LocaleRuntime {
    * @param host - durable preference scope owned by the providing plugin;
    * absent compositions (standalone dictionary registries) stay process-local.
    */
-  constructor(ctx: Context, host?: SettingsScope<LocaleSettings>) {
+  constructor(ctx: ClientContext, host?: SettingsScope<LocaleSettings>) {
     this.ctx = ctx
     this.host = host
     this.provisional = resolveInitialLocale()

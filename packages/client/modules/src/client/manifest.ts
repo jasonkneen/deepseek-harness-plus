@@ -237,7 +237,7 @@ export interface DshWindow {
   __ModuleLoader__?: ClientModuleLoaderTarget
 }
 
-/** Per-module bookkeeping in {@link ClientModuleLoader.loadCache} (module-graph boundary, flat today). */
+/** Per-module bookkeeping in {@link ClientModuleLoader.loadCache} (flat module-graph boundary). */
 export interface ClientModuleRecord {
   /** Module id (entry name / package name). */
   id: string
@@ -245,7 +245,7 @@ export interface ClientModuleRecord {
   exports: unknown
   /** Owned `<style data-plugin>` tag ids (`data-plugin-css` values) injected during materialization. */
   styles: string[]
-  /** Observed `require()` edges (module-graph boundary; only table words can appear today). */
+  /** Observed `require()` edges (module-graph boundary; only table words can appear). */
   edges: Set<string>
 }
 

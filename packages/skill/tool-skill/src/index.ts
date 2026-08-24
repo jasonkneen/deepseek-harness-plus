@@ -387,7 +387,6 @@ function catalogMessage(
   return undefined
 }
 
-/** Normalized, length-bounded description exactly as the catalog publishes it (unescaped). */
 function catalogDescription(value: string, maxLength: number): string {
   const normalized = value.replaceAll(/\s+/g, ' ').trim()
   return normalized.length <= maxLength ? normalized : `${normalized.slice(0, maxLength - 3)}...`

@@ -6,16 +6,16 @@
  * sink). Package-private; the hub alone constructs it and wires the scoped
  * event listeners onto it.
  */
-import type { ClientContext, ObservableSnapshot, SnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
-import { createSnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
+import type { Context } from '@deepseek-ai/cordis'
+import {
+  createSnapshotStore, type ObservableSnapshot, type SnapshotStore,
+} from '@deepseek-ai/dsh-client-store'
 import type {
-  ArbitrateKey, ArbitrateOutcome, CommandClaim, ConsumeTokenRequest, PickOutcome,
-  ReferenceInsert, InputTriggerController, SubmitImageAttachment, SubmitOutcome, TokenSpan,
-} from '@deepseek-ai/dsh-client-ui-input-trigger/client'
-import type {
-  DraftAttachmentId, EditRange, EditSelection, InputActions, InputEffect, InputNotice, InputState,
-  PasteComponent, QueuedMessage, SessionInput, SubmitAttempt,
-} from './contract.ts'
+  ArbitrateKey, ArbitrateOutcome, CommandClaim, ConsumeTokenRequest, DraftAttachmentId,
+  EditRange, EditSelection, InputActions, InputEffect, InputNotice, InputState,
+  InputTriggerController, PasteComponent, PickOutcome, QueuedMessage, ReferenceInsert,
+  SessionInput, SubmitAttempt, SubmitImageAttachment, SubmitOutcome, TokenSpan,
+} from '../contract/input.ts'
 import type { InputSubmitMode } from '../contract/composer-submission.ts'
 import { InputMachine, projectClipboard } from './machine.ts'
 
@@ -32,7 +32,7 @@ export interface PopupDismissFace {
  */
 export interface SessionInputDeps {
   /** Session-scope ctx handed to claim.submit transactions. */
-  actx: ClientContext
+  actx: Context
   /** Enter adjudication face resolver; absent/undefined answer = every '/' line falls to the default sink. */
   inputTriggers?: (() => InputTriggerController | undefined) | undefined
   /** PopupSelect shell face resolver (dismissal on submit lock / escape). */
@@ -103,7 +103,7 @@ export class SessionInputShell implements SessionInput {
   /** One image-only send at a time: Enter during the Host round-trip is a no-op. */
   private imageSendInFlight = false
   private disposed = false
-  /** Draft persistence mirror (chat store write; receives the clipboard projection, never display-only ranges). */
+  /** Draft persistence mirror (Conversation store write; receives the clipboard projection, never display-only ranges). */
   private mirrorFn: ((text: string) => void) | undefined
 
   constructor(private readonly deps: SessionInputDeps) {
@@ -401,7 +401,7 @@ export class SessionInputShell implements SessionInput {
   }
 
   /**
-   * Bind the draft persistence mirror (chat store write). Adopt-on-bind: the
+   * Bind the draft persistence mirror (Conversation store write). Adopt-on-bind: the
    * store draft may hold a persisted value from a previous mount; the caller
    * seeds it via setDraft BEFORE binding, and afterwards every machine-adopted
    * draft mirrors out.

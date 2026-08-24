@@ -6,9 +6,10 @@ import {
   IconEditOutline16, MarkdownText,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import {
-  PendingQuestion, planReviewOf,
+  planReviewOf,
   type QuestionAnswer, type QuestionComposerProps,
 } from './contract/slots.ts'
+import type { PendingQuestion } from './contract/slots.ts'
 import { PlanReviewPanel } from './PlanReviewPanel.tsx'
 import css from './QuestionComposer.module.css'
 
@@ -114,9 +115,7 @@ function AnswerField(props: AnswerFieldProps) {
  * @returns The question flow, or the intent's own surface, for this request.
  */
 export function QuestionComposer(props: QuestionComposerProps) {
-  // Domain-face mint rides the carrier's stable identity (never minted in a
-  // select/render dispatch — per-dispatch minting would churn memo identity).
-  const question = useMemo(() => new PendingQuestion(props.matched), [props.matched])
+  const question = props.matched
   const review = useMemo(() => planReviewOf(question.questions), [question])
   return review === undefined
     ? <QuestionFlow key={question.key} pending={question} t={props.t} />
@@ -125,6 +124,10 @@ export function QuestionComposer(props: QuestionComposerProps) {
 
 function QuestionFlow({ pending, t }: { pending: PendingQuestion } & Pick<QuestionComposerProps, 't'>) {
   const questions = pending.questions
+  const markdownLabels = useMemo(() => ({
+    code: { copyLabel: t('copy'), copiedLabel: t('copied') },
+    footnotes: t('markdown.footnotes'),
+  }), [t])
   const [index, setIndex] = useState(0)
   const [drafts, setDrafts] = useState<DraftAnswer[]>(() => questions.map(() => ({
     selected: [], custom: '', skipped: false,
@@ -289,7 +292,7 @@ function QuestionFlow({ pending, t }: { pending: PendingQuestion } & Pick<Questi
           <>
             <div className={css.body} data-question-scroll>
               {question.detail !== undefined && (
-                <div className={css.detail}><MarkdownText text={question.detail} /></div>
+                <div className={css.detail}><MarkdownText text={question.detail} labels={markdownLabels} /></div>
               )}
               <div className={css.options} role={question.multiSelect === true ? 'group' : 'radiogroup'}>
                 {(question.options ?? []).map((option, optionIndex) => {

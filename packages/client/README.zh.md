@@ -10,11 +10,12 @@ dsh web GUI 的浏览器侧：shell 启动、浏览器与宿主通信、共享 U
 | [`ui-renderer/`](ui-renderer/README.zh.md) | 将 slot 数据绑定到 React，并在客户端启动稳定后挂载组装完成的应用。 |
 | [`modules/`](modules/README.zh.md) | 加载浏览器侧客户端模块。 |
 | [`connection/`](connection/README.zh.md) | 维护浏览器与宿主之间的 RPC 通信和事件传递。 |
-| [`runtime/`](runtime/README.zh.md) | 为会话、工作区和 UI 组合提供共享客户端服务。 |
 | [`hmr/`](hmr/README.zh.md) | 在开发期间刷新客户端插件。 |
 | [`locale/`](locale/README.zh.md) | 提供本地化偏好与消息词典。 |
+| [`store/`](store/README.zh.md) | 提供不依赖 React 的 observable 与 snapshot-store 基础设施。 |
 | [`test-runtime/`](../test-support/client-runtime/README.zh.md) | 为客户端功能包提供共享的仓库测试支持。 |
 | [`ui-slots/`](ui-slots/README.zh.md) | 定义 UI 功能注册和组合扩展 slot 的方式。 |
+| [`ui-session/`](ui-session/README.zh.md) | 把 Session Controller 状态适配为标准 Slot source 与 hook。 |
 | [`ui-theme/`](ui-theme/README.zh.md) | 应用所选颜色主题。 |
 | [`ui-primitives/`](ui-primitives/README.zh.md) | 提供共享 React 控件、图标和内容渲染器。 |
 | [`ui-attachment/`](ui-attachment/README.zh.md) | 注册输入框与消息图片的附件呈现。 |
@@ -23,6 +24,8 @@ dsh web GUI 的浏览器侧：shell 启动、浏览器与宿主通信、共享 U
 | [`ui-brand-official/`](ui-brand-official/README.zh.md) | 使用官方名称和标记填充通用浏览器品牌 slot。 |
 | [`ui-workspace/`](ui-workspace/README.zh.md) | 提供工作区选择与创建界面。 |
 | [`ui-conversation/`](ui-conversation/README.zh.md) | 展示当前对话及其输入界面。 |
+| [`ui-chat/`](ui-chat/README.zh.md) | 投影并渲染 Chat conversation target。 |
+| [`ui-approval/`](ui-approval/README.zh.md) | 展示审批请求并返回用户决定。 |
 | [`ui-tool/`](ui-tool/README.zh.md) | 编排工具调用树和按工具键控的视图。 |
 | [`ui-workflow-run/`](ui-workflow-run/README.zh.md) | 把持久工作流运行回放为 Chat 嵌套折叠项，并只为实时子 Session 提供导航。 |
 | [`ui-goal/`](ui-goal/README.zh.md) | 展示和管理当前目标。 |

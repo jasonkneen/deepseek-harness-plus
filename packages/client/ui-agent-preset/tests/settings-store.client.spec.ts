@@ -54,7 +54,7 @@ function fakeApi(
         if (options.failWrite !== undefined) {
           return Promise.resolve({ rpcId: 'r', result: { ok: false as const, error: { code: 'internal', message: options.failWrite, details: {} } } })
         }
-        // A committed write moves the roster's default, exactly as the host does.
+        // A committed write moves the roster's default.
         for (const preset of presets) {
           preset.isDefault = preset.id === (payload.patch as { default?: string }).default
         }

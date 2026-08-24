@@ -10,7 +10,8 @@
  */
 import { Context } from '@deepseek-ai/cordis'
 import { describe, expect, it } from 'vitest'
-import { SlotRegistry, type SessionId } from '@deepseek-ai/dsh-client-runtime/client'
+import { SlotRegistry } from '@deepseek-ai/dsh-client-ui-renderer/client'
+import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import { LocaleRuntime } from '@deepseek-ai/dsh-client-locale/client'
 import { TestRemote } from '@deepseek-ai/dsh-client-test-runtime'
 import { apply as settingsApply, inject as settingsInject } from '@deepseek-ai/dsh-client-ui-settings/client'
@@ -39,9 +40,7 @@ async function bench() {
   const locale = new LocaleRuntime(ctx)
   locale.setLocale('en')
   ctx.provide('locale', locale)
-  // The plugin injects `remote`; forwarded events reach it through the same
-  // `$dispatch` handoff the connection sink makes.
-  new TestRemote(ctx)
+  const remote = new TestRemote(ctx)
   ctx.slots.register({
     name: 'root',
     children: {
@@ -90,7 +89,7 @@ async function bench() {
   const fiber = ctx.plugin({ inject: [...inject], apply })
   await fiber.await()
   return {
-    ctx, fiber, values, commands,
+    ctx, fiber, values, commands, remote,
     setResult: (r: { ok: boolean; matched?: boolean }) => { commandResult = r },
     decoration: () => decoration,
     permissionRow: () => ctx.slots.entries('settings.general.item')
@@ -128,7 +127,7 @@ describe('ui-permission browser plugin', () => {
     const again = await c.ui.options(proj, new AbortController().signal)
     expect(again.find(option => option.id === 'workspace-write')?.active).toBe(true)
     expect(again.find(option => option.id === 'read-only')?.detail).toBe('Reads only.')
-    // Built-ins use product labels; other kebab-case names title-case.
+    // Kebab-case names title-case; non-kebab host-configured names pass through.
     expect(again.map(option => option.label)).toEqual(['Read Only', 'Workspace Write', 'Full access'])
     expect(again.find(option => option.id === 'danger-full-access')?.confirmation).toEqual({
       title: 'Enable Full access?',
@@ -137,17 +136,9 @@ describe('ui-permission browser plugin', () => {
       cancelLabel: 'Cancel',
       confirmLabel: 'Enable Full access',
     })
-    b.values.set(sid('s1'), { ...SELECT, options: [
-      { value: 'workspace-write', name: 'Project Files' },
-      { value: 'danger-full-access', name: 'Operator Mode' },
-      { value: 'custom-mode', name: 'custom-mode' },
-      { value: '__proto__', name: '__proto__' },
-      { value: 'plain', name: 'Ask Every Time' },
-    ] })
+    b.values.set(sid('s1'), { ...SELECT, options: [{ value: 'plain', name: 'Ask Every Time' }] })
     const passthrough = await c.ui.options(proj, new AbortController().signal)
-    expect(passthrough.map(option => option.label)).toEqual([
-      'Project Files', 'Operator Mode', 'Custom Mode', '__proto__', 'Ask Every Time',
-    ])
+    expect(passthrough[0]?.label).toBe('Ask Every Time')
     // A projection that vanished between availability and open throws.
     expect(() => c.ui.options({ sessionId: sid('ghost') }, new AbortController().signal))
       .toThrow(/not available on this host/)
@@ -172,8 +163,8 @@ describe('ui-permission browser plugin', () => {
   it('disposal removes the decoration (HMR safety)', async () => {
     const b = await bench()
     expect(b.decoration()).toBeDefined()
-    b.ctx.remote.$dispatch('settings/document-updated', ['another', 1])
-    b.ctx.remote.$dispatch('settings/document-updated', ['permission', 1])
+    b.remote.emit('settings/document-updated', ['another', 1])
+    b.remote.emit('settings/document-updated', ['permission', 1])
     b.ctx.emit('connection/reset')
     await b.fiber.dispose()
     expect(b.decoration()).toBeUndefined()

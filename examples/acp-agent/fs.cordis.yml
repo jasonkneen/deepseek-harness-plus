@@ -1,17 +1,13 @@
 # Filesystem-scenario overlay: the sandboxed filesystem stack already lives in
-# the base cordis.yml, so this overlay adds only the local tool-result spill
+# `dsh-base`, so this patch changes only the local tool-result spill
 # storage those scenarios exercise.
-- id: base
-  name: '@deepseek-ai/cordis-plugin-include'
+
+- id: spill-local
+  name: '@deepseek-ai/dsh-spill-local'
   config:
-    path: ./cordis.yml
-    patches:
-      - insert:
-          - id: spill-local
-            name: '@deepseek-ai/dsh-spill-local'
-            config:
-              root: !!js process.env.DSH_SNAPSHOT_SPILL_ROOT ?? './.spill'
-          - id: spill-policy
-            name: '@deepseek-ai/dsh-spill-policy'
-            config:
-              maxInlineBytes: !!js process.env.DSH_SNAPSHOT && 800 || 50000
+    root: !!js process.env.DSH_SNAPSHOT_SPILL_ROOT ?? './.spill'
+
+- id: spill-policy
+  name: '@deepseek-ai/dsh-spill-policy'
+  config:
+    maxInlineBytes: !!js process.env.DSH_SNAPSHOT && 800 || 50000

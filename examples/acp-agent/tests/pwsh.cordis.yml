@@ -8,28 +8,70 @@
 - id: subprocess
   name: '@deepseek-ai/dsh-subprocess-local'
 
-- id: bash
-  name: '@deepseek-ai/dsh-pwsh-local'
+- id: bash-sandbox
+  name: '@deepseek-ai/dsh-bash-sandbox'
+  disabled: true
+
+- id: pwsh-sandbox
+  name: '@deepseek-ai/dsh-pwsh-sandbox'
+  disabled: false
 
 - id: shell-env
   name: '@deepseek-ai/dsh-shell-env'
 
-- id: acp-agent
-  name: '@deepseek-ai/dsh-acp-demo'
+- id: acp
+  name: '@deepseek-ai/dsh-acp'
   config:
     provider: deepseek-official
     model: deepseek-v4-pro
-    persistenceRoot: !!js process.env.DSH_SNAPSHOT_SESSIONS_ROOT ?? './.sessions'
-    persistenceCompression: !!js "process.env.DSH_SNAPSHOT === undefined ? 'zstd' : 'none'"
-    workspaceContext: false
-    skills:
-      enabled: false
-    # job_output/job_kill stay mounted (the bundle's toolJobs default) so
-    # background pwsh runs are readable and killable.
-    goals: false
-    # The pwsh tool replaces the bundle's bash tool in this composition.
-    toolBash: false
+
+- id: session-persistence-jsonl
+  name: '@deepseek-ai/dsh-session-persistence-jsonl'
+  config:
+    root: !!js process.env.DSH_SNAPSHOT_SESSIONS_ROOT ?? './.sessions'
+    compression: !!js 'process.env.DSH_SNAPSHOT === undefined ? ''zstd'' : ''none'''
+
+- id: agent-instructions
+  name: '@deepseek-ai/dsh-agent-instructions'
+  disabled: true
+
+- id: system-prompt
+  name: '@deepseek-ai/dsh-system-prompt'
+  config:
     persona: You are a concise snapshot agent working in {{cwd}}.
+
+- id: goal
+  name: '@deepseek-ai/dsh-goal'
+  disabled: true
+
+- id: goal-round-driver
+  name: '@deepseek-ai/dsh-goal-round-driver'
+  disabled: true
+
+- id: command-goal
+  name: '@deepseek-ai/dsh-command-goal'
+  disabled: true
+
+- id: tool-goal
+  name: '@deepseek-ai/dsh-tool-goal'
+  disabled: true
+
+- id: skill
+  name: '@deepseek-ai/dsh-skill'
+  disabled: true
+
+- id: skill-filesystem
+  name: '@deepseek-ai/dsh-skill-filesystem'
+  disabled: true
+
+- id: tool-skill
+  name: '@deepseek-ai/dsh-tool-skill'
+  disabled: true
+
+- id: tool-bash
+  name: '@deepseek-ai/dsh-tool-bash'
+  disabled: true
 
 - id: tool-pwsh
   name: '@deepseek-ai/dsh-tool-pwsh'
+  disabled: false

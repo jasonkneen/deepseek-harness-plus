@@ -1,0 +1,5 @@
+# Additional snapshot-record patch that opts into the provider-specific session-log field.
+- id: session-log-deepseek
+  name: '@deepseek-ai/dsh-session-log-deepseek'
+  config:
+    enabled: true

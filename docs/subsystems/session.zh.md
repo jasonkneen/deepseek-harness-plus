@@ -90,8 +90,6 @@ interface SessionEventMap {
     error?: { name: string; code: string }
     meta?: JsonValue
   }
-  /** Whole-list snapshot; latest write wins on replay. Log-only UI state; never derived history. */
-  'todo/write': { todos: TodoItem[] }
   /**
    * Full header for the next request, appended inside its step before dispatch.
    * It is log-only; the latest snapshot reconstructs the request header.
@@ -129,29 +127,6 @@ interface SessionEventMap {
 ```
 
 `UserMessage` 是普通提示词、注入上下文、steering（中途引导）与实时收件箱事件共享的带标识且冻结的 user-role 值。事件包装层只会增加事件本地的位置或结果事实；条目待处理期间，loop 只额外附加驱动器自有的路由状态。
-
-### `TodoItem`：一条待办项
-
-这是 `todo/write` 事件全量列表快照中的单元。它有意保持精简：一行 `content` 加一个三态 `status`（没有 id、优先级或 `activeForm`）；列表在每次写入时整体替换，因此条目无需稳定标识。见 [todo_write Agent Note](../../.agents/notes/implemented/feature/2026-06-29-todo-write-tool.zh.md)。
-
-```ts type-equiv
-/**
- * One entry in an agent's todo list — the unit of the `todo/write`
- * {@link SessionEventMap} event's whole-list snapshot.
- *
- * Deliberately minimal: a human-readable `content` line and a three-state
- * `status`. No id, priority, or `activeForm` — the list is replaced wholesale
- * on every write (last-write-wins), so entries need no stable identity. The
- * three statuses describe the complete portable lifecycle needed by model and
- * UI consumers.
- */
-interface TodoItem {
-  /** What this task is — a short imperative line shown in the UI. */
-  content: string
-  /** Lifecycle state. `in_progress` marks a task being worked now; parallel work may mark several. */
-  status: 'pending' | 'in_progress' | 'completed'
-}
-```
 
 <a id="the-request-header-event-requestheader"></a>
 
@@ -602,7 +577,7 @@ interface TurnEndReasonMap {
 
 插件可以通过 declaration merging 添加额外的 `SessionEventMap` 类型。这些是**仅日志**事件：不是 `SurfaceEventType`（不携带 `surfaceOp`，不参与派生历史）。事件所有方决定它们属于一个开放的执行轮次，还是可以独立位于轮次之间，并在自己的不变量配套插件中强制所需关系。生成的[持久化日志事件目录](../persistence-catalog.zh.md)会列出每个核心或插件贡献的事件，以及其 payload、surface 标记和声明位置；压缩 seam 的 `compaction/*` 语义在 [compaction.md](compaction.zh.md) 中讨论。
 
-如果同一个插件事件族中的多条事件要组装成一个 Web Client Conversation Node，该事件族中的每条 start、update、result、resource 或 interruption 事件都必须携带或独立推导出同一个稳定业务 id。此要求只约束需要关联的 Node 事件族，并不要求每条 Session 事件都有业务 id；Client 因此无须根据相邻关系猜测归属，也无须扫描历史。参见 [Conversation Node 实操手册](../cookbook/adding-a-conversation-node.zh.md)。
+如果同一个插件事件族中的多条事件要组装成一个 Web Client Conversation Node，该事件族中的每条 start、update、result、resource 或 interruption 事件都必须携带或独立推导出同一个稳定业务 id。此要求只约束需要关联的 Node 事件族，并不要求每条 Session 事件都有业务 id；Client 因此无须根据相邻关系猜测归属，也无须扫描历史。参见 [Conversation 子系统](conversation.zh.md)。
 
 钩子桥接层的 `hook/invoked` / `hook/result` 对（来自 `@deepseek-ai/dsh-hook-protocol`）通过 `handlerId` 关联。`UserPromptSubmit`、`PreToolUse`、`PostToolUse` 与 `Stop` 在 loop 已打开的轮次内触发，因此其 `hook/*` 记录天然位于轮次之内。`SessionStart` 不生成 `hook/*` 记录，因为它在轮次 1 之前运行；其上下文会在 inbox 中保持待处理，直到唤醒交付打开一个轮次（见[钩子桥接 Agent Note](../../.agents/notes/implemented/feature/2026-06-30-hook-bridges.zh.md)）。
 
@@ -619,6 +594,136 @@ interface TurnEndReasonMap {
 ## Cordis API
 
 Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnpm run verify-cordis-catalog` in doc-sync; regenerate with `pnpm run gen-cordis-catalog`) — the language sides differ only in locale-specific paired document paths. Signature blocks use a `ts cordis-catalog` fence and keep the original source JSDoc; dispatch modes are defined in the [primer](../cordis-primer.zh.md#dispatch-modes), and the framework-inherited `ctx` API lives in [cordis-api/inherited.md](../cordis-api/inherited.md).
+
+<a id="ctxsessioncontroller--sessioncontroller"></a>
+
+### `ctx.sessionController` — `SessionController`
+
+Host service backing the generated `ctx.remote.session` namespace.
+
+```ts cordis-catalog
+/**
+ * Resolve or resume one ordinary Session for another Host API domain.
+ * @param sessionId - Session identity whose Agent owns the operation.
+ * @returns the live Agent or the stable Session-domain failure.
+ */
+resolveAgent(sessionId: SessionId): Promise<ApiSessionAgentResult>
+
+/**
+ * Inspect one attached or persisted Session without activating its Agent.
+ * @param sessionId - durable Session identity.
+ * @param signal - optional caller cancellation for persistence reads.
+ * @returns the current attached state or persisted header and event prefix.
+ */
+inspect( sessionId: SessionId, signal?: AbortSignal, ): Promise<{ meta: SessionHeader; events: SessionEvent[] }>
+
+/**
+ * Read all visible Session rows without resuming an Agent.
+ * @param _request - reserved empty list request.
+ * @param signal - cancellation for persistence reads.
+ * @returns visible Session summaries ordered by activity.
+ */
+@Remote('list') async list(_request: SessionListRequest, signal: AbortSignal): Promise<SessionListValue>
+
+/**
+ * Search visible Session content without resuming an Agent.
+ * @param request - literal message-content query.
+ * @param signal - cancellation for list and search reads.
+ * @returns authorized bounded Session search results.
+ */
+@Remote('search') search(request: SessionSearchRequest, signal: AbortSignal): Promise<SessionSearchValue>
+
+/**
+ * Create or idempotently adopt one ordinary Session.
+ * @param request - requested identity, location, and Agent preset.
+ * @returns the Session identity and resolved preset when configured.
+ */
+@Remote('create') create(request: SessionCreateRequest): Promise<SessionCreateValue>
+
+/**
+ * Read model choices after explicitly resuming the addressed Session.
+ * @param request - Session whose model state is requested.
+ * @returns the current selection and available model groups.
+ */
+@Remote('models') models(request: SessionModelsRequest): Promise<SessionModels>
+
+/**
+ * Select one Session-local model after explicitly resuming the Session.
+ * @param request - Session identity and requested model selection.
+ * @returns the normalized selection installed for the Session.
+ */
+@Remote('selectModel') selectModel(request: SessionSelectModelRequest): Promise<SessionSelectModelValue>
+
+/**
+ * Rename one Session after explicitly resuming it.
+ * @param request - Session identity and proposed title.
+ * @returns the accepted title and durable event sequence.
+ */
+@Remote('rename') rename(request: SessionRenameRequest): Promise<SessionRenameValue>
+
+/**
+ * Fork one cold-readable completed-turn prefix into a new Session.
+ * @param request - source Session and optional event anchor.
+ * @returns the new Session identity.
+ */
+@Remote('fork') fork(request: SessionForkRequest): Promise<SessionForkValue>
+
+/**
+ * Admit one prompt after explicitly resuming its Session.
+ * @param request - Session identity, prompt content, source metadata, and delivery mode.
+ * @param signal - caller cancellation before prompt admission begins.
+ * @returns acknowledgement that the Agent accepted the prompt.
+ */
+@Remote('prompt') prompt(request: SessionPromptRequest, signal: AbortSignal): Promise<SessionPromptValue>
+
+/**
+ * Read one image proven reachable from the addressed Session log.
+ * @param request - Session and attachment identities used for authorization.
+ * @returns the durable attachment reference and base64-encoded bytes.
+ */
+@Remote('attachment') attachment(request: SessionAttachmentRequest): Promise<SessionAttachmentValue>
+
+/**
+ * Mutate one still-pending queue occurrence on a live Agent.
+ * @param request - Session, queue item, and requested mutation.
+ * @returns acknowledgement that the queue mutation was applied.
+ */
+@Remote('updateQueue') updateQueue(request: SessionUpdateQueueRequest): SessionUpdateQueueValue
+
+/**
+ * Cancel one active Agent turn without dropping its pending inbox.
+ * @param request - Session whose active Agent turn is cancelled.
+ * @returns acknowledgement that cancellation was requested.
+ */
+@Remote('cancel') cancel(request: SessionCancelRequest): SessionCancelValue
+
+/**
+ * Read one cold-safe, message-aligned Session history page.
+ * @param request - durable address, backward cursor, and page budget.
+ * @param signal - cancellation for persistence and presentation reads.
+ * @returns one chronological page and optional latest projections.
+ */
+@Remote('page') page(request: SessionPageRequest, signal: AbortSignal): Promise<SessionPage>
+
+/**
+ * Follow one Session log from its opening or resume cursor.
+ * @param request - durable address and last committed sequence already held by the caller.
+ * @param signal - cancellation owned by the Remote stream carrier.
+ * @returns an opened cursor followed by gap-free event frames.
+ */
+@Remote({ mode: 'stream' }) follow(request: SessionFollowRequest, signal: AbortSignal): AsyncIterable<SessionFollowFrame>
+
+/**
+ * Stream a complete live-control baseline followed by replacement frames.
+ * @param signal - cancellation owned by the Remote stream carrier.
+ * @returns one complete baseline followed by live replacement frames.
+ */
+@Remote({ mode: 'stream' }) control(signal: AbortSignal): AsyncIterable<SessionControlFrame>
+```
+
+Types: [SessionHeader](persistence.zh.md) · [SessionId](core.zh.md) · [SessionSearchRequest](session-query.zh.md)
+
+Source: [`packages/api/session-controller/src/index.ts`](../../packages/api/session-controller/src/index.ts)
 
 <a id="ctxsessions--sessionstore"></a>
 
@@ -755,6 +860,106 @@ fork(source: SessionForkSource, boundary?: number, childSessionId?: SessionId): 
 Types: [CreateSessionOptions](persistence.zh.md) · [PrepareSessionOptions](persistence.zh.md) · [SessionId](core.zh.md)
 
 Source: [`packages/core/session/src/index.ts`](../../packages/core/session/src/index.ts)
+
+<a id="api-session-events"></a>
+
+### `api-session/*` events
+
+<a id="api-sessionactivity--emit"></a>
+
+#### `api-session/activity` — emit
+
+One user-authored durable message advanced Session list activity.
+
+```ts cordis-catalog
+/**
+ * One user-authored durable message advanced Session list activity.
+ * @mode emit
+ * @param sessionId - addressed Session identity.
+ * @param updatedAt - durable message time used for list ordering.
+ */
+'api-session/activity'(sessionId: SessionId, updatedAt: number): void
+```
+
+Types: [SessionId](core.zh.md)
+
+Source: [`packages/api/session-controller/src/types.ts`](../../packages/api/session-controller/src/types.ts)
+
+<a id="api-sessionadded--emit"></a>
+
+#### `api-session/added` — emit
+
+A Session became visible to Session list consumers.
+
+```ts cordis-catalog
+/**
+ * A Session became visible to Session list consumers.
+ * @mode emit
+ * @param summary - initial list row for the Session.
+ */
+'api-session/added'(summary: SessionSummary): void
+```
+
+Source: [`packages/api/session-controller/src/types.ts`](../../packages/api/session-controller/src/types.ts)
+
+<a id="api-sessionerror--emit"></a>
+
+#### `api-session/error` — emit
+
+One Agent failed outside a durable turn position.
+
+```ts cordis-catalog
+/**
+ * One Agent failed outside a durable turn position.
+ * @mode emit
+ * @param sessionId - Agent and Session identity.
+ * @param message - user-safe failure chain.
+ */
+'api-session/error'(sessionId: SessionId, message: string): void
+```
+
+Types: [SessionId](core.zh.md)
+
+Source: [`packages/api/session-controller/src/types.ts`](../../packages/api/session-controller/src/types.ts)
+
+<a id="api-sessionremoved--emit"></a>
+
+#### `api-session/removed` — emit
+
+A Session left the live Host registry.
+
+```ts cordis-catalog
+/**
+ * A Session left the live Host registry.
+ * @mode emit
+ * @param sessionId - removed Session identity.
+ */
+'api-session/removed'(sessionId: SessionId): void
+```
+
+Types: [SessionId](core.zh.md)
+
+Source: [`packages/api/session-controller/src/types.ts`](../../packages/api/session-controller/src/types.ts)
+
+<a id="api-sessionstatus--emit"></a>
+
+#### `api-session/status` — emit
+
+One Agent changed running state.
+
+```ts cordis-catalog
+/**
+ * One Agent changed running state.
+ * @mode emit
+ * @param sessionId - Agent and Session identity.
+ * @param running - whether the Agent is running.
+ */
+'api-session/status'(sessionId: SessionId, running: boolean): void
+```
+
+Types: [SessionId](core.zh.md)
+
+Source: [`packages/api/session-controller/src/types.ts`](../../packages/api/session-controller/src/types.ts)
 
 <a id="session-events"></a>
 

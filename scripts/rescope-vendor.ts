@@ -77,8 +77,6 @@ interface GenericSkip {
 }
 
 const GENERIC_SKIPS: readonly GenericSkip[] = [
-  // `vendorPackages` lists vendor/ directory names, joined with 'vendor' below it.
-  { file: 'packages/examples/acp-demo/tests/built-bin.e2e.ts', upstream: ['cordis', 'cosmokit', 'schemastery'] },
   // `Symbol.for('schemastery')` and the `vendor:` metadata field are upstream identifiers.
   { file: 'vendor/schemastery/src/index.ts', upstream: ['schemastery'] },
   // Asserts the vendored-manifest table, which gains an upstream-name column.
@@ -161,7 +159,6 @@ const POSTCONDITIONS: readonly PostCondition[] = [
   // The preset id the shipped composition documents to its own model.
   { file: 'apps/cli/config/agent-presets/cordis/agent.cordis.yml', text: 'The `cordis` agent preset', count: 1 },
   { file: 'apps/cli/config/agent-presets/cordis/agent.cordis.yml', text: 'corrupting the `cordis` preset', count: 1 },
-  { file: 'packages/examples/acp-demo/tests/built-bin.e2e.ts', text: '\'cordis\', \'loader\', \'include\', \'timer\', \'hmr\', \'logger-console\',', count: 1 },
 ]
 
 /**
@@ -205,12 +202,12 @@ const EXACT_EDITS: readonly ExactEdit[] = [
         "@deepseek-ai/.+"
       ]
     },
-    "packages/util/home": {`,
+    "packages/host/directory-picker-auto": {`,
     replace: `      "ignoreDependencies": [
         "@deepseek-ai/.+"
       ]
     },
-    "packages/util/home": {`,
+    "packages/host/directory-picker-auto": {`,
     expect: 1,
   },
   {
@@ -348,7 +345,7 @@ const VENDORED_LIBRARY = /^@deepseek-ai\\/(cosmokit|schemastery)(\\/|$)/
     id: 'vendoring-cookbook-name-invariant-zh',
     file: 'docs/cookbook/adding-a-vendored-package.zh.md',
     find: '保留上游的 `name`/`version`/`exports`/`type`',
-    replace: '改写 `name` 的 scope（[映射](../rescope.md)），保留上游的 `version`/`exports`/`type`',
+    replace: '改写 `name` 的 scope（[映射](../rescope.zh.md)），保留上游的 `version`/`exports`/`type`',
     expect: 1,
   },
   {
@@ -431,24 +428,6 @@ const VENDORED_LIBRARY = /^@deepseek-ai\\/(cosmokit|schemastery)(\\/|$)/
     file: 'scripts/gen-third-party-notices.spec.ts',
     find: 'parseVendoredRows(\'| `cordis/` | cordis | 4.0.0 | https://example.com | `abc123` |\\n\')',
     replace: 'parseVendoredRows(\'| `cordis/` | `@deepseek-ai/cordis` | cordis | 4.0.0 | https://example.com | `abc123` |\\n\')',
-    expect: 1,
-  },
-  {
-    // The framework peer is no longer a registry name, so the rehearsal must install this
-    // repository's vendored copies; cosmokit comes along as cordis's own dependency.
-    id: 'packed-install-vendored-peer',
-    file: 'packages/sandbox/sandbox-local/tests/packed-install.e2e.ts',
-    find: `  'packages/runtime-diagnostics/invariants',
-]`,
-    replace: `  'packages/runtime-diagnostics/invariants',
-  // The framework and the vendored packages the closure declares outright:
-  // rescoped into @deepseek-ai, so the consumer installs this repository's
-  // copies. Schemastery is a hard dependency of three members above, not a
-  // peer, so npm resolves it while installing them.
-  'vendor/cordis',
-  'vendor/cosmokit',
-  'vendor/schemastery',
-]`,
     expect: 1,
   },
   {
@@ -552,7 +531,7 @@ function rewriteLine(line: string, file: string, all: readonly Pattern[]): strin
  * Markdown splits in two. Every fence is code a reader copies or a
  * configuration they mount, so every fence follows the rename regardless of its
  * info string. Prose follows it only under `docs/`, where a sentence quoting
- * `` `cordis` `` teaches a name this repository no longer resolves; elsewhere
+ * `` `cordis` `` teaches an unresolved package name; elsewhere
  * prose is a record of what was true when it was written, and the same spelling
  * can mean something else entirely — the Python SDK's `cordis` option, or the
  * unvendored `@cordisjs/plugin-http`.

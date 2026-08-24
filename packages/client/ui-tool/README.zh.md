@@ -46,4 +46,4 @@ owner 载荷为 `ToolCallOwnerProps`：`callId`、`toolName`、冻结的 `block`
 
 - Host 不把 `run_code` 暴露为 Code Mode 程序 binding，因此生产事件只产生一层分发；递归的运行时/UI 约定支持嵌套。
 - 第一方工具视图集中在本包，可以通过 keyed slot 独立迁移到各自所属的业务包。
-- 工具文案复用 `ui-conversation` locale namespace。
+- 工具标题、行 chrome 与每个 Cordis-free 原子组件 label 都复用 `ui-conversation` locale namespace；presenter 模型保留 locale key 或数据，而不保留渲染后的措辞。

@@ -90,7 +90,7 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 }[T]
 ```
 
-Sources: [`packages/core/session/src/types.ts:340`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:347`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:376`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:408`](../packages/core/session/src/types.ts)
+Sources: [`packages/core/session/src/types.ts:321`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:328`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:357`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:389`](../packages/core/session/src/types.ts)
 
 ## Events
 
@@ -115,7 +115,7 @@ Sources: [`packages/core/session/src/types.ts:340`](../packages/core/session/src
 }
 ```
 
-Source: [`packages/core/agent/src/types.ts:36`](../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:66`](../packages/core/agent/src/types.ts)
 
 ### `agent-preset/*`
 
@@ -160,7 +160,7 @@ Source: [`packages/preset/agent-presets/src/session.ts:26`](../packages/preset/a
 
 Types: [CallId](subsystems/core.md)
 
-Source: [`packages/interaction/user-approval/src/index.ts:44`](../packages/interaction/user-approval/src/index.ts)
+Source: [`packages/interaction/user-approval/src/types.ts:44`](../packages/interaction/user-approval/src/types.ts)
 
 <a id="approvaldecided--log-only"></a>
 
@@ -178,7 +178,7 @@ Source: [`packages/interaction/user-approval/src/index.ts:44`](../packages/inter
 }
 ```
 
-Source: [`packages/interaction/user-approval/src/index.ts:55`](../packages/interaction/user-approval/src/index.ts)
+Source: [`packages/interaction/user-approval/src/types.ts:55`](../packages/interaction/user-approval/src/types.ts)
 
 <a id="approvalpolicy--log-only"></a>
 
@@ -200,7 +200,7 @@ Source: [`packages/interaction/user-approval/src/index.ts:55`](../packages/inter
 }
 ```
 
-Source: [`packages/interaction/user-approval/src/index.ts:67`](../packages/interaction/user-approval/src/index.ts)
+Source: [`packages/interaction/user-approval/src/index.ts:32`](../packages/interaction/user-approval/src/index.ts)
 
 ### `assistant/*`
 
@@ -215,7 +215,7 @@ Source: [`packages/interaction/user-approval/src/index.ts:67`](../packages/inter
 
 Types: [StreamChunk](subsystems/llm-streaming.md)
 
-Source: [`packages/core/session/src/types.ts:266`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:249`](../packages/core/session/src/types.ts)
 
 <a id="assistantmessage--surface"></a>
 
@@ -237,7 +237,7 @@ Source: [`packages/core/session/src/types.ts:266`](../packages/core/session/src/
 
 Types: [TokenUsage](subsystems/llm-streaming.md)
 
-Source: [`packages/core/session/src/types.ts:277`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:260`](../packages/core/session/src/types.ts)
 
 ### `command/*`
 
@@ -506,18 +506,15 @@ Source: [`packages/llm/llm-retry/src/types.ts:11`](../packages/llm/llm-retry/src
 
 ```ts persistence-catalog
 /**
- * Records the selected preset and whether it came from the session
- * default, an explicit selection, or legacy-knob inference. The knob
+ * Records the selected preset as durable, log-only user intent. The knob
  * events follow in the same turn and control execution; this event stays
  * out of the model transcript and lets {@link effectivePermissionPreset}
- * preserve a selection when bundles match. `origin` is optional so logs
- * written before origin tracking remain readable but are never mistaken
- * for refreshable defaults.
+ * preserve a selection when bundles match.
  */
-'permission/preset': { preset: string; origin?: 'default' | 'selection' | 'inferred' }
+'permission/preset': { preset: string }
 ```
 
-Source: [`packages/interaction/permission-presets/src/index.ts:53`](../packages/interaction/permission-presets/src/index.ts)
+Source: [`packages/interaction/permission-presets/src/index.ts:50`](../packages/interaction/permission-presets/src/index.ts)
 
 ### `plan/*`
 
@@ -550,7 +547,7 @@ Source: [`packages/plan/plan-mode/src/index.ts:53`](../packages/plan/plan-mode/s
 'request/context': RequestContext
 ```
 
-Source: [`packages/core/session/src/types.ts:313`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:294`](../packages/core/session/src/types.ts)
 
 <a id="requestheader--log-only"></a>
 
@@ -564,7 +561,7 @@ Source: [`packages/core/session/src/types.ts:313`](../packages/core/session/src/
 'request/header': { header: EpochHeader; reason: RequestHeaderReason }
 ```
 
-Source: [`packages/core/session/src/types.ts:308`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:289`](../packages/core/session/src/types.ts)
 
 ### `sandbox/*`
 
@@ -639,7 +636,7 @@ Source: [`packages/schedule/schedule/src/types.ts:219`](../packages/schedule/sch
 'session/end-seed': Record<string, never>
 ```
 
-Source: [`packages/core/session/src/types.ts:336`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:317`](../packages/core/session/src/types.ts)
 
 <a id="sessiontitle--log-only"></a>
 
@@ -670,6 +667,24 @@ Types: [SessionTitleLlmRequestEventData](subsystems/session-title.md)
 
 Source: [`packages/session/session-title-llm/src/index.ts:43`](../packages/session/session-title-llm/src/index.ts)
 
+### `session-log-deepseek/*`
+
+<a id="session-log-deepseekdelivery-accepted--log-only"></a>
+
+#### `session-log-deepseek/delivery-accepted` — log-only
+
+```ts persistence-catalog
+/** Records that the configured endpoint accepted one delivery through `throughSeq`. */
+'session-log-deepseek/delivery-accepted': {
+  /** Session identity the accepted delivery carried; inherited fork markers retain the parent's id. */
+  sessionId: import('@deepseek-ai/dsh-session/types').SessionId
+  /** Last canonical event included in the accepted request. */
+  throughSeq: number
+}
+```
+
+Source: [`packages/session/session-log-deepseek/src/types.ts:26`](../packages/session/session-log-deepseek/src/types.ts)
+
 ### `step/*`
 
 <a id="stepend--log-only"></a>
@@ -681,7 +696,7 @@ Source: [`packages/session/session-title-llm/src/index.ts:43`](../packages/sessi
 'step/end': { turn: number; step: number }
 ```
 
-Source: [`packages/core/session/src/types.ts:256`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:239`](../packages/core/session/src/types.ts)
 
 <a id="stepstart--log-only"></a>
 
@@ -692,7 +707,7 @@ Source: [`packages/core/session/src/types.ts:256`](../packages/core/session/src/
 'step/start': { turn: number; step: number }
 ```
 
-Source: [`packages/core/session/src/types.ts:254`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:237`](../packages/core/session/src/types.ts)
 
 ### `subagent/*`
 
@@ -783,9 +798,9 @@ Source: [`packages/experimental/agent-team/src/types.ts:208`](../packages/experi
 'todo/write': { todos: TodoItem[] }
 ```
 
-Types: [TodoItem](subsystems/session.md)
+Types: [TodoItem](subsystems/todo.md)
 
-Source: [`packages/core/session/src/types.ts:303`](../packages/core/session/src/types.ts)
+Source: [`packages/todo/tool-todo/src/types.ts:31`](../packages/todo/tool-todo/src/types.ts)
 
 ### `tool/*`
 
@@ -804,7 +819,7 @@ Source: [`packages/core/session/src/types.ts:303`](../packages/core/session/src/
 
 Types: [CallId](subsystems/core.md)
 
-Source: [`packages/core/session/src/types.ts:283`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:266`](../packages/core/session/src/types.ts)
 
 <a id="toolcode-dispatch--log-only"></a>
 
@@ -879,7 +894,7 @@ Source: [`packages/core/tools/src/types.ts:40`](../packages/core/tools/src/types
 }
 ```
 
-Source: [`packages/core/session/src/types.ts:295`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:278`](../packages/core/session/src/types.ts)
 
 ### `tool-workflow/*`
 
@@ -959,7 +974,7 @@ Source: [`packages/workflow/tool-workflow/src/types.ts:47`](../packages/workflow
 
 Types: [TurnEndReason](subsystems/session.md)
 
-Source: [`packages/core/session/src/types.ts:252`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:235`](../packages/core/session/src/types.ts)
 
 <a id="turnstart--log-only"></a>
 
@@ -975,7 +990,7 @@ Source: [`packages/core/session/src/types.ts:252`](../packages/core/session/src/
 'turn/start': { turn: number }
 ```
 
-Source: [`packages/core/session/src/types.ts:243`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:226`](../packages/core/session/src/types.ts)
 
 ### `user/*`
 
@@ -994,7 +1009,7 @@ Source: [`packages/core/session/src/types.ts:243`](../packages/core/session/src/
 'user/message': UserMessage
 ```
 
-Source: [`packages/core/session/src/types.ts:264`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:247`](../packages/core/session/src/types.ts)
 
 ### `web/*`
 

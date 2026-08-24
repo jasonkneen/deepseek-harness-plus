@@ -21,7 +21,7 @@ Two boundaries stay deliberately out of scope: reachability is the webserver bin
 
 - **Per-RPC guards (status quo extended).** Rejected: the guard list trails the method list forever, the highest-value methods were already unguarded, and a loopback rule on browse RPCs would break the remote deployments they exist for.
 - **CORS headers + credential omission.** Rejected: we never want cross-origin reads at all, so answering preflights only widens the surface; refusing them is strictly stronger and simpler.
-- **Auth tokens now.** Rejected for this change: token minting/storage/rotation is real product surface; the fence closes the browser-deputy holes today without pre-deciding the auth design.
+- **Authentication tokens.** Rejected for this change: token minting/storage/rotation is real product surface; the fence closes the browser-deputy holes without pre-deciding the auth design.
 
 ## Consequences
 

@@ -7,15 +7,18 @@
  */
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render } from '@testing-library/react'
-import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-test-runtime'
+import type { Context } from '@deepseek-ai/cordis'
+import type { SessionSnapshot } from '@deepseek-ai/dsh-api-session-controller/client'
+import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
 import {
-  createSnapshotStore, EMPTY_CHAT_SNAPSHOT, EMPTY_CONVERSATION_VIEWS,
-} from '@deepseek-ai/dsh-client-runtime/client'
-import type { ClientContext, ConversationSnapshot, SessionId } from '@deepseek-ai/dsh-client-runtime/client'
+  bindSnapshotSelector, conversationSnapshot, sessionSnapshot,
+} from '@deepseek-ai/dsh-client-test-runtime'
+import type { SessionPendingInteractionSnapshot } from '@deepseek-ai/dsh-client-ui-session/client'
+import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { SubmitImageAttachment, SubmitOutcome } from '@deepseek-ai/dsh-client-ui-input-trigger/client'
 import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
 import { zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/zh.ts'
-import type { DraftAttachmentId } from '../src/client/input/contract.ts'
+import type { DraftAttachmentId } from '../src/client/contract/input.ts'
 import { SessionInputShell } from '../src/client/input/facade.ts'
 import { InputBar } from '../src/client/skeleton/InputBar.tsx'
 import type { InputBarProps } from '../src/client/skeleton/InputBar.tsx'
@@ -23,31 +26,33 @@ import { zh } from '../src/client/locales.ts'
 
 afterEach(cleanup)
 
-const SCTX = {} as ClientContext
+const SCTX = {} as Context
 const SID = 's1' as SessionId
 
 /** Standard-props InputBar mount over a real shell (the composer-bar entry shape). */
 function mountBar(shell: SessionInputShell, over?: { running?: boolean; disabled?: boolean }) {
-  const session = createSnapshotStore<ConversationSnapshot>({
-    sessionId: SID, views: EMPTY_CONVERSATION_VIEWS, chat: EMPTY_CHAT_SNAPSHOT,
-    nodes: [], turnTimings: new Map(), turnEnds: new Map(), partial: null, runningCalls: [],
-    pending: [], queue: [], running: over?.running ?? false, composerPhase: 'active',
-    removed: over?.disabled ?? false, openState: 'open', openError: null, hasMore: false,
-    loadingOlder: false, promptError: null, blank: false, subagent: null, lastAgentError: null,
+  const session = createSnapshotStore<SessionSnapshot>({
+    ...sessionSnapshot(SID),
+    running: over?.running ?? false,
+    removed: over?.disabled ?? false,
   })
   const props: InputBarProps = {
     sessionId: SID,
-    SessionProvider: ({ children }) => children(SID),
+    SessionProvider: ({ children }) => children,
     useSession: bindSnapshotSelector(session),
     useSessions: bindSnapshotSelector(createSnapshotStore({
       ids: [], byId: {}, current: undefined, phase: 'ready',
       subagentsByParent: {}, jobsBySession: {}, currentAddress: undefined,
     })),
+    useSessionPendingInteraction: bindSnapshotSelector(
+      createSnapshotStore<SessionPendingInteractionSnapshot>(new Map()),
+    ),
     useWorkspaces: bindSnapshotSelector(createSnapshotStore({
       items: [], archivedSessionIds: [], state: 'idle', phase: 'ready', error: null,
       baselinesReady: true, recentWorkspaceId: undefined,
     })),
     useProjection: (() => undefined),
+    useConversation: bindSnapshotSelector(createSnapshotStore(conversationSnapshot())),
     useInput: bindSnapshotSelector(shell.state),
     inputActions: shell.actions,
     keyboard: shell,
@@ -67,7 +72,6 @@ function mountBar(shell: SessionInputShell, over?: { running?: boolean; disabled
     renderSlot: (() => null) as InputBarProps['renderSlot'],
     stop: vi.fn(),
     command: () => Promise.resolve(true),
-    // Mirrors the real lookup chain (conversation namespace, then common).
     t: makeTranslate(zh, commonZh),
     variant: 'composer',
   }

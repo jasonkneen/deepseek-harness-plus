@@ -145,11 +145,10 @@ export interface Scenario {
    */
   headerClass?: string
   /**
-   * Alternate LIVE config path (absolute) this scenario boots instead of
-   * {@link AgentUnderTest.configPath} — an overlay composing a different
-   * tree (its basename must still end in `cordis.yml` so the bin's replay
-   * swap finds the sibling `*cordis.snapshot.yml`). A scenario whose
-   * overlay changes the composed header also needs its own
+   * Alternate live profile patch (absolute) this scenario boots instead of
+   * {@link AgentUnderTest.configPath}. Its basename must still end in
+   * `cordis.yml` so the launcher finds the replay sibling. A scenario whose
+   * patch changes the composed header also needs its own
    * {@link headerClass}.
    */
   configPath?: string
@@ -1194,8 +1193,8 @@ export function defineAcpSnapshotSuite(options: SnapshotSuiteOptions): void {
           ...existsSync(workspaceDir) ? { workspaceDir } : {},
           ...scenario.prepareWorkspace !== undefined ? { prepareWorkspace: scenario.prepareWorkspace } : {},
           ...scenario.workspaceParent !== undefined ? { workspaceParent: scenario.workspaceParent } : {},
-          // A scenario booting an overlay tree passes its own live config; the
-          // bin's replay swap derives the sibling `*cordis.snapshot.yml` from it.
+          // A scenario passes its live profile patch; the launcher derives
+          // the sibling `*cordis.snapshot.yml` for replay.
           ...scenario.configPath !== undefined ? { configPath: scenario.configPath } : {},
         })
 

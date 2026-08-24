@@ -72,7 +72,7 @@ Methods whose signatures contain only branded ids do not invoke Typert object lo
 
 ## Client and error behavior
 
-Generated Remote methods return business values and throw an Error whose `cause` contains the existing RPC failure. Client business services own adaptation to their current result/store interfaces. They must settle successful results immediately exactly as they do today so event frames remain idempotent replays rather than the only update path.
+Generated Remote methods return business values and throw an Error whose `cause` contains the existing RPC failure. Client business services own adaptation to their current result/store interfaces. They must settle successful results immediately exactly as the existing services do so event frames remain idempotent replays rather than the only update path.
 
 Resolver-owned `session-not-found` and `agent-busy` errors remain stable because the shared resolver raises `TypertLookupFailure`. Ordinary business exceptions become the Gateway's existing `internal` RPC failure. A selected Client consumer may migrate only if it does not branch on a more specific legacy business error code; if implementation finds such a branch, that RPC leaves this set unless the business package gains a transport-independent typed failure.
 

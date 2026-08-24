@@ -6,7 +6,7 @@
  * is the only extra dimension.
  */
 import type { CommandDescriptor } from '@deepseek-ai/dsh-commands/types'
-import type { SessionId } from '@deepseek-ai/dsh-client-runtime/client'
+import type { SessionId } from '@deepseek-ai/dsh-session/types'
 
 export type { CommandDescriptor } from '@deepseek-ai/dsh-commands/types'
 

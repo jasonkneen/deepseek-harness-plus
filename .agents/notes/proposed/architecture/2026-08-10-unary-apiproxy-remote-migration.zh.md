@@ -72,7 +72,7 @@ Lookup 策略作用于整个 key，而非特定端点。提示词输入、队列
 
 ## Client 与错误行为
 
-生成的 Remote 方法返回业务值，并抛出一个 Error，其 `cause` 包含现有的 RPC 失败。Client 业务服务负责适配到当前的结果／store 接口。它们必须像当前一样让成功结果立即生效，使事件帧仍是幂等回放，而非唯一的更新路径。
+生成的 Remote 方法返回业务值，并抛出一个 Error，其 `cause` 包含现有的 RPC 失败。Client 业务服务负责适配到当前的结果／store 接口。它们必须与现有服务一样让成功结果立即生效，使事件帧仍是幂等回放，而非唯一的更新路径。
 
 Resolver 拥有的 `session-not-found` 和 `agent-busy` 错误保持稳定，因为共享 resolver 会抛出 `TypertLookupFailure`。普通业务异常会变成 Gateway 现有的 `internal` RPC 失败。只有在选定的 Client 消费方不根据更具体的旧版业务错误码进行分支时，才能迁移该调用；如果实现过程中发现这种分支，除非业务包新增与传输无关的类型化失败，否则该 RPC 将退出此集合。
 

@@ -1,0 +1,58 @@
+[
+  {
+    "model": "smoke-model",
+    "messages": [
+      {
+        "role": "system",
+        "content": "{{system}}"
+      },
+      {
+        "role": "user",
+        "content": "Complete the first isolated Python SDK process turn."
+      }
+    ],
+    "toolNames": [
+      "cordis_define",
+      "cordis_inspect_list",
+      "cordis_inspect_query",
+      "cordis_inspect_self",
+      "cordis_run",
+      "cordis_stop",
+      "cordis_undefine",
+      "job_kill",
+      "job_list",
+      "job_output",
+      "run_code",
+      "subagent",
+      "workflow"
+    ]
+  },
+  {
+    "model": "smoke-model",
+    "messages": [
+      {
+        "role": "system",
+        "content": "{{system}}"
+      },
+      {
+        "role": "user",
+        "content": "Complete the second isolated Python SDK process turn."
+      }
+    ],
+    "toolNames": [
+      "cordis_define",
+      "cordis_inspect_list",
+      "cordis_inspect_query",
+      "cordis_inspect_self",
+      "cordis_run",
+      "cordis_stop",
+      "cordis_undefine",
+      "job_kill",
+      "job_list",
+      "job_output",
+      "run_code",
+      "subagent",
+      "workflow"
+    ]
+  }
+]

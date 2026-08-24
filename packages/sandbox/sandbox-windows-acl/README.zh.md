@@ -38,7 +38,7 @@ sandbox.dispose() // revokes the revocable (temp) grant, keeps the standing work
 rmSync(tempDir, { recursive: true, force: true })
 ```
 
-直接使用 `AclSandbox` 时，必须显式提供私有临时目录（或通过 `tempDir: null` 禁用临时写入；环境临时根目录绝不会被隐式授权），工作区 ACE 以**常驻**方式授予（`dispose()` 保留它们——它们是跨实例的复用缓存），不同的临时 SID 则以**可回收**方式授予。服务端复用则是 `AclWriteGrant` 类：每个目录一次 `add(path, standing)`，`dispose()` 撤销可回收路径并释放 SID——见下方 runner 契约。本包中的每个 Win32 API 调用都有检查；失败抛出 `Win32Error`，携带 API 名、精确 Win32 错误码、`FormatMessageW` 系统文本和失败的路径/上下文。这是刻意的：POC 忽略每个返回值，当 `CreateRestrictedToken` 失败时用完整无限制令牌静默运行子进程（fail-open）。本移植从构造上 fail-closed。
+直接使用 `AclSandbox` 时，必须显式提供私有临时目录（或通过 `tempDir: null` 禁用临时写入；环境临时根目录绝不会被隐式授权），工作区 ACE 以**常驻**方式授予（`dispose()` 保留它们——它们是跨实例的复用缓存），不同的临时 SID 则以**可回收**方式授予。服务端复用则是 `AclWriteGrant` 类：每个目录一次 `add(path, standing)`，`dispose()` 撤销可回收路径并释放 SID——见下方 runner 契约。每个 policy-specific Win32 调用和 [`dsh-win32-process`](../../subprocess/win32-process/README.zh.md) 提供的 process primitive 都有检查；失败抛出 `Win32Error`，携带 API 名、精确 Win32 错误码、`FormatMessageW` 系统文本和失败的路径/上下文。这是刻意的：POC 忽略每个返回值，当 `CreateRestrictedToken` 失败时用完整无限制令牌静默运行子进程（fail-open）。本移植从构造上 fail-closed。
 
 <a id="the-confinement-runner"></a>
 
@@ -64,13 +64,11 @@ Authenticated Users 在**两种**列表中都不存在——WMI 命名空间安�
 
 ## 头部验证
 
-所有常量、签名与结构体布局都在开发机上对照 Windows 头文件（MinGW `winnt.h` / `accctrl.h` / `aclapi.h` / `securitybaseapi.h` / `sddl.h` / `processthreadsapi.h` / `fileapi.h` / `namedpipeapi.h` / `synchapi.h` / `winbase.h`）验证过，并在运行时由 [`verify/abi-probe.cpp`](verify/abi-probe.cpp)（大小、偏移、枚举值、静态断言）交叉检查：
+sandbox 自有的 SID、ACL、token、文件与锁常量和布局均已在开发机上对照 Windows 头文件（MinGW `winnt.h` / `accctrl.h` / `aclapi.h` / `securitybaseapi.h` / `sddl.h` / `fileapi.h`）验证，并由 [`verify/abi-probe.cpp`](verify/abi-probe.cpp) 交叉检查。共享的 process、stdio 与 Job ABI 由 [`@deepseek-ai/dsh-win32-process`](../../subprocess/win32-process/README.zh.md#header-verification) 归属并验证。
 
 ```sh
 g++ -std=c++20 -municode -O2 -o abi-probe.exe verify/abi-probe.cpp -ladvapi32 && ./abi-probe.exe
 ```
-
-koffi 结构体定义在模块加载时对照探针断言其大小，因此头文件/koffi 布局漂移会大声失败而不是破坏内存。
 
 ## 已验证边界（受限令牌固有，非本移植引入）
 
@@ -97,7 +95,6 @@ koffi 结构体定义在模块加载时对照探针断言其大小，因此头�
 - **每个工作区一个写入白名单** —— 写入 SID 是白名单的基本单位，且**就是**工作区身份；同一沙盒实例跨两个工作区复用时，两个根目录会互相扩大授权面（同一个 SID 将命名两个根）。请按工作区根目录各建一个实例——seam 正是这样做的，以工作区路径为键。
 - **清理按设计尽力而为** —— `dispose()` 会尝试全部临时撤销并把失败聚合为 `AggregateError`；清理失败可能留下随机目录及其仅含临时 SID 的 ACE。进程退出后，不会再有令牌携带该 SID，因此残留保持失效，直到 OS 临时目录卫生或手动移除目录将其回收。
 - **常驻工作区 ACE 是不可见残留。** 工作区改名会派生新的 SID；旧路径上的旧 ACE 留在原地（失效、仅含写入 SID）。未来的清理命令可以回收它们；它们不会引起任何重新传播。
-- **NULL-DACL 目录在 grant+revoke 往返下不保持身份。** 带 NULL DACL 的目录（罕见——Windows 创建的目录都带真实 DACL）意味着「所有人完全控制」；`grantWrite` 从该 null 构建新 ACL，撤销往返后留下的是 EMPTY（全部拒绝）DACL 而非原始 NULL DACL。POC 行为相同；真实工作区与临时目录都带真实 DACL，因此这仍是记录在案的边界情形而非守护路径。
 - **受限孙进程的管道 stdio 捕获不可用（named pipe 的默认 SD 模板）。** libuv 的管道 stdio 用的是 NAMED pipe；不带安全属性调用 `CreateNamedPipeW` 时，其默认安全描述符不是内核的模板，而是 Win32 层在用户态安装的默认 SD 模板（由 KernelBase 构建——owner/SYSTEM/Admins 全权，Everyone/ANONYMOUS 只读，即 [MS 文档](https://learn.microsoft.com/en-us/windows/win32/ipc/named-pipe-security-and-access-rights)记载的固定模板）——**不是**令牌默认 DACL（后者才是内核在原始 SD-null 创建时应用的）——因此 client 端打开所请求的写访问没有任何 restricting SID 被授予：受限进程内 `spawn(..., { stdio: 'pipe' })` 以 EPERM 失败，这是 POC 记载的 WRITE_RESTRICTED「无法重定向输出」边界。继承（`inherit`/fd）与忽略（`ignore`）stdio 的 spawn 可用；匿名管道（CreatePipe——令牌默认 DACL 的消费者，例如 PowerShell 的管道）因受限令牌默认 DACL 携带 restricting SID 全权 ACE（init 时写入）而可用。受限进程因此无法用管道捕获孙进程输出；必须捕获输出的工具无法在受限下运行。
 - **授权物化是急切的全树传播。** 在带可继承 ACE 的目录上调用 `SetNamedSecurityInfoW` 会立即遍历每个后代（**不是**按访问惰性进行——大型工作区树上实测数十秒）。按工作区身份每台机器每个工作区只付一次（在首次受限执行时惰性进行，之后每次供给在精确 ACE 常驻时完全跳过）。私有临时目录创建时为空，因此其独立授权开销很小。如果工作区巨大，该主机上的第一次受限写入相应变慢。
 - **读侧隔离与网络策略不在范围内** —— `WRITE_RESTRICTED` 只交叉检查写访问；将此后端与读侧策略配对以获得更强隔离。

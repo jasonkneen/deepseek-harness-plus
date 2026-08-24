@@ -5,11 +5,12 @@
   "type": "module",
   "description": "Workspace umbrella for runnable demos and example-owned test compositions: declares their cordis.yml packages so plain Node resolves real exports→lib. Not a build target.",
   "dependencies": {
+    "@agentclientprotocol/sdk": "1.4.0",
     "@deepseek-ai/cordis-plugin-hmr": "workspace:*",
     "@deepseek-ai/cordis-plugin-include": "workspace:*",
     "@deepseek-ai/cordis-plugin-logger-console": "workspace:*",
     "@deepseek-ai/cordis-plugin-timer": "workspace:*",
-    "@deepseek-ai/dsh-acp-demo": "workspace:*",
+    "@deepseek-ai/dsh-acp": "workspace:*",
     "@deepseek-ai/dsh-agent": "workspace:*",
     "@deepseek-ai/dsh-agent-loop": "workspace:*",
     "@deepseek-ai/dsh-agent-spine-demo": "workspace:*",
@@ -41,6 +42,9 @@
     "@deepseek-ai/dsh-sdk-jsonrpc-server": "workspace:*",
     "@deepseek-ai/dsh-llm": "workspace:*",
     "@deepseek-ai/dsh-llm-deepseek": "workspace:*",
+    "@deepseek-ai/dsh-deepseek-llm-api-extensions": "workspace:*",
+    "@deepseek-ai/dsh-plugin-package-inventory-deepseek": "workspace:*",
+    "@deepseek-ai/dsh-session-log-deepseek": "workspace:*",
     "@deepseek-ai/dsh-llm-pi-ai": "workspace:*",
     "@deepseek-ai/dsh-llm-replay": "workspace:*",
     "@deepseek-ai/dsh-loader-smoke": "workspace:*",
@@ -51,6 +55,7 @@
     "@deepseek-ai/dsh-terminal": "workspace:*",
     "@deepseek-ai/dsh-terminal-bash": "workspace:*",
     "@deepseek-ai/dsh-pwsh-local": "workspace:*",
+    "@deepseek-ai/dsh-pwsh-sandbox": "workspace:*",
     "@deepseek-ai/dsh-repeat-tool-reminder": "workspace:*",
     "@deepseek-ai/dsh-sandbox": "workspace:*",
     "@deepseek-ai/dsh-sandbox-local": "workspace:*",
@@ -114,7 +119,10 @@
     "@deepseek-ai/dsh-user-questions": "workspace:*",
     "@deepseek-ai/dsh-web": "workspace:*",
     "@deepseek-ai/dsh-web-fetch-http": "workspace:*",
+    "@deepseek-ai/dsh-webhook": "workspace:*",
+    "@deepseek-ai/dsh-webhook-github": "workspace:*",
     "@deepseek-ai/dsh-workflow-worker-thread": "workspace:*",
-    "@deepseek-ai/dsh-agent-instructions": "workspace:*"
+    "@deepseek-ai/dsh-agent-instructions": "workspace:*",
+    "@deepseek-ai/schemastery": "workspace:*"
   }
 }

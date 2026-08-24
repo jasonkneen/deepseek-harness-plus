@@ -21,10 +21,14 @@ on:
         required: false
         default: false
       ci:
-        description: Run as the required Linux x64 Python runtime pull-request check.
+        description: Run as the required all-target Python runtime pull-request check.
         type: boolean
         required: false
         default: false
+    secrets:
+      DEEPSEEK_API_KEY_EXTERNAL:
+        description: Real DeepSeek API key for trusted installed-wheel pull-request tests.
+        required: false
   workflow_dispatch:
     inputs:
       targets:
@@ -243,13 +247,6 @@ jobs:
           echo "exe=$exe" >> "$GITHUB_OUTPUT"
           echo "wheel=$wheel" >> "$GITHUB_OUTPUT"
 
-      - name: Full-turn SDK, executable snapshot, and direct-binary smoke
-        run: >-
-          uv run --python 3.10 --group test --project python/sdk
-          python scripts/smoke-python-runtime.py
-          --scenario all
-          --exe "${{ steps.runtime.outputs.exe }}"
-
       - name: Build release-shaped runtime wheel
         run: >-
           python scripts/build-python-release.py
@@ -273,10 +270,53 @@ jobs:
           "$RUNNER_TEMP/dsh-sdk-smoke/bin/python" -m pip install \
             "dist-python/$SDK_WHEEL" \
             "dist-python/$RUNTIME_WHEEL"
-          "$RUNNER_TEMP/dsh-sdk-smoke/bin/python" scripts/smoke-python-runtime.py \
-            --scenario sdk-default
-          "$RUNNER_TEMP/dsh-sdk-smoke/bin/python" scripts/smoke-python-runtime.py \
-            --scenario sdk-mcp
+
+      - name: Run installed-wheel keyless black-box tests
+        run: |
+          set -euo pipefail
+          blackbox_root="$RUNNER_TEMP/dsh-sdk-blackbox"
+          mkdir -p "$blackbox_root"
+          cd "$blackbox_root"
+          env -u PYTHONPATH -u DSH_RUNTIME_MODE \
+            "$RUNNER_TEMP/dsh-sdk-smoke/bin/python" \
+            "$GITHUB_WORKSPACE/scripts/smoke-python-runtime.py" \
+            --scenario all \
+            --installed-wheel
+
+      - name: Preflight installed-wheel real API test
+        if: >-
+          inputs.ci
+          && (github.event_name != 'pull_request'
+              || !(github.event.pull_request.head.repo.fork
+                   || github.event.pull_request.user.login == 'dependabot[bot]'))
+        env:
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY_EXTERNAL }}
+        run: |
+          set -euo pipefail
+          if [ -z "${DEEPSEEK_API_KEY:-}" ]; then
+            echo "::error::DEEPSEEK_API_KEY_EXTERNAL is empty; the installed-wheel real API test cannot self-skip."
+            exit 1
+          fi
+
+      - name: Run installed-wheel real API black-box test
+        if: >-
+          inputs.ci
+          && (github.event_name != 'pull_request'
+              || !(github.event.pull_request.head.repo.fork
+                   || github.event.pull_request.user.login == 'dependabot[bot]'))
+        env:
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY_EXTERNAL }}
+          DEEPSEEK_BASE_URL: https://api.deepseek.com
+        run: |
+          set -euo pipefail
+          blackbox_root="$RUNNER_TEMP/dsh-sdk-blackbox-live"
+          mkdir -p "$blackbox_root"
+          cd "$blackbox_root"
+          env -u PYTHONPATH -u DSH_RUNTIME_MODE \
+            "$RUNNER_TEMP/dsh-sdk-smoke/bin/python" \
+            "$GITHUB_WORKSPACE/scripts/smoke-python-runtime.py" \
+            --scenario sdk-live \
+            --installed-wheel
 
       - name: Check Linux GLIBC requirements
         if: runner.os == 'Linux'
@@ -314,8 +354,10 @@ jobs:
           docker run --rm -e RUNTIME_WHEEL -e SDK_WHEEL -e DSH_TELEMETRY_DISABLED -v "$PWD:/work" -w /work "$image" bash -euxo pipefail -c '
             /opt/python/cp310-cp310/bin/python -m venv /tmp/dsh-sdk
             /tmp/dsh-sdk/bin/python -m pip install "/work/dist-python/$SDK_WHEEL" "/work/dist-python/$RUNTIME_WHEEL"
-            /tmp/dsh-sdk/bin/python /work/scripts/smoke-python-runtime.py --scenario sdk-default
-            /tmp/dsh-sdk/bin/python /work/scripts/smoke-python-runtime.py --scenario sdk-mcp
+            mkdir -p /tmp/dsh-sdk-manylinux-smoke
+            cd /tmp/dsh-sdk-manylinux-smoke
+            env -u PYTHONPATH -u DSH_RUNTIME_MODE /tmp/dsh-sdk/bin/python /work/scripts/smoke-python-runtime.py --scenario sdk-default --installed-wheel
+            env -u PYTHONPATH -u DSH_RUNTIME_MODE /tmp/dsh-sdk/bin/python /work/scripts/smoke-python-runtime.py --scenario sdk-mcp --installed-wheel
           '
 
       - uses: actions/upload-artifact@v7

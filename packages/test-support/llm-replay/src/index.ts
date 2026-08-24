@@ -11,6 +11,7 @@ import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { delimiter as pathDelimiter } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-compaction'
+import type {} from '@deepseek-ai/dsh-deepseek-llm-api-extensions'
 import { decodeStorageRecord, type SessionEvent } from '@deepseek-ai/dsh-session'
 import type {
   ContentBlock,
@@ -36,7 +37,7 @@ const PACKED_CHUNK_ROW_TYPES = new Set(['text-chunks', 'reasoning-chunks', 'tool
  */
 export type ReplayEntry =
   | { kind: 'chunks'; chunks: StreamChunk[] }
-  | { kind: 'throw'; chunks: StreamChunk[]; message: string; code: string }
+  | { kind: 'throw'; chunks: StreamChunk[]; message: string; code: string; accepted?: boolean }
   | {
     kind: 'hang'
     /** Optional marker written after the prefix chunks are consumed and before the stream waits for cancellation. */
@@ -115,7 +116,7 @@ export interface ReplayConfig {
    * this long before yielding, so a downstream transport (e.g. the web SSE
    * mux observed by a browser) sees genuinely incremental delivery. A realism
    * knob only — correctness must never depend on it. Absent or `0` keeps
-   * today's synchronous burst yield. Must be a non-negative finite integer;
+   * a synchronous burst yield. Must be a non-negative finite integer;
    * aborting mid-wait cancels the stream like any other abort.
    */
   paceMs?: number
@@ -448,7 +449,11 @@ function readReplayEntry(value: unknown, file: string, location: string): Replay
       return { kind: 'chunks', chunks: readChunks(value['chunks'], file, location) }
     }
     case 'throw': {
-      if (!hasExactKeys(value, ['kind', 'chunks', 'message', 'code'])) {
+      const accepted = value['accepted']
+      const keys = accepted === undefined
+        ? ['kind', 'chunks', 'message', 'code']
+        : ['kind', 'chunks', 'message', 'code', 'accepted']
+      if (!hasExactKeys(value, keys)) {
         invalidOverride(file, location, 'has invalid throw-entry fields')
       }
       if (typeof value['message'] !== 'string' || value['message'].length === 0) {
@@ -457,11 +462,15 @@ function readReplayEntry(value: unknown, file: string, location: string): Replay
       if (typeof value['code'] !== 'string' || value['code'].length === 0) {
         invalidOverride(file, location, 'code must be a non-empty string')
       }
+      if (accepted !== undefined && typeof accepted !== 'boolean') {
+        invalidOverride(file, location, 'accepted must be a boolean')
+      }
       return {
         kind: 'throw',
         chunks: readChunks(value['chunks'], file, location),
         message: value['message'],
         code: value['code'],
+        ...(accepted === undefined ? {} : { accepted }),
       }
     }
     case 'hang': {
@@ -716,6 +725,20 @@ async function* replayEntry(entry: ReplayEntry, signal: AbortSignal | undefined,
   }
 }
 
+/** Whether the scripted provider call reached the live adapter's post-2xx commit point. */
+function providerAccepted(entry: ReplayEntry): boolean {
+  switch (entry.kind) {
+    case 'chunks':
+    case 'hang':
+      return true
+    case 'throw':
+      return entry.accepted ?? entry.chunks.length > 0
+    /* v8 ignore next -- override parsing and derived entries close the local union before replay. */
+    default:
+      return assertNever(entry, 'llm-replay acceptance entry')
+  }
+}
+
 /**
  * Install per-session positional replay. A newly seen live session takes the
  * next ordered recorded script, then advances its own cursor synchronously at
@@ -775,7 +798,22 @@ export function installLlmReplay(ctx: Context, config: ReplayConfig): ReplayHand
           + `but its script has only ${boundState.entries.length}; re-record the scenario`,
         )
       }
-      yield* replayEntry(resolveScriptedEntry(entry, options.messages), options.signal, paceMs)
+      const resolved = resolveScriptedEntry(entry, options.messages)
+      if (options.provider === 'deepseek-official' && providerAccepted(resolved)) {
+        const extensions = ctx.get('deepseekLlmApiExtensions')
+        if (extensions !== undefined) {
+          const signal = options.signal ?? new AbortController().signal
+          const prepared = await extensions.prepare({
+            // Replay reproduces post-2xx side effects, not the provider wire body.
+            body: { messages: [] },
+            signal,
+            ...options.sessionId === undefined ? {} : { sessionId: String(options.sessionId) },
+            ...options.purpose === undefined ? {} : { purpose: options.purpose },
+          })
+          await prepared.accept()
+        }
+      }
+      yield* replayEntry(resolved, options.signal, paceMs)
     })()
   }
   const providers = config.providers ?? []

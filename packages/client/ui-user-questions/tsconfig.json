@@ -15,10 +15,19 @@
       "path": "../../../vendor/cordis"
     },
     {
-      "path": "../locale"
+      "path": "../../api/session-controller/tsconfig.client.json"
     },
     {
-      "path": "../runtime"
+      "path": "../../core/session"
+    },
+    {
+      "path": "../../interaction/user-questions"
+    },
+    {
+      "path": "../../typert/protocol"
+    },
+    {
+      "path": "../locale"
     },
     {
       "path": "../ui-conversation"
@@ -28,6 +37,12 @@
     },
     {
       "path": "../ui-slots"
+    },
+    {
+      "path": "../ui-renderer"
+    },
+    {
+      "path": "../ui-session"
     },
     {
       "path": "../../runtime-diagnostics/invariants"

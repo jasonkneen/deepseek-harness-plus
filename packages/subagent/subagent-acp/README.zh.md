@@ -33,15 +33,18 @@ ACP 不声明任何启动时能力，因为当前进程无法强制执行远程�
 | `disposeEofGraceMs` | `6000` | stdin EOF 之后、平台终止之前的宽限时间须为正值，且不得大于 [`MAX_TIMER_DELAY_MS`](../../util/timeout/README.zh.md)。 |
 | `disposeGraceMs` | `3000` | POSIX 在 SIGTERM 后、SIGKILL 前的宽限时间（Windows 直接强制终止），须为正值且不得大于 [`MAX_TIMER_DELAY_MS`](../../util/timeout/README.zh.md)。 |
 
+DeepSeek Harness 子进程使用产品启动器和一个显式的绝对路径 `DSH_HOME`。隔离 home 可防止嵌套 runtime 发现启动者个人的 profile 或凭据；通用 ACP provider 不会把这一要求强加给非 DSH agent。
+
 ```yaml
 - id: subagent-acp
   name: '@deepseek-ai/dsh-subagent-acp'
   config:
     providerName: acp
-    command: node
-    args: ['--import', 'tsx', './packages/examples/acp-demo/src/bin.ts', '--config', './examples/acp-agent/cordis.yml']
+    command: dsh
+    args: ['--profile', 'acp', '--patch', '/absolute/path/to/acp.patch.yml']
     permission: reject
     env:
+      DSH_HOME: /absolute/path/to/isolated-child-home
       DEEPSEEK_API_KEY: !!js process.env.DEEPSEEK_API_KEY
 ```
 

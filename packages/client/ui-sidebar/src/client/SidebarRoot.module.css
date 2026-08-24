@@ -33,7 +33,7 @@
    class whenever the pointer is not inside (SidebarRoot.tsx owns the linger),
    and rebinding ui-theme's indirection pair to `transparent` takes the thumb
    out of every scroll region nested under it — the workspace browser's
-   session list today. `transparent` rather than `display: none` on the bar:
+   session list. `transparent` rather than `display: none` on the bar:
    the reservation (`scrollbar-gutter: stable` on the list) stays in force, so
    revealing the thumb never reflows a row. Rebinding contract and the two
    rendering paths it reaches: ui-theme's README. */

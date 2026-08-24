@@ -59,7 +59,7 @@ The Client uses concrete functions on ordinary objects, not a JavaScript Proxy. 
 
 ```ts ignore-check
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
-import type { AgentContext } from '@deepseek-ai/dsh-client-runtime/client'
+import type { AgentContext } from '@deepseek-ai/dsh-api-session-controller/client'
 import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-api-remotes/client'
 

@@ -3,8 +3,45 @@
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { TrajectoryTable } from '../src/client/TrajectoryTable.tsx'
+import type { ComponentProps } from 'react'
+import { TrajectoryTable as LocalizedTrajectoryTable } from '../src/client/TrajectoryTable.tsx'
 import type { TrajectoryTurnModel } from '../src/client/layout.ts'
+import { trajectoryRecordId } from '../src/client/trajectory-record.ts'
+import { t, tZh } from './locale.client.ts'
+
+function TrajectoryTable(props: Omit<ComponentProps<typeof LocalizedTrajectoryTable>, 't'>) {
+  const inferred: Array<NonNullable<typeof props.requestNumbers>[number] & { firstIndex: number }> = []
+  for (const turn of props.turns) {
+    for (const group of turn.groups) {
+      const step = /^Step (\d+)$/.exec(group.title)?.[1]
+      const compaction = /^Compaction (\d+)$/.exec(group.title)?.[1]
+      const firstIndex = group.cells[0]?.index ?? Number.MAX_SAFE_INTEGER
+      if (compaction !== undefined) {
+        inferred.push({
+          turn: turn.turn,
+          step: 0,
+          seq: Number(compaction),
+          group: group.title,
+          number: 0,
+          purpose: 'compaction',
+          firstIndex,
+        })
+      } else if (step !== undefined && turn.turn !== null) {
+        inferred.push({
+          turn: turn.turn,
+          step: Number(step),
+          group: group.title,
+          number: 0,
+          firstIndex,
+        })
+      }
+    }
+  }
+  const requestNumbers = props.requestNumbers ?? inferred
+    .sort((left, right) => left.firstIndex - right.firstIndex)
+    .map(({ firstIndex: _firstIndex, ...request }, index) => ({ ...request, number: index + 1 }))
+  return <LocalizedTrajectoryTable {...props} requestNumbers={requestNumbers} t={t} />
+}
 
 afterEach(() => {
   cleanup()
@@ -85,6 +122,22 @@ describe('TrajectoryTable', () => {
     render(<TrajectoryTable turns={turns} {...FOLD_PROPS} />)
 
     expect(screen.getByText('(tool call only)')).toBeTruthy()
+  })
+
+  it('localizes the summary for folded Assistant tool calls', () => {
+    const assistant = TURNS[0]!.groups[0]!.cells[0]!
+    render(
+      <LocalizedTrajectoryTable
+        t={tZh}
+        turns={TURNS}
+        collapsedTurns={new Set<number>()}
+        onToggleTurn={() => {}}
+        collapsedAssistants={new Set([trajectoryRecordId(assistant)])}
+        onToggleAssistant={() => {}}
+      />,
+    )
+
+    expect(screen.getByText('2 个工具调用 · bash')).toBeTruthy()
   })
 
   it('shows assistant timing facts after keyboard selection', () => {
@@ -306,6 +359,41 @@ describe('TrajectoryTable', () => {
     expect(screen.getByRole('button', { name: 'Request #2' })
       .getAttribute('aria-pressed')).toBe('true')
     expect(screen.getByText('Request #2')).toBeTruthy()
+  })
+
+  it('keeps a selected request when its localized group label changes', () => {
+    const turn = (group: string): TrajectoryTurnModel => ({
+      turn: 1,
+      groups: [{
+        title: group,
+        cells: [{
+          index: 1,
+          kind: 'message',
+          sourceSeq: 10,
+          text: 'response',
+          timeSeconds: 1,
+        }],
+      }],
+    })
+    const request = (group: string) => [{
+      turn: 1,
+      step: 1,
+      seq: 10,
+      group,
+      number: 1,
+    }] as const
+    const view = render(
+      <TrajectoryTable turns={[turn('Step 1')]} requestNumbers={request('Step 1')} {...FOLD_PROPS} />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Request #1' }))
+
+    view.rerender(
+      <TrajectoryTable turns={[turn('步骤 1')]} requestNumbers={request('步骤 1')} {...FOLD_PROPS} />,
+    )
+
+    expect(screen.getByRole('button', { name: 'Request #1' })
+      .getAttribute('aria-pressed')).toBe('true')
+    expect(screen.getByText('Request #1')).toBeTruthy()
   })
 
   it('places the request boundary after leading steering input', () => {
@@ -736,6 +824,42 @@ describe('TrajectoryTable', () => {
     expect(retry.style.getPropertyValue('--request-boundary-offset')).toBe('8px')
     expect(recovered.getAttribute('data-request-run-index')).toBe('2')
     expect(recovered.style.getPropertyValue('--request-boundary-offset')).toBe('16px')
+  })
+
+  it('localizes a sanitized AUTH request failure from its stable code', () => {
+    const turns: readonly TrajectoryTurnModel[] = [{
+      turn: 1,
+      groups: [{
+        title: 'Step 1',
+        cells: [{
+          index: 1,
+          kind: 'message',
+          text: '',
+          requestOnly: true,
+          isError: true,
+          timeSeconds: 0.1,
+        }],
+      }],
+    }]
+    render(
+      <TrajectoryTable
+        turns={turns}
+        requestNumbers={[{
+          turn: 1,
+          step: 1,
+          seq: 1,
+          group: 'Step 1',
+          number: 1,
+          status: 'error',
+          error: '',
+          errorCode: 'AUTH',
+        }]}
+        {...FOLD_PROPS}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Request #1' }))
+    expect(screen.getByText('API key is invalid')).toBeTruthy()
   })
 
   it('shows the custom role tooltip only from the responsive icon', () => {

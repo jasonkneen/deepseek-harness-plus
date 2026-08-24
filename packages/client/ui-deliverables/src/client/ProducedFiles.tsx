@@ -1,13 +1,7 @@
-// ProducedFiles: the produced-file row a finished turn ends with. The paths
-// come pre-matched by the turn-tail chain from the mutation tools'
-// follow-along locations, never from the closing prose. Clicking one goes
-// through the same openFile the tool rows use — the Host's own opener, on the
-// Host machine.
-
 import { useLayoutEffect, useRef, useState } from 'react'
 import type { HostDescriptionSource } from '@deepseek-ai/dsh-client-connection/client'
 import type { InjectFace, PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
-import type { TurnTailOwnerProps } from '@deepseek-ai/dsh-client-ui-conversation/client'
+import type { TurnTailOwnerProps } from '@deepseek-ai/dsh-client-ui-chat/client'
 import { basename } from './turn-deliverables.ts'
 import type { NS } from './locales.ts'
 import css from './ProducedFiles.module.css'

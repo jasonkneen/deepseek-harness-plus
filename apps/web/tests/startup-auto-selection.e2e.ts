@@ -5,7 +5,7 @@
 // workspace and opens its blank session. `openState` flips to `loading` the
 // moment `open()` lands; driving `data-phase=settling` on the conversation
 // root from that flip would hide the composer seat and the header
-// (`visibility:hidden`) for the whole `session.history` round-trip — the
+// (`visibility:hidden`) for the whole `session.page` round-trip — the
 // center column blanks and repaints like a full-page refresh on every launch.
 //
 // The unit spec pins the phase condition over hand-built stores. What only the
@@ -17,7 +17,7 @@
 // replacing those nodes.
 //
 // The round-trip against a loopback host is far too fast to observe, so this
-// scenario HOLDS the `session.history` response open in the browser's network
+// scenario HOLDS the `session.page` response open in the browser's network
 // handler and asserts the visible frame while it is in flight. That wait is
 // what makes the assertions non-vacuous: without the phase exemption, the held
 // window is exactly when `settling` would be painted and the composer hidden.
@@ -31,8 +31,8 @@ import { afterAll, beforeAll, describe, expect, it, onTestFailed } from 'vitest'
 import { acknowledgeReloadConnectionLoss, launchWebScaffold, watchConsole, type WebScaffold } from './scaffold.ts'
 import { connectFreshWorkspace, newEnglishPage, saveFailureShot } from './support.ts'
 
-/** Wire path of the history round-trip the conversation root waits out (POST /api/session.history). */
-const HISTORY_ROUTE = '**/api/session.history'
+/** Wire path of the history round-trip the conversation root waits out. */
+const HISTORY_ROUTE = '**/api/session/page'
 
 /**
  * The conversation root's own phase attribute. `div` disambiguates it from the

@@ -44,6 +44,10 @@ const MIME: Record<string, string> = {
   '.json': 'application/json',
   '.map': 'application/json',
   '.webmanifest': 'application/manifest+json',
+  // The packed VFS image. Served as its own bytes, never as a Content-Encoding:
+  // the worker inflates the body itself, and a transport-level encoding would
+  // leave it inflating an already-decoded archive.
+  '.gz': 'application/gzip',
 }
 
 const STATIC_MISS_CODES: ReadonlySet<string | undefined> = new Set([
@@ -104,8 +108,14 @@ export async function serveStatic(
 export function apply(ctx: Context, config: Config): void {
   const distIndex = config.distIndex
   const distRoot = dirname(distIndex)
-  const renderIndex = async (): Promise<string> =>
-    ctx.webServer.renderIndex(await readFile(distIndex, 'utf8'))
+  // The dist is built with a relative base so the same files mount under any
+  // static directory; served pages also answer deep SPA-fallback paths, where
+  // relative asset URLs would resolve under the request directory, so the
+  // served form anchors them at the site root ahead of every URL-bearing tag.
+  const renderIndex = async (): Promise<string> => {
+    const body = ctx.webServer.renderIndex(await readFile(distIndex, 'utf8'))
+    return body.replace(/<head(?:\s[^>]*)?>/i, open => `${open}<base href="/">`)
+  }
   ctx.effect(() => ctx.webServer.registerFallback(async (req, res) => {
     // Non-GET/HEAD without a matching named route is 405 (fallback-only
     // semantics: named routes own their method handling).

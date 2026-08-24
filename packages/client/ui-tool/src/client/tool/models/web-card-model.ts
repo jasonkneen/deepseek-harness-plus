@@ -36,7 +36,17 @@ import type { ToolCallBlock } from './tool-call-model.ts'
  * @param block - RunningToolCall or ToolResultNode off the snapshot caches.
  * @returns the web-card props, or null for the generic path.
  */
-export function webCardModel(block: ToolCallBlock): WebBlockProps | null {
+type DistributiveOmit<T, K extends keyof T> = T extends unknown ? Omit<T, K> : never
+
+/** Web-card data owned by the presenter; render sites add localized labels and classes. */
+export type WebCardModelProps = DistributiveOmit<WebBlockProps, 'labels' | 'className'>
+
+/**
+ * Derive locale-independent web-card data from a frozen tool-call slice.
+ * @param block - Running or settled tool call from the conversation snapshot.
+ * @returns Web-card data, or null when the generic presenter owns the call.
+ */
+export function webCardModel(block: ToolCallBlock): WebCardModelProps | null {
   // Running calls have no result view; the web card is result-only.
   if (!('kind' in block)) return null
   const result = block.resultView

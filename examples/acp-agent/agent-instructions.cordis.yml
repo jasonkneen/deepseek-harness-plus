@@ -1,24 +1,29 @@
-# Workspace-context snapshot overlay: keep project-root and user-global
-# discovery inside the scenario's temporary cwd. The app config patch replaces
-# the whole base config, so the base fields are restated verbatim.
-- id: base
-  name: '@deepseek-ai/cordis-plugin-include'
+# Workspace-context snapshot patch: keep project-root and user-global
+# discovery inside the scenario's temporary cwd.
+- id: acp
+  name: '@deepseek-ai/dsh-acp'
   config:
-    path: ./cordis.yml
-    patches:
-      - id: acp-agent
-        name: '@deepseek-ai/dsh-acp-demo'
-        config:
-          provider: deepseek-official
-          model: deepseek-v4-pro
-          persistenceRoot: !!js process.env.DSH_SNAPSHOT_SESSIONS_ROOT ?? './.sessions'
-          persistenceCompression: !!js "process.env.DSH_SNAPSHOT === undefined ? 'zstd' : 'none'"
-          workspaceContext:
-            maxBytes: 65536
-            dshHome: !!js process.cwd() + '/.dsh'
-            projectRootMarkers:
-              - .dsh-project
-          persona: |
-            You are a coding assistant powered by the {{model}} model. Your working directory is {{cwd}}.
+    provider: deepseek-official
+    model: deepseek-v4-pro
 
-            Verify your work by running the code or tests. Keep answers brief and factual.
+- id: session-persistence-jsonl
+  name: '@deepseek-ai/dsh-session-persistence-jsonl'
+  config:
+    root: !!js process.env.DSH_SNAPSHOT_SESSIONS_ROOT ?? './.sessions'
+    compression: !!js 'process.env.DSH_SNAPSHOT === undefined ? ''zstd'' : ''none'''
+
+- id: agent-instructions
+  name: '@deepseek-ai/dsh-agent-instructions'
+  config:
+    maxBytes: 65536
+    dshHome: !!js process.cwd() + '/.dsh'
+    projectRootMarkers:
+      - .dsh-project
+
+- id: system-prompt
+  name: '@deepseek-ai/dsh-system-prompt'
+  config:
+    persona: |
+      You are a coding assistant powered by the {{model}} model. Your working directory is {{cwd}}.
+
+      Verify your work by running the code or tests. Keep answers brief and factual.

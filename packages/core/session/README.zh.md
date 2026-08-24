@@ -46,7 +46,7 @@
 
 ### 无损 JSON 工具
 
-持久值需要一种已接受的表示，不能先检查再二次读取。`isJsonValue(value)` 是布尔判断函数；`snapshotJsonValue(value)` 在一趟迭代中校验并复制普通值，无效输入返回 `undefined`，getter 抛出的异常则向外传播。快照辅助函数接受除 `-0` 外的有限 JSON 数值（JSON 会将其改写为 `0`）、稠密普通数组、普通对象或 null 原型对象；它会在规范化前拒绝循环引用、不支持的标量和特殊原型，同时不施加调用栈深度限制。
+持久值使用一种无损 JSON 表示。`isJsonValue(value)` 检查该表示；`snapshotJsonValue(value)` 在一趟处理中校验并分离该表示，无效输入返回 `undefined`。源码 JSDoc 负责记录确切的可接受值集合。
 
 会话事件导入将所有权与消息校验分开处理。`snapshotSessionEvent(event)` 会先克隆借用的事件，再校验并冻结其中带标识的消息。`adoptSessionEvent(event)` 原地执行相同的消息处理并返回原事件；调用方只有在移交独占的对象图，且该对象图没有与其他事件共享可变子对象时，才可以使用此函数。
 

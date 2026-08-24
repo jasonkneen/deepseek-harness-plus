@@ -48,6 +48,47 @@ describe('normalizeStdout', () => {
     expect(out).not.toContain(ctx.sessionIds[0] as string)
   })
 
+  it('keeps standard message identity distinct from session identity', () => {
+    const raw = JSON.stringify({
+      jsonrpc: '2.0',
+      method: 'session/update',
+      params: {
+        sessionId: ctx.sessionIds[0],
+        update: {
+          sessionUpdate: 'agent_message_chunk',
+          messageId: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
+          content: { type: 'text', text: 'done' },
+        },
+      },
+    })
+
+    const out = normalizeStdout(raw, ctx)
+
+    expect(out).toContain('"sessionId":"{{sessionId}}"')
+    expect(out).toContain('"messageId":"{{messageId}}"')
+  })
+
+  it('stabilizes path-dependent context occupancy without hiding capacity', () => {
+    const raw = JSON.stringify({
+      jsonrpc: '2.0',
+      method: 'session/update',
+      params: {
+        sessionId: ctx.sessionIds[0],
+        update: { sessionUpdate: 'usage_update', used: 6_438, size: 1_000_000 },
+      },
+    })
+
+    const frame = JSON.parse(normalizeStdout(raw, ctx)) as {
+      params: { update: { used: string; size: number } }
+    }
+
+    expect(frame.params.update).toEqual({
+      sessionUpdate: 'usage_update',
+      used: '{{usedTokens}}',
+      size: 1_000_000,
+    })
+  })
+
   it('scrubs cwd at file URI and chained-punctuation boundaries', () => {
     const raw = JSON.stringify({
       jsonrpc: '2.0',

@@ -7,7 +7,48 @@ import { z } from 'zod'
 import type { RequestPayload, ResponseValue } from './rpc-map.ts'
 import type { Wire } from './rpc.schema.ts'
 import type { ConfigurableProviderView, DiscoveredModelView } from './llm.ts'
-import { modelCatalogFailureSchema, modelProviderGroupSchema } from './sessions.schema.ts'
+import type {
+  ModelCatalogFailure,
+  ModelCatalogModel,
+  ModelProviderGroup,
+  ModelReasoning,
+  ModelReasoningEffort,
+} from '@deepseek-ai/dsh-api-session-controller/types'
+
+/** One adapter-owned reasoning effort. */
+const modelReasoningEffortSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1),
+  description: z.string().optional(),
+}) satisfies z.ZodType<Wire<ModelReasoningEffort>>
+
+/** Exact-model reasoning metadata. */
+const modelReasoningSchema = z.object({
+  efforts: z.array(modelReasoningEffortSchema).min(1),
+  defaultEffort: z.string().min(1).optional(),
+}) satisfies z.ZodType<Wire<ModelReasoning>>
+
+/** One advisory model entry inside a provider group. */
+const modelCatalogModelSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1),
+  description: z.string().optional(),
+  reasoning: modelReasoningSchema.optional(),
+}) satisfies z.ZodType<Wire<ModelCatalogModel>>
+
+/** One successfully loaded provider group. */
+const modelProviderGroupSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1),
+  models: z.array(modelCatalogModelSchema),
+}) satisfies z.ZodType<Wire<ModelProviderGroup>>
+
+/** One provider-local catalog failure. */
+const modelCatalogFailureSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1),
+  message: z.string(),
+}) satisfies z.ZodType<Wire<ModelCatalogFailure>>
 
 /** ConfigurableProviderView row of llm.providers. */
 export const configurableProviderViewSchema = z.object({

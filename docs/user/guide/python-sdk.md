@@ -40,7 +40,7 @@ export DEEPSEEK_API_KEY=sk-your-key-here
 Run one task against an isolated workspace and session directory:
 
 ```sh
-python examples/jsonrpc-agent/minimal.py \
+python examples/python-sdk-agent/minimal.py \
   --workspace /absolute/path/to/workspace \
   --session-root /absolute/path/to/sessions \
   --session-id example-001 \
@@ -58,7 +58,7 @@ from pathlib import Path
 
 from deepseek_harness import DeepSeekHarness
 
-config = Path("examples/jsonrpc-agent/minimal.cordis.yml").resolve()
+config = Path("examples/python-sdk-agent/minimal.cordis.yml").resolve()
 workspace = Path("/absolute/path/to/workspace").resolve()
 sessions = Path("/absolute/path/to/sessions").resolve()
 
@@ -101,4 +101,4 @@ The composition omits harness identity, workspace prompt text, skills, one-shot 
 
 The composition uses `danger-full-access`. Run it only inside a disposable checkout or container: Bash and the editor can modify any path allowed to the runtime process. The persistent PTY backend requires a POSIX terminal substrate, so this composition does not support Windows agents.
 
-The [`jsonrpc-agent` example reference](../../../examples/jsonrpc-agent/README.md) owns the exact composition. The [Python SDK reference](../../../python/sdk/README.md) covers lifecycle, results, notifications, runtime selection, and configuration; the [Cordis primer](../../cordis-primer.md) covers composition syntax.
+The [`python-sdk-agent` example reference](../../../examples/python-sdk-agent/README.md) owns the exact composition. The [Python SDK reference](../../../python/sdk/README.md) covers lifecycle, results, notifications, runtime selection, and configuration; the [Cordis primer](../../cordis-primer.md) covers composition syntax.

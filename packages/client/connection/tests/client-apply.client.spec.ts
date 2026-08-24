@@ -1,58 +1,56 @@
 /**
  * Connection plugin browser-half apply: ctx.connection handle mounting, mode
- * selection off the page URL, and the single-consumer stream-loop ownership.
+ * selection off the page URL, and single-consumer connection-loop ownership.
  */
 import { Context } from '@deepseek-ai/cordis'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { apply, type ConnectionHandle } from '../src/client/index.ts'
-import type { RpcMessage } from '../src/client/api.ts'
-import { RpcId } from '../src/client/api.ts'
+import {
+  apply,
+  type ClientTransportHooks,
+  type ConnectionGenerationSource,
+  type ConnectionHandle,
+} from '../src/client/index.ts'
 import { FixtureApiClient } from '../src/client/fixture.ts'
 import { WebApiClient } from '../src/client/web-api-client.ts'
 
-type Win = { location?: { hostname: string; search: string; origin?: string } }
-type WebSocketGlobal = { WebSocket?: typeof WebSocket }
-
-const originalWebSocket = globalThis.WebSocket
-const sockets: FakeWebSocket[] = []
-
-class FakeWebSocket extends EventTarget {
-  static readonly CONNECTING = 0
-  static readonly OPEN = 1
-  static readonly CLOSING = 2
-  static readonly CLOSED = 3
-
-  readonly url: string
-  readyState = FakeWebSocket.CONNECTING
-
-  constructor(url: string | URL) {
-    super()
-    this.url = String(url)
-    sockets.push(this)
-    queueMicrotask(() => {
-      if (this.readyState !== FakeWebSocket.CONNECTING) return
-      this.readyState = FakeWebSocket.OPEN
-      this.dispatchEvent(new Event('open'))
-    })
-  }
-
-  close(): void {
-    if (this.readyState === FakeWebSocket.CLOSED) return
-    this.readyState = FakeWebSocket.CLOSED
-    this.dispatchEvent(new Event('close'))
-  }
-
-  receive(data: unknown): void {
-    this.dispatchEvent(new MessageEvent('message', { data }))
-  }
+type Win = {
+  location?: { hostname: string; search: string; origin?: string }
+  __DSH_TRANSPORT__?: ClientTransportHooks
 }
 
 afterEach(() => {
   delete (globalThis as Win).location
-  sockets.length = 0
-  if (originalWebSocket === undefined) delete (globalThis as WebSocketGlobal).WebSocket
-  else globalThis.WebSocket = originalWebSocket
+  delete (globalThis as Win).__DSH_TRANSPORT__
 })
+
+class GenerationProbe {
+  private readonly active = new Set<() => void>()
+
+  readonly source: ConnectionGenerationSource = (signal, ready) => new Promise<void>((resolve) => {
+    let settled = false
+    const finish = (): void => {
+      if (settled) return
+      settled = true
+      signal.removeEventListener('abort', finish)
+      this.active.delete(finish)
+      resolve()
+    }
+    this.active.add(finish)
+    signal.addEventListener('abort', finish, { once: true })
+    ready()
+    if (signal.aborted) finish()
+  })
+
+  end(): void {
+    for (const finish of [...this.active]) finish()
+  }
+}
+
+function installGeneration(handle: ConnectionHandle): GenerationProbe {
+  const probe = new GenerationProbe()
+  handle.registerGenerationSource(probe.source)
+  return probe
+}
 
 async function mount(): Promise<ConnectionHandle> {
   const ctx = new Context()
@@ -84,9 +82,33 @@ describe('connection client apply', () => {
     expect((await mount()).isLoopback).toBe(false)
   })
 
-  it('start() hands out one loop, rejects a second consumer, and stop() aborts the streams', async () => {
+  it('requires one generation source and ignores a stale source disposer', async () => {
     ;(globalThis as Win).location = { hostname: 'localhost', search: '?fixture' }
     const handle = await mount()
+    const first = new GenerationProbe()
+    const second = new GenerationProbe()
+
+    expect(() => handle.start({})).toThrow('no generation source is registered')
+    const unregisterFirst = handle.registerGenerationSource(first.source)
+    expect(() => { handle.registerGenerationSource(second.source) })
+      .toThrow('a generation source is already registered')
+    unregisterFirst()
+    const unregisterSecond = handle.registerGenerationSource(second.source)
+    unregisterFirst()
+
+    const loop = handle.start({})
+    await vi.waitFor(() => {
+      expect(handle.hostDescription.getSnapshot()?.canOpenPath).toBe(true)
+    })
+    unregisterSecond()
+    expect(handle.hostDescription.getSnapshot()).toBeUndefined()
+    loop.stop()
+  })
+
+  it('start() hands out one loop, rejects a second consumer, and stop() aborts the generation', async () => {
+    ;(globalThis as Win).location = { hostname: 'localhost', search: '?fixture' }
+    const handle = await mount()
+    installGeneration(handle)
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
     const descriptions: Array<boolean | undefined> = []
     const stopThrowing = handle.hostDescription.subscribe(() => { throw new Error('subscriber bug') })
@@ -111,9 +133,33 @@ describe('connection client apply', () => {
     errorSpy.mockRestore()
   })
 
+  it('allows a replacement owner and ignores the previous owner handle', async () => {
+    ;(globalThis as Win).location = { hostname: 'localhost', search: '?fixture' }
+    const handle = await mount()
+    const generation = installGeneration(handle)
+
+    const first = handle.start({})
+    await vi.waitFor(() => {
+      expect(handle.hostDescription.getSnapshot()?.canOpenPath).toBe(true)
+    })
+    first.stop()
+    expect(handle.hostDescription.getSnapshot()).toBeUndefined()
+
+    const second = handle.start({})
+    await vi.waitFor(() => {
+      expect(handle.hostDescription.getSnapshot()?.canOpenPath).toBe(true)
+    })
+    first.stop()
+    expect(handle.hostDescription.getSnapshot()?.canOpenPath).toBe(true)
+
+    second.stop()
+    generation.end()
+  })
+
   it('does not announce a generation synchronously stopped by a description subscriber', async () => {
     ;(globalThis as Win).location = { hostname: 'localhost', search: '?fixture' }
     const handle = await mount()
+    installGeneration(handle)
     const owner: { loop?: ReturnType<ConnectionHandle['start']> } = {}
     let sawDescription = false
     const stopDescription = handle.hostDescription.subscribe(() => {
@@ -137,6 +183,7 @@ describe('connection client apply', () => {
   it('retracts the host description while reconnecting and republishes the next generation', async () => {
     ;(globalThis as Win).location = { hostname: 'localhost', search: '?fixture' }
     const handle = await mount()
+    const generation = installGeneration(handle)
     const descriptions: Array<boolean | undefined> = []
     const reconnectSnapshots: Array<boolean | undefined> = []
     const stopDescription = handle.hostDescription.subscribe(() => {
@@ -149,16 +196,12 @@ describe('connection client apply', () => {
           reconnectSnapshots.push(handle.hostDescription.getSnapshot()?.canOpenPath)
         }
       },
-    }, { backoffBaseMs: 10, backoffFactor: 1, backoffMaxMs: 10, streamOpenTimeoutMs: 500 })
+    }, { backoffBaseMs: 10, backoffFactor: 1, backoffMaxMs: 10, generationReadyTimeoutMs: 500 })
     try {
       await vi.waitFor(() => {
         expect(handle.hostDescription.getSnapshot()?.canOpenPath).toBe(true)
       })
-      const timing = (globalThis as Record<string, unknown>).__fxTiming as
-        | { breakStreams(): void }
-        | undefined
-      if (timing === undefined) throw new Error('fixture timing hooks missing')
-      timing.breakStreams()
+      generation.end()
 
       await vi.waitFor(() => { expect(reconnectSnapshots).toEqual([undefined]) })
       await vi.waitFor(() => { expect(descriptions).toEqual([true, undefined, true]) })
@@ -170,7 +213,40 @@ describe('connection client apply', () => {
     }
   })
 
-  it('WebApiClient keeps unary calls and respond on globalThis.fetch', async () => {
+  it('does not announce reconnecting after a description subscriber stops the loop', async () => {
+    ;(globalThis as Win).location = { hostname: 'localhost', search: '?fixture' }
+    const handle = await mount()
+    const generation = installGeneration(handle)
+    const owner: { loop?: ReturnType<ConnectionHandle['start']> } = {}
+    let stoppedOnRetraction = false
+    const stopDescription = handle.hostDescription.subscribe(() => {
+      if (handle.hostDescription.getSnapshot() !== undefined || owner.loop === undefined) return
+      stoppedOnRetraction = true
+      owner.loop.stop()
+    })
+    const states: string[] = []
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const loop = handle.start({
+      onStateChange: (state) => { states.push(state) },
+    }, { backoffBaseMs: 10, backoffFactor: 1, backoffMaxMs: 10, generationReadyTimeoutMs: 500 })
+    owner.loop = loop
+    try {
+      await vi.waitFor(() => {
+        expect(handle.hostDescription.getSnapshot()?.canOpenPath).toBe(true)
+      })
+      generation.end()
+
+      await vi.waitFor(() => { expect(stoppedOnRetraction).toBe(true) })
+      expect(handle.hostDescription.getSnapshot()).toBeUndefined()
+      expect(states).toEqual(['connected'])
+    } finally {
+      stopDescription()
+      loop.stop()
+      warnSpy.mockRestore()
+    }
+  })
+
+  it('WebApiClient keeps unary calls on globalThis.fetch', async () => {
     ;(globalThis as Win).location = { hostname: 'localhost', search: '' }
     const handle = await mount()
     const original = globalThis.fetch
@@ -182,103 +258,10 @@ describe('connection client apply', () => {
     try {
       // Schema rejection is fine — the transport hop is the assertion.
       await (handle.api as WebApiClient).host.describe({}).catch(() => undefined)
-      await handle.api.respond({
-        type: 'client-response',
-        rpcId: RpcId('response-over-http'),
-        result: { ok: true, value: {} },
-      }).catch(() => undefined)
     } finally {
       globalThis.fetch = original
     }
     expect(seen.some(u => u.includes('/api/host.describe'))).toBe(true)
-    expect(seen.some(u => u.includes('/api/respond'))).toBe(true)
-  })
-
-  it('opens one WebSocket per downlink, parses frames, and aborts both without using fetch', async () => {
-    ;(globalThis as Win).location = {
-      hostname: 'localhost', search: '', origin: 'http://localhost:3080',
-    }
-    ;(globalThis as WebSocketGlobal).WebSocket = FakeWebSocket as unknown as typeof WebSocket
-    const fetch = vi.spyOn(globalThis, 'fetch')
-    const client = (await mount()).api as WebApiClient
-    const envelopes: RpcMessage[][] = []
-    client.subscribeEnvelopes((batch) => { envelopes.push([...batch]) })
-    const opened: string[] = []
-    const muxAbort = new AbortController()
-    const hostAbort = new AbortController()
-    const mux = client.events.mux({}, muxAbort.signal, () => { opened.push('mux') })[Symbol.asyncIterator]()
-    const host = client.events.host({}, hostAbort.signal, () => { opened.push('host') })[Symbol.asyncIterator]()
-    const muxFrame = mux.next()
-    const hostFrame = host.next()
-    await vi.waitFor(() => { expect(sockets).toHaveLength(2) })
-    expect(sockets.map(socket => socket.url)).toEqual([
-      'ws://localhost:3080/api/events.mux',
-      'ws://localhost:3080/api/events.host',
-    ])
-    await vi.waitFor(() => { expect(opened).toEqual(['mux', 'host']) })
-
-    const errors = vi.spyOn(console, 'error').mockImplementation(() => {})
-    sockets[0]!.receive(new Uint8Array([1, 2, 3]))
-    sockets[1]!.receive(JSON.stringify({ type: 'server-request', rpcId: 'bad', method: 'host/session-status', payload: {} }))
-    sockets[0]!.receive(JSON.stringify({
-      type: 'server-request',
-      rpcId: 'mux-browser',
-      method: 'session/subscribed',
-      payload: { type: 'session/subscribed', sessionId: 'session-browser', lastSeq: 8 },
-    }))
-    sockets[1]!.receive(JSON.stringify({
-      type: 'server-request',
-      rpcId: 'host-browser',
-      method: 'host/remote-event',
-      payload: { type: 'host/remote-event', event: 'commands/change', args: [] },
-    }))
-    expect(await muxFrame).toMatchObject({
-      value: { rpcId: 'mux-browser', payload: { type: 'session/subscribed', lastSeq: 8 } },
-    })
-    expect(await hostFrame).toMatchObject({
-      value: { rpcId: 'host-browser', payload: { type: 'host/remote-event', event: 'commands/change' } },
-    })
-    expect(errors).toHaveBeenCalledTimes(2)
-    await vi.waitFor(() => { expect(envelopes.flat()).toHaveLength(2) })
-    expect(fetch).not.toHaveBeenCalled()
-
-    const muxEnd = mux.next()
-    const hostEnd = host.next()
-    muxAbort.abort()
-    hostAbort.abort()
-    await expect(muxEnd).resolves.toMatchObject({ done: true })
-    await expect(hostEnd).resolves.toMatchObject({ done: true })
-    expect(sockets.every(socket => socket.readyState === FakeWebSocket.CLOSED)).toBe(true)
-    errors.mockRestore()
-    fetch.mockRestore()
-  })
-
-  it('maps an HTTPS page origin to a secure WebSocket URL', async () => {
-    ;(globalThis as Win).location = {
-      hostname: 'harness.example', search: '', origin: 'https://harness.example',
-    }
-    ;(globalThis as WebSocketGlobal).WebSocket = FakeWebSocket as unknown as typeof WebSocket
-    const client = (await mount()).api
-    const abort = new AbortController()
-    const iterator = client.events.mux({}, abort.signal)[Symbol.asyncIterator]()
-    const pending = iterator.next()
-    await vi.waitFor(() => { expect(sockets[0]?.url).toBe('wss://harness.example/api/events.mux') })
-    abort.abort()
-    await expect(pending).resolves.toMatchObject({ done: true })
-  })
-
-  it('closes a WebSocket immediately when its signal was already aborted', async () => {
-    ;(globalThis as Win).location = {
-      hostname: 'localhost', search: '', origin: 'http://localhost:3080',
-    }
-    ;(globalThis as WebSocketGlobal).WebSocket = FakeWebSocket as unknown as typeof WebSocket
-    const client = (await mount()).api
-    const abort = new AbortController()
-    abort.abort()
-    const iterator = client.events.mux({}, abort.signal)[Symbol.asyncIterator]()
-    await expect(iterator.next()).resolves.toMatchObject({ done: true })
-    expect(sockets).toHaveLength(1)
-    expect(sockets[0]?.readyState).toBe(FakeWebSocket.CLOSED)
   })
 
   it('carries RPC calls without requiring secure-context randomUUID', async () => {
@@ -319,6 +302,44 @@ describe('connection client apply', () => {
     })
   })
 
+  it('exposes a worker-local Gateway stream through connection.rpc.open', async () => {
+    ;(globalThis as Win).location = { hostname: 'preview.example', search: '' }
+    const openStream = vi.fn<NonNullable<ClientTransportHooks['openStream']>>(
+      (endpoint, payload, signal) => (async function *(): AsyncGenerator {
+        signal.throwIfAborted()
+        yield { endpoint, payload }
+      })(),
+    )
+    ;(globalThis as Win).__DSH_TRANSPORT__ = {
+      createApiClient: () => new FixtureApiClient(),
+      fetch: vi.fn<ClientTransportHooks['fetch']>(),
+      openStream,
+      ownsHost: true,
+    }
+    const handle = await mount()
+    const abort = new AbortController()
+    const open = handle.rpc.open
+    if (open === undefined) throw new Error('worker-local stream carrier was not installed')
+
+    const values = []
+    for await (const value of open('/api', 'session/follow', { args: { sessionId: 'session-1' } }, abort.signal)) {
+      values.push(value)
+    }
+    expect(values).toEqual([{
+      endpoint: 'session/follow', payload: { args: { sessionId: 'session-1' } },
+    }])
+    expect(openStream).toHaveBeenCalledWith(
+      'session/follow',
+      { args: { sessionId: 'session-1' } },
+      abort.signal,
+    )
+    expect(handle.isLoopback).toBe(true)
+    expect(() => open('/rpc', 'session/follow', {}, abort.signal))
+      .toThrow('worker-local streams require the /api channel')
+    expect(() => open('/api/path', 'session/follow', {}, abort.signal))
+      .toThrow('invalid RPC target')
+  })
+
   it('validates generic RPC transport failures, correlation, and targets', async () => {
     ;(globalThis as Win).location = {
       hostname: 'harness.example', search: '', origin: 'https://harness.example',
@@ -345,6 +366,51 @@ describe('connection client apply', () => {
       const fetch = vi.mocked(globalThis.fetch)
       expect(fetch.mock.calls[0]?.[0]).toEqual(new URL('http://dsh.internal/api/goals/create'))
       expect(fetch.mock.calls[0]?.[1]).not.toHaveProperty('signal')
+
+      const respond = (result: unknown): void => {
+        globalThis.fetch = async (_input: URL | RequestInfo, init?: RequestInit) => {
+          if (typeof init?.body !== 'string') throw new TypeError('expected a JSON request body')
+          const request = JSON.parse(init.body) as { rpcId: string }
+          return Response.json({ type: 'server-response', rpcId: request.rpcId, result })
+        }
+      }
+      for (const envelope of [
+        null,
+        { type: 'other', rpcId: 'rpc', result: { ok: true } },
+        { type: 'server-response', rpcId: 1, result: { ok: true } },
+      ]) {
+        globalThis.fetch = vi.fn().mockResolvedValue(Response.json(envelope))
+        await expect(handle.rpc.call('/api', 'goals/create', {}))
+          .rejects.toThrow('invalid server-response envelope')
+      }
+
+      respond(null)
+      await expect(handle.rpc.call('/api', 'goals/create', {}))
+        .rejects.toThrow('invalid server-response result')
+      respond({ ok: 'yes' })
+      await expect(handle.rpc.call('/api', 'goals/create', {}))
+        .rejects.toThrow('invalid server-response result')
+      respond({ ok: false, error: null })
+      await expect(handle.rpc.call('/api', 'goals/create', {}))
+        .rejects.toThrow('invalid server-response result')
+
+      for (const error of [
+        { code: 1, message: 'failed', details: {} },
+        { code: 'failed', message: 1, details: {} },
+        { code: 'failed', message: 'failed', details: [] },
+      ]) {
+        respond({ ok: false, error })
+        await expect(handle.rpc.call('/api', 'goals/create', {}))
+          .rejects.toThrow('invalid server-response failure')
+      }
+      respond({
+        ok: false,
+        error: { code: 'fixture-failed', message: 'fixture rejected the call', details: { retry: false } },
+      })
+      await expect(handle.rpc.call('/api', 'goals/create', {})).resolves.toEqual({
+        ok: false,
+        error: { code: 'fixture-failed', message: 'fixture rejected the call', details: { retry: false } },
+      })
     } finally {
       globalThis.fetch = original
     }

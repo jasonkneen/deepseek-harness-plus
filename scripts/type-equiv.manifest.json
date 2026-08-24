@@ -129,7 +129,13 @@
     {
       "doc": "docs/subsystems/core.md",
       "symbol": "Agent",
-      "source": "packages/core/agent/src/runtime-types.ts"
+      "source": "packages/core/agent/src/types.ts",
+      "augmentations": [
+        {
+          "source": "packages/core/agent/src/runtime-types.ts",
+          "module": "./types.ts"
+        }
+      ]
     },
     {
       "doc": "docs/subsystems/core.md",
@@ -449,9 +455,9 @@
       "source": "packages/core/session/src/types.ts"
     },
     {
-      "doc": "docs/subsystems/session.md",
+      "doc": "docs/subsystems/todo.md",
       "symbol": "TodoItem",
-      "source": "packages/core/session/src/types.ts"
+      "source": "packages/todo/tool-todo/src/types.ts"
     },
     {
       "doc": "docs/subsystems/session.md",
@@ -872,11 +878,6 @@
     },
     {
       "doc": "docs/subsystems/user-questions.md",
-      "symbol": "UserQuestionProvider",
-      "source": "packages/interaction/user-questions/src/index.ts"
-    },
-    {
-      "doc": "docs/subsystems/user-questions.md",
       "symbol": "UserQuestionError",
       "source": "packages/interaction/user-questions/src/index.ts"
     },
@@ -928,6 +929,16 @@
     {
       "doc": "docs/subsystems/attachment.md",
       "symbol": "StoredImageAttachment",
+      "source": "packages/attachment/attachment/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/attachment.md",
+      "symbol": "ImageRequestPolicy",
+      "source": "packages/attachment/attachment/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/attachment.md",
+      "symbol": "RequestImageAttachment",
       "source": "packages/attachment/attachment/src/types.ts"
     },
     {
@@ -1964,6 +1975,11 @@
       "doc": "docs/subsystems/feedback.md",
       "symbol": "MessageFeedbackDeleteResult",
       "source": "packages/feedback/message-feedback/src/types.ts"
+    },
+    {
+      "doc": "packages/client/ui-conversation/README.md",
+      "symbol": "ComposerChainProps",
+      "source": "packages/client/ui-conversation/src/client/contract/slots.ts"
     }
   ]
 }

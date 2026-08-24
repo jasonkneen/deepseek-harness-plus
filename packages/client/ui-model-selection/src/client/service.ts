@@ -14,8 +14,8 @@
  */
 import { Service } from '@deepseek-ai/cordis'
 import type { Context } from '@deepseek-ai/cordis'
-import type { ConnectionHandle, SessionId } from '@deepseek-ai/dsh-api-remotes/client'
-import type { SessionRuntime } from '@deepseek-ai/dsh-client-runtime/client'
+import type {} from '@deepseek-ai/dsh-api-session-controller/client'
+import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import { ModelDirectory } from './directory.ts'
 
 declare module '@deepseek-ai/cordis' {
@@ -32,7 +32,7 @@ interface LiveState {
 
 /** The `ctx.modelDirectories` session model-selection service. */
 export class ModelDirectoryResolver extends Service {
-  static inject = ['connection', 'sessions', 'remote']
+  static inject = ['sessions', 'remote', 'remote.session']
 
   private readonly live: LiveState = { directories: new Map() }
 
@@ -70,12 +70,11 @@ export class ModelDirectoryResolver extends Service {
     const { live } = this
     const existing = live.directories.get(sessionId)
     if (existing !== undefined) return existing
-    const sessions = this.ctx.get('sessions') as SessionRuntime
+    const sessions = this.ctx.sessions
     const actx = sessions.scope(sessionId)
     if (actx === undefined) throw new Error(`ui-model-selection: session "${String(sessionId)}" resolved no scope`)
-    const connection = this.ctx.get('connection') as ConnectionHandle
     const directory = new ModelDirectory(
-      connection.api.sessions,
+      this.ctx.remote.session,
       sessionId,
       () => sessions.subagentAddress(sessionId) === undefined,
     )

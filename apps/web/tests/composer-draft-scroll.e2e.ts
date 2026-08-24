@@ -1,35 +1,6 @@
-// Web e2e scenario: a composer draft longer than the 14-line cap scrolls its
-// GLYPHS AND ITS CARET AS ONE.
-//
-// The composer paints its text in two stacked layers (see
-// packages/client/ui-conversation/src/client/skeleton/InputBar.module.css): the
-// `<textarea>` carries the value, the selection and the caret but renders its
-// own glyphs `color: transparent`, and every visible character is painted by the
-// `[data-input-backdrop]` div underneath it, which also carries the claim-token
-// highlight, the chips and the ghost hint.
-//
-// Two layers can only stay together by moving together. They do: both sit
-// inside `[data-input-scroll]`, the composer's single scrolling box, and are as
-// tall as the whole draft — so one offset, applied by the browser, moves the
-// caret and the words in the same frame. Scrolling the textarea and assigning
-// its offset to the backdrop looks equivalent and is not: a wheel gesture is
-// composited off the main thread, so the assignment lands frames late and the
-// caret visibly flies ahead of the text it belongs to.
-//
-// That failure is what the same-task measurement below pins. Every metric here
-// is read through the caret's own coordinate frame — where the textarea puts
-// line n — against where the backdrop paints line n, because that difference is
-// the defect a user sees, and it is the one number a mirror between two boxes
-// cannot hold at zero.
-//
-// Only a real engine can show any of this. Scrolling is layout: jsdom reports
-// `scrollHeight === clientHeight` for every element and never scrolls one, so
-// the unit spec in packages/client/ui-conversation/tests/input-bar.client.spec.tsx can
-// only assert that one scrollport contains both layers.
-//
-// Zero model calls: a fresh workspace's blank session already carries a live
-// composer, and the scenario only types into it. A stray stream would fail loud
-// with NO_ADAPTER.
+// Browser geometry for the composer's caret and visible text layers. A
+// same-task gap probe detects deferred scroll synchronization that DOM-only
+// tests cannot observe.
 import { fileURLToPath } from 'node:url'
 import { join } from 'node:path'
 import type { Browser, Page } from 'playwright'
@@ -42,13 +13,7 @@ import {
 import { connectFreshWorkspace, newEnglishPage, saveFailureShot } from './support.ts'
 
 const SNAPSHOT_DIR = fileURLToPath(new URL('./snapshots/composer-draft-scroll', import.meta.url))
-/**
- * Committed golden of the composer's two-layer scroll geometry. The change
- * alters no accessible name, so the aria goldens the other scenarios commit are
- * byte-identical with and without it; this records the relations instead, which
- * makes a shift in the cap or in the layer coupling a reviewable diff rather
- * than an assertion someone has to reconstruct.
- */
+/** Scroll geometry is absent from ARIA snapshots, so this scenario records it directly. */
 const GEOMETRY_EXPECTED = join(SNAPSHOT_DIR, 'geometry.expected.md')
 const MODE = webSnapshotMode()
 
@@ -75,20 +40,11 @@ const DRAFT_TRAILING_NEWLINE = `${DRAFT}\n`
 
 /** The composer's text layers as the browser lays them out. */
 interface ComposerMetrics {
-  /** True when the draft is taller than the capped box — the situation under test. */
   overflows: boolean
-  /** Visible height of the scrollport's content box: the cap in pixels. */
   clientHeight: number
-  /** Whole lines that fit in the visible box, at the composer's own line-height. */
   visibleLines: number
-  /** The composer's one scroll offset, which the caret and the glyphs both follow. */
   scrollTop: number
-  /** Furthest that offset can go. */
   scrollMax: number
-  /**
-   * Scrollable overflow the textarea holds on its own — 0, or a second offset
-   * exists that nothing keeps equal to this one.
-   */
   inputScrollable: number
   /**
    * Distance between where the caret sits for a draft line and where the
@@ -98,25 +54,14 @@ interface ComposerMetrics {
    */
   caretGlyphGap: number
   /**
-   * How much that gap moves when the offset changes inside a single task: 0
-   * here, because one box carries both layers. Assigning one box's offset to
-   * another cannot be 0 — a scroll event is dispatched after the task that
-   * moved the box, so between the two there is a frame with the caret at the
-   * new offset and the glyphs at the old one.
+   * How much the caret-to-glyph gap moves when the offset changes before a
+   * scroll listener can run.
    */
   gapShiftOnScroll: number
-  /**
-   * Top of the LAST draft line relative to the visible box's top, in pixels: at
-   * most `clientHeight` when that line is on screen.
-   */
   lastLineOffset: number
-  /** Top of the FIRST draft line relative to the visible box's top: negative once it has scrolled out. */
   firstLineOffset: number
-  /** Content width the textarea wraps at. */
   inputWrapWidth: number
-  /** Content width the backdrop wraps at — equal, or the layers break lines in different places. */
   backdropWrapWidth: number
-  /** Content width the hidden auto-grow mirror wraps at — it decides the box's height. */
   mirrorWrapWidth: number
 }
 
@@ -187,14 +132,8 @@ function measureComposer(page: Page): Promise<ComposerMetrics> {
 }
 
 /**
- * Render the golden body.
- *
- * Absolute glyph coordinates are deliberately absent: they depend on font
- * metrics and would make the fixture fail on a machine that measures text
- * differently — a golden that needs re-recording per platform documents the
- * platform, not the behavior. What is recorded is the cap, the caret-to-glyph
- * relation, and which lines are on screen, each a comparison that survives any
- * layout keeping the coupling.
+ * Render platform-neutral comparisons instead of font-dependent glyph
+ * coordinates.
  * @param top - metrics with the draft scrolled to its start.
  * @param bottom - metrics with the draft scrolled to its end.
  * @param trailingNewline - metrics with the trailing-newline draft scrolled to its end.
@@ -328,9 +267,7 @@ describe('web e2e: composer draft scrolling', () => {
     const input = page.locator('textarea:enabled').first()
     await input.hover()
     const resting = (await measureComposer(page)).caretGlyphGap
-    // One delta past the whole draft: the box clamps at its own end, and the
-    // wheel-chaining handler leaves it native because the box is not yet at its
-    // edge when the gesture starts (the chaining itself is owned by the unit spec).
+    // One delta past the whole draft: the box clamps at its own end.
     await page.mouse.wheel(0, 2000)
     await expect.poll(async () => (await measureComposer(page)).scrollTop, { timeout: 10_000 })
       .toBeGreaterThan(0)
@@ -453,9 +390,7 @@ describe('web e2e: composer draft scrolling', () => {
       const data = new DataTransfer()
       data.setData('text/plain', text)
       el.dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true }))
-      // The ordinary case, without a trailing newline, so the collapsed branch
-      // of the reveal keeps a real engine under it; the case above owns the
-      // after-newline branch.
+      // Keep a final glyph so the collapsed caret position has a client rect.
     }, `\n${DRAFT}`)
     await expect.poll(async () => (await measureComposer(page)).overflows, { timeout: 10_000 }).toBe(true)
     await expect.poll(async () => (await measureComposer(page)).scrollTop, { timeout: 10_000 }).toBeGreaterThan(0)
@@ -465,8 +400,6 @@ describe('web e2e: composer draft scrolling', () => {
   }, 60_000)
 
   it('commits exactly the fixtures it reads', async () => {
-    // Zero model calls, so the scenario records no session fixture: the geometry
-    // golden is the whole inventory.
     await assertFixtureInventory(SNAPSHOT_DIR, ['geometry.expected.md'])
   })
 

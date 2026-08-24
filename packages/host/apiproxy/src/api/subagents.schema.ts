@@ -4,10 +4,10 @@ import { z } from 'zod'
 import type { MessageId } from '@deepseek-ai/dsh-llm/brand'
 import type { RequestPayload, ResponseValue } from './rpc-map.ts'
 import type { Wire } from './rpc.schema.ts'
-import {
-  contentBlockSchema, historyEntrySchema, sessionIdSchema, sessionProjectionsBlockSchema,
-} from './sessions.schema.ts'
+import { sessionIdSchema } from './ids.schema.ts'
 import type { SubagentListEntry } from './subagents.ts'
+
+const contentBlockSchema = z.looseObject({ type: z.string() })
 
 /** Healthy and diagnostic durable catalog rows. */
 export const subagentListEntrySchema = z.union([
@@ -44,22 +44,6 @@ export const subagentListValueSchema = z.object({
   entries: z.array(subagentListEntrySchema),
   parentAvailable: z.boolean(),
 }) satisfies z.ZodType<Wire<ResponseValue<'subagent.list'>>>
-
-/** subagent.history request payload. */
-export const subagentHistoryRequestSchema = z.object({
-  parentSessionId: sessionIdSchema,
-  childSessionId: sessionIdSchema,
-  mode: z.union([z.literal('one-shot'), z.literal('continuable')]),
-  beforeSeq: z.number().int().nonnegative().optional(),
-  maxMessages: z.number().int().positive().optional(),
-}) satisfies z.ZodType<Wire<RequestPayload<'subagent.history'>>>
-
-/** subagent.history response value. */
-export const subagentHistoryValueSchema = z.object({
-  events: z.array(historyEntrySchema),
-  hasMore: z.boolean(),
-  projections: sessionProjectionsBlockSchema.optional(),
-}) as unknown as z.ZodType<Wire<ResponseValue<'subagent.history'>>>
 
 /** subagent.prompt request payload. */
 export const subagentPromptRequestSchema = z.object({

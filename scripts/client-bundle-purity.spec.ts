@@ -63,9 +63,9 @@ describe('client bundle purity gate', () => {
   const resolveId = purityResolveId()
 
   it('leaves default externals and non-scoped specifiers alone', () => {
+    expect(resolveId('@deepseek-ai/dsh-client-store')).toBeNull()
     expect(resolveId('@deepseek-ai/dsh-client-ui-slots')).toBeNull()
     expect(resolveId('@deepseek-ai/dsh-client-ui-primitives')).toBeNull()
-    expect(resolveId('@deepseek-ai/dsh-client-runtime/client')).toBeNull()
     expect(resolveId('react')).toBeNull()
     expect(resolveId('zod')).toBeNull()
   })
@@ -95,14 +95,14 @@ describe('client bundle purity gate', () => {
 
   it('throws on cross-plugin value imports — bare plugin names and /client subpaths alike', () => {
     expect(() => resolveId('@deepseek-ai/dsh-client-connection')).toThrow(/purity/)
-    expect(() => resolveId('@deepseek-ai/dsh-client-runtime')).toThrow(/purity/)
+    expect(() => resolveId('@deepseek-ai/dsh-client-ui-session')).toThrow(/purity/)
     expect(() => resolveId('@deepseek-ai/dsh-client-ui-layout/client')).toThrow(/purity/)
   })
 
-  it('admits the parser-preloaded runtime for every dynamic bundle', () => {
-    expect(resolveId('@deepseek-ai/dsh-client-runtime/client')).toBeNull()
-    const withoutRequest = purityResolveId('@deepseek-ai/dsh-client-ui-goal')
-    expect(withoutRequest('@deepseek-ai/dsh-client-runtime/client')).toBeNull()
+  it('admits package-specific requests only for the declaring bundle', () => {
+    const requesting = purityResolveId('@deepseek-ai/dsh-api-session-controller')
+    expect(requesting('@deepseek-ai/dsh-api-gateway/client')).toBeNull()
+    expect(() => resolveId('@deepseek-ai/dsh-api-gateway/client')).toThrow(/purity/)
   })
 
   it('externalizes the baseline independently of each package manifest', () => {
@@ -114,7 +114,7 @@ describe('client bundle purity gate', () => {
     expect(requesting.neverBundle('react')).toBe(true)
     expect(requesting.neverBundle('zod')).toBe(false)
     expect(plain.neverBundle('react')).toBe(true)
-    expect(plain.neverBundle('@deepseek-ai/dsh-client-runtime/client')).toBe(true)
+    expect(plain.neverBundle('@deepseek-ai/dsh-client-store')).toBe(true)
   })
 })
 

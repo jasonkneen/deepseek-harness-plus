@@ -232,7 +232,7 @@ describe.skipIf(MODE === 'record')('web e2e: composer interrupt for a running co
       expect(((await (await interruptResponse).json()) as {
         result: { ok: boolean; value?: { accepted: boolean } }
       }).result).toMatchObject({ ok: true, value: { accepted: true } })
-      expect(apiCalls.filter(path => path === '/api/session.cancel')).toEqual([])
+      expect(apiCalls.filter(path => path === '/api/session/cancel')).toEqual([])
       await aborted
       await expect.poll(() => scaffold.ctx.agents.get(childId)?.status, { timeout: 15_000 }).toBe('idle')
 
@@ -280,7 +280,7 @@ describe.skipIf(MODE === 'record')('web e2e: composer interrupt for a running co
       result: { ok: boolean; value?: { accepted: boolean } }
     }).result).toMatchObject({ ok: true, value: { accepted: true } })
     // The addressed child stops through its own RPC, never the generic one.
-    expect(apiCalls.filter(path => path === '/api/session.cancel')).toEqual([])
+    expect(apiCalls.filter(path => path === '/api/session/cancel')).toEqual([])
     await aborted
 
     // Parked: the Activation stays resident and idle with the retained

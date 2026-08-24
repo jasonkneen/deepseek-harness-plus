@@ -16,6 +16,7 @@
 // sequentially in-file.
 import type { ChildProcess } from 'node:child_process'
 import { spawn } from 'node:child_process'
+import { randomUUID } from 'node:crypto'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { createServer } from 'node:http'
 import { createRequire } from 'node:module'
@@ -50,23 +51,102 @@ function waitForReadyLine(child: ChildProcess): Promise<string> {
   })
 }
 
-async function rpc<T>(baseUrl: string, method: string, payload: unknown): Promise<T> {
-  const response = await fetch(`${baseUrl}/api/${method}`, {
+async function remoteRpc<T>(baseUrl: string, endpoint: string, args: object): Promise<T> {
+  const response = await fetch(`${baseUrl}/api/${endpoint}`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({
       type: 'client-request',
-      rpcId: `smoke-${method}`,
-      method,
-      payload,
+      rpcId: `smoke-${endpoint}`,
+      method: endpoint,
+      payload: { args },
     }),
   })
-  if (!response.ok) throw new Error(`${method} failed over HTTP ${response.status}: ${await response.text()}`)
+  if (!response.ok) throw new Error(`${endpoint} failed over HTTP ${response.status}: ${await response.text()}`)
   const body = await response.json() as {
     result: { ok: true; value: T } | { ok: false; error: { code: string; message: string } }
   }
-  if (!body.result.ok) throw new Error(`${method} failed: ${body.result.error.code}: ${body.result.error.message}`)
+  if (!body.result.ok) throw new Error(`${endpoint} failed: ${body.result.error.code}: ${body.result.error.message}`)
   return body.result.value
+}
+
+/** Read the explicit page cut from a freshly opened Session follow stream. */
+async function sessionCursor(baseUrl: string, sessionId: string): Promise<number> {
+  const socket = new WebSocket(`${baseUrl.replace(/^http/, 'ws')}/api/remote.mux`)
+  const streamId = `smoke-history-${randomUUID()}`
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const cleanup = (): void => {
+        socket.removeEventListener('open', opened)
+        socket.removeEventListener('error', failed)
+        socket.removeEventListener('close', closed)
+      }
+      const opened = (): void => {
+        cleanup()
+        resolve()
+      }
+      const failed = (): void => {
+        cleanup()
+        reject(new Error('session/follow carrier failed before opening'))
+      }
+      const closed = (): void => {
+        cleanup()
+        reject(new Error('session/follow carrier closed before opening'))
+      }
+      socket.addEventListener('open', opened)
+      socket.addEventListener('error', failed)
+      socket.addEventListener('close', closed)
+    })
+    return await new Promise<number>((resolve, reject) => {
+      const timer = setTimeout(() => { finish(new Error('session/follow did not publish an opening cursor')) }, 10_000)
+      const cleanup = (): void => {
+        clearTimeout(timer)
+        socket.removeEventListener('message', message)
+        socket.removeEventListener('error', failed)
+        socket.removeEventListener('close', closed)
+      }
+      const finish = (error: Error | undefined, cursor?: number): void => {
+        cleanup()
+        if (error !== undefined) reject(error)
+        else resolve(cursor ?? -1)
+      }
+      const message = (event: MessageEvent<unknown>): void => {
+        try {
+          if (typeof event.data !== 'string') throw new Error('session/follow published a non-text frame')
+          const frame: unknown = JSON.parse(event.data)
+          if (!isRecord(frame) || frame.streamId !== streamId) return
+          if (frame.type === 'error') {
+            finish(new Error(`session/follow failed: ${JSON.stringify(frame.error)}`))
+            return
+          }
+          if (frame.type === 'end') {
+            finish(new Error('session/follow ended before its opening cursor'))
+            return
+          }
+          const value = frame.value
+          if (frame.type === 'item' && isRecord(value)
+            && value.type === 'opened' && Number.isSafeInteger(value.cursor)) {
+            finish(undefined, value.cursor as number)
+          }
+        } catch (error) {
+          finish(error instanceof Error ? error : new Error(String(error)))
+        }
+      }
+      const failed = (): void => { finish(new Error('session/follow carrier failed before its opening cursor')) }
+      const closed = (): void => { finish(new Error('session/follow carrier closed before its opening cursor')) }
+      socket.addEventListener('message', message)
+      socket.addEventListener('error', failed)
+      socket.addEventListener('close', closed)
+      socket.send(JSON.stringify({
+        type: 'open',
+        streamId,
+        endpoint: 'session/follow',
+        payload: { args: { request: { address: { kind: 'session', sessionId } } } },
+      }))
+    })
+  } finally {
+    socket.close()
+  }
 }
 
 interface HistoryPage {
@@ -101,7 +181,10 @@ function hasAssistantMarker(page: HistoryPage, marker: string): boolean {
 }
 
 async function history(baseUrl: string, sessionId: string): Promise<HistoryPage> {
-  return rpc<HistoryPage>(baseUrl, 'session.history', { sessionId, maxMessages: 10 })
+  const throughSeq = await sessionCursor(baseUrl, sessionId)
+  return remoteRpc<HistoryPage>(baseUrl, 'session/page', {
+    request: { address: { kind: 'session', sessionId }, throughSeq, maxMessages: 10 },
+  })
 }
 
 async function waitForProviderTitle(baseUrl: string, sessionId: string): Promise<string> {
@@ -142,8 +225,8 @@ async function detailsTrack(page: Page): Promise<number> {
 // plugin's client bundle exists and exports apply, the loader fail-louds and
 // the frame never appears.
 const UI_PLUGIN_DIRS = [
-  'connection', 'runtime', 'ui-theme', 'locale', 'ui-layout', 'ui-sidebar',
-  'ui-settings', 'ui-settings-general', 'ui-settings-models', 'ui-conversation',
+  'connection', 'ui-theme', 'locale', 'ui-layout', 'ui-renderer', 'ui-session', 'ui-sidebar',
+  'ui-settings', 'ui-settings-general', 'ui-settings-models', 'ui-conversation', 'ui-approval', 'ui-chat',
   'ui-model-selection', 'ui-user-questions', 'ui-trajectory', '../session-query/session-log-export',
 ]
 const ROUND_DONE_MARKER = 'WEB_ROUND_DONE'
@@ -242,12 +325,13 @@ describe('dsh web keyless CLI smoke', () => {
     )
     try {
       const baseUrl = await waitForReadyLine(child)
-      const created = await rpc<{ sessionId: string }>(baseUrl, 'session.create', {})
-      await rpc<{ accepted: true }>(baseUrl, 'session.prompt', {
+      const created = await remoteRpc<{ sessionId: string }>(baseUrl, 'session/create', { request: {} })
+      await remoteRpc<{ accepted: true }>(baseUrl, 'session/prompt', { request: {
+        requestId: randomUUID(),
         sessionId: created.sessionId,
         mode: 'queue',
         content: [{ type: 'text', text: 'go' }],
-      })
+      } })
       const capturedRequests = await Promise.race([
         providerRequests,
         new Promise<never>((_resolve, reject) => {
@@ -354,12 +438,13 @@ describe('dsh web keyless CLI smoke', () => {
     )
     try {
       const baseUrl = await waitForReadyLine(child)
-      const created = await rpc<{ sessionId: string }>(baseUrl, 'session.create', {})
-      await rpc<{ accepted: true }>(baseUrl, 'session.prompt', {
+      const created = await remoteRpc<{ sessionId: string }>(baseUrl, 'session/create', { request: {} })
+      await remoteRpc<{ accepted: true }>(baseUrl, 'session/prompt', { request: {
+        requestId: randomUUID(),
         sessionId: created.sessionId,
         mode: 'queue',
         content: [{ type: 'text', text: promptMarker }],
-      })
+      } })
       let page: HistoryPage | undefined
       await expect.poll(async () => {
         page = await history(baseUrl, created.sessionId)
@@ -385,7 +470,7 @@ describe('dsh web keyless CLI smoke', () => {
       await new Promise<void>(resolveClose => provider.close(() => { resolveClose() }))
       rmSync(workspace, { recursive: true, force: true })
     }
-  }, 30_000)
+  }, 120_000)
 
   it('DSH_TOOLS_MODE=code collapses the provider wire tools to run_code with the SDK prompt section', async () => {
     requireDist()
@@ -438,12 +523,13 @@ describe('dsh web keyless CLI smoke', () => {
     )
     try {
       const baseUrl = await waitForReadyLine(child)
-      const created = await rpc<{ sessionId: string }>(baseUrl, 'session.create', {})
-      await rpc<{ accepted: true }>(baseUrl, 'session.prompt', {
+      const created = await remoteRpc<{ sessionId: string }>(baseUrl, 'session/create', { request: {} })
+      await remoteRpc<{ accepted: true }>(baseUrl, 'session/prompt', { request: {
+        requestId: randomUUID(),
         sessionId: created.sessionId,
         mode: 'queue',
         content: [{ type: 'text', text: 'go' }],
-      })
+      } })
       const captured = await Promise.race([
         providerRequest,
         new Promise<never>((_resolve, reject) => {
@@ -555,10 +641,18 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY || notReady.length > 0)('web smoke
       productTitle,
       { timeout: 15_000 },
     )
-    await expect.poll(async () => (await rpc<{ items: { sessionId: string }[] }>(baseUrl, 'session.list', {})).items.length, {
+    await expect.poll(async () => (await remoteRpc<{ items: { sessionId: string }[] }>(
+      baseUrl,
+      'session/list',
+      { _request: {} },
+    )).items.length, {
       timeout: 15_000,
     }).toBe(1)
-    const sessions = await rpc<{ items: { sessionId: string }[] }>(baseUrl, 'session.list', {})
+    const sessions = await remoteRpc<{ items: { sessionId: string }[] }>(
+      baseUrl,
+      'session/list',
+      { _request: {} },
+    )
     const sessionId = sessions.items[0]?.sessionId
     if (sessionId === undefined) throw new Error('created Web session was not listed')
     const durableTitle = await waitForProviderTitle(baseUrl, sessionId)

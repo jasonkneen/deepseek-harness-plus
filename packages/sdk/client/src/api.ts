@@ -2,7 +2,6 @@
  * High-level run API over {@link HarnessClient}: `DeepSeekHarness` owns one
  * runtime subprocess across many sessions; `HarnessSession.run` sends a
  * prompt and settles when the whole agent next becomes idle.
- * Mirrors the Python SDK's `DeepSeekHarness`/`Session` pair.
  *
  * @module @deepseek-ai/dsh-sdk-client/api
  */
@@ -10,8 +9,9 @@
 import { randomUUID } from 'node:crypto'
 import { resolve } from 'node:path'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
-import { HarnessClient, isRecord, SdkProtocolError } from './client.ts'
-import type { ContentBlock, DeepSeekHarnessOptions, HarnessClientOptions, HarnessNotification, RunResult } from './types.ts'
+import { createProcessHarnessClient, HarnessClient, isRecord, SdkProtocolError } from './client.ts'
+import type { RuntimeProcessOptions } from './launch.ts'
+import type { ContentBlock, DeepSeekHarnessOptions, HarnessNotification, RunResult } from './types.ts'
 
 /**
  * Reusable SDK for running DeepSeek Harness agent turns in a runtime
@@ -21,7 +21,7 @@ import type { ContentBlock, DeepSeekHarnessOptions, HarnessClientOptions, Harnes
  */
 export class DeepSeekHarness implements AsyncDisposable {
   private clientInstance: HarnessClient
-  private readonly launch: HarnessClientOptions
+  private readonly createClient: () => HarnessClient
   private readonly cwd: string
   private readonly provider: string
   private readonly model: string
@@ -29,14 +29,15 @@ export class DeepSeekHarness implements AsyncDisposable {
   private initialized: Promise<void> | undefined
   private closed = false
 
-  /** @param options - runtime launch spec plus the session route (cwd/provider/model). */
-  constructor(options: DeepSeekHarnessOptions) {
-    this.launch = options.launch
-    this.clientInstance = new HarnessClient(options.launch)
+  /** @param options - dsh launch configuration plus the session route. */
+  constructor(options?: DeepSeekHarnessOptions)
+  constructor(options: DeepSeekHarnessOptions = {}, clientFactory?: () => HarnessClient) {
+    this.createClient = clientFactory ?? (() => new HarnessClient(options))
+    this.clientInstance = this.createClient()
     // Absolute before the handshake: the child spawns relative to THIS
     // process's cwd, but the wire cwd is resolved again inside the child — a
     // relative value would double-resolve (e.g. `worker` → `worker/worker`).
-    this.cwd = resolve(options.cwd ?? options.launch.cwd ?? process.cwd())
+    this.cwd = resolve(options.cwd ?? options.processCwd ?? process.cwd())
     this.provider = options.provider ?? 'deepseek-official'
     this.model = options.model ?? 'deepseek-v4-flash'
     this.maxTokens = options.maxTokens
@@ -72,7 +73,7 @@ export class DeepSeekHarness implements AsyncDisposable {
       } catch (error) {
         this.initialized = undefined
         await this.clientInstance.close()
-        if (!this.closed) this.clientInstance = new HarnessClient(this.launch)
+        if (!this.closed) this.clientInstance = this.createClient()
         throw error
       }
     })()
@@ -116,6 +117,21 @@ export class DeepSeekHarness implements AsyncDisposable {
   [Symbol.asyncDispose](): Promise<void> {
     return this.close()
   }
+}
+
+/** Construct the high-level API against a generic process for package-local fake-runtime tests. */
+export function createProcessDeepSeekHarness(
+  runtime: RuntimeProcessOptions,
+  options: DeepSeekHarnessOptions = {},
+): DeepSeekHarness {
+  const Constructor = DeepSeekHarness as unknown as new (
+    publicOptions: DeepSeekHarnessOptions,
+    clientFactory: () => HarnessClient,
+  ) => DeepSeekHarness
+  return new Constructor({
+    ...runtime.cwd === undefined ? {} : { processCwd: runtime.cwd },
+    ...options,
+  }, () => createProcessHarnessClient(runtime))
 }
 
 /** Per-run options: target session and streaming observer. */

@@ -68,7 +68,7 @@ export class SessionFormatUnsupportedError extends Error {
  * Direction-aware refusal text for a stored session whose format version this
  * build does not read. Shared by the coordinator's load-time check and by
  * backends that must refuse BEFORE decoding version-dependent structure (a
- * future format may not satisfy today's structural checks at all, and the
+ * future format may not satisfy this build's structural checks at all, and the
  * user must see "upgrade the harness", never "corrupt").
  * @param id - the stored session id, for message context.
  * @param version - the stored format version.
@@ -174,6 +174,9 @@ export interface PersistenceBackend<TornMarker = unknown> {
    * @param signal - optional cancellation for backend read work.
    */
   loadStoredFrom?(id: SessionId, fromSeq: number, signal?: AbortSignal): Promise<StoredSuffix | undefined>
+
+  /** Durably create an empty header-only session artifact. */
+  materializeHeader?(meta: SessionHeader): Promise<void>
 
   /**
    * Durably append a CONTIGUOUS batch, lazily materializing the session first
@@ -642,6 +645,26 @@ export class PersistenceCoordinator<TornMarker = unknown> {
     return this.serialize(snapshot.id, () => this.createCore(snapshot))
   }
 
+  /**
+   * Materialize one exact live session without inventing a session event.
+   * @param session - live session already registered through the write path.
+   */
+  async ensureMaterialized(session: Session): Promise<void> {
+    await this.flush(session)
+    await this.serialize(session.id, async () => {
+      const state = this.states.get(session.id)
+      /* v8 ignore next -- successful live flush always initializes the exact session state. */
+      if (state === undefined) throw new Error(`session "${session.id}" is not registered for persistence`)
+      if (state.materialized) return
+      if (this.backend.materializeHeader === undefined) {
+        throw new Error('session persistence backend cannot materialize an empty session')
+      }
+      await this.backend.materializeHeader(state.meta)
+      state.materialized = true
+      this.preparations.invalidate(session.id)
+    })
+  }
+
   private async createCore(meta: SessionHeader): Promise<void> {
     // Do NOT clobber an existing session: the SessionId IS the identity.
     if (this.states.has(meta.id) || this.preparations.has(meta.id)) {
@@ -977,7 +1000,7 @@ export class PersistenceCoordinator<TornMarker = unknown> {
     const state = this.states.get(session.id)
     /* v8 ignore next -- successful flush always publishes this live session's durable state */
     if (state === undefined) throw new Error(`session "${session.id}" lost persistence state during load`)
-    if (events.length === 0) throw new Error(`session "${session.id}" not found`)
+    if (events.length === 0 && !state.materialized) throw new Error(`session "${session.id}" not found`)
     if (interruptedTurnClosers(events).length > 0) {
       throw new Error(`cannot load session "${session.id}" while its live turn is open; use the live Session or wait for the turn to close`)
     }
@@ -1131,8 +1154,7 @@ export class PersistenceCoordinator<TornMarker = unknown> {
     // Session disposal is observe-only, so retirement contains its own failure.
     ctx.on('session/disposed', (session) => { this.retire(session) })
 
-    // HMR: a hot reload does not replay session/created, so seed existing live
-    // sessions (mirrors dsh-invariants).
+    // HMR does not replay session/created, so seed existing live sessions.
     for (const session of ctx.sessions.list()) void this.initFor(session)
   }
 

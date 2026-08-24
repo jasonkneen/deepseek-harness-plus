@@ -28,6 +28,9 @@
       "path": "../../core/session"
     },
     {
+      "path": "../../todo/tool-todo"
+    },
+    {
       "path": "../../core/tools"
     },
     {

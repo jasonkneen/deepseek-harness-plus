@@ -1,24 +1,22 @@
 // @vitest-environment jsdom
-// InputBar behavior over the machine wiring: Enter-send semantics (IME guard,
-// Shift newline, busy Enter policy, Ctrl/Meta steering, repeat suppression), running
-// semantics (input stays free; continuable children keep Send beside Stop), the machine pending lock,
-// decoration backdrop, error banners, status strips, and the focus-keeping mousedown.
 
 import { afterEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 import { act, cleanup, fireEvent, render } from '@testing-library/react'
-import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-test-runtime'
+import type { Context } from '@deepseek-ai/cordis'
+import type { SessionSnapshot } from '@deepseek-ai/dsh-api-session-controller/client'
+import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
 import {
-  createSnapshotStore, EMPTY_CHAT_SNAPSHOT, EMPTY_CONVERSATION_VIEWS,
-} from '@deepseek-ai/dsh-client-runtime/client'
-import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
+  bindSnapshotSelector, conversationSnapshot, makeTranslate, sessionSnapshot,
+} from '@deepseek-ai/dsh-client-test-runtime'
+import type { SessionPendingInteractionSnapshot } from '@deepseek-ai/dsh-client-ui-session/client'
 import { zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/zh.ts'
-import type { ClientContext, ConversationSnapshot, SessionId } from '@deepseek-ai/dsh-client-runtime/client'
+import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { SubmitOutcome } from '@deepseek-ai/dsh-client-ui-input-trigger/client'
 import { SessionInputShell } from '../src/client/input/facade.ts'
 import type {
   ComposerAttachment, ComposerAttachmentsOwnerProps,
 } from '../src/client/contract/slots.ts'
-import type { DraftAttachmentId } from '../src/client/input/contract.ts'
+import type { DraftAttachmentId } from '../src/client/contract/input.ts'
 import { InputBar } from '../src/client/skeleton/InputBar.tsx'
 import type { InputBarProps } from '../src/client/skeleton/InputBar.tsx'
 import { zh } from '../src/client/locales.ts'
@@ -37,18 +35,11 @@ Range.prototype.getBoundingClientRect = ZERO_RECT
 const NATIVE_SET_START = Object.getOwnPropertyDescriptor(Range.prototype, 'setStart')!
   .value as (this: Range, node: Node, offset: number) => void
 
-const SCTX = {} as ClientContext
+const SCTX = {} as Context
 const SID = 's1' as SessionId
 
-function snapshotOf(overrides: Partial<ConversationSnapshot> = {}): ConversationSnapshot {
-  return {
-    sessionId: SID, views: EMPTY_CONVERSATION_VIEWS, chat: EMPTY_CHAT_SNAPSHOT,
-    nodes: [], turnTimings: new Map(), turnEnds: new Map(), partial: null, runningCalls: [],
-    pending: [], queue: [], running: false, composerPhase: 'active', removed: false,
-    openState: 'open', openError: null, hasMore: false, loadingOlder: false,
-    promptError: null, blank: false, subagent: null, lastAgentError: null,
-    ...overrides,
-  }
+function snapshotOf(overrides: Partial<SessionSnapshot> = {}): SessionSnapshot {
+  return { ...sessionSnapshot(SID), ...overrides }
 }
 
 interface BenchOptions {
@@ -70,14 +61,14 @@ interface BenchOptions {
   }
   draft?: string
   running?: boolean
-  subagent?: Exclude<ConversationSnapshot['subagent'], null>
+  subagent?: Exclude<SessionSnapshot['subagent'], null>
   disabled?: boolean
   inert?: boolean
   workspacePickerOpen?: boolean
   onRequestWorkspace?: () => void
-  promptError?: ConversationSnapshot['promptError']
+  promptError?: SessionSnapshot['promptError']
   /** Authoritative queue rows served to the machine overlay (empty = none). */
-  queue?: ConversationSnapshot['queue']
+  queue?: SessionSnapshot['queue']
   /** The hub's steer-all face (empty-draft accelerated Enter). */
   steerQueue?: () => void
   variant?: 'hero' | 'composer'
@@ -96,7 +87,7 @@ interface BenchOptions {
 }
 
 /** One pending queue row (the runtime snapshot shape, as the dock tests build it). */
-function row(id: string): ConversationSnapshot['queue'][number] {
+function row(id: string): SessionSnapshot['queue'][number] {
   return {
     id: id as never, messageId: `message-${id}` as never, placement: 'queued',
     content: [{ type: 'text', text: id }], preview: id, text: id,
@@ -112,7 +103,7 @@ function bench(over?: BenchOptions) {
     signal: AbortSignal,
   ) => Promise<SubmitOutcome>>(() => Promise.resolve({ kind: 'success' }))
   const lex = over?.lexicon
-  const session = createSnapshotStore<ConversationSnapshot>(snapshotOf({
+  const session = createSnapshotStore<SessionSnapshot>(snapshotOf({
     running: over?.running ?? false,
     subagent: over?.subagent ?? null,
     removed: over?.disabled ?? false,
@@ -153,12 +144,15 @@ function bench(over?: BenchOptions) {
   }) as InputBarProps['renderSlot']
   const props: InputBarProps = {
     sessionId: SID,
-    SessionProvider: ({ children }) => children(SID),
+    SessionProvider: ({ children }) => children,
     useSession: bindSnapshotSelector(session),
     useSessions: bindSnapshotSelector(createSnapshotStore({
       ids: [], byId: {}, current: undefined, phase: 'ready',
       subagentsByParent: {}, jobsBySession: {}, currentAddress: undefined,
     })),
+    useSessionPendingInteraction: bindSnapshotSelector(
+      createSnapshotStore<SessionPendingInteractionSnapshot>(new Map()),
+    ),
     useWorkspaces: bindSnapshotSelector(createSnapshotStore({
       items: [], archivedSessionIds: [], state: 'idle', phase: 'ready', error: null,
       baselinesReady: true, recentWorkspaceId: undefined,
@@ -167,6 +161,7 @@ function bench(over?: BenchOptions) {
       (selector ?? (v => v))(key === 'permissions'
         ? over?.permissions
         : key === 'plan' ? over?.plan : key === 'imageLimits' ? over?.imageLimits : undefined)),
+    useConversation: bindSnapshotSelector(createSnapshotStore(conversationSnapshot())),
     useInput: bindSnapshotSelector(shell.state),
     inputActions: shell.actions,
     keyboard: shell,
@@ -187,7 +182,6 @@ function bench(over?: BenchOptions) {
     useMenuLauncher: bindSnapshotSelector(menuLauncher),
     stop,
     command: over?.command ?? (() => Promise.resolve(true)),
-    // Mirrors the real lookup chain (conversation namespace, then common).
     t: over?.t ?? makeTranslate(zh, commonZh),
     renderSlot,
     variant: over?.variant ?? 'composer',
@@ -331,7 +325,7 @@ describe('image draft rail', () => {
   })
 
   it('announces server attachment rejections as product copy, other codes as developer text', () => {
-    const attachmentError = (reason: string): ConversationSnapshot['promptError'] => ({
+    const attachmentError = (reason: string): SessionSnapshot['promptError'] => ({
       op: 'send',
       error: { code: 'attachment-error', message: 'raw wire text', details: { reason } },
     })
@@ -1506,43 +1500,24 @@ describe('command launcher chrome and control seats', () => {
     }
     const { view } = bench({ permissions, command })
     const trigger = view.getByLabelText(/^访问模式/) as HTMLButtonElement
-    // Product-label display is presentation only; the menu ids stay machine names.
-    expect(trigger.textContent).toBe('仅可查看')
+    // Title-case display is presentation only; the menu ids stay machine names.
+    expect(trigger.textContent).toBe('Read Only')
     expect([...trigger.querySelectorAll('svg')]
       .every(icon => icon.closest('[aria-hidden="true"]') !== null)).toBe(true)
     fireEvent.click(trigger)
     const items = view.getAllByRole('menuitem')
-    expect(items.map(o => o.textContent)).toEqual(['仅可查看', '可写入工作区', '完全权限'])
+    expect(items.map(o => o.textContent)).toEqual(['Read Only', 'Workspace Write', 'Full access'])
     fireEvent.click(items[1]!)
     // Optimistic pick + disable until admission resolves (command stub resolves true).
     const busy = view.getByLabelText(/^访问模式/) as HTMLButtonElement
-    expect(busy.textContent).toBe('可写入工作区')
+    expect(busy.textContent).toBe('Workspace Write')
     expect(busy.disabled).toBe(true)
     expect(command).toHaveBeenCalledWith('/permission workspace-write')
     await act(async () => {})
     expect((view.getByLabelText(/^访问模式/) as HTMLButtonElement).disabled).toBe(false)
   })
 
-  it('the Access chip preserves host labels for built-in preset values', () => {
-    const permissions = {
-      options: [
-        { value: 'read-only', name: 'Review Only' },
-        { value: 'workspace-write', name: 'Project Files' },
-        { value: 'danger-full-access', name: 'Operator Mode' },
-        { value: 'custom-mode', name: 'custom-mode' },
-        { value: '__proto__', name: '__proto__' },
-      ],
-      currentValue: 'workspace-write',
-    }
-    const { view } = bench({ permissions })
-    const trigger = view.getByLabelText(/^访问模式/) as HTMLButtonElement
-    expect(trigger.textContent).toBe('Project Files')
-    fireEvent.click(trigger)
-    expect(view.getAllByRole('menuitem').map(item => item.textContent))
-      .toEqual(['Review Only', 'Project Files', 'Operator Mode', 'Custom Mode', '__proto__'])
-  })
-
-  it('requires explicit risk acknowledgement before submitting full access', async () => {
+  it('requires explicit risk acknowledgement before submitting Full access', async () => {
     const command = vi.fn(() => Promise.resolve(true))
     const permissions = {
       options: [
@@ -1553,11 +1528,11 @@ describe('command launcher chrome and control seats', () => {
     }
     const { view } = bench({ permissions, command })
     fireEvent.click(view.getByLabelText(/^访问模式/))
-    fireEvent.click(view.getByRole('menuitem', { name: '完全权限' }))
+    fireEvent.click(view.getByRole('menuitem', { name: 'Full access' }))
 
     expect(command).not.toHaveBeenCalled()
-    expect(view.getByRole('dialog', { name: '确认启用完全权限？' })).toBeTruthy()
-    const enable = view.getByRole('button', { name: '启用完全权限' }) as HTMLButtonElement
+    expect(view.getByRole('dialog', { name: '确认启用 Full access？' })).toBeTruthy()
+    const enable = view.getByRole('button', { name: '启用 Full access' }) as HTMLButtonElement
     expect(enable.disabled).toBe(true)
 
     fireEvent.click(view.getByRole('checkbox', { name: '我已了解风险，并愿意继续' }))
@@ -1567,11 +1542,11 @@ describe('command launcher chrome and control seats', () => {
     expect(command).toHaveBeenCalledOnce()
     expect(command).toHaveBeenCalledWith('/permission danger-full-access')
     expect(view.queryByRole('dialog')).toBeNull()
-    expect((view.getByLabelText(/^访问模式/) as HTMLButtonElement).textContent).toBe('完全权限')
+    expect((view.getByLabelText(/^访问模式/) as HTMLButtonElement).textContent).toBe('Full access')
     await act(async () => {})
   })
 
-  it('cancels a full access selection without changing permission and resets acknowledgement', () => {
+  it('cancels a Full access selection without changing permission and resets acknowledgement', () => {
     const command = vi.fn(() => Promise.resolve(true))
     const permissions = {
       options: [
@@ -1583,21 +1558,21 @@ describe('command launcher chrome and control seats', () => {
     const { view } = bench({ permissions, command })
     const openConfirmation = () => {
       fireEvent.click(view.getByLabelText(/^访问模式/))
-      fireEvent.click(view.getByRole('menuitem', { name: '完全权限' }))
+      fireEvent.click(view.getByRole('menuitem', { name: 'Full access' }))
     }
 
     openConfirmation()
     fireEvent.click(view.getByRole('checkbox'))
     fireEvent.click(view.getByRole('button', { name: '取消' }))
     expect(command).not.toHaveBeenCalled()
-    expect((view.getByLabelText(/^访问模式/) as HTMLButtonElement).textContent).toBe('可写入工作区')
+    expect((view.getByLabelText(/^访问模式/) as HTMLButtonElement).textContent).toBe('Workspace Write')
 
     openConfirmation()
     expect((view.getByRole('checkbox') as HTMLInputElement).checked).toBe(false)
-    expect((view.getByRole('button', { name: '启用完全权限' }) as HTMLButtonElement).disabled).toBe(true)
+    expect((view.getByRole('button', { name: '启用 Full access' }) as HTMLButtonElement).disabled).toBe(true)
   })
 
-  it('revokes an open full access confirmation when the task locks', () => {
+  it('revokes an open Full access confirmation when the task locks', () => {
     const command = vi.fn(() => Promise.resolve(true))
     const permissions = {
       options: [
@@ -1608,14 +1583,14 @@ describe('command launcher chrome and control seats', () => {
     }
     const { view, session } = bench({ permissions, command })
     fireEvent.click(view.getByLabelText(/^访问模式/))
-    fireEvent.click(view.getByRole('menuitem', { name: '完全权限' }))
+    fireEvent.click(view.getByRole('menuitem', { name: 'Full access' }))
     fireEvent.click(view.getByRole('checkbox'))
     act(() => { session.set(snapshotOf({ removed: true })) })
     expect(view.queryByRole('dialog')).toBeNull()
     expect(command).not.toHaveBeenCalled()
   })
 
-  it('resets an open full access confirmation when switching tasks', () => {
+  it('resets an open Full access confirmation when switching tasks', () => {
     const command = vi.fn(() => Promise.resolve(true))
     const permissions = {
       options: [
@@ -1626,7 +1601,7 @@ describe('command launcher chrome and control seats', () => {
     }
     const { view, props } = bench({ permissions, command })
     fireEvent.click(view.getByLabelText(/^访问模式/))
-    fireEvent.click(view.getByRole('menuitem', { name: '完全权限' }))
+    fireEvent.click(view.getByRole('menuitem', { name: 'Full access' }))
     fireEvent.click(view.getByRole('checkbox'))
     view.rerender(<InputBar {...props} sessionId={'s2' as SessionId} />)
     expect(view.queryByRole('dialog')).toBeNull()

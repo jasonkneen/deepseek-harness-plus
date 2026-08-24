@@ -75,8 +75,7 @@ export interface CustomProviderCardProps {
  */
 export function CustomProviderCard(props: CustomProviderCardProps): ReactNode {
   const { taken, protocols, api, t } = props
-  // Captured at mount, like the editor's: the write must be judged against the
-  // section this card was drafted over, not whatever it grew into meanwhile.
+  // The write is checked against the revision on which this draft was opened.
   const [openedAt] = useState(() => props.revision)
   const [route, setRoute] = useState('')
   const [displayName, setDisplayName] = useState('')
@@ -227,7 +226,7 @@ export function CustomProviderCard(props: CustomProviderCardProps): ReactNode {
           className={styles['input']}
           type="text"
           value={baseURL}
-          placeholder="https://gateway.example/v1"
+          placeholder={t('customBaseUrlPlaceholder')}
           aria-label={t('baseUrl')}
           disabled={profileDisabled}
           onChange={(event) => { setBaseURL(event.target.value) }}
@@ -286,8 +285,8 @@ export function CustomProviderCard(props: CustomProviderCardProps): ReactNode {
         t={t}
         busy={busy}
         submitDisabled={disabled || !ready}
-        submitLabel="create"
-        submitBusyLabel="creating"
+        submitLabelKey="create"
+        submitBusyLabelKey="creating"
         onCancel={() => { props.onClose(committed) }}
         onSubmit={() => { void create() }}
       />

@@ -17,7 +17,7 @@
 
 ## 模型体验
 
-通过 Consumer 间接影响（目前是 `dsh-tool-bash` 背后的 bash 执行器家族）；进程输出与生命周期面向模型的全部渲染归 Consumer 所有。
+通过 Consumer 间接影响（即 `dsh-tool-bash` 背后的 bash 执行器家族）；进程输出与生命周期面向模型的全部渲染归 Consumer 所有。
 
 #### KV Cache 影响
 

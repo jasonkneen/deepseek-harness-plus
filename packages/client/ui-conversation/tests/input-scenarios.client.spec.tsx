@@ -1,34 +1,32 @@
 // @vitest-environment jsdom
 /**
  * Scenario-chain integration (scenarios A/C/D/H/I): the real per-session
- * InputTriggerController pipeline over a real session scope (SessionRuntime over
+ * InputTriggerController pipeline over a real session scope (Client Sessions over
  * a listed host session) + a command source implementing the decision
  * table's relevant cells + the real SessionInput machine (scoped-event
  * listeners wired the way the hub does) + the real InputBar. ui-commands
  * itself is not a dependency of this package; the source below is the
  * decision-table contract at the `InputTriggerSource` boundary.
  */
-import { Context } from '@deepseek-ai/cordis'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 import { act, cleanup, fireEvent, render } from '@testing-library/react'
-import {
-  EMPTY_CHAT_SNAPSHOT, EMPTY_CONVERSATION_VIEWS, SessionRuntime,
-} from '@deepseek-ai/dsh-client-runtime/client'
+import type { SessionSnapshot } from '@deepseek-ai/dsh-api-session-controller/client'
+import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
 import { InputTriggerService } from '@deepseek-ai/dsh-client-ui-input-trigger/client'
 import type {
   ClientSessionContext, CommandClaim, PickOutcome, SubmitEnvelope, SubmitImageAttachment, SubmitOutcome,
 } from '@deepseek-ai/dsh-client-ui-input-trigger/client'
-import { FakeApiClient, fakeRemote, ok } from '../../runtime/tests/fake-api.client.ts'
-import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
+import {
+  bindSnapshotSelector, conversationSnapshot, makeTranslate, sessionSnapshot, SlotTestRuntime,
+} from '@deepseek-ai/dsh-client-test-runtime'
+import type { SessionPendingInteractionSnapshot } from '@deepseek-ai/dsh-client-ui-session/client'
+import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import { zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/zh.ts'
-import type { DraftAttachmentId } from '../src/client/input/contract.ts'
+import type { DraftAttachmentId } from '../src/client/contract/input.ts'
 import { SessionInputShell } from '../src/client/input/facade.ts'
 import { InputBar } from '../src/client/skeleton/InputBar.tsx'
 import type { InputBarProps } from '../src/client/skeleton/InputBar.tsx'
 import { zh } from '../src/client/locales.ts'
-import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-test-runtime'
-import { createSnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
-import type { ConversationSnapshot } from '@deepseek-ai/dsh-client-runtime/client'
 
 afterEach(cleanup)
 
@@ -102,22 +100,17 @@ const COMMANDS: FakeCommand[] = [
 
 const PNG: SubmitImageAttachment = { mediaType: 'image/png', data: 'AA==' }
 
-/** Real scope bench: SessionRuntime over one listed session + InputTriggerController + shell listeners (the hub wiring shape). */
+/** Real scope bench: a Controller-owned Session scope + InputTriggerController + shell listeners. */
 async function scopedBench(register?: (inputTriggers: InputTriggerService) => void) {
-  const ctx = new Context()
-  const api = new FakeApiClient()
-  api.onWorkspaceList = () => Promise.resolve(ok({ items: [] }))
-  const sessionId = 'scenario-s1' as Parameters<SessionRuntime['open']>[0]
-  api.onList = () => Promise.resolve(ok({
-    items: [{ sessionId, updatedAt: 1, running: false, blank: false, cwd: '/w/a' }],
-  }) as never)
-  const sessions = new SessionRuntime(ctx, api, fakeRemote()) // provides 'sessions' itself
-  await sessions.refresh()
-  await Promise.resolve() // manager notifier flush
+  const runtime = await SlotTestRuntime.create()
+  onTestFinished(() => runtime.dispose())
+  const ctx = runtime.ctx
+  const sessionId = 'scenario-s1' as SessionId
+  await runtime.sessions.add({ id: sessionId, summary: { cwd: '/w/a' } })
   await ctx.plugin(InputTriggerService).await()
   const inputTriggers = ctx.get('inputTriggers') as InputTriggerService
   register?.(inputTriggers)
-  const actx = sessions.scope(sessionId)!
+  const actx = runtime.sessions.scope(sessionId)!
   const controller = inputTriggers.sessionOf(actx)
   const sink = vi.fn(() => Promise.resolve<SubmitOutcome>({ kind: 'success' }))
   const serialize = vi.fn((ids: readonly DraftAttachmentId[]) => Promise.resolve(ids.map(() => PNG)))
@@ -128,26 +121,24 @@ async function scopedBench(register?: (inputTriggers: InputTriggerService) => vo
   actx.on('slash/input-insert-reference', req => shell.insertReference(req.reference, req.span) ? true : undefined)
   actx.on('slash/input-consume-token', req => shell.consumeToken(req.guard) ? true : undefined)
   const wiring = shell
-  const sessionStore = createSnapshotStore<ConversationSnapshot>({
-    sessionId, views: EMPTY_CONVERSATION_VIEWS, chat: EMPTY_CHAT_SNAPSHOT,
-    nodes: [], turnTimings: new Map(), turnEnds: new Map(), partial: null, runningCalls: [],
-    pending: [], queue: [], running: false, composerPhase: 'active', removed: false,
-    openState: 'open', openError: null, hasMore: false, loadingOlder: false,
-    promptError: null, blank: false, subagent: null, lastAgentError: null,
-  })
+  const sessionStore = createSnapshotStore<SessionSnapshot>(sessionSnapshot(sessionId))
   const barProps: InputBarProps = {
     sessionId,
-    SessionProvider: ({ children }) => children(sessionId),
+    SessionProvider: ({ children }) => children,
     useSession: bindSnapshotSelector(sessionStore),
     useSessions: bindSnapshotSelector(createSnapshotStore({
       ids: [], byId: {}, current: undefined, phase: 'ready',
       subagentsByParent: {}, jobsBySession: {}, currentAddress: undefined,
     })),
+    useSessionPendingInteraction: bindSnapshotSelector(
+      createSnapshotStore<SessionPendingInteractionSnapshot>(new Map()),
+    ),
     useWorkspaces: bindSnapshotSelector(createSnapshotStore({
       items: [], archivedSessionIds: [], state: 'idle', phase: 'ready', error: null,
       baselinesReady: true, recentWorkspaceId: undefined,
     })),
     useProjection: (() => undefined),
+    useConversation: bindSnapshotSelector(createSnapshotStore(conversationSnapshot())),
     useInput: bindSnapshotSelector(shell.state),
     inputActions: shell.actions,
     keyboard: shell,
@@ -176,7 +167,6 @@ async function scopedBench(register?: (inputTriggers: InputTriggerService) => vo
     renderSlot: (() => null) as InputBarProps['renderSlot'],
     stop: vi.fn(),
     command: () => Promise.resolve(true),
-    // Mirrors the real lookup chain (conversation namespace, then common).
     t: makeTranslate(zh, commonZh),
     variant: 'composer',
   }
@@ -185,7 +175,7 @@ async function scopedBench(register?: (inputTriggers: InputTriggerService) => vo
   const type = (text: string): void => {
     fireEvent.change(textarea, { target: { value: text } })
   }
-  return { ctx, inputTriggers, controller, shell, wiring, view, textarea, type, sink, serialize, release }
+  return { runtime, inputTriggers, controller, shell, wiring, view, textarea, type, sink, serialize, release }
 }
 
 async function bench(executeImpl?: (line: string) => Promise<SubmitOutcome>) {

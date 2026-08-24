@@ -10,6 +10,8 @@ CI 覆盖率 lane（`check:ci:coverage`）的墙钟被少数几个重型测试�
 
 关键的浪费在于：这些套件缴纳的插桩税对 per-file 100% 阈值**没有任何贡献**——它们进程内执行的被度量代码，要么本来就不在阈值口径内，要么已由其他套件独立满覆盖。继续在插桩下运行它们，纯粹是用 lane 时长换零信息。
 
+Web Worker 转换语料库在原生 Windows 上暴露了同一类浪费：`transform-corpus.spec.ts` 在一个 442 秒的覆盖率分区中占用 279 秒，而其余七个分区在 110–161 秒内完成。它的真实检查器只在 spawn 的 Node 子进程中运行包源码，处于父 Vitest worker 的 v8 覆盖率会话之外，因此这个慢分区没有从该工作中产生任何阈值数据。
+
 ## Decision
 
 `ci-coverage` 聚合拆成两个并行 gate，全部测试仍然执行，只有重型套件不再交插桩税：
@@ -17,9 +19,11 @@ CI 覆盖率 lane（`check:ci:coverage`）的墙钟被少数几个重型测试�
 - **插桩 gate**（`test:coverage`）：设 `DSH_COVERAGE_EXEMPT_HEAVY=1`，`vitest.config.ts` 据此从两个 project 的 exclude 中剔除豁免套件，其余全部文件照旧插桩并承担全部阈值证明。经 gate 自带 env 注入（既有 `Gate.env` 机制），不进 workflow 全局环境，因此并排的无插桩 gate 和本地直跑 `vitest run` 都看不到该变量、行为不变。
 - **无插桩 gate**（`test:coverage-exempt-heavy`）：用配对的 positional filter 恰好运行豁免套件，保证正确性信号不缩水。
 
-Linux 覆盖率 CI 与原生 Windows CI 在插桩门禁内部使用 [job 内分区覆盖率](2026-08-18-in-job-partitioned-coverage.zh.md)。其合并报告承担相同的阈值证明；豁免门禁及其成员资格规则保持不变。
+Linux 覆盖率 CI 与原生 Windows CI 在插桩门禁内部使用 [job 内分区覆盖率](2026-08-18-in-job-partitioned-coverage.zh.md)。其合并报告承担相同的阈值证明；豁免门禁及其成员资格规则保持不变。Linux 会让 4 个分区子进程、2 个豁免 worker 与最多 8 个语料库子进程重叠，因此该通道变慢时应先检查这组并发。原生 Windows 在插桩报告合并后运行豁免门禁，同时让轻量观测性清单与豁免工作重叠，因此完整语料库子进程不会与 16 个覆盖率进程争用资源。Oxlint 约定套件会原子发布满足源码扫描要求的包内临时探针，并把只属于脚本的探针对 glob 发现隐藏。
 
 `scripts/coverage-exempt.ts` 是唯一名单点，集中持有成员资格约定与 filter/exclude 配对，防止两侧漂移。
+
+`transform-corpus.spec.ts` 只发现一次完整的已构建 bundle 集合，把每条路径恰好分配给最多 8 个非空 Node loader 子进程之一，并在启动前断言分片并集。`client-runtime` 会为固定的 Vitest 状态豁免跟在 `acp-snapshot` 之后，`win32-process` 则会为固定的 Koffi 豁免跟在 `sandbox-windows-acl` 之后。
 
 ### 豁免名单与逐项对账
 
@@ -30,6 +34,7 @@ Linux 覆盖率 CI 与原生 Windows CI 在插桩门禁内部使用 [job 内分�
 | typert generator 全部 6 个 spec | generator 自身 src | generator src 已整包 threshold-excluded（`vitest.config.ts`），本不在阈值口径内 |
 | 其中 tools-catalog.spec 额外 import | `typert-registry`、`tool-cordis` 的 src | 两包各自的测试独立满覆盖（focused coverage 实测无阈值错误） |
 | `scripts/install-lefthook.spec.ts`、`scripts/oxlint-contract.spec.ts`、`scripts/change-scope.spec.ts`、`scripts/translation-pairing-merge.spec.ts` | 无——被测对象是 `scripts/` 源码（从不在 coverage.include），执行方式是 spawn 子进程 | 无需接 |
+| `packages/experimental/webworker-runtime/tests/compile/transform-corpus.spec.ts` | 无——包源码 import 与完整 bundle 扫描都在 spawn 的 Node 子进程中运行 | Web Worker runtime 的进程内单元套件承担其源码覆盖率 |
 
 ### 成员资格约定
 
@@ -49,15 +54,22 @@ per-file 100% 阈值本身就是豁免名单的守卫，名单错误无法静默
 - **CLI `--exclude` 从插桩 gate 剔除豁免套件。** 实证无效：vitest 4 的 `cliExclude` 不参与 per-project include 解析，多 project 配置下豁免套件仍被选中，故改走 env + config。
 - **降低 worker 数或提高 gate 并发。** 事故期间实测无效：lane 墙钟被尾部最长文件钉死（聚合/墙钟 ≈ 4× 有效并行），并发旋钮两个方向都动不了尾巴。
 - **跨 runner 分片（`--shard` + blob 合并）。** 不予采用，因为 matrix、产物流水线和合并 job 会引入第二套工作流拓扑。所选的 [job 内分区](2026-08-18-in-job-partitioned-coverage.zh.md)只把 Vitest shard 用作既有 job 内的本地单 worker 进程。
+- **让转换语料库保留在一个 Node 进程中。** 不予采用，因为串行 loader 在宿主争用下成为 Windows 重型门禁的最长尾部。八个本地子进程保留相同文件集、逐文件判定器、对 loader 敏感的亲和顺序，以及一个阻断性 Vitest 判定。
 - **直接删除或跳过重型套件。** 拒绝：它们是 typert generator 与 scripts 工具的唯一正确性证据，无插桩并排执行保住全部信号。
 
 ## Verification
 
 CI 实测（16 核 runner）：拆分前 gate 段 424 秒，拆分后两 gate 并行 `test:coverage` 95.9 秒 + `test:coverage-exempt-heavy` 71.1 秒，lane 收敛于较慢者约 96 秒；拆分前后插桩 gate 阈值错误均为零。`vitest list` 验证 env 开关两态恰好增删豁免集；`run-gates.spec.ts` 覆盖聚合图构造。
 
+Web Worker 语料库条目由分区聚合固定：它执行全部 15,250 个测试，并对 45,959 条语句、28,116 个分支、9,781 个函数和 40,550 行报告 100%。聚焦的插桩语料库运行不会记录其子进程中的包源码；配对名单检查证明该 spec 不在插桩清单中，但存在于无插桩清单中。
+
+八子进程语料库运行检查相同的 239 个原生 Windows bundle，得到 234 个精确 export 匹配、四个固定 loader 豁免、一次 sentinel 拒绝和零漂移。ARM64 虚拟机上，分片 Vitest 路径耗时 25.44 秒，未分片检查器耗时 29.59 秒；完整 x64 job 仍负责证明宿主争用下的耗时。
+
 ## Consequences
 
 - 豁免套件在执行时不会向阈值门禁叠加插桩开销；分区墙钟数据由 [job 内分区决策](2026-08-18-in-job-partitioned-coverage.zh.md)负责记录。
+- 原生 Windows 在插桩覆盖率后调度豁免套件，并让它们与观测性检查重叠；Linux 保留并行覆盖率拆分。
+- 语料库套件使用最多 8 个非空 Node loader 子进程，但只产生一个阻断性测试结果；其亲和名单属于豁免判定器，受影响 bundle 移动时必须同步更新。
 - `DSH_GATE_CONCURRENCY` 在本 lane 重新拥有两个可调度对象，聚合调度器不再是直通。
 - 向名单新增重型套件必须完成上述成员资格对账；错误条目会让插桩 gate 大声失败，而不是静默侵蚀覆盖率。
 - 豁免套件不再出现在覆盖率报告的贡献文件列表中；其正确性信号完全由无插桩 gate 的红绿承载。

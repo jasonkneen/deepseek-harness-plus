@@ -1,8 +1,5 @@
-// Web e2e scenario: the session-header background-job list over the real
-// host. No model call is involved — a genuine `run_in_background` bash call
-// registers with `ctx.jobs`, and the assertion chain is the whole delivery
-// path: registry change feed → api-proxy `session/jobs` frame → the client's
-// `jobsBySession` mirror → the header action.
+// Session-header background jobs driven by a real `ctx.jobs` entry. No model
+// call is involved.
 import { readFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import { join } from 'node:path'
@@ -30,7 +27,7 @@ const SEED_ID = 'background-job-list-web-e2e'
 const COMMAND = 'sleep 45'
 
 /**
- * Wait for the Host to publish the live Agent that opening a session resumes.
+ * Wait for opening a session to publish its live Agent.
  * @param scaffold - the booted web scaffold.
  * @param sessionId - the opened session's identity.
  * @returns the registered Agent instance.
@@ -82,9 +79,7 @@ describe.skipIf(MODE === 'record')('web e2e: background job list', () => {
 
   it('shows a running background job in the session header without a refresh', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-background-job-running'))
-    // Point assertion, not a poll: `expect.poll` retries until a predicate
-    // holds, so polling for zero passes at t=0 and proves nothing. The
-    // "renders nothing without a task" branch is owned by the component suite.
+    // Polling for zero would pass at t=0 before delivery and prove nothing.
     const trigger = page.getByRole('button', { name: '1 background job running' })
     expect(await trigger.count()).toBe(0)
 
@@ -116,8 +111,6 @@ describe.skipIf(MODE === 'record')('web e2e: background job list', () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-background-job-settled'))
     expect(scaffold.ctx.jobs.kill(jobId, agent, 'web e2e cancellation')).toBe('requested')
 
-    // The trigger drops its live count once the task leaves running/stopping,
-    // which is also the proof that settlement reached the browser unprompted.
     const idle = page.getByRole('button', { name: '1 background job' })
     await idle.waitFor({ timeout: 20_000 })
 

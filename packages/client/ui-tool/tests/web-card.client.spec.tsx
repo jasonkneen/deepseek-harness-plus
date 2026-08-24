@@ -1,42 +1,36 @@
 // @vitest-environment jsdom
-// The web render intent on the web side: the pure webCardModel derivation over
-// resultView, and the conversation render sites that consume it — the keyed
-// WebRow (registered under both web_search and web_fetch), the GenericToolCard
-// render-site fallback, and the details panel's Output section. Mirrors
-// terminal-card.spec.tsx: model derivation + null arms, both kinds, the chat
-// row's collapsed-by-default ToolRow card, the panel arm, and the keyed
-// registration. WebRow now composes the shared ToolRow, so its web card is
-// collapsed by default and appears only once the whole row is expanded.
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render } from '@testing-library/react'
-import {
-  createSnapshotStore, EMPTY_CONVERSATION_VIEWS,
-} from '@deepseek-ai/dsh-client-runtime/client'
+import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
 import type {
-  ConversationSnapshot, RunningToolCall, SessionId, SessionListState, ToolResultNode, WorkspaceListState,
-} from '@deepseek-ai/dsh-client-runtime/client'
+  ChatSnapshot, ConversationNode, RunningToolCall, SelectionTarget, ToolResultNode,
+} from '@deepseek-ai/dsh-client-ui-chat/client'
+import type { SessionListState } from '@deepseek-ai/dsh-api-session-controller/client'
+import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { ToolResultView } from '@deepseek-ai/dsh-api-remotes/client'
-import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-test-runtime'
-import type { SelectionTarget } from '@deepseek-ai/dsh-client-ui-conversation/client'
+import {
+  bindSnapshotSelector, conversationSnapshot, sessionSnapshot, workspaceSnapshot,
+} from '@deepseek-ai/dsh-client-test-runtime'
 import type { ToolCallOwnerProps } from '@deepseek-ai/dsh-client-ui-tool/client'
 import { IconGlobeOutline14 } from '@deepseek-ai/dsh-client-ui-primitives'
 import { webCardModel } from '../src/client/tool/models/web-card-model.ts'
-import { createChatStore } from '@deepseek-ai/dsh-client-ui-conversation/src/client/stores.ts'
+import { createChatStore } from '@deepseek-ai/dsh-client-ui-chat/src/client/stores.ts'
 import { GenericToolCard } from '../src/client/tool/toolviews/GenericToolCard.tsx'
-import { DetailsPanel } from '@deepseek-ai/dsh-client-ui-conversation/src/client/skeleton/DetailsPanel.tsx'
+import { DetailsPanel } from '@deepseek-ai/dsh-client-ui-chat/src/client/details/DetailsPanel.tsx'
 import { WebRow, webToolview } from '../src/client/tool/toolviews/web-row.tsx'
-import { renderToolDetails, SessionProviderStub, toolChatSnapshot } from './tool-details-render.client.tsx'
+import { renderToolDetails, toolChatSnapshot, useEmptyTrajectory } from './tool-details-render.client.tsx'
 import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
 import { zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/zh.ts'
 import { zh } from '@deepseek-ai/dsh-client-ui-conversation/src/client/locales.ts'
+import { zh as chatZh } from '@deepseek-ai/dsh-client-ui-chat/src/client/locale.ts'
 
 afterEach(cleanup)
 
 const SID = 's1' as SessionId
 
-/** Locale seat for the card render sites (GenericToolCard, DetailsPanel), as the sibling suites build it. */
 const t = makeTranslate(zh, commonZh)
+const chatT = makeTranslate(chatZh, commonZh)
 
 const SEARCH_ARGS = '{"query":"deepseek harness"}'
 const FETCH_ARGS = '{"url":"https://example.com/page"}'
@@ -144,7 +138,7 @@ describe('chat row web body', () => {
     const globe = render(<IconGlobeOutline14 />).container.querySelector('svg')!.outerHTML
     const view = render(<WebRow {...rowProps(settledSearch(), 'web_search')} />)
     // Collapsed: the summary row alone, no card in the DOM.
-    expect(view.getByText('Search')).toBeTruthy()
+    expect(view.getByText('网页搜索')).toBeTruthy()
     expect(view.container.querySelector('svg')?.outerHTML).toBe(globe)
     expect(view.queryByText('Titled')).toBeNull()
     expect(view.container.querySelector('[data-web]')).toBeNull()
@@ -158,7 +152,7 @@ describe('chat row web body', () => {
 
   it('the WebRow expands to the fetch card, titled Fetch', () => {
     const view = render(<WebRow {...rowProps(settledFetch(), 'web_fetch')} />)
-    expect(view.getByText('Fetch')).toBeTruthy()
+    expect(view.getByText('网页获取')).toBeTruthy()
     expect(view.container.querySelector('[data-web]')).toBeNull()
     toggleRow(view)
     // The url shows as the card's link; scope to the card.
@@ -169,7 +163,7 @@ describe('chat row web body', () => {
 
   it('a running web call is the summary row alone, with nothing to expand', () => {
     const view = render(<WebRow {...rowProps(runningSearch(), 'web_search')} />)
-    expect(view.getByText('Search')).toBeTruthy()
+    expect(view.getByText('网页搜索')).toBeTruthy()
     expect(view.queryByText('Titled')).toBeNull()
     // No card material and no expandable body: clicking the row reveals nothing.
     expect(view.container.querySelector('[data-expandable]')).toBeNull()
@@ -180,15 +174,13 @@ describe('chat row web body', () => {
     const view = render(<WebRow {...rowProps(settledSearch({
       isError: true, resultView: { card: 'generic' },
     }), 'web_search')} />)
-    expect(view.getByText('Search')).toBeTruthy()
+    expect(view.getByText('网页搜索')).toBeTruthy()
     expect(view.container.querySelector('[data-web]')).toBeNull()
     // The row reflects the error state so the summary line still reads as failed.
     expect(view.container.querySelector('[data-state="error"]')).not.toBeNull()
   })
 
   it('the GenericToolCard fallback also expands to a web card for a web-declaring tool', () => {
-    // A web-declaring tool without its own keyed row lands on the fallback; its
-    // card routes through the same collapsed-by-default ToolRow.
     const view = render(<GenericToolCard {...ownerProps(settledSearch({
       call: { name: 'fx-web', argsRaw: SEARCH_ARGS },
     }), 'fx-web')} t={t} />)
@@ -207,7 +199,7 @@ describe('chat row web body', () => {
 })
 
 describe('DetailsPanel web Output section', () => {
-  function mount(snapshot: ConversationSnapshot, selection: SelectionTarget | null) {
+  function mount(snapshot: ChatSnapshot, selection: SelectionTarget | null) {
     localStorage.clear()
     const chat = createChatStore().create()
     if (selection !== null) chat.actions.select(selection)
@@ -215,18 +207,22 @@ describe('DetailsPanel web Output section', () => {
       ids: [], byId: {}, current: undefined, phase: 'ready',
       subagentsByParent: {}, jobsBySession: {}, currentAddress: undefined,
     })
-    const workspaces = createSnapshotStore<WorkspaceListState>({
-      items: [], archivedSessionIds: [], state: 'idle', phase: 'ready', error: null,
-      baselinesReady: true, recentWorkspaceId: undefined,
-    })
+    const session = createSnapshotStore(sessionSnapshot(SID))
+    const conversation = createSnapshotStore(conversationSnapshot())
+    const workspaces = createSnapshotStore(workspaceSnapshot())
+    const attention = createSnapshotStore(new Map())
     return render(
       <DetailsPanel
-        SessionProvider={SessionProviderStub}
         renderSlot={renderToolDetails(t)}
+        SessionProvider={({ children }) => children}
         sessionId={SID}
-        useSession={bindSnapshotSelector({ getSnapshot: () => snapshot, subscribe: () => () => {} })}
+        useSession={bindSnapshotSelector(session)}
         useSessions={bindSnapshotSelector(sessions)}
+        useSessionPendingInteraction={bindSnapshotSelector(attention)}
         useWorkspaces={bindSnapshotSelector(workspaces)}
+        useConversation={bindSnapshotSelector(conversation)}
+        useChat={bindSnapshotSelector({ getSnapshot: () => snapshot, subscribe: () => () => {} })}
+        useTrajectory={useEmptyTrajectory}
         useInput={(() => { throw new Error('unused') })}
         inputActions={{
           setDraft: () => {},
@@ -239,22 +235,18 @@ describe('DetailsPanel web Output section', () => {
         useStore={bindSnapshotSelector(chat)}
         actions={chat.actions}
         closeDetails={vi.fn()}
-        t={t}
+        t={chatT}
       />,
     )
   }
 
-  function snapshot(over: Partial<ConversationSnapshot> = {}): ConversationSnapshot {
+  function snapshot(over: {
+    nodes?: readonly ConversationNode[]
+    runningCalls?: readonly RunningToolCall[]
+  } = {}): ChatSnapshot {
     const nodes = over.nodes ?? []
     const runningCalls = over.runningCalls ?? []
-    return {
-      sessionId: SID, views: EMPTY_CONVERSATION_VIEWS,
-      chat: over.chat ?? toolChatSnapshot(nodes, runningCalls),
-      nodes: [], turnTimings: new Map(), turnEnds: new Map(), partial: null, runningCalls: [],
-      pending: [], queue: [], running: false, composerPhase: 'active', removed: false,
-      openState: 'open', openError: null, hasMore: false, loadingOlder: false,
-      promptError: null, blank: false, subagent: null, lastAgentError: null, ...over,
-    }
+    return toolChatSnapshot(nodes, runningCalls)
   }
 
   it('renders the search card at full source allowance', () => {

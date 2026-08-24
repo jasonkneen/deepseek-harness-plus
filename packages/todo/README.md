@@ -10,4 +10,4 @@ The model-facing todo capability. It is a single **product** package because one
 
 The child README owns the tool, persistence, and rendering contract.
 
-The event payload is documented on [docs/subsystems/session.md](../../docs/subsystems/session.md).
+The event payload is documented on [docs/subsystems/todo.md](../../docs/subsystems/todo.md).

@@ -46,4 +46,4 @@ None. The package is client-only presentation.
 
 - The Host excludes `run_code` from Code Mode program bindings, so production events produce one dispatch level; the recursive Runtime/UI contract supports nesting.
 - First-party Tool views are colocated here and can move to their owning business packages independently through the keyed slot.
-- Tool copy reuses the `ui-conversation` locale namespace.
+- Tool titles, row chrome, and every Cordis-free primitive label reuse the `ui-conversation` locale namespace; presenter models retain locale keys or data rather than rendered wording.

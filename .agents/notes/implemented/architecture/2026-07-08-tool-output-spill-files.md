@@ -147,8 +147,8 @@ Those cases can consume `ctx.spillStore` directly in later work. They are not pa
 
 ## Non-goals
 
-- No new model-facing `artifact_read` or `artifact_search` tool in v1.
-- No per-tool retention configuration in v1.
+- This decision adds no model-facing `artifact_read` or `artifact_search` tool.
+- This decision adds no per-tool retention configuration.
 - No model-facing timeout/truncation arguments.
 - No migration of `read` output into spill files.
 - No replacement for provider/resource caps such as `web-fetch-http.maxBodyChars`.
@@ -174,9 +174,9 @@ Those cases can consume `ctx.spillStore` directly in later work. They are not pa
 
 The default policy only sees final formatted text. It cannot preserve provider-internal content that was already capped or runtime artifacts that were never part of the result. This is acceptable for the first cut because the showcase is final-result spill, not early spill; tool-owned early spill remains deferred work.
 
-Returning real paths from the local backend keeps v1 simple and matches proven agent-tool behavior, while the seam itself only promises an opaque locator plus retrieval hint so remote backends can return non-file locators.
+Returning real paths keeps the local backend simple and matches proven agent-tool behavior, while the seam itself only promises an opaque locator plus retrieval hint so remote backends can return non-file locators.
 
-The local-backend value proposition depends on the existing `read`/`grep` tools being able to inspect the returned local path, even when the spill directory is outside the session cwd. That holds today because the filesystem policy records observations and write guards but does not confine reads to the workspace. A future workspace-confinement policy must either allow local spill paths explicitly or use a non-file spill backend whose retrieval hint points at a supported reader.
+The local-backend value proposition depends on the existing `read`/`grep` tools being able to inspect the returned local path, even when the spill directory is outside the session cwd. That holds because the filesystem policy records observations and write guards but does not confine reads to the workspace. A future workspace-confinement policy must either allow local spill paths explicitly or use a non-file spill backend whose retrieval hint points at a supported reader.
 
 **Snapshot gap.** No ACP snapshot scenario covers the transcript-visible `web_fetch` spill notice yet. The ACP snapshot harness replays keyless and cannot hit the live web, and a `web_fetch` spill requires a real over-cap HTTP body; a deterministic scenario would need a seeded loopback fetch target the replay tree does not currently wire (the examples do not load `tool-web` at all). The behavior is covered instead by the `dsh-tool-web` integration test against a loopback server. Closing the gap is follow-up work: wire `tool-web` + a seeded fetch target into the ACP example, then record a `web-fetch-spill` scenario.
 
@@ -184,7 +184,7 @@ The policy can become too large if it starts owning tool-specific semantics. It 
 
 ## Alternatives considered
 
-**Require each tool to opt in with a retention declaration.** Rejected for v1: the goal is a default behavior similar to Claude Code's generic tool-result persistence. A single `maxInlineBytes` deployment knob is enough to prove the shape.
+**Require each tool to opt in with a retention declaration.** Rejected: the goal is a default behavior similar to Claude Code's generic tool-result persistence. A single `maxInlineBytes` deployment knob is enough to prove the shape.
 
 **Make `tool-results` a broad tool-result platform.** Rejected: a broad package name invites retention policy, result replacement, preview wording, search, and early spill into one seam. The shared storage part is smaller: save text and return a locator plus retrieval hint.
 

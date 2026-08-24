@@ -13,9 +13,7 @@ import type {} from '@deepseek-ai/dsh-system-prompt'
 
 /**
  * Default upper bound on returned sources (the `searchMaxResults` config).
- * Owned by the consumer (not the provider or model), mirroring `dsh-tool-fs`'s
- * `READ_LIMIT`. The model just asks a question; the product controls how much
- * context returns. The default `8` aligns with OpenCode's Exa default.
+ * The consumer owns the returned-context limit; providers and models do not.
  */
 export const WEB_SEARCH_MAX_RESULTS = 8
 

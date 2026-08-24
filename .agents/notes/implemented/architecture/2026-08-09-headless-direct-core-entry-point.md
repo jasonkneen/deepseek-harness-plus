@@ -12,7 +12,7 @@ The direct entry point still needs the same deployment model state as Web-create
 
 ## Decision
 
-The shipped `headless` profile contains `dsh-base` and `dsh-headless`. The headless bundle supplies its persona and tool mode, disables HMR, mounts the Code Mode worker explicitly, and inserts `headless-runner`. Its tree contains no `@deepseek-ai/dsh-host-*` package, ApiProxy, HTTP server, Web runtime, or browser client. Code Mode and Session persistence are one-shot Agent capabilities independent of Web presentation.
+The shipped `headless` profile contains `dsh-base` and `dsh-headless`. The base supplies the disabled module-HMR default; the headless bundle supplies its persona and tool mode, mounts the Code Mode worker explicitly, and inserts `headless-runner` without overriding that policy. Its tree contains no `@deepseek-ai/dsh-host-*` package, ApiProxy, HTTP server, Web runtime, or browser client. Code Mode and Session persistence are one-shot Agent capabilities independent of Web presentation.
 
 `headless-runner` is a direct core entry point. After Loader settlement, it reads `ctx.agentDefaultModel.currentSelection()`, creates a fresh persisted Agent through `ctx.agents.create`, installs that `ModelSelection` in the Agent scope, waits for startup quiescence, anchors the Session sequence, submits one ordinary user message, and waits for quiescence again. It awaits `ctx.sessions.flush`, folds its durable event interval for the last non-empty assistant text and final `turn/end` reason, writes the text plus one newline to stdout, and requests bounded launcher shutdown with exit 0 exactly when the reason is `completed`. A terminal `error` reason writes its durable code and message to stderr; unexpected driver failures also use stderr and exit 1.
 

@@ -24,6 +24,8 @@
 
 除 schema 的类型／必填／枚举检查外，`execute` 还会拒绝空或重复的 `content`，以及 `content`/`status` 之外的任何条目键——扩展条目形状（id、嵌套）会明确报错而不是被静默压平，保证落日志的快照与模型自认为写入的内容一致。同时可以有多少任务处于 `in_progress` 由部署决定（见 § 配置）：选择 `true` 的组合允许并行工作（并发 subagent、后台命令）同时将多个任务标记为 `in_progress`。列表的顺序及及时更新由模型依照工具描述负责。
 
+本包的不变量配套插件会校验每个持久 `todo/write` payload，并要求事件位于开放轮次内。它会各自单次校验现有会话与新发布的会话，随后为实时追加推进逐会话的已提交轮次追踪状态。核心会话只会通用处理声明合并事件，todo 专属规则由生产该事件的包负责（见[事件所有权](../../../.agents/notes/implemented/architecture/2026-07-20-todo-event-ownership.zh.md)）。
+
 ## 渲染
 
 规范结果为 `{ todos, counts: { pending, inProgress, completed } }`；其 Native 渲染器返回精简的更新确认。工具还会写入完整 `todo/write` 会话事件。UI 订阅事件流，并自行渲染该持久化列表：[web 客户端](../../client/ui-conversation)基于当前有效计划（其后没有更晚 `turn/start` 的最近一次 `todo/write`）显示计划条和专属工具行（[展示](../../../.agents/notes/implemented/feature/2026-07-23-web-todo-display.zh.md)、[生命周期](../../../.agents/notes/implemented/feature/2026-07-28-todo-plan-clears-on-next-turn.zh.md)）。
@@ -34,7 +36,7 @@
 
 ## 导出形状
 
-函数／命名空间插件：导出 `name`/`inject`/`apply`，不提供默认导出。意外的 `export default` 会被 Loader 的 `unwrapExports` 折叠为默认导出，并导致 `inject` 丢失（参见 [docs/postmortem/0001](../../../docs/postmortem/0001-acp-default-export-drops-inject.zh.md)）。
+函数／命名空间插件：导出 `name`/`inject`/`apply`，不提供默认导出。其仅类型出口声明 `TodoItem` 与 `todo/write` `SessionEventMap` 成员；包根入口和 `/client` 入口都导出 `TodoItem`。意外的 `export default` 会被 Loader 的 `unwrapExports` 折叠为默认导出，并导致 `inject` 丢失（参见 [docs/postmortem/0001](../../../docs/postmortem/0001-acp-default-export-drops-inject.zh.md)）。
 
 ## 模型体验
 

@@ -16,7 +16,7 @@ from deepseek_harness_runtime import resolve_bundled_launch_args
 
 _MODES = ("exe", "node")
 _REPO_ROOT = Path(__file__).parents[3]
-_MINIMAL_CONFIG = _REPO_ROOT / "examples" / "jsonrpc-agent" / "minimal.cordis.yml"
+_MINIMAL_CONFIG = _REPO_ROOT / "examples" / "python-sdk-agent" / "minimal.cordis.yml"
 
 # The config must include the JSON-RPC serving plugin.
 _CORDIS_YML = """\

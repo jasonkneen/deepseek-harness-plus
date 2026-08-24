@@ -735,7 +735,7 @@ describe('TypertGatewayService', () => {
     expect(service.calls).toEqual([])
   })
 
-  it('distinguishes strict input and result validation failures', async () => {
+  it('validates strict input without decoding the business result', async () => {
     const { ctx, service } = await setup()
     registerStrict(ctx, [strictOnlyDescriptor()])
 
@@ -746,27 +746,23 @@ describe('TypertGatewayService', () => {
     }), 'input-invalid')
 
     service.nextResult = { title: 1 }
-    await expectCode(ctx.typertGateway.invoke({
+    await expect(ctx.typertGateway.invoke({
       namespace: 'goals',
       method: 'strictOnly',
       args: { request: { title: 'ship' } },
-    }), 'result-invalid')
+    })).resolves.toEqual({ title: 1 })
   })
 
-  it('rejects non-JSON values after strict codec validation', async () => {
+  it('does not inspect non-JSON business results', async () => {
     const { ctx, service } = await setup()
-    const descriptor = strictOnlyDescriptor()
-    registerStrict(ctx, [{
-      ...descriptor,
-      result: strictCodec('@fixture/gateway#UnknownResult', z.unknown()),
-    }])
+    registerStrict(ctx, [strictOnlyDescriptor()])
     service.nextResult = 1n
 
-    await expectCode(ctx.typertGateway.invoke({
+    await expect(ctx.typertGateway.invoke({
       namespace: 'goals',
       method: 'strictOnly',
       args: { request: { title: 'ship' } },
-    }), 'result-invalid')
+    })).resolves.toBe(1n)
   })
 
   it.each([
@@ -801,7 +797,7 @@ describe('TypertGatewayService', () => {
     expect(service.calls).toContain('passthrough')
   })
 
-  it('rejects cyclic SRC input and non-JSON SRC results', async () => {
+  it('rejects cyclic SRC input without inspecting SRC results', async () => {
     const { ctx, service } = await setup()
     const cyclic: { self?: unknown } = {}
     cyclic.self = cyclic
@@ -811,12 +807,13 @@ describe('TypertGatewayService', () => {
       args: { value: cyclic },
     }), 'input-invalid')
 
-    service.nextResult = new Date(0)
-    await expectCode(ctx.typertGateway.invoke({
+    const result = new Date(0)
+    service.nextResult = result
+    await expect(ctx.typertGateway.invoke({
       namespace: 'goals',
       method: 'passthrough',
       args: { value: null },
-    }), 'result-invalid')
+    })).resolves.toBe(result)
   })
 
   it('accepts dense JSON and rejects decorated arrays and object properties', async () => {
@@ -1046,6 +1043,56 @@ describe('TypertGatewayService', () => {
     expect(connection.handler).toBeUndefined()
   })
 
+  it('claims and validates in-process Remote event results for the active Client generation', async () => {
+    const ctx = new Context()
+    await ctx.plugin(TypertRegistry)
+    await ctx.plugin(FakeConnectionService)
+    await ctx.plugin(TypertGatewayService)
+    const connection = rawConnection(ctx)
+    const handler = connection.handler
+    if (handler === undefined) throw new Error('fixture Connection did not retain the /api interceptor')
+    expect(connection.matches?.('$events/result')).toBe(true)
+
+    const result = {
+      args: { clientId: 'missing-client', eventId: 'missing', outcome: { kind: 'next' } },
+    }
+    const inactive = await handler('$events/result', result, new AbortController().signal)
+    expect(inactive).toMatchObject({ ok: false, error: { code: 'internal' } })
+    if (inactive.ok) throw new Error('inactive Remote event result unexpectedly succeeded')
+    expect(inactive.error.message).toContain('identifies no active event stream')
+
+    const unregister = ctx.typertGateway.registerRemoteEvents(signal => (async function* () {
+      await new Promise<void>((resolve) => {
+        if (signal.aborted) resolve()
+        else signal.addEventListener('abort', () => { resolve() }, { once: true })
+      })
+    })())
+    const carrier = new AbortController()
+    const events = rawGatewayEventHarness(ctx).openRemoteEvents({ args: {} }, carrier.signal)
+    const opening = await events.next()
+    expect(opening).toMatchObject({ done: false, value: { type: 'ready' } })
+    if (opening.done) throw new Error('Remote event stream ended before ready')
+    const clientId: unknown = Reflect.get(opening.value as object, 'clientId')
+    if (typeof clientId !== 'string') throw new Error('Remote event stream omitted its Client id')
+
+    for (const payload of [null, [], {}, { other: {} }]) {
+      const invalid = await handler('$events/result', payload, carrier.signal)
+      expect(invalid).toMatchObject({ ok: false, error: { code: 'internal' } })
+      if (invalid.ok) throw new Error('invalid Remote event result payload unexpectedly succeeded')
+      expect(invalid.error.message).toContain('requires exactly one plain-object args field')
+    }
+    await expect(handler('$events/result', {
+      args: { clientId, eventId: 'missing', outcome: { kind: 'next' } },
+    }, carrier.signal)).resolves.toEqual({
+      ok: true,
+      value: undefined,
+    })
+
+    await events.return(undefined)
+    await unregister()
+    await ctx.fiber.dispose()
+  })
+
   it('preserves a lookup policy rejection through the Connection RPC result', async () => {
     const ctx = new Context()
     await ctx.plugin(TypertRegistry)
@@ -1228,6 +1275,17 @@ function rawConnection(ctx: Context): FakeConnectionService {
   return receiver[symbols.original] ?? receiver
 }
 
+interface GatewayEventHarness {
+  openRemoteEvents(payload: unknown, signal: AbortSignal): AsyncGenerator
+}
+
+function rawGatewayEventHarness(ctx: Context): GatewayEventHarness {
+  const receiver = ctx.get('typertGateway') as unknown as GatewayEventHarness & {
+    [symbols.original]?: GatewayEventHarness
+  }
+  return receiver[symbols.original] ?? receiver
+}
+
 function registerStrict(ctx: Context, descriptors: readonly InvocationDescriptor[]): () => Promise<void> {
   return ctx.typert.register({
     package: '@fixture/gateway',
@@ -1256,6 +1314,7 @@ function contextProvider(context: Context) {
   return {
     wire: 'agentId',
     wireTypeSymbol: '@fixture/domain#AgentId',
+    identity: (candidate: Context) => candidate === context ? 'agent-1' : undefined,
     resolve: (id: string) => id === 'agent-1' ? context : undefined,
   }
 }

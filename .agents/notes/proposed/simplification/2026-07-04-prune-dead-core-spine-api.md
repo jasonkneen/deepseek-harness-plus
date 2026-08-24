@@ -47,7 +47,7 @@ Remove or demote every row as one bounded coordinated public-surface cleanup. Up
 
 ## Alternatives considered
 
-**Keep test conveniences and self-contained results public.** Public helpers can make white-box tests convenient, self-contained result fields can look ergonomic, and future embedders might want the concrete loop or enumeration methods. Those benefits are hypothetical; today they make every implementation and document explain states that no shipped caller can observe. A real consumer can introduce the smallest contract it needs, with its ownership and failure semantics known.
+**Keep test conveniences and self-contained results public.** Public helpers can make white-box tests convenient, self-contained result fields can look ergonomic, and future embedders might want the concrete loop or enumeration methods. Those benefits are hypothetical; retaining them makes every implementation and document explain states that no shipped caller can observe. A real consumer can introduce the smallest contract it needs, with its ownership and failure semantics known.
 
 **Keep every catalogued member for model-written mounts.** The self-referential toolset is a real generic consumer route, not generated-doc noise. Its value comes from an accurate, composable service API, however, not from preserving duplicate fields or incoherent argument pairs indefinitely; each catalogued contraction above removes a fact available elsewhere on the same execution, agent, or result and updates the API reference in the same change.
 

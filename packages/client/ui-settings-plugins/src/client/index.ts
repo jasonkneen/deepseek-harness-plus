@@ -16,7 +16,8 @@ import type {} from '@deepseek-ai/dsh-client-locale/client'
 // and the ctx.settingsScope Context merge. Cross-plugin collaboration goes
 // through the service, never a value import (client bundle purity gate).
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
-import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
+import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
+import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import { resolveSlotLabel } from '@deepseek-ai/dsh-client-ui-slots'
 // Type-only: the ctx.remote Context merge and the forwarded-event key face.
 import type {} from '@deepseek-ai/dsh-api-remotes/client'
@@ -72,9 +73,7 @@ export function apply(ctx: ClientContext): void {
     'ui-settings-plugins: credential invalidations',
   )
 
-  // Which namespaces the Host serves comes from the shared describe mirror,
-  // whose owning plugin already refreshes it on document commits and
-  // reconnects — the tab only derives.
+  // The shared SettingsScope mirror updates after document commits and reconnects.
   const configurable = new ConfigurablePluginsTabController(
     ctx.settingsScope.describe(), () => ctx.slots.entries('settings.plugin.item'))
   ctx.effect(() => () => { configurable.dispose() }, 'ui-settings-plugins: tab directory')

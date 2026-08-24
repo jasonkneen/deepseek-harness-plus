@@ -152,9 +152,9 @@ describe('SessionProjectionRegistry drive', () => {
 
     first()
 
-    // The regression this counts against: one session ending used to strip
-    // the projection from every other live session, because the first
-    // registrant owned the only disposer.
+    // The regression this counts against: without last-release semantics, one
+    // session ending strips the projection from every other live session,
+    // because the first registrant owns the only disposer.
     expect(ctx.sessionProjections.snapshot(session).values['test/marks']).toEqual({ marks: ['kept'] })
     second()
     expect(ctx.sessionProjections.snapshot(session).values).toEqual({})

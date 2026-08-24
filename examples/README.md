@@ -12,9 +12,9 @@ Optional overlays that connect supported third-party memory servers through the 
 
 A non-interactive agent that accepts one task, runs it, and emits a selected machine-readable or human-readable output format. See the [headless example reference](headless-agent/README.md).
 
-## jsonrpc-agent
+## python-sdk-agent
 
-An unattended coding agent driven through the Python SDK and JSON-RPC. See the [JSON-RPC example reference](jsonrpc-agent/README.md).
+An unattended coding agent driven through the Python SDK and JSON-RPC. See the [Python SDK agent reference](python-sdk-agent/README.md).
 
 ## web-cordis
 
@@ -23,6 +23,10 @@ A self-referential agent that can inspect and change its in-memory Cordis plugin
 ## web-schedule
 
 An opt-in Web overlay for durable, Session-local reminders. It supports positive whole-second `after_seconds` delays and absolute `at` targets through `schedule_create`, `schedule_list`, and `schedule_delete`; active reminders persist in the original Session, resume when that Session becomes live again, and do not run while it is cold. Run `dsh web --patch examples/web-schedule/cordis.yml`; see [web-schedule/README.md](web-schedule/README.md) for absolute-time authority, delivery, and recovery boundaries.
+
+## web-github-review
+
+An opt-in Web overlay with a dedicated signed GitHub endpoint and a programmatic `pull_request.ready_for_review` rule. Matching deliveries create read-only review Sessions beneath the configured local Workspace; see [web-github-review/README.md](web-github-review/README.md).
 
 ## acp-agent
 

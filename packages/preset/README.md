@@ -14,3 +14,5 @@ The presets the deployment ships live in [`apps/cli/config/agent-presets/`](../.
 The composition split this group assumes: registries and cross-session facilities are process singletons and stay in the host composition, while a preset carries what one agent contributes to them. A preset that names a row publishing a process-global service is rejected at mount rather than allowed to collide with the next session.
 
 Design: [the per-session agent-preset note](../../.agents/notes/implemented/architecture/2026-08-03-per-session-agent-presets.md).
+
+See the [`AgentPresets` reference](../../docs/subsystems/core.md#ctxagentpresets--agentpresets) for discovery, mounting, inheritance, and recomposition.

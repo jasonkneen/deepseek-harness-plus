@@ -60,15 +60,16 @@
         "acp-agent/tests/fixtures/subagent-report-fence.ts",
         "acp-agent/tests/fixtures/subagent-settlement-marker.ts",
         "acp-agent/tests/fixtures/workspace-context-compaction.ts",
+        "acp-agent/tests/fixtures/control-surface/control-surface-llm.ts",
         "acp-agent/tests/fixtures/subagent/subagent-acp/mock-delegating-llm.ts",
         "acp-agent/tests/fixtures/subagent/subagent-acp/driver.ts",
         "acp-agent/tests/fixtures/subagent/subagent-claude-code/fixture.ts",
         "acp-agent/tests/fixtures/subagent/subagent-claude-code/driver.ts",
         "acp-agent/tests/fixtures/subagent/subagent-codex/fixture.ts",
         "acp-agent/tests/fixtures/subagent/subagent-codex/driver.ts",
-        "jsonrpc-agent/tests/fixtures/subagent/subagent-dsh-sdk/driver.ts",
-        "jsonrpc-agent/tests/fixtures/subagent/subagent-dsh-sdk/child-mock-llm.ts",
-        "jsonrpc-agent/tests/fixtures/subagent/subagent-dsh-sdk/mock-delegating-llm.ts",
+        "python-sdk-agent/tests/fixtures/subagent/subagent-dsh-sdk/driver.ts",
+        "python-sdk-agent/tests/fixtures/subagent/subagent-dsh-sdk/child-mock-llm.ts",
+        "python-sdk-agent/tests/fixtures/subagent/subagent-dsh-sdk/mock-delegating-llm.ts",
         "*/tests/**/*.e2e.ts",
         "*/tests/**/*.snapshot.ts"
       ],
@@ -114,9 +115,35 @@
       "project": [
         "src/**/*.ts",
         "tests/**/*.ts"
-      ],
+      ]
+    },
+    "packages/api/workspace-controller": {
       "ignoreDependencies": [
-        "@deepseek-ai/dsh-api-gateway"
+        "zod"
+      ]
+    },
+    "packages/client/ui-approval": {
+      "entry": [
+        "tests/**/*.spec.tsx"
+      ],
+      "project": [
+        "src/**/*.{ts,tsx}",
+        "tests/**/*.tsx"
+      ]
+    },
+    "packages/client/ui-conversation": {
+      "ignoreDependencies": [
+        "@deepseek-ai/dsh-client-ui-workspace"
+      ]
+    },
+    "packages/client/ui-sidebar": {
+      "ignoreDependencies": [
+        "@deepseek-ai/dsh-client-ui-workspace"
+      ]
+    },
+    "packages/client/ui-subagent": {
+      "ignoreDependencies": [
+        "@deepseek-ai/dsh-client-ui-input-trigger"
       ]
     },
     "packages/client/ui-primitives": {
@@ -209,6 +236,20 @@
       "project": [
         "src/**/*.ts",
         "tests/**/*.ts"
+      ]
+    },
+    "packages/experimental/webworker-runtime": {
+      "entry": [
+        "tests/**/*.spec.ts",
+        "tests/compile/transform-corpus-check.ts"
+      ],
+      "project": [
+        "src/**/*.ts",
+        "tests/**/*.ts"
+      ],
+      "ignoreDependencies": [
+        "buffer",
+        "@deepseek-ai/dsh-client-modules"
       ]
     },
     "packages/typert/generator": {
@@ -476,16 +517,6 @@
         "tests/**/*.ts"
       ]
     },
-    "packages/examples/acp-demo": {
-      "entry": [
-        "tests/**/*.spec.ts",
-        "tests/**/*.e2e.ts"
-      ],
-      "project": [
-        "src/**/*.ts",
-        "tests/**/*.ts"
-      ]
-    },
     "packages/examples/agent-spine-demo": {
       "entry": [
         "tests/**/*.spec.ts",
@@ -518,7 +549,7 @@
         "zod"
       ]
     },
-    "packages/examples/jsonrpc-demo": {
+    "packages/sdk/python-runtime": {
       "project": [
         "src/**/*.ts"
       ]
@@ -611,13 +642,15 @@
         "tests/**/*.perf.ts",
         "tests/**/*.snapshot.ts",
         "tests/support.ts",
-        "src/node-module-stub.ts"
+        "src/node-module-stub.ts",
+        "src/preview.ts"
       ],
       "project": [
         "src/**/*.ts",
         "tests/**/*.ts"
       ],
       "ignoreDependencies": [
+        "@deepseek-ai/dsh-client-store",
         "@deepseek-ai/dsh-client-ui-primitives",
         "@deepseek-ai/dsh-client-ui-slots",
         "@types/react",
@@ -658,6 +691,16 @@
     "packages/bundle/headless": {
       "ignoreDependencies": [
         "@deepseek-ai/dsh-code-runtime-worker-thread"
+      ]
+    },
+    "packages/bundle/acp-app": {
+      "ignoreDependencies": [
+        "@deepseek-ai/dsh-acp"
+      ]
+    },
+    "packages/bundle/sdk-app": {
+      "ignoreDependencies": [
+        "@deepseek-ai/dsh-sdk-jsonrpc-server"
       ]
     },
     "packages/bundle/web-app": {

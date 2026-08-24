@@ -50,5 +50,5 @@
 - **字形级图标是重新绘制的近似版本**：鱼形标志（以及 ui-conversation 持有的闪光图标）来自字体字形，而本地设计数据无法导出其矢量几何；在获得精确导出路径前，使用手工重建版本代替。
 - **Pill 与 Input 没有设计来源**：两个原子组件均自行定义；与其相似的侧边栏搜索字段和视图标签条由消费方组合，不是这些原子组件。
 - **StateDot 没有 `Active` 变体**：支持的状态为 done、warning、ongoing 和 error。
-- **面向用户的文案经 label props 本地化，默认值为原中文字面量**：这些原子组件是 zero-cordis 的，拿不到 `ctx.locale`，因此 `HoverCard`（`copyLabel`/`copiedLabel`）、`TerminalBlock`（`labels`）、`JsonTree`（`labels`）、`CodeBlock`（`copyLabel`/`copiedLabel`）、`MarkdownText`（`codeLabels`）、`JsonBlock`（`truncatedLabel`）、`ConnectionBanner`（`label`）和 `Modal`（`closeLabel`）都把文案作为可选 props 接收。已本地化的插件用自己的 `t` 席位传入字典驱动的 label；什么都不传的消费方得到的就是这些默认值。`WebBlock` 尚未跟进这一模式：它的来源列表截断提示与 fetch 截断提示、以及空搜索提示仍是内联中文，待同样的 label-prop 处理。
+- **面向用户的文案必须由渲染点传入**：这些原子组件是 zero-Cordis 的，拿不到 `ctx.locale`，因此 `HoverCard`、`TerminalBlock`、`JsonTree`、`CodeBlock`、`MarkdownText`、`JsonBlock`、`ConnectionBanner`、`Modal`、`DiffBlock`、`ReadBlock`、`SearchBlock` 和 `WebBlock` 都通过 prop 接收完整的本地化 label。本包不持有任何语言回落值；遗漏会导致类型检查失败，各功能把自己的 typed `t` 席位映射到原子组件 label 接口（[决策](../../../.agents/notes/implemented/architecture/2026-08-23-locale-owned-client-ui-copy.zh.md)）。
 - **`TerminalBlock` 不是终端模拟器**：它渲染已结束或仍在运行的命令输出，而不是交互式会话：SGR 颜色与属性会被遵循，进度行所用的行内光标移动同样被遵循——回车、退格、行内擦除、制表位与字符宽度。绝对光标定位、清屏与备用屏幕序列会被剥离。基础 16 色中的洋红与青色没有对应 token，保持字面 rgb。

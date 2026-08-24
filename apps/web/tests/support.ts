@@ -125,7 +125,7 @@ export async function saveFailureShot(page: Page, name: string): Promise<void> {
  * The conversation engine's Context key format, restated here rather than
  * imported: these specs live in the Host compiler aggregate, which must not
  * reach the Client plane. The engine's own copy is
- * `conversationContextKey` in dsh-client-runtime; a drift between them makes
+ * `conversationContextKey` in ui-conversation; a drift between them makes
  * the key miss its rendered node, so the assertion fails loudly.
  * @param kind - Definition kind.
  * @param id - Definition-local business identity.

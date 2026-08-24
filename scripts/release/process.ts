@@ -9,9 +9,7 @@ import { fileURLToPath } from 'node:url'
 
 /** Where and with what environment a release step runs a command. */
 export interface RunOptions {
-  /** Working directory; defaults to the current one. */
   readonly cwd?: string
-  /** Child environment; defaults to this process's. */
   readonly env?: NodeJS.ProcessEnv
 }
 
@@ -19,9 +17,7 @@ export interface RunOptions {
 export interface CommandResult {
   /** Exit status, or null when a signal ended the process. */
   readonly status: number | null
-  /** Captured standard output. */
   readonly stdout: string
-  /** Captured standard error. */
   readonly stderr: string
 }
 
@@ -39,19 +35,8 @@ export function attempt(command: string, args: readonly string[], options: RunOp
 }
 
 /**
- * Run a command, capture its output, and echo it once the command exits.
- *
- * A step that both shows what a command said and classifies its own failure
- * needs both halves: the output has to reach the workflow log, and the caller has
- * to read it to decide whether a failure is worth retrying.
- *
- * This is not live progress. `spawnSync` returns only after the child exits, so
- * nothing appears while the command runs, and the two streams are echoed one
- * after the other — all of stdout, then all of stderr — which loses their
- * interleaving. For an npm publish that matters in one visible way: `npm notice`
- * lines go to stderr while the `+ name@version` confirmation goes to stdout, so
- * the log shows the confirmation first. Live progress would need an
- * asynchronous spawn with data listeners.
+ * Run a command, then echo and return its captured output. Output is buffered
+ * until exit and stdout precedes stderr.
  * @param command - executable name.
  * @param args - command arguments.
  * @param options - working directory and environment.
@@ -62,8 +47,6 @@ export function attemptEchoed(command: string, args: readonly string[], options:
     cwd: options.cwd,
     env: options.env,
     encoding: 'utf8',
-    // 'inherit' would leave nothing to capture, so the streams are piped and
-    // echoed instead.
     stdio: ['inherit', 'pipe', 'pipe'],
   })
   if (result.error !== undefined) throw result.error
@@ -101,11 +84,7 @@ export function run(command: string, args: readonly string[], options: RunOption
 }
 
 /**
- * Whether this module is the process entry point.
- *
- * The release scripts are both commands and modules: a test imports their pure
- * logic, and importing a module runs its body, so an unguarded `main()` would
- * run the wrong command with the wrong arguments.
+ * Return whether Node started the given module as the process entry point.
  * @param moduleUrl - the caller's `import.meta.url`.
  * @returns True when Node started this module.
  */

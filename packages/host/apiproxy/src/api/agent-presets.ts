@@ -101,7 +101,7 @@ export interface AgentPresetsApi {
 
   /**
    * Hand one locally authored preset's DIRECTORY to the platform opener, for
-   * editing the files that are now the only composition editor. The request
+   * editing the files, which are the only composition editor. The request
    * carries an id, never a path — the Host resolves it — so no browser
    * payload can select an arbitrary filesystem target. Where the deployment
    * has no native opener (`hasDocument: false` on `list`), the reply carries

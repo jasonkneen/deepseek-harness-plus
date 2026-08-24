@@ -198,6 +198,19 @@ export class SqliteStore implements PersistenceBackend<number> {
     }
   }
 
+  async materializeHeader(meta: SessionHeader): Promise<void> {
+    await this.open()
+    this.db.exec(sql('begin-immediate'))
+    try {
+      validateSchemaForMutation(this.databaseConstructor, this.db, this.databasePath)
+      this.writeRow(meta)
+      this.db.exec(sql('commit'))
+    } catch (error: unknown) {
+      /* v8 ignore next -- validate/write failure uses the same transaction rollback path covered by append and repair. */
+      this.rollback(error, 'materialize empty session')
+    }
+  }
+
   async commitRepair(
     meta: SessionHeader,
     tornMarker: number | undefined,

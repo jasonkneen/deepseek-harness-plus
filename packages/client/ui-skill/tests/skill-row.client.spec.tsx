@@ -1,10 +1,8 @@
 // @vitest-environment jsdom
-// Dedicated skill tool row: replay-stable naming, lifecycle states, disclosure,
-// keyboard operation, exact output, and the trajectory Inspect handoff.
 
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import type { RunningToolCall, ToolResultNode } from '@deepseek-ai/dsh-client-runtime/client'
+import type { RunningToolCall, ToolResultNode } from '@deepseek-ai/dsh-client-ui-chat/client'
 import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
 import { zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/zh.ts'
 import { SkillRow } from '../src/client/SkillRow.tsx'
@@ -65,7 +63,7 @@ describe('SkillRow', () => {
     const card = screen.getByLabelText('说明')
     expect(card.textContent).toBe('说明Follow the issue workflow.\nKeep project fields in sync.')
     expect(view.container.textContent).not.toContain('{"name":"dsh-manage-issues"}')
-    fireEvent.click(screen.getByRole('button', { name: 'Inspect' }))
+    fireEvent.click(screen.getByRole('button', { name: '查看' }))
     expect(inspect).toHaveBeenCalledTimes(1)
 
     fireEvent.click(row)

@@ -228,7 +228,7 @@ describe('web e2e: lifecycle & chrome (workspace flow / reload / dark mode)', ()
     await page.waitForSelector('[class*="frame"]', { timeout: 30_000 })
     acknowledgeReloadConnectionLoss(tripwire, warningStart)
     // Selection persisted (dsh.sessions.current) and history replayed: the
-    // recorded turn re-renders from session.history with zero model calls —
+    // recorded turn re-renders from a Session Controller page with zero model calls —
     // the replay cursor was fully consumed before the reload, so any stray
     // request would fail the scenario loudly at close().
     await expect.poll(() => page.getByText('LIGHTHOUSE', { exact: true }).count(), { timeout: 15_000 }).toBeGreaterThanOrEqual(1)

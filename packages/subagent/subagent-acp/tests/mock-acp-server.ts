@@ -55,10 +55,11 @@ import { randomUUID } from 'node:crypto'
 import { existsSync, writeFileSync } from 'node:fs'
 import { Readable, Writable } from 'node:stream'
 import {
-  AgentSideConnection,
+  agent as createAcpAgentApp,
+  methods,
   ndJsonStream,
   PROTOCOL_VERSION,
-  type Agent,
+  type AgentContext,
   type CancelNotification,
   type AuthenticateRequest,
   type InitializeRequest,
@@ -67,6 +68,7 @@ import {
   type NewSessionResponse,
   type PromptRequest,
   type PromptResponse,
+  type RequestPermissionResponse,
   type StopReason,
 } from '@agentclientprotocol/sdk'
 
@@ -93,7 +95,7 @@ const NEWSESSION_GATE = process.env.MOCK_NEWSESSION_READY !== undefined && proce
   ? { ready: process.env.MOCK_NEWSESSION_READY, go: process.env.MOCK_NEWSESSION_GO }
   : undefined
 
-function makeAgent(conn: AgentSideConnection): Agent {
+function makeAgent() {
   // Pending cancel resolver for the HANG path: a `session/cancel` resolves the
   // prompt with `cancelled`.
   let resolveCancel: ((reason: StopReason) => void) | undefined
@@ -104,7 +106,7 @@ function makeAgent(conn: AgentSideConnection): Agent {
     initialize(_params: InitializeRequest): Promise<InitializeResponse> {
       return Promise.resolve({
         protocolVersion: PROTOCOL_VERSION,
-        agentCapabilities: { loadSession: false, promptCapabilities: { image: false, audio: false, embeddedContext: false } },
+        agentCapabilities: { promptCapabilities: { image: false, audio: false, embeddedContext: false } },
         authMethods: [],
       })
     },
@@ -124,7 +126,7 @@ function makeAgent(conn: AgentSideConnection): Agent {
       // No auth methods advertised; nothing to do.
       return Promise.resolve()
     },
-    async prompt(params: PromptRequest): Promise<PromptResponse> {
+    async prompt(params: PromptRequest, conn: AgentContext): Promise<PromptResponse> {
       if (CRASH_ON_PROMPT) process.exit(1)
       if (WANT_PERMISSION) {
         // Ask the client to approve before answering; honor its decision. Under
@@ -136,11 +138,11 @@ function makeAgent(conn: AgentSideConnection): Agent {
             { optionId: 'yes', name: 'Allow', kind: 'allow_once' as const },
             { optionId: 'no', name: 'Reject', kind: 'reject_once' as const },
           ]
-        const decision = await conn.requestPermission({
+        const decision = await conn.request(methods.client.session.requestPermission, {
           sessionId: params.sessionId,
           toolCall: { toolCallId: 'mock-call', title: 'mock side effect' },
           options,
-        })
+        }) as RequestPermissionResponse
         if (decision.outcome.outcome === 'cancelled') {
           return { stopReason: 'cancelled' }
         }
@@ -148,14 +150,14 @@ function makeAgent(conn: AgentSideConnection): Agent {
       // Optionally emit a NON-message update first (a thought), so the client's
       // sessionUpdate sees an update it must consume-but-not-accumulate.
       if (THOUGHT) {
-        await conn.sessionUpdate({
+        await conn.notify(methods.client.session.update, {
           sessionId: params.sessionId,
           update: { sessionUpdate: 'agent_thought_chunk', content: { type: 'text', text: 'thinking…' } },
         })
       }
       // Stream the canned assistant text as one chunk (or, under MOCK_ECHO_CWD,
       // the observable process cwd + announced session cwd).
-      await conn.sessionUpdate({
+      await conn.notify(methods.client.session.update, {
         sessionId: params.sessionId,
         update: {
           sessionUpdate: 'agent_message_chunk',
@@ -195,13 +197,20 @@ function makeAgent(conn: AgentSideConnection): Agent {
   }
 }
 
-new AgentSideConnection(
-  makeAgent,
-  ndJsonStream(
+const implementation = makeAgent()
+createAcpAgentApp({ name: 'dsh-subagent-acp-test-agent' })
+  .onRequest(methods.agent.initialize, ({ params }) => implementation.initialize(params))
+  .onRequest(methods.agent.authenticate, async ({ params }) => {
+    await implementation.authenticate(params)
+    return {}
+  })
+  .onRequest(methods.agent.session.new, ({ params }) => implementation.newSession(params))
+  .onRequest(methods.agent.session.prompt, ({ params, client }) => implementation.prompt(params, client))
+  .onNotification(methods.agent.session.cancel, ({ params }) => implementation.cancel(params))
+  .connect(ndJsonStream(
     Writable.toWeb(process.stdout) as WritableStream<Uint8Array>,
     Readable.toWeb(process.stdin) as ReadableStream<Uint8Array>,
-  ),
-)
+  ))
 
 // Under MOCK_TRAP_SIGTERM, ignore SIGTERM and keep stdin open so the process
 // neither quiesces on EOF nor dies on the graceful signal — exercising the

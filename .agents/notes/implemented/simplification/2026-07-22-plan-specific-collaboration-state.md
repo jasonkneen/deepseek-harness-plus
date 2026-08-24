@@ -43,7 +43,7 @@ The tool renders the submitted plan as a generic card titled by its first headin
 
 ## Alternatives considered
 
-**Keep a private generic registry and expose only plan today.** Rejected because the unused name/config machinery would still be maintained and tested without a second production consumer. A future collaboration state can establish the right shared seam from two concrete cases.
+**Keep a private generic registry and expose only plan.** Rejected because the unused name/config machinery would still be maintained and tested without a second production consumer. A future collaboration state can establish the right shared seam from two concrete cases.
 
 **Fold sandbox or approval policy into plan state.** Rejected because collaboration guidance, execution confinement, and permission decisions have different owners, lifecycle semantics, and consumers. A mode-owned sandbox cap also makes a user's explicit sandbox selection appear to succeed while silently doing nothing.
 

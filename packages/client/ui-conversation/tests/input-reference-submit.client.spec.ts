@@ -4,10 +4,10 @@
  * accepted prompt.
  */
 import { describe, expect, it, vi } from 'vitest'
-import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
+import type { Context } from '@deepseek-ai/cordis'
 import type { InputTriggerController, SubmitOutcome } from '@deepseek-ai/dsh-client-ui-input-trigger/client'
 import { SessionInputShell } from '../src/client/input/facade.ts'
-import type { DraftAttachmentId } from '../src/client/input/contract.ts'
+import type { DraftAttachmentId } from '../src/client/contract/input.ts'
 
 const mention = '@[Research](dsh-session:InNvdXJjZSI)'
 const spacedMention = '@[Research notes](dsh-session:InNvdXJjZSI)'
@@ -36,7 +36,7 @@ describe('reference submission', () => {
   it('mirrors canonical reference text so a persisted draft remains resolvable after remount', async () => {
     const mirror = vi.fn()
     const first = new SessionInputShell({
-      actx: {} as ClientContext,
+      actx: {} as Context,
       defaultSink: vi.fn(),
       commandImages,
     })
@@ -58,7 +58,7 @@ describe('reference submission', () => {
 
     const sink = vi.fn(() => Promise.resolve<SubmitOutcome>({ kind: 'success' }))
     const restored = new SessionInputShell({
-      actx: {} as ClientContext,
+      actx: {} as Context,
       defaultSink: sink,
       commandImages,
     })
@@ -84,7 +84,7 @@ describe('reference submission', () => {
       track: vi.fn(),
     } as unknown as InputTriggerController
     const shell = new SessionInputShell({
-      actx: {} as ClientContext,
+      actx: {} as Context,
       inputTriggers: () => inputTriggers,
       defaultSink: sink,
       commandImages,
@@ -126,7 +126,7 @@ describe('reference submission', () => {
       track: vi.fn(),
     } as unknown as InputTriggerController
     const shell = new SessionInputShell({
-      actx: {} as ClientContext,
+      actx: {} as Context,
       inputTriggers: () => inputTriggers,
       defaultSink: sink,
       commandImages,
@@ -148,7 +148,7 @@ describe('reference submission', () => {
   it('aborts Host-side preparation when the input shell is disposed', () => {
     let signal: AbortSignal | undefined
     const shell = new SessionInputShell({
-      actx: {} as ClientContext,
+      actx: {} as Context,
       defaultSink: (_text, _imageIds, _mode, received) => {
         signal = received
         return new Promise<SubmitOutcome>(() => {})
@@ -166,7 +166,7 @@ describe('reference submission', () => {
 
   it('retains a rejected default message without duplicating its prompt error notice', async () => {
     const shell = new SessionInputShell({
-      actx: {} as ClientContext,
+      actx: {} as Context,
       defaultSink: () => Promise.resolve({ kind: 'error' }),
       commandImages,
     })
@@ -185,7 +185,7 @@ describe('submit transaction hardening', () => {
     let settle!: (outcome: SubmitOutcome) => void
     const sink = vi.fn(() => new Promise<SubmitOutcome>((resolve) => { settle = resolve }))
     const shell = new SessionInputShell({
-      actx: {} as ClientContext,
+      actx: {} as Context,
       defaultSink: sink,
       commandImages,
     })
@@ -206,7 +206,7 @@ describe('submit transaction hardening', () => {
   it('retains an image-only rejection without duplicating its prompt error notice', async () => {
     const sink = vi.fn(() => Promise.resolve<SubmitOutcome>({ kind: 'error' }))
     const shell = new SessionInputShell({
-      actx: {} as ClientContext,
+      actx: {} as Context,
       defaultSink: sink,
       commandImages,
     })
@@ -222,7 +222,7 @@ describe('submit transaction hardening', () => {
   it('re-tracks at the caret when a continuing insert-text splice lands (directory descent)', () => {
     const track = vi.fn()
     const shell = new SessionInputShell({
-      actx: {} as ClientContext,
+      actx: {} as Context,
       inputTriggers: () => ({ track } as unknown as InputTriggerController),
       defaultSink: vi.fn(),
       commandImages,
