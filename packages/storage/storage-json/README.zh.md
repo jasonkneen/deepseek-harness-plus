@@ -2,12 +2,18 @@
 
 [English](README.md) | 中文
 
-[存储中心](../storage/README.zh.md)的 JSON 后端：配置根目录下每个单元使用一个人类可读的 `<unit>.json` 文件，注册为后端 `json`。设计见[领域 KV 存储 Agent Note](../../../.agents/notes/proposed/architecture/2026-07-24-domain-kv-storage-and-workspace.zh.md)。
+[存储中心](../storage/README.zh.md)的 JSON 后端，注册为后端 `json`，提供两种单元布局：
+
+- **`single`（默认）**——配置根目录下每个单元使用一个人类可读的 `<unit>.json` 文件。
+- **`per-record`**——每个记录一个带版本戳的文档，位于 `<root>/<unit>/<table>/<key>.json`（外加 `global.json`），一次写入只替换一条记录而不是整个单元；该单元无状态（目录即状态，`loadAll` 重扫目录树）。记录键必须路径安全（`[a-zA-Z0-9_-]+`）；不安全键会被拒绝。
+
+设计见[领域 KV 存储 Agent Note](../../../.agents/notes/proposed/architecture/2026-07-24-domain-kv-storage-and-workspace.zh.md)。
 
 ## 模型
 
-- 内存中的单元状态具有最终决定权；每个写入原语都会通过临时文件写入 + fsync + 原子 `rename()` 替换重新发布整个文件。单元文件始终是完整的当前状态：可读性是该后端存在的理由，规模问题则属于 SQLite 后端。
-- 缺失文件会作为空单元打开，并在第一次写入时物化。外来或无法解析的文件以 `malformed-medium` 拒绝；已存版本与描述符不同时以 `version-mismatch` 拒绝（预发布立场，不迁移）。
+- `single` 布局：内存中的单元状态具有最终决定权；每个写入原语都会通过临时文件写入 + fsync + 原子 `rename()` 替换重新发布整个文件。单元文件始终是完整的当前状态：可读性是该后端存在的理由，规模问题则属于 SQLite 后端。
+- 缺失文件（`per-record` 时是缺失单元目录）会作为空单元打开，并在第一次写入时物化。`single` 布局下外来或无法解析的文件以 `malformed-medium` 拒绝；已存版本与描述符不同时以 `version-mismatch` 拒绝（预发布立场，不迁移）。`per-record` 布局的契约改为按记录：畸形或版本戳不符的文档读作"无此记录"，单个坏文件或过期文件不会拖垮整个单元，版本升级按记录丢弃过期行而不是拒绝整个单元。
+- 空的 `per-record` 目录树会从旧 `<unit>.json` 整单元文件引导其已声明表的记录，并原样保留旧文件。已声明表中只要存在任意新布局文档路径，或已声明 global 对应的 `global.json` 存在，就会对整个单元禁用引导，即使该文档不可读或版本陈旧；缺失记录仍保持缺失，不从旧状态补入。
 - 跨调用的写入顺序属于调用方（领域层的写入链）；每次调用都具备原子性，并在完成时已达到持久状态。
 
 ## 配置

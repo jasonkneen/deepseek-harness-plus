@@ -442,11 +442,24 @@ describe('BashRow terminal card', () => {
     expect(view.queryByText('List files')).toBeNull()
   })
 
-  it('keeps the command summary for a persistent shell with no description', () => {
+  it('expands a settled persistent shell through the generic input/output card', () => {
     const view = render(<BashRow {...rowProps(settled({
       call: { name: 'bash', argsRaw: JSON.stringify({ command: 'ls -la' }) },
     }))} />)
+    const row = view.container.querySelector('[data-sample="bash"]')!
     expect(view.getByText('ls -la')).toBeTruthy()
+    expect(row.getAttribute('role')).toBe('button')
+    expect(row.getAttribute('aria-expanded')).toBe('false')
+
+    fireEvent.click(row)
+
+    expect(row.getAttribute('aria-expanded')).toBe('true')
+    expect(view.getByText('输入')).toBeTruthy()
+    expect(view.getByText('输出')).toBeTruthy()
+    expect(view.getByText(/"command": "ls -la"/)).toBeTruthy()
+    expect(view.container.querySelector('[class*="_ioText_"][data-error]')).toBeNull()
+    expect(view.container.querySelectorAll('[class*="_ioText_"]')[1]?.textContent)
+      .toBe('a.ts  b.ts\nc.ts  d.ts\n')
   })
 
   it('a non-terminal bash call (background start) renders the summary row alone', () => {

@@ -67,7 +67,18 @@ const MINIMAL_BASH_DESCRIPTION = `Run commands in a bash shell
 const mode = process.env.DSH_SNAPSHOT ?? 'replay'
 const recording = mode === 'record'
 const refreshing = mode === 'refresh'
-const RUNTIME_WORKSPACE_ENTRIES = ['.agents', '.child-dsh', '.dsh', '.replay-fixtures', '.snapshot-patches'] as const
+const RUNTIME_WORKSPACE_ENTRIES = [
+  '.agents',
+  '.child-dsh',
+  '.dsh',
+  '.dsh-sdk-background-release',
+  '.replay-fixtures',
+  '.snapshot-patches',
+] as const
+const dshSdkDiagnosticChildPatch = fileURLToPath(new URL(
+  './subagent-dsh-sdk-diagnostic/child.cordis.yml',
+  import.meta.url,
+))
 const dshSdkChildConfig = fileURLToPath(new URL(
   '../../packages/subagent/subagent-dsh-sdk/tests/fixtures/loader/child.cordis.yml',
   import.meta.url,
@@ -98,6 +109,9 @@ interface SdkAssertions {
 }
 
 const SDK_ASSERTIONS: Readonly<Record<string, SdkAssertions>> = {
+  'subagent-dsh-sdk-diagnostic': {
+    environment: { DSH_TEST_CHILD_PATCH: dshSdkDiagnosticChildPatch },
+  },
   'persistent-tools': {
     environment: { DSH_SYSTEM_PROMPT: MINIMAL_SYSTEM_PROMPT },
     expectedTools: { bash: ['command'], str_replace_editor: ['command', 'path'] },

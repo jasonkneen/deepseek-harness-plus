@@ -167,6 +167,7 @@ describe('gate graph validation', () => {
     const byId = new Map(complete.map(subject => [subject.id, subject]))
 
     expect(byId.get('coverage')?.allowFailure).not.toBe(true)
+    expect(byId.get('coverage')?.needs).toContain('build')
     expect(byId.get('coverage-exempt-heavy')?.allowFailure).not.toBe(true)
     expect(byId.get('coverage')?.needs).toContain('build')
     expect(byId.get('coverage-exempt-heavy')?.needs).toContain('build')
@@ -437,6 +438,15 @@ describe('Node 24 lane ownership', () => {
     expect(subject.find(item => item.id === 'web-snapshot')).toMatchObject({
       displayCommand: 'DSH_SNAPSHOT=replay pnpm run test:web:built',
       env: { DSH_SNAPSHOT: 'replay' },
+      after: [
+        'publint',
+        'lint-and-duplication',
+        'snapshot',
+        'expected-output',
+        'doc-typecheck',
+        'node-next-types',
+        'built-bin-smoke',
+      ],
     })
   })
 })

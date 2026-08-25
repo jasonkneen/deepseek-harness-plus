@@ -2,12 +2,18 @@
 
 English | [中文](README.zh.md)
 
-JSON backend for the [storage hub](../storage/README.md): one human-readable `<unit>.json` file per unit under a configured root, registered as backend `json`. Design: [domain KV storage Agent Note](../../../.agents/notes/proposed/architecture/2026-07-24-domain-kv-storage-and-workspace.md).
+JSON backend for the [storage hub](../storage/README.md), registered as backend `json`, serving two unit layouts:
+
+- **`single` (default)** — one human-readable `<unit>.json` file per unit under a configured root.
+- **`per-record`** — one version-stamped document per record at `<root>/<unit>/<table>/<key>.json` (plus `global.json`), so one write replaces one record instead of the whole unit; the unit is stateless (the directory is the state; `loadAll` re-reads the tree). Record keys must be path-safe (`[a-zA-Z0-9_-]+`); an unsafe key rejects.
+
+Design: [domain KV storage Agent Note](../../../.agents/notes/proposed/architecture/2026-07-24-domain-kv-storage-and-workspace.md).
 
 ## Model
 
-- The in-memory unit state is authoritative; every write primitive republishes the whole file via temp-write + fsync + atomic `rename()` replace. A unit file is always the complete current net state — legibility is this backend's reason to exist; scale is the SQLite backend's job.
-- A missing file opens as an empty unit and materializes on the first write. A foreign or unparsable file rejects with `malformed-medium`; a stored version differing from the descriptor rejects with `version-mismatch` (no migration, pre-release stance).
+- `single` layout: the in-memory unit state is authoritative; every write primitive republishes the whole file via temp-write + fsync + atomic `rename()` replace. A unit file is always the complete current net state — legibility is this backend's reason to exist; scale is the SQLite backend's job.
+- A missing file (or unit directory, for `per-record`) opens as an empty unit and materializes on the first write. In `single` layout a foreign or unparsable file rejects with `malformed-medium`, and a stored version differing from the descriptor rejects with `version-mismatch` (no migration, pre-release stance). In `per-record` layout the contract is per record instead: a document that is malformed or stamped with another version reads as an absent record, so one bad or stale file never bricks the unit, and a version bump discards stale records rather than rejecting the whole unit.
+- An empty `per-record` tree bootstraps its declared-table records from a legacy `<unit>.json` whole-unit file and retains that file unchanged. Any new-layout document path in a declared table, or `global.json` for a declared global, suppresses the bootstrap for the whole unit even when the document is unreadable or stale; absent records remain absent instead of being filled from legacy state.
 - Write ordering across calls belongs to the caller (the domain layer's write chain); each single call is atomic and durable once resolved.
 
 ## Config

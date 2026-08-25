@@ -6,17 +6,40 @@ The SDK provider runs each subagent as a complete DeepSeek Harness runtime in a 
 
 ## Start and ownership
 
-`start(request)` resolves the child's working directory and one process-wide SDK route before spawning. Each declared `request.agentOptions` field (`provider`, `model`, `reasoningEffort`, or `maxTokens`) overrides the matching provider-instance default; omission preserves the configured provider/model and optional cap, while reasoning effort remains omitted unless the request supplies it. The provider then spawns through `DeepSeekHarness` and completes the child runtime's `initialize` handshake, including exact-model and effort validation, before it fulfills. Fulfillment therefore means the child runtime is ready and ownership has transferred to the caller. A route, spawn, handshake, or pre-publication cancellation failure rejects only after the subprocess has been reaped; a working-directory resolution failure rejects before anything is spawned.
+`start(request)` rejects an already-aborted request, then resolves the child's working directory and one process-wide SDK route before spawning. Each declared `request.agentOptions` field (`provider`, `model`, `reasoningEffort`, or `maxTokens`) overrides the matching provider-instance default; omission preserves the configured provider/model and optional cap, while reasoning effort remains omitted unless the request supplies it. The provider then spawns through `DeepSeekHarness` and completes the child runtime's `initialize` handshake, including exact-model and effort validation, before it fulfills. Fulfillment therefore means the child runtime is ready and ownership has transferred to the caller. A route, spawn, handshake, or pre-publication cancellation failure ordinarily rejects after the subprocess is reaped; when cleanup itself rejects, ordered safe facts preserve initialize plus shutdown for an ordinary failure, or shutdown alone after cancellation, without claiming complete process quiescence. A working-directory resolution failure rejects before anything is spawned. Non-cancellation rejections expose only fixed provider, stage, and category facts in their Error message; the original SDK failure remains on the internal cause chain and in Host diagnostics.
 
 The working directory resolves exactly like the ACP backend, through the seam's shared out-of-process helpers ([`dsh-subagent`](../subagent/README.md)): the configured `cwd` override when set (validated once at load), else the delegating parent session's cwd — never the server process's own cwd. The resolved path becomes the child process cwd and the workspace cwd of its SDK session. `dshHome` is separately required as an absolute path so a nested runtime cannot accidentally share its parent's profiles, plugin installation, or session storage.
 
-The returned run id is minted in the parent namespace; the child runtime's session id exists only inside the child process. After publication the provider owns one SDK activity and reads the child's answer from its session events: the last complete non-empty `assistant/message` (an empty-content message that records usage is skipped), or the accumulated `text-delta` stream when no such message exists. Partial output remains available after cancellation or an error.
+The returned run id is minted in the parent namespace; the child runtime's session id exists only inside the child process. After publication the provider owns one SDK activity and reads the child's answer from its session events: the last complete non-empty `assistant/message` (an empty-content message that records usage is skipped), or the accumulated `text-delta` stream when no such message exists. Partial output remains available after cancellation or an error, separate from any `SubagentResult.diagnostic`.
 
 `dispose()` is idempotent: it settles the result locally as `aborted` (there is no wire-level prompt cancel), then closes the runtime — a bounded protocol `shutdown` request followed by the shared stdin-EOF → SIGTERM → SIGKILL ladder to actual exit.
 
 ## Stop-reason mapping
 
-The SDK client returns an owned child activity rather than a prompt result. The provider reads the last durable `turn/end` inside that activity and maps it into the seam vocabulary: `completed` → `completed`, `max-tokens` → `max-tokens`, `aborted` → `aborted`; everything else — `error`, `interrupted`, `disposed`, a future variant, or an activity with no turn — maps to `error`, so an unclean stop is never reported as success. Transport-level failures after publication flatten to `stopReason: 'error'` through the `onError` diagnostic sink (wired to `ctx.logger.warn`); the seam contract forbids `result` rejecting.
+The SDK client returns an owned child activity rather than a prompt result. The provider reads the last durable `turn/end` inside that activity and preserves the existing seam stop reason while adding detail only where it changes the next action.
+
+| Child turn reason | Harness | Additional diagnostic |
+|---|---|---|
+| `completed` | `completed` | None. |
+| `max-tokens` | `max-tokens` | None; the stop reason is already actionable. |
+| `aborted` | `aborted` | `child-disposed` only for the closed `disposed` cause; local parent cancellation never adds one. |
+| `blocked` | `refusal` | None; the shared stop reason already identifies a declined task. |
+| `error` | `error` | `child-error`; the child failure message/code is excluded. |
+| `interrupted` | `error` | None; only persistence repair produces it, and this provider creates fresh sessions. |
+| no `turn/end` | `error` | `missing-terminal`. |
+| unknown variant | `error` | Fixed `child-unknown`; the value is not copied. |
+
+## Failure diagnostics
+
+The first line follows the shared fixed form:
+
+```text
+Subagent failure (provider: DSH SDK; stage: <stage>; category: <category>)
+```
+
+The shared result boundary limits the complete text to 4096 UTF-8 bytes. The provider derives `initialize`, `session-run`, or `shutdown` at the operation that owns the failure. During initialize or session run, `SdkProtocolError` and JSON-RPC error responses map to `protocol`, `TransportClosedError` maps to `transport`, and other exceptions use `unknown`. A shutdown rejection uses `unknown`: the SDK client keeps protocol-shutdown failures in Host diagnostics, so only runtime-process disposal can reject `close()`. Classification never reads an error message, so the stderr tail carried by `TransportClosedError`, paths, task content, environment values, credentials, and protocol payloads remain Host-only. Request timeout classification is deferred until this provider configures or propagates a request timeout; the current SDK launch waits indefinitely for ordinary requests.
+
+Successful results and local cancellation omit diagnostics. Startup and shutdown rejections use the same safe line in their Error message while retaining the original cause internally. A diagnostic-bearing child `aborted` result remains `aborted`; the one-shot Job adapter classifies it as failed, while diagnostic-free local cancellation remains killed.
 
 ## Capabilities and context
 
@@ -84,7 +107,7 @@ Independent of the parent request cache. Each SDK child can reuse only prefixes 
 
 #### What the model sees
 
-Through `dsh-tool-subagent`, the parent receives only the child's final assistant text (or accumulated partial text) or that consumer's exact stop-reason error, not intermediate messages or tool traffic.
+Through `dsh-tool-subagent`, the parent receives only the child's final assistant text (or accumulated partial text) or that consumer's exact stop-reason error, not intermediate messages or tool traffic. A diagnostic-bearing non-completed result presents the safe diagnostic before separately preserved partial assistant output; startup and shutdown errors expose the same fixed facts without raw SDK text.
 
 #### Token effect
 

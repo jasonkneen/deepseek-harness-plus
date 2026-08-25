@@ -674,6 +674,7 @@
       "entry": [
         "tests/**/*.spec.ts",
         "tests/**/*.e2e.ts",
+        "tests/profiles/**/fixtures/**/*.{ts,mjs}",
         "tests/profiles/**/tests/fixtures/**/*.{ts,mjs}"
       ],
       "project": [

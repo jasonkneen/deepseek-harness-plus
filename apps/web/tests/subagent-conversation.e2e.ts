@@ -6,7 +6,7 @@ import type { Browser, Page } from 'playwright'
 import { chromium } from 'playwright'
 import { afterAll, beforeAll, describe, expect, it, onTestFailed } from 'vitest'
 import {
-  SESSION_FORMAT_VERSION, SessionId as sessionId, type SessionEvent, type SessionId,
+  SESSION_FORMAT_VERSION, SessionId as sessionId, type SessionEvent, type SessionHeader, type SessionId,
 } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-agent'
 import { snapshotSubagentDescriptor } from '@deepseek-ai/dsh-subagent'
@@ -54,6 +54,18 @@ async function waitForAgentToSettle(scaffold: WebScaffold, id: SessionId): Promi
   const deadline = Date.now() + 30_000
   while (scaffold.ctx.agents.get(id) !== undefined) {
     if (Date.now() >= deadline) throw new Error(`subagent ${id} did not settle`)
+    await new Promise<void>(resolve => setTimeout(resolve, 10))
+  }
+}
+
+/** Poll until the cold-read write-back of {@link coldSnapshot} lands a visible row. */
+async function waitForCacheRow(
+  scaffold: WebScaffold,
+  header: SessionHeader,
+): Promise<void> {
+  const deadline = Date.now() + 10_000
+  while (scaffold.ctx.sessionProjectionCache.cachedSnapshot(header) === undefined) {
+    if (Date.now() >= deadline) throw new Error(`cache row for "${header.id}" did not land`)
     await new Promise<void>(resolve => setTimeout(resolve, 10))
   }
 }
@@ -114,7 +126,7 @@ describe('web e2e: persisted subagent conversation and human continuation', () =
     oneShotId = sessionId('recorded-one-shot')
     const oneShotDurationMs = 192 * 24 * 60 * 60 * 1_000
     const oneShotAt = Date.now() - oneShotDurationMs
-    await scaffold.ctx.sessionPersistence.create({
+    const oneShotHeader: SessionHeader = {
       version: SESSION_FORMAT_VERSION,
       id: oneShotId,
       createdAt: oneShotAt,
@@ -122,8 +134,9 @@ describe('web e2e: persisted subagent conversation and human continuation', () =
       parentSession: parent.id,
       origin: 'subagent',
       delegationDepth: 1,
-    })
-    await scaffold.ctx.sessionPersistence.append(oneShotId, [
+    }
+    await scaffold.ctx.sessionPersistence.create(oneShotHeader)
+    const oneShotEvents = [
       {
         type: 'turn/start',
         seq: 0,
@@ -154,11 +167,13 @@ describe('web e2e: persisted subagent conversation and human continuation', () =
         time: oneShotAt + oneShotDurationMs,
         data: { turn: 1, reason: { kind: 'completed' } },
       },
-    ] as SessionEvent[])
-    await scaffold.ctx.sessionProjectionCache.coldSnapshot(oneShotId)
+    ] as SessionEvent[]
+    await scaffold.ctx.sessionPersistence.append(oneShotId, oneShotEvents)
+    scaffold.ctx.sessionProjectionCache.coldSnapshot(oneShotHeader, oneShotEvents)
+    await waitForCacheRow(scaffold, oneShotHeader)
     grandchildId = sessionId('recorded-grandchild')
     const authoredAt = Date.now()
-    await scaffold.ctx.sessionPersistence.create({
+    const grandchildHeader: SessionHeader = {
       version: SESSION_FORMAT_VERSION,
       id: grandchildId,
       createdAt: authoredAt,
@@ -166,8 +181,9 @@ describe('web e2e: persisted subagent conversation and human continuation', () =
       parentSession: childId,
       origin: 'subagent',
       delegationDepth: 2,
-    })
-    await scaffold.ctx.sessionPersistence.append(grandchildId, [
+    }
+    await scaffold.ctx.sessionPersistence.create(grandchildHeader)
+    const grandchildEvents = [
       {
         type: 'turn/start',
         seq: 0,
@@ -198,8 +214,10 @@ describe('web e2e: persisted subagent conversation and human continuation', () =
         time: authoredAt + 3,
         data: { turn: 1, reason: { kind: 'completed' } },
       },
-    ] as SessionEvent[])
-    await scaffold.ctx.sessionProjectionCache.coldSnapshot(grandchildId)
+    ] as SessionEvent[]
+    await scaffold.ctx.sessionPersistence.append(grandchildId, grandchildEvents)
+    scaffold.ctx.sessionProjectionCache.coldSnapshot(grandchildHeader, grandchildEvents)
+    await waitForCacheRow(scaffold, grandchildHeader)
     expect(scaffold.ctx.agents.get(childId)).toBeUndefined()
     expect(scaffold.ctx.agents.get(oneShotId)).toBeUndefined()
     expect(scaffold.ctx.agents.get(grandchildId)).toBeUndefined()

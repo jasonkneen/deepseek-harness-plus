@@ -30,7 +30,7 @@ ctx.slots.inject('tool.call.toolview', () =>
 
 owner 载荷为 `ToolCallOwnerProps`：`callId`、`toolName`、冻结的 `block`、可选 `cwd` 与 `home`，以及普通的 `openFile`、`inspect` 回调。Code Dispatch block 保留其事件已有的 `parentCallId`；root Session call 没有该字段，因此 row 与 Details card model 无需另一项 placement 标志即可让 descendant 保持 generic 压平形态。路径摘要先相对 Session cwd 缩短，再把剩余的 POSIX Host home 写成 `~`；`filePath` 与 Host 打开仍使用作者给出的文件系统路径。注册项会收到常规 Session slot runtime share，但不会收到 React node 或 runtime service。
 
-本包当前拥有 generic fallback，以及 shell/pwsh、read、write/edit、running `str_replace_editor` `create`／`str_replace`、grep/glob、web、todo、question 和 Code Dispatch 的内置展示。结构化卡片直接从第一方原始 event 字段派生；Host `presentCall`／`presentResult` 值不会进入 Client。`ui-skill` 展示了业务包自行拥有的 `skill` 注册项。
+本包当前拥有 generic fallback，以及 shell/pwsh、read、write/edit、running `str_replace_editor` `create`／`str_replace`、grep/glob、web、todo、question 和 Code Dispatch 的内置展示。结构化卡片直接从第一方原始 event 字段派生；Host `presentCall`／`presentResult` 值不会进入 Client。前台一次性 shell 结果使用 terminal 卡片。已完成的持久 shell 结果使用可展开的 generic 输入／输出卡片，因为 reset 与部分输出诊断不一定描述单个进程的退出状态；后台启动回执保持折叠。`ui-skill` 展示了业务包自行拥有的 `skill` 注册项。
 
 各类卡片的上限与 fallback 规则仍由对应的 [terminal](../../../.agents/notes/implemented/feature/2026-07-28-web-terminal-card.zh.md)、[diff](../../../.agents/notes/implemented/feature/2026-07-30-web-diff-card.zh.md)、[read](../../../.agents/notes/implemented/feature/2026-07-30-web-read-card-frontend.zh.md)、[search](../../../.agents/notes/implemented/feature/2026-07-30-web-search-card.zh.md) 和 [web](../../../.agents/notes/implemented/feature/2026-07-30-web-result-card-frontend.zh.md) Agent Note 负责。
 

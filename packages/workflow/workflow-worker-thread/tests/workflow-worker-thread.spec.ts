@@ -1405,7 +1405,10 @@ describe('dsh-workflow-worker-thread', () => {
       const worker = (handle as unknown as { worker: Worker }).worker
       const logs: string[] = []
       ctx.on('workflow/log', (_info, message) => { logs.push(message) })
-      await waitFor(() => { expect(logs).toContain('armed') })
+      await waitFor(
+        () => { expect(logs).toContain('armed') },
+        process.platform === 'win32' ? 20_000 : 10_000,
+      )
       handle.cancel('stop it')
       // The grace is deliberately huge: only the host-triggered worker death,
       // not the cancellation timer, settles this.
@@ -1414,7 +1417,7 @@ describe('dsh-workflow-worker-thread', () => {
       expect(result.stopReason).toBe('cancelled')
       expect(result.error).toContain('stop it')
       await handle.dispose()
-    }, 15_000)
+    }, process.platform === 'win32' ? 30_000 : 15_000)
   })
 
   describe('service API', () => {

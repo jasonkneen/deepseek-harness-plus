@@ -26,7 +26,7 @@ const result = await harness.run('say hi')
 console.log(result.finalResponse)
 ```
 
-dsh 进程在首次使用时惰性启动，并在多次 `run()` 之间持续归实例所有；必须调用 `close()`（或使用 `await using`）。`start()` 会记忆化有界的 `initialize` 握手，其中包含工作区 cwd、提供方／模型路由、可选且由适配器持有的 `reasoningEffort`，以及可选的正整数 `maxTokens` 输出上限。`initializeTimeoutMs` 默认 10 秒，诊断会写明所选 profile 并附带保留的 stderr 尾部。服务器会在接受提示词前校验确切路由；省略推理强度时保留模型自身的默认值。握手失败会回收运行时，之后的调用可以用新进程重试，直至终结性的 `close()`。该上限作用于根 agent（智能体）的每次请求，并由进程内后代继承；压缩（compaction）插件单独持有摘要上限。`session(id?)` 打开具名或全新的会话句柄。
+dsh 进程在首次使用时惰性启动，并在多次 `run()` 之间持续归实例所有；必须调用 `close()`（或使用 `await using`）。`start()` 会记忆化有界的 `initialize` 握手，其中包含工作区 cwd、提供方／模型路由、可选且由适配器持有的 `reasoningEffort`，以及可选的正整数 `maxTokens` 输出上限。`initializeTimeoutMs` 默认 10 秒，诊断会写明所选 profile 并附带保留的 stderr 尾部。服务器会在接受提示词前校验确切路由；省略推理强度时保留模型自身的默认值。握手失败且清理成功时，实例会换入全新 client，后续调用使用新进程重试，直至终结性的 `close()`。如果初始化与 SDK 自有清理都失败，`start()` 会以 `AggregateError` 拒绝，其有序 errors 保留两个 cause，并继续保留失败的 client，而不会在尚未证明原进程退出时再 spawn 一个进程。该上限作用于根 agent（智能体）的每次请求，并由进程内后代继承；压缩（compaction）插件单独持有摘要上限。`session(id?)` 打开具名或全新的会话句柄。
 
 握手携带绝对 session workspace、provider/model、可选的 `reasoningEffort` 和可选的正整数 `maxTokens`。`run(input, { sessionId?, onNotification? })` 接受文本或 `SdkPromptContentBlock[]`；内联栅格图片块携带规范 base64 与 `mimeType`，并在运行时内成为持久附件。该调用将 prompt 入队，等待持久 inbox 回执，并收集到整个根 agent 下次 idle。它返回 `RunResult { sessionId, finalResponse, events, notifications }`；`events` 仅限根 session，notification 还包括发现的后代。
 

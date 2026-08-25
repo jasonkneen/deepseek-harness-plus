@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-dsh 一次性任务组合包。[`cordis.patch.yml`](cordis.patch.yml) 直接叠加在 [`dsh-base`](../base/README.zh.md) 之上：继承 base 默认禁用模块 HMR（热模块替换）的策略，提供编码 persona 和工具模式，将 Code Mode 的 worker 作为核心执行能力挂载，并插入本包的 `headless-runner` 插件（配置为 `{task}`，从注入的 `headlessStartup` 提供方解析）。它不挂载任何 Host、HTTP server、Web runtime 或浏览器插件。
+dsh 一次性任务组合包。[`cordis.patch.yml`](cordis.patch.yml) 直接叠加在 [`dsh-base`](../base/README.zh.md) 之上：继承 base 默认禁用模块 HMR（热模块替换）的策略与投影缓存，提供编码 persona 和工具模式，将 Code Mode 的 worker 作为核心执行能力挂载，并插入本包的 `headless-runner` 插件（配置为 `{task}`，从注入的 `headlessStartup` 提供方解析）。它不挂载任何 Host、HTTP server、Web runtime 或浏览器插件。缓存会为每个持久化的一次性会话写入检查点，供后续消费方使用；其持久性屏障会在发布缓存行前 flush 所覆盖的日志前缀，因此可能拆分原本会合并的 JSONL 行。
 
 Loader 结算后，runner 读取共享的 [`ctx.agentDefaultModel`](../../core/agent-default-model/README.zh.md)，通过 `ctx.agents` 创建一个全新的持久化 Agent（智能体），将任务作为普通用户消息提交，并等待完全停稳。该 Agent 每次产生非空的提供方推理分片时，runner 都会在 `dsh: reasoning:` 标题下将其即时写入 stderr；连续分片保留在同一段中，提供方没有输出末尾换行时，runner 会在后续输出前终止该段。随后，它对 Session 执行 flush，再汇总自身持有的持久化事件区间，将最后一条非空 assistant 文本写入 stdout，并经启动器提供的 `ctx.appExit` 宿主钩子（[`dsh-cmdline`](../../boot/cmdline/README.zh.md)）请求退出（最终 `turn/end` 完成 → 0，否则为 1）。最终结束原因为 `error` 时，还会将 code 与 message 写入 stderr；没有推理内容的成功运行会保持 stderr 为空。进程不会打开监听端口。
 

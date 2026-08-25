@@ -6,6 +6,11 @@
  * @module @deepseek-ai/dsh-session-snapshot/normalize
  */
 
+import {
+  decodeStorageRecord,
+  packChunkRuns,
+  type SessionEvent,
+} from '@deepseek-ai/dsh-session'
 import { redactSessionSnapshotIds } from './identity.ts'
 
 const SESSION_ID = '{{sessionId}}'
@@ -368,9 +373,39 @@ export function normalizeSessionLog(
 }
 
 /**
+ * Repack projected body records so persistence flush boundaries do not affect
+ * committed snapshots. Synthetic envelopes exist only while the storage codec
+ * reconstructs and packs the logical event stream; returned rows stay projected.
+ */
+function repackSessionSnapshot(rawLog: string): string {
+  const lines = rawLog.split('\n').filter(line => line.trim().length > 0)
+  const header = lines.shift() as string
+
+  let nextSeq = 0
+  const events = lines.flatMap((line) => {
+    const record = JSON.parse(line) as Record<string, unknown>
+    if (isPackedFixtureRow(record)) {
+      const decoded = decodeStorageRecord({ ...record, seq0: nextSeq, time0: 0 })
+      nextSeq += decoded.length
+      return decoded
+    }
+    const event = { ...record, seq: nextSeq, time: 0 } as SessionEvent
+    nextSeq += 1
+    return [event]
+  })
+  const body = packChunkRuns(events).map((stored) => {
+    const projected = { ...stored } as Record<string, unknown>
+    omitFixtureEnvelope(projected)
+    return JSON.stringify(projected)
+  })
+  return [header, ...body, ''].join('\n')
+}
+
+/**
  * Normalize and project persisted session JSONL for a committed fixture.
  * This composes ordinary log normalization with request-header scrubbing and
- * persistence-envelope projection.
+ * persistence-envelope projection, then packs the logical event stream into a
+ * canonical layout independent of persistence flush boundaries.
  *
  * @param rawLog - persisted or already-projected session JSONL.
  * @param ctx - the run's volatile values to scrub.
@@ -382,7 +417,7 @@ export function normalizeSessionSnapshot(
   ctx: NormalizeContext,
   options: NormalizeOptions = {},
 ): string {
-  return scrubSessionSnapshot(normalizeSessionLog(rawLog, ctx, options))
+  return repackSessionSnapshot(scrubSessionSnapshot(normalizeSessionLog(rawLog, ctx, options)))
 }
 
 /**
@@ -397,11 +432,13 @@ export function normalizeSessionSnapshots(
   ctx: NormalizeContext,
   options: Omit<NormalizeOptions, 'identityMode'> = {},
 ): string[] {
-  return redactSessionSnapshotIds(rawLogs).map(log => scrubSessionSnapshot(normalizeSessionLog(
-    log,
-    { ...ctx, sessionIds: [] },
-    { ...options, identityMode: 'preserve' },
-  )))
+  return redactSessionSnapshotIds(rawLogs).map(log => repackSessionSnapshot(
+    scrubSessionSnapshot(normalizeSessionLog(
+      log,
+      { ...ctx, sessionIds: [] },
+      { ...options, identityMode: 'preserve' },
+    )),
+  ))
 }
 
 /**
