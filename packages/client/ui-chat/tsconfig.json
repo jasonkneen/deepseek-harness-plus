@@ -51,9 +51,6 @@
       "path": "../../runtime-diagnostics/invariants"
     },
     {
-      "path": "../../util/crypto"
-    },
-    {
       "path": "../../util/workspace-path"
     },
     {

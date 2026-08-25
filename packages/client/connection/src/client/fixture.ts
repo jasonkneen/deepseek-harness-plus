@@ -19,6 +19,7 @@ import type { AttachmentIdType, ImageAttachmentRef } from '@deepseek-ai/dsh-atta
 import type {
   JsonValue,
   SessionEvent,
+  SessionHeader,
   SessionId,
 } from '@deepseek-ai/dsh-session/types'
 import type { TodoItem } from '@deepseek-ai/dsh-tool-todo/client'
@@ -86,7 +87,7 @@ type FixtureSessionAddress =
 
 interface FixtureFollowRequest {
   readonly address: FixtureSessionAddress
-  readonly afterSeq?: number
+  readonly maxMessages?: number
 }
 
 interface FixturePageRequest {
@@ -97,7 +98,14 @@ interface FixturePageRequest {
 }
 
 type FixtureFollowFrame =
-  | { readonly type: 'opened'; readonly cursor: number }
+  | {
+    readonly type: 'snapshot'
+    readonly header: SessionHeader
+    readonly cursor: number
+    readonly events: readonly FixtureHistoryEntry[]
+    readonly hasMore: boolean
+    readonly projections: FixtureProjectionsBlock
+  }
   | ({ readonly type: 'event' } & FixtureHistoryEntry)
 
 type FixtureFollowEventFrame = Extract<FixtureFollowFrame, { type: 'event' }>
@@ -207,7 +215,6 @@ interface FixtureSessionApi {
     readonly beforeSeq?: number
     readonly maxMessages?: number
   }): Promise<ConnectionRpcResult<unknown>>
-  models(request: { readonly sessionId: SessionId }): Promise<ConnectionRpcResult<unknown>>
   selectModel(request: {
     readonly sessionId: SessionId
     readonly provider: string
@@ -522,7 +529,7 @@ const OPENAI_REASONING = {
   defaultEffort: 'medium',
 }
 
-/** Catalog served by `session.models` and `llm.models` alike (fresh copies per call). */
+/** Catalog served by `llm.models` (fresh copies per call). */
 function fixtureModelGroups(): ModelProviderGroup[] {
   return [
     {
@@ -1206,6 +1213,7 @@ function contextPressureOf(
 
 function projectionValuesOf(log: readonly SessionEvent[]): Record<string, unknown> {
   const values: Record<string, unknown> = {}
+  values['modelSelection'] = modelSelectionProjectionOf(log)
   const titleEvent = log.findLast(item => (item as { type: string }).type === 'session/title')
   if (titleEvent !== undefined) {
     values['title'] = (titleEvent as unknown as { data: { title: string } }).data.title
@@ -1242,6 +1250,37 @@ function projectionValuesOf(log: readonly SessionEvent[]): Record<string, unknow
   return values
 }
 
+function modelSelectionProjectionOf(log: readonly SessionEvent[]): {
+  lastUsed: ModelSelection | null
+  next: ModelSelection | null
+} {
+  let lastUsed: ModelSelection | null = null
+  let pending: ModelSelection | null = null
+  for (const event of log) {
+    if ((event as { type: string }).type === 'model/selection') {
+      pending = (event as unknown as { data: ModelSelection }).data
+      continue
+    }
+    if (event.type !== 'request/header') continue
+    lastUsed = {
+      provider: event.data.header.config.provider,
+      model: event.data.header.config.model,
+      ...(event.data.header.config.reasoningEffort === undefined
+        ? {}
+        : { reasoningEffort: event.data.header.config.reasoningEffort }),
+    }
+    if (sameModelSelection(pending, lastUsed)) pending = null
+  }
+  return { lastUsed, next: pending ?? lastUsed }
+}
+
+function sameModelSelection(left: ModelSelection | null, right: ModelSelection | null): boolean {
+  return left === right || (left !== null && right !== null
+    && left.provider === right.provider
+    && left.model === right.model
+    && left.reasoningEffort === right.reasoningEffort)
+}
+
 /** Host parallel: emit one Session control projection frame per key advanced by the event. */
 function projectionFramesOf(
   id: SessionId,
@@ -1250,6 +1289,15 @@ function projectionFramesOf(
 ): FixtureProjectionFrame[] {
   const type = (event as { type: string }).type
   const frames: FixtureProjectionFrame[] = []
+  if (type === 'model/selection' || type === 'request/header') {
+    frames.push({
+      type: 'projection',
+      sessionId: id,
+      key: 'modelSelection',
+      value: modelSelectionProjectionOf(log),
+      seq: event.seq,
+    })
+  }
   // One usage sample advances both token-meter units.
   if (usageSampleOf(event) !== undefined) {
     frames.push(
@@ -2623,28 +2671,13 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
       const boundedLog = log.slice(0, throughSeq + 1)
       // Snapshot at request time, then deliver after the transit delay.
       const page = pageOf(boundedLog, request.beforeSeq, request.maxMessages ?? 50)
-      // Tail page carries the projections block (host parallel: one consistent
-      // cut over the registered units; asOfSeq = window tail seq, -1 on an
-      // empty log — the host's session.seq-1 convention).
-      const projections = request.beforeSeq === undefined
-        ? { asOfSeq: throughSeq, values: projectionValuesOf(boundedLog) }
-        : undefined
       const doomed = failNextHistory
       failNextHistory = false
       const delay = historyDelayMs
       if (delay > 0) await new Promise(resolve => setTimeout(resolve, delay))
       if (doomed) throw new Error('fixture: simulated history transport failure')
-      return sessionOk({ ...page, ...projections === undefined ? {} : { projections } })
+      return sessionOk(page)
     },
-    models: request => sessionOk({
-      current: modelSelections.get(request.sessionId)
-          ?? { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
-      // The fixture's routes all serve; a surface exercising the blocked
-      // posture drives it through its own stub.
-      routable: true,
-      groups: fixtureModelGroups(),
-      failures: [],
-    }),
     selectModel: (request) => {
       const selected: ModelSelection = {
         provider: request.provider,
@@ -2653,6 +2686,7 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
           ? {}
           : { reasoningEffort: request.reasoningEffort },
       }
+      append(request.sessionId, { type: 'model/selection', data: selected })
       modelSelections.set(request.sessionId, selected)
       return sessionOk({ selected })
     },
@@ -2717,6 +2751,25 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
       // log-only, appended inside the open turn, and deduplicated against the
       // route already recorded (the fixture never varies contextWindow).
       const selection = modelSelections.get(id) ?? { provider: 'deepseek', model: 'deepseek-v4-flash' }
+      const previousHeader = logOf(id).findLast(event => event.type === 'request/header')
+      const previousSelection = previousHeader?.type === 'request/header'
+        ? {
+          provider: previousHeader.data.header.config.provider,
+          model: previousHeader.data.header.config.model,
+          ...(previousHeader.data.header.config.reasoningEffort === undefined
+            ? {}
+            : { reasoningEffort: previousHeader.data.header.config.reasoningEffort }),
+        }
+        : null
+      if (!sameModelSelection(previousSelection, selection)) {
+        append(id, {
+          type: 'request/header',
+          data: {
+            header: { config: selection },
+            reason: previousHeader === undefined ? 'initial' : 'change',
+          },
+        })
+      }
       if (lastRequestContext(logOf(id))?.model !== selection.model) {
         append(id, {
           type: 'request/context',
@@ -2897,23 +2950,27 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
     streamBreakers.add(breakNow)
     const snapshot = [...logOf(sessionId)]
     const cursor = snapshot.at(-1)?.seq ?? -1
-    if (request.afterSeq !== undefined && request.afterSeq > cursor) {
-      throw new Error(
-        `fixture: session event resume seq ${String(request.afterSeq)} is past cursor ${String(cursor)}`,
-      )
-    }
-    let nextSeq = (request.afterSeq ?? cursor) + 1
+    const summary = summaryOf(sessionId)
+    /* v8 ignore next -- existence was checked before the stream registered. */
+    if (summary === undefined) throw new Error(`fixture: no session ${sessionId}`)
+    const initial = pageOf(snapshot, undefined, request.maxMessages ?? 50)
+    let nextSeq = cursor + 1
     try {
-      yield { type: 'opened', cursor }
-      if (request.afterSeq !== undefined) {
-        for (const event of snapshot) {
-          if (event.seq < nextSeq) continue
-          if (event.seq !== nextSeq) {
-            throw new Error(`fixture: session event replay skipped seq ${String(nextSeq)}`)
-          }
-          nextSeq++
-          yield { type: 'event', event }
-        }
+      yield {
+        type: 'snapshot',
+        header: {
+          version: 0,
+          id: sessionId,
+          createdAt: summary.updatedAt,
+          ...(summary.cwd === undefined ? {} : { cwd: summary.cwd }),
+          ...(summary.parentSessionId === undefined ? {} : { parentSession: summary.parentSessionId }),
+          ...(summary.origin === undefined ? {} : { origin: summary.origin }),
+          ...(summary.agentPreset === undefined ? {} : { agentPreset: summary.agentPreset }),
+        },
+        cursor,
+        events: initial.events,
+        hasMore: initial.hasMore,
+        projections: { asOfSeq: cursor, values: projectionValuesOf(snapshot) },
       }
       for await (const frame of conn.drain(signal)) {
         if (frame.event.seq < nextSeq) continue
@@ -3346,7 +3403,12 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
           { provider: 'acme-gateway', displayName: 'Acme Gateway', settingsNs: 'llm-pi-ai', settingsPath: ['providers', 'acme-gateway'], active: true, declared: true },
         ],
       }),
-      models: request => ok(request, { groups: fixtureModelGroups(), failures: [] }),
+      models: request => ok(request, {
+        default: { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
+        routableProviders: ['deepseek-official', 'openai', 'acme-gateway'],
+        groups: fixtureModelGroups(),
+        failures: [],
+      }),
       // The fixture endpoint is imaginary, so the interrogation answers the
       // catalog it already serves — enough for a surface to exercise adopting
       // candidates without a reachable provider.
@@ -3410,9 +3472,6 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
         )
         case 'session/create': return sessionApi.create(
           request as Parameters<FixtureSessionApi['create']>[0],
-        )
-        case 'session/models': return sessionApi.models(
-          request as Parameters<FixtureSessionApi['models']>[0],
         )
         case 'session/selectModel': return sessionApi.selectModel(
           request as Parameters<FixtureSessionApi['selectModel']>[0],

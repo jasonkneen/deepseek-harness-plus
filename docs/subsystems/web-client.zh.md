@@ -43,7 +43,7 @@ Connection 拥有 request correlation、`/api` carrier、trust check、Host desc
 - `SessionManager` 拥有 list baseline、实时 list/control update、惰性 Session instance、queue、projection store、subagent catalog，以及 pull 与后到 update 之间的冲突顺序。
 - 每个 `Session` 拥有一段连续 event window、pagination、follow、prompt/control state 与供 adapter 消费的 observable snapshot。
 
-持久 event 路径会先打开 `follow()`，再读取第一页。page 建立连续窗口；实时 event 按 seq append；旧 page prepend 时不替换无关对象。遇到 gap 或新的物理 generation 时，模型先通过 opening cursor 读取新 tail，再发布 replacement。瞬态 control stream 每代以完整 baseline 开始，随后应用 queue、job 与 projection update。
+持久 event 路径打开 `follow()`，其首帧包含当前 header、tail page、cursor 与完整 projection baseline。每个物理 generation 都根据该 snapshot 原子替换保留窗口，随后按 seq append 实时 event。`page()` 只用于更早历史与 gap repair。瞬态 control stream 每代以完整 baseline 开始，随后应用 queue、job 与 projection update。
 
 ### Workspaces
 
@@ -75,7 +75,7 @@ Connection 拥有 request correlation、`/api` carrier、trust check、Host desc
 
 恢复方式由数据语义决定：
 
-- 持久 Session journal 从最后接受的 seq 继续，并在接受后续 event 前依据 tail page 修复已加载窗口。
+- 持久 Session journal 根据每个 generation 的 opening snapshot 替换窗口；`page()` 提供更早历史并修复后续 seq gap。
 - Session control 与 Workspace stream 在断开期间保留最后一次发布的值，再用新的 opening baseline 原子替换。
 - 普通 forwarded notification 不会 replay。需要可靠恢复的 stateful domain 必须提供 baseline、cursor 或显式 query；scoped waterfall 保留自身的 request lifetime。
 

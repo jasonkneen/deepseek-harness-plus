@@ -12,15 +12,16 @@ import { Context } from '@deepseek-ai/cordis'
 import { z } from 'zod'
 import AgentRegistry, { agentEvents, Inbox } from '@deepseek-ai/dsh-agent'
 import { AttachmentStore } from '@deepseek-ai/dsh-attachment'
+import { agentPresetProjectionDefinition } from '@deepseek-ai/dsh-agent-presets'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
-import type { Session } from '@deepseek-ai/dsh-session'
+import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import type { ProjectionDefinition } from '@deepseek-ai/dsh-session-projection'
 import { SessionControlController } from '@deepseek-ai/dsh-api-session-controller/src/control.ts'
-import type { SessionControlFrame } from '@deepseek-ai/dsh-api-session-controller/types'
-import { createSessionTestRemote, type TestSessionRemote } from './test-remote.ts'
+import type { SessionControlFrame, SessionFollowFrame } from '@deepseek-ai/dsh-api-session-controller/types'
+import { createSessionTestRemote, testSessionPersistence, type TestSessionRemote } from './test-remote.ts'
 
 declare module '@deepseek-ai/dsh-session-projection/types' {
   interface SessionProjectionStateMap {
@@ -46,6 +47,24 @@ function page(
     ...(request.beforeSeq === undefined ? {} : { beforeSeq: request.beforeSeq }),
     ...(request.maxMessages === undefined ? {} : { maxMessages: request.maxMessages }),
   })
+}
+
+/** Read and close one snapshot-first follow generation. */
+async function opening(
+  remote: TestSessionRemote,
+  sessionId: SessionId,
+  maxMessages?: number,
+): Promise<Extract<SessionFollowFrame, { type: 'snapshot' }>> {
+  const abort = new AbortController()
+  const iterator = remote.follow({
+    address: { kind: 'session', sessionId },
+    ...(maxMessages === undefined ? {} : { maxMessages }),
+  }, abort.signal)[Symbol.asyncIterator]()
+  const first = await iterator.next()
+  abort.abort()
+  await iterator.return?.()
+  if (first.done || first.value.type !== 'snapshot') throw new Error('follow did not open with a snapshot')
+  return first.value
 }
 
 /** Whole-value unit folding the latest user/message text; null before the first. */
@@ -77,7 +96,7 @@ async function harness(withRegistry: boolean): Promise<{ ctx: Context; session: 
   await ctx.plugin(SessionStore)
   await ctx.plugin(AgentRegistry)
   if (withRegistry) await ctx.plugin(SessionProjectionRegistry)
-  const session = ctx.sessions.create()
+  const session = ctx.sessions.create(undefined, { meta: { cwd: '/workspace' } })
   const agent = {
     id: session.id,
     session,
@@ -103,19 +122,44 @@ function seedMessages(session: Session, count: number): void {
 const remote = (ctx: Context) => createSessionTestRemote(ctx, { defaultModelSelection: () => ({ provider: 'p', model: 'm' }), cwd: '/tmp' })
 
 describe('session.history projections block', () => {
+  it('tracks pending and used model selections across repeated request headers', async () => {
+    const { ctx, session } = await harness(true)
+    remote(ctx)
+    await new Promise(resolve => setTimeout(resolve, 0))
+    const selected = { provider: 'p', model: 'next' }
+    session.append('model/selection', selected)
+    session.append('model/selection', selected)
+    session.append('request/header', {
+      header: { config: { provider: 'p', model: 'used' } }, reason: 'initial',
+    })
+    session.append('request/header', {
+      header: { config: { provider: 'p', model: 'used' } }, reason: 'initial',
+    })
+
+    expect(ctx.sessionProjections.snapshot(session).values.modelSelection).toEqual({
+      lastUsed: { provider: 'p', model: 'used' },
+      next: selected,
+    })
+
+    session.append('request/header', {
+      header: { config: selected }, reason: 'initial',
+    })
+    expect(ctx.sessionProjections.snapshot(session).values.modelSelection).toEqual({
+      lastUsed: selected,
+      next: selected,
+    })
+  })
+
   it('serves the unit value on the tail page with asOfSeq = last event seq', async () => {
     const { ctx, session } = await harness(true)
     ctx.sessionProjections.register(lastUserUnit())
     seedMessages(session, 3)
-    const response = await page(remote(ctx), request({ sessionId: session.id, throughSeq: session.seq - 1 }))
-    expect(response.ok).toBe(true)
-    if (!response.ok) throw new Error('unreachable')
-    const { events, projections } = response.value
-    expect(projections).toBeDefined()
-    expect(projections?.asOfSeq).toBe(session.seq - 1)
-    expect(projections?.values['test/last-user']).toEqual({ text: 'm2' })
+    const snapshot = await opening(remote(ctx), session.id)
+    const { events, projections } = snapshot
+    expect(projections.asOfSeq).toBe(session.seq - 1)
+    expect(projections.values['test/last-user']).toEqual({ text: 'm2' })
     // asOfSeq IS the window tail: the last served event carries it.
-    expect(events.at(-1)?.event.seq).toBe(projections?.asOfSeq)
+    expect(events.at(-1)?.event.seq).toBe(projections.asOfSeq)
   })
 
   it('reconstructs a cold persisted queue without publishing or resuming an Agent', async () => {
@@ -126,20 +170,19 @@ describe('session.history projections block', () => {
       content: [{ type: 'text', text: 'survive process restart' }],
       source: { kind: 'user' },
     })
-    const events = [{
+    const events: SessionEvent[] = [{
       type: 'agent/inbox/spliced',
       seq: 0,
       time: 2,
       data: { target: 'next-turn', start: 0, inserted: [message] },
-    }] as const
-    ctx.provide('sessionPersistence', {
+    }]
+    ctx.provide('sessionPersistence', testSessionPersistence(ctx, {
       list: () => Promise.resolve([meta]),
       inspect: () => Promise.resolve({ meta, events }),
-    } as never)
-    const response = await page(remote(ctx), request({ sessionId: coldId, throughSeq: 0 }))
-    if (!response.ok) throw new Error('history failed')
+    }) as never)
+    const snapshot = await opening(remote(ctx), coldId)
 
-    expect(response.value.projections?.values.inbox).toEqual({
+    expect(snapshot.projections.values.inbox).toEqual({
       'next-turn': [message],
       'next-step': [],
     })
@@ -159,17 +202,15 @@ describe('session.history projections block', () => {
     agent.inbox.append('next-step', message)
     agent.inbox.claim('next-step', 1)
 
-    const during = await page(proxy, request({ sessionId: session.id, throughSeq: session.seq - 1 }))
-    if (!during.ok) throw new Error('history failed')
-    expect(during.value.projections?.values.inbox).toEqual({
+    const during = await opening(proxy, session.id)
+    expect(during.projections.values.inbox).toEqual({
       'next-turn': [],
       'next-step': [],
     })
 
     session.append('user/message', message, { surfaceOp: 'append' })
-    const settled = await page(proxy, request({ sessionId: session.id, throughSeq: session.seq - 1 }))
-    if (!settled.ok) throw new Error('history failed')
-    expect(settled.value.projections?.values.inbox).toEqual({
+    const settled = await opening(proxy, session.id)
+    expect(settled.projections.values.inbox).toEqual({
       'next-turn': [],
       'next-step': [],
     })
@@ -182,26 +223,24 @@ describe('session.history projections block', () => {
     agent.inbox.append('next-step', rejected)
     agent.inbox.claim('next-step', 1)
     session.append('turn/end', { turn: 1, reason: { kind: 'blocked' } })
-    const closed = await page(proxy, request({ sessionId: session.id, throughSeq: session.seq - 1 }))
-    if (!closed.ok) throw new Error('history failed')
-    expect(closed.value.projections?.values.inbox).toEqual({
+    const closed = await opening(proxy, session.id)
+    expect(closed.projections.values.inbox).toEqual({
       'next-turn': [],
       'next-step': [],
     })
   })
 
-  it('cuts attached projections and events at the requested follow cursor', async () => {
+  it('returns a complete current replacement cut on each follow generation', async () => {
     const { ctx, session } = await harness(true)
     ctx.sessionProjections.register(lastUserUnit())
     seedMessages(session, 2)
 
-    const response = await page(remote(ctx), request({ sessionId: session.id, throughSeq: 0 }))
-    if (!response.ok) throw new Error('history failed')
+    const snapshot = await opening(remote(ctx), session.id)
 
-    expect(response.value.events.map(entry => entry.event.seq)).toEqual([0])
-    expect(response.value.projections?.asOfSeq).toBe(0)
-    expect(response.value.projections?.values).toEqual(
-      expect.objectContaining({ 'test/last-user': { text: 'm0' } }),
+    expect(snapshot.events.map(entry => entry.event.seq)).toEqual([0, 1])
+    expect(snapshot.projections.asOfSeq).toBe(1)
+    expect(snapshot.projections.values).toEqual(
+      expect.objectContaining({ 'test/last-user': { text: 'm1' } }),
     )
   })
 
@@ -209,12 +248,11 @@ describe('session.history projections block', () => {
     const { ctx, session } = await harness(true)
     ctx.sessionProjections.register(lastUserUnit())
 
-    const response = await page(remote(ctx), request({ sessionId: session.id, throughSeq: -1 }))
-    if (!response.ok) throw new Error('history failed')
+    const snapshot = await opening(remote(ctx), session.id)
 
-    expect(response.value.events).toEqual([])
-    expect(response.value.projections?.asOfSeq).toBe(-1)
-    expect(response.value.projections?.values).toEqual(
+    expect(snapshot.events).toEqual([])
+    expect(snapshot.projections.asOfSeq).toBe(-1)
+    expect(snapshot.projections.values).toEqual(
       expect.objectContaining({ 'test/last-user': null }),
     )
   })
@@ -236,10 +274,10 @@ describe('session.history projections block', () => {
       readImage(): Promise<never> { return Promise.reject(new Error('unused')) }
     })
     const gateway = remote(ctx)
+    await new Promise(resolve => setTimeout(resolve, 0))
     seedMessages(session, 2)
-    const response = await page(gateway, request({ sessionId: session.id, throughSeq: session.seq - 1 }))
-    if (!response.ok) throw new Error('history failed')
-    expect(response.value.projections?.values['imageLimits']).toEqual(limits)
+    const snapshot = await opening(gateway, session.id)
+    expect(snapshot.projections.values['imageLimits']).toEqual(limits)
     // Constant unit: appending events must never broadcast an imageLimits projection.
     await new Promise(resolve => setTimeout(resolve, 0))
     const abort = new AbortController()
@@ -265,10 +303,8 @@ describe('session.history projections block', () => {
   it('leaves the imageLimits key absent while no attachment service is composed', async () => {
     const { ctx, session } = await harness(true)
     seedMessages(session, 1)
-    const response = await page(remote(ctx), request({ sessionId: session.id, throughSeq: session.seq - 1 }))
-    if (!response.ok) throw new Error('history failed')
-    expect(response.value.projections).toBeDefined()
-    expect('imageLimits' in (response.value.projections?.values ?? {})).toBe(false)
+    const snapshot = await opening(remote(ctx), session.id)
+    expect('imageLimits' in snapshot.projections.values).toBe(false)
   })
 
   it('never carries the block on loadOlder pages (beforeSeq present)', async () => {
@@ -315,9 +351,8 @@ describe('session.history projections block', () => {
     abort.abort()
     await iterator.return?.()
 
-    const history = await page(proxy, request({ sessionId: session.id, throughSeq: session.seq - 1 }))
-    if (!history.ok) throw new Error('history failed')
-    expect('test/internal-count' in (history.value.projections?.values ?? {})).toBe(false)
+    const history = await opening(proxy, session.id)
+    expect('test/internal-count' in history.projections.values).toBe(false)
     const listing = await proxy.list(request({}))
     if (!listing.ok) throw new Error('listing failed')
     const row = listing.value.items.find(item => item.sessionId === session.id)
@@ -329,18 +364,16 @@ describe('session.history projections block', () => {
     const dispose = ctx.sessionProjections.register(lastUserUnit())
     seedMessages(session, 1)
     const proxy = remote(ctx)
-    const before = await page(proxy, request({ sessionId: session.id, throughSeq: session.seq - 1 }))
-    if (!before.ok) throw new Error('unreachable')
-    expect(before.value.projections?.values['test/last-user']).toEqual({ text: 'm0' })
+    const before = await opening(proxy, session.id)
+    expect(before.projections.values['test/last-user']).toEqual({ text: 'm0' })
 
     dispose()
-    const after = await page(proxy, request({ sessionId: session.id, throughSeq: session.seq - 1 }))
-    if (!after.ok) throw new Error('unreachable')
+    const after = await opening(proxy, session.id)
     // The registry stays mounted; only the disposed key leaves while the
     // gateway-owned Session-list unit remains.
-    expect(after.value.projections?.asOfSeq).toBe(session.seq - 1)
-    expect('test/last-user' in (after.value.projections?.values ?? {})).toBe(false)
-    expect(after.value.projections?.values.sessionListMetadata).toEqual({
+    expect(after.projections.asOfSeq).toBe(session.seq - 1)
+    expect('test/last-user' in after.projections.values).toBe(false)
+    expect(after.projections.values.sessionListMetadata).toEqual({
       blank: true,
       lastPromptAt: session.events.at(-1)?.time,
     })
@@ -363,7 +396,7 @@ describe('session.history projections block', () => {
 })
 
 describe('session.list projections column', () => {
-  it('serves attached rows from the live registry cut, watermarked for client seeding', async () => {
+  it('serves every already-materialized wire value from the live registry without folding', async () => {
     const { ctx, session } = await harness(true)
     ctx.sessionProjections.register(lastUserUnit())
     const gateway = remote(ctx)
@@ -381,6 +414,37 @@ describe('session.list projections column', () => {
     expect(row?.projections?.asOfSeq).toBe(session.seq - 1)
   })
 
+  it('lists the latest preset selected by a blank Session instead of its creation preset', async () => {
+    const { ctx } = await harness(true)
+    const session = ctx.sessions.create(SessionId('preset-list'), {
+      meta: { cwd: '/workspace', agentPreset: 'standard' },
+    })
+    ctx.sessionProjections.register(agentPresetProjectionDefinition)
+    const gateway = remote(ctx)
+    await new Promise(resolve => setTimeout(resolve, 0))
+    session.append('agent-preset/selected', { agentPreset: 'minimal' })
+
+    const response = await gateway.list(request({}))
+    if (!response.ok) throw new Error('unreachable')
+    const row = response.value.items.find(item => item.sessionId === session.id)
+    expect(row?.projections?.values.agentPreset).toBe('minimal')
+  })
+
+  it('omits an unmaterialized live projection instead of folding history for listing', async () => {
+    const { ctx, session } = await harness(true)
+    seedMessages(session, 1)
+    const unit = lastUserUnit()
+    const apply = vi.fn(unit.apply)
+    ctx.sessionProjections.register({ ...unit, apply })
+
+    const response = await remote(ctx).list(request({}))
+    if (!response.ok) throw new Error('unreachable')
+    const row = response.value.items.find(item => item.sessionId === session.id)
+    expect(row).toBeDefined()
+    expect('test/last-user' in (row?.projections?.values ?? {})).toBe(false)
+    expect(apply).not.toHaveBeenCalled()
+  })
+
   it('omits the column entirely when no registry is mounted', async () => {
     const { ctx, session } = await harness(false)
     seedMessages(session, 1)
@@ -391,7 +455,7 @@ describe('session.list projections column', () => {
     expect(row !== undefined && 'projections' in row).toBe(false)
   })
 
-  it('serves cold rows from the persisted projection cache with zero log loads', async () => {
+  it('serves every available cold projection hint from the cache with zero log loads', async () => {
     const { ctx } = await harness(true)
     const coldId = SessionId('session-cold-listing')
     const load = () => { throw new Error('list must not load event logs') }
@@ -406,14 +470,28 @@ describe('session.list projections column', () => {
       // The carrier hands the listed header through as the identity witness.
       cachedSnapshot: (meta: { id: unknown; createdAt: number }) =>
         (meta.id === coldId && meta.createdAt === 5
-          ? { asOfSeq: 7, values: { 'test/last-user': { text: 'cached' } } }
+          ? {
+            asOfSeq: 7,
+            values: {
+              'test/last-user': { text: 'cached' },
+              sessionListMetadata: { blank: false, lastPromptAt: 6 },
+              title: 'Cached title',
+            },
+          }
           : undefined),
     } as never)
     const response = await remote(ctx).list(request({}))
     if (!response.ok) throw new Error('unreachable')
     const row = response.value.items.find(item => item.sessionId === coldId)
     expect(row?.running).toBe(false)
-    expect(row?.projections).toEqual({ asOfSeq: 7, values: { 'test/last-user': { text: 'cached' } } })
+    expect(row?.projections).toEqual({
+      asOfSeq: 7,
+      values: {
+        'test/last-user': { text: 'cached' },
+        sessionListMetadata: { blank: false, lastPromptAt: 6 },
+        title: 'Cached title',
+      },
+    })
   })
 
   it('cold rows without a cache plugin (or without a stored row) just lack the column', async () => {
@@ -500,9 +578,8 @@ describe('Session control projection frames', () => {
       { type: 'projection', sessionId: session.id, key: 'sessionListMetadata', value: { blank: false, lastPromptAt: 300 }, seq: 2 },
     ])
     // Frame seq aligns with the tail block's asOfSeq vocabulary (higher-seq-wins compatible).
-    const tail = await page(proxy, request({ sessionId: session.id, throughSeq: session.seq - 1 }))
-    if (!tail.ok) throw new Error('unreachable')
-    expect(tail.value.projections?.asOfSeq).toBe(pushes.at(-1)?.seq)
+    const tail = await opening(proxy, session.id)
+    expect(tail.projections.asOfSeq).toBe(pushes.at(-1)?.seq)
   })
 
   it('emits no projection frames when the composition has no registry', async () => {

@@ -23,7 +23,7 @@ The Windows rung keeps one deterministic write SID and standing ACE per workspac
   name: '@deepseek-ai/dsh-sandbox-local'
 ```
 
-Consumers: [`@deepseek-ai/dsh-bash-sandbox`](../../shell/bash-sandbox/); see [the acp-agent example](../../../examples/acp-agent/) for the runnable default composition.
+Consumers: [`@deepseek-ai/dsh-bash-sandbox`](../../shell/bash-sandbox/); the shipped policy/executor wiring lives in the [base bundle](../../bundle/base/cordis.patch.yml).
 
 ## Model Experience
 

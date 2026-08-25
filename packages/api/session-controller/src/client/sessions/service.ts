@@ -45,12 +45,6 @@ export interface SessionSummary {
   /** Human-facing label: durable title, project basename, then session id. */
   displayTitle: string
   cwd?: string
-  /**
-   * Agent preset this session's agent was composed from; absent when the
-   * deployment composes no presets. The session header labels what the
-   * session actually runs rather than the deployment's current default.
-   */
-  agentPreset?: string
   parentId?: SessionId
   /** Coarse durable origin for navigation filtering; not a continuation capability. */
   origin?: 'subagent'
@@ -315,10 +309,6 @@ export class ClientSessions implements ISessions {
    */
   refreshSubagents(parentSessionId: SessionId): Promise<void> {
     return this.manager.refreshSubagents(parentSessionId)
-  }
-
-  noteAgentPreset(sessionId: SessionId, agentPreset: string): void {
-    this.manager.noteAgentPreset(sessionId, agentPreset)
   }
 
   /**
@@ -611,7 +601,6 @@ export class ClientSessions implements ISessions {
         ...(entry.cwd !== undefined ? { cwd: entry.cwd } : {}),
         ...(entry.parentSessionId !== undefined ? { parentId: entry.parentSessionId } : {}),
         ...(entry.origin !== undefined ? { origin: entry.origin } : {}),
-        ...(entry.agentPreset !== undefined ? { agentPreset: entry.agentPreset } : {}),
       }
     }
     if (current !== undefined && currentAddress !== undefined) {

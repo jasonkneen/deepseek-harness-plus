@@ -45,7 +45,7 @@ type FeedRow = {
   origin?: 'subagent'
   running?: boolean
   blank?: boolean
-  agentPreset?: string
+  projections?: Record<string, unknown>
 }
 
 async function feedList(b: Bench, rows: FeedRow[]): Promise<void> {
@@ -55,7 +55,9 @@ async function feedList(b: Bench, rows: FeedRow[]): Promise<void> {
       ...(r.cwd !== undefined ? { cwd: r.cwd } : {}),
       ...(r.parentId !== undefined ? { parentSessionId: sid(r.parentId) } : {}),
       ...(r.origin !== undefined ? { origin: r.origin } : {}),
-      ...(r.agentPreset !== undefined ? { agentPreset: r.agentPreset } : {}),
+      ...(r.projections === undefined
+        ? {}
+        : { projections: { asOfSeq: 0, values: r.projections } }),
     })),
   }) as never)
   await b.svc.refresh()
@@ -81,19 +83,17 @@ describe('list store projection', () => {
     expect(state.byId[sid('s2')]?.title).toBeUndefined()
   })
 
-  it('reprojects a blank session whose composition switched and nothing else moved', async () => {
+  it('reprojects a blank session from the generic agent-preset projection', async () => {
     const b = bench()
-    await feedList(b, [{ id: 's1', blank: true, agentPreset: 'standard' }])
-    expect(b.svc.list.getSnapshot().byId[sid('s1')]?.agentPreset).toBe('standard')
+    await feedList(b, [{ id: 's1', blank: true, projections: { agentPreset: 'standard' } }])
+    expect(b.svc.list.getSnapshot().byId[sid('s1')]?.projectionValues?.agentPreset).toBe('standard')
 
-    // A confirmed switch moves the preset alone: the row keeps its updatedAt,
-    // title, running, and blank bits, so an identity guard blind to the preset
-    // would serve the old row forever — and every reader (the hero chip's own
-    // no-op check, the header label) would keep the composition it replaced.
-    b.svc.noteAgentPreset(sid('s1'), 'minimal')
+    b.svc.handleControlFrame({
+      type: 'projection', sessionId: sid('s1'), key: 'agentPreset', value: 'minimal', seq: 1,
+    })
     await Promise.resolve()
 
-    expect(b.svc.list.getSnapshot().byId[sid('s1')]?.agentPreset).toBe('minimal')
+    expect(b.svc.list.getSnapshot().byId[sid('s1')]?.projectionValues?.agentPreset).toBe('minimal')
   })
 
   it('reflects live increments (host stream via manager) into the store', async () => {
@@ -214,6 +214,7 @@ describe('scope tree', () => {
     b.svc.open(sid('s2'))
 
     await vi.waitFor(() => { expect(b.api.activeFollows(sid('s1'))).toBe(0) })
+    notified.mockClear()
     await b.api.pushFollow(sid('s1'), {
       type: 'event',
       event: { seq: 0, timestamp: 0, type: 'turn/start', data: { turn: 0 } } as never,
@@ -252,7 +253,7 @@ describe('Agent scope disposal lifecycle', () => {
       ...remote,
       session: {
         ...remote.session,
-        follow: (_request, signal) => {
+        follow: (request, signal) => {
           if (signal === undefined) throw new Error('fixture requires a signal')
           followSignal = signal
           let opened = false
@@ -263,7 +264,20 @@ describe('Agent scope disposal lifecycle', () => {
                   opened = true
                   return Promise.resolve({
                     done: false,
-                    value: { type: 'opened', cursor: -1 } as const,
+                    value: {
+                      type: 'snapshot',
+                      header: {
+                        version: 0,
+                        id: request.address.kind === 'session'
+                          ? request.address.sessionId
+                          : request.address.childSessionId,
+                        createdAt: 0,
+                      },
+                      cursor: -1,
+                      events: [],
+                      hasMore: false,
+                      projections: { asOfSeq: -1, values: {} },
+                    } as const,
                   })
                 }
                 return new Promise((_resolve, reject) => {
@@ -325,7 +339,14 @@ describe('Agent scope disposal lifecycle', () => {
                   opened = true
                   return Promise.resolve({
                     done: false,
-                    value: { type: 'opened', cursor: -1 } as const,
+                    value: {
+                      type: 'snapshot',
+                      header: { version: 0, id: sessionId, createdAt: 0 },
+                      cursor: -1,
+                      events: [],
+                      hasMore: false,
+                      projections: { asOfSeq: -1, values: {} },
+                    } as const,
                   })
                 }
                 return new Promise<IteratorResult<SessionFollowFrame>>((_resolve, reject) => {
@@ -457,22 +478,22 @@ describe('binding and stage lifecycle', () => {
   it('staging (current write) opens the session event window; resolution and re-staging do not re-pull', async () => {
     const b = bench()
     await feedList(b, [{ id: 's1' }, { id: 's2' }])
-    const historyCalls = () => b.api.calls.filter(c => c.method === 'session.history')
+    const followStarts = () => b.api.followStarts.map(String)
     // Resolution is addressing, not staging: no window pull.
     b.svc.scope(sid('s1'))
     b.svc.binding(sid('s1'))
-    expect(historyCalls()).toHaveLength(0)
+    expect(followStarts()).toEqual([])
     b.svc.open(sid('s1'))
     await vi.waitFor(() => {
-      expect(historyCalls().map(c => (c.payload as { sessionId: string }).sessionId)).toEqual(['s1'])
+      expect(followStarts()).toEqual(['s1'])
     })
     // Same current again: no second pull.
     b.svc.open(sid('s1'))
-    expect(historyCalls()).toHaveLength(1)
+    expect(followStarts()).toHaveLength(1)
     // Stage moves: the new occupant opens.
     b.svc.open(sid('s2'))
     await vi.waitFor(() => {
-      expect(historyCalls().map(c => (c.payload as { sessionId: string }).sessionId)).toEqual(['s1', 's2'])
+      expect(followStarts()).toEqual(['s1', 's2'])
     })
   })
 
@@ -486,11 +507,10 @@ describe('binding and stage lifecycle', () => {
     })
     try {
       const b = bench()
-      expect(b.api.calls.filter(c => c.method === 'session.history')).toHaveLength(0)
+      expect(b.api.followStarts).toEqual([])
       await feedList(b, [{ id: 's1' }]) // projection validates the persisted id → current lands → stage follows
       await vi.waitFor(() => {
-        const historyCalls = b.api.calls.filter(c => c.method === 'session.history')
-        expect(historyCalls.map(c => (c.payload as { sessionId: string }).sessionId)).toEqual(['s1'])
+        expect(b.api.followStarts.map(String)).toEqual(['s1'])
       })
     } finally {
       vi.unstubAllGlobals()
@@ -827,13 +847,12 @@ describe('coverage tails (branch duals)', () => {
     const b = bench()
     await feedList(b, [{ id: 's1' }])
     b.svc.open(sid('s1'))
-    const historyCalls = () => b.api.calls.filter(c => c.method === 'session.history')
-    await vi.waitFor(() => { expect(historyCalls()).toHaveLength(1) })
+    await vi.waitFor(() => { expect(b.api.followStarts).toHaveLength(1) })
     await feedList(b, []) // removed while staged: current masks to undefined, stage holds → deferred
     expect(b.svc.scope(sid('s1'))).toBeDefined()
     // Resurfacing re-projects current = s1: same stage occupant, no second pull.
     await feedList(b, [{ id: 's1' }])
-    expect(historyCalls()).toHaveLength(1)
+    expect(b.api.followStarts).toHaveLength(1)
     expect(b.svc.list.getSnapshot().current).toBe('s1')
   })
 

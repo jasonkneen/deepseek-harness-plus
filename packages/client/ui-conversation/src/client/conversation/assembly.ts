@@ -1,5 +1,6 @@
 /** Per-Session target-neutral Conversation assembly. */
 import { Service, type Context } from '@deepseek-ai/cordis'
+import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import type {
   ISessions, SessionBinding, SessionEventSource, SessionEventWindow,
 } from '@deepseek-ai/dsh-api-session-controller/client'
@@ -15,6 +16,7 @@ import type {
 import type { ConversationSnapshot } from '../contract/snapshot.ts'
 import { ConversationNodeAssembler } from './assembler.ts'
 import { ConversationEventRegistry } from './event-registry.ts'
+import { HistoricalImageCache } from './historical-images.ts'
 import { ConversationViewRegistry } from './view-registry.ts'
 
 /** Observable faces published for one Session's Conversation assembly. */
@@ -144,6 +146,7 @@ export class UiConversation extends Service {
   /** Registry of target View definitions. */
   readonly views: ConversationViewRegistry
   private readonly bindings = new Map<SessionId, BindingRecord>()
+  private readonly images: HistoricalImageCache
 
   /**
    * @param ctx - owning Client context.
@@ -153,6 +156,7 @@ export class UiConversation extends Service {
     super(ctx, 'uiConversation')
     this.events = new ConversationEventRegistry(ctx)
     this.views = new ConversationViewRegistry(ctx)
+    this.images = new HistoricalImageCache(ctx, sessions)
     const rebuild = (): void => {
       for (const record of this.bindings.values()) record.binding.rebuild()
     }
@@ -200,6 +204,17 @@ export class UiConversation extends Service {
     )
     record.disposeScope = () => { void disposeScope() }
     return binding
+  }
+
+  /**
+   * Resolve one session-authorized durable image URL, cached per Session so
+   * every Conversation target shares one read and one browser URL.
+   * @param sessionId - Session authorization and lifetime scope.
+   * @param attachment - Durable image reference from a session event.
+   * @returns browser URL valid until the Session binding is released.
+   */
+  imageUrl(sessionId: SessionId, attachment: ImageAttachmentRef): Promise<string> {
+    return this.images.resolve(sessionId, attachment)
   }
 
   private drop(record: BindingRecord, releaseScope: boolean): void {

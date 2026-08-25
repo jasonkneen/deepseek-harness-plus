@@ -71,7 +71,7 @@ function renderSeat(state: Partial<AgentPresetSeatState> = {}) {
 }
 
 function renderLabel(
-  summary: { blank: boolean; agentPreset?: string } | undefined,
+  summary: { blank: boolean; projectionValues?: { agentPreset?: string | null } } | undefined,
   roster: Partial<AgentPresetSettingsState> = {},
 ) {
   // The chip and the label read the same roster, metadata included.
@@ -367,7 +367,10 @@ describe('the chip introduce cue', () => {
 
 describe('the session-header label', () => {
   it('names the preset the session runs, and never offers a switch', async () => {
-    const { load } = renderLabel({ blank: false, agentPreset: 'standard' })
+    const { load } = renderLabel({
+      blank: false,
+      projectionValues: { agentPreset: 'standard' },
+    })
 
     await waitFor(() => { expect(load).toHaveBeenCalledTimes(1) })
     // A control here would promise a switch the host refuses outright.
@@ -376,13 +379,16 @@ describe('the session-header label', () => {
   })
 
   it('falls back to the id, and to the generic hint, when metadata is absent', () => {
-    renderLabel({ blank: true, agentPreset: 'mine' })
+    renderLabel({ blank: true, projectionValues: { agentPreset: 'mine' } })
 
     expect(screen.getByTitle(en.headerHint).textContent).toBe('mine')
   })
 
   it('shows the id until the roster resolves it', () => {
-    renderLabel({ blank: false, agentPreset: 'standard' }, { options: [] })
+    renderLabel({
+      blank: false,
+      projectionValues: { agentPreset: 'standard' },
+    }, { options: [] })
 
     // The session's own summary is the authority on which preset it runs; the
     // roster only supplies the display name, and its arrival is a later frame.

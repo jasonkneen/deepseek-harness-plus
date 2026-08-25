@@ -34,7 +34,7 @@ follow-up 是普通持久 user-role 消息，使用 `source.kind: "webhook"`，�
 
 `@deepseek-ai/dsh-webhook-github` 在注入的 WebServer 上注册精确路由，为每次请求解析凭据引用，在解析前验证未改动的 `application/json` body，并在内存分发后立即返回 `202`。它的规范化事件保证为已签名的无损 JSON 对象；规则负责验证自己消费的事件特定字段。
 
-[GitHub 评审示例](../../examples/web-github-review/README.zh.md)把该路由挂载在隔离的第二个 WebServer 上，因此暴露 webhook 入口不会暴露浏览器 API。
+[GitHub 评审指南](../user/guide/github-review.zh.md)把该路由挂载在隔离的第二个 WebServer 上，因此暴露 webhook 入口不会暴露浏览器 API。
 
 <!-- BEGIN GENERATED cordis-surface (gen-cordis-catalog.ts) — do not edit between markers -->
 

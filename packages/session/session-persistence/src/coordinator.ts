@@ -17,7 +17,8 @@ import {
 } from '@deepseek-ai/dsh-session'
 import type { Session, SessionEvent, SessionId, SessionHeader } from '@deepseek-ai/dsh-session'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
-import type { SessionInspection, SessionLocation } from './index.ts'
+import type { BorrowedSessionSource, SessionInspection, SessionLocation } from './index.ts'
+import { SessionPersistenceNotFoundError } from './errors.ts'
 import type { SessionPersistenceRevision } from './revision.ts'
 import { observeQueuedAbort, SessionPreparations } from './preparations.ts'
 import type { SessionPreparationReservation } from './preparations.ts'
@@ -842,6 +843,64 @@ export class PersistenceCoordinator<TornMarker = unknown> {
   }
 
   /**
+   * Borrow one exact logical view while pinning its reusable prepared Session.
+   * @param id - persisted session to observe.
+   * @param signal - optional cancellation for preparation work.
+   * @returns a disposable observation retaining the prepared source.
+   */
+  async borrowSession(id: SessionId, signal?: AbortSignal): Promise<BorrowedSessionSource> {
+    for (;;) {
+      signal?.throwIfAborted()
+      if (this.retirements.has(id)) await this.waitForRetirement(id, signal)
+      const live = this.ctx.sessions.get(id)
+      if (live !== undefined) {
+        return { source: 'live', inspection: this.inspectLive(live), [Symbol.dispose]: () => {} }
+      }
+      const observation = await this.preparations.borrow(
+        id,
+        () => this.serialize(id, () => this.prepareCore(id)),
+        signal,
+      )
+      const source = observation.source
+      try {
+        const attached = this.ctx.sessions.get(id)
+        if (attached !== undefined) {
+          observation[Symbol.dispose]()
+          return { source: 'live', inspection: this.inspectLive(attached), [Symbol.dispose]: () => {} }
+        }
+        const current = await this.serialize(
+          id,
+          () => this.isPreparedSourceCurrent(source, signal),
+          signal,
+        )
+        const published = this.ctx.sessions.get(id)
+        if (published !== undefined) {
+          observation[Symbol.dispose]()
+          return { source: 'live', inspection: this.inspectLive(published), [Symbol.dispose]: () => {} }
+        }
+        if (current || this.preparations.discardReady(id, source) === 'retained') {
+          return {
+            source: 'prepared',
+            inspection: source.inspection,
+            revision: source.revision,
+            preparedSession: source.session,
+            [Symbol.dispose]: () => { observation[Symbol.dispose]() },
+          }
+        }
+      } catch (error: unknown) {
+        observation[Symbol.dispose]()
+        signal?.throwIfAborted()
+        const attached = this.ctx.sessions.get(id)
+        if (attached !== undefined) {
+          return { source: 'live', inspection: this.inspectLive(attached), [Symbol.dispose]: () => {} }
+        }
+        throw error
+      }
+      observation[Symbol.dispose]()
+    }
+  }
+
+  /**
    * Read the stored events from `fromSeq` onward, detached and non-mutating
    * (the read-from-seq primitive behind the service's `readFrom`). Runs on
    * the same per-id chain as writes; a backend with the seek-capable
@@ -876,7 +935,7 @@ export class PersistenceCoordinator<TornMarker = unknown> {
         throw error
       }
       signal?.throwIfAborted()
-      if (suffix === undefined) throw new Error(`session "${id}" not found`)
+      if (suffix === undefined) throw new SessionPersistenceNotFoundError(id)
       this.assertStoredId(id, suffix.meta)
       this.assertVersion(suffix.meta)
       if (suffix.events.some(needsLegacyPrefix)) {
@@ -900,7 +959,7 @@ export class PersistenceCoordinator<TornMarker = unknown> {
     signal?.throwIfAborted()
     const stored = await this.backend.loadStored(id, signal)
     signal?.throwIfAborted()
-    if (stored === undefined) throw new Error(`session "${id}" not found`)
+    if (stored === undefined) throw new SessionPersistenceNotFoundError(id)
     this.assertStoredId(id, stored.meta)
     this.assertVersion(stored.meta)
     const events = snapshotStoredEvents(stored.events, id)
@@ -914,7 +973,7 @@ export class PersistenceCoordinator<TornMarker = unknown> {
   /** Read, repair in memory, validate, and freeze one cold source once. */
   private async prepareCore(id: SessionId): Promise<PreparedSessionSource<TornMarker>> {
     const stored = await this.backend.loadStored(id)
-    if (stored === undefined) throw new Error(`session "${id}" not found`)
+    if (stored === undefined) throw new SessionPersistenceNotFoundError(id)
     try {
       const { meta, events, revision, tornMarker } = stored
       this.assertStoredId(id, meta)

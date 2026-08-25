@@ -171,7 +171,7 @@
 {"type":"session/end-seed","data":{},"seq":169,"time":1787472100000}
 {"type":"turn/start","data":{"turn":29},"seq":170,"time":1787472100001}
 {"type":"user/message","data":{"id":"preview-review-user","role":"user","content":[{"type":"text","text":"Review whether the preview fixture is isolated from future WebFS data."}],"source":{"kind":"user"}},"surfaceOp":"append","seq":171,"time":1787472100002}
-{"type":"subagent/descriptor","data":{"version":2,"mode":"one-shot","provider":"fork","label":"Review preview architecture"},"seq":172,"time":1787472100003}
+{"type":"subagent/descriptor","data":{"version":3,"mode":"one-shot","provider":"fork","label":"Review preview architecture"},"seq":172,"time":1787472100003}
 {"type":"step/start","data":{"turn":29,"step":1},"seq":173,"time":1787472100004}
 {"type":"assistant/message","data":{"turn":29,"step":1,"message":{"id":"preview-review-assistant","role":"assistant","content":[{"type":"text","text":"The bundled fixture is static image content; future WebFS state remains user-owned."}],"source":{"kind":"model","provider":"preview-fixture","model":"deterministic"}}},"sourceEventSeqs":[],"surfaceOp":"append","seq":174,"time":1787472100005}
 {"type":"step/end","data":{"turn":29,"step":1},"seq":175,"time":1787472100006}

@@ -1,7 +1,7 @@
 import type {
   AssistantMessageNode, ConversationLocation, ConversationNode, ConversationPromptSnapshot,
-  ConversationViewNode, PartialAssistant, RequestPromptChange, RequestView, RunningToolCall,
-  ToolCallBlock,
+  ConversationViewNode, MessageImagesOwnerProps, PartialAssistant, RequestPromptChange,
+  RequestView, RunningToolCall, ToolCallBlock,
 } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type { SnapshotSelectorHook } from '@deepseek-ai/dsh-client-ui-slots'
 
@@ -83,5 +83,15 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface SessionStandardProps {
     /** Selector hook over the current Conversation binding's Trajectory target. */
     useTrajectory: UseTrajectory
+  }
+
+  interface SlotMap {
+    /**
+     * Renderer for one group of durable record images in the Trajectory
+     * ledger. The owner supplies image references, an authorized loader, and
+     * alignment. A registration replaces the shipped gallery; without one,
+     * images are omitted.
+     */
+    'conversation.trajectory.images': { kind: 'single'; scope: 'session'; owner: MessageImagesOwnerProps }
   }
 }

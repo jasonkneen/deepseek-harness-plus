@@ -4,19 +4,21 @@
  * isolation, and prompt failure mapping.
  */
 
+import { describe, expect, it, vi } from 'vitest'
 import { mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import SessionStore from '@deepseek-ai/dsh-session'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
 import { SessionHistoryController } from '@deepseek-ai/dsh-api-session-controller/src/history.ts'
+import { subagentIdentityProjectionDefinition } from '@deepseek-ai/dsh-subagent/src/projection.ts'
 import { TypertLookupFailure } from '@deepseek-ai/dsh-typert-protocol'
 import TypertRegistry from '@deepseek-ai/dsh-typert-registry'
 import { createUserMessage, MessageId } from '@deepseek-ai/dsh-llm'
+import { snapshotSubagentDescriptor } from '@deepseek-ai/dsh-subagent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
-import type { SessionEvent, SessionHeader, SessionId } from '@deepseek-ai/dsh-session'
+import type { Session, SessionEvent, SessionHeader, SessionId } from '@deepseek-ai/dsh-session'
 import type { SessionPromptRequest, SessionRequestId } from '../src/types.ts'
 import {
   PersistenceCoordinator,
@@ -24,7 +26,12 @@ import {
   type PersistenceBackend,
   type StoredPrefix,
 } from '@deepseek-ai/dsh-session-persistence'
-import { createSessionTestRemote } from './test-remote.ts'
+import { ApiSessionList } from '../src/list.ts'
+import {
+  createSessionTestRemote,
+  installSessionReadTestServices,
+  testSessionPersistence,
+} from './test-remote.ts'
 
 const sid = (id: string): SessionId => id as SessionId
 
@@ -46,8 +53,12 @@ function header(id: string, createdAt: number, extra: Partial<SessionHeader> = {
   return { version: 0, id: sid(id), createdAt, cwd: '/proj', ...extra }
 }
 
+function providePersistence(ctx: Context, persistence: Record<string, unknown>): () => void {
+  return ctx.provide('sessionPersistence', testSessionPersistence(ctx, persistence) as never)
+}
+
 describe('sessions.list cold merge', () => {
-  it('verifies only small possibly-blank artifacts and treats every unavailable probe as visible', async () => {
+  it('fully observes only small possibly-blank artifacts and treats unavailable probes as visible', async () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
     const root = mkdtempSync(join(tmpdir(), 'dsh-cold-'))
@@ -63,8 +74,9 @@ describe('sessions.list cold merge', () => {
       header('locationless', 500, { parentSession: sid('session-parent'), origin: 'subagent' }),
       header('vanished', 600),
       header('read-failure', 700),
+      { version: 0, id: sid('missing-cwd'), createdAt: 800 },
     ]
-    const readFrom = vi.fn(async (id: SessionId) => {
+    const inspect = vi.fn(async (id: SessionId) => {
       if (id === sid('small-blank')) {
         return {
           meta: metas[0]!,
@@ -87,7 +99,7 @@ describe('sessions.list cold merge', () => {
       if (id === sid('read-failure')) throw new Error('simulated read failure')
       throw new Error(`unexpected cold read: ${id}`)
     })
-    ctx.provide('sessionPersistence', {
+    providePersistence(ctx, {
       list: () => Promise.resolve(metas),
       locate: (meta: SessionHeader) => {
         if (meta.id === sid('large-unknown')) return { kind: 'jsonl', path: largePath }
@@ -95,8 +107,8 @@ describe('sessions.list cold merge', () => {
         if (meta.id === sid('vanished')) return { kind: 'jsonl', path: join(root, 'vanished.log') }
         return { kind: 'jsonl', path: smallPath }
       },
-      readFrom,
-    } as never)
+      inspect,
+    })
     ctx.provide('sessionProjectionCache', {
       cachedSnapshot: (meta: SessionHeader) => {
         if (meta.id === sid('small-blank')) {
@@ -110,6 +122,8 @@ describe('sessions.list cold merge', () => {
         }
         return undefined
       },
+      hydratePrepared: (session: Session, _meta: SessionHeader, events: readonly SessionEvent[]) =>
+        ctx.sessionProjections.hydrate(session, {}, events, 0),
     } as never)
     const remote = createSessionTestRemote(ctx, { defaultModelSelection: () => ({ provider: 'p', model: 'm' }), cwd: '/tmp' })
 
@@ -118,10 +132,8 @@ describe('sessions.list cold merge', () => {
     if (!response.ok) throw new Error('unreachable')
     const byId = Object.fromEntries(response.value.items.map(item => [item.sessionId, item]))
     expect(byId['small-blank']).toMatchObject({ blank: true, updatedAt: 100, running: false })
-    // A stale true hint cannot hide the turn found in the bounded read.
     expect(byId['small-conversation']).toMatchObject({ blank: false, updatedAt: 1200 })
     expect(byId['large-unknown']).toMatchObject({ blank: false, updatedAt: 300 })
-    // false is monotonic, so this row skips stat/read and keeps cached recency.
     expect(byId['cached-nonblank']).toMatchObject({ blank: false, updatedAt: 1000 })
     expect(byId['locationless']).toMatchObject({
       blank: false,
@@ -131,24 +143,25 @@ describe('sessions.list cold merge', () => {
     })
     expect(byId['vanished']).toMatchObject({ blank: false, updatedAt: 600 })
     expect(byId['read-failure']).toMatchObject({ blank: false, updatedAt: 700 })
-    expect(readFrom).toHaveBeenCalledTimes(3)
-    expect(readFrom.mock.calls.map(([id]) => id)).toEqual(expect.arrayContaining([
+    expect(byId['missing-cwd']).toBeUndefined()
+    expect(inspect).toHaveBeenCalledTimes(3)
+    expect(inspect.mock.calls.map(([id]) => id)).toEqual(expect.arrayContaining([
       sid('small-blank'),
       sid('small-conversation'),
       sid('read-failure'),
     ]))
   })
 
-  it('can disable bounded blank probes without hiding cold Sessions', async () => {
+  it('can disable bounded cold observations without hiding cold Sessions', async () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
     const meta = header('probe-disabled', 100)
-    const readFrom = vi.fn()
-    ctx.provide('sessionPersistence', {
+    const inspect = vi.fn()
+    providePersistence(ctx, {
       list: () => Promise.resolve([meta]),
       locate: () => ({ kind: 'jsonl', path: '/not-read' }),
-      readFrom,
-    } as never)
+      inspect,
+    })
     const remote = createSessionTestRemote(ctx, {
       defaultModelSelection: () => ({ provider: 'p', model: 'm' }),
       cwd: '/tmp',
@@ -160,31 +173,23 @@ describe('sessions.list cold merge', () => {
     expect(response.value.items).toEqual([
       expect.objectContaining({ sessionId: meta.id, blank: false, updatedAt: meta.createdAt }),
     ])
-    expect(readFrom).not.toHaveBeenCalled()
+    expect(inspect).not.toHaveBeenCalled()
   })
 
-  it('replaces a probed cold row with the live Session that attached during the read', async () => {
+  it('prefers a live row attached during the query without folding its seed', async () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
     await ctx.plugin(AgentRegistry)
-    const meta = header('attached-during-probe', 100)
-    const root = mkdtempSync(join(tmpdir(), 'dsh-cold-race-'))
-    const path = join(root, 'small.log')
-    writeFileSync(path, 'x')
+    const meta = header('attached-during-list', 100)
     const started = Promise.withResolvers<undefined>()
     const release = Promise.withResolvers<undefined>()
-    ctx.provide('sessionPersistence', {
-      list: () => Promise.resolve([meta]),
-      locate: () => ({ kind: 'jsonl', path }),
-      readFrom: async () => {
+    providePersistence(ctx, {
+      list: async () => {
         started.resolve(undefined)
         await release.promise
-        return {
-          meta,
-          events: [{ type: 'session/end-seed', seq: 0, time: 110, data: {} }] as SessionEvent[],
-        }
+        return [meta]
       },
-    } as never)
+    })
     const remote = createSessionTestRemote(ctx, { defaultModelSelection: () => ({ provider: 'p', model: 'm' }), cwd: '/tmp' })
 
     const listing = remote.list(request({}))
@@ -213,9 +218,88 @@ describe('sessions.list cold merge', () => {
         sessionId: meta.id,
         blank: false,
         running: true,
-        updatedAt: 300,
+        updatedAt: 100,
       }),
     ])
+  })
+
+  it('prefers a Session that attaches during its bounded cold observation', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    await ctx.plugin(AgentRegistry)
+    const root = mkdtempSync(join(tmpdir(), 'dsh-cold-race-'))
+    const path = join(root, 'small.log')
+    writeFileSync(path, 'small')
+    const meta = header('attached-during-probe', 100)
+    providePersistence(ctx, {
+      list: () => Promise.resolve([meta]),
+      locate: () => ({ kind: 'jsonl', path }),
+      inspect: () => {
+        const session = ctx.sessions.create(meta.id, {
+          meta,
+          seed: [{ type: 'turn/start', seq: 0, time: 200, data: { turn: 1 } }],
+        })
+        ctx.agents.register({ id: session.id, session, status: 'running', ctx } as Agent)
+        return Promise.resolve({ meta, events: [] })
+      },
+    })
+    const remote = createSessionTestRemote(ctx, {
+      defaultModelSelection: () => ({ provider: 'p', model: 'm' }), cwd: '/tmp',
+    })
+
+    const response = await remote.list(request({}))
+    if (!response.ok) throw new Error('list failed')
+    expect(response.value.items).toEqual([
+      expect.objectContaining({ sessionId: meta.id, running: true, blank: false }),
+    ])
+    await ctx.fiber.dispose()
+  })
+
+  it('propagates a cold location failure instead of returning a partial list', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const meta = header('broken-cache', 100)
+    providePersistence(ctx, {
+      list: () => Promise.resolve([meta]),
+      locate: () => { throw new Error('location failed') },
+    })
+    const remote = createSessionTestRemote(ctx, {
+      defaultModelSelection: () => ({ provider: 'p', model: 'm' }), cwd: '/tmp',
+    })
+
+    await expect(remote.list(request({}))).resolves.toMatchObject({
+      ok: false,
+      error: { message: expect.stringContaining('location failed') as string },
+    })
+    await ctx.fiber.dispose()
+  })
+
+  it('supports an unsignalled probe whose observation has no projection registry', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    await ctx.plugin(AgentRegistry)
+    installSessionReadTestServices(ctx)
+    const root = mkdtempSync(join(tmpdir(), 'dsh-cold-unprojected-'))
+    const path = join(root, 'small.log')
+    writeFileSync(path, 'small')
+    const meta = header('unprojected-small', 100)
+    ctx.provide('sessionPersistence', {
+      list: () => Promise.resolve([meta]),
+      locate: () => ({ kind: 'jsonl', path }),
+    } as never)
+    vi.spyOn(ctx.sessionQuery, 'listSessions').mockResolvedValue([{
+      header: meta, live: false, persisted: true,
+    }])
+    vi.spyOn(ctx.sessionQuery, 'observeSession').mockResolvedValue({
+      source: 'prepared', header: meta, events: [], cursor: -1,
+      retain: vi.fn(), [Symbol.dispose]: vi.fn(),
+    })
+    const list = new ApiSessionList(ctx, 1024)
+
+    await expect(list.list()).resolves.toEqual([
+      expect.objectContaining({ sessionId: meta.id, blank: false }),
+    ])
+    await ctx.fiber.dispose()
   })
 })
 
@@ -225,6 +309,7 @@ describe('attached updatedAt tracks human prompts', () => {
     await ctx.plugin(SessionStore)
     await ctx.plugin(AgentRegistry)
     const remote = createSessionTestRemote(ctx, { defaultModelSelection: () => ({ provider: 'p', model: 'm' }), cwd: '/tmp' })
+    await new Promise(resolve => setTimeout(resolve, 0))
 
     // Old work, resumed just now: the log tail would report the pickup.
     const worked = 1_000_000
@@ -248,7 +333,7 @@ describe('attached updatedAt tracks human prompts', () => {
     const listed = await remote.list(request({}))
     if (!listed.ok) throw new Error('list failed')
     const summary = listed.value.items.find(item => item.sessionId === 'resumed-untouched')
-    expect(summary?.updatedAt).toBe(worked)
+    expect(summary?.updatedAt).toBe(500)
 
     // A lifecycle boundary is not a human update.
     resumed.append('turn/start', { turn: 2 })
@@ -290,11 +375,12 @@ describe('cold history recovery view', () => {
       list: () => Promise.resolve([structuredClone(meta)]),
     }
     const coordinator = new PersistenceCoordinator(ctx, backend)
-    ctx.provide('sessionPersistence', {
+    providePersistence(ctx, {
       list: (signal?: AbortSignal) => backend.list(signal),
       inspect: (id: SessionId, signal?: AbortSignal) => coordinator.inspect(id, signal),
+      borrowSession: (id: SessionId, signal?: AbortSignal) => coordinator.borrowSession(id, signal),
       locate: () => undefined,
-    } as never)
+    })
     const remote = createSessionTestRemote(ctx, { defaultModelSelection: () => ({ provider: 'p', model: 'm' }), cwd: '/tmp' })
 
     const history = await remote.page({
@@ -341,11 +427,11 @@ describe('Remote Agent and Session lookup policy', () => {
     const sessionId = sid('session-remote-cold')
     const meta = header(sessionId, 1000)
     const inspect = vi.fn(() => Promise.resolve({ meta, events: [] as SessionEvent[] }))
-    ctx.provide('sessionPersistence', {
+    providePersistence(ctx, {
       list: () => Promise.resolve([meta]),
       inspect,
       locate: () => undefined,
-    } as never)
+    })
     const resumedSession = { id: sessionId, header: meta, events: [] } as unknown as import('@deepseek-ai/dsh-session').Session
     const resumedAgent = { id: sessionId, session: resumedSession, status: 'idle', ctx } as Agent
     const release = Promise.withResolvers<undefined>()
@@ -385,11 +471,11 @@ describe('Remote Agent and Session lookup policy', () => {
       origin: 'subagent',
     })
     const inspect = vi.fn(() => Promise.resolve({ meta: coldMeta, events: [] as SessionEvent[] }))
-    ctx.provide('sessionPersistence', {
+    providePersistence(ctx, {
       list: () => Promise.resolve([coldMeta]),
       inspect,
       locate: () => undefined,
-    } as never)
+    })
     const liveSession = ctx.sessions.create(sid('session-remote-live-child'), {
       meta: { cwd: '/proj', parentSession: sid('session-parent'), origin: 'subagent' },
     })
@@ -441,27 +527,35 @@ describe('subagent ownership fence', () => {
         type: 'user/message',
         seq: 1,
         time: 2,
-        data: { content: [{ type: 'text', text: 'work' }], source: { kind: 'user' } },
+        data: createUserMessage({ content: [{ type: 'text', text: 'work' }], source: { kind: 'user' } }),
         surfaceOp: 'append',
       },
       {
         type: 'subagent/descriptor',
         seq: 2,
         time: 3,
-        data: { version: 2, mode: 'continuable', provider: 'spawn', label: 'child' },
+        data: snapshotSubagentDescriptor({
+          mode: 'continuable',
+          provider: 'spawn',
+          label: 'child',
+        }),
       },
       { type: 'turn/end', seq: 3, time: 4, data: { turn: 1, reason: { kind: 'completed' } } },
     ] as SessionEvent[]
     const inspect = vi.fn(() => Promise.resolve({ meta, events }))
-    ctx.provide('sessionPersistence', {
+    providePersistence(ctx, {
       list: () => Promise.resolve([meta]),
       inspect,
       locate: () => undefined,
-    } as never)
+    })
     const resume = vi.spyOn(ctx.agents, 'resume')
     const remote = createSessionTestRemote(ctx, { defaultModelSelection: () => ({ provider: 'p', model: 'm' }), cwd: '/tmp' })
+    ctx.sessionProjections.register(subagentIdentityProjectionDefinition)
 
-    const history = await new SessionHistoryController(ctx).page({
+    const history = await new SessionHistoryController(
+      ctx,
+      (observation) => { observation[Symbol.dispose]() },
+    ).page({
       address: {
         kind: 'subagent',
         parentSessionId: meta.parentSession as SessionId,
@@ -511,11 +605,11 @@ describe('subagent ownership fence', () => {
         data: { version: 2, mode: 'continuable', provider: 'spawn', label: 'child' },
       },
     ] as SessionEvent[]
-    ctx.provide('sessionPersistence', {
+    providePersistence(ctx, {
       list: () => Promise.resolve([meta]),
       inspect: () => Promise.resolve({ meta, events }),
       locate: () => undefined,
-    } as never)
+    })
     // Stores whose headers predate `origin` classify a child only through the
     // descriptor event; the pre-release decision stops recognizing them, so
     // the ownership fence lets generic resume reach the registry instead of
@@ -578,9 +672,13 @@ describe('subagent ownership fence', () => {
     if (!queued.ok) expect(queued.error.code).toBe('agent-busy')
     expect(updateInbox).not.toHaveBeenCalled()
 
-    const models = await remote.models(request({ sessionId: startingChild.id }))
-    expect(models.ok).toBe(false)
-    if (!models.ok) expect(models.error.code).toBe('agent-busy')
+    const selection = await remote.selectModel(request({
+      sessionId: startingChild.id,
+      provider: 'p',
+      model: 'm',
+    }))
+    expect(selection.ok).toBe(false)
+    if (!selection.ok) expect(selection.error.code).toBe('agent-busy')
 
     const create = await remote.create(request({ sessionId: originChild.id, cwd: '/proj' }))
     expect(create.ok).toBe(false)
@@ -685,7 +783,7 @@ describe('subagent ownership fence', () => {
 })
 
 describe('degenerate composition (no persistence, no factory)', () => {
-  it('list skips the cold merge and history reports missing persistence as internal', async () => {
+  it('lists no cold rows and reports an absent point source as not found', async () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
     await ctx.plugin(AgentRegistry)
@@ -702,20 +800,19 @@ describe('degenerate composition (no persistence, no factory)', () => {
     })
     expect(response.ok).toBe(false)
     if (!response.ok) {
-      expect(response.error.code).toBe('internal')
-      expect(response.error.message).toMatch(/session persistence is not configured/)
+      expect(response.error.code).toBe('session-not-found')
     }
   })
 
-  it('maps a persistence catalog miss to session-not-found without inspection', async () => {
+  it('maps a missing direct persistence read to session-not-found', async () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
     await ctx.plugin(AgentRegistry)
     const inspect = vi.fn()
-    ctx.provide('sessionPersistence', {
+    providePersistence(ctx, {
       list: () => Promise.resolve([]),
       inspect,
-    } as never)
+    })
     const remote = createSessionTestRemote(ctx, { defaultModelSelection: () => ({ provider: 'p', model: 'm' }), cwd: '/tmp' })
 
     const response = await remote.page({
@@ -724,7 +821,7 @@ describe('degenerate composition (no persistence, no factory)', () => {
     })
     expect(response.ok).toBe(false)
     if (!response.ok) expect(response.error.code).toBe('session-not-found')
-    expect(inspect).not.toHaveBeenCalled()
+    expect(inspect).toHaveBeenCalledOnce()
   })
 })
 
@@ -767,11 +864,11 @@ describe('sessions.prompt synchronous rejection', () => {
     await ctx.plugin(AgentRegistry)
     const sessionId = sid('race-resume')
     const meta: SessionHeader = header('race-resume', 1000)
-    ctx.provide('sessionPersistence', {
+    providePersistence(ctx, {
       list: () => Promise.resolve([meta]),
       inspect: () => Promise.resolve({ meta, events: [] as SessionEvent[] }),
       locate: () => undefined,
-    } as never)
+    })
     // The raced winner: a live parent-owned subagent publishes the identity
     // while the generic cold resume is in flight, so the resume collides.
     const parentSession = ctx.sessions.create(sid('race-parent'), { meta: { cwd: '/proj' } })
@@ -789,10 +886,10 @@ describe('sessions.prompt synchronous rejection', () => {
     })
     const remote = createSessionTestRemote(ctx, { defaultModelSelection: () => ({ provider: 'p', model: 'm' }), cwd: '/tmp' })
 
-    const models = await remote.models(request({ sessionId }))
-    expect(models.ok).toBe(false)
-    if (!models.ok) {
-      expect(models.error).toMatchObject({
+    const selection = await remote.selectModel(request({ sessionId, provider: 'p', model: 'm' }))
+    expect(selection.ok).toBe(false)
+    if (!selection.ok) {
+      expect(selection.error).toMatchObject({
         code: 'agent-busy',
         details: { reason: 'use subagent delivery for this child session' },
       })

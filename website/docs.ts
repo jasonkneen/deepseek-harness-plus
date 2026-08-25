@@ -138,6 +138,30 @@ const homeAndGuide = pairedPages([
     section: { root: 'SDK', en: 'SDK' },
     order: 1,
   },
+  {
+    source: 'docs/user/guide/github-review.md',
+    route: 'guide/github-review.md',
+    label: { root: 'GitHub 评审会话', en: 'GitHub review sessions' },
+    sidebar: { root: 'zh-guide', en: 'en-guide' },
+    section: { root: '自动化', en: 'Automation' },
+    order: 1,
+  },
+  {
+    source: 'docs/user/guide/schedule.md',
+    route: 'guide/schedule.md',
+    label: { root: '会话内提醒', en: 'Session reminders' },
+    sidebar: { root: 'zh-guide', en: 'en-guide' },
+    section: { root: '自动化', en: 'Automation' },
+    order: 2,
+  },
+  {
+    source: 'docs/user/guide/mcp-memory.md',
+    route: 'guide/mcp-memory.md',
+    label: { root: '记忆 MCP', en: 'Memory MCP' },
+    sidebar: { root: 'zh-guide', en: 'en-guide' },
+    section: { root: '集成', en: 'Integrations' },
+    order: 1,
+  },
 ])
 
 const develop = pairedPages([
@@ -215,6 +239,14 @@ const develop = pairedPages([
     sidebar: { root: 'zh-develop', en: 'en-develop' },
     section: { root: '实战', en: 'Practice' },
     order: 2,
+  },
+  {
+    source: 'docs/user/develop/practice/dynamic-cordis.md',
+    route: 'develop/practice/dynamic-cordis.md',
+    label: { root: '运行时 Cordis 工具', en: 'Runtime Cordis tools' },
+    sidebar: { root: 'zh-develop', en: 'en-develop' },
+    section: { root: '实战', en: 'Practice' },
+    order: 3,
   },
 ])
 
@@ -436,7 +468,7 @@ export interface DocsSection {
  */
 const sections: Record<DocsLocale, readonly DocsSection[]> = {
   root: [
-    { label: '入门' }, { label: 'SDK' },
+    { label: '入门' }, { label: 'SDK' }, { label: '自动化' }, { label: '集成' },
     { label: '基础' }, { label: '框架能力' }, { label: '实战' }, { label: 'Cordis 框架教程' },
     { label: '概念' }, { label: '生成参考' }, { label: 'Cordis API' }, { label: '开发手册' },
     { label: '总览' },
@@ -448,7 +480,7 @@ const sections: Record<DocsLocale, readonly DocsSection[]> = {
     { label: '平台与接入', collapsed: true },
   ],
   en: [
-    { label: 'Guide' }, { label: 'SDK' },
+    { label: 'Guide' }, { label: 'SDK' }, { label: 'Automation' }, { label: 'Integrations' },
     { label: 'Basics' }, { label: 'Framework' }, { label: 'Practice' }, { label: 'Cordis framework tutorial' },
     { label: 'Concepts' }, { label: 'Generated reference' }, { label: 'Cordis Core API' }, { label: 'Cookbook' },
     { label: 'Overview' },

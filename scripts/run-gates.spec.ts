@@ -160,7 +160,7 @@ describe('gate graph validation', () => {
     },
   )
 
-  it('keeps native Windows coverage blocking while retaining the observational inventory', () => {
+  it('keeps native Windows coverage blocking and behind the complete build', () => {
     const complete = withPnpmEntrypoint(() => gatesForMode('ci-windows-complete'))
     const observational = withPnpmEntrypoint(() => gatesForMode('ci-windows-observational'))
       .filter(gate => gate.id !== 'build' && gate.id !== 'docs-site-build')
@@ -168,14 +168,16 @@ describe('gate graph validation', () => {
 
     expect(byId.get('coverage')?.allowFailure).not.toBe(true)
     expect(byId.get('coverage-exempt-heavy')?.allowFailure).not.toBe(true)
+    expect(byId.get('coverage')?.needs).toContain('build')
     expect(byId.get('coverage-exempt-heavy')?.needs).toContain('build')
-    expect(byId.get('coverage-exempt-heavy')?.after).toContain('coverage')
     expect(observational).not.toHaveLength(0)
     for (const gate of observational) {
       const completeGate = byId.get(gate.id)
       expect(completeGate?.allowFailure).toBe(true)
-      expect(completeGate?.after).toContain('coverage')
-      expect(completeGate?.after).not.toContain('coverage-exempt-heavy')
+      expect(completeGate?.after).toEqual(expect.arrayContaining([
+        'coverage',
+        'coverage-exempt-heavy',
+      ]))
       expect(completeGate?.needs).toEqual(gate.needs)
     }
   })
@@ -386,7 +388,7 @@ describe('Node 24 lane ownership', () => {
     const subject = withPnpmEntrypoint(() => gatesForMode('ci-consumers'))
 
     expect(defaultConcurrency('ci-consumers', subject.length, 4)).toEqual({
-      workers: 10,
+      workers: 11,
       source: 'ci-consumers gate count',
     })
     expect(subject.map(item => item.id)).toEqual([
@@ -396,6 +398,7 @@ describe('Node 24 lane ownership', () => {
       'built-package-invariants',
       'lint-and-duplication',
       'snapshot',
+      'expected-output',
       'web-snapshot',
       'doc-typecheck',
       'node-next-types',
@@ -412,6 +415,7 @@ describe('Node 24 lane ownership', () => {
     expect(subject.find(item => item.id === 'lint-and-duplication')?.needs).toEqual(['built-package-invariants'])
     for (const id of [
       'snapshot',
+      'expected-output',
       'web-snapshot',
       'doc-typecheck',
       'node-next-types',
@@ -420,6 +424,7 @@ describe('Node 24 lane ownership', () => {
       expect(subject.find(item => item.id === id)?.needs).toEqual(['built-package-invariants'])
     }
     expect(subject.find(item => item.id === 'snapshot')?.env).toEqual({ DSH_EXAMPLE_MODE: 'lib' })
+    expect(subject.find(item => item.id === 'expected-output')?.env).toEqual({ DSH_EXAMPLE_MODE: 'lib' })
     expect(subject.find(item => item.id === 'doc-typecheck')?.env).toEqual({
       DSH_DOC_TYPECHECK_USE_BUILD_OUTPUT: '1',
     })

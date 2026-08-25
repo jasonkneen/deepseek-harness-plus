@@ -302,12 +302,10 @@ async function bootPreview(origin: string, browser: Browser): Promise<void> {
     // report the older one.
     expect(bootLine).toContain(`image lowering=${WRAPPER_CONTRACT}`)
     expect(bootLine).toContain('data overlays=1')
-    // The hero's workspace picker is the client tree's first interactive
-    // surface, so it appears only once the startup chain completed over the
-    // tunnel.
-    await page.getByRole('textbox', { name: 'Choose workspace' }).waitFor({ timeout: HERO_TIMEOUT_MS })
+    // The versioned notice is the seeded preview's first stable interactive
+    // surface after the startup chain completes over the tunnel.
     const continueButton = page.getByRole('button', { name: 'Continue' })
-    await continueButton.waitFor({ timeout: 30_000 })
+    await continueButton.waitFor({ timeout: HERO_TIMEOUT_MS })
     await continueButton.click()
     const configureLater = page.getByRole('button', { name: 'Configure later' })
     await configureLater.waitFor({ timeout: 30_000 })

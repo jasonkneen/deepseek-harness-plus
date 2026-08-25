@@ -8,14 +8,6 @@ packages:
   # Product assemblies over the package tier; apps/cli owns the `dsh` bin.
   - apps/*
   - website
-  # The runnable demo leaves join as ONE workspace member: examples/package.json
-  # declares the union of every leaf's cordis.yml plugins as workspace:*, so a
-  # plain-node (`:lib`) boot of any leaf (examples/<leaf>/cordis.yml) resolves its
-  # plugins through real package `exports`→lib by walking up to examples/node_modules.
-  # Members for DEPENDENCY RESOLUTION only — NOT build targets: tsdown's explicit
-  # globs (vendor/*, packages/*/*) exclude them. See examples/AGENTS.md and the archived
-  # run-ci-examples-from-built-lib Agent Note.
-  - examples
   # Deploy root of the single-exe build: a pure dependency manifest whose
   # closure is what the exe bundles and what the Python runtime distributes.
   - python/sdk-runtime

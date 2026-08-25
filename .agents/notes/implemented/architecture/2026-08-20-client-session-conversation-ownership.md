@@ -82,7 +82,7 @@ Adding a target does not add a branch to the renderer or Session Controller. The
 | `client/ui-session` | Session scope, standard sources, `SessionProvider`, and pending-interaction aggregation | Session transport, Conversation assembly, Approval/Question results |
 | `client/ui-workspace` | Workspace hook, browser UI, and cross-Controller navigation policy | Workspace transport, copies of Session data |
 | `client/ui-conversation` | Conversation core, registries, bindings, shell, input, composer, queue, and View navigation | Session transport, Chat/Trajectory snapshots |
-| `client/ui-chat` | Chat target, Node definitions, renderers, selection, details, locale, and historical images | Session lifecycle, generic View navigation, Trajectory |
+| `client/ui-chat` | Chat target, Node definitions, renderers, selection, details, and locale | Session lifecycle, generic View navigation, Trajectory, historical-image cache |
 | `client/ui-trajectory` | Trajectory target, event-record projection, and inspection view | Session snapshots, Chat snapshots |
 | `client/ui-approval` | Pending Approval, Remote listener, composer, and approval UI | Session control, generic composer election |
 | `client/ui-user-questions` | Pending Question, Remote listener, composer, and question UI | Session control, generic composer election |
@@ -296,13 +296,13 @@ Draft and input state belong to Conversation UI and do not enter the Session sna
 
 ### Chat owner
 
-`client/ui-chat` registers target id `chat` and owns the Chat snapshot builder, Conversation Node definitions, keyed node renderers, selection, details, statistics, locale, Tool-inspection collaboration, and historical-image cache.
+`client/ui-chat` registers target id `chat` and owns the Chat snapshot builder, Conversation Node definitions, keyed node renderers, selection, details, statistics, locale, and Tool-inspection collaboration.
 
 It registers the `chat` target source through `ctx.uiSession.provide()`. `ChatNodeSeat` and internal Chat consumers use `useChat` instead of passing `useConversation(snapshot => snapshot.views.get('chat'))`.
 
 Only visible non-command Chat Nodes activate Chat. Ordinary command-only history keeps the Hero visible; the `/goal` `command-input` Node activates a fresh Conversation.
 
-The historical-image cache's Session key, pending promise, generation guard, blob URL, and disposer all belong to `ui-chat`; draft images remain part of Conversation input.
+The historical-image cache moved to `ui-conversation` (`ctx.uiConversation.imageUrl`), so Chat and Trajectory share one authorized read and one browser URL per session attachment ([Trajectory durable image attachments](../feature/2026-08-24-trajectory-image-attachments.md)); draft images remain part of Conversation input.
 
 ### Trajectory owner
 

@@ -45,7 +45,7 @@ export const PAGE_MESSAGES = 50
 export interface SessionOptions {
   /** Catalog-discovered address selecting non-activating subagent transport. */
   address?: SubagentAddress
-  /** Whether the exact direct parent Agent was live at the latest catalog read. */
+  /** Whether the exact direct parent Agent was live at the latest catalog read; absent before that read. */
   parentAvailable?: boolean
   /**
    * First ACCEPTED prompt on a blank session (fires at most once, on the
@@ -86,7 +86,7 @@ export class Session implements SessionFace {
   private readonly queueMirror = new SessionQueueMirror()
   private running = false
   private address: SubagentAddress | undefined
-  private parentAvailable = false
+  private parentAvailable: boolean | undefined
   /**
    * Sticky send marker, private input of the composerPhase derivation: set
    * synchronously before prompt()'s first await, never reset — the blank →
@@ -144,7 +144,7 @@ export class Session implements SessionFace {
   ) {
     this.projections = options.projections ?? new ProjectionValueStore()
     this.address = options.address
-    this.parentAvailable = options.parentAvailable ?? false
+    this.parentAvailable = options.parentAvailable
     this.notifier = new Notifier(() => {
       this.snapshotCache = this.buildSnapshot()
     })
@@ -467,9 +467,9 @@ export class Session implements SessionFace {
    * Install or clear the catalog-discovered transport address. A changed
    * address rebuilds an already-open window through its new history route.
    * @param address - direct parent/child address, or undefined for ordinary transport.
-   * @param parentAvailable - latest exact-parent availability hint.
+   * @param parentAvailable - latest exact-parent availability hint, or undefined before a catalog read.
    */
-  configureSubagent(address: SubagentAddress | undefined, parentAvailable = false): void {
+  configureSubagent(address: SubagentAddress | undefined, parentAvailable?: boolean): void {
     const same = this.address?.parentSessionId === address?.parentSessionId
       && this.address?.childSessionId === address?.childSessionId
       && this.address?.mode === address?.mode
@@ -623,7 +623,10 @@ export class Session implements SessionFace {
       running: this.running,
       subagent: this.address === undefined
         ? null
-        : { address: this.address, parentAvailable: this.parentAvailable },
+        : {
+          address: this.address,
+          ...(this.parentAvailable === undefined ? {} : { parentAvailable: this.parentAvailable }),
+        },
       removed: this.removed,
       openState: this.openState,
       openError: this.openError,

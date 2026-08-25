@@ -226,7 +226,7 @@ const WINDOWS_ACL_RUNNER_FAILURE_EXIT = 127
  * cleanup failure reported on a non-zero child exit) is never misclassified
  * as "the command did not run". Keep the Landlock tuple aligned with the
  * assembled snapshot fixture at
- * `examples/acp-agent/tests/fixtures/partial-landlock-sandbox.ts`.
+ * `packages/test-support/session-snapshot/tests/fixtures/partial-landlock-sandbox.ts`.
  */
 const RUNNER_FAILURE_RULES = {
   bwrap: [{ fatalSignatures: ['bwrap: '] }],

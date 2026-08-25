@@ -6,7 +6,11 @@ The model-facing delegation tool over one configured `ctx.subagents` provider. C
 
 ## Provider selection and lifecycle
 
-Each plugin instance binds one `provider` to one `toolName`; the model receives no provider selector. Load another distinctly named instance to expose another transport. The tool registers only while its provider exists, avoiding sibling load-order and provider-reload dependencies. Its description follows `provider.inheritsParentContext`: fresh children require standalone prompts, while forked children already see completed parent turns.
+Each plugin instance binds one subagent transport `provider` to one `toolName`; the model cannot change that transport. Load another distinctly named instance to expose another transport. `enableModelSelection: true`, or an enabled Host preference when `modelSelectionSettings: true`, requires that provider's child `agentOptions` capability and exposes optional child LLM `provider`, `model`, and `reasoning_effort` fields without additional route configuration. A call may supply a complete provider/model pair, or only an effort when configured or parent values supply the effective route. The live adapter resolves explicit or configured routes before child creation. A call that omits every selection field uses `agentOptions` and then inherits compatible missing values from the parent's latest logged request selection, falling back to its creation options before the first request and retaining its configured `maxTokens`. Changing provider or model without naming an effort clears the lower layer's route-owned effort so the selected model resolves its default.
+
+The delegation tool registers only while its subagent provider exists, avoiding sibling load-order and provider-reload dependencies. When model selection is enabled, its optional fields remain visible without `ctx.llm`; a call that selects a route rejects if the service is unavailable. When disabled, the schema omits those fields and execution rejects a forced selection. Configured `agentOptions` remain deployment-owned child defaults independently of this model-facing switch. Adapter catalog and topology changes do not rewrite or re-register the tool. Its description follows `provider.inheritsParentContext`: fresh children require standalone prompts, while forked children already see completed parent turns.
+
+An enabled definition registers `list_subagent_models`, which lists registered providers, one provider's advertised models, or one exact model's reasoning efforts at call time. At most one instance in a tool scope may enable selection because this discovery tool has a global name; duplicate owners fail registration. Shipped product compositions default the primary `subagent` (`spawn`) instance off and sample the Host `subagent-model-selection.enabled` preference when each new top-level session is composed. The enabled decision is logged as `subagent/model-selection-enabled`, inherited by child sessions, and retained on resume; later settings edits do not change a running session. Shipped compositions deliberately keep `subagent_fork` disabled so the fork inherits the parent's provider and model: changing that route would forfeit provider-side KV Cache reuse of the inherited conversation prefix and can make prefix recomputation dominate the delegated task's cost. This restriction remains even if discovery ownership is separated. Catalog membership remains advisory: an enabled delegation tool accepts an unlisted model id when its adapter does. The [model-selected route Agent Note](../../../.agents/notes/implemented/feature/2026-08-18-model-selected-subagent-routes.md) owns the rationale and reintroduction condition.
 
 A foreground call passes the execution signal through startup and execution, awaits `run.result`, and always awaits `run.dispose()` before returning. Only `completed` returns the canonical `{ kind: 'foreground', runId, output: JsonValue[] }`, rendered as the same final text. Abort, refusal, token limit, and other failures become errored tool results whose message contains the stop-reason headline, an optional provider-authored `SubagentResult.diagnostic`, and then any preserved partial assistant text. The diagnostic remains separate from `SubagentResult.output`, so a truncated answer is never reported as success or confused with infrastructure detail. If result collection and disposal both reject, the errored result preserves both failures.
 
@@ -20,9 +24,11 @@ A foreground call passes the execution signal through startup and execution, awa
 |---|---|
 | `provider` (required) | Provider name (`spawn`, `fork`, `acp`, ...). |
 | `toolName` | Model-facing name, default `subagent`; distinct for every loaded instance. |
+| `enableModelSelection` | Exposes and accepts model-facing child LLM selection fields and registers the shared `list_subagent_models` tool, default `false`. It requires the subagent provider's `agentOptions` capability. At most one instance in a tool scope may enable it; the discovery schema remains registered without `ctx.llm`, while discovery and selected-route calls reject until that optional service is available. Configured `agentOptions` remain available when this switch is disabled. |
+| `modelSelectionSettings` | Samples the Host `subagent-model-selection` preference while composing an Agent, records an enabled decision in its Session, and inherits that decision in child Sessions. Default `false`; mutually exclusive with `enableModelSelection` and valid only in an Agent-scoped composition. The preference defaults off and changes only subsequently composed top-level Sessions. |
 | `enableRunInBackground` | Exposes background mode, default `true`; disabling also rejects forced background calls. |
 | `backgroundMode` | Background lifecycle policy, default `one-shot`. `one-shot` defaults calls to foreground; `continuable` defaults them to background, requires the provider's `prepareContinuable` capability, and returns a durable child id without requiring the follow-up tool. |
-| `agentOptions` | Provider-specific child `provider`, `model`, and positive `maxTokens`; the in-process provider treats explicit values as overrides of inherited parent options. |
+| `agentOptions` | Configured child LLM `provider`, `model`, adapter-owned `reasoningEffort`, and positive `maxTokens`; requires the subagent provider's `agentOptions` capability. In-process providers merge explicit values over the parent's latest logged request selection, or its creation options before the first request. An inherited effort survives only while the effective provider/model route is unchanged; changing the route without an explicit effort lets the selected model supply its default. A configured provider, model, or effort is checked through the optional `ctx.llm` service before child creation even when the call omits model-selection fields; a missing service or invalid value rejects the call. |
 | `persona` | Per-child persona; requires provider `persona` capability. |
 | `toolFilter` | Per-child global-tool restriction; requires `toolFilter` capability. |
 | `maxDepth` | Absolute delegation-depth cap, default `3` (`0` forbids delegation); a numeric cap requires the `depthLimit` capability and fails the mount without it. `'provider-managed'` sends no cap for an out-of-process provider whose budget belongs to the child harness. The tool stays visible at the cap; each attempted start checks the calling agent's current depth and returns an errored tool result when rejected. |
@@ -37,15 +43,29 @@ Foreground and background calls are concurrency-safe: sibling delegations in one
 
 #### What the model sees
 
-The generated default [`subagent` schema](../../../docs/tool-catalog.md#deepseek-aidsh-tool-subagent) under this instance's configured name while its provider exists. Provider context inheritance changes the tool and prompt descriptions. Enabled background mode adds `run_in_background`: continuable mode documents its `true` default, runtime settlement notice, and explicit foreground override, while one-shot mode documents its `false` default and the job id collected with `job_output` or stopped with `job_kill`. While the tool is visible in an assembly's scope, a `tool:<toolName>` system-prompt section tells the model to start independent continuable delegations together, keep working while they run, and choose foreground only when its next action depends on the result; a tool restriction removes both its schema and this guidance.
+The generated default [`subagent` schema](../../../docs/tool-catalog.md#deepseek-aidsh-tool-subagent) under this instance's configured name while its provider exists. `enableModelSelection` adds `provider`, `model`, and `reasoning_effort` plus inheritance and selection guidance; the provider must support `agentOptions`. Provider context inheritance changes the tool and prompt descriptions. Enabled background mode adds `run_in_background`: continuable mode documents its `true` default, runtime settlement notice, and explicit foreground override, while one-shot mode documents its `false` default and the job id collected with `job_output` or stopped with `job_kill`. While the tool is visible in an assembly's scope, a `tool:<toolName>` system-prompt section tells the model to start independent continuable delegations together, keep working while they run, and choose foreground only when its next action depends on the result; a tool restriction removes both its schema and this guidance.
 
 #### Token effect
 
-Fixed schema cost per parent request; each provider instance adds one schema, and each continuable instance adds one short system-prompt section.
+Fixed schema cost per parent request; enabling model selection adds three parameters. Each subagent provider instance adds one schema, and each continuable instance adds one short system-prompt section.
 
 #### KV Cache effect
 
-Prefix-stable while provider instances, names, descriptions, and schemas are unchanged. Provider registration lifecycle may invalidate parent reuse from the first changed tool definition.
+Prefix-stable while subagent provider instances and their configuration are unchanged. Adapter catalog changes do not alter the definition. A route override on an inheritance-capable instance may prevent the child from reusing the inherited parent prefix.
+
+### Model selection and discovery
+
+#### What the model sees
+
+An instance with static `enableModelSelection: true`, or a settings-controlled instance whose Session decision is enabled, exposes the child LLM selection fields and `list_subagent_models`. Calls reject while the optional `ctx.llm` service is unavailable. With no arguments the discovery tool returns registered provider ids and names; with `provider` it returns that adapter's advertised models; with `provider` and `model` it resolves the exact model and returns its advertised reasoning efforts and default. The result is read-only runtime metadata, not an authorization list.
+
+#### Token effect
+
+One fixed tool schema is present in shipped compositions. Directory contents enter the transcript only when the model calls the tool.
+
+#### KV Cache effect
+
+The schema is prefix-stable across adapter registration and catalog changes. Each result is appended after the reusable prefix.
 
 ### Foreground result
 
@@ -79,4 +99,5 @@ Append-only; newly visible content follows the reusable request prefix and does 
 
 - **Background runs expose no result through this tool** — a one-shot task's final output is collected through the generic task surface, and a continuable child's output stays in its own session, read by its subagent id. The settlement notice states how that child ended and carries any final assistant message, but it is not this call's return value and cannot be awaited here.
 - **Duplicate names across waiting one-shot instances are detected late** (`TODO(subagent-dup-toolname)`) — continuable instances reserve their prompt-section name during plugin application, but preventing provider-registration rollback for waiting one-shot instances requires a registry of intended names.
-- **Child policy is fixed per instance** — another model, persona, tool filter, or depth cap requires another distinctly named tool.
+- **Shipped fork tools cannot select a child LLM route** — they inherit the parent's provider and model to keep the copied conversation prefix eligible for KV Cache reuse. Re-enable the fields only when route changes preserve reuse or expose a bounded recomputation cost.
+- **Non-routing child policy is fixed per instance** — another persona, tool filter, or depth cap requires another distinctly named tool. LLM provider/model/reasoning-effort selection requires static enablement or an enabled per-Session preference and a subagent provider that advertises `agentOptions`; out-of-process providers currently reject enabling it rather than ignore it.

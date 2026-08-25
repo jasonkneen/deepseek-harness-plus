@@ -21,6 +21,7 @@ const platforms = {
   'linux-x64': { tag: 'manylinux_2_28_x86_64', executable: 'runtime-linux-x64' },
   'linux-arm64': { tag: 'manylinux_2_28_aarch64', executable: 'runtime-linux-arm64' },
   'macos-arm64': { tag: 'macosx_14_0_arm64', executable: 'runtime-macos-arm64' },
+  'win-x64': { tag: 'win_amd64', executable: 'runtime-win-x64.exe' },
 }
 
 function workspace(root: string, name: string, manifest: Record<string, unknown>): void {
@@ -35,7 +36,7 @@ afterEach(() => {
 })
 
 describe('verifyRuntimeClosure', () => {
-  it('requires only plugins active for a Linux or macOS target', async () => {
+  it('requires only plugins active for each published target', async () => {
     const root = fixture({
       'python/sdk-runtime/package.json': { name: 'runtime', dependencies: { '@scope/shared': 'workspace:^' } },
       'python/sdk-runtime/platforms.json': platforms,
@@ -52,6 +53,9 @@ describe('verifyRuntimeClosure', () => {
     - id: macos
       name: '@scope/macos'
       disabled: !!js process.platform !== 'darwin'
+    - id: windows
+      name: '@scope/windows'
+      disabled: !!js process.platform !== 'win32'
 `,
     })
 
@@ -61,6 +65,7 @@ describe('verifyRuntimeClosure', () => {
     expect(result.failures).toEqual([
       'standard preset -> @scope/linux (linux-arm64, linux-x64)',
       'standard preset -> @scope/macos (macos-arm64)',
+      'standard preset -> @scope/windows (win-x64)',
     ])
   })
 
@@ -78,7 +83,7 @@ describe('verifyRuntimeClosure', () => {
     const result = await verifyRuntimeClosure(root)
 
     expect(result.failures).toEqual([
-      'standard preset -> @scope/conditional (linux-arm64, linux-x64, macos-arm64)',
+      'standard preset -> @scope/conditional (linux-arm64, linux-x64, macos-arm64, win-x64)',
     ])
   })
 
@@ -112,7 +117,7 @@ describe('verifyRuntimeClosure', () => {
     const result = await verifyRuntimeClosure(root)
 
     expect(result.failures).toEqual([
-      'standard preset -> @scope/plugin [runtime dependency is "1.2.3"; expected workspace:] (linux-arm64, linux-x64, macos-arm64)',
+      'standard preset -> @scope/plugin [runtime dependency is "1.2.3"; expected workspace:] (linux-arm64, linux-x64, macos-arm64, win-x64)',
     ])
   })
 

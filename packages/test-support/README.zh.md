@@ -6,7 +6,7 @@
 
 | 包 | 职责 |
 |---|---|
-| [`acp-snapshot/`](acp-snapshot/README.zh.md) | 提供 ACP（Agent Client Protocol）快照测试工具包 |
+| [`session-snapshot/`](session-snapshot/README.zh.md) | 提供会话日志快照支持和协议适配器 |
 | [`agent-loop-testkit/`](agent-loop-testkit/README.zh.md) | 为 AgentLoop 测试挂载共享先决条件 |
 | [`invariants/`](../runtime-diagnostics/invariants/README.zh.md) | 运行开发期运行时约定断言 |
 | [`loader-smoke/`](loader-smoke/README.zh.md) | 启动由 Loader 组合的应用以执行冒烟测试 |

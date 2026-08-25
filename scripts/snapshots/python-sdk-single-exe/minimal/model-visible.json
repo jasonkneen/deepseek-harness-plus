@@ -81,7 +81,7 @@
       },
       {
         "role": "user",
-        "text": "Exercise the packaged minimal agent's persistent Bash and string-replacement editor.\nEditor path: {{cwd}}/created.txt"
+        "text": "Exercise the packaged minimal agent's persistent shell and string-replacement editor.\nEditor path: {{cwd}}/created.txt"
       }
     ]
   },
@@ -167,7 +167,7 @@
       },
       {
         "role": "user",
-        "text": "Exercise the packaged minimal agent's persistent Bash and string-replacement editor.\nEditor path: {{cwd}}/created.txt"
+        "text": "Exercise the packaged minimal agent's persistent shell and string-replacement editor.\nEditor path: {{cwd}}/created.txt"
       },
       {
         "role": "assistant",
@@ -267,7 +267,7 @@
       },
       {
         "role": "user",
-        "text": "Exercise the packaged minimal agent's persistent Bash and string-replacement editor.\nEditor path: {{cwd}}/created.txt"
+        "text": "Exercise the packaged minimal agent's persistent shell and string-replacement editor.\nEditor path: {{cwd}}/created.txt"
       },
       {
         "role": "assistant",
@@ -381,7 +381,7 @@
       },
       {
         "role": "user",
-        "text": "Exercise the packaged minimal agent's persistent Bash and string-replacement editor.\nEditor path: {{cwd}}/created.txt"
+        "text": "Exercise the packaged minimal agent's persistent shell and string-replacement editor.\nEditor path: {{cwd}}/created.txt"
       },
       {
         "role": "assistant",

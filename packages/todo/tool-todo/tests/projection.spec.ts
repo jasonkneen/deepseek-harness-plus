@@ -1,8 +1,8 @@
 /**
  * The `todos` projection provider (session-projection RFC knife 4 — the "a
  * fourth domain is just its own registrations" acceptance probe): mounting
- * tool-todo beside the registry serves the whole current list on the history
- * tail page with a consistent asOfSeq (= last event seq); before any write the value is null; a
+ * tool-todo beside the registry serves the whole current list with a
+ * consistent asOfSeq (= last event seq); before any write the value is null; a
  * composition without tool-todo has no `todos` key; unmounting tool-todo
  * removes it (HMR safety). The carrier and framework are exercised unmodified.
  */
@@ -17,7 +17,6 @@ import type { Session } from '@deepseek-ai/dsh-session'
 import type { TodoItem } from '@deepseek-ai/dsh-tool-todo'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
-import { SessionHistoryController } from '@deepseek-ai/dsh-api-session-controller/src/history.ts'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import UserQuestionService from '@deepseek-ai/dsh-user-questions'
 import * as ToolTodo from '@deepseek-ai/dsh-tool-todo'
@@ -39,16 +38,11 @@ async function harness(withTodoTool: boolean): Promise<Bench> {
   if (withTodoTool) await ctx.plugin(ToolTodo, { allowParallelInProgress: true })
   const session = ctx.sessions.create()
   ctx.agents.register({ id: session.id, session, status: 'idle', ctx } as Agent)
-  const history = new SessionHistoryController(ctx)
   return {
     ctx,
     session,
     async tailProjections() {
-      return (await history.page({
-        address: { kind: 'session', sessionId: session.id },
-        throughSeq: session.seq - 1,
-      }, new AbortController().signal))
-        .projections
+      return ctx.sessionProjections.snapshot(session)
     },
   }
 }

@@ -12,7 +12,9 @@ import {
   type SessionNotification,
 } from '@agentclientprotocol/sdk'
 import { startMockLlmServer } from '@deepseek-ai/dsh-llm-mock-server'
+import { entryListSchema } from '@deepseek-ai/cordis-plugin-include'
 import { execa } from 'execa'
+import * as yaml from 'js-yaml'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
 /** Published-entry acceptance for argument errors, profile lifecycle, and boot-free config dumps. */
@@ -909,6 +911,7 @@ describe.skipIf(!existsSync(dshBin))('dsh BUILT bin (node lib/bin.js, no tsx)', 
       expect(stdout).toContain('agents: []')
       expect(stdout).toContain('# == @deepseek-ai/dsh-base')
       expect(stdout).toContain("name: '@deepseek-ai/dsh-host-webserver'")
+      expect(existsSync(join(home, 'profiles', 'node_modules'))).toBe(false)
     }, 30_000)
 
     it('prints the headless profile without Host or browser layers', async () => {
@@ -922,6 +925,39 @@ describe.skipIf(!existsSync(dshBin))('dsh BUILT bin (node lib/bin.js, no tsx)', 
       expect(stdout).not.toMatch(/name: '@deepseek-ai\/dsh-host-/)
       expect(stdout).not.toContain("name: '@deepseek-ai/dsh-web-app'")
       expect(stdout).not.toMatch(/name: '@deepseek-ai\/dsh-client-/)
+    }, 30_000)
+
+    it('prints the exact standalone sdk-minimal tree without dsh-base', async () => {
+      const { stdout, code, stderr } = await runBuiltBin(
+        ['--profile', 'sdk-minimal', '--dump-default-config'],
+        { DSH_HOME: home },
+      )
+      expect(code).toBe(0)
+      expect(stderr).toBe('')
+      const rows = yaml.load(stdout, { schema: entryListSchema }) as Array<{ id?: string; name?: string }>
+      expect(rows.map(row => [row.id, row.name])).toEqual([
+        ['sdk-app-startup', '@deepseek-ai/dsh-sdk-app'],
+        ['sdk-jsonrpc-server', '@deepseek-ai/dsh-sdk-jsonrpc-server'],
+        ['deepseek-llm-api-extensions', '@deepseek-ai/dsh-deepseek-llm-api-extensions'],
+        ['session-log-deepseek', '@deepseek-ai/dsh-session-log-deepseek'],
+        ['plugin-package-inventory-deepseek', '@deepseek-ai/dsh-plugin-package-inventory-deepseek'],
+        ['llm-deepseek', '@deepseek-ai/dsh-llm-deepseek'],
+        ['sandbox', '@deepseek-ai/dsh-sandbox-local'],
+        ['sandbox-policy', '@deepseek-ai/dsh-sandbox-policy'],
+        ['subprocess', '@deepseek-ai/dsh-subprocess-local'],
+        ['pty', '@deepseek-ai/dsh-terminal'],
+        ['terminal-bash', '@deepseek-ai/dsh-terminal-bash'],
+        ['terminal-pwsh', '@deepseek-ai/dsh-terminal-bash'],
+        ['fs-local', '@deepseek-ai/dsh-fs-local'],
+        ['agent-spine', '@deepseek-ai/dsh-agent-spine-demo'],
+        ['persistent-bash', '@deepseek-ai/dsh-tool-bash-persistent'],
+        ['persistent-pwsh', '@deepseek-ai/dsh-tool-pwsh-persistent'],
+        ['str-replace-editor', '@deepseek-ai/dsh-tool-str-replace-editor'],
+        ['sessions', '@deepseek-ai/dsh-session-persistence-jsonl'],
+      ])
+      expect(stdout).toContain('# == @deepseek-ai/dsh-sdk-minimal')
+      expect(stdout).not.toContain('@deepseek-ai/dsh-base')
+      expect(stdout).not.toContain('@deepseek-ai/dsh-web-app')
     }, 30_000)
 
     it('composes the profile user layer and a --patch overlay in order', async () => {

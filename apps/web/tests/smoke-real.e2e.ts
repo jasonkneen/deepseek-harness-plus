@@ -19,7 +19,7 @@ import { spawn } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { createServer } from 'node:http'
-import { createRequire } from 'node:module'
+import { createRequire, SourceMap } from 'node:module'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
@@ -28,7 +28,9 @@ import { chromium } from 'playwright'
 import { afterAll, beforeAll, describe, expect, it, onTestFailed } from 'vitest'
 import { REPO_ROOT, connectFreshWorkspace, newEnglishPage, probeFreePort, requireDist, saveFailureShot } from './support.ts'
 
-const WEB_SURFACE_PROMPT = fileURLToPath(new URL('./snapshots/web-runtime-context/web-surface-prompt.expected.md', import.meta.url))
+const WEB_SURFACE_PROMPT = fileURLToPath(new URL('./expected/web-runtime-context/web-surface-prompt.expected.md', import.meta.url))
+
+const comboMapUrl = (url: string): string => url.replace(/\/client\.js(?=,|&rev=)/g, '/client.js.map')
 
 function waitForReadyLine(child: ChildProcess): Promise<string> {
   return new Promise((resolveReady, reject) => {
@@ -125,7 +127,7 @@ async function sessionCursor(baseUrl: string, sessionId: string): Promise<number
           }
           const value = frame.value
           if (frame.type === 'item' && isRecord(value)
-            && value.type === 'opened' && Number.isSafeInteger(value.cursor)) {
+            && value.type === 'snapshot' && Number.isSafeInteger(value.cursor)) {
             finish(undefined, value.cursor as number)
           }
         } catch (error) {
@@ -203,6 +205,23 @@ async function waitForAssistantMarker(baseUrl: string, sessionId: string, marker
   }).toBe(true)
 }
 
+/** Find one real source location through a served indexed map. */
+function firstMappedSource(script: string, payload: ConstructorParameters<typeof SourceMap>[0]): string | undefined {
+  const consumer = new SourceMap(payload)
+  const lines = script.split('\n')
+  for (let line = 0; line < lines.length; line++) {
+    const lastColumn = Math.min(lines[line]!.length, 512)
+    for (let column = 0; column <= lastColumn; column++) {
+      const entry = consumer.findEntry(line, column)
+      if (!('originalSource' in entry) || typeof entry.originalSource !== 'string') continue
+      if (entry.originalSource.startsWith('/packages/') && entry.originalSource.includes('/src/')) {
+        return entry.originalSource
+      }
+    }
+  }
+  return undefined
+}
+
 /** Real-host smoke screenshot: evidence for the figma comparison, not a failure artifact. */
 async function screen(page: Page, name: string): Promise<void> {
   await page.screenshot({ path: join(REPO_ROOT, '.artifacts', `w5-${name}.png`) })
@@ -237,7 +256,7 @@ const notReady = UI_PLUGIN_DIRS.filter((dir) => {
 if (notReady.length > 0) console.warn(`[smoke-real] skipped — client bundles not ready: ${notReady.join(', ')}`)
 
 describe('dsh web keyless CLI smoke', () => {
-  it('listens on 127.0.0.1 by default', async () => {
+  it('serves a usable app from two immutable plugin batches', async () => {
     requireDist()
     const sessionsDir = mkdtempSync(join(tmpdir(), 'dsh-web-keyless-'))
     const tsxLoader = pathToFileURL(createRequire(join(REPO_ROOT, 'package.json')).resolve('tsx')).href
@@ -256,11 +275,67 @@ describe('dsh web keyless CLI smoke', () => {
         stdio: ['ignore', 'pipe', 'pipe'],
       },
     )
+    let browser: Browser | undefined
     try {
       const readyUrl = await waitForReadyLine(child)
       expect(readyUrl).toMatch(/^http:\/\/127\.0\.0\.1:\d+$/)
       expect((await fetch(readyUrl)).status).toBe(200)
+      browser = await chromium.launch({ headless: true })
+      const page = await newEnglishPage(browser)
+      const pluginScripts: string[] = []
+      const cacheHeaders = new Map<string, string | undefined>()
+      // Chromium reports `preload as=script` as Script and reuses that same
+      // request when the matching script node executes; this count pins both.
+      page.on('request', (request) => {
+        const url = new URL(request.url())
+        const resource = `${url.pathname}${url.search}`
+        if (request.resourceType() === 'script' && resource.startsWith('/plugins/??')) {
+          pluginScripts.push(resource)
+        }
+      })
+      page.on('response', (response) => {
+        const url = new URL(response.url())
+        const resource = `${url.pathname}${url.search}`
+        if (resource.startsWith('/plugins/??')) {
+          cacheHeaders.set(resource, response.headers()['cache-control'])
+        }
+      })
+      await page.goto(readyUrl)
+      await page.getByRole('button', { name: 'New session', exact: true }).first().waitFor({ timeout: 30_000 })
+      const batchPaths = [...new Set(pluginScripts)].sort()
+      expect(batchPaths).toHaveLength(2)
+      expect(batchPaths).toContainEqual(expect.stringMatching(
+        /^\/plugins\/\?\?.+\/client\.js,.+\/client\.js&rev=[a-f\d]{12}$/,
+      ))
+      expect(batchPaths).toContainEqual(expect.stringMatching(
+        /^\/plugins\/\?\?@deepseek-ai\/dsh-client-modules\/client\.js&rev=[a-f\d]{12}$/,
+      ))
+      expect([...cacheHeaders.values()]).toEqual([
+        'public, max-age=31536000, immutable',
+        'public, max-age=31536000, immutable',
+      ])
+      for (const path of batchPaths) {
+        const [scriptResponse, mapResponse] = await Promise.all([
+          fetch(`${readyUrl}${path}`),
+          fetch(`${readyUrl}${comboMapUrl(path)}`),
+        ])
+        expect(scriptResponse.status).toBe(200)
+        expect(mapResponse.status).toBe(200)
+        const script = await scriptResponse.text()
+        const payload = await mapResponse.json() as ConstructorParameters<typeof SourceMap>[0]
+        const sections = (payload as unknown as {
+          sections: { map: { sources?: unknown[]; sourcesContent?: unknown[] } }[]
+        }).sections
+        expect(sections.every(section => (
+          Array.isArray(section.map.sources)
+          && Array.isArray(section.map.sourcesContent)
+          && section.map.sourcesContent.length === section.map.sources.length
+          && section.map.sourcesContent.every(source => typeof source === 'string')
+        ))).toBe(true)
+        expect(firstMappedSource(script, payload)).toMatch(/^\/packages\/.+\/src\//)
+      }
     } finally {
+      await browser?.close()
       const closed = child.exitCode === null
         ? new Promise<void>((resolveClose) => { child.once('close', () => { resolveClose() }) })
         : Promise.resolve()

@@ -445,14 +445,6 @@ export class TestSessions implements ISessions {
     return Promise.resolve()
   }
 
-  /** Apply a confirmed preset switch into the fixture list, as production does. */
-  noteAgentPreset(sessionId: SessionId, agentPreset: string): void {
-    this.list.update((draft) => {
-      const summary = draft.byId[sessionId]
-      if (summary !== undefined) draft.byId[sessionId] = { ...summary, agentPreset }
-    })
-  }
-
   /** Clear the current selection (recorded; the production no-session flow). */
   clear(): void {
     this.calls.push({ method: 'clear', args: [] })

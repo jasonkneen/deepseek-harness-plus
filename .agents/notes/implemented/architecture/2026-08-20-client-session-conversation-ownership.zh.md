@@ -82,7 +82,7 @@ UI 层可以同时读取多个 Controller 做一次导航决定，但不得把�
 | `client/ui-session` | Session scope、标准 source、`SessionProvider`、pending interaction 聚合 | Session transport、Conversation 组装、Approval/Question 结果 |
 | `client/ui-workspace` | Workspace hook、浏览器 UI 和跨 Controller 导航策略 | Workspace transport、Session 数据副本 |
 | `client/ui-conversation` | Conversation core、registry、binding、shell、input、composer、queue 和 View 导航 | Session transport、Chat/Trajectory snapshot |
-| `client/ui-chat` | Chat target、Node definitions、renderer、selection、details、locale 和历史图片 | Session 生命周期、通用 View 导航、Trajectory |
+| `client/ui-chat` | Chat target、Node definitions、renderer、selection、details 和 locale | Session 生命周期、通用 View 导航、Trajectory、历史图片 cache |
 | `client/ui-trajectory` | Trajectory target、事件记录投影和检查视图 | Session snapshot、Chat snapshot |
 | `client/ui-approval` | Pending Approval、Remote listener、composer 和审批 UI | Session control、通用 composer election |
 | `client/ui-user-questions` | Pending Question、Remote listener、composer 和问题 UI | Session control、通用 composer election |
@@ -296,13 +296,13 @@ Draft 与输入状态属于 Conversation UI，不进入 Session snapshot。Queue
 
 ### Chat owner
 
-`client/ui-chat` 注册 target id `chat`，并拥有 Chat snapshot builder、Conversation Node definitions、keyed node renderers、selection、details、stats、locale、tool inspection 协作和历史图片 cache。
+`client/ui-chat` 注册 target id `chat`，并拥有 Chat snapshot builder、Conversation Node definitions、keyed node renderers、selection、details、stats、locale 和 tool inspection 协作。
 
 它通过 `ctx.uiSession.provide()` 注册 `chat` target source。`ChatNodeSeat` 和 Chat 内部消费者使用 `useChat`，不再传递 `useConversation(snapshot => snapshot.views.get('chat'))`。
 
 Chat activity 只由可见且非 command 的 Chat Node 激活。普通 command-only history 保持 Hero，`/goal` 的 `command-input` Node 激活 fresh Conversation。
 
-历史图片 cache 的 Session key、pending promise、generation guard、blob URL 和 disposer 同属 `ui-chat`；Draft 图片仍属于 Conversation input。
+历史图片 cache 已移入 `ui-conversation`（`ctx.uiConversation.imageUrl`），Chat 与 Trajectory 对同一会话附件共享一次授权读取和一个浏览器 URL（[Trajectory 持久化图片附件](../feature/2026-08-24-trajectory-image-attachments.zh.md)）；Draft 图片仍属于 Conversation input。
 
 ### Trajectory owner
 

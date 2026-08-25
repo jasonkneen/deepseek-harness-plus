@@ -8,13 +8,12 @@
  */
 
 /**
- * Paths dropped from every collected tree. Source and test trees never
- * resolve at runtime (the artifact plane ships `lib/`), and sourcemaps,
- * declarations, and archives never resolve either while dominating the byte
- * count.
+ * Paths dropped from every collected tree. Test trees, sourcemaps,
+ * declarations, and archives never resolve at runtime while dominating the
+ * byte count. Third-party `src/` directories remain eligible because package
+ * entrypoints may resolve to JavaScript there.
  */
 export const EXCLUDE: readonly string[] = [
-  'src/**',
   'tests/**',
   'test/**',
   '__tests__/**',
@@ -30,11 +29,13 @@ export const EXCLUDE: readonly string[] = [
 ]
 
 /**
- * Additional paths dropped from workspace packages only. A workspace `dist/`
- * is a page-asset tree the static deployment serves itself; external packages
- * legitimately ship runtime code under `dist/`.
+ * Additional paths dropped from workspace and vendored packages only. Their
+ * runtime plane is built `lib/`; a workspace `dist/` is a page-asset tree the
+ * static deployment serves itself. External packages may place runtime code
+ * under either directory.
  */
 export const EXCLUDE_WORKSPACE: readonly string[] = [
+  'src/**',
   'dist/**',
 ]
 

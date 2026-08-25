@@ -2,10 +2,9 @@
 
 import { stat } from 'node:fs/promises'
 import type { Context } from '@deepseek-ai/cordis'
-import { resolveSessionPreset } from '@deepseek-ai/dsh-agent-presets'
+import type {} from '@deepseek-ai/dsh-agent-presets'
 import type { ImageAttachmentLimits } from '@deepseek-ai/dsh-attachment'
 import type { Session, SessionEvent, SessionHeader, SessionId } from '@deepseek-ai/dsh-session'
-import type { SessionPersistence } from '@deepseek-ai/dsh-session-persistence'
 import type {} from '@deepseek-ai/dsh-session-projection'
 import type {} from '@deepseek-ai/dsh-session-projection-cache'
 import { SessionQueryError, type SessionSearchCursor } from '@deepseek-ai/dsh-session-query'
@@ -16,11 +15,11 @@ import {
   SESSION_SEARCH_SNIPPET_MAX_CODE_POINTS,
 } from './types.ts'
 import type {
-  SessionListMetadata, SessionProjectionsBlock, SessionProjectionValues, SessionSearchItem,
+  SessionListMetadata, SessionProjectionHints, SessionProjectionValues, SessionSearchItem,
   SessionSearchValue, SessionSummary,
 } from './types.ts'
 
-/** Default maximum artifact size eligible for one cold blankness read. */
+/** Default maximum artifact size eligible for one cold projection observation. */
 export const DEFAULT_COLD_BLANK_PROBE_MAX_BYTES = 1024
 
 const COLD_SUMMARY_BATCH_SIZE = 16
@@ -62,17 +61,6 @@ export function applySessionListMetadata(
 }
 
 /**
- * Fold exact list metadata for an attached Session.
- * @param events - complete attached Session event log.
- * @returns metadata derived from the event prefix.
- */
-export function sessionListMetadata(events: readonly SessionEvent[]): SessionListMetadata {
-  let state: SessionListMetadata = { blank: true, lastPromptAt: null }
-  for (const event of events) state = applySessionListMetadata(state, event)
-  return state
-}
-
-/**
  * Return the longest prefix containing at most `maximum` Unicode code points.
  * @param value - source text.
  * @param maximum - maximum number of Unicode code points.
@@ -89,11 +77,11 @@ export function truncateUnicodeCodePoints(value: string, maximum: number): strin
   return value
 }
 
-/** Owns list projection registration, cold summaries, and authorized search. */
+/** Owns list projection registration, bounded cold summaries, and authorized search. */
 export class ApiSessionList {
   /**
-   * @param ctx - Host context carrying Session, persistence, and projection services.
-   * @param coldBlankProbeMaxBytes - maximum physical artifact size read to verify cold blankness.
+   * @param ctx - Host context carrying Session, query, persistence, and projection services.
+   * @param coldBlankProbeMaxBytes - maximum physical artifact size eligible for a full observation.
    */
   constructor(
     private readonly ctx: Context,
@@ -130,14 +118,14 @@ export class ApiSessionList {
    * @returns current list metadata and available projections.
    */
   summaryFor(session: Session): SessionSummary {
-    const metadata = sessionListMetadata(session.events)
     const projections = this.projectionsFor(session.header, session)
+    const metadata = projections?.values.sessionListMetadata
     return {
       sessionId: session.id,
       updatedAt: updatedAt(session.header, metadata),
       running: this.ctx.agents.get(session.id)?.status === 'running',
-      blank: metadata.blank,
-      ...listFields(session.header, session.events),
+      blank: metadata?.blank ?? session.seq === 0,
+      ...listFields(session.header),
       ...(projections === undefined ? {} : { projections }),
     }
   }
@@ -149,39 +137,84 @@ export class ApiSessionList {
    */
   async list(signal?: AbortSignal): Promise<SessionSummary[]> {
     signal?.throwIfAborted()
-    const items = this.ctx.sessions.list().map(session => this.summaryFor(session))
-    const attached = new Set(items.map(item => item.sessionId))
-    const persistence = this.ctx.get('sessionPersistence')
-    if (persistence !== undefined) {
-      const cold = (await persistence.list(signal))
-        .filter(meta => !attached.has(meta.id) && meta.cwd !== undefined)
-      signal?.throwIfAborted()
-      for (let offset = 0; offset < cold.length; offset += COLD_SUMMARY_BATCH_SIZE) {
-        const settled = await Promise.allSettled(cold.slice(offset, offset + COLD_SUMMARY_BATCH_SIZE)
-          .map(async (meta) => {
-            const projections = this.projectionsFor(meta, undefined)
-            const summary = await summarizeCold(
-              this.ctx,
-              persistence,
-              meta,
-              projections?.values.sessionListMetadata,
-              this.coldBlankProbeMaxBytes,
-              signal,
-            )
-            const raced = this.ctx.sessions.get(meta.id)
-            if (raced !== undefined) return this.summaryFor(raced)
-            return { ...summary, ...(projections === undefined ? {} : { projections }) }
-          }))
-        const summaries = settled.map((result) => {
-          if (result.status === 'rejected') throw result.reason
-          return result.value
-        })
-        signal?.throwIfAborted()
-        items.push(...summaries)
+    const records = await this.ctx.sessionQuery.listSessions(signal)
+    signal?.throwIfAborted()
+    const items: SessionSummary[] = []
+    const cold: SessionHeader[] = []
+    for (const record of records) {
+      const live = this.ctx.sessions.get(record.header.id)
+      if (live !== undefined) {
+        items.push(this.summaryFor(live))
+        continue
+      }
+      if (record.header.cwd === undefined) continue
+      cold.push(record.header)
+    }
+    for (let offset = 0; offset < cold.length; offset += COLD_SUMMARY_BATCH_SIZE) {
+      const settled = await Promise.allSettled(cold.slice(offset, offset + COLD_SUMMARY_BATCH_SIZE)
+        .map(header => this.summarizeCold(header, signal)))
+      for (const result of settled) {
+        if (result.status === 'rejected') throw result.reason
+        items.push(result.value)
       }
     }
     items.sort((left, right) => right.updatedAt - left.updatedAt)
     return items
+  }
+
+  private async summarizeCold(
+    header: SessionHeader,
+    signal: AbortSignal | undefined,
+  ): Promise<SessionSummary> {
+    const cached = this.projectionsFor(header, undefined)
+    const projections = cached?.values.sessionListMetadata?.blank === false
+      ? cached
+      : await this.probeSmallCold(header, signal) ?? cached
+    const raced = this.ctx.sessions.get(header.id)
+    if (raced !== undefined) return this.summaryFor(raced)
+    const metadata = projections?.values.sessionListMetadata
+    return {
+      sessionId: header.id,
+      updatedAt: updatedAt(header, metadata),
+      running: false,
+      // A large or inaccessible cache miss remains unknown and visible.
+      blank: metadata?.blank ?? false,
+      ...listFields(header),
+      ...(projections === undefined ? {} : { projections }),
+    }
+  }
+
+  private async probeSmallCold(
+    header: SessionHeader,
+    signal: AbortSignal | undefined,
+  ): Promise<SessionProjectionHints | undefined> {
+    if (this.coldBlankProbeMaxBytes === 0) return undefined
+    const persistence = this.ctx.get('sessionPersistence')
+    const location = persistence?.locate(header)
+    if (location === undefined) return undefined
+    signal?.throwIfAborted()
+    try {
+      if ((await stat(location.path)).size > this.coldBlankProbeMaxBytes) return undefined
+    } catch {
+      signal?.throwIfAborted()
+      return undefined
+    }
+    try {
+      using observation = await this.ctx.sessionQuery.observeSession(header.id, {
+        ...(signal === undefined ? {} : { signal }),
+        projectionMode: 'all',
+      })
+      const block = observation.projections
+      return block === undefined
+        ? undefined
+        : { asOfSeq: block.asOfSeq, values: block.values as SessionProjectionValues }
+    } catch (error: unknown) {
+      signal?.throwIfAborted()
+      this.ctx.logger.warn(
+        `api-session.list: small cold observation for "${header.id}" failed; serving it as visible: ${String(error)}`,
+      )
+      return undefined
+    }
   }
 
   /**
@@ -202,10 +235,12 @@ export class ApiSessionList {
       )
     }
     try {
-      const visible = await this.list(signal)
+      const visible = await provider.listSessions(signal)
       signal.throwIfAborted()
-      if (visible.length === 0) return { items: [], hasMore: false }
-      const visibleIds = new Set(visible.map(item => item.sessionId))
+      const visibleIds = new Set(visible
+        .filter(record => record.header.cwd !== undefined)
+        .map(record => record.header.id))
+      if (visibleIds.size === 0) return { items: [], hasMore: false }
       const authorized: SessionSearchItem[] = []
       const acceptedIds = new Set<SessionId>()
       const seenCursors = new Set<SessionSearchCursor>()
@@ -293,15 +328,16 @@ export class ApiSessionList {
   private projectionsFor(
     header: SessionHeader,
     session: Session | undefined,
-  ): SessionProjectionsBlock | undefined {
+  ): SessionProjectionHints | undefined {
     try {
       const block = session === undefined
         ? this.ctx.get('sessionProjectionCache')?.cachedSnapshot(header)
-        : this.ctx.get('sessionProjections')?.snapshot(session)
+        : this.ctx.get('sessionProjections')?.cachedSnapshot(session)
       return block !== undefined && Object.keys(block.values).length > 0
         ? {
           asOfSeq: block.asOfSeq,
-          // Projection definitions validate whole JSON values before snapshot publication.
+          // Listing hints contain every currently cached wire value but remain
+          // partial: missing cells and cache rows are never materialized here.
           values: block.values as SessionProjectionValues,
         }
         : undefined
@@ -340,69 +376,14 @@ function updatedAt(header: SessionHeader, metadata: SessionListMetadata | undefi
   return Math.max(header.createdAt, metadata?.lastPromptAt ?? 0)
 }
 
-function listFields(header: SessionHeader, events: readonly SessionEvent[] = []): {
+function listFields(header: SessionHeader): {
   readonly parentSessionId?: SessionId
   readonly origin?: 'subagent'
   readonly cwd?: string
-  readonly agentPreset?: string
 } {
-  const agentPreset = resolveSessionPreset({ header, events })
   return {
     ...(header.parentSession === undefined ? {} : { parentSessionId: header.parentSession }),
     ...(header.origin === undefined ? {} : { origin: header.origin }),
     ...(header.cwd === undefined ? {} : { cwd: header.cwd }),
-    ...(agentPreset === undefined ? {} : { agentPreset }),
-  }
-}
-
-async function summarizeCold(
-  ctx: Context,
-  persistence: SessionPersistence,
-  header: SessionHeader,
-  metadata: SessionListMetadata | undefined,
-  blankProbeMaxBytes: number,
-  signal?: AbortSignal,
-): Promise<SessionSummary> {
-  const probed = metadata?.blank === false
-    ? undefined
-    : await probeColdMetadata(ctx, persistence, header, blankProbeMaxBytes, signal)
-  return {
-    sessionId: header.id,
-    updatedAt: updatedAt(header, probed ?? metadata),
-    running: false,
-    blank: metadata?.blank === false ? false : probed?.blank ?? false,
-    ...listFields(header),
-  }
-}
-
-async function probeColdMetadata(
-  ctx: Context,
-  persistence: SessionPersistence,
-  header: SessionHeader,
-  maxBytes: number,
-  signal?: AbortSignal,
-): Promise<SessionListMetadata | undefined> {
-  if (maxBytes === 0) return undefined
-  signal?.throwIfAborted()
-  const location = persistence.locate(header)
-  if (location === undefined) return undefined
-  let size: number
-  try {
-    size = (await stat(location.path)).size
-  } catch {
-    signal?.throwIfAborted()
-    return undefined
-  }
-  if (size > maxBytes) return undefined
-  try {
-    const { events } = await persistence.readFrom(header.id, 0, signal)
-    signal?.throwIfAborted()
-    return sessionListMetadata(events)
-  } catch (error) {
-    signal?.throwIfAborted()
-    ctx.logger.warn(
-      `api-session.list: blank probe for "${header.id}" failed; serving it as visible: ${String(error)}`,
-    )
-    return undefined
   }
 }

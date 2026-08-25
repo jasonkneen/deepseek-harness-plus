@@ -6,7 +6,7 @@ Status: implemented
 
 ## 问题
 
-拉取请求的 Windows 判定同时需要快速的 win32 工具链信号与真实 Windows 内核结果。Wine 提供快速信号，但它运行在 Linux 内核与区分大小写的 ext4 之上，采用 hoisted 依赖布局，且无法证明 NTFS、DACL、ConPTY、崩溃持久性或原生进程行为。原生串行参考流程停用期间，每个拉取请求分支头还需要自动取得真实 Windows 内核结果。
+拉取请求必需的 Windows 判定既需要快速的 win32 工具链信号，也不能让聚合流程等待稀缺的 Windows 容量。Wine 提供这项关键路径信号，但它运行在 Linux 内核与区分大小写的 ext4 之上，采用 hoisted 依赖布局，且无法证明 NTFS、DACL、ConPTY、崩溃持久性或原生进程行为。原生串行参考流程停用期间，每个拉取请求分支头还需要自动取得真实 Windows 内核结果。
 
 覆盖率审计发现，陈旧分支状态恢复了针对受支持 LSP 源码的临时排除项。因此，原生 Windows 需要按同一逐文件 100% 阈值执行完整的受支持源码清单，而不能依赖缩小后的平台专用分母。
 
@@ -14,13 +14,13 @@ Status: implemented
 
 [ci.yml](../../../../.github/workflows/ci.yml) 中必需的 `windows` 作业仍是在 `ubuntu-latest` 上运行的 `windows node 24 / wine blocking`。它保留经过校验和验证的 Windows Node、Wine apt 与 pnpm 缓存、仅限工作区快照的 hoisted 安装，以及运行工作区构建与生产网站的[共享 Wine 门禁脚本](../../../../scripts/wine-windows-gates.sh)。Node 分发文件传输采用有界重试；nodejs.org 的大文件传输停滞时，由支持范围请求的传输镜像续传相同字节，但版本和 SHA-256 权威仍属于 nodejs.org，归档通过该校验前绝不会投入使用。稳定的 `windows` 作业 ID 仍是 `all checks passed` 的依赖项。[已归档的 Wine 实验](../../archived/process/2026-07-27-wine-windows-gates-experiment.md)保留其实测取舍，而本文负责当前双通道拓扑。
 
-每个拉取请求还会在组织自有的 `dsh-windows-2025-16core` 运行器上启动一个单独的 `windows-native` 作业，名称为 `windows node 24 / native complete`。该作业为工作区符号链接启用开发人员模式，通过 `pnpm/action-setup` 提供仓库固定版本的 `@pnpm/exe`，在不传输 store 归档的情况下执行不可变安装，并在原生 PowerShell 下运行 `pnpm run check:ci:windows-complete`。因此 package script 会通过 `npm_execpath` 暴露 `pnpm.exe`，让完整清单在 Windows 上覆盖无 shell 的包管理器再进入。门禁卡住时，120 分钟超时会为其设定上限，同时不把实测性能目标当作正确性截止时间。
+每个拉取请求还会在组织自有的 `dsh-windows-2025-16core` 运行器上启动一个常规且独立的 `windows-native` 作业，名称为 `windows node 24 / native complete`。该作业为工作区符号链接启用开发人员模式，通过 `pnpm/action-setup` 的 standalone 模式提供仓库固定版本的 `@pnpm/exe`，在不传输 store 归档的情况下执行不可变安装，并在原生 PowerShell 下运行 `pnpm run check:ci:windows-complete`。因此 package script 会通过 `npm_execpath` 暴露 `pnpm.exe`，让完整清单在 Windows 上覆盖无 shell 的包管理器再进入。门禁卡住时，120 分钟超时会为其设定上限，同时不把实测性能目标当作正确性截止时间。
 
-原生作业保留自身未被掩盖的结果。[聚合依赖决策](2026-08-22-native-windows-blocks-pull-request-aggregate.zh.md)让该结果成为 `all checks passed` 的依赖项；本文负责该作业的执行拓扑与完整清单。工作区构建、生产网站和逐文件 100% 覆盖率检查失败会使原生作业失败。静态检查、文档、包、构建产物、lint 与快照清单在同一作业内作为观测性门禁运行；其失败保持可见，但不会改变原生聚合结果，因为这些检查的阻断性判定由 Linux 负责。
+原生作业被刻意排除在 `all-checks-passed.needs` 之外，且不使用 `continue-on-error`：聚合流程既不等待它，也不会因它改变结论；该作业则保留自身未被掩盖的结果。工作区构建、生产网站和逐文件 100% 覆盖率检查失败会使原生作业失败。静态检查、文档、包、构建产物、lint 与快照清单在同一作业内作为观测性门禁运行；其失败保持可见，但不会改变原生聚合结果，因为这些检查的阻断性判定由 Linux 负责。
 
-16 核通道最多同时运行 8 道外层门禁。工作区构建、生产网站验证与 16 进程插桩覆盖率会立即启动。豁免重型覆盖率依赖构建并等待覆盖率报告合并，因此其 4 个 Vitest worker 与最多 8 个语料库子进程不会和分区阶段争用资源。轻量观测性清单同样等待覆盖率，随后与豁免工作重叠；包内临时探针会以满足源码扫描要求的完整内容原子发布，只属于脚本的探针则使用隐藏文件名。观测性清单启动时，`publint` 最多使用 8 个 worker。每个 Vitest 项目都使用 fork worker，因为 Node 24 的 CJS lexer 致命故障可在 Windows 与 POSIX 的共享 worker 中复现。两项覆盖率门禁都将 Vitest 默认的单测试和轮询时间预算设为 30 秒，因为在完整通道并发的 Windows 插桩下，多个互不相关的进程、Git、SQLite、watcher、语法和静态门禁 fixture（测试前置数据）可能超过 15 秒。translation-pairing 合并套件只导入 `scripts/` 源码和子进程，因此放入豁免重型套件门禁；V8 插桩不会为它贡献任何阈值覆盖率，却会放大 Git 进程延迟。Lefthook 并发 fixture 保留原有结果，采用 30 秒单用例预算与 10 秒进程就绪探测；安装器则允许被抢占的 lock 持有者在独占创建后用 5 秒发布记录。directory-picker 组合为防抖配置写入提供显式的 15 秒轮询预算；workspace-context 组合 fixture 使用测试自有、没有无关 1 秒截止时间的信号。这些只属于该通道的预算保留了原有断言结果，120 分钟的 job 截止时间仍会约束卡死的运行。LSP 源码与 ACL 沙箱源码仍计入 Windows 分母：基于 stub 的失败路径套件把每个进程内 ACL 沙箱文件都带到 100%，只有 runner 入口保持排除——它只作为 spawn 出的子进程在插桩运行之外执行，其行为由 runner 套件端到端钉住。窄范围且带注释的 V8 ignore 只覆盖不可达分支（另一平台专属分支、生命周期内不可达的防御守卫），其行为测试仍保留在所属平台。
+16 核通道最多同时运行 4 道外层门禁。工作区构建与生产网站验证会立即启动。插桩覆盖率与豁免重型覆盖率都等待完整构建：插桩语料包含针对已构建 `lib/` 输出的打包器断言，豁免门禁的临时 Oxlint 约定探针则不得与源码编译竞态。每道观测性门禁只等待两道覆盖率门禁以任意结果结算后再进入可用槽位；各门禁自身的 `needs` 边仍要求前置门禁通过。这也使随后创建临时约定文件的静态门禁不会与任一覆盖率扫描竞态。[job 内分区覆盖率](2026-08-18-in-job-partitioned-coverage.zh.md)使用 8 个单 worker 分片，豁免重型门禁则从 `DSH_COVERAGE_MAX_WORKERS=6` 获得 2 个 worker，因此构建完成后约有 10 个活动覆盖率执行单元。观测性清单启动时，`publint` 最多使用 8 个 worker。每个 Vitest 项目都使用 fork worker，因为 Node 24 的 CJS lexer 致命故障可在 Windows 与 POSIX 的共享 worker 中复现。两项覆盖率门禁都将 Vitest 默认的单测试和轮询时间预算设为 30 秒，因为在完整通道并发的 Windows 插桩下，多个互不相关的进程、Git、SQLite、watcher、语法和静态门禁 fixture（测试前置数据）可能超过 15 秒。SQLite busy-journal 节奏 fixture 会在普通 busy 预算内先注入两次 busy 结果，再返回成功，并观察每次尝试之间的延迟，使 schema 设置的调度时间不进入该断言。translation-pairing 合并套件只导入 `scripts/` 源码和子进程，因此放入豁免重型套件门禁；V8 插桩不会为它贡献任何阈值覆盖率，却会放大 Git 进程延迟。Lefthook 并发 fixture 保留原有结果，采用 30 秒单用例预算与 10 秒进程就绪探测；安装器则允许被抢占的 lock 持有者在独占创建后用 5 秒发布记录。directory-picker 组合为防抖配置写入提供显式的 15 秒轮询预算；workspace-context 组合 fixture 使用测试自有、没有无关 1 秒截止时间的信号。这些只属于该通道的预算保留了原有断言结果，120 分钟的 job 截止时间仍会约束卡死的运行。LSP 源码与 ACL 沙箱源码仍计入 Windows 分母：基于 stub 的失败路径套件把每个进程内 ACL 沙箱文件都带到 100%，只有 runner 入口保持排除——它只作为 spawn 出的子进程在插桩运行之外执行，其行为由 runner 套件端到端钉住。窄范围且带注释的 V8 ignore 只覆盖不可达分支（另一平台专属分支、生命周期内不可达的防御守卫），其行为测试仍保留在所属平台。
 
-16 核配置是这项清单经实测选定的容量规格。在单个插桩 Vitest 进程内使用 4 个、3 个和 2 个并发 worker 的分支头精确试验暴露出不稳定的 fixture 与 worker 退出，而相互独立的单 worker 子进程保留进程隔离。16 分片样本与最终托管运行会在 112.66–131.33 秒内完成插桩覆盖率；作业会先把宿主资源交给该阶段，再启动豁免工作。32 核对比仅将聚合门禁时间缩短 1.47 秒，且仍在 fork worker 内触发 CJS lexer 致命故障，因此增加核心数没有带来可靠的墙钟时间改善。
+16 核配置是这项清单经实测选定的容量规格。使用 6 个 coverage worker 的试验分别以 6 分 27 秒和 7 分 50 秒跑出完整通过结果，而在单个插桩 Vitest 进程内使用 4 个、3 个和 2 个并发 worker 的分支头精确试验暴露出不稳定的 fixture 与 worker 退出。相互独立的单 worker 子进程保留进程隔离。历史上的 16 分片样本把插桩覆盖率缩短到 112.66–122.01 秒。在当前的构建后拓扑中，16 个插桩分片加 2 个豁免 worker 会在 16 核运行器上调度 18 个覆盖率执行单元，且尚未计入生产网站的尾部工作或系统开销；8 个分片加 2 个豁免 worker 则调度 10 个。8 个分片刻意用部分延迟换取这份余量。32 核对比仅将聚合门禁时间缩短 1.47 秒，且仍在 fork worker 内触发 CJS lexer 致命故障，因此增加核心数没有带来可靠的墙钟时间改善。
 
 首次原生运行暴露出两项被兼容性通道掩盖的故障。文档投影测试此前只按 `/` 拆分来派生图片 basename；现在改为使用 Node 根据平台计算的 basename。Chokidar 消费方收到的 `%TEMP%` 以 `C:\\Users\\RUNNER~1` 这个 8.3 别名表示，而 libuv 返回的是长目录名，导致其 Windows 事件路径断言失败。共享的设置 watcher 与凭据 watcher，以及 Cordis 的模块 HMR（热模块替换）与精确配置 HMR，现在都会在打开 watcher 前规范化现有的原生监听基准路径或层级最深的现有祖先路径，并保留尚不存在的后缀；文件访问和诊断仍使用配置路径。模块 HMR 会挂接监听器并等待主 watcher 的 ready 事件，之后插件启动才会完成，因此启动后立即发生的编辑无法与初始扫描形成竞态。HMR 验收通过相同的异步原生 realpath 操作派生预期身份，避免同步 Windows 路径写法仍保留 8.3 别名。
 
@@ -36,6 +36,8 @@ Shiki 会禁用 TextMate 正则的延迟编译，并在用户内容进入保持�
 
 ## 曾考虑的替代方案
 
+**让原生 Windows 成为 `all checks passed` 的依赖项。** 这会为聚合流程提供保真度最高的 Windows 判定，但也会让每次合并等待最慢的托管作业与 Windows 容量。独立结果能让该信号保持自动产生，而不改变现有必需路径。
+
 **只在拉取请求上运行 Wine。** Wine 能快速触达阻断性 win32 工具链分支，但即使真实 NT、NTFS、PowerShell、进程或原生插件约定已经损坏，也可能报告绿灯。
 
 **将原生作业标记为 `continue-on-error`。** 门禁失败后，该设置会让其检查显示为成功。保留常规独立作业可维持诊断结论；仅从聚合流程的 `needs` 中省略它，才是不阻断的机制。
@@ -48,7 +50,7 @@ Shiki 会禁用 TextMate 正则的延迟编译，并在用户内容进入保持�
 
 ## 后果
 
-Wine 保留快速的早期信号与稳定作业身份。[聚合依赖决策](2026-08-22-native-windows-blocks-pull-request-aggregate.zh.md)让 `all checks passed` 同时等待 Wine 与原生 Windows，因此分支保护通过一个稳定的必需检查采用二者的合并判定。
+Wine 保留必需聚合流程现有的关键路径和作业身份。`all checks passed` 变绿时，原生 Windows 仍可能处于待处理或红灯状态，因此分支保护采用 Wine 结果，而评审者和后续自动化采用独立的原生结果。
 
 尽管如此，每个拉取请求都会获得真实 NT 内核、NTFS、PowerShell、Windows 进程、原生插件和受支持源码覆盖率信号。原生作业会重复设置流程与两项阻断构建，在标准镜像上明显更慢；但它也会暴露兼容性通道掩盖的路径、watcher、生命周期与 fixture 缺陷。
 

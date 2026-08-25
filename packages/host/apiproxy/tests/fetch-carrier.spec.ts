@@ -140,7 +140,18 @@ function fakeApi(overrides: Partial<{ crashOn: string }> = {}): ApiProxy {
         return { rpcId: request.rpcId, result: { ok: true, value: { providers: [] } } }
       },
       async models(request) {
-        return { rpcId: request.rpcId, result: { ok: true, value: { groups: [], failures: [] } } }
+        return {
+          rpcId: request.rpcId,
+          result: {
+            ok: true,
+            value: {
+              default: { provider: 'test', model: 'test' },
+              routableProviders: [],
+              groups: [],
+              failures: [],
+            },
+          },
+        }
       },
       async discoverModels(request) {
         return { rpcId: request.rpcId, result: { ok: true, value: { models: [] } } }

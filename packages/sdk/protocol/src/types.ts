@@ -35,8 +35,20 @@ export interface SessionPromptParams {
   /** The SDK-side session id; an unknown id lazily creates the agent+session pair. */
   sessionId: string
   /** The prompt content blocks, sent verbatim as the user message. */
-  contentBlocks: ContentBlock[]
+  contentBlocks: SdkPromptContentBlock[]
 }
+
+/** Inline raster input admitted into the runtime's durable attachment store. */
+export interface SdkEncodedImageBlock {
+  type: 'image'
+  /** Canonical base64-encoded raster bytes. */
+  data: string
+  /** Declared raster MIME type, verified during admission. */
+  mimeType: 'image/png' | 'image/jpeg' | 'image/webp' | 'image/gif'
+}
+
+/** SDK prompt input: ordinary durable blocks plus inline images awaiting admission. */
+export type SdkPromptContentBlock = ContentBlock | SdkEncodedImageBlock
 
 /** Durable enqueue receipt for one prompt. */
 export interface SessionPromptResult {

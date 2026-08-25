@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-以 profile 组合包形式交付的共享 dsh 核心：[`cordis.patch.yml`](cordis.patch.yml) 在空的 profile 根之上插入全部基础插件行——模型适配器、共享的 [`agent-default-model`](../../core/agent-default-model/README.zh.md) 选择、工具、持久化、策略、settings／credentials、遥测与核心 spawn／fork subagent provider——作为每个 profile 的 `dsh.profile.bundles` 列表中的第一层。可选的 Codex 与 Claude Code provider 不属于本包及其生产依赖闭包；Profile 仅在需要时安装任一[产品 provider Bundle](../../subagent/README.zh.md)。因此，默认的 `@deepseek-ai/dsh` 生产依赖闭包既不包含任一产品 provider、Claude Agent SDK，也不包含 Codex wrapper 及其平台载荷。后续的组合包层（例如 [`dsh-web-app`](../web-app/README.zh.md)）和用户 profile 的 `cordis.patch.yml` 按 id 覆盖这些行；patch 会替换目标行的整个 `config`，因此模式专属的值放在各模式组合包中，而不是这里。该包没有运行时 API；profile 组合器通过 manifest（元数据清单）的 `dsh.bundle.patch` 字段解析 patch，绝不通过代码。
+以 profile 组合包形式交付的共享 dsh 核心：[`cordis.patch.yml`](cordis.patch.yml) 在空的 profile 根之上插入全部基础插件行——模型适配器、共享的 [`agent-default-model`](../../core/agent-default-model/README.zh.md) 选择、工具、持久化、策略、settings／credentials、遥测与核心 spawn／fork subagent provider——作为每个基于 base 的 profile 的 `dsh.profile.bundles` 列表中的第一层。独立的 [`sdk-minimal`](../sdk-minimal/README.zh.md) profile 刻意不包含本组合包。可选的 Codex 与 Claude Code provider 不属于本包及其生产依赖闭包；Profile 仅在需要时安装任一[产品 provider Bundle](../../subagent/README.zh.md)。因此，默认的 `@deepseek-ai/dsh` 生产依赖闭包既不包含任一产品 provider、Claude Agent SDK，也不包含 Codex wrapper 及其平台载荷。后续的组合包层（例如 [`dsh-web-app`](../web-app/README.zh.md)）和用户 profile 的 `cordis.patch.yml` 按 id 覆盖这些行；patch 会替换目标行的整个 `config`，因此模式专属的值放在各模式组合包中，而不是这里。该包没有运行时 API；profile 组合器通过 manifest（元数据清单）的 `dsh.bundle.patch` 字段解析 patch，绝不通过代码。
 
 base 的模块 HMR 配置项默认禁用。具有经过验证的源码模块重载生命周期的 profile 必须显式启用该配置项；`patchReload: live` 配置监视与之独立，在模块 HMR 保持禁用时使用启动器的仅监视 fallback。
 

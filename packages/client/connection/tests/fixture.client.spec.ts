@@ -1,6 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type {
-  ModelProviderGroup,
   ModelSelection,
   RpcMessage,
   RpcRequest,
@@ -42,14 +41,19 @@ interface FixtureHistoryEntry {
 interface FixturePage {
   readonly events: readonly FixtureHistoryEntry[]
   readonly hasMore: boolean
-  readonly projections?: {
-    readonly asOfSeq: number
-    readonly values: Readonly<Record<string, unknown>>
-  }
 }
 
 type FixtureFollowFrame =
-  | { readonly type: 'opened'; readonly cursor: number }
+  | {
+    readonly type: 'snapshot'
+    readonly cursor: number
+    readonly events: readonly FixtureHistoryEntry[]
+    readonly hasMore: boolean
+    readonly projections: {
+      readonly asOfSeq: number
+      readonly values: Readonly<Record<string, unknown>>
+    }
+  }
   | ({ readonly type: 'event' } & FixtureHistoryEntry)
 
 type FixtureControlFrame =
@@ -88,7 +92,6 @@ interface FixtureSessionRequests {
     readonly beforeSeq?: number
     readonly maxMessages?: number
   }
-  models: { readonly sessionId: SessionId }
   selectModel: {
     readonly sessionId: SessionId
     readonly provider: string
@@ -114,12 +117,6 @@ interface FixtureSessionValues {
   search: { readonly items: readonly { readonly sessionId: SessionId; readonly snippet: string }[]; readonly hasMore: boolean }
   create: { readonly sessionId: SessionId }
   history: FixturePage
-  models: {
-    readonly current: ModelSelection
-    readonly routable: boolean
-    readonly groups: readonly ModelProviderGroup[]
-    readonly failures: readonly unknown[]
-  }
   selectModel: { readonly selected: ModelSelection }
   prompt: { readonly accepted: true }
   cancel: Record<never, never>
@@ -141,7 +138,7 @@ type FixtureSessionClient = {
 }
 
 interface FixtureSessionRemote {
-  follow(sessionId: SessionId, signal: AbortSignal, afterSeq?: number): AsyncIterable<FixtureFollowFrame>
+  follow(sessionId: SessionId, signal: AbortSignal): AsyncIterable<FixtureFollowFrame>
   control(signal: AbortSignal): AsyncIterable<FixtureControlFrame>
 }
 
@@ -331,7 +328,6 @@ function createSessionApi(rpc: ClientConnectionRpc): FixtureSessionApi {
     search: (request, signal) => call('search', request, signal),
     create: (request, signal) => call('create', request, signal),
     history: (request, signal) => call('history', request, signal),
-    models: (request, signal) => call('models', request, signal),
     selectModel: (request, signal) => call('selectModel', request, signal),
     prompt: (request, signal) => call('prompt', request, signal),
     cancel: (request, signal) => call('cancel', request, signal),
@@ -346,7 +342,6 @@ function createSessionClient(rpc: ClientConnectionRpc): FixtureSessionClient {
     search: (request, signal) => api.search(req(request), signal),
     create: (request, signal) => api.create(req(request), signal),
     history: (request, signal) => api.history(req(request), signal),
-    models: (request, signal) => api.models(req(request), signal),
     selectModel: (request, signal) => api.selectModel(req(request), signal),
     prompt: (request, signal) => api.prompt(req(request), signal),
     cancel: (request, signal) => api.cancel(req(request), signal),
@@ -361,11 +356,8 @@ function createSessionRemote(rpc: ClientConnectionRpc): FixtureSessionRemote {
     return stream as AsyncIterable<F>
   }
   return {
-    follow: (sessionId, signal, afterSeq) => open<FixtureFollowFrame>('session/follow', {
-      request: {
-        address: { kind: 'session', sessionId },
-        ...afterSeq === undefined ? {} : { afterSeq },
-      },
+    follow: (sessionId, signal) => open<FixtureFollowFrame>('session/follow', {
+      request: { address: { kind: 'session', sessionId } },
     }, signal),
     control: signal => open<FixtureControlFrame>('session/control', {}, signal),
   }
@@ -499,7 +491,7 @@ async function nextRemoteEvent(
 async function readOpeningCursor(remote: FixtureSessionRemote, sessionId: SessionId): Promise<number> {
   const abort = new AbortController()
   for await (const frame of remote.follow(sessionId, abort.signal)) {
-    if (frame.type !== 'opened') continue
+    if (frame.type !== 'snapshot') continue
     abort.abort()
     return frame.cursor
   }
@@ -599,52 +591,10 @@ describe('createFixtureApi', () => {
     const clamped = await api.sessions.history(req({ sessionId: sid('fx-alpha'), beforeSeq: -5, maxMessages: 10 }))
     if (!clamped.result.ok) throw new Error('clamped failed')
     expect(clamped.result.value.events).toEqual([])
-    // Unknown session: empty page, not an error (history of a bare id). The
-    // tail block still rides it — empty-log cut at -1, the host convention.
+    // Unknown session: empty page, not an error (history of a bare id).
     const empty = await api.sessions.history(req({ sessionId: sid('no-such'), maxMessages: 10 }))
     if (!empty.result.ok) throw new Error('empty failed')
-    // Fixture composes the todos + plan units (host parallel when tool-todo
-    // and plan-mode are mounted): the empty-log values.
-    expect(empty.result.value).toEqual({
-      events: [], hasMore: false, projections: { asOfSeq: -1, values: {
-        todos: null,
-        // Permission unit composed: the composition-default select.
-        permissions: {
-          options: [
-            { value: 'workspace-write', name: 'workspace-write', description: 'Write inside the workspace and permitted temporary directories; wider retries require approval.' },
-            { value: 'danger-full-access', name: 'danger-full-access', description: 'Full file access without approval prompts.' },
-          ],
-          currentValue: 'workspace-write',
-        },
-        plan: { active: false, pending: false },
-        goal: null,
-        tokenUsage: {
-          uncachedInputTokens: 0,
-          outputTokens: 0,
-          cacheReadTokens: 0,
-          cacheWriteTokens: 0,
-        },
-        // No request ran, so neither pressure nor capacity is known yet.
-        contextPressure: {},
-        contextBreakdown: {
-          systemTokens: 0,
-          toolsTokens: 0,
-          messageTokens: 0,
-        },
-        // Session-stats unit composed: no figure accrues on the empty log.
-        sessionStats: {
-          turns: 0, steps: 0, llmMs: 0, toolMs: 0, ttftMs: 0, ttftSteps: 0, decodeMs: 0, decodeTokens: 0,
-        },
-        imageLimits: {
-          maxImageBytes: 5 * 1024 * 1024,
-          maxImagesPerMessage: 20,
-          maxMessageImageBytes: 100 * 1024 * 1024,
-          maxImagePixels: 40_000_000,
-          maxImageDimension: 2000,
-          mediaTypes: ['image/png', 'image/jpeg', 'image/webp', 'image/gif'],
-        },
-      } },
-    })
+    expect(empty.result.value).toEqual({ events: [], hasMore: false })
   })
 
   it('serves raw history entries with replayable tool-result metadata', async () => {
@@ -693,7 +643,7 @@ describe('createFixtureApi', () => {
   it('serves grouped models and keeps a selection for later history and fixture requests', async () => {
     const api = createFixtureApi()
     const sessionId = sid('fx-alpha')
-    const catalog = await api.sessions.models(req({ sessionId }))
+    const catalog = await api.llm.models(req({}))
     if (!catalog.result.ok) throw new Error('models failed')
     expect(catalog.result.value.groups.map(group => group.name)).toEqual(['DeepSeek', 'OpenAI'])
     expect(catalog.result.value.groups[0]?.models.map(model => model.id))
@@ -1462,33 +1412,29 @@ describe('createFixtureApi', () => {
     const gapAbort = new AbortController()
     const gapIterator = api.sessionRemote.follow(sid('fx-alpha'), gapAbort.signal)[Symbol.asyncIterator]()
     const opening = await gapIterator.next()
-    if (opening.done || opening.value.type !== 'opened') throw new Error('follow opening cursor missing')
-    const resumeCursor = opening.value.cursor
+    if (opening.done || opening.value.type !== 'snapshot') throw new Error('follow opening snapshot missing')
     hooks.appendSilent('fx-alpha', '静默丢帧')
     hooks.appendUser('fx-alpha', '正常直播')
     await expect(gapIterator.next()).rejects.toThrow(/stream skipped seq/)
 
-    // Reopening from the established cursor replays both durable events.
+    // Reopening replaces the window with a complete snapshot containing both durable events.
     const followAbort = new AbortController()
     const controlAbort = new AbortController()
     const followed: FixtureFollowFrame[] = []
     const controlled: FixtureControlFrame[] = []
     const following = (async () => {
-      for await (const frame of api.sessionRemote.follow(
-        sid('fx-alpha'),
-        followAbort.signal,
-        resumeCursor,
-      )) followed.push(frame)
+      for await (const frame of api.sessionRemote.follow(sid('fx-alpha'), followAbort.signal)) {
+        followed.push(frame)
+      }
     })()
     const controlling = (async () => {
       for await (const frame of api.sessionRemote.control(controlAbort.signal)) controlled.push(frame)
     })()
     await new Promise(resolve => setTimeout(resolve, 10))
     await vi.waitFor(() => {
-      expect(followed.some(frame => frame.type === 'event'
-        && JSON.stringify(frame.event.data).includes('静默丢帧'))).toBe(true)
-      expect(followed.some(frame => frame.type === 'event'
-        && JSON.stringify(frame.event.data).includes('正常直播'))).toBe(true)
+      const snapshot = followed.find(frame => frame.type === 'snapshot')
+      expect(snapshot?.events.some(entry => JSON.stringify(entry.event.data).includes('静默丢帧'))).toBe(true)
+      expect(snapshot?.events.some(entry => JSON.stringify(entry.event.data).includes('正常直播'))).toBe(true)
     })
     hooks.appendTitle('fx-alpha', 'Fixture 修订标题')
     hooks.beginModelRetry('fx-alpha')
@@ -1497,7 +1443,6 @@ describe('createFixtureApi', () => {
     hooks.beginModelRetry('fx-alpha')
     hooks.cancelModelRetryDuringBackoff('fx-alpha')
     await vi.waitFor(() => {
-      expect(followed.some(frame => frame.type === 'event' && JSON.stringify(frame.event.data).includes('正常直播'))).toBe(true)
       expect(followed.some(frame => frame.type === 'event' && (frame.event as { type: string }).type === 'llm/retry')).toBe(true)
       expect(followed.some(frame => frame.type === 'event' && JSON.stringify(frame.event.data).includes('重试后的完整回复'))).toBe(true)
       expect(followed.some(frame => frame.type === 'event'

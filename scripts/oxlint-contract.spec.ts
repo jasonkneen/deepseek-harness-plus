@@ -1,8 +1,8 @@
 import { spawnSync } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { existsSync } from 'node:fs'
-import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
-import { basename, dirname, join, relative } from 'node:path'
+import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { join, relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { flattenDiagnosticMessageText, parseConfigFileTextToJson } from 'typescript'
 import { describe, expect, it } from 'vitest'
@@ -39,26 +39,6 @@ function normalizedOutput(result: ReturnType<typeof runOxlint>): string {
   return `${result.stdout}${result.stderr}`.replaceAll('\\', '/')
 }
 
-/** @returns A transient filename excluded from concurrent repository-wide glob discovery. */
-function hiddenProbeName(prefix: string, suffix: string, extension = '.ts'): string {
-  return `.${prefix}-${suffix}${extension}`
-}
-
-/**
- * Publish a complete probe so concurrent repository scans never read a partial write.
- * @param path - Final probe path that the owning project must discover.
- * @param source - Complete TypeScript source to publish.
- */
-async function publishProbe(path: string, source: string): Promise<void> {
-  const staging = join(dirname(path), `.${basename(path)}.staging`)
-  try {
-    await writeFile(staging, source)
-    await rename(staging, path)
-  } finally {
-    await rm(staging, { force: true })
-  }
-}
-
 async function writeContractConfig(suffix: string): Promise<string> {
   const path = join(repositoryRoot, `.oxlintrc.contract-${suffix}.json`)
   await writeFile(path, JSON.stringify({ extends: ['./.oxlintrc.json'], ignorePatterns: [] }))
@@ -76,11 +56,10 @@ describe('Oxlint executable contract', () => {
       // A test under packages/client states its face in the filename, so the
       // probe carries the Client suffix to reach the Client aggregate.
       ['client package test', 'packages/client/ui-trajectory/tests', 'tsconfig.client.json', '.client.ts'],
-      ['example', 'examples/headless-agent/tests', 'tsconfig.host.json'],
+      ['CLI profile test', 'apps/cli/tests/profiles/headless/tests', 'tsconfig.host.json'],
       ['website', 'website', 'tsconfig.host.json'],
     ] as const
-    const source = `/** Produce a settled promise for type-aware linting. */
-export function probePromise(): Promise<void> {
+    const source = `export function probePromise(): Promise<void> {
   return Promise.resolve()
 }
 
@@ -91,7 +70,7 @@ probePromise()
       const paths: Array<readonly [label: string, path: string, tsconfig: string]> = []
       for (const [label, parent, tsconfig, extension = '.ts'] of probes) {
         const path = join(repositoryRoot, parent, `oxlint-contract-${suffix}${extension}`)
-        await publishProbe(path, source)
+        await writeFile(path, source)
         paths.push([label, relative(repositoryRoot, path), tsconfig])
       }
       const clientScript = 'scripts/client-bundle-purity.spec.ts'
@@ -109,7 +88,7 @@ probePromise()
       expect(result.error).toBeUndefined()
       expect(result.status, output).toBe(1)
       for (const [label, path, tsconfig] of paths) {
-        expect(output, label).toContain(`${path.replaceAll('\\', '/')}:6:1: Promises must be awaited`)
+        expect(output, label).toContain(`${path.replaceAll('\\', '/')}:5:1: Promises must be awaited`)
         expect(output, `${label} project`).toContain(
           `Got tsconfig for file ${join(repositoryRoot, path).replaceAll('\\', '/')}: ${join(repositoryRoot, tsconfig).replaceAll('\\', '/')}`,
         )
@@ -131,7 +110,7 @@ probePromise()
   it('runs JavaScript compatibility and nursery rules', async () => {
     const suffix = randomUUID()
     const configPath = await writeContractConfig(suffix)
-    const path = join(repositoryRoot, 'scripts', hiddenProbeName('oxlint-contract', suffix))
+    const path = join(repositoryRoot, 'scripts', `oxlint-contract-${suffix}.ts`)
     const source = `export function firstProbe(): number {
   const first = 1
   const second = 2
@@ -251,7 +230,7 @@ export const longProbe = 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 +
   it('reports an unused suppression', async () => {
     const suffix = randomUUID()
     const configPath = await writeContractConfig(suffix)
-    const path = join(repositoryRoot, 'scripts', hiddenProbeName('oxlint-contract', suffix))
+    const path = join(repositoryRoot, 'scripts', `oxlint-contract-${suffix}.ts`)
 
     try {
       await writeFile(path, '// oxlint-disable-next-line no-console\nexport const value = 1\n')
@@ -301,7 +280,7 @@ export const longProbe = 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 +
     expect(stagedConfig.ignorePatterns).not.toContain('packages/typert/generator/tests/fixtures/type-model/**')
 
     const suffix = randomUUID()
-    const path = join(repositoryRoot, 'scripts', hiddenProbeName('staged-lint-probe', suffix))
+    const path = join(repositoryRoot, 'scripts', `staged-lint-probe-${suffix}.ts`)
     try {
       await writeFile(path, 'export const value={answer:1};\n')
       const lint = runOxlint([
@@ -324,7 +303,7 @@ export const longProbe = 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 +
 
   it('preserves successful fix output channels', async () => {
     const suffix = randomUUID()
-    const path = join(repositoryRoot, 'scripts', hiddenProbeName('staged-lint-probe', suffix))
+    const path = join(repositoryRoot, 'scripts', `staged-lint-probe-${suffix}.ts`)
 
     try {
       await writeFile(path, '// oxlint-disable-next-line no-console\nexport const value = 1\n')
@@ -348,7 +327,7 @@ export const longProbe = 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 +
 
   it('prints only the final diagnostics when a fix retry still fails', async () => {
     const suffix = randomUUID()
-    const path = join(repositoryRoot, 'scripts', hiddenProbeName('staged-lint-probe', suffix))
+    const path = join(repositoryRoot, 'scripts', `staged-lint-probe-${suffix}.ts`)
 
     try {
       await writeFile(path, `export const longProbe = ${'1 + '.repeat(80)}1\n`)

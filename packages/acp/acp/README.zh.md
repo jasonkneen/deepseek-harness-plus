@@ -83,7 +83,7 @@ ACP 客户端是受信任的自动化控制器。stdio 声明授权 DSH 在会�
 
 ## 运行
 
-`pnpm --dir /path/to/deepseek-harness run demo:acp` 启动仓库的自动化服务器组合。通用 keyless conformance 测试只使用 ACP SDK 驱动此 bin，覆盖模型选择、MCP 挂载、关闭、进程重启、列出／恢复和取消。
+`pnpm --dir /path/to/deepseek-harness dsh --profile acp` 启动仓库的自动化服务器 profile。通用 keyless conformance 测试通过 `dsh` 启动此 profile，并只使用 ACP SDK 驱动它，覆盖模型选择、MCP 挂载、关闭、进程重启、列出／恢复和取消。
 
 ## 模型体验
 

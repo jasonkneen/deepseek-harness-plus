@@ -19,7 +19,7 @@ Status: implemented
 
 ## 验证
 
-验证约定分别覆盖每个边界。`verify-translation-pairing` 固定配对完整性、hash、语言切换行和结构，其发现测试则固定具名的根目录政策文档与自动 README 覆盖；[`project-doc-site.spec.ts`](../../../../scripts/project-doc-site.spec.ts) 固定已发布配对按 locale 选择对应源文件；[`cordis-config-files.spec.ts`](../../../../scripts/cordis-config-files.spec.ts) 固定 Loader YAML 的发现以及翻译记录的排除；[翻译提示词可运行快照](../../../../scripts/translation-prompt.snapshot.ts)则固定渲染后的系统消息、五对经评审的示例、源请求和所消费的响应。这些检查共同使配对漂移、发布漂移、配置误分类和模型可见提示词漂移都可在评审中看见。
+验证约定分别覆盖每个边界。`verify-translation-pairing` 固定配对完整性、hash、语言切换行和结构，其发现测试则固定具名的根目录政策文档与自动 README 覆盖；[`project-doc-site.spec.ts`](../../../../scripts/project-doc-site.spec.ts) 固定已发布配对按 locale 选择对应源文件；[`cordis-config-files.spec.ts`](../../../../scripts/cordis-config-files.spec.ts) 固定 Loader YAML 的发现以及翻译记录的排除；[翻译提示词可运行预期](../../../../scripts/translation-prompt.expected.spec.ts)则固定渲染后的系统消息、五对经评审的示例、源请求和所消费的响应。这些检查共同使配对漂移、发布漂移、配置误分类和模型可见提示词漂移都可在评审中看见。
 
 ## 曾考虑的替代方案
 

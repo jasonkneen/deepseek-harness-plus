@@ -6,7 +6,7 @@ import { join } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
 import type { Agent, AgentFactory } from '@deepseek-ai/dsh-agent'
-import { UnknownPresetError } from '@deepseek-ai/dsh-agent-presets'
+import { agentPresetProjectionDefinition, UnknownPresetError } from '@deepseek-ai/dsh-agent-presets'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import type { Session } from '@deepseek-ai/dsh-session'
 import { describe, expect, it } from 'vitest'
@@ -38,8 +38,9 @@ async function harness(presets?: readonly string[]) {
   const ctx = new Context()
   await ctx.plugin(SessionStore)
   await ctx.plugin(AgentRegistry)
-  ctx.provide('sessionPersistence', { list: () => Promise.resolve([]) } as never)
-  if (presets !== undefined) ctx.provide('agentPresets', roster(presets) as never)
+  if (presets !== undefined) {
+    ctx.provide('agentPresets', roster(presets) as never)
+  }
 
   const factory: AgentFactory = {
     async createAgent(_ownerCtx, options) {
@@ -63,6 +64,7 @@ async function harness(presets?: readonly string[]) {
     defaultModelSelection: () => ({ provider: 'test', model: 'test-model' }),
     cwd,
   })
+  if (presets !== undefined) ctx.sessionProjections.register(agentPresetProjectionDefinition)
   return { ctx, remote }
 }
 

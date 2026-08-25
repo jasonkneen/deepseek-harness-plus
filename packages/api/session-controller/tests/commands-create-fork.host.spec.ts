@@ -11,6 +11,7 @@ import {
   ApiSessionCwdConflict,
 } from '../src/agent.ts'
 import { SessionCommandController } from '../src/commands.ts'
+import { installSessionReadTestServices, testSessionPersistence } from './test-remote.ts'
 
 async function expectFailure(operation: Promise<unknown>, code: string): Promise<void> {
   await expect(operation).rejects.toMatchObject({ failure: { code } })
@@ -20,6 +21,8 @@ function controllerAgents(overrides: object = {}): ApiSessionAgentController {
   return {
     ensureSession: () => Promise.resolve(),
     composeAgent: () => Promise.resolve({ setup: () => {} }),
+    presetForSession: () => undefined,
+    presetForObservation: () => undefined,
     ...overrides,
   } as unknown as ApiSessionAgentController
 }
@@ -28,6 +31,7 @@ async function baseContext(): Promise<Context> {
   const ctx = new Context()
   await ctx.plugin(SessionStore)
   await ctx.plugin(AgentRegistry)
+  installSessionReadTestServices(ctx)
   ctx.provide('agentDefaultModel', {
     currentSelection: () => ({ provider: 'fixture', model: 'fixture-model' }),
     saveSelection: () => Promise.resolve(),
@@ -167,28 +171,38 @@ function resolvedHandle(ctx: Context, sessionId: SessionId): AgentHandle {
 }
 
 describe('Session fork failures', () => {
-  it('distinguishes missing cold sources from unavailable persistence', async () => {
-    const unavailable = await baseContext()
-    unavailable.provide('workspaceRegistry', { list: () => [] } as never)
+  it('maps missing cold sources with and without persistence', async () => {
+    const withoutPersistence = await baseContext()
+    withoutPersistence.provide('workspaceRegistry', { list: () => [] } as never)
     const unavailableController = new SessionCommandController(
-      unavailable, controllerAgents(), '/default',
+      withoutPersistence, controllerAgents(), '/default',
     )
     await expectFailure(unavailableController.fork({
       sessionId: SessionId('missing'),
-    }), 'internal')
-    await unavailable.fiber.dispose()
+    }), 'session-not-found')
+    await withoutPersistence.fiber.dispose()
 
     const missing = await baseContext()
     missing.provide('workspaceRegistry', { list: () => [] } as never)
-    missing.provide('sessionPersistence', {
+    missing.provide('sessionPersistence', testSessionPersistence(missing, {
       list: () => Promise.resolve([]),
       inspect: vi.fn(),
-    } as never)
+    }) as never)
     const missingController = new SessionCommandController(missing, controllerAgents(), '/default')
     await expectFailure(missingController.fork({
       sessionId: SessionId('missing'),
     }), 'session-not-found')
     await missing.fiber.dispose()
+  })
+
+  it('maps an observation failure to an internal fork error', async () => {
+    const ctx = await baseContext()
+    ctx.provide('workspaceRegistry', { list: () => [] } as never)
+    vi.spyOn(ctx.sessionQuery, 'observeSession').mockRejectedValue(new Error('storage offline'))
+    const controller = new SessionCommandController(ctx, controllerAgents(), '/default')
+
+    await expectFailure(controller.fork({ sessionId: SessionId('unreadable') }), 'internal')
+    await ctx.fiber.dispose()
   })
 
   it('rejects a Session with no completed turn', async () => {
@@ -204,9 +218,8 @@ describe('Session fork failures', () => {
   it('maps lineage lookup and Agent creation failures', async () => {
     const lineage = await baseContext()
     lineage.provide('workspaceRegistry', { list: () => [] } as never)
-    lineage.provide('sessionQuery', {
-      traceSession: () => Promise.reject(new Error('lineage unavailable')),
-    } as never)
+    vi.spyOn(lineage.sessionQuery, 'traceSession')
+      .mockRejectedValue(new Error('lineage unavailable'))
     const child = completedSession(lineage, 'subagent-source', '/workspace', {
       parentSession: SessionId('parent'),
       origin: 'subagent',

@@ -3,12 +3,13 @@ import AgentRegistry, { Inbox } from '@deepseek-ai/dsh-agent'
 import type { Agent, ModelSelectionRef } from '@deepseek-ai/dsh-agent'
 import { AttachmentError, AttachmentId } from '@deepseek-ai/dsh-attachment'
 import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
-import { createUserMessage, MessageId } from '@deepseek-ai/dsh-llm'
+import { createAssistantMessage, createUserMessage, MessageId } from '@deepseek-ai/dsh-llm'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import type { SessionEvent, SessionHeader } from '@deepseek-ai/dsh-session'
 import { describe, expect, it, vi } from 'vitest'
 import { ApiSessionAgentController } from '../src/agent.ts'
 import { SessionCommandController } from '../src/commands.ts'
+import { installSessionReadTestServices, testSessionPersistence } from './test-remote.ts'
 
 async function commandHarness(): Promise<{
   ctx: Context
@@ -142,10 +143,11 @@ async function persistedController(
   await ctx.plugin(SessionStore)
   const sessionId = SessionId('cold-attachment')
   const meta: SessionHeader = { version: 0, id: sessionId, createdAt: 1, cwd: '/workspace' }
-  ctx.provide('sessionPersistence', {
+  ctx.provide('sessionPersistence', testSessionPersistence(ctx, {
     list: () => Promise.resolve([meta]),
     inspect: () => Promise.resolve({ meta, events }),
-  } as never)
+  }) as never)
+  installSessionReadTestServices(ctx)
   ctx.provide('attachments', { readImage } as never)
   const agents = { resolveAgent: vi.fn() } as unknown as ApiSessionAgentController
   return { ctx, controller: new SessionCommandController(ctx, agents, '/workspace'), sessionId }
@@ -158,15 +160,31 @@ describe('Session attachment authorization', () => {
     const inserted = imageRef('inserted')
     const streamed = imageRef('streamed')
     const events = [
-      event('fixture/direct', 0, {
+      { ...event('fixture/direct', 0, {
         content: [null, [], { type: 'tool-result', content: [{ type: 'text', text: 'none' }] }, {
           type: 'tool-result', content: [{ type: 'image', attachment: nested }],
         }],
+      }), ignorable: true as const },
+      { ...event('assistant/message', 1, {
+        turn: 1,
+        step: 1,
+        message: createAssistantMessage({
+          content: [{ type: 'image', attachment: message }],
+          source: { provider: 'fixture', model: 'fixture' },
+        }),
+      }), surfaceOp: 'append' as const },
+      event('agent/inbox/spliced', 2, {
+        target: 'next-turn',
+        start: 0,
+        inserted: [createUserMessage({
+          content: [{ type: 'image', attachment: inserted }],
+          source: { kind: 'user' },
+        })],
       }),
-      event('assistant/message', 1, { message: { content: [{ type: 'image', attachment: message }] } }),
-      event('agent/inbox/spliced', 2, { inserted: [{ content: [{ type: 'image', attachment: inserted }] }] }),
       event('assistant/chunk', 3, {
-        chunk: { type: 'block-end', block: { type: 'image', attachment: streamed } },
+        turn: 1,
+        step: 1,
+        chunk: { type: 'block-end', index: 0, block: { type: 'image', attachment: streamed } },
       }),
     ]
     const readImage = vi.fn((ref: ImageAttachmentRef) => Promise.resolve({ ref, data: Uint8Array.of(1) }))
@@ -183,6 +201,7 @@ describe('Session attachment authorization', () => {
   it('maps missing persistence identities and attachment backend failures', async () => {
     const noPersistence = new Context()
     await noPersistence.plugin(SessionStore)
+    installSessionReadTestServices(noPersistence)
     const noPersistenceController = new SessionCommandController(
       noPersistence,
       { resolveAgent: vi.fn() } as unknown as ApiSessionAgentController,
@@ -190,14 +209,15 @@ describe('Session attachment authorization', () => {
     )
     await expectFailure(noPersistenceController.attachment({
       sessionId: SessionId('missing'), attachmentId: AttachmentId('att'),
-    }), 'internal')
+    }), 'session-not-found')
 
     const missing = new Context()
     await missing.plugin(SessionStore)
-    missing.provide('sessionPersistence', {
+    missing.provide('sessionPersistence', testSessionPersistence(missing, {
       list: () => Promise.resolve([]),
       inspect: vi.fn(),
-    } as never)
+    }) as never)
+    installSessionReadTestServices(missing)
     const missingController = new SessionCommandController(
       missing,
       { resolveAgent: vi.fn() } as unknown as ApiSessionAgentController,
@@ -222,5 +242,22 @@ describe('Session attachment authorization', () => {
       }), thrown instanceof AttachmentError ? 'attachment-error' : 'internal')
       await fixture.ctx.fiber.dispose()
     }
+  })
+
+  it('maps a cold observation failure to an internal authorization error', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    installSessionReadTestServices(ctx)
+    vi.spyOn(ctx.sessionQuery, 'observeSession').mockRejectedValue(new Error('storage offline'))
+    const controller = new SessionCommandController(
+      ctx,
+      { resolveAgent: vi.fn() } as unknown as ApiSessionAgentController,
+      '/workspace',
+    )
+
+    await expectFailure(controller.attachment({
+      sessionId: SessionId('unreadable'), attachmentId: AttachmentId('att'),
+    }), 'internal')
+    await ctx.fiber.dispose()
   })
 })

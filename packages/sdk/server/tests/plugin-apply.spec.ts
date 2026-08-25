@@ -116,7 +116,11 @@ async function mountPlugin(
   const exit = (code: number): void => { events.push({ kind: 'exit', code }) }
 
   ctx.effect(() => () => { events.push({ kind: 'root-disposed' }) }, 'jsonrpc test root-disposal witness')
-  const fiber = await ctx.plugin(jsonrpc, { input, output, exit })
+  const fiber = await ctx.plugin(jsonrpc, {
+    input,
+    output,
+    exit,
+  })
 
   const frames = (): Record<string, unknown>[] =>
     events.flatMap(event => event.kind === 'frame' ? [event.frame] : [])

@@ -65,21 +65,23 @@ describe('application entrypoints', () => {
     ])
   })
 
-  it('rejects an unclassified executable in an example workspace', () => {
+  it('rejects an unclassified executable in an app workspace', () => {
     const root = fixture()
-    write(root, 'examples/rogue/src/bin.ts', '#!/usr/bin/env node\n')
+    write(root, 'apps/rogue/src/bin.ts', '#!/usr/bin/env node\n')
 
     expect(applicationEntrypointViolations(root)).toEqual([
-      'examples/rogue/src/bin.ts: executable source has no application/build/test classification',
+      'apps/rogue/src/bin.ts: executable source has no application/build/test classification',
     ])
   })
 
-  it('accepts the temporary private Python carrier source without an npm bin', () => {
+  it('rejects a private Python application carrier outside dsh', () => {
     const root = fixture()
-    write(root, 'packages/sdk/python-runtime/package.json', JSON.stringify({ private: true }))
-    write(root, 'packages/sdk/python-runtime/src/packaged-bin.ts', '#!/usr/bin/env node\n')
+    write(root, 'packages/sdk/rogue-python-runtime/package.json', JSON.stringify({ private: true }))
+    write(root, 'packages/sdk/rogue-python-runtime/src/bin.ts', '#!/usr/bin/env node\n')
 
-    expect(applicationEntrypointViolations(root)).toEqual([])
+    expect(applicationEntrypointViolations(root)).toEqual([
+      'packages/sdk/rogue-python-runtime/src/bin.ts: executable source has no application/build/test classification',
+    ])
   })
 
   it('rejects a classified demo wrapper that launches a package entry', () => {

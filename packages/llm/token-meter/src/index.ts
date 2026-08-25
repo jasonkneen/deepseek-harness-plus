@@ -21,7 +21,7 @@ import type {
 import { contextBreakdownProjectionDefinition } from './breakdown-projection.ts'
 import { contextPressureProjectionDefinition, tokenUsageProjectionDefinition } from './usage-projection.ts'
 import { estimateContent, estimateHeader, estimateMessage, ROLE_OVERHEAD } from './estimate.ts'
-import { foldSurfaceTokens } from './surface-fold.ts'
+import { commitSurfaceTokens, planSurfaceTokens } from './surface-fold.ts'
 
 export type * from './types.ts'
 
@@ -181,9 +181,9 @@ export class TokenMeter extends Service {
   }
 
   /**
-   * Validate and prepare every fallible part before mutating replay state.
-   * A malformed event remains unread on every retry instead of partially
-   * applying the same mutation more than once.
+   * Run every fallible step — surface plan and anchor validation — before
+   * mutating replay state, so a malformed event remains unread on every
+   * retry instead of half-applying.
    */
   private _foldEvent(session: Session, state: ReplayState, event: SessionEvent): void {
     let nextHeader = state.header
@@ -214,8 +214,8 @@ export class TokenMeter extends Service {
         break
     }
 
-    const surface = isSurfaceEvent(event)
-      ? foldSurfaceTokens(state.surface, event)
+    const plan = isSurfaceEvent(event)
+      ? planSurfaceTokens(state.surface, event)
       : undefined
 
     if (event.type === 'assistant/message') {
@@ -228,7 +228,7 @@ export class TokenMeter extends Service {
 
       // assistant/message is surface-mandatory at every append/seed boundary.
       // oxlint-disable-next-line typescript/no-non-null-assertion
-      const eventTokens = surface!.tokens
+      const eventTokens = plan!.tokens
       if (event.data.usage !== undefined && nextHeader !== undefined) {
         const providerAssistantTokens = this._estimateProviderAssistant(
           session,
@@ -262,9 +262,9 @@ export class TokenMeter extends Service {
 
     state.header = nextHeader
     state.stepStart = nextStepStart
-    if (surface !== undefined) {
-      state.surface = surface.nodes
-      state.surfaceTokens += surface.deltaTokens
+    if (plan !== undefined) {
+      commitSurfaceTokens(state.surface, plan)
+      state.surfaceTokens += plan.deltaTokens
     }
     state.anchor = nextAnchor
   }

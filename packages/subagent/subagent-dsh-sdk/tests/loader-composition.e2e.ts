@@ -18,7 +18,7 @@ import { describe, expect, it } from 'vitest'
 import { type SessionEvent } from '@deepseek-ai/dsh-session'
 import { runLoaderSmoke } from '@deepseek-ai/dsh-loader-smoke'
 
-const fixtureDir = new URL('../../../../examples/python-sdk-agent/tests/fixtures/subagent/subagent-dsh-sdk/', import.meta.url)
+const fixtureDir = new URL('./fixtures/loader/', import.meta.url)
 const driver = fileURLToPath(new URL('driver.ts', fixtureDir))
 const configPath = fileURLToPath(new URL('cordis.yml', fixtureDir))
 const childConfigPath = fileURLToPath(new URL('child.cordis.yml', fixtureDir))

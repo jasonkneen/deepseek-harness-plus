@@ -2,9 +2,12 @@ import { Context } from '@deepseek-ai/cordis'
 import { createScope } from '@deepseek-ai/dsh-scope'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import type { Session, SessionEvent, SessionHeader } from '@deepseek-ai/dsh-session'
+import type { SessionObservation } from '@deepseek-ai/dsh-session-query'
 import { snapshotSubagentDescriptor } from '@deepseek-ai/dsh-subagent'
+import { subagentIdentityProjectionDefinition } from '@deepseek-ai/dsh-subagent/src/projection.ts'
 import { describe, expect, it, vi } from 'vitest'
 import { SessionHistoryController } from '../src/history.ts'
+import { installSessionReadTestServices, testSessionPersistence } from './test-remote.ts'
 
 const signal = (): AbortSignal => new AbortController().signal
 
@@ -22,7 +25,13 @@ function append(
 }
 
 function event(type: string, seq: number, data: unknown = {}): SessionEvent {
-  return { type, seq, time: seq + 1, data } as SessionEvent
+  return {
+    type,
+    seq,
+    time: seq + 1,
+    data,
+    ...type.startsWith('fixture/') ? { ignorable: true } : {},
+  } as SessionEvent
 }
 
 function cold(
@@ -30,10 +39,10 @@ function cold(
   header: SessionHeader,
   events: readonly SessionEvent[],
 ): void {
-  ctx.provide('sessionPersistence', {
+  ctx.provide('sessionPersistence', testSessionPersistence(ctx, {
     list: () => Promise.resolve([header]),
     inspect: () => Promise.resolve({ meta: header, events }),
-  } as never)
+  }) as never)
 }
 
 interface Deferred<T> {
@@ -50,7 +59,9 @@ function deferred<T>(): Deferred<T> {
 async function setup(): Promise<{ ctx: Context; transport: SessionHistoryController }> {
   const ctx = new Context()
   await ctx.plugin(SessionStore)
-  const transport = new SessionHistoryController(ctx)
+  installSessionReadTestServices(ctx)
+  ctx.sessionProjections.register(subagentIdentityProjectionDefinition)
+  const transport = new SessionHistoryController(ctx, (observation) => { observation[Symbol.dispose]() })
   return { ctx, transport }
 }
 
@@ -65,7 +76,7 @@ describe('SessionHistoryController', () => {
       abort.signal,
     )[Symbol.asyncIterator]()
 
-    expect(await iterator.next()).toMatchObject({ done: false, value: { type: 'opened', cursor: 0 } })
+    expect(await iterator.next()).toMatchObject({ done: false, value: { type: 'snapshot', cursor: 0 } })
     session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
     expect(await iterator.next()).toMatchObject({
       done: false,
@@ -85,10 +96,13 @@ describe('SessionHistoryController', () => {
   it('ends active followers when the owning Controller unloads', async () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
+    installSessionReadTestServices(ctx)
     let transport!: SessionHistoryController
     const owner = ctx.plugin(Object.assign(
-      (inner: Context) => { transport = new SessionHistoryController(inner) },
-      { inject: ['sessions'] },
+      (inner: Context) => {
+        transport = new SessionHistoryController(inner, (observation) => { observation[Symbol.dispose]() })
+      },
+      { inject: ['sessions', 'sessionQuery'] },
     ))
     await owner.await()
     const session = ctx.sessions.create(SessionId('controller-unload'), { meta: { cwd: '/workspace' } })
@@ -97,9 +111,9 @@ describe('SessionHistoryController', () => {
       new AbortController().signal,
     )[Symbol.asyncIterator]()
 
-    await expect(iterator.next()).resolves.toEqual({
+    await expect(iterator.next()).resolves.toMatchObject({
       done: false,
-      value: { type: 'opened', cursor: -1 },
+      value: { type: 'snapshot', cursor: -1 },
     })
     const pending = iterator.next()
     await owner.dispose()
@@ -107,7 +121,7 @@ describe('SessionHistoryController', () => {
     await ctx.fiber.dispose()
   })
 
-  it('resumes from the last applied seq before delivering later live events', async () => {
+  it('reconnects with a complete replacement snapshot before later live events', async () => {
     const { ctx, transport } = await setup()
     const session = ctx.sessions.create(SessionId('resume'), { meta: { cwd: '/workspace' } })
     session.append('turn/start', { turn: 1 })
@@ -116,12 +130,16 @@ describe('SessionHistoryController', () => {
     const abort = new AbortController()
     const iterator = transport.follow({
       address: { kind: 'session', sessionId: session.id },
-      afterSeq: 0,
     }, abort.signal)[Symbol.asyncIterator]()
 
-    expect(await iterator.next()).toEqual({ done: false, value: { type: 'opened', cursor: 2 } })
-    expect(await iterator.next()).toMatchObject({ done: false, value: { type: 'event', event: { seq: 1 } } })
-    expect(await iterator.next()).toMatchObject({ done: false, value: { type: 'event', event: { seq: 2 } } })
+    expect(await iterator.next()).toMatchObject({
+      done: false,
+      value: {
+        type: 'snapshot',
+        cursor: 2,
+        events: [{ event: { seq: 0 } }, { event: { seq: 1 } }, { event: { seq: 2 } }],
+      },
+    })
     session.append('turn/end', { turn: 2, reason: { kind: 'completed' } })
     expect(await iterator.next()).toMatchObject({ done: false, value: { type: 'event', event: { seq: 3 } } })
 
@@ -133,34 +151,74 @@ describe('SessionHistoryController', () => {
     const { ctx, transport } = await setup()
     const sessionId = SessionId('cold-race')
     const header = { version: 0, id: sessionId, createdAt: 1, cwd: '/workspace' }
-    const listed = deferred<readonly SessionHeader[]>()
-    ctx.provide('sessionPersistence', {
-      list: () => listed.promise,
-      inspect: () => Promise.resolve({ meta: header, events: [event('fixture/start', 0)] }),
-    } as never)
+    const inspected = deferred<{ meta: SessionHeader; events: readonly SessionEvent[] }>()
+    ctx.provide('sessionPersistence', testSessionPersistence(ctx, {
+      inspect: () => inspected.promise,
+    }) as never)
     const abort = new AbortController()
     const iterator = transport.follow({ address: { kind: 'session', sessionId } }, abort.signal)
       [Symbol.asyncIterator]()
     const opening = iterator.next()
 
-    ctx.emit('session/event', { id: SessionId('unrelated') } as Session, event('fixture/other', 0))
-    ctx.emit('session/event', { id: sessionId } as Session, event('fixture/start', 0))
-    listed.resolve([header])
-    await expect(opening).resolves.toEqual({ done: false, value: { type: 'opened', cursor: 0 } })
+    ctx.emit('session/event', {
+      id: SessionId('unrelated'), events: [event('fixture/other', 0)],
+    } as unknown as Session, event('fixture/other', 0))
+    ctx.emit('session/event', {
+      id: sessionId, events: [event('fixture/start', 0)],
+    } as unknown as Session, event('fixture/start', 0))
+    inspected.resolve({ meta: header, events: [event('fixture/start', 0)] })
+    await expect(opening).resolves.toMatchObject({ done: false, value: { type: 'snapshot', cursor: 0 } })
 
     const waiting = iterator.next()
     abort.abort()
     await expect(waiting).resolves.toMatchObject({ done: true })
   })
 
+  it('buffers creation while the opening observation is unresolved', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const sessionId = SessionId('created-during-observation')
+    const header = { version: 0, id: sessionId, createdAt: 1, cwd: '/workspace' }
+    const observed = deferred<SessionObservation>()
+    ctx.provide('sessionQuery', { observeSession: () => observed.promise } as never)
+    const transport = new SessionHistoryController(ctx, vi.fn())
+    const abort = new AbortController()
+    const iterator = transport.follow({ address: { kind: 'session', sessionId } }, abort.signal)
+      [Symbol.asyncIterator]()
+    const opening = iterator.next()
+
+    const attached = ctx.sessions.create(sessionId, { meta: header, seed: [event('fixture/seed', 0)] })
+    observed.resolve({
+      source: 'live',
+      header: attached.header,
+      events: attached.events,
+      cursor: attached.seq - 1,
+      projections: { asOfSeq: attached.seq - 1, values: {} },
+      retain: vi.fn(),
+      [Symbol.dispose]: vi.fn(),
+    } as unknown as SessionObservation)
+    await expect(opening).resolves.toMatchObject({
+      done: false,
+      value: {
+        type: 'snapshot', cursor: 1, events: [{ event: { seq: 0 } }, { event: { seq: 1 } }],
+      },
+    })
+    expect(attached.id).toBe(sessionId)
+    abort.abort()
+    await expect(iterator.next()).resolves.toMatchObject({ done: true })
+  })
+
   it('bridges the unpublished end-seed boundary when a cold source attaches', async () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
+    installSessionReadTestServices(ctx)
     let transport!: SessionHistoryController
     let agentCtx!: Context
     await ctx.plugin(Object.assign(
-      (inner: Context) => { transport = new SessionHistoryController(inner) },
-      { inject: ['sessions'] },
+      (inner: Context) => {
+        transport = new SessionHistoryController(inner, (observation) => { observation[Symbol.dispose]() })
+      },
+      { inject: ['sessions', 'sessionQuery'] },
     ))
     await ctx.plugin(Object.assign(
       (inner: Context) => { agentCtx = createScope(inner, { name: 'agent' }).ctx },
@@ -179,7 +237,7 @@ describe('SessionHistoryController', () => {
     const iterator = transport.follow({ address: { kind: 'session', sessionId } }, abort.signal)
       [Symbol.asyncIterator]()
 
-    await expect(iterator.next()).resolves.toEqual({ done: false, value: { type: 'opened', cursor: 0 } })
+    await expect(iterator.next()).resolves.toMatchObject({ done: false, value: { type: 'snapshot', cursor: 0 } })
     agentCtx.sessions.create(SessionId('unrelated-created'), { meta: { cwd: '/workspace' } })
     const attached = agentCtx.sessions.prepare(sessionId, { meta: header, seed })
     agentCtx.sessions.enter(attached)
@@ -212,11 +270,9 @@ describe('SessionHistoryController', () => {
     const replayHeader = { version: 0, id: replayId, createdAt: 1, cwd: '/workspace' }
     cold(replay.ctx, replayHeader, [event('fixture/start', 0), event('fixture/gap', 2)])
     const replayed = replay.transport.follow({
-      address: { kind: 'session', sessionId: replayId }, afterSeq: -1,
+      address: { kind: 'session', sessionId: replayId },
     }, signal())[Symbol.asyncIterator]()
-    await expect(replayed.next()).resolves.toEqual({ done: false, value: { type: 'opened', cursor: 2 } })
-    await expect(replayed.next()).resolves.toMatchObject({ done: false, value: { event: { seq: 0 } } })
-    await expect(replayed.next()).rejects.toMatchObject({ failure: { code: 'internal' } })
+    await expect(replayed.next()).rejects.toMatchObject({ code: 'SESSION_QUERY_CORRUPT_SESSION' })
 
     const live = await setup()
     const session = live.ctx.sessions.create(SessionId('live-gap'), { meta: { cwd: '/workspace' } })
@@ -225,8 +281,13 @@ describe('SessionHistoryController', () => {
     const followed = live.transport.follow({
       address: { kind: 'session', sessionId: session.id },
     }, signal())[Symbol.asyncIterator]()
-    await expect(followed.next()).resolves.toEqual({ done: false, value: { type: 'opened', cursor: 0 } })
-    live.ctx.emit('session/event', session, event('fixture/gap', 2))
+    await expect(followed.next()).resolves.toMatchObject({ done: false, value: { type: 'snapshot', cursor: 0 } })
+    const skipped = event('fixture/skipped', 1)
+    const gap = event('fixture/gap', 2)
+    live.ctx.emit('session/event', {
+      id: session.id,
+      events: [event('fixture/start', 0), skipped, gap],
+    } as unknown as Session, gap)
     await expect(followed.next()).rejects.toMatchObject({ failure: { code: 'internal' } })
   })
 
@@ -237,12 +298,65 @@ describe('SessionHistoryController', () => {
     const iterator = transport.follow({
       address: { kind: 'session', sessionId: session.id },
     }, abort.signal)[Symbol.asyncIterator]()
-    await expect(iterator.next()).resolves.toEqual({ done: false, value: { type: 'opened', cursor: -1 } })
+    await expect(iterator.next()).resolves.toMatchObject({ done: false, value: { type: 'snapshot', cursor: -1 } })
     await expect(transport.page({
       address: { kind: 'session', sessionId: session.id }, throughSeq: -1,
     }, signal())).resolves.toMatchObject({ events: [], hasMore: false })
     abort.abort()
     await expect(iterator.next()).resolves.toMatchObject({ done: true })
+  })
+
+  it('publishes an empty projection baseline when the query has no registry', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const sessionId = SessionId('projectionless-follow')
+    const meta = { version: 0, id: sessionId, createdAt: 1, cwd: '/workspace' }
+    ctx.provide('sessionQuery', {
+      observeSession: () => Promise.resolve({
+        source: 'live', header: meta, events: [], cursor: -1,
+        retain: vi.fn(), [Symbol.dispose]: vi.fn(),
+      } satisfies SessionObservation),
+    } as never)
+    const history = new SessionHistoryController(ctx, vi.fn())
+    const abort = new AbortController()
+    const iterator = history.follow({ address: { kind: 'session', sessionId } }, abort.signal)
+      [Symbol.asyncIterator]()
+
+    await expect(iterator.next()).resolves.toMatchObject({
+      value: { type: 'snapshot', projections: { asOfSeq: -1, values: {} } },
+    })
+    abort.abort()
+    await expect(iterator.next()).resolves.toMatchObject({ done: true })
+    await ctx.fiber.dispose()
+  })
+
+  it('disposes a retained promotion when background activation rejects synchronously', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const sessionId = SessionId('promotion-failure')
+    const meta = { version: 0, id: sessionId, createdAt: 1, cwd: '/workspace' }
+    const disposePromotion = vi.fn()
+    const promotion = {
+      source: 'prepared', header: meta, events: [], cursor: -1,
+      projections: { asOfSeq: -1, values: {} },
+      retain: vi.fn(), [Symbol.dispose]: disposePromotion,
+    } as unknown as SessionObservation
+    const source = {
+      ...promotion,
+      retain: () => promotion,
+      [Symbol.dispose]: vi.fn(),
+    } as SessionObservation
+    ctx.provide('sessionQuery', {
+      observeSession: () => Promise.resolve(source),
+    } as never)
+    const history = new SessionHistoryController(ctx, () => { throw new Error('activation failed') })
+    const iterator = history.follow({ address: { kind: 'session', sessionId } }, signal())
+      [Symbol.asyncIterator]()
+
+    await expect(iterator.next()).resolves.toMatchObject({ value: { type: 'snapshot' } })
+    await expect(iterator.next()).rejects.toThrow('activation failed')
+    expect(disposePromotion).toHaveBeenCalledOnce()
+    await ctx.fiber.dispose()
   })
 
   it('requires the durable parent and mode for a direct subagent address', async () => {
@@ -288,15 +402,18 @@ describe('SessionHistoryController', () => {
     const sessionId = SessionId('corrupt-cold')
     const failure = new Error('cold log is corrupt')
     const header = { version: 0, id: sessionId, createdAt: 1, cwd: '/workspace' }
-    ctx.provide('sessionPersistence', {
+    ctx.provide('sessionPersistence', testSessionPersistence(ctx, {
       list: () => Promise.resolve([header]),
       inspect: () => Promise.reject(failure),
-    } as never)
+    }) as never)
 
     await expect(transport.page({
       address: { kind: 'session', sessionId },
       throughSeq: -1,
-    }, new AbortController().signal)).rejects.toBe(failure)
+    }, new AbortController().signal)).rejects.toMatchObject({
+      code: 'SESSION_QUERY_PERSISTENCE_FAILED',
+      cause: failure,
+    })
   })
 
   it('rejects malformed page and follow cursors at the service boundary', async () => {
@@ -325,25 +442,24 @@ describe('SessionHistoryController', () => {
     )
     await expect(corrupt.transport.page({
       address: { kind: 'session', sessionId: corruptId }, throughSeq: 1,
-    }, signal())).rejects.toMatchObject({ failure: { code: 'internal' } })
-    for (const afterSeq of [-2, 0.5]) {
-      const iterator = transport.follow({ address, afterSeq }, signal())[Symbol.asyncIterator]()
+    }, signal())).rejects.toMatchObject({ code: 'SESSION_QUERY_CORRUPT_SESSION' })
+    for (const maxMessages of [0, 0.5]) {
+      const iterator = transport.follow({ address, maxMessages }, signal())[Symbol.asyncIterator]()
       await expect(iterator.next()).rejects.toMatchObject({ failure: { code: 'bad-request' } })
     }
-    const past = transport.follow({ address, afterSeq: 0 }, signal())[Symbol.asyncIterator]()
-    await expect(past.next()).rejects.toMatchObject({ failure: { code: 'bad-request' } })
   })
 
   it('reports missing ordinary and subagent sources without fabricating inspection failures', async () => {
     const { ctx, transport } = await setup()
     const ordinary = { kind: 'session' as const, sessionId: SessionId('missing') }
     await expect(transport.page({ address: ordinary, throughSeq: -1 }, signal()))
-      .rejects.toMatchObject({ failure: { code: 'internal' } })
+      .rejects.toMatchObject({ failure: { code: 'session-not-found' } })
 
-    ctx.provide('sessionPersistence', {
+    const inspect = vi.fn(() => Promise.resolve(undefined))
+    ctx.provide('sessionPersistence', testSessionPersistence(ctx, {
       list: () => Promise.resolve([]),
-      inspect: () => Promise.reject(new Error('must not inspect')),
-    } as never)
+      inspect,
+    }) as never)
     await expect(transport.page({ address: ordinary, throughSeq: -1 }, signal()))
       .rejects.toMatchObject({ failure: { code: 'session-not-found' } })
     await expect(transport.page({
@@ -355,25 +471,28 @@ describe('SessionHistoryController', () => {
       },
       throughSeq: -1,
     }, signal())).rejects.toMatchObject({ failure: { code: 'subagent-not-found' } })
+    expect(inspect).toHaveBeenCalledTimes(2)
   })
 
   it('rejects incomplete cold metadata before serving a source', async () => {
     const first = await setup()
     const sessionId = SessionId('incomplete')
     const address = { kind: 'session' as const, sessionId }
-    first.ctx.provide('sessionPersistence', {
-      list: () => Promise.resolve([{ version: 0, id: sessionId, createdAt: 1 }]),
-      inspect: () => Promise.reject(new Error('must not inspect')),
-    } as never)
+    const firstHeader = { version: 0, id: sessionId, createdAt: 1 }
+    first.ctx.provide('sessionPersistence', testSessionPersistence(first.ctx, {
+      list: () => Promise.resolve([firstHeader]),
+      inspect: () => Promise.resolve({ meta: firstHeader, events: [] }),
+    }) as never)
     await expect(first.transport.page({ address, throughSeq: -1 }, signal()))
       .rejects.toMatchObject({ failure: { code: 'session-not-found' } })
 
     const second = await setup()
     const listed = { version: 0, id: sessionId, createdAt: 1, cwd: '/workspace' }
-    second.ctx.provide('sessionPersistence', {
+    const inspected = { version: 0, id: sessionId, createdAt: 1 }
+    second.ctx.provide('sessionPersistence', testSessionPersistence(second.ctx, {
       list: () => Promise.resolve([listed]),
-      inspect: () => Promise.resolve({ meta: { ...listed, cwd: undefined }, events: [] }),
-    } as never)
+      inspect: () => Promise.resolve({ meta: inspected, events: [] }),
+    }) as never)
     await expect(second.transport.page({ address, throughSeq: -1 }, signal()))
       .rejects.toMatchObject({ failure: { code: 'session-not-found' } })
   })
@@ -407,7 +526,7 @@ describe('SessionHistoryController', () => {
     const missing = await setup()
     cold(missing.ctx, childHeader, [])
     await expect(missing.transport.page({ address: childAddress, throughSeq: -1 }, signal()))
-      .rejects.toMatchObject({ failure: { code: 'subagent-catalog-diagnostic', details: { reason: 'unsupported' } } })
+      .rejects.toMatchObject({ failure: { code: 'subagent-catalog-diagnostic', details: { reason: 'corrupt' } } })
 
     const corrupt = await setup()
     cold(corrupt.ctx, childHeader, [event('subagent/descriptor', 0, { version: 'bad' })])
@@ -421,44 +540,48 @@ describe('SessionHistoryController', () => {
       .rejects.toMatchObject({ failure: { code: 'subagent-unauthorized' } })
   })
 
-  it('uses attached and detached projection cuts and isolates a child projection failure', async () => {
-    const attached = await setup()
-    const session = attached.ctx.sessions.create(SessionId('projected'), { meta: { cwd: '/workspace' } })
+  it('reports an unavailable descriptor when an observed child has no projection value', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const parentSessionId = SessionId('missing-projection-parent')
+    const childSessionId = SessionId('missing-projection-child')
+    const meta: SessionHeader = {
+      version: 0,
+      id: childSessionId,
+      createdAt: 1,
+      cwd: '/workspace',
+      origin: 'subagent',
+      parentSession: parentSessionId,
+    }
+    ctx.provide('sessionQuery', {
+      observeSession: () => Promise.resolve({
+        source: 'live', header: meta, events: [], cursor: -1,
+        projections: { asOfSeq: -1, values: {} },
+        retain: vi.fn(), [Symbol.dispose]: vi.fn(),
+      } as unknown as SessionObservation),
+    } as never)
+    const history = new SessionHistoryController(ctx, vi.fn())
+
+    await expect(history.page({
+      address: { kind: 'subagent', parentSessionId, childSessionId, mode: 'continuable' },
+      throughSeq: -1,
+    }, signal())).rejects.toMatchObject({
+      failure: { code: 'subagent-catalog-diagnostic', details: { reason: 'unsupported' } },
+    })
+    await ctx.fiber.dispose()
+  })
+
+  it('keeps pages projection-free and computes projections only for child authorization', async () => {
+    const ordinary = await setup()
+    const session = ordinary.ctx.sessions.create(SessionId('projected'), { meta: { cwd: '/workspace' } })
     session.append('turn/start', { turn: 1 })
-    const snapshot = vi.fn(() => ({ asOfSeq: 0, values: { title: 'attached' } }))
-    attached.ctx.provide('sessionProjections', { snapshot, restore: vi.fn() } as never)
-    await expect(attached.transport.page({
+    const ordinarySnapshot = vi.spyOn(ordinary.ctx.sessionProjections, 'snapshot')
+    const ordinaryPage = await ordinary.transport.page({
       address: { kind: 'session', sessionId: session.id },
       throughSeq: 0,
-    }, signal())).resolves.toMatchObject({ projections: { asOfSeq: 0, values: { title: 'attached' } } })
-    expect(snapshot).toHaveBeenCalledWith(session)
-    const older = await attached.transport.page({
-      address: { kind: 'session', sessionId: session.id }, throughSeq: 0, beforeSeq: 1,
     }, signal())
-    expect('projections' in older).toBe(false)
-
-    const detached = await setup()
-    const coldId = SessionId('projected-cold')
-    const header = { version: 0, id: coldId, createdAt: 1, cwd: '/workspace' }
-    cold(detached.ctx, header, [event('turn/start', 0, { turn: 1 })])
-    const restore = vi.fn(() => ({ snapshot: { asOfSeq: 0, values: { title: 'cold' } } }))
-    detached.ctx.provide('sessionProjections', { snapshot: vi.fn(), restore } as never)
-    await expect(detached.transport.page({
-      address: { kind: 'session', sessionId: coldId },
-      throughSeq: 0,
-    }, signal())).resolves.toMatchObject({ projections: { values: { title: 'cold' } } })
-    expect(restore).toHaveBeenCalledWith({}, expect.any(Array), 0)
-
-    const failed = await setup()
-    cold(failed.ctx, header, [event('turn/start', 0, { turn: 1 })])
-    failed.ctx.provide('sessionProjections', {
-      snapshot: vi.fn(),
-      restore: () => { throw new Error('projection failed') },
-    } as never)
-    await expect(failed.transport.page({
-      address: { kind: 'session', sessionId: coldId },
-      throughSeq: 0,
-    }, signal())).rejects.toThrow('projection failed')
+    expect('projections' in ordinaryPage).toBe(false)
+    expect(ordinarySnapshot).not.toHaveBeenCalled()
 
     const child = await setup()
     const parentSessionId = SessionId('projection-parent')
@@ -469,17 +592,13 @@ describe('SessionHistoryController', () => {
     childSession.append('subagent/descriptor', snapshotSubagentDescriptor({
       mode: 'continuable', provider: 'test', label: 'child',
     }))
-    const warn = vi.spyOn(child.ctx.logger, 'warn').mockImplementation(() => undefined)
-    child.ctx.provide('sessionProjections', {
-      snapshot: () => { throw new Error('child projection failed') },
-      restore: vi.fn(),
-    } as never)
+    const childSnapshot = vi.spyOn(child.ctx.sessionProjections, 'snapshot')
     const page = await child.transport.page({
       address: { kind: 'subagent', parentSessionId, childSessionId, mode: 'continuable' },
       throughSeq: 0,
     }, signal())
     expect('projections' in page).toBe(false)
-    expect(warn).toHaveBeenCalledWith(expect.stringContaining('child projection failed'))
+    expect(childSnapshot).toHaveBeenCalledWith(childSession)
   })
 
   it('keeps message-aligned pagination contiguous across replacement provenance', async () => {

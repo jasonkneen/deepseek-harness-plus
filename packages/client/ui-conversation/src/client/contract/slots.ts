@@ -1,5 +1,6 @@
 /** Target-neutral Conversation slot declarations and composed component props. */
 import type { ReactNode, RefObject } from 'react'
+import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import type { SessionSnapshot } from '@deepseek-ai/dsh-api-session-controller/client'
 import type { WorkspaceSnapshot } from '@deepseek-ai/dsh-api-workspace-controller/client'
 import type {
@@ -42,6 +43,19 @@ export interface ComposerAttachmentsOwnerProps {
   /** Display-ready limits for the drop invitation. */
   dropLimits?: { readonly count: number; readonly size: string } | undefined
 }
+
+/** Durable image group handed to the optional attachment presentation plugin. */
+export interface MessageImagesOwnerProps {
+  /** Durable image references in source order. */
+  images: readonly { readonly attachment: ImageAttachmentRef }[]
+  /** Session-authorized image URL loader. */
+  loadImage: (attachment: ImageAttachmentRef) => Promise<string>
+  /** Horizontal placement inside the owning record. */
+  align: 'start' | 'end'
+}
+
+/** Slot-backed renderer used by Conversation targets without importing an attachment implementation. */
+export type RenderMessageImages = (owner: Omit<MessageImagesOwnerProps, 'loadImage'>) => ReactNode
 
 /** Selector hook over the current Session's assembled Conversation. */
 export type UseConversation = SnapshotSelectorHook<ConversationSnapshot>

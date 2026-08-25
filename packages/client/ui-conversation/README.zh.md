@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-`ui-conversation` 拥有与 target 无关的 Conversation 组装和共享浏览器 shell。它消费 Session Controller event feed，通过 `ctx.uiConversation` 暴露不依赖 React 的 registry 与逐 Session binding，并通过 `ctx.uiSession` 提供 `useConversation`、`useInput` 和 `inputActions` 标准 props。Chat 等具体 target 位于独立 package，由各自 package 注册 Definition、snapshot builder、View 和 renderer。
+`ui-conversation` 拥有与 target 无关的 Conversation 组装和共享浏览器 shell。它消费 Session Controller event feed，通过 `ctx.uiConversation` 暴露不依赖 React 的 registry 与逐 Session binding，并通过 `ctx.uiSession` 提供 `useConversation`、`useInput` 和 `inputActions` 标准 props。它还拥有按会话的持久化图片 URL 缓存：`ctx.uiConversation.imageUrl(sessionId, attachment)` 为每个附件解析一个经会话授权的浏览器 URL，并随 Session binding 释放而撤销，因此所有 Conversation target 共享一次 `session.attachment` 读取。Chat 等具体 target 位于独立 package，由各自 package 注册 Definition、snapshot builder、View 和 renderer。
 
 ## Conversation 组装
 
@@ -19,6 +19,8 @@ target package 通过 declaration merge 扩展 snapshot 与 Location data map，
 View 选择规则固定：有效且已注册的持久化选择优先，其次是已注册的 `chat`，否则不渲染 View；绝不选择第一个已注册 View。Shell phase 只组合 Session lifecycle 与 active-target set，不读取任何 target-specific snapshot。
 
 常驻 composer 在无 Session 与有 Session 之间保持挂载。无 Session 时，同一个 textarea 保持 inert，Workspace picker 连接 blank Session；草稿文本镜像到逐 Session Conversation store。Queue 操作通过 scoped `ctx.conversation` service 寻址准确的 queue occurrence。繁忙时 Enter 行为保存在 Host-backed `ui-conversation` settings namespace。
+
+普通 composer 运行期间，草稿为空或 owner block 使输入不可用时，主指针操作保持为 Stop。可提交文字或附件会把同一位置切换为 Queue Send；清空或成功提交草稿后恢复 Stop。键盘 Queue/Steer 选择仍由繁忙态 Enter 设置决定，可继续 subagent 则保留相互独立的 Send 与 Stop 操作（[决策](../../../.agents/notes/implemented/bug-fix/2026-08-20-running-draft-primary-send.zh.md)）。
 
 ## 临时 composer entry
 

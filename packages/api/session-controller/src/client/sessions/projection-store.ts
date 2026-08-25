@@ -2,8 +2,8 @@
  * Generic per-session projection value store (push model; see the
  * session-projection subsystem page, docs/subsystems/session-projection.md):
  * the host is the only computation site; the client holds finished
- * whole values per key — `key → { value, seq }` — seeded by a Session page's
- * projections block and updated by Session Controller `projection` frames,
+ * whole values per key — `key → { value, seq }` — seeded by a follow opening
+ * baseline and updated by Session Controller `projection` frames,
  * under the single rule **higher seq wins**. No client-side domain folding
  * exists: a domain ships projection support with zero client code. Per-key
  * bare observable faces feed `useProjection` (ui-renderer binds them).
@@ -40,8 +40,7 @@ export type UseProjection = {
 }
 
 /**
- * Tail-page projections baseline — structurally identical to Session
- * Controller's `SessionProjectionsBlock`, restated here so the
+ * Follow-opening projection baseline, restated here so the
  * React-free store depends only on the type table, not the wire package's
  * response vocabulary.
  */

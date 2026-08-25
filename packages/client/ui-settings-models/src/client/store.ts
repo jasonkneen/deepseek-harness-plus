@@ -125,6 +125,15 @@ export class ModelsSettingsStore {
   ) {}
 
   /**
+   * Fold one successful settings write into the shared mirror before rejoining
+   * this page's rows.
+   * @param view - namespace view returned by the settings wire method.
+   */
+  acceptNamespace(view: SettingsNamespaceView): void {
+    this.describeFace.acceptView(view)
+  }
+
+  /**
    * Refresh the whole page snapshot: the provider directory and the mirror's
    * settings answer in parallel, then one batched credential describe over
    * every referenced ref. Provider failure or absence of an initial settings

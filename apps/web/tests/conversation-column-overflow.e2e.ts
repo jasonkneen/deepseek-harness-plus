@@ -31,7 +31,7 @@ import {
 } from './scaffold.ts'
 import { newEnglishPage, saveFailureShot } from './support.ts'
 
-const SNAPSHOT_DIR = fileURLToPath(new URL('./snapshots/conversation-column-overflow', import.meta.url))
+const SNAPSHOT_DIR = fileURLToPath(new URL('./expected/conversation-column-overflow', import.meta.url))
 /**
  * Committed golden of the one-axis relation at every stop. It records
  * relations and booleans, never absolute coordinates: the column width follows

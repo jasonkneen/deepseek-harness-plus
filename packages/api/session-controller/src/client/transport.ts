@@ -17,6 +17,7 @@ import type {
   SessionEventEntry,
   SessionPage,
   SessionPageRequest,
+  SessionProjectionBaseline,
 } from '../types.ts'
 
 export {
@@ -30,8 +31,13 @@ export type ClientSessionPageRequest = Omit<SessionPageRequest, 'address' | 'thr
 /** Complete generated `ctx.remote.session` namespace. */
 export type SessionRemote = ClientRemote['session']
 
+/** Opening metadata carried only by a follow snapshot, never by loadOlder pages. */
+interface SessionJournalPage extends SessionPage {
+  readonly projections?: SessionProjectionBaseline
+}
+
 /** One complete publication from the Session journal stream. */
-export type SessionJournalChange = RemoteJournalChange<SessionPage, SessionEventEntry>
+export type SessionJournalChange = RemoteJournalChange<SessionJournalPage, SessionEventEntry>
 
 type SessionControlBaselineFrame = Extract<SessionControlFrame, { type: 'baseline' }>
 type SessionControlDeltaFrame = Exclude<SessionControlFrame, SessionControlBaselineFrame>
@@ -93,7 +99,7 @@ export function createSessionControlStream(
 
 /** Gateway-owned event journal bound to one ordinary or direct-subagent Session address. */
 export class SessionEventStream extends RemoteJournalStream<
-  SessionPage,
+  SessionJournalPage,
   SessionEventEntry,
   number,
   ClientSessionPageRequest
@@ -126,15 +132,23 @@ export class SessionEventStream extends RemoteJournalStream<
 
   /** @inheritdoc */
   protected override async * follow(
-    afterSeq: number | undefined,
+    request: ClientSessionPageRequest,
     signal: AbortSignal,
-  ): AsyncIterable<RemoteJournalFrame<SessionEventEntry, number>> {
-    const request = afterSeq === undefined
-      ? { address: this.address }
-      : { address: this.address, afterSeq }
-    for await (const frame of this.remote.session.follow(request, signal)) {
-      if (frame.type === 'opened') {
-        yield frame
+  ): AsyncIterable<RemoteJournalFrame<SessionEventEntry, number, SessionJournalPage>> {
+    for await (const frame of this.remote.session.follow({
+      address: this.address,
+      ...(request.maxMessages === undefined ? {} : { maxMessages: request.maxMessages }),
+    }, signal)) {
+      if (frame.type === 'snapshot') {
+        yield {
+          type: 'opened',
+          cursor: frame.cursor,
+          page: {
+            events: frame.events,
+            hasMore: frame.hasMore,
+            projections: frame.projections,
+          },
+        }
         continue
       }
       const { type: _type, ...entry } = frame
@@ -147,7 +161,7 @@ export class SessionEventStream extends RemoteJournalStream<
     request: ClientSessionPageRequest,
     throughSeq: number,
     signal: AbortSignal,
-  ): Promise<SessionPage> {
+  ): Promise<SessionJournalPage> {
     const result = await this.remote.session.page(
       { address: this.address, throughSeq, ...request },
       signal,

@@ -2,7 +2,7 @@
 
 English | [中文](README.zh.md)
 
-The channel-neutral boot library shared by `apps/cli` and the [`examples/`](../examples/README.md) demo bins.
+The channel-neutral boot library shared by `apps/cli` and test-only Loader fixtures.
 
 | Package | Role | ctx key |
 |---|---|---|

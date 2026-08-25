@@ -1,9 +1,15 @@
+import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { type SessionEvent } from '@deepseek-ai/dsh-session'
 import { parseSessionLog } from '@deepseek-ai/dsh-llm-replay'
-import { canonicalSessionFixture, isPhysicalSessionFixture } from './session-fixture-layout.ts'
+import {
+  canonicalSessionFixture,
+  inspectSessionFixtureLayouts,
+  isPhysicalSessionFixture,
+} from './session-fixture-layout.ts'
 
 const HEADER = '  {"type":"session","version":0,"id":"fixture","createdAt":1,"delegationDepth":0}  '
+const root = resolve(import.meta.dirname, '..')
 
 function chunkRun(): SessionEvent[] {
   return Array.from({ length: 4 }, (_, index) => ({
@@ -79,4 +85,14 @@ describe('isPhysicalSessionFixture', () => {
     )).toBe(false)
     expect(isPhysicalSessionFixture('apps/web/tests/snapshots/example/session.jsonl')).toBe(false)
   })
+})
+
+it('keeps every session-format JSONL fixture projected into canonical packed layout', () => {
+  const nonCanonical = inspectSessionFixtureLayouts(root)
+    .filter(fixture => fixture.source !== fixture.canonical)
+    .map(fixture => fixture.path)
+  expect(
+    nonCanonical,
+    'Run `pnpm run migrate:packed-session-fixtures` and commit the mechanical fixture rewrite.',
+  ).toEqual([])
 })

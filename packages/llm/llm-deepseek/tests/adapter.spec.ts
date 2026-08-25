@@ -109,7 +109,7 @@ function attachmentStoreOf(
 } {
   const readImageRequest = vi.fn(project)
   return {
-    store: { readImageRequest } as unknown as AttachmentStore,
+    store: { readImageRequest, imageHostPath: () => undefined } as unknown as AttachmentStore,
     readImageRequest,
   }
 }
@@ -147,7 +147,7 @@ describe('request image policy', () => {
       { maxPixels: 640_000, maxBytes: 1024 * 1024 },
     ],
     [
-      { id: 'low', imageDetail: 'low' as const },
+      { id: 'low', imagePixelBudget: 'low' as const },
       { maxPixels: 512 * 512, maxBytes: 1024 * 1024 },
     ],
     [
@@ -367,7 +367,7 @@ describe('DeepSeekAdapter against a mock server', () => {
         role: 'user',
         content: [
           { type: 'text', text: 'describe ' },
-          { type: 'text', text: expect.stringContaining(`Image ${imageRef.attachmentId}; request image 1x1px.`) as string },
+          { type: 'text', text: expect.stringContaining(`Image ${imageRef.attachmentId}; request preview 1x1px.`) as string },
           { type: 'file', file_id: 'file-api-1' },
         ],
       }],
@@ -434,7 +434,7 @@ describe('DeepSeekAdapter against a mock server', () => {
     }))
 
     const body = JSON.stringify(server.requests[0])
-    expect(body.match(/older images are omitted first/g)).toHaveLength(11)
+    expect(body.match(/image omitted to fit request image limits/g)).toHaveLength(11)
     expect(body.match(/"type":"image_url"/g)).toHaveLength(10)
   })
 
@@ -600,7 +600,7 @@ describe('DeepSeekAdapter against a mock server', () => {
     expect(body.messages[0]).toMatchObject({
       role: 'user',
       content: [
-        { type: 'text', text: expect.stringContaining('older images are omitted first') as string },
+        { type: 'text', text: expect.stringContaining(`image omitted to fit request image limits; ${old.attachmentId}`) as string },
         { type: 'text', text: expect.stringContaining(String(recent.attachmentId)) as string },
         { type: 'file', file_id: 'file-api-1' },
       ],
@@ -619,7 +619,7 @@ describe('DeepSeekAdapter against a mock server', () => {
         {
           id: 'vision-low',
           inputModalities: ['text', 'image'],
-          imageDetail: 'low',
+          imagePixelBudget: 'low',
           imageMaxBytes: 512_000,
         },
         {
@@ -1205,7 +1205,11 @@ describe('DeepSeekAdapter against a mock server', () => {
     await expect(ctx.llm.resolveModelInfo('deepseek-official', 'deepseek-v4-flash'))
       .resolves.toMatchObject({
         reasoning: {
-          efforts: [{ id: ReasoningEffortId('off'), name: 'Off' }],
+          efforts: [{
+            id: ReasoningEffortId('off'),
+            name: 'Off',
+            description: 'Use for simple tasks that do not need reasoning.',
+          }],
           defaultEffort: ReasoningEffortId('off'),
         },
       })
@@ -1665,8 +1669,20 @@ describe('plugin registration and config', () => {
     await ctx.plugin(LlmDeepSeek, { baseURL: 'http://127.0.0.1:1' })
     expect(ctx.llm.listProviders()).toEqual([{ id: 'deepseek-official', name: 'DeepSeek' }])
     await expect(ctx.llm.listModels('deepseek-official')).resolves.toEqual([
-      { provider: 'deepseek-official', id: 'deepseek-v4-flash', name: 'DeepSeek-V4-Flash', inputModalities: ['text'] },
-      { provider: 'deepseek-official', id: 'deepseek-v4-pro', name: 'DeepSeek-V4-Pro', inputModalities: ['text'] },
+      {
+        provider: 'deepseek-official',
+        id: 'deepseek-v4-flash',
+        name: 'DeepSeek-V4-Flash',
+        description: 'Fast, efficient, and economical; suited to focused, routine, or parallel tasks.',
+        inputModalities: ['text'],
+      },
+      {
+        provider: 'deepseek-official',
+        id: 'deepseek-v4-pro',
+        name: 'DeepSeek-V4-Pro',
+        description: 'Stronger agentic coding, knowledge, and difficult reasoning; suited to complex or quality-critical tasks at higher cost.',
+        inputModalities: ['text'],
+      },
       { provider: 'deepseek-official', id: 'deepseek-v4-flash-vision-exp', name: 'DeepSeek-V4-Flash-Vision-Exp', inputModalities: ['text', 'image'] },
     ])
     await expect(ctx.llm.resolveModelInfo('deepseek-official', 'deepseek-v4-flash'))
@@ -1678,10 +1694,10 @@ describe('plugin registration and config', () => {
         defaultMaxTokens: 256_000,
         reasoning: {
           efforts: [
-            { id: ReasoningEffortId('off'), name: 'Off' },
-            { id: ReasoningEffortId('low'), name: 'Low' },
-            { id: ReasoningEffortId('high'), name: 'High' },
-            { id: ReasoningEffortId('max'), name: 'Max' },
+            { id: ReasoningEffortId('off'), name: 'Off', description: 'Use for simple tasks that do not need reasoning.' },
+            { id: ReasoningEffortId('low'), name: 'Low', description: 'Prefer for routine or latency-sensitive tasks.' },
+            { id: ReasoningEffortId('high'), name: 'High', description: 'The default balance for most tasks.' },
+            { id: ReasoningEffortId('max'), name: 'Max', description: 'Reserve for the hardest quality-first tasks.' },
           ],
           defaultEffort: ReasoningEffortId('high'),
         },
@@ -1708,10 +1724,10 @@ describe('plugin registration and config', () => {
       .resolves.toMatchObject({
         reasoning: {
           efforts: [
-            { id: ReasoningEffortId('off'), name: 'Off' },
-            { id: ReasoningEffortId('low'), name: 'Low' },
-            { id: ReasoningEffortId('high'), name: 'High' },
-            { id: ReasoningEffortId('max'), name: 'Max' },
+            { id: ReasoningEffortId('off'), name: 'Off', description: 'Use for simple tasks that do not need reasoning.' },
+            { id: ReasoningEffortId('low'), name: 'Low', description: 'Prefer for routine or latency-sensitive tasks.' },
+            { id: ReasoningEffortId('high'), name: 'High', description: 'The default balance for most tasks.' },
+            { id: ReasoningEffortId('max'), name: 'Max', description: 'Reserve for the hardest quality-first tasks.' },
           ],
           defaultEffort: ReasoningEffortId(effort),
         },
@@ -1729,7 +1745,11 @@ describe('plugin registration and config', () => {
     await expect(ctx.llm.resolveModelInfo('deepseek-official', 'unlisted-pass-through'))
       .resolves.toMatchObject({
         reasoning: {
-          efforts: [{ id: ReasoningEffortId('off'), name: 'Off' }],
+          efforts: [{
+            id: ReasoningEffortId('off'),
+            name: 'Off',
+            description: 'Use for simple tasks that do not need reasoning.',
+          }],
           defaultEffort: ReasoningEffortId('off'),
         },
       })
@@ -1761,7 +1781,11 @@ describe('plugin registration and config', () => {
     const adapter = adapterOf({ thinking: 'disabled', reasoningEffort: 'off' })
     await expect(adapter.resolveModel('deepseek-official', 'pass-through')).resolves.toMatchObject({
       reasoning: {
-        efforts: [{ id: ReasoningEffortId('off'), name: 'Off' }],
+        efforts: [{
+          id: ReasoningEffortId('off'),
+          name: 'Off',
+          description: 'Use for simple tasks that do not need reasoning.',
+        }],
         defaultEffort: ReasoningEffortId('off'),
       },
     })
@@ -1772,8 +1796,20 @@ describe('plugin registration and config', () => {
     await ctx.plugin(LlmRuntime)
     LlmDeepSeek.apply(ctx, { baseURL: 'http://127.0.0.1:1' })
     await expect(ctx.llm.listModels('deepseek-official')).resolves.toEqual([
-      { provider: 'deepseek-official', id: 'deepseek-v4-flash', name: 'DeepSeek-V4-Flash', inputModalities: ['text'] },
-      { provider: 'deepseek-official', id: 'deepseek-v4-pro', name: 'DeepSeek-V4-Pro', inputModalities: ['text'] },
+      {
+        provider: 'deepseek-official',
+        id: 'deepseek-v4-flash',
+        name: 'DeepSeek-V4-Flash',
+        description: 'Fast, efficient, and economical; suited to focused, routine, or parallel tasks.',
+        inputModalities: ['text'],
+      },
+      {
+        provider: 'deepseek-official',
+        id: 'deepseek-v4-pro',
+        name: 'DeepSeek-V4-Pro',
+        description: 'Stronger agentic coding, knowledge, and difficult reasoning; suited to complex or quality-critical tasks at higher cost.',
+        inputModalities: ['text'],
+      },
       { provider: 'deepseek-official', id: 'deepseek-v4-flash-vision-exp', name: 'DeepSeek-V4-Flash-Vision-Exp', inputModalities: ['text', 'image'] },
     ])
   })
@@ -1895,6 +1931,20 @@ describe('plugin registration and config', () => {
     expect(() => resolveAdapterOptions({ models: [...models] })).toThrow(message)
   })
 
+  it('rejects the removed imageDetail model setting through schema and direct construction', async () => {
+    const legacyModel = { id: 'vision', inputModalities: ['image'], imageDetail: 'low' } as unknown as
+      LlmDeepSeek.DeepSeekCatalogModel
+    expect(() => resolveAdapterOptions({ models: [legacyModel] })).toThrow(/imageDetail is no longer supported/)
+
+    const ctx = new Context()
+    await ctx.plugin(LlmRuntime)
+    await expect(ctx.plugin(LlmDeepSeek, {
+      baseURL: 'http://127.0.0.1:1',
+      models: [legacyModel],
+    })).rejects.toThrow(/imageDetail is no longer supported/)
+    expect(ctx.llm.listProviders()).toEqual([])
+  })
+
   it.each([0, 1.5])('rejects a per-model output cap of %s', (maxTokens) => {
     expect(() => resolveAdapterOptions({ models: [{ id: 'bad-cap', maxTokens }] }))
       .toThrow(/maxTokens must be a positive integer/)
@@ -1907,8 +1957,9 @@ describe('plugin registration and config', () => {
   })
 
   it.each([
-    ['imagePixelBudget', 0, /imagePixelBudget must be a positive safe integer/],
-    ['imagePixelBudget', Number.MAX_SAFE_INTEGER + 1, /imagePixelBudget must be a positive safe integer/],
+    ['imagePixelBudget', 0, /imagePixelBudget must be "low" or a positive safe integer/],
+    ['imagePixelBudget', Number.MAX_SAFE_INTEGER + 1, /imagePixelBudget must be "low" or a positive safe integer/],
+    ['imagePixelBudget', 'auto', /imagePixelBudget must be "low" or a positive safe integer/],
     ['imageMaxBytes', 0, /imageMaxBytes must be a positive safe integer/],
     ['imageMaxBytes', 1.5, /imageMaxBytes must be a positive safe integer/],
   ] as const)('rejects per-model %s=%s', (field, value, message) => {

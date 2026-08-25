@@ -97,12 +97,15 @@ describe('local request-image cache', () => {
       .rejects.toThrow('Image request maxBytes must be a positive integer')
   })
 
-  it('refuses a one-pixel request that cannot meet the encoded-byte budget', async () => {
+  it('keeps the smallest ladder output when the encoded-byte target is unreachable', async () => {
     const attachments = await store()
     const attachment = await attachments.saveImage({ data: await image(1, 1), mediaType: 'image/png' })
 
-    await expect(attachments.readImageRequest(attachment, { maxPixels: 1, maxBytes: 1 }))
-      .rejects.toMatchObject({ code: 'IMAGE_TOO_LARGE' })
+    const request = await attachments.readImageRequest(attachment, { maxPixels: 1, maxBytes: 1 })
+
+    expect(request.mediaType).toBe('image/jpeg')
+    expect(request.bytes).toBeGreaterThan(1)
+    expect(request).toMatchObject({ width: 1, height: 1 })
   })
 
   it('regenerates invalid, oversized, incompatible, or mismatched cached variants', async () => {
@@ -171,7 +174,7 @@ describe('local request-image cache', () => {
     expect(low.width * low.height).toBeLessThanOrEqual(512 * 512 + low.width)
   })
 
-  it('classifies opaque PNG pixels and preserves alpha while enforcing the request budget', async () => {
+  it('routes opaque pixels to JPEG and preserves alpha on the WebP ladder', async () => {
     const attachments = await store()
     const side = 256
     const photoPixels = new Uint8Array(side * side * 3)
@@ -204,8 +207,9 @@ describe('local request-image cache', () => {
     const alphaRequest = await attachments.readImageRequest(alpha, { maxPixels: 128 * 128, maxBytes: 4_096 })
 
     expect(photoRequest.mediaType).toBe('image/jpeg')
-    expect(alphaRequest.bytes).toBeLessThanOrEqual(4_096)
-    expect(alphaRequest.width).toBeLessThan(128)
+    expect(alphaRequest.mediaType).toBe('image/webp')
+    expect(alphaRequest.bytes).toBeGreaterThan(4_096)
+    expect(alphaRequest).toMatchObject({ width: 128, height: 128 })
     await expect(sharp(alphaRequest.data).metadata()).resolves.toMatchObject({ hasAlpha: true, depth: 'uchar', space: 'srgb' })
   })
 

@@ -57,7 +57,7 @@ interface SpillRef {
 
 `SpillLocator` 是一个[品牌化的](../../../../packages/util/brand)模型可见句柄，由后端返回。本地后端将其渲染为文件系统路径；远程或数据库后端可以渲染 URI、键或命令 token。消费方把它视为不透明值，并使用 `retrievalHint` 渲染，而不是假定 `read` 始终是正确的检索机制。`SpillOwner.sessionId` 是保存时的存储命名空间：fork 后的会话会从种子日志继承已有的 spill 定位符，无需复制它们或重新取得所有权；fork 后的新 spill 使用子会话 id。保留期清理可以连同其他旧会话产物一起使旧定位符失效；spill seam 不定义逐会话的清理策略。
 
-`dsh-spill-local` 只负责存储细节：选择会话作用域的目录、安全名称、防止路径遍历、执行写入，以及返回 `{ locator, bytes, retrievalHint }`。它不负责保留策略、工具结果替换、搜索或文件检查。文件写入 `<root>/session-<hash>/<random>-<safeName>`：`root` 是配置路径，或延迟创建的私有（0700）进程级临时目录；会话子目录是 `sha256(sessionId)` 的短前缀；叶节点由随机十六进制前缀与调用方的 `suggestedName` 组成，后者会被清理成单一路径段（与 JSONL 后端的 `encodeSegment` 一致）。系统使用 `open(path, 'wx', 0o600)` 写入，确保独占且仅所有者可访问，因此预先植入的符号链接无法重定向写入。定位符就是该路径，检索提示则告知模型可以在该路径上使用 `read` 或 `grep`。
+`dsh-spill-local` 负责存储细节：选择会话作用域的目录、安全名称、防止路径遍历、执行写入、本地产物生命周期，以及返回 `{ locator, bytes, retrievalHint }`。它不负责工具结果替换、模型可见的预览策略、搜索、文件检查，也不定义 seam 级或逐会话保留策略。文件写入 `<root>/session-<hash>/<random>-<safeName>`：`root` 是配置路径，或延迟创建的私有（0700）进程级临时目录；会话子目录是 `sha256(sessionId)` 的短前缀；叶节点由随机十六进制前缀与调用方的 `suggestedName` 组成，后者会被清理成单一路径段（与 JSONL 后端的 `encodeSegment` 一致）。系统使用 `open(path, 'wx', 0o600)` 写入，确保独占且仅所有者可访问，因此预先植入的符号链接无法重定向写入。定位符就是该路径，检索提示则告知模型可以在该路径上使用 `read` 或 `grep`。它的一次性启动清理会应用[本地 spill 清理说明](./2026-07-17-local-spill-startup-cleanup.zh.md)所述的后端专属产物生命周期。
 
 ### spill 策略
 
@@ -160,7 +160,8 @@ ctx.tools.register(defineTool({
 - 由工具负责的 subagent 执行轨迹 spill（`await run.result`，在 `run.dispose()` 前读取进程内子会话，保存 JSONL）。
 - 如果内置的 `read` 跳过规则不足，再增加逐工具选择退出或逐工具策略声明。
 - 面向 ACP（Agent Client Protocol）或远程环境的远程／数据库存储后端，因为本地路径在这些环境中没有意义。
-- 旧 spill 文件的清理和保留策略，很可能与会话清理绑定。
+
+本地后端通过一次性启动扫描清理旧文件，而不是绑定到会话删除——参见[启动清理 Agent Note](./2026-07-17-local-spill-startup-cleanup.zh.md)。seam 仍未定义逐会话清理策略；保留策略属于后端。
 
 ## 测试
 

@@ -1,7 +1,7 @@
 import { Context } from '@deepseek-ai/cordis'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
-import { ApiSessionNotFound } from '@deepseek-ai/dsh-api-session-controller'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
+import { SessionQueryError, type SessionObservation } from '@deepseek-ai/dsh-session-query'
 import type {} from '@deepseek-ai/dsh-skill'
 import { describe, expect, it, vi } from 'vitest'
 import { createApiProxy } from '../src/api-proxy.ts'
@@ -14,11 +14,18 @@ describe('skill catalog Session inspection', () => {
     await ctx.plugin(AgentRegistry)
     const sessionId = SessionId('cold-skills')
     const resolveAgent = vi.fn()
-    const inspect = vi.fn(() => Promise.resolve({
-      meta: { version: 0 as const, id: sessionId, createdAt: 1, cwd: '/cold/project' },
+    const dispose = vi.fn()
+    const observeSession = vi.fn(() => Promise.resolve({
+      source: 'live',
+      header: { version: 0 as const, id: sessionId, createdAt: 1, cwd: '/cold/project' },
       events: [],
-    }))
-    ctx.provide('sessionController', { inspect, resolveAgent } as never)
+      cursor: -1,
+      projections: { asOfSeq: -1, values: {} },
+      retain: () => { throw new Error('not retained') },
+      [Symbol.dispose]: dispose,
+    } satisfies SessionObservation))
+    ctx.provide('sessionQuery', { observeSession } as never)
+    ctx.provide('sessionController', { resolveAgent } as never)
     const list = vi.fn(() => Promise.resolve([{
       name: 'review',
       description: 'Review the current change.',
@@ -42,7 +49,8 @@ describe('skill catalog Session inspection', () => {
         }],
       },
     })
-    expect(inspect).toHaveBeenCalledWith(sessionId)
+    expect(observeSession).toHaveBeenCalledWith(sessionId)
+    expect(dispose).toHaveBeenCalledOnce()
     expect(resolveAgent).not.toHaveBeenCalled()
     expect(list).toHaveBeenCalledWith({ cwd: '/cold/project', scope: undefined })
   })
@@ -51,7 +59,10 @@ describe('skill catalog Session inspection', () => {
     const sessionId = SessionId('missing-skills')
     for (const fixture of [
       {
-        error: new ApiSessionNotFound('session "missing-skills" not found'),
+        error: new SessionQueryError(
+          'session "missing-skills" not found',
+          'SESSION_QUERY_SESSION_NOT_FOUND',
+        ),
         code: 'session-not-found',
       },
       { error: new Error('storage offline'), code: 'internal' },
@@ -59,9 +70,8 @@ describe('skill catalog Session inspection', () => {
       const ctx = new Context()
       await ctx.plugin(SessionStore)
       await ctx.plugin(AgentRegistry)
-      ctx.provide('sessionController', {
-        inspect: () => Promise.reject(fixture.error),
-        resolveAgent: vi.fn(),
+      ctx.provide('sessionQuery', {
+        observeSession: () => Promise.reject(fixture.error),
       } as never)
       ctx.provide('skills', { list: vi.fn() } as never)
       const api = createApiProxy(ctx, {

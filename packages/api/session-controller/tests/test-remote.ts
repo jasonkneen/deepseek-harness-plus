@@ -2,6 +2,16 @@
 
 import type { Context } from '@deepseek-ai/cordis'
 import type { ModelSelection as AgentModelSelection } from '@deepseek-ai/dsh-agent'
+import type { SessionId } from '@deepseek-ai/dsh-session'
+import {
+  SessionPersistenceCorruptionError,
+  SessionPersistenceNotFoundError,
+  SessionPersistenceRevision,
+  type BorrowedSessionSource,
+  type SessionInspection,
+} from '@deepseek-ai/dsh-session-persistence'
+import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
+import SessionQueryEngine from '@deepseek-ai/dsh-session-query'
 import { vi } from 'vitest'
 import {
   TypertRemoteFailure,
@@ -18,10 +28,10 @@ import type {
   SessionCreateValue,
   SessionForkRequest,
   SessionForkValue,
+  SessionFollowFrame,
+  SessionFollowRequest,
   SessionListRequest,
   SessionListValue,
-  SessionModels,
-  SessionModelsRequest,
   SessionPage,
   SessionPageRequest,
   SessionPromptRequest,
@@ -41,7 +51,6 @@ export interface TestSessionRemote {
   list(request: SessionListRequest, signal?: AbortSignal): Promise<RemoteResult<SessionListValue>>
   search(request: SessionSearchRequest, signal?: AbortSignal): Promise<RemoteResult<SessionSearchValue>>
   create(request: SessionCreateRequest): Promise<RemoteResult<SessionCreateValue>>
-  models(request: SessionModelsRequest): Promise<RemoteResult<SessionModels>>
   selectModel(request: SessionSelectModelRequest): Promise<RemoteResult<SessionSelectModelValue>>
   rename(request: SessionRenameRequest): Promise<RemoteResult<SessionRenameValue>>
   fork(request: SessionForkRequest): Promise<RemoteResult<SessionForkValue>>
@@ -50,6 +59,7 @@ export interface TestSessionRemote {
   updateQueue(request: SessionUpdateQueueRequest): Promise<RemoteResult<SessionUpdateQueueValue>>
   cancel(request: SessionCancelRequest): Promise<RemoteResult<SessionCancelValue>>
   page(request: SessionPageRequest, signal?: AbortSignal): Promise<RemoteResult<SessionPage>>
+  follow(request: SessionFollowRequest, signal?: AbortSignal): AsyncIterable<SessionFollowFrame>
   control(signal?: AbortSignal): AsyncIterable<SessionControlFrame>
 }
 
@@ -62,6 +72,73 @@ export interface TestSessionRemoteDefaults {
 }
 
 const installed = new WeakMap<Context, SessionController>()
+
+type LegacyTestPersistence = Record<string, unknown> & {
+  readonly inspect?: (
+    sessionId: SessionId,
+    signal?: AbortSignal,
+  ) => Promise<SessionInspection | undefined>
+  readonly borrowSession?: (
+    sessionId: SessionId,
+    signal?: AbortSignal,
+  ) => Promise<BorrowedSessionSource>
+}
+
+/** Add the preparation-backed point-read contract to compact persistence doubles. */
+export function testSessionPersistence(
+  ctx: Context,
+  persistence: LegacyTestPersistence,
+): LegacyTestPersistence {
+  if (persistence.borrowSession !== undefined) return persistence
+  return {
+    ...persistence,
+    borrowSession: async (sessionId, signal) => {
+      signal?.throwIfAborted()
+      const inspection = await persistence.inspect?.(sessionId, signal)
+      signal?.throwIfAborted()
+      if (inspection === undefined) throw new SessionPersistenceNotFoundError(sessionId)
+      try {
+        const preparedSession = ctx.sessions.prepare(inspection.meta.id, {
+          seed: [...inspection.events],
+          meta: inspection.meta,
+          seedSource: 'persistence',
+        })
+        return {
+          source: 'prepared',
+          inspection: {
+            meta: preparedSession.header,
+            events: Object.freeze([...inspection.events]),
+          },
+          revision: SessionPersistenceRevision(`test:${sessionId}:${String(preparedSession.seq)}`),
+          preparedSession,
+          [Symbol.dispose]: () => {},
+        }
+      } catch (error: unknown) {
+        throw new SessionPersistenceCorruptionError(
+          `test session "${sessionId}" failed validation: ${String(error)}`,
+          { cause: error },
+        )
+      }
+    },
+  }
+}
+
+/** Concrete point-read query used by Session Controller tests that do not exercise search. */
+class TestSessionQuery extends SessionQueryEngine {
+  override searchSessions(): Promise<never> {
+    return Promise.reject(new Error('session search is not configured in this test'))
+  }
+
+  override searchEvents(): Promise<never> {
+    return Promise.reject(new Error('event search is not configured in this test'))
+  }
+}
+
+/** Install the required projection and point-query services for direct controller tests. */
+export function installSessionReadTestServices(ctx: Context): void {
+  if (ctx.get('sessionProjections') === undefined) new SessionProjectionRegistry(ctx)
+  if (ctx.get('sessionQuery') === undefined) new TestSessionQuery(ctx)
+}
 
 function installControllers(
   ctx: Context,
@@ -93,6 +170,7 @@ function installControllers(
       },
     } as never)
   }
+  installSessionReadTestServices(ctx)
   const cwd = vi.spyOn(process, 'cwd').mockReturnValue(defaults.cwd)
   let controller: SessionController
   try {
@@ -151,7 +229,6 @@ export function createSessionTestRemote(
       signal,
     ),
     create: request => remoteResult(() => direct.create(request)),
-    models: request => remoteResult(() => direct.models(request)),
     selectModel: request => remoteResult(() => direct.selectModel(request)),
     rename: request => remoteResult(() => direct.rename(request)),
     fork: request => remoteResult(() => direct.fork(request)),
@@ -166,6 +243,7 @@ export function createSessionTestRemote(
       () => direct.page(request, signal),
       signal,
     ),
+    follow: (request, signal = new AbortController().signal) => direct.follow(request, signal),
     control: (signal = new AbortController().signal) => direct.control(signal),
   }
 }

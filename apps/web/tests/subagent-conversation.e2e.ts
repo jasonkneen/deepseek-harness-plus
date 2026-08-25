@@ -17,14 +17,14 @@ import {
 } from './scaffold.ts'
 import { connectFreshWorkspace, newEnglishPage, saveFailureShot } from './support.ts'
 
-const BASE_FIXTURE = fileURLToPath(new URL('./snapshots/live-interactions/session.jsonl', import.meta.url))
-const AVAILABLE_CHILD_EXPECTED = fileURLToPath(new URL('./snapshots/subagent-conversation/ui.expected.md', import.meta.url))
-const TREE_EXPECTED = fileURLToPath(new URL('./snapshots/subagent-conversation/tree.expected.md', import.meta.url))
-const BRANCHLESS_EXPECTED = fileURLToPath(new URL('./snapshots/subagent-conversation/branchless.expected.md', import.meta.url))
-const STALE_CATALOG_EXPECTED = fileURLToPath(new URL('./snapshots/subagent-conversation/stale-catalog.expected.md', import.meta.url))
-const SIDEBAR_EXPECTED = fileURLToPath(new URL('./snapshots/subagent-conversation/sidebar.expected.md', import.meta.url))
-const UNAVAILABLE_GRANDCHILD_EXPECTED = fileURLToPath(new URL('./snapshots/subagent-conversation/nested.expected.md', import.meta.url))
-const FORK_EXPECTED = fileURLToPath(new URL('./snapshots/subagent-conversation/fork.expected.md', import.meta.url))
+const BASE_FIXTURE = fileURLToPath(new URL('../../../snapshots/web/live-interactions/session.jsonl', import.meta.url))
+const AVAILABLE_CHILD_EXPECTED = fileURLToPath(new URL('../../../snapshots/web/subagent-conversation/ui.expected.md', import.meta.url))
+const TREE_EXPECTED = fileURLToPath(new URL('../../../snapshots/web/subagent-conversation/tree.expected.md', import.meta.url))
+const BRANCHLESS_EXPECTED = fileURLToPath(new URL('../../../snapshots/web/subagent-conversation/branchless.expected.md', import.meta.url))
+const STALE_CATALOG_EXPECTED = fileURLToPath(new URL('../../../snapshots/web/subagent-conversation/stale-catalog.expected.md', import.meta.url))
+const SIDEBAR_EXPECTED = fileURLToPath(new URL('../../../snapshots/web/subagent-conversation/sidebar.expected.md', import.meta.url))
+const UNAVAILABLE_GRANDCHILD_EXPECTED = fileURLToPath(new URL('../../../snapshots/web/subagent-conversation/nested.expected.md', import.meta.url))
+const FORK_EXPECTED = fileURLToPath(new URL('../../../snapshots/web/subagent-conversation/fork.expected.md', import.meta.url))
 const MODE = webSnapshotMode()
 const LABEL = 'event-sourcing researcher'
 const ONE_SHOT_LABEL = 'event-sourcing reviewer'
@@ -77,6 +77,7 @@ describe('web e2e: persisted subagent conversation and human continuation', () =
     await writeFile(childFixturePath, childFixture(baseFixture, 'recorded-subagent', true))
     scaffold = await launchWebScaffold({
       replayFixture: BASE_FIXTURE,
+      compareReplaySession: false,
       replayChildFixtures: [childFixturePath],
       paceMs: 25,
     })
@@ -350,6 +351,38 @@ describe('web e2e: persisted subagent conversation and human continuation', () =
       scaffold.workspaceCwd,
     )
     await compareOrRefreshGolden(SIDEBAR_EXPECTED, sidebar, MODE)
+  })
+
+  it('keeps a restored child neutral until its parent availability arrives', async () => {
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-subagent-restore'))
+    const pattern = '**/api/subagent.list'
+    let requested = false
+    let releaseCatalog = (): void => {}
+    const catalogHeld = new Promise<void>((resolve) => { releaseCatalog = resolve })
+    await page.route(pattern, async (route) => {
+      const response = await route.fetch()
+      requested = true
+      await catalogHeld
+      await route.fulfill({ response })
+    })
+
+    const warningStart = tripwire.warnings.length
+    try {
+      await page.reload({ waitUntil: 'load' })
+      await page.waitForSelector('[class*="frame"]', { timeout: 30_000 })
+      await expect.poll(() => requested, { timeout: 15_000 }).toBe(true)
+      expect(await page.getByText('This subagent is read-only for now', { exact: true }).count()).toBe(0)
+      expect(await page.locator('[data-composer-seat]').evaluate(element =>
+        getComputedStyle(element).visibility)).toBe('hidden')
+      releaseCatalog()
+      const input = page.getByRole('textbox', { name: 'Message the agent' })
+      await input.waitFor({ timeout: 15_000 })
+      await expect.poll(() => input.isEnabled(), { timeout: 15_000 }).toBe(true)
+      acknowledgeReloadConnectionLoss(tripwire, warningStart)
+    } finally {
+      releaseCatalog()
+      await page.unroute(pattern)
+    }
   })
 
   it('continues through FIFO follow-up admission and receives the child follow events', async () => {

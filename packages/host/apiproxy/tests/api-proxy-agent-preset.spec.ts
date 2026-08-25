@@ -10,12 +10,13 @@ import SessionStore, { SessionId, type Session } from '@deepseek-ai/dsh-session'
 import { RpcId, type RpcRequest } from '../src/api/rpc.ts'
 import type { ApiProxy } from '../src/api/index.ts'
 import {
-  InvalidPresetIdError, PresetExistsError, resolveSessionPreset, UnknownPresetError,
+  agentPresetProjectionDefinition, InvalidPresetIdError, PresetExistsError, UnknownPresetError,
 } from '@deepseek-ai/dsh-agent-presets'
 import type {} from '@deepseek-ai/dsh-agent-presets/types'
 import { GoalId } from '@deepseek-ai/dsh-goal'
 import { createApiProxy } from '../src/api-proxy.ts'
 import { describe, expect, it } from 'vitest'
+import { SessionQueryError, type SessionObservation } from '@deepseek-ai/dsh-session-query'
 
 let nextRpc = 0
 function request<P>(payload: P): RpcRequest<P> {
@@ -122,6 +123,35 @@ async function harness(
   await ctx.plugin(SessionStore)
   await ctx.plugin(AgentRegistry)
   if (presets !== undefined) ctx.provide('agentPresets', roster(presets, options.userIds) as never)
+  ctx.provide('sessionQuery', {
+    observeSession: (sessionId: SessionId) => {
+      const session = ctx.sessions.get(sessionId)
+      if (session === undefined) {
+        return Promise.reject(new SessionQueryError(
+          `session "${sessionId}" not found`,
+          'SESSION_QUERY_SESSION_NOT_FOUND',
+        ))
+      }
+      let preset = agentPresetProjectionDefinition.init(session.header)
+      for (const event of session.events) {
+        preset = agentPresetProjectionDefinition.apply(preset, event)
+      }
+      const events = Object.freeze([...session.events])
+      const lease = (): SessionObservation => ({
+        source: 'live' as const,
+        header: session.header,
+        events,
+        cursor: events.at(-1)?.seq ?? -1,
+        projections: {
+          asOfSeq: events.at(-1)?.seq ?? -1,
+          values: { agentPreset: preset },
+        },
+        retain: lease,
+        [Symbol.dispose]: () => {},
+      })
+      return Promise.resolve(lease())
+    },
+  } as never)
 
   const factory: AgentFactory = {
     async createAgent(_ownerCtx, options) {
@@ -289,7 +319,8 @@ describe('agentPreset.select', () => {
     const session = ctx.sessions.get(SessionId('sel-log'))
     if (session === undefined) throw new Error('unreachable')
     expect(session.header.agentPreset).toBe('standard')
-    expect(resolveSessionPreset(session)).toBe('minimal')
+    expect(session.events.findLast(event => event.type === 'agent-preset/selected')?.data)
+      .toEqual({ agentPreset: 'minimal' })
   })
 
   it('serializes two concurrent selects on one session', async () => {
@@ -309,7 +340,8 @@ describe('agentPreset.select', () => {
     const session = ctx.sessions.get(SessionId('sel-race'))
     if (session === undefined) throw new Error('unreachable')
     // One winner, and the log agrees with it: the last committed switch.
-    expect(resolveSessionPreset(session)).toBe('standard')
+    expect(session.events.findLast(event => event.type === 'agent-preset/selected')?.data)
+      .toEqual({ agentPreset: 'standard' })
   })
 
   it('refuses once the conversation has started', async () => {

@@ -10,19 +10,18 @@ import type { Agent, ModelSelection } from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-agent-presets/types'
 import type { Session, SessionId } from '@deepseek-ai/dsh-session'
 import { SubagentError } from '@deepseek-ai/dsh-subagent'
-import type { SubagentListEntry as CatalogSubagentListEntry } from '@deepseek-ai/dsh-subagent'
 import { isUserInvocable } from '@deepseek-ai/dsh-skill'
 import {
   InvalidPresetIdError, PresetExistsError, PresetMountError,
-  PresetNotWritableError, resolveSessionPreset, UnknownPresetError,
+  PresetNotWritableError, UnknownPresetError,
 } from '@deepseek-ai/dsh-agent-presets'
-import type { PresetBearingSession } from '@deepseek-ai/dsh-agent-presets'
 import type {
   ApiProxy, ConfigurableProviderView, CredentialView, GoalRef,
-  SettingsNamespaceView, SubagentAddress,
+  SettingsNamespaceView,
 } from './api/index.ts'
 import type { SessionRequestId } from '@deepseek-ai/dsh-api-session-controller/types'
-import { ApiSessionNotFound, buildModelCatalog } from '@deepseek-ai/dsh-api-session-controller'
+import { buildModelCatalog } from '@deepseek-ai/dsh-api-session-controller'
+import { SessionQueryError } from '@deepseek-ai/dsh-session-query'
 import {
   DEFAULT_SESSION_LOG_COMPRESSION_LEVEL,
   flushLiveSessionLog,
@@ -199,49 +198,6 @@ function projectionsUnavailableError(): RpcError {
   }
 }
 
-/** Verify one address and mode against the complete direct-child catalog. */
-async function catalogChild(
-  ctx: Context,
-  address: SubagentAddress,
-  signal?: AbortSignal,
-): Promise<{
-  entry?: Extract<CatalogSubagentListEntry, { kind: 'child' }>
-  error?: RpcError
-}> {
-  const { parentSessionId, childSessionId, mode } = address
-  try {
-    const entries = await ctx.subagents.listChildren(parentSessionId, signal)
-    const entry = entries.find(candidate => candidate.id === childSessionId)
-    if (entry === undefined || (entry.kind === 'child' && entry.mode !== mode)) {
-      return {
-        error: {
-          code: 'subagent-not-found',
-          message: `session "${childSessionId}" is not a ${mode} direct child of "${parentSessionId}"`,
-          details: { parentSessionId, childSessionId },
-        },
-      }
-    }
-    if (entry.kind === 'diagnostic') {
-      return {
-        error: {
-          code: 'subagent-catalog-diagnostic',
-          message: `subagent "${childSessionId}" is ${entry.reason}`,
-          details: { parentSessionId, childSessionId, reason: entry.reason },
-        },
-      }
-    }
-    return { entry }
-  } catch (error: unknown) {
-    if (signal?.aborted || (error instanceof SubagentError && error.code === 'CANCELLED')) {
-      return { error: { code: 'cancelled', message: 'subagent catalog read was cancelled', details: {} } }
-    }
-    if (error instanceof SubagentError && error.code === 'SUBAGENT_CONTROL_PROJECTIONS_UNAVAILABLE') {
-      return { error: projectionsUnavailableError() }
-    }
-    return { error: { code: 'internal', message: 'subagent catalog read failed', details: {} } }
-  }
-}
-
 /**
  * The requested preset differs from the one this session already runs.
  *
@@ -300,14 +256,14 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
   /** Resolve a Session's live or standing preset scope without resuming it. */
   async function sessionScopeFor(
     sessionId: SessionId,
-    session: PresetBearingSession,
+    agentPreset: string | undefined,
   ): Promise<ScopeKey | undefined> {
     const live = ctx.get('agents')?.get(sessionId)
     if (live !== undefined) return live
     const presets = ctx.get('agentPresets')
     if (presets === undefined) return undefined
     try {
-      return await presets.standingKeyFor(resolveSessionPreset(session))
+      return await presets.standingKeyFor(agentPreset)
     } catch {
       // An unknown or unusable recorded preset falls back to the global registry.
       return undefined
@@ -536,10 +492,6 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
             details: { parentSessionId },
           })
         }
-        const verified = await catalogChild(ctx, {
-          parentSessionId, childSessionId, mode: 'continuable',
-        }, signal)
-        if (verified.error !== undefined) return err(request, verified.error)
         try {
           const messageId = await ctx.subagents.followup(parent, childSessionId, content, {
             source: {
@@ -869,15 +821,21 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
       // the view scope is the live agent or the preset's standing key.
       async list(request) {
         const { sessionId } = request.payload
-        let session: PresetBearingSession
+        let cwd: string | undefined
+        let agentPreset: string | undefined
         try {
-          const inspected = await ctx.sessionController.inspect(sessionId)
-          session = { header: inspected.meta, events: inspected.events }
+          using observation = await ctx.sessionQuery.observeSession(sessionId)
+          if (observation.projections === undefined) {
+            throw new Error('skill catalog requires a projected Session observation')
+          }
+          cwd = observation.header.cwd
+          agentPreset = observation.projections.values.agentPreset ?? undefined
         } catch (error: unknown) {
-          if (error instanceof ApiSessionNotFound) {
+          if (error instanceof SessionQueryError
+            && error.code === 'SESSION_QUERY_SESSION_NOT_FOUND') {
             return err(request, {
               code: 'session-not-found',
-              message: error.message,
+              message: `session "${sessionId}" not found`,
               details: { sessionId },
             })
           }
@@ -887,12 +845,11 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
             details: {},
           })
         }
-        if (session.header.cwd === undefined) {
+        if (cwd === undefined) {
           // Every served session records its project at create time; a
           // cwd-less header is a pre-project legacy log (not served).
           return err(request, { code: 'internal', message: `session "${sessionId}" has no project cwd`, details: {} })
         }
-        const cwd = session.header.cwd
         // The host registry is layered per scope and serves every session. A
         // composition may still realm-mount its own registry instead; that
         // instance is invisible to host contexts, so address it through the
@@ -910,7 +867,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         }
         // Resolve the live or recorded preset scope so the catalog matches the
         // Session composition without resuming its Agent.
-        const scope = await sessionScopeFor(sessionId, session)
+        const scope = await sessionScopeFor(sessionId, agentPreset)
         try {
           const skills = (await skillRegistry.list({ cwd, scope })).filter(isUserInvocable)
           return ok(request, {
@@ -1065,7 +1022,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
       },
 
       async models(request) {
-        return ok(request, await buildModelCatalog(ctx))
+        return ok(request, await buildModelCatalog(ctx, defaults.defaultModelSelection()))
       },
 
       async discoverModels(request, signal) {

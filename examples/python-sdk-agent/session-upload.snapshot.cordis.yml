@@ -1,6 +1,0 @@
-# Keyless counterpart of session-upload.cordis.yml. The shared TypeScript SDK
-# replay patch owns model replacement; this layer retains the session-log opt-in.
-- id: session-log-deepseek
-  name: '@deepseek-ai/dsh-session-log-deepseek'
-  config:
-    enabled: true

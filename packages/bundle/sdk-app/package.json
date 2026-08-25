@@ -41,6 +41,7 @@
   "dependencies": {
     "@deepseek-ai/dsh-cmdline": "workspace:^",
     "@deepseek-ai/dsh-sdk-jsonrpc-server": "workspace:^",
+    "@deepseek-ai/schemastery": "workspace:^",
     "commander": "^15.0.0"
   },
   "peerDependencies": {

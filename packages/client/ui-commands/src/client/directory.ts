@@ -63,6 +63,18 @@ export class CommandDirectory {
   }
 
   /**
+   * Drop one Session's obsolete composition-specific snapshot and prewarm its replacement.
+   * @param sessionId - Session whose effective command composition changed.
+   */
+  resetSession(sessionId: SessionId): void {
+    const entry = this.entry(sessionId)
+    entry.state = 'cold'
+    entry.commands = []
+    entry.lastError = undefined
+    void this.refresh(sessionId)
+  }
+
+  /**
    * Hard reset on reconnect: every entry drops its snapshot (the agent world
    * may have changed shape across the generation) and prewarms.
    */

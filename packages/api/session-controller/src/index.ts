@@ -4,6 +4,7 @@ import { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import { errorChain } from '@deepseek-ai/dsh-llm'
 import type { SessionEvent, SessionHeader, SessionId } from '@deepseek-ai/dsh-session'
+import type { SessionObservation } from '@deepseek-ai/dsh-session-query'
 import { Remote, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
 import {
   ApiSessionAgentController,
@@ -14,6 +15,7 @@ import { SessionCommandController } from './commands.ts'
 import { SessionControlController } from './control.ts'
 import { SessionHistoryController } from './history.ts'
 import { ApiSessionList, DEFAULT_COLD_BLANK_PROBE_MAX_BYTES } from './list.ts'
+import { installModelSelectionProjection } from './model-selection-projection.ts'
 import type {
   SessionAttachmentRequest,
   SessionAttachmentValue,
@@ -28,8 +30,6 @@ import type {
   SessionForkValue,
   SessionListRequest,
   SessionListValue,
-  SessionModels,
-  SessionModelsRequest,
   SessionPage,
   SessionPageRequest,
   SessionPromptRequest,
@@ -56,7 +56,7 @@ declare module '@deepseek-ai/cordis' {
 
 /** Session Controller deployment policy. */
 export interface Config {
-  /** Maximum cold Session artifact size read to determine blankness. */
+  /** Maximum cold Session artifact size eligible for one full projection observation. */
   readonly coldBlankProbeMaxBytes?: number
 }
 
@@ -68,6 +68,7 @@ export class SessionController extends TypertRemoteService {
     'attachments',
     'llm',
     'sessions',
+    'sessionProjections',
     'sessionQuery',
     'typert',
     'workspaceRegistry',
@@ -82,17 +83,24 @@ export class SessionController extends TypertRemoteService {
   private readonly controlState: SessionControlController
   private readonly history: SessionHistoryController
   private readonly listState: ApiSessionList
+  private readonly promotions = new Set<Promise<void>>()
 
   /**
    * @param ctx - Host context containing the Session capability assembly.
-   * @param config - cold-list read policy.
+   * @param config - cold-list observation policy.
    */
   constructor(ctx: Context, config: Config) {
     super(ctx, 'sessionController', { namespace: 'session' })
+    installModelSelectionProjection(ctx)
     this.agents = new ApiSessionAgentController(ctx)
     this.commands = new SessionCommandController(ctx, this.agents, process.cwd())
     this.controlState = new SessionControlController(ctx)
-    this.history = new SessionHistoryController(ctx)
+    // Registered before history so reverse-order teardown closes every
+    // follower before waiting for already-admitted promotions.
+    ctx.effect(() => async () => {
+      await Promise.allSettled([...this.promotions])
+    }, 'session-controller.promotions')
+    this.history = new SessionHistoryController(ctx, (observation) => { this.promote(observation) })
     this.listState = new ApiSessionList(
       ctx,
       config.coldBlankProbeMaxBytes ?? DEFAULT_COLD_BLANK_PROBE_MAX_BYTES,
@@ -111,9 +119,31 @@ export class SessionController extends TypertRemoteService {
       ctx.emit('api-session/error', agent.id, errorChain(error))
     })
     ctx.on('session/event', (session, event) => {
+      if (event.type === 'request/header') {
+        const agent = ctx.agents.get(session.id)
+        if (agent?.session === session) this.agents.consumeSelection(
+          agent,
+          event.data.header.config.provider,
+          event.data.header.config.model,
+          event.data.header.config.reasoningEffort,
+        )
+      }
       if (event.type !== 'user/message' || event.data.source.kind !== 'user') return
       ctx.emit('api-session/activity', session.id, event.time)
     })
+  }
+
+  private promote(observation: SessionObservation): void {
+    const sessionId = observation.header.id
+    const task = (async () => {
+      using ownedObservation = observation
+      const result = await this.agents.resolveObservedAgent(ownedObservation)
+      if ('error' in result) this.ctx.emit('api-session/error', sessionId, result.error.message)
+    })().catch((error: unknown) => {
+      this.ctx.logger.error(`session-controller: background activation for "${sessionId}" failed: ${errorChain(error)}`)
+    })
+    this.promotions.add(task)
+    void task.finally(() => { this.promotions.delete(task) })
   }
 
   /**
@@ -172,16 +202,6 @@ export class SessionController extends TypertRemoteService {
   @Remote('create')
   create(request: SessionCreateRequest): Promise<SessionCreateValue> {
     return this.commands.create(request)
-  }
-
-  /**
-   * Read model choices after explicitly resuming the addressed Session.
-   * @param request - Session whose model state is requested.
-   * @returns the current selection and available model groups.
-   */
-  @Remote('models')
-  models(request: SessionModelsRequest): Promise<SessionModels> {
-    return this.commands.models(request)
   }
 
   /**
@@ -260,7 +280,7 @@ export class SessionController extends TypertRemoteService {
    * Read one cold-safe, message-aligned Session history page.
    * @param request - durable address, backward cursor, and page budget.
    * @param signal - cancellation for persistence reads.
-   * @returns one chronological page and optional latest projections.
+   * @returns one chronological page.
    */
   @Remote('page')
   page(request: SessionPageRequest, signal: AbortSignal): Promise<SessionPage> {
@@ -271,7 +291,7 @@ export class SessionController extends TypertRemoteService {
    * Follow one Session log from its opening or resume cursor.
    * @param request - durable address and last committed sequence already held by the caller.
    * @param signal - cancellation owned by the Remote stream carrier.
-   * @returns an opened cursor followed by gap-free event frames.
+   * @returns a complete opening snapshot followed by gap-free event frames.
    */
   @Remote({ mode: 'stream' })
   follow(request: SessionFollowRequest, signal: AbortSignal): AsyncIterable<SessionFollowFrame> {

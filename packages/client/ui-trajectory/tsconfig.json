@@ -49,6 +49,9 @@
     },
     {
       "path": "../../llm/llm"
+    },
+    {
+      "path": "../../attachment/attachment"
     }
   ]
 }

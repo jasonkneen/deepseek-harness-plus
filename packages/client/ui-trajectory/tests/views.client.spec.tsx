@@ -228,6 +228,10 @@ function standaloneProps(
     viewRequest: null,
     openView: () => {},
     completeViewRequest: () => {},
+    // Image seats the outlet would bake: standalone renders omit the gallery.
+    renderSlot: () => null,
+    SessionProvider: ({ children }) => <>{children}</>,
+    loadImage: () => Promise.reject(new Error('standalone views load no images')),
     // The locale seat the outlet would inject for the declared namespace.
     t: tZh,
   }

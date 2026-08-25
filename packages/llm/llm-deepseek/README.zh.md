@@ -50,11 +50,11 @@ harness LLM（大语言模型）seam 的 DeepSeek chat-completions 适配器：�
         contextWindow: 512000
 ```
 
-该插件注册唯一提供方路由 `deepseek-official`，并一同注册解析后的 `retryPolicy`；省略时会解析为 normal 模式并重试五次。请求使用 `provider: deepseek-official` 选择该路由；其 `model` 会作为协议 `model` 字符串原样传递，因此更改 DeepSeek 模型不需要生命周期时注册。省略 `models` 会公布 `deepseek-v4-flash`、`deepseek-v4-pro` 与支持图片输入的 `deepseek-v4-flash-vision-exp`，三者的上下文窗口均为 1,000,000 token；显式列表会替换这些默认值，`models: []` 则不公布任何模型。Catalog 配置项通过 `ctx.llm.listModels('deepseek-official')` 公开给 ACP（Agent Client Protocol）编辑器和 Web 选择器等客户端，但仍只提供建议：未列出模型 id 仍原样传递，并按纯文本路由处理。省略配置项 name 默认为其 id，省略 `inputModalities` 则表示仅支持 `text`。
+该插件注册唯一提供方路由 `deepseek-official`，并一同注册解析后的 `retryPolicy`；省略时会解析为 normal 模式并重试五次。请求使用 `provider: deepseek-official` 选择该路由；其 `model` 会作为协议 `model` 字符串原样传递，因此更改 DeepSeek 模型不需要生命周期时注册。省略 `models` 会公布适合聚焦任务、快速且经济的 `deepseek-v4-flash`，适合复杂或质量关键任务、更强但成本更高的 `deepseek-v4-pro`，以及支持图片输入的 `deepseek-v4-flash-vision-exp`；三者的上下文窗口均为 1,000,000 token。显式列表会替换这些默认值，`models: []` 则不公布任何模型。Catalog 配置项通过 `ctx.llm.listModels('deepseek-official')` 公开给 ACP（Agent Client Protocol）编辑器、Web 选择器和模型发现工具等客户端，但仍只提供建议：未列出模型 id 仍原样传递，并按纯文本路由处理。省略配置项 name 默认为其 id，省略 `inputModalities` 则表示仅支持 `text`。
 
-支持图片的 catalog 配置项声明 `inputModalities: [text, image]`，并可设置 `imagePixelBudget`、`imageMaxBytes` 或 `imageDetail: low`。普通默认值为总像素 640,000、编码字节 1MiB；low detail 的默认总像素为 512×512。附件存储按 `min(1, sqrt(pixelBudget / (width * height)))` 缩放，并向预算内取整，确保总像素不超过硬上限。因此 2048×1024 规范化附件会得到约 1130×565 的请求版本，而不会被强制变成正方形。请求编码按需执行：低色数图片先尝试 PNG，只有不带 alpha 通道时才使用 palette，再尝试质量 85 和 80 的 WebP；其他透明图片依次尝试质量 85 和 80 的 WebP；其他非透明图片依次尝试质量 85 和 80 的 JPEG。两个质量档均超过 1MiB 时才缩小尺寸。同一 `variantId` 的并发生成共享一次变换。调用方可以单独取消等待，不会中断其他等待方；没有等待方时才会停止变换。适配器通常通过 `POST /files` 上传确切的派生请求字节，再发送 `{type: "file", file_id}` 块。File ID 解析失败或超时后，适配器会用相同请求版本的 base64 data URL 重新组装整个 chat 请求；同一请求不会混用 file ID 和内联图片。每张保留图片前都有稳定文本，写明完整附件 ID 和实际请求尺寸。User、工具结果、agent loop、压缩和直接 `ctx.llm.stream` 请求都使用该投影。纯文本路由会收到稳定的附件占位文本，持久历史继续保留图片引用。
+支持图片的 catalog 配置项声明 `inputModalities: [text, image]`，并可把 `imagePixelBudget` 设为确切正整数或 `low`；省略时使用总像素 640,000，`low` 选择总像素 512×512。`imageMaxBytes` 默认值为 1MiB。附件存储按 `min(1, sqrt(pixelBudget / (width * height)))` 缩放，并向预算内取整，确保总像素不超过硬上限。因此 2048×1024 规范化附件会得到约 1130×565 的请求版本，而不会被强制变成正方形。请求编码按需执行：透明图片依次尝试质量 85、75、60 的 WebP（effort 0）；非透明图片依次尝试这些质量的 JPEG。全部质量档都超过 1MiB 时使用其中最小的产物。同一 `variantId` 的并发生成共享一次变换。调用方可以单独取消等待，不会中断其他等待方；没有等待方时才会停止变换。适配器通常通过 `POST /files` 上传确切的派生请求字节，再发送 `{type: "file", file_id}` 块。File ID 解析失败或超时后，适配器会用相同请求版本的 base64 data URL 重新组装整个 chat 请求；同一请求不会混用 file ID 和内联图片。每张保留图片前都有文本，写明完整附件 ID 和实际请求尺寸。附件提供方给出宿主对象且当前文件系统能够将其映射到工具执行环境时，文本还会给出该只读路径，并指出复制到可写路径时应使用的匹配扩展名。该访问方式独立于确定性的请求版本及其 `variantId`。描述也会说明预览和规范化图片可能与上传图片不同。User、工具结果、agent loop、压缩和直接 `ctx.llm.stream` 请求都使用该投影。纯文本路由会收到稳定的附件占位文本，持久历史继续保留图片引用。
 
-`maxRequestFilesBytes` 和 `maxImagesPerRequest` 限制请求中保留的请求版本，默认值分别为 128MiB 和 600 张。字节和数量步长不得超过对应上限。读取附件前，适配器以路由的请求版本字节上限作为保守上界，移除超预算的最旧前缀，只读取并转换保留的规范化附件。系统随后用确切派生长度再次检查，但不会重新加入已省略图片。字节数越过上限时，被移除的最旧前缀会越过下一个 64MiB 边界。由 1MiB 图片组成的历史达到 129MiB 时会移除最旧的 65 张并保留 64MiB；直到持久历史超过 192MiB，这个前缀才再次变化。图片数量超限时则按 `imageOffloadCountQuantum` 独立递增。移除的图片会变成固定模型可见占位文本 `[image omitted to keep the request within its image limit; older images are omitted first. If this image is still needed, read its file again when a path is available; otherwise ask the user to attach it again.]`。这种定量投影不会因每新增一张图片就改写较早的请求前缀。
+`maxRequestFilesBytes` 和 `maxImagesPerRequest` 限制请求中保留的请求版本，默认值分别为 128MiB 和 600 张。字节和数量步长不得超过对应上限。读取附件前，适配器以路由的请求版本字节上限作为保守上界，移除超预算的最旧前缀，只读取并转换保留的规范化附件。系统随后用确切派生长度再次检查，但不会重新加入已省略图片。字节数越过上限时，被移除的最旧前缀会越过下一个 64MiB 边界。由 1MiB 图片组成的历史达到 129MiB 时会移除最旧的 65 张并保留 64MiB；直到持久历史超过 192MiB，这个前缀才再次变化。图片数量超限时则按 `imageOffloadCountQuantum` 独立递增。每张被移除的图片都有自己的模型可见占位文本，其中包含显示名称或附件 ID；如果当前提供方支持，还会包含规范化尺寸、媒体类型和当前只读本地路径。这种定量投影不会因每新增一张图片就改写较早的请求前缀。
 
 内联回退使用独立的 base64 预算。`maxInlineRequestImageBytes` 默认为 20MiB，`inlineImageOffloadByteQuantum` 默认为 10MiB，因此由 21 个 1MiB base64 负载组成的历史会移除最旧的 11 个并保留 10MiB。计算使用 base64 膨胀后的长度。系统逐字节复用已经准备好的请求版本；回退不会再次解码或压缩图片。前面图片已经成功写入的上传映射会保留，供后续请求复用。
 
@@ -66,7 +66,7 @@ harness LLM（大语言模型）seam 的 DeepSeek chat-completions 适配器：�
 
 `maxTokens` 是适配器为对话请求配置的输出上限，默认值为 256,000。Catalog 配置项可以自带 `maxTokens`，它对该模型胜出；不含该上限的配置项以及任何未列出原样传递 id 都解析为 profile 值，因此新增按模型的上限只改变一个模型，而非整条路由。确切模型解析会将胜出值公开为 `defaultMaxTokens`；`LlmRuntime` 会在 agent loop（智能体循环）写入 `request/header` 前，将该值填入 `GenerateOptions.maxTokens`，从而仍可根据持久记录重建协议请求。显式的请求值或 `AgentOptions.maxTokens` 值优先，并会序列化为 `max_tokens`。适配器不会根据 `contextWindow` 自动调低该请求预算；上下文或提供方输出上限较小的部署必须配置与其相容的 `maxTokens`。
 
-同一确切模型结果会在部署策略允许思考时，为每个原样传递模型在 `reasoning` 下公开有序的 `off`、`low`、`high` 和 `max` 推理（reasoning）强度。`reasoningEffort` 选择部署默认值，省略时回退为 `high`。`agent/request` 可以在每个会话步骤替换它；解析后的值会记录在 `request/header`。`low`、`high` 和 `max` 会启用思考，并以同名值序列化为官方顶层 `reasoning_effort`；适配器持有的 `off` 则序列化为 `thinking.type: disabled`，且省略 `reasoning_effort`。不支持的值会在网络 I/O 前以 `UNSUPPORTED_REASONING_EFFORT` 失败。
+同一确切模型结果会在部署策略允许思考时，为每个原样传递模型在 `reasoning` 下公开有序且附带选择指引的 `off`、`low`、`high` 和 `max` 推理（reasoning）强度。`reasoningEffort` 选择公布的默认值，省略时回退为 `high`。`agent/request` 可以在每个会话步骤替换它；解析后的值会记录在 `request/header`。`low`、`high` 和 `max` 会启用思考，并以同名值序列化为官方顶层 `reasoning_effort`；适配器持有的 `off` 则序列化为 `thinking.type: disabled`，且省略 `reasoning_effort`。不支持的值会在网络 I/O 前以 `UNSUPPORTED_REASONING_EFFORT` 失败。
 
 `thinking: disabled` 是部署锁定：它只公布 `off`，并以 `off` 为默认值。省略 `reasoningEffort` 或将其配置为 `off` 均有效；配置 `low`、`high` 或 `max` 会使插件加载失败，直接按请求启用思考也会在网络 I/O 前失败。携带 `GenerateOptions.purpose: 'session-title'` 的请求也会强制禁用思考并省略已解析的推理强度，将有界输出保留给可见标题文本，不改变会话或压缩（compaction）默认值。
 
@@ -115,7 +115,7 @@ DeepSeek 请求身份独立于应用归因。凭据解析成功后，每个提�
 
 #### 模型看到的内容
 
-所选 DeepSeek 模型会收到 harness 系统提示词、消息历史、工具 schema、stop sequence 和调用配置，不含适配器撰写的提示词文本。提供方特定请求扩展字段仍位于该模型输入之外。视觉模型通常通过 Files API 引用收到保留的 user 与工具结果图片，旁边带有稳定附件句柄和请求图片尺寸；Files 解析失败时，所有保留图片改用内联 data URL。超出上限的较旧图片由已记录的占位文本表示。之前 assistant 轮次的推理内容会原文回传，无论该轮次是否调用了工具。
+所选 DeepSeek 模型会收到 harness 系统提示词、消息历史、工具 schema、stop sequence 和调用配置，不含适配器撰写的提示词文本。提供方特定请求扩展字段仍位于该模型输入之外。视觉模型通常通过 Files API 引用收到保留的 user 与工具结果图片，旁边带有附件句柄和请求预览尺寸。当前执行文件系统能够映射附件提供方的宿主对象时，模型还会收到规范化对象路径；Files 解析失败时，所有保留图片改用内联 data URL。描述会告诉模型，该本地副本只供读取，可能经过缩小或重新编码，不能据此推断上传图片的属性。超出上限的较旧图片会在自己的占位文本中保留本次请求解析出的访问方式。之前 assistant 轮次的推理内容会原文回传，无论该轮次是否调用了工具。
 
 #### Token 影响
 
@@ -123,7 +123,7 @@ DeepSeek 请求身份独立于应用归因。凭据解析成功后，每个提�
 
 #### KV Cache 影响
 
-未更改的已组装前缀，包括确定性编码的保留图片与占位文本，可使用 DeepSeek cache 复用，适配器会在 usage 中报告它。模型路由变更，或任何上游提示词、schema、前缀、历史或图片上限变更，都可能使从首个发生变化的 token 起的复用失效；推理回传会在每个含推理的轮次上追加。
+未更改的已组装前缀可以使用 DeepSeek cache 复用，适配器会在 usage 中报告它。确定性的请求图片字节不能保证完整前缀不变：执行环境路径变化会在没有 offload 时改写历史描述，重新上传可能替换 `file_id`，Files 转为 base64 回退也会改变图片表示。这些变化都可能使复用从首张受影响图片起失效。模型路由、提示词、schema、历史和图片上限变化会产生同样的后缀影响；推理回传会在每个含推理的轮次上追加。
 
 ### DeepSeek 响应
 

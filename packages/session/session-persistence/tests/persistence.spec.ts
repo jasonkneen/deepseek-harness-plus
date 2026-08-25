@@ -118,6 +118,10 @@ class MemoryPersistence extends SessionPersistence implements PersistenceBackend
       .then(loaded => ({ meta: loaded.meta, events: [...loaded.events] }))
   }
 
+  borrowSession(id: SessionId, signal?: AbortSignal): ReturnType<PersistenceCoordinator['borrowSession']> {
+    return this.coordinator.borrowSession(id, signal)
+  }
+
   readFrom(id: SessionId, fromSeq: number, signal?: AbortSignal): Promise<{ meta: SessionHeader; events: SessionEvent[] }> {
     return this.coordinator.readFrom(id, fromSeq, signal)
   }
@@ -1200,6 +1204,162 @@ describe('PersistenceCoordinator session preparations', () => {
 })
 
 describe('PersistenceCoordinator observation cancellation', () => {
+  it('borrows live Sessions before, during, and after cold source validation', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const backend = new ControlledBackend()
+    const afterBorrowId = SessionId('borrow-became-live-before-validation')
+    const afterValidationId = SessionId('borrow-became-live-after-validation')
+    for (const id of [afterBorrowId, afterValidationId]) {
+      backend.store.set(id, { meta: meta(id), events: oneTurnLog() })
+    }
+    let coordinator!: PersistenceCoordinator<never>
+    const fiber = await ctx.plugin(Object.assign((inner: Context) => {
+      coordinator = new PersistenceCoordinator(inner, backend)
+    }, { inject: ['sessions'] }))
+
+    try {
+      const immediate = ctx.sessions.create(SessionId('borrow-already-live'))
+      const immediateSource = await coordinator.borrowSession(immediate.id)
+      expect(immediateSource).toMatchObject({ source: 'live', inspection: { meta: { id: immediate.id } } })
+      immediateSource[Symbol.dispose]()
+
+      const afterBorrow = Session.create(afterBorrowId, oneTurnLog(), meta(afterBorrowId))
+      const afterBorrowGet = vi.spyOn(ctx.sessions, 'get')
+        .mockReturnValueOnce(undefined)
+        .mockReturnValue(afterBorrow)
+      const attachedSource = await coordinator.borrowSession(afterBorrowId)
+      expect(attachedSource).toMatchObject({ source: 'live', inspection: { meta: { id: afterBorrowId } } })
+      attachedSource[Symbol.dispose]()
+      afterBorrowGet.mockRestore()
+
+      const afterValidation = Session.create(afterValidationId, oneTurnLog(), meta(afterValidationId))
+      const afterValidationGet = vi.spyOn(ctx.sessions, 'get')
+        .mockReturnValueOnce(undefined)
+        .mockReturnValueOnce(undefined)
+        .mockReturnValue(afterValidation)
+      const publishedSource = await coordinator.borrowSession(afterValidationId)
+      expect(publishedSource).toMatchObject({
+        source: 'live', inspection: { meta: { id: afterValidationId } },
+      })
+      publishedSource[Symbol.dispose]()
+      afterValidationGet.mockRestore()
+    } finally {
+      await fiber.dispose()
+      await ctx.fiber.dispose()
+    }
+  })
+
+  it('returns and releases a current prepared observation', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const backend = new ControlledBackend()
+    const id = SessionId('borrow-current-prepared')
+    backend.store.set(id, { meta: meta(id), events: oneTurnLog() })
+    let coordinator!: PersistenceCoordinator<never>
+    const fiber = await ctx.plugin(Object.assign((inner: Context) => {
+      coordinator = new PersistenceCoordinator(inner, backend)
+    }, { inject: ['sessions'] }))
+
+    try {
+      const source = await coordinator.borrowSession(id)
+      expect(source).toMatchObject({ source: 'prepared', inspection: { meta: { id } } })
+      source[Symbol.dispose]()
+    } finally {
+      await fiber.dispose()
+      await ctx.fiber.dispose()
+    }
+  })
+
+  it('reloads a stale prepared observation and retains one claimed concurrently', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const backend = new ControlledBackend()
+    const staleId = SessionId('borrow-stale-prepared')
+    const retainedId = SessionId('borrow-retained-prepared')
+    for (const id of [staleId, retainedId]) {
+      backend.store.set(id, { meta: meta(id), events: oneTurnLog() })
+    }
+    let coordinator!: PersistenceCoordinator<never>
+    const fiber = await ctx.plugin(Object.assign((inner: Context) => {
+      coordinator = new PersistenceCoordinator(inner, backend)
+    }, { inject: ['sessions'] }))
+
+    try {
+      const readRevision = backend.readStoredRevision.bind(backend)
+      const revision = vi.spyOn(backend, 'readStoredRevision')
+        .mockResolvedValueOnce(SessionPersistenceRevision('stale'))
+        .mockImplementation(readRevision)
+      const stale = await coordinator.borrowSession(staleId)
+      expect(stale.source).toBe('prepared')
+      expect(backend.loadAttempts).toBe(2)
+      stale[Symbol.dispose]()
+      revision.mockRestore()
+
+      const preparations = (coordinator as unknown as {
+        preparations: { discardReady: (id: SessionId, source: unknown) => string }
+      }).preparations
+      vi.spyOn(backend, 'readStoredRevision').mockResolvedValue(SessionPersistenceRevision('changed'))
+      const discard = vi.spyOn(preparations, 'discardReady').mockReturnValue('retained')
+      const retained = await coordinator.borrowSession(retainedId)
+      expect(retained.source).toBe('prepared')
+      expect(discard).toHaveBeenCalledOnce()
+      retained[Symbol.dispose]()
+    } finally {
+      await fiber.dispose()
+      await ctx.fiber.dispose()
+    }
+  })
+
+  it('falls back to a concurrently attached Session after revision validation fails', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const backend = new ControlledBackend()
+    const id = SessionId('borrow-failed-validation-became-live')
+    backend.store.set(id, { meta: meta(id), events: oneTurnLog() })
+    let coordinator!: PersistenceCoordinator<never>
+    const fiber = await ctx.plugin(Object.assign((inner: Context) => {
+      coordinator = new PersistenceCoordinator(inner, backend)
+    }, { inject: ['sessions'] }))
+    const attached = Session.create(id, oneTurnLog(), meta(id))
+    const get = vi.spyOn(ctx.sessions, 'get')
+      .mockReturnValueOnce(undefined)
+      .mockReturnValueOnce(undefined)
+      .mockReturnValue(attached)
+    vi.spyOn(backend, 'readStoredRevision').mockRejectedValue(new Error('revision failed'))
+
+    try {
+      const source = await coordinator.borrowSession(id)
+      expect(source).toMatchObject({ source: 'live', inspection: { meta: { id } } })
+      source[Symbol.dispose]()
+    } finally {
+      get.mockRestore()
+      await fiber.dispose()
+      await ctx.fiber.dispose()
+    }
+  })
+
+  it('rethrows revision validation failure when no live Session won the race', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const backend = new ControlledBackend()
+    const id = SessionId('borrow-failed-validation')
+    backend.store.set(id, { meta: meta(id), events: oneTurnLog() })
+    const failure = new Error('revision failed')
+    vi.spyOn(backend, 'readStoredRevision').mockRejectedValue(failure)
+    let coordinator!: PersistenceCoordinator<never>
+    const fiber = await ctx.plugin(Object.assign((inner: Context) => {
+      coordinator = new PersistenceCoordinator(inner, backend)
+    }, { inject: ['sessions'] }))
+
+    try {
+      await expect(coordinator.borrowSession(id)).rejects.toBe(failure)
+    } finally {
+      await fiber.dispose()
+      await ctx.fiber.dispose()
+    }
+  })
+
   it('promptly rejects a queued inspect without invoking it and keeps the same-id chain healthy', async () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)

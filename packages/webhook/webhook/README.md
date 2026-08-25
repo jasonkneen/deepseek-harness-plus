@@ -24,7 +24,7 @@ Successful `Agent.followup()` is the webhook operation's commit point. The messa
 
 Load the runtime on the Web Host plane after Agents, model defaults, agent presets, permission presets, titles, and the Workspace registry. User-authored rule plugins inject `webhookRuntime` and yield the disposer returned by `register()` through their own effect.
 
-The runnable [GitHub review example](../../../examples/web-github-review/README.md) shows a rule module, dedicated ingress port, secret setup, and Workspace routing.
+The [GitHub review guide](../../../docs/user/guide/github-review.md) shows a rule module, dedicated ingress port, secret setup, and Workspace routing.
 
 ## Model Experience
 

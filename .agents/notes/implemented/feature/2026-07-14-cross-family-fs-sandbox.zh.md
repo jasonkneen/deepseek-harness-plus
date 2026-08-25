@@ -45,7 +45,7 @@ Status: implemented
 
 共享部分住在 `dsh-sandbox`，它拥有模式类型：`WIDER_MODES`、升级目标枚举、参数配对校验、拒绝/提示标记构造器，以及 `approveEscalation`——有序的 fail-closed 编排。`approveEscalation` 接收一个最小的结构式 approver（`EscalationApprover`，对 agent 与 call-id 类型泛型化），而非审批服务类型，所以 `dsh-sandbox` 不获得对 approval 或 agent 包的依赖：每个工具把自己的 `ctx.approval`、agent、call id 与工具名作为原料传入。`dsh-tool-bash` 与 `dsh-tool-fs` 都使用它们；跨文件重复检测门禁确保单一来源不走样。
 
-[`examples/acp-agent`](../../../../examples/acp-agent/cordis.yml) 组合加载 `dsh-sandbox-policy` 与 `dsh-fs-sandbox`，把 `mode`/`workspaceRoot` 配置移到策略条目，并去掉在受限模式下禁用整个 fs 栈的旧门控；`fs-observation-policy`（read-before-edit）正交地叠加其上。系统提示仍然不陈述沙箱模式——标记会在真正重要的那一刻教会模型边界，遵循沙箱 Agent Note 所述的实时证据原则。
+[base profile 组合](../../../../packages/bundle/base/cordis.patch.yml)加载 `dsh-sandbox-policy` 与 `dsh-fs-sandbox`，把 `mode`/`workspaceRoot` 配置留在策略条目，并让 `fs-observation-policy`（read-before-edit）正交地叠加其上。系统提示仍然不陈述沙箱模式——标记会在真正重要的那一刻教会模型边界，遵循沙箱 Agent Note 所述的实时证据原则。
 
 ### 强制执行点：提供方，而非 intent gate
 

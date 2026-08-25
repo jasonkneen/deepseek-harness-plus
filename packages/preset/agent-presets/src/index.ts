@@ -27,6 +27,9 @@ import z from '@deepseek-ai/schemastery'
 import { bindScopeParent, createScope, scopeOf, type Scope, type ScopeKey, type ScopeParentBinding } from '@deepseek-ai/dsh-scope'
 // Type-only: resolves the `agent/created` lifecycle event this service watches.
 import type {} from '@deepseek-ai/dsh-agent'
+import type {} from '@deepseek-ai/dsh-session-projection'
+// Type-only: resolves the registry notification emitted after scope reparenting.
+import type {} from '@deepseek-ai/dsh-tools'
 import { settingsNamespace, type SettingsScope, type default as SettingsService } from '@deepseek-ai/dsh-settings'
 import { dshHomePath } from '@deepseek-ai/dsh-home-paths'
 import { discoverPresets, SHIPPED_PRESET_ROOT, USER_PRESET_DIR } from './discovery.ts'
@@ -34,7 +37,8 @@ import { copyComposition, deleteComposition, readComposition } from './authoring
 import { mountPreset, serviceForAgent, standingMountFor } from './mount.ts'
 import { PresetExistsError } from './authoring.ts'
 import { PresetMountError, UnknownPresetError, type AgentPreset, type Config, type PresetRoot } from './preset.ts'
-import type {} from './types.ts'
+import { agentPresetProjectionDefinition } from './session.ts'
+export type * from './types.ts'
 
 /** Settings namespace carrying the user's chosen default preset. */
 export const SETTINGS_NAMESPACE = 'agent-presets'
@@ -62,7 +66,7 @@ export {
   copyComposition, deleteComposition, InvalidPresetIdError, PresetExistsError,
   PresetNotWritableError, readComposition, writableRoot,
 } from './authoring.ts'
-export { resolveSessionPreset, type PresetBearingSession } from './session.ts'
+export { agentPresetProjectionDefinition } from './session.ts'
 export { PresetMountError, UnknownPresetError } from './preset.ts'
 export type { AgentPreset, Config, PresetRoot, PresetTrust } from './preset.ts'
 
@@ -154,6 +158,10 @@ export class AgentPresets extends Service {
         this.settings = undefined
         this.settingsService = undefined
       }, 'agentPresets.settings()')
+    })
+
+    ctx.inject(['sessionProjections'], (projectionCtx) => {
+      projectionCtx.sessionProjections.register(agentPresetProjectionDefinition)
     })
 
     // Advisory, not fatal: a synchronous `agent/created` listener that throws
@@ -455,7 +463,9 @@ export class AgentPresets extends Service {
    * state to restore. The re-link runs through the binding this roster kept
    * from the agent's mount — dsh-scope's only re-link authority. An agent
    * that never composed one has nothing to re-link: the switch is then the
-   * agent's first bind, exactly a mount.
+   * agent's first bind, exactly a mount. A committed re-link emits
+   * `tools/change` because changing the parent scope changes the Agent's
+   * resolved tool set without adding or removing registry entries.
    * @param agentCtx - the agent's scope context.
    * @param id - the preset to compose the agent from instead.
    * @returns the preset now installed.
@@ -473,6 +483,14 @@ export class AgentPresets extends Service {
       this.bindings.set(agentKey, bindScopeParent(agentKey, standing.key))
     } else {
       binding.rebind(standing.key)
+    }
+    // Reparenting changes every scope-layered tool view without adding or
+    // removing a registration. Publish the registry's normal invalidation so
+    // Agent-owned overlays can reconcile with the new ancestry.
+    try {
+      this.ctx.emit('tools/change')
+    } catch (error: unknown) {
+      this.ctx.logger.warn(`agent-presets: tools/change listener failed after recomposing an Agent: ${String(error)}`)
     }
     return preset
   }

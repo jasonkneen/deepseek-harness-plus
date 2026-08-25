@@ -23,7 +23,6 @@ import { registerChatNodeRenderers } from './chat/register-node-renderers.ts'
 import { StatsLine } from './chat/StatsLine.tsx'
 import { registerConversationNodes } from './conversation-nodes/register.ts'
 import { DetailsPanel } from './details/DetailsPanel.tsx'
-import { HistoricalImageCache } from './historical-images.ts'
 import { en, NS, zh } from './locale.ts'
 import { createChatStore } from './stores.ts'
 
@@ -74,7 +73,6 @@ export function apply(ctx: Context): void {
   const t = ctx.locale.bind(NS)
   const chatStore = createChatStore()
   const chatScrollPositions = new Map<SessionId, ChatScrollPosition>()
-  const images = new HistoricalImageCache(ctx)
 
   ctx.slots.inject('conversation.view', () => {
     const disposeView = ctx.slots.register({
@@ -102,7 +100,7 @@ export function apply(ctx: Context): void {
             return ctx.uiWorkspace.openPath(resolveWorkspacePath(cwd, path))
           },
           loadOlder: () => { void session.loadOlder() },
-          loadImage: attachment => images.resolve(sessionId, attachment),
+          loadImage: attachment => ctx.uiConversation.imageUrl(sessionId, attachment),
           chatScroll: {
             save: (position) => {
               if (position === null) chatScrollPositions.delete(sessionId)

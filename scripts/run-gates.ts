@@ -241,6 +241,7 @@ export function gatesForMode(selected: Mode): Gate[] {
         pnpmScript('issue-management', 'test:issue-management', { label: 'Issue management policy' }),
         pnpmScript('duplication', 'duplication'),
         snapshotGate(),
+        expectedOutputGate(),
         pnpmScript('build', 'build'),
         pnpmScript('build:web', 'build:web'),
         ...hygieneLeafGates({ artifactNeeds: ['build'] }),
@@ -427,6 +428,7 @@ function ciConsumerGates(): Gate[] {
       needs: validatedBuild,
     }),
     snapshotGate(validatedBuild),
+    expectedOutputGate(validatedBuild),
     webSnapshotGate(validatedBuild),
     pnpmScript('doc-typecheck', 'doc-typecheck:contracts-ready', {
       needs: validatedBuild,
@@ -471,13 +473,11 @@ function ciWindowsBlockingGates(): Gate[] {
 }
 
 function ciWindowsCompleteGates(): Gate[] {
-  const coverage = coverageGates().map(gate => gate.id === 'coverage-exempt-heavy'
-    ? {
-      ...gate,
-      needs: [...new Set(['build', ...(gate.needs ?? [])])],
-      after: [...new Set(['coverage', ...(gate.after ?? [])])],
-    }
-    : gate)
+  const coverage = coverageGates().map(gate => ({
+    ...gate,
+    needs: [...new Set(['build', ...(gate.needs ?? [])])],
+  }))
+  const coverageAfter = coverage.map(gate => gate.id)
   const observational = ciWindowsObservationalGates()
     // The required production site replaces the observational MPA build; both
     // VitePress modes write the same output directory and cannot overlap.
@@ -485,7 +485,7 @@ function ciWindowsCompleteGates(): Gate[] {
     .map(gate => ({
       ...gate,
       allowFailure: true,
-      after: [...new Set(['coverage', ...(gate.after ?? [])])],
+      after: [...new Set([...coverageAfter, ...(gate.after ?? [])])],
     }))
   return [
     ciBuildGate(),
@@ -588,11 +588,19 @@ function coverageGates(): Gate[] {
   ]
 }
 
-// Example and package snapshots boot their bins in `lib` mode (built artifacts under plain Node,
-// plugins via real exports); script snapshots execute their real source entry path.
-// Callers wait either on `build` or on a validation gate that transitively owns that build.
+// Recorded-session adapters boot process scenarios in `lib` mode. Callers wait
+// either on `build` or on a validation gate that transitively owns that build.
 function snapshotGate(needs: string[] = ['build']): Gate {
   return pnpmScript('snapshot', 'test:snapshot', {
+    env: { DSH_EXAMPLE_MODE: 'lib' },
+    needs,
+  })
+}
+
+// Owner-local process expectations consume built package exports without entering
+// the recorded-session corpus or the credentialed provider lane.
+function expectedOutputGate(needs: string[] = ['build']): Gate {
+  return pnpmScript('expected-output', 'test:expected', {
     env: { DSH_EXAMPLE_MODE: 'lib' },
     needs,
   })
@@ -700,7 +708,7 @@ function builtBinSmokeGate(needs: string[] = ['build']): Gate {
     'run',
     '--config',
     'vitest.e2e.config.ts',
-    'examples/headless-agent/tests/keyless-smoke.e2e.ts',
+    'apps/cli/tests/profiles/headless/tests/keyless-smoke.e2e.ts',
     'apps/cli/tests/built-bin.e2e.ts',
     'packages/host/directory-picker-native/tests/built-worker.e2e.ts',
     'packages/sdk/server/tests/built-scope-carrier.e2e.ts',

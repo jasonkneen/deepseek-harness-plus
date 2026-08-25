@@ -16,7 +16,7 @@ import { describe, expect, it } from 'vitest'
 const REPO_ROOT = fileURLToPath(new URL('../../..', import.meta.url))
 const BUILT_BIN = join(REPO_ROOT, 'apps/cli/lib/bin.js')
 const OVERLAY = fileURLToPath(new URL(
-  '../../../examples/web-github-review/tests/fixtures/real-cli/cordis.yml',
+  './fixtures/github-webhook/cordis.yml',
   import.meta.url,
 ))
 const SECRET = 'github-webhook-real-e2e-secret'
@@ -28,8 +28,8 @@ interface SessionList {
   items: Array<{
     sessionId: string
     cwd?: string
-    agentPreset?: string
     blank: boolean
+    projections?: { values: { agentPreset?: string | null } }
   }>
 }
 
@@ -222,23 +222,18 @@ async function workspaceBaseline(baseUrl: string): Promise<WorkspaceBaseline> {
   return frame.value as WorkspaceBaseline
 }
 
-/** Read the explicit page cut from a fresh Session follow generation. */
-async function sessionCursor(baseUrl: string, sessionId: string): Promise<number> {
+/** Read the complete opening page from a fresh Session follow generation. */
+async function history(baseUrl: string, sessionId: string): Promise<HistoryPage> {
   const frame = await openingStreamItem(
     baseUrl,
     'session/follow',
-    { request: { address: { kind: 'session', sessionId } } },
-    value => isRecord(value) && value.type === 'opened' && Number.isSafeInteger(value.cursor),
+    { request: { address: { kind: 'session', sessionId }, maxMessages: 100 } },
+    value => isRecord(value)
+      && value.type === 'snapshot'
+      && Array.isArray(value.events)
+      && typeof value.hasMore === 'boolean',
   )
-  return frame.cursor as number
-}
-
-/** Read Session history at the cursor explicitly opened for this page. */
-async function history(baseUrl: string, sessionId: string): Promise<HistoryPage> {
-  const throughSeq = await sessionCursor(baseUrl, sessionId)
-  return remoteRpc<HistoryPage>(baseUrl, 'session/page', {
-    request: { address: { kind: 'session', sessionId }, throughSeq, maxMessages: 100 },
-  })
+  return { events: frame.events as HistoryPage['events'], hasMore: frame.hasMore as boolean }
 }
 
 /** Poll a public observation until it satisfies the test's behavior predicate. */
@@ -379,9 +374,9 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('GitHub webhook through the real 
 
       const sessions = await remoteRpc<SessionList>(baseUrl, 'session/list', { _request: {} })
       expect(sessions.items.find(session => session.sessionId === sessionId)).toMatchObject({
-        agentPreset: 'minimal',
         blank: false,
         cwd: canonicalWorkspacePath,
+        projections: { values: { agentPreset: 'minimal' } },
       })
 
       const admitted = await eventually(

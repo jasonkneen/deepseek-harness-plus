@@ -156,10 +156,9 @@ export class CommandUiRuntime extends Service implements CommandUiContract {
     }), 'command: slash source')
     ctx.remote.$on('commands/change', () => { this.directory.invalidateAll() })
     // A preset switch changes which commands one session's agent resolves and
-    // registers nothing globally, so the registry-wide signal above never
-    // fires for it: repull that key alone, soft, so the old snapshot serves
-    // the menu until the new one lands.
-    ctx.remote.$on('agent-preset/selected', (sessionId) => { void this.directory.refresh(sessionId) })
+    // registers nothing globally. Drop that key's old composition before
+    // prewarming so a newly opened menu waits for the replacement catalog.
+    ctx.remote.$on('agent-preset/selected', (sessionId) => { this.directory.resetSession(sessionId) })
     ctx.on('connection/reset', () => { this.directory.resetConnected() })
   }
 

@@ -66,14 +66,6 @@ export interface ISessions {
    */
   refreshSubagents(parentSessionId: SessionId): Promise<void>
 
-  /**
-   * Record the composition one session now runs. The agent-preset seat calls
-   * this after a successful blank-session switch, so the header label moves
-   * with the composition instead of waiting for the next full list refresh.
-   * @param sessionId - the switched session.
-   * @param agentPreset - the preset id the host confirmed.
-   */
-  noteAgentPreset(sessionId: SessionId, agentPreset: string): void
   /** Clear the current selection into the no-session view state. */
   clear(): void
   /**

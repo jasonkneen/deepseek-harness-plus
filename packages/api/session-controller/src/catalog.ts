@@ -2,21 +2,23 @@
 
 import type { Context } from '@deepseek-ai/cordis'
 import type {
-  ModelCatalogFailure,
-  ModelProviderGroup,
+  ModelCatalog,
   ModelReasoning,
+  ModelSelection,
 } from './types.ts'
 
 /**
  * Build the browser model catalog without requiring a Session.
  * @param ctx - Host context carrying the live LLM registry.
+ * @param defaultSelection - deployment default used before a Session selects a model.
  * @returns successful non-empty provider groups and isolated provider failures.
  */
-export async function buildModelCatalog(ctx: Context): Promise<{
-  readonly groups: ModelProviderGroup[]
-  readonly failures: ModelCatalogFailure[]
-}> {
-  const catalog = await Promise.all(ctx.llm.listProviders().map(async (provider) => {
+export async function buildModelCatalog(
+  ctx: Context,
+  defaultSelection: ModelSelection = ctx.agentDefaultModel.currentSelection(),
+): Promise<ModelCatalog> {
+  const providers = ctx.llm.listProviders()
+  const catalog = await Promise.all(providers.map(async (provider) => {
     try {
       const models = await ctx.llm.listModels(provider.id)
       const entries = await Promise.all(models.map(async (model) => {
@@ -56,6 +58,8 @@ export async function buildModelCatalog(ctx: Context): Promise<{
     }
   }))
   return {
+    default: { ...defaultSelection },
+    routableProviders: providers.map(provider => provider.id),
     groups: catalog.flatMap(item => item.kind === 'group' ? [item.group] : [])
       .filter(group => group.models.length > 0),
     failures: catalog.flatMap(item => item.kind === 'failure' ? [item.failure] : []),

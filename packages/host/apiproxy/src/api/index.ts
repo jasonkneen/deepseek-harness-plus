@@ -30,7 +30,7 @@ export interface ApiProxy {
 
 // ---- Domain interfaces and payload entities ----
 export type {
-  ModelCatalogFailure, ModelCatalogModel, ModelProviderGroup, ModelReasoning,
+  ModelCatalog, ModelCatalogFailure, ModelCatalogModel, ModelProviderGroup, ModelReasoning,
   ModelReasoningEffort, ModelSelection,
 } from '@deepseek-ai/dsh-api-session-controller/types'
 export type { DirectoryEntry, DirectoryListing, HostApi } from './host.ts'

@@ -1,10 +1,11 @@
 /** Trajectory view: compact summary over a turn-aware event ledger. */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import type {
-  AssistantBlock, AssistantMessageNode, ConvViewProps,
+  AssistantBlock, AssistantMessageNode, ConvViewProps, RenderMessageImages,
 } from '@deepseek-ai/dsh-client-ui-conversation/client'
-import type { InjectFace, PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
+import type { InjectFace, PropsLocale, PropsRenderSlots } from '@deepseek-ai/dsh-client-ui-slots'
 import type { SnapshotStore } from '@deepseek-ai/dsh-client-store'
 import {
   TrajectoryTable,
@@ -69,6 +70,7 @@ export interface TrajectoryViewInjected {
     duration: SnapshotStore<boolean>
   }
   loadOlder: () => Promise<boolean>
+  loadImage: (attachment: ImageAttachmentRef) => Promise<string>
   setActualDuration: (actualDuration: boolean) => void
 }
 
@@ -117,10 +119,17 @@ function addUsage(
 }
 
 export function TrajectoryView({
-  useSession, useTrajectory, useDuration, loadOlder, setActualDuration,
-  viewRequest, completeViewRequest, t,
-}: ConvViewProps & InjectFace<TrajectoryViewInjected> & PropsLocale<'trajectory'>) {
+  useSession, useTrajectory, useDuration, loadOlder, loadImage, setActualDuration,
+  viewRequest, completeViewRequest, renderSlot, t,
+}: ConvViewProps
+  & PropsRenderSlots<'conversation.trajectory.images'>
+  & InjectFace<TrajectoryViewInjected>
+  & PropsLocale<'trajectory'>) {
   const [collapsedTurns, setCollapsedTurns] = useState<ReadonlySet<number>>(EMPTY_TURN_IDS)
+  const renderImages = useCallback<RenderMessageImages>(
+    owner => renderSlot('conversation.trajectory.images', { ...owner, loadImage }),
+    [loadImage, renderSlot],
+  )
   const [collapsedAssistants, setCollapsedAssistants] =
     useState<ReadonlySet<string>>(EMPTY_RECORD_IDS)
   const [timelineSelection, setTimelineSelection] = useState<TrajectoryTimeRange | null>(null)
@@ -481,6 +490,7 @@ export function TrajectoryView({
       <div className={css.ledger}>
         <TrajectoryTable
           t={t}
+          renderImages={renderImages}
           requestNumbers={requestNumbers}
           turns={timelineTurns}
           streamingCells={streamingCells}

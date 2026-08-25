@@ -2,7 +2,7 @@
 
 English | [中文](README.zh.md)
 
-`ui-conversation` owns target-neutral Conversation assembly and the shared browser shell. It consumes Session Controller event feeds, exposes React-free registries and per-Session bindings through `ctx.uiConversation`, and contributes the `useConversation`, `useInput`, and `inputActions` standard props through `ctx.uiSession`. Concrete targets such as Chat are separate packages that register their own Definitions, snapshot builders, Views, and renderers.
+`ui-conversation` owns target-neutral Conversation assembly and the shared browser shell. It consumes Session Controller event feeds, exposes React-free registries and per-Session bindings through `ctx.uiConversation`, and contributes the `useConversation`, `useInput`, and `inputActions` standard props through `ctx.uiSession`. It also owns the per-session durable image URL cache: `ctx.uiConversation.imageUrl(sessionId, attachment)` resolves one session-authorized browser URL per attachment and revokes it with the Session binding, so every Conversation target shares one `session.attachment` read. Concrete targets such as Chat are separate packages that register their own Definitions, snapshot builders, Views, and renderers.
 
 ## Conversation assembly
 
@@ -19,6 +19,8 @@ The package registers the optional-Session `conversation` shell, strict Session 
 View selection is deterministic: a registered persisted selection wins, otherwise registered `chat` wins, otherwise no View renders. It never chooses the first registered View. Shell phase combines Session lifecycle with the active-target set; no target-specific snapshot is read by the shell.
 
 The resident composer survives no-Session and Session transitions. The no-Session state keeps the same textarea mounted but inert while the Workspace picker connects a blank Session. Draft text is mirrored into the per-Session Conversation store. Queue operations address exact queue occurrences through the scoped `ctx.conversation` service. Busy Enter behavior is stored in the Host-backed `ui-conversation` settings namespace.
+
+An ordinary running composer keeps Stop as its primary pointer action while its draft is empty or an owner block makes input unavailable. Actionable text or attachments switch the same seat to Queue Send; clearing or successfully submitting the draft restores Stop. Keyboard Queue/Steer selection remains governed by the busy-Enter setting, while continuable subagents keep independent Send and Stop actions ([decision](../../../.agents/notes/implemented/bug-fix/2026-08-20-running-draft-primary-send.md)).
 
 ## Temporary composer entries
 

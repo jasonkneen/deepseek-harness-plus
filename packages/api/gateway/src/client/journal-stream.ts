@@ -7,9 +7,9 @@ import type {
   RemoteStreamOptions,
 } from './remote-stream.ts'
 
-/** Transport-neutral opening cursor or journal entry. */
-export type RemoteJournalFrame<Entry, Cursor> =
-  | { readonly type: 'opened'; readonly cursor: Cursor }
+/** Transport-neutral opening snapshot or journal entry. */
+export type RemoteJournalFrame<Entry, Cursor, Page> =
+  | { readonly type: 'opened'; readonly cursor: Cursor; readonly page: Page }
   | { readonly type: 'entry'; readonly entry: Entry }
 
 /** One committed journal-window update. */
@@ -28,7 +28,7 @@ export type RemoteJournalChange<Page, Entry> =
   }
   | { readonly type: 'append'; readonly entry: Entry }
 
-type JournalStreamItem<Entry, Cursor> = RemoteStreamItem<RemoteJournalFrame<Entry, Cursor>>
+type JournalStreamItem<Page, Entry, Cursor> = RemoteStreamItem<RemoteJournalFrame<Entry, Cursor, Page>>
 
 /** Gateway capability used to create one reconnecting Remote stream. */
 export interface RemoteStreamFactory {
@@ -65,13 +65,13 @@ export interface RemoteJournalStreamOptions<Page, Entry, Cursor> {
 }
 
 /**
- * Owns follow-before-page opening, ordered live delivery, pagination, and repair.
+ * Owns snapshot-first opening, ordered live delivery, pagination, and repair.
  *
  * The domain retains its published window during reconnection. A replacement is
- * published only after a tail page reaches the generation's opening cursor.
+ * published only after the opening page reaches the generation's cursor.
  */
 export abstract class RemoteJournalStream<Page, Entry, Cursor, PageRequest = void> {
-  private readonly stream: RemoteStream<RemoteJournalFrame<Entry, Cursor>>
+  private readonly stream: RemoteStream<RemoteJournalFrame<Entry, Cursor, Page>>
   private initialRequest!: PageRequest
   private resumeCursor: Cursor | undefined
   private hasResumeCursor = false
@@ -83,7 +83,7 @@ export abstract class RemoteJournalStream<Page, Entry, Cursor, PageRequest = voi
   private disposed = false
   private done: Promise<void> | undefined
   private closing: Promise<void> | undefined
-  private pendingNext: Promise<IteratorResult<JournalStreamItem<Entry, Cursor>>> | undefined
+  private pendingNext: Promise<IteratorResult<JournalStreamItem<Page, Entry, Cursor>>> | undefined
 
   /**
    * @param remote - Gateway factory for the reconnecting physical-generation stream.
@@ -93,12 +93,9 @@ export abstract class RemoteJournalStream<Page, Entry, Cursor, PageRequest = voi
     remote: RemoteStreamFactory,
     private readonly options: RemoteJournalStreamOptions<Page, Entry, Cursor>,
   ) {
-    this.stream = remote.$stream<RemoteJournalFrame<Entry, Cursor>>({
+    this.stream = remote.$stream<RemoteJournalFrame<Entry, Cursor, Page>>({
       name: options.name,
-      open: signal => this.follow(
-        this.hasResumeCursor ? this.resumeCursor : undefined,
-        signal,
-      ),
+      open: signal => this.follow(this.initialRequest, signal),
       ended: accepted => accepted
         ? new RemoteStreamCarrierError(`${options.name} ended without a terminal result`)
         : new Error(
@@ -111,15 +108,15 @@ export abstract class RemoteJournalStream<Page, Entry, Cursor, PageRequest = voi
   }
 
   /**
-   * Open one physical journal generation after the last accepted cursor.
-   * @param after - last accepted cursor, or `undefined` for the initial generation.
+   * Open one physical journal generation with a complete current snapshot.
+   * @param request - opening-window request retained for later repair.
    * @param signal - cancellation lifetime of the physical generation.
    * @returns opening cursor followed by live entries.
    */
   protected abstract follow(
-    after: Cursor | undefined,
+    request: PageRequest,
     signal: AbortSignal,
-  ): AsyncIterable<RemoteJournalFrame<Entry, Cursor>>
+  ): AsyncIterable<RemoteJournalFrame<Entry, Cursor, Page>>
 
   /**
    * Read one journal page through the addressed domain source.
@@ -143,7 +140,7 @@ export abstract class RemoteJournalStream<Page, Entry, Cursor, PageRequest = voi
   }
 
   /**
-   * Establish follow before reading and publishing the initial page.
+   * Establish follow and publish the opening snapshot carried by its first frame.
    * @param request - initial tail-page request.
    * @returns after the first complete window is published.
    */
@@ -155,7 +152,7 @@ export abstract class RemoteJournalStream<Page, Entry, Cursor, PageRequest = voi
     try {
       const first = await this.takeNext(iterator)
       if (first.done) throw new Error(`${this.options.name} ended before its opening cursor`)
-      await this.replaceGeneration(request, first.value, iterator, false)
+      this.replaceGeneration(first.value, false)
       this.opened = true
       this.done = this.consume(iterator)
     } catch (error) {
@@ -217,7 +214,7 @@ export abstract class RemoteJournalStream<Page, Entry, Cursor, PageRequest = voi
   }
 
   private async consume(
-    iterator: AsyncIterator<JournalStreamItem<Entry, Cursor>>,
+    iterator: AsyncIterator<JournalStreamItem<Page, Entry, Cursor>>,
   ): Promise<void> {
     try {
       while (true) {
@@ -225,7 +222,7 @@ export abstract class RemoteJournalStream<Page, Entry, Cursor, PageRequest = voi
         if (next.done) return
         const item = next.value
         if (item.generation !== this.generation) {
-          await this.replaceGeneration(this.repairPageRequest(), item, iterator, true)
+          this.replaceGeneration(item, true)
           continue
         }
         if (item.value.type === 'opened') {
@@ -238,35 +235,18 @@ export abstract class RemoteJournalStream<Page, Entry, Cursor, PageRequest = voi
     }
   }
 
-  private async replaceGeneration(
-    request: PageRequest,
-    initial: JournalStreamItem<Entry, Cursor>,
-    iterator: AsyncIterator<JournalStreamItem<Entry, Cursor>>,
+  private replaceGeneration(
+    initial: JournalStreamItem<Page, Entry, Cursor>,
     resumed: boolean,
-  ): Promise<void> {
-    let item = initial
-    let isResumed = resumed
-    while (true) {
-      const cursor = this.opening(item, isResumed)
-      this.setResumeCursor(cursor)
-      const superseded = await this.replaceThrough(
-        request,
-        cursor,
-        item.generation,
-        item.signal,
-        iterator,
-        [],
-      )
-      if (superseded === undefined) return
-      item = superseded
-      isResumed = true
-    }
+  ): void {
+    const opening = this.opening(initial, resumed)
+    this.replaceFromOpening(opening.page, opening.cursor)
   }
 
   private opening(
-    item: RemoteStreamItem<RemoteJournalFrame<Entry, Cursor>>,
+    item: RemoteStreamItem<RemoteJournalFrame<Entry, Cursor, Page>>,
     resumed: boolean,
-  ): Cursor {
+  ): { readonly cursor: Cursor; readonly page: Page } {
     if (item.value.type !== 'opened') {
       throw new Error(`${resumed ? 'resumed ' : ''}${this.options.name} emitted an entry before its opening cursor`)
     }
@@ -279,13 +259,30 @@ export abstract class RemoteJournalStream<Page, Entry, Cursor, PageRequest = voi
     }
     this.generation = item.generation
     item.accept()
-    return cursor
+    return { cursor, page: item.value.page }
+  }
+
+  /** Publish a generation's opening page without issuing a second Remote call. */
+  private replaceFromOpening(page: Page, cursor: Cursor): void {
+    this.assertPageThrough(page, cursor)
+    const entries = [...this.options.entries(page)]
+    this.assertPage(entries)
+    const first = entries[0]
+    this.firstCursor = first === undefined ? undefined : this.options.cursor(first)
+    this.lastCursor = cursor
+    this.setResumeCursor(cursor)
+    this.options.publish({
+      type: 'replace',
+      page,
+      entries,
+      hasMore: this.options.hasMore(page),
+    })
   }
 
   private async acceptEntry(
     entry: Entry,
-    item: JournalStreamItem<Entry, Cursor>,
-    iterator: AsyncIterator<JournalStreamItem<Entry, Cursor>>,
+    item: JournalStreamItem<Page, Entry, Cursor>,
+    iterator: AsyncIterator<JournalStreamItem<Page, Entry, Cursor>>,
   ): Promise<void> {
     const cursor = this.options.cursor(entry)
     const last = this.lastCursor as Cursor
@@ -301,7 +298,7 @@ export abstract class RemoteJournalStream<Page, Entry, Cursor, PageRequest = voi
         [entry],
       )
       if (superseded !== undefined) {
-        await this.replaceGeneration(request, superseded, iterator, true)
+        this.replaceGeneration(superseded, true)
       }
       return
     }
@@ -316,9 +313,9 @@ export abstract class RemoteJournalStream<Page, Entry, Cursor, PageRequest = voi
     requiredCursor: Cursor,
     generation: number,
     signal: AbortSignal,
-    iterator: AsyncIterator<JournalStreamItem<Entry, Cursor>>,
+    iterator: AsyncIterator<JournalStreamItem<Page, Entry, Cursor>>,
     queued: Entry[],
-  ): Promise<JournalStreamItem<Entry, Cursor> | undefined> {
+  ): Promise<JournalStreamItem<Page, Entry, Cursor> | undefined> {
     let read = await this.readPageWhileFollowing(
       request,
       requiredCursor,
@@ -351,6 +348,7 @@ export abstract class RemoteJournalStream<Page, Entry, Cursor, PageRequest = voi
       throw new Error(`${this.options.name} page did not reach its opening cursor`)
     }
     const first = entries[0]
+    /* v8 ignore next -- a successful positive-cursor replacement page cannot be empty. */
     this.firstCursor = first === undefined ? undefined : this.options.cursor(first)
     this.lastCursor = this.tailCursor(entries)
     this.setResumeCursor(this.lastCursor)
@@ -368,11 +366,11 @@ export abstract class RemoteJournalStream<Page, Entry, Cursor, PageRequest = voi
     through: Cursor,
     generation: number,
     signal: AbortSignal,
-    iterator: AsyncIterator<JournalStreamItem<Entry, Cursor>>,
+    iterator: AsyncIterator<JournalStreamItem<Page, Entry, Cursor>>,
     queued: Entry[],
   ): Promise<
     | { readonly type: 'page'; readonly page: Page }
-    | { readonly type: 'superseded'; readonly item: JournalStreamItem<Entry, Cursor> }
+    | { readonly type: 'superseded'; readonly item: JournalStreamItem<Page, Entry, Cursor> }
   > {
     const page = this.readPage(request, through, signal).then(
       value => ({ type: 'page' as const, value }),
@@ -410,12 +408,12 @@ export abstract class RemoteJournalStream<Page, Entry, Cursor, PageRequest = voi
 
   private async awaitReplacementGeneration(
     generation: number,
-    iterator: AsyncIterator<JournalStreamItem<Entry, Cursor>>,
-    initial: Promise<IteratorResult<JournalStreamItem<Entry, Cursor>>>,
-  ): Promise<{ readonly type: 'superseded'; readonly item: JournalStreamItem<Entry, Cursor> }> {
+    iterator: AsyncIterator<JournalStreamItem<Page, Entry, Cursor>>,
+    initial: Promise<IteratorResult<JournalStreamItem<Page, Entry, Cursor>>>,
+  ): Promise<{ readonly type: 'superseded'; readonly item: JournalStreamItem<Page, Entry, Cursor> }> {
     let pending = initial
     while (true) {
-      let next: IteratorResult<JournalStreamItem<Entry, Cursor>>
+      let next: IteratorResult<JournalStreamItem<Page, Entry, Cursor>>
       try {
         next = await pending
       } finally {
@@ -461,15 +459,15 @@ export abstract class RemoteJournalStream<Page, Entry, Cursor, PageRequest = voi
   }
 
   private nextResult(
-    iterator: AsyncIterator<JournalStreamItem<Entry, Cursor>>,
-  ): Promise<IteratorResult<JournalStreamItem<Entry, Cursor>>> {
+    iterator: AsyncIterator<JournalStreamItem<Page, Entry, Cursor>>,
+  ): Promise<IteratorResult<JournalStreamItem<Page, Entry, Cursor>>> {
     this.pendingNext ??= iterator.next()
     return this.pendingNext
   }
 
   private async takeNext(
-    iterator: AsyncIterator<JournalStreamItem<Entry, Cursor>>,
-  ): Promise<IteratorResult<JournalStreamItem<Entry, Cursor>>> {
+    iterator: AsyncIterator<JournalStreamItem<Page, Entry, Cursor>>,
+  ): Promise<IteratorResult<JournalStreamItem<Page, Entry, Cursor>>> {
     const pending = this.nextResult(iterator)
     try {
       return await pending

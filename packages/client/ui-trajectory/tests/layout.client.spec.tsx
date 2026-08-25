@@ -566,3 +566,103 @@ describe('run_code sub-dispatch cells', () => {
     expect(cells.map(cell => cell.index)).toEqual([1, 2, 3, 4])
   })
 })
+
+describe('durable image attachments', () => {
+  const attachment = {
+    attachmentId: `sha256:${'a'.repeat(64)}`,
+    mediaType: 'image/png',
+    bytes: 68,
+    width: 640,
+    height: 320,
+    name: 'screenshot.png',
+  }
+
+  it('carries user image refs into sourceBlocks and labels an image-only record', () => {
+    const nodes = [
+      {
+        kind: 'user', seq: 1, time: 1_000, source: null,
+        content: [{ type: 'image', attachment }, { type: 'image', attachment }],
+      },
+    ] as unknown as LegacyConversationSlice['nodes']
+    const turns = deriveTrajectoryLayout({ nodes, partial: null, runningCalls: [] })
+    const user = turns[0]?.groups[0]?.cells[0]
+    expect(user?.text).toBe('Images ×2')
+    expect(user?.previewMarkdown).toBeUndefined()
+    expect(user?.sourceBlocks).toEqual([
+      { type: 'image', content: '', attachment },
+      { type: 'image', content: '', attachment },
+    ])
+  })
+
+  it('labels a record whose only text block is empty as image-only', () => {
+    const nodes = [
+      {
+        kind: 'user', seq: 1, time: 1_000, source: null,
+        content: [{ type: 'text', text: '' }, { type: 'image', attachment }],
+      },
+    ] as unknown as LegacyConversationSlice['nodes']
+    const turns = deriveTrajectoryLayout({ nodes, partial: null, runningCalls: [] })
+    const user = turns[0]?.groups[0]?.cells[0]
+    expect(user?.text).toBe('Images ×1')
+    expect(user?.previewMarkdown).toBeUndefined()
+  })
+
+  it('keeps the text preview when a user message mixes text and images', () => {
+    const nodes = [
+      {
+        kind: 'user', seq: 1, time: 1_000, source: null,
+        content: [{ type: 'text', text: 'look at this' }, { type: 'image', attachment }],
+      },
+    ] as unknown as LegacyConversationSlice['nodes']
+    const turns = deriveTrajectoryLayout({ nodes, partial: null, runningCalls: [] })
+    const user = turns[0]?.groups[0]?.cells[0]
+    expect(user?.text).toBe('')
+    expect(user?.previewMarkdown).toBe('look at this')
+    expect(user?.sourceBlocks?.[1]).toEqual({ type: 'image', content: '', attachment })
+  })
+
+  it('maps assistant image blocks to attachment source blocks and labels image-only output', () => {
+    const nodes = [
+      {
+        kind: 'assistant', seq: 1, time: 1_000, turn: 1, step: 0,
+        blocks: [{ kind: 'image', attachment }],
+      },
+    ] as unknown as LegacyConversationSlice['nodes']
+    const turns = deriveTrajectoryLayout({ nodes, partial: null, runningCalls: [] })
+    const message = turns[0]?.groups.flatMap(g => g.cells).find(c => c.kind === 'message')
+    expect(message?.text).toBe('Images ×1')
+    expect(message?.sourceBlocks).toEqual([{ type: 'image', content: '', attachment }])
+  })
+
+  it('carries tool-result image refs into outputBlocks and labels the result', () => {
+    const nodes = [
+      {
+        kind: 'assistant', seq: 1, time: 1_000, turn: 1, step: 1,
+        blocks: [{ kind: 'tool-call', callId: 'c1', name: 'read_image', argsRaw: '{}' }],
+      },
+      {
+        kind: 'tool-result', seq: 2, time: 2_000, callId: 'c1',
+        call: { name: 'read_image', argsRaw: '{}' }, callTime: 1_200,
+        content: [{ type: 'image', attachment }], isError: false,
+      },
+    ] as unknown as LegacyConversationSlice['nodes']
+    const turns = deriveTrajectoryLayout({ nodes, partial: null, runningCalls: [] })
+    const tool = turns[0]?.groups.flatMap(g => g.cells).find(c => c.kind === 'tool')
+    expect(tool?.result).toBe('Images ×1')
+    expect(tool?.outputDetail).toBe('Images ×1')
+    expect(tool?.outputBlocks).toEqual([{ type: 'image', content: '', attachment }])
+  })
+
+  it('shows wire-shaped blocks without an attachment as JSON, not as an image', () => {
+    const nodes = [
+      {
+        kind: 'user', seq: 1, time: 1_000, source: null,
+        content: [{ type: 'image', url: 'https://example.com/a.png' }],
+      },
+    ] as unknown as LegacyConversationSlice['nodes']
+    const turns = deriveTrajectoryLayout({ nodes, partial: null, runningCalls: [] })
+    const block = turns[0]?.groups[0]?.cells[0]?.sourceBlocks?.[0]
+    expect(block?.attachment).toBeUndefined()
+    expect(block?.content).toContain('https://example.com/a.png')
+  })
+})

@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/simplification/2026-07-20-remove-stdio-and-echo-agents.md
-2026-07-20-remove-stdio-and-echo-agents.md: 1d71b74fda229f7eaed502b3badba2ab39e5ea54
-2026-07-20-remove-stdio-and-echo-agents.zh.md: 8445a82d7e366bf57ea4d3ad4595a596b67f1fa8
+2026-07-20-remove-stdio-and-echo-agents.md: ad8b7fcf5c79b5e3512d7fd908a41e2de47a7bce
+2026-07-20-remove-stdio-and-echo-agents.zh.md: be30a44a3bdf807cc5dc6db54617c0b31e28a02b

@@ -417,6 +417,47 @@ export function resolveScriptedEntry(entry: ReplayEntry, messages: GenerateOptio
   return substituteValue(entry, leaves.join('\n')) as ReplayEntry
 }
 
+/** Replace typed recorded-session tokens with the live sessions bound at the same corpus indexes. */
+function materializeSessionTokens(entry: ReplayEntry, liveSessionIds: readonly (string | undefined)[]): ReplayEntry {
+  if (!JSON.stringify(entry).includes('{{session:')) return entry
+  const replace = (value: unknown): unknown => {
+    if (typeof value === 'string') {
+      return value.replace(/\{\{session:([1-9]\d*)\}\}/g, (_token, ordinal: string) => {
+        const live = liveSessionIds[Number(ordinal) - 1]
+        if (live === undefined) {
+          throw new Error(`llm-replay: session token {{session:${ordinal}}} was used before that recorded session bound`)
+        }
+        return live
+      })
+    }
+    if (Array.isArray(value)) return value.map(replace)
+    if (value !== null && typeof value === 'object') {
+      return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, replace(item)]))
+    }
+    return value
+  }
+  return replace(entry) as ReplayEntry
+}
+
+/** Learn a background child id from the stable tool-result text before that child reaches its first model call. */
+function inferStartedSubagents(
+  messages: GenerateOptions['messages'],
+  liveSessionIds: (string | undefined)[],
+): void {
+  const leaves: string[] = []
+  collectStrings(messages, leaves)
+  for (const leaf of leaves) {
+    for (const match of leaf.matchAll(/started subagent ([^\s"'<>]+)/g)) {
+      const id = match[1]
+      /* v8 ignore next -- the fixed regular expression always has capture group 1. */
+      if (id === undefined || liveSessionIds.includes(id)) continue
+      const index = liveSessionIds.findIndex((value, candidate) => candidate > 0 && value === undefined)
+      if (index < 0) return
+      liveSessionIds[index] = id
+    }
+  }
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
@@ -760,6 +801,7 @@ export function installLlmReplay(ctx: Context, config: ReplayConfig): ReplayHand
   // next not-yet-bound script (scripts are in bind order); `nextScript` is the
   // index of the next unclaimed one.
   const bound = new Map<string, { entries: ReplayEntry[]; cursor: number }>()
+  const liveSessionIds: (string | undefined)[] = Array.from({ length: scripts.length })
   let nextScript = 0
   const ANON = '\0anon\0' // the key for a call that carries no sessionId
   const replay = (options: GenerateOptions): AsyncIterable<StreamChunk> => {
@@ -775,9 +817,11 @@ export function installLlmReplay(ctx: Context, config: ReplayConfig): ReplayHand
         unrecorded = true
         state = { entries: [], cursor: 0 }
       } else {
+        const scriptIndex = nextScript
         nextScript++
         state = { entries: script.entries, cursor: 0 }
         bound.set(key, state)
+        if (key !== ANON) liveSessionIds[scriptIndex] = key
       }
     }
     const boundState = state
@@ -798,7 +842,8 @@ export function installLlmReplay(ctx: Context, config: ReplayConfig): ReplayHand
           + `but its script has only ${boundState.entries.length}; re-record the scenario`,
         )
       }
-      const resolved = resolveScriptedEntry(entry, options.messages)
+      inferStartedSubagents(options.messages, liveSessionIds)
+      const resolved = resolveScriptedEntry(materializeSessionTokens(entry, liveSessionIds), options.messages)
       if (options.provider === 'deepseek-official' && providerAccepted(resolved)) {
         const extensions = ctx.get('deepseekLlmApiExtensions')
         if (extensions !== undefined) {

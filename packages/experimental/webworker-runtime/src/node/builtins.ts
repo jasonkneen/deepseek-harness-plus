@@ -34,6 +34,7 @@ import * as nodePath from './builtin_modules/implemented/path.ts'
 import * as nodePerfHooks from './builtin_modules/implemented/perf_hooks.ts'
 import * as nodeStream from './builtin_modules/implemented/stream.ts'
 import * as nodeTimersPromises from './builtin_modules/implemented/timers/promises.ts'
+import * as nodeTty from './builtin_modules/implemented/tty.ts'
 import * as nodeUrl from './builtin_modules/implemented/url.ts'
 import * as nodeUtil from './builtin_modules/implemented/util.ts'
 import * as nodeUtilTypes from './builtin_modules/implemented/util/types.ts'
@@ -71,6 +72,7 @@ const BUILTINS: Record<string, StaticModuleFactory> = {
   sqlite: () => nodeSqlite,
   stream: () => nodeStream,
   'timers/promises': () => nodeTimersPromises,
+  tty: () => nodeTty,
   url: () => nodeUrl,
   util: () => nodeUtil,
   'util/types': () => nodeUtilTypes,

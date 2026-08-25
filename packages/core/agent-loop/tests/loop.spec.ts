@@ -1,7 +1,7 @@
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import { describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
-import LlmRuntime, { createUserMessage, CallId, LlmError, StreamChunk  } from '@deepseek-ai/dsh-llm'
+import LlmRuntime, { createUserMessage, CallId, LlmError, ReasoningEffortId, StreamChunk } from '@deepseek-ai/dsh-llm'
 import SessionStore, { SessionId, TurnEndReason } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime, { defineContentToolFixture } from '@deepseek-ai/dsh-tools'
@@ -77,6 +77,34 @@ describe('agent loop', () => {
     await waitForIdle(ctx, agent)
 
     expect(adapter.requests[0]?.maxTokens).toBe(256)
+  })
+
+  it('seeds an AgentOptions reasoning effort into the first model request', async () => {
+    const effort = ReasoningEffortId('high')
+    const adapter = new MockAdapter([textResponse('reasoned')], {
+      efforts: [{ id: effort, name: 'High' }],
+      defaultEffort: effort,
+    })
+    const ctx = await harness(adapter)
+    const agent = ctx.agentLoop.create(
+      SessionId('configured-reasoning-effort'),
+      { provider: 'mock', model: 'mock', reasoningEffort: effort },
+    )
+
+    send(agent, 'use the configured reasoning effort')
+    await waitForIdle(ctx, agent)
+
+    expect(adapter.requests[0]?.reasoningEffort).toBe(effort)
+  })
+
+  it('validates reasoning effort in declarative agent config', () => {
+    const effort = ReasoningEffortId('high')
+    expect(AgentLoop.Config({
+      agents: [{ id: 'configured-agent', reasoningEffort: effort }],
+    }).agents[0]?.reasoningEffort).toBe(effort)
+    expect(() => AgentLoop.Config({
+      agents: [{ id: 'configured-agent', reasoningEffort: ReasoningEffortId('') }],
+    })).toThrow()
   })
 
   it('cancels queued wakeup work together with an active maintenance task', async () => {
@@ -1431,7 +1459,11 @@ describe('agent loop', () => {
   })
 
   it('creates agents from config on startup', async () => {
-    const adapter = new MockAdapter([textResponse('from config')])
+    const effort = ReasoningEffortId('high')
+    const adapter = new MockAdapter([textResponse('from config')], {
+      efforts: [{ id: effort, name: 'High' }],
+      defaultEffort: effort,
+    })
     const ctx = new Context()
     await ctx.plugin(LlmRuntime)
     await ctx.plugin(SessionStore)
@@ -1440,7 +1472,7 @@ describe('agent loop', () => {
     await ctx.plugin(ToolRuntime)
     await ctx.plugin(AgentRegistry)
     await ctx.plugin(AgentLoop, {
-      agents: [{ id: SessionId('config-agent'), provider: 'mock', model: 'mock' }],
+      agents: [{ id: SessionId('config-agent'), provider: 'mock', model: 'mock', reasoningEffort: effort }],
     })
     ctx.llm.registerAdapter(['mock'], adapter)
 
@@ -1454,6 +1486,9 @@ describe('agent loop', () => {
     send(agent, 'hi')
     await waitForIdle(ctx, agent)
     expect(adapter.requests).toHaveLength(1)
+    expect(adapter.requests[0]?.reasoningEffort).toBe(effort)
+    const header = agent.session.events.find(event => event.type === 'request/header')
+    expect(header?.type === 'request/header' && header.data.header.config.reasoningEffort).toBe(effort)
   })
 
   it('attaches config agent cwd to the fresh session header', async () => {

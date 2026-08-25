@@ -61,9 +61,17 @@ export interface SessionListSnapshot {
 }
 
 /** One parent-addressed durable catalog projected through the sessions snapshot. */
-export interface SubagentCatalogSnapshot extends SubagentCatalog {
+export type SubagentCatalogSnapshot = Omit<SubagentCatalog, 'parentAvailable'> & {
+  /** Absent until the first successful catalog read. */
+  readonly parentAvailable?: boolean
   state: 'loading' | 'ready' | 'error'
   error: ClientFailure | null
+}
+
+function catalogAvailability(parentAvailable: boolean | undefined): {
+  readonly parentAvailable?: boolean
+} {
+  return parentAvailable === undefined ? {} : { parentAvailable }
 }
 
 interface CatalogInflight {
@@ -166,8 +174,8 @@ export class SessionManager {
     this.sessions.get(sessionId)?.configureSubagent(
       address,
       address === undefined
-        ? false
-        : this.catalogs.get(address.parentSessionId)?.parentAvailable ?? false,
+        ? undefined
+        : this.catalogs.get(address.parentSessionId)?.parentAvailable,
     )
     this.selected = sessionId
     // Looking at the session consumes its completion reminder (dot clears).
@@ -187,7 +195,7 @@ export class SessionManager {
       throw new Error(`sessions.selectSubagent: ${address.childSessionId} is not a healthy catalog child`)
     }
     this.addresses.set(address.childSessionId, address)
-    this.sessions.get(address.childSessionId)?.configureSubagent(address, catalog?.parentAvailable ?? false)
+    this.sessions.get(address.childSessionId)?.configureSubagent(address, catalog?.parentAvailable)
     this.selected = address.childSessionId
     this.completedNotifications.delete(address.childSessionId)
     void this.refreshSubagents(address.childSessionId)
@@ -310,10 +318,13 @@ export class SessionManager {
 
   private createSession(sessionId: SessionId): Session {
     const address = this.addresses.get(sessionId)
+    const parentAvailable = address === undefined
+      ? undefined
+      : this.catalogs.get(address.parentSessionId)?.parentAvailable
     return new Session(sessionId, this.api, this.remote, {
       ...(address === undefined ? {} : {
         address,
-        parentAvailable: this.catalogs.get(address.parentSessionId)?.parentAvailable ?? false,
+        ...catalogAvailability(parentAvailable),
       }),
       // The sender's local first-send flip mirrors into the list row so the
       // session surfaces (lists filter on blank) before any host frame lands.
@@ -349,7 +360,9 @@ export class SessionManager {
     const activityRows = new Map<SessionId, 'running' | 'inactive'>()
     this.catalogs.set(parentSessionId, {
       entries: previous?.entries ?? [],
-      parentAvailable: previous?.parentAvailable ?? false,
+      ...(previous?.parentAvailable === undefined
+        ? {}
+        : { parentAvailable: previous.parentAvailable }),
       state: 'loading',
       error: null,
     })
@@ -376,8 +389,10 @@ export class SessionManager {
             entries: this.withCatalogMutations(
               previous?.entries ?? [], expandableRows, activityRows,
             ),
-            parentAvailable: this.catalogInflight.get(parentSessionId)?.parentAvailableOverride
-              ?? previous?.parentAvailable ?? false,
+            ...catalogAvailability(
+              this.catalogInflight.get(parentSessionId)?.parentAvailableOverride
+                ?? previous?.parentAvailable,
+            ),
             state: 'error',
             error: result.error,
           })
@@ -388,8 +403,10 @@ export class SessionManager {
           entries: this.withCatalogMutations(
             previous?.entries ?? [], expandableRows, activityRows,
           ),
-          parentAvailable: this.catalogInflight.get(parentSessionId)?.parentAvailableOverride
-            ?? previous?.parentAvailable ?? false,
+          ...catalogAvailability(
+            this.catalogInflight.get(parentSessionId)?.parentAvailableOverride
+              ?? previous?.parentAvailable,
+          ),
           state: 'error',
           error: folded.ok ? null : folded.error,
         })
@@ -555,7 +572,6 @@ export class SessionManager {
         this.recordMutation({ kind: 'upsert', summary: {
           sessionId: result.value.sessionId, updatedAt: Date.now(), running: false, blank: true,
           ...(opts.cwd !== undefined ? { cwd: opts.cwd } : {}),
-          ...(result.value.agentPreset !== undefined ? { agentPreset: result.value.agentPreset } : {}),
         } })
       } else {
         const publishedSessionId = workspaceAttachSessionId(result.error)
@@ -619,17 +635,6 @@ export class SessionManager {
    */
   private mergeSummary(summary: SessionSummary): void {
     this.recordMutation({ kind: 'upsert', summary })
-  }
-
-  /**
-   * Record a host-confirmed composition switch (see ISessions.noteAgentPreset).
-   * @param sessionId - the switched session.
-   * @param agentPreset - the preset id the host confirmed.
-   */
-  noteAgentPreset(sessionId: SessionId, agentPreset: string): void {
-    this.recordMutation({ kind: 'upsert', summary: {
-      sessionId, updatedAt: Date.now(), running: false, blank: true, agentPreset,
-    } })
   }
 
   /** Apply immediately and retain for replay when a list response is in flight. */
@@ -932,7 +937,7 @@ export class SessionManager {
       const prev = this.entryCache.get(entry.sessionId)
       if (
         prev !== undefined && prev.updatedAt === entry.updatedAt && prev.running === entry.running
-        && prev.blank === entry.blank && prev.agentPreset === entry.agentPreset
+        && prev.blank === entry.blank
         && prev.parentSessionId === entry.parentSessionId && prev.cwd === entry.cwd
         && prev.origin === entry.origin && prev.title === entry.title && prev.depth === entry.depth
         && prev.projectionValues === entry.projectionValues
@@ -980,15 +985,10 @@ function applyMutation(summaries: readonly SessionSummary[], mutation: SessionLi
           ? { parentSessionId: mutation.summary.parentSessionId } : {}),
         ...(existing.origin === undefined && mutation.summary.origin !== undefined
           ? { origin: mutation.summary.origin } : {}),
-        // Newest wins, not fill-only: a blank-session preset switch replaces
-        // the creation-time value, and every producer of this field (the
-        // create echo, the select echo, a list row) reports the CURRENT one.
-        ...(mutation.summary.agentPreset !== undefined
-          ? { agentPreset: mutation.summary.agentPreset } : {}),
       }
       if (filled.cwd === existing.cwd && filled.parentSessionId === existing.parentSessionId
         && filled.origin === existing.origin && filled.blank === existing.blank
-        && filled.agentPreset === existing.agentPreset) return [...summaries]
+      ) return [...summaries]
       return summaries.map(summary => summary.sessionId === mutation.summary.sessionId ? filled : summary)
     }
     case 'remove':

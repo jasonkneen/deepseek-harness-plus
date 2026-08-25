@@ -1,7 +1,7 @@
 /**
  * Enforce dsh profiles as the only supported Node application launcher.
- * Vendor CLIs, build tools, test tools, and the temporary private Python
- * runtime carrier are explicit classifications rather than implicit holes.
+ * Vendor CLIs, build tools, and test tools are explicit classifications
+ * rather than implicit holes.
  */
 
 import { existsSync, globSync, readFileSync } from 'node:fs'
@@ -32,26 +32,23 @@ const MANIFEST_BIN_ALLOWLIST = new Map<string, ManifestBin>([
 /** Every executable in a Node application workspace has one explicit role. */
 const EXECUTABLE_SOURCE_ALLOWLIST = new Map<string, string>([
   ['apps/cli/src/bin.ts', 'supported dsh application launcher'],
-  ['examples/acp-agent/tests/fixtures/shell/tool-pwsh/driver.ts', 'test-only subprocess driver'],
-  ['examples/acp-agent/tests/fixtures/subagent/subagent-acp/driver.ts', 'test-only subprocess driver'],
-  ['examples/acp-agent/tests/fixtures/subagent/subagent-claude-code/driver.ts', 'test-only subprocess driver'],
-  ['examples/acp-agent/tests/fixtures/subagent/subagent-codex/driver.ts', 'test-only subprocess driver'],
-  ['examples/headless-agent/tests/fixtures/headless-driver.ts', 'test-only subprocess driver'],
-  ['examples/headless-agent/tests/fixtures/session-telemetry-otel-driver.ts', 'test-only subprocess driver'],
-  ['examples/headless-agent/tests/fixtures/time-context-driver.ts', 'test-only subprocess driver'],
-  ['examples/python-sdk-agent/tests/fixtures/subagent/subagent-dsh-sdk/driver.ts', 'test-only subprocess driver'],
+  ['packages/context/time-context/tests/fixtures/driver.ts', 'test-only subprocess driver'],
   ['packages/experimental/webworker-packer/bin.js', 'private build-only wrapper'],
   ['packages/experimental/webworker-packer/src/bin.ts', 'private build-only implementation'],
   ['packages/sdk/client/tests/fake-runtime.ts', 'test-only SDK runtime peer'],
-  ['packages/sdk/python-runtime/src/packaged-bin.ts', 'temporary private Python runtime carrier'],
+  ['packages/session/session-telemetry-otel/tests/fixtures/driver.ts', 'test-only subprocess driver'],
+  ['packages/shell/tool-pwsh/tests/fixtures/loader/driver.ts', 'test-only subprocess driver'],
+  ['packages/subagent/subagent-acp/tests/fixtures/loader/driver.ts', 'test-only subprocess driver'],
+  ['packages/subagent/subagent-claude-code/tests/fixtures/loader/driver.ts', 'test-only subprocess driver'],
+  ['packages/subagent/subagent-codex/tests/fixtures/loader/driver.ts', 'test-only subprocess driver'],
+  ['packages/subagent/subagent-dsh-sdk/tests/fixtures/loader/driver.ts', 'test-only subprocess driver'],
+  ['packages/test-support/loader-smoke/tests/fixtures/headless-driver.ts', 'test-only subprocess driver'],
   ['packages/test-support/llm-mock-server/src/bin.ts', 'test-only model server'],
 ])
 
 /** Root demos are application wrappers and therefore must visibly select dsh. */
 const ROOT_DEMO_POLICIES = new Map<string, DemoPolicy>([
-  ['demo:acp', { kind: 'dsh-direct' }],
   ['demo:code-mode', { kind: 'dsh-wrapper', wrapper: 'scripts/demo-code-mode.mjs' }],
-  ['demo:cordis', { kind: 'dsh-wrapper', wrapper: 'scripts/demo-cordis.mjs' }],
 ])
 
 const SOURCE_PATTERNS = [
@@ -63,10 +60,6 @@ const SOURCE_PATTERNS = [
   'apps/**/*.js',
   'apps/**/*.mjs',
   'apps/**/*.cjs',
-  'examples/**/*.ts',
-  'examples/**/*.js',
-  'examples/**/*.mjs',
-  'examples/**/*.cjs',
   'packages/**/*.ts',
   'packages/**/*.js',
   'packages/**/*.mjs',
@@ -194,6 +187,6 @@ if (process.argv[1] !== undefined && import.meta.url === pathToFileURL(resolve(p
     for (const failure of failures) console.error(`  ${failure}`)
     process.exitCode = 1
   } else {
-    console.log('verify-application-entrypoints: dsh is the only supported Node application launcher; the private Python carrier remains the temporary exception.')
+    console.log('verify-application-entrypoints: dsh is the only supported Node application launcher.')
   }
 }

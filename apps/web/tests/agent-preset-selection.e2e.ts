@@ -24,7 +24,7 @@ import {
 } from './scaffold.ts'
 import { connectFreshWorkspace, newEnglishPage, saveFailureShot } from './support.ts'
 
-const SNAPSHOT_DIR = fileURLToPath(new URL('./snapshots/agent-preset-selection', import.meta.url))
+const SNAPSHOT_DIR = fileURLToPath(new URL('./expected/agent-preset-selection', import.meta.url))
 const HERO_EXPECTED = join(SNAPSHOT_DIR, 'hero.expected.md')
 const MENU_EXPECTED = join(SNAPSHOT_DIR, 'menu.expected.md')
 const HEADER_EXPECTED = join(SNAPSHOT_DIR, 'header.expected.md')
@@ -150,9 +150,18 @@ async function livePreset(baseUrl: string): Promise<string | undefined> {
     }),
   })
   const body = await response.json() as {
-    result: { value?: { items: { sessionId: string; agentPreset?: string }[] } }
+    result: {
+      value?: {
+        items: {
+          sessionId: string
+          projections?: { values: { agentPreset?: string | null } }
+        }[]
+      }
+    }
   }
-  return body.result.value?.items.find(item => item.sessionId !== SEED_ID)?.agentPreset
+  const preset = body.result.value?.items.find(item => item.sessionId !== SEED_ID)
+    ?.projections?.values.agentPreset
+  return typeof preset === 'string' ? preset : undefined
 }
 
 /** Every option label the trigger menu currently lists. */

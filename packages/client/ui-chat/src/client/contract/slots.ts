@@ -1,9 +1,8 @@
 /** Chat-owned Slot declarations and composed component props. */
-import type { ReactNode } from 'react'
 import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import type { MessageId } from '@deepseek-ai/dsh-llm/brand'
 import type {
-  ConversationTurnDataMap, TurnLocation,
+  ConversationTurnDataMap, MessageImagesOwnerProps, RenderMessageImages, TurnLocation,
 } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type {
   InjectFace, PropsLocale, PropsRenderSlots, PropsRuntime, PropsStore, SlotHookFactory,
@@ -18,16 +17,6 @@ import type { ChatSnapshot, CommandNode, CompactionSummaryNode, ToolCallBlock } 
 
 /** Selector hook over the current Conversation binding's Chat target. */
 export type UseChat = SnapshotSelectorHook<ChatSnapshot>
-
-/** Historical image group handed to the optional attachment presentation plugin. */
-export interface MessageImagesOwnerProps {
-  images: readonly { readonly attachment: ImageAttachmentRef }[]
-  loadImage: (attachment: ImageAttachmentRef) => Promise<string>
-  align: 'start' | 'end'
-}
-
-/** Slot-backed renderer used by Chat nodes without importing an attachment implementation. */
-export type RenderMessageImages = (owner: Omit<MessageImagesOwnerProps, 'loadImage'>) => ReactNode
 
 /** Owner currency of the completed-Turn extension chain. */
 export interface TurnTailOwnerProps {

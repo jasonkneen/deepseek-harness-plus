@@ -27,7 +27,7 @@ export const zh = {
   'chat.loadError': '历史加载失败：{message}（{code}）',
   'chat.loadOlder': '加载更早',
   'chat.toBottom': '回到底部',
-  'chat.deepDiving': '正在深入处理…',
+  'chat.deepDiving': '深度求索中...',
   'fileOpen.title': '无法打开文件',
   'fileOpen.unknown': '无法打开此文件',
   'fileOpen.folderTitle': '无法打开文件夹',

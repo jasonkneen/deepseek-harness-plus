@@ -26,7 +26,7 @@ console.log(result.finalResponse)
 
 dsh 进程在首次使用时惰性启动，并在多次 `run()` 之间持续归实例所有；必须调用 `close()`（或使用 `await using`）。`start()` 会记忆化有界的 `initialize` 握手；`initializeTimeoutMs` 默认 10 秒，诊断会写明所选 profile 并附带保留的 stderr 尾部。握手失败会回收 runtime，之后的调用可以用新进程重试，直至终结性的 `close()`。
 
-握手携带绝对 session workspace、provider/model 和可选的正整数 `maxTokens`。`run(input, { sessionId?, onNotification? })` 将 prompt 入队，等待持久 inbox 回执，并收集到整个根 agent 下次 idle。它返回 `RunResult { sessionId, finalResponse, events, notifications }`；`events` 仅限根 session，notification 还包括发现的后代。
+握手携带绝对 session workspace、provider/model 和可选的正整数 `maxTokens`。`run(input, { sessionId?, onNotification? })` 接受文本或 `SdkPromptContentBlock[]`；内联栅格图片块携带规范 base64 与 `mimeType`，并在运行时内成为持久附件。该调用将 prompt 入队，等待持久 inbox 回执，并收集到整个根 agent 下次 idle。它返回 `RunResult { sessionId, finalResponse, events, notifications }`；`events` 仅限根 session，notification 还包括发现的后代。
 
 ## HarnessClient
 

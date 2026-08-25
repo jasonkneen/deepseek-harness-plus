@@ -9,7 +9,7 @@ import type { PatchOptions } from '@deepseek-ai/cordis-plugin-include'
 const REPOSITORY_ROOT = fileURLToPath(new URL('../../../', import.meta.url))
 
 /** Load one shipped bundle patch through the same parser as profile boot. */
-function bundle(name: 'acp-app' | 'base' | 'headless' | 'sdk-app' | 'web-app'): PatchOptions[] {
+function bundle(name: 'acp-app' | 'base' | 'headless' | 'sdk-app' | 'sdk-minimal' | 'web-app'): PatchOptions[] {
   return loadOverlayPatches('profile-hmr test', join(REPOSITORY_ROOT, 'packages', 'bundle', name, 'cordis.patch.yml'))
 }
 
@@ -38,5 +38,9 @@ describe('profile module-HMR policy', () => {
       disabled: false,
       config: { root: ['.'] },
     })
+  })
+
+  it('keeps the standalone sdk-minimal tree free of module HMR', () => {
+    expect(composeEntries([bundle('sdk-minimal')]).find(entry => entry.id === 'hmr')).toBeUndefined()
   })
 })

@@ -679,6 +679,8 @@ describe('llm domain', () => {
     ctx.llm.registerAdapter(['broken'], new BrokenCatalogAdapter('Broken', []))
     const api = createApiProxy(ctx, DEFAULTS)
     const value = expectOk(await api.llm.models(request({})))
+    expect(value.default).toEqual({ provider: 'p', model: 'm' })
+    expect(value.routableProviders).toEqual(['deepseek-official', 'broken'])
     expect(value.groups).toEqual([{
       id: 'deepseek-official',
       name: 'DeepSeek',

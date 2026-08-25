@@ -1182,6 +1182,96 @@ describe('installLlmReplay (per-session keying)', () => {
     expect(await drain(ctx.llm.stream(live('B')))).toEqual(b2)
   })
 
+  it('materializes typed session tokens after the matching live child binds', async () => {
+    const reference: StreamChunk[] = [
+      {
+        type: 'block-end',
+        index: 0,
+        block: {
+          type: 'tool-call',
+          id: CallId('send-child'),
+          name: 'send_message',
+          arguments: '{"subagent_id":"{{session:2}}"}',
+        },
+      },
+      { type: 'finish', reason: { kind: 'stop' } },
+    ]
+    const parentFile = writeSession('session.jsonl', { id: '{{session:1}}', createdAt: 1 }, [TEXT_CHUNKS, reference])
+    const childFile = writeSession('session.1.jsonl', { id: '{{session:2}}', createdAt: 2 }, [second])
+    const ctx = new Context()
+    await ctx.plugin(LlmRuntime)
+    installLlmReplay(ctx, { file: parentFile, childFiles: [childFile] })
+
+    expect(await drain(ctx.llm.stream(live('live-parent')))).toEqual(TEXT_CHUNKS)
+    expect(await drain(ctx.llm.stream(live('live-child')))).toEqual(second)
+    expect(await drain(ctx.llm.stream(live('live-parent')))).toEqual([
+      {
+        type: 'block-end',
+        index: 0,
+        block: {
+          type: 'tool-call',
+          id: CallId('send-child'),
+          name: 'send_message',
+          arguments: '{"subagent_id":"live-child"}',
+        },
+      },
+      { type: 'finish', reason: { kind: 'stop' } },
+    ])
+  })
+
+  it('rejects a session token before that recorded child binds', async () => {
+    const reference: StreamChunk[] = [
+      { type: 'text-delta', index: 0, text: '{{session:2}}' },
+      { type: 'finish', reason: { kind: 'stop' } },
+    ]
+    const parentFile = writeSession('session.jsonl', { id: '{{session:1}}', createdAt: 1 }, [reference])
+    const childFile = writeSession('session.1.jsonl', { id: '{{session:2}}', createdAt: 2 }, [second])
+    const ctx = new Context()
+    await ctx.plugin(LlmRuntime)
+    installLlmReplay(ctx, { file: parentFile, childFiles: [childFile] })
+
+    await expect(drain(ctx.llm.stream(live('live-parent')))).rejects.toThrow(/used before.*bound/)
+  })
+
+  it('learns a background child id from its started-subagent tool result', async () => {
+    const reference: StreamChunk[] = [
+      { type: 'text-delta', index: 0, text: '{{session:2}}' },
+      { type: 'finish', reason: { kind: 'stop' } },
+    ]
+    const parentFile = writeSession('session.jsonl', { id: '{{session:1}}', createdAt: 1 }, [reference])
+    const childFile = writeSession('session.1.jsonl', { id: '{{session:2}}', createdAt: 2 }, [second])
+    const ctx = new Context()
+    await ctx.plugin(LlmRuntime)
+    installLlmReplay(ctx, { file: parentFile, childFiles: [childFile] })
+    const options: GenerateOptions = {
+      ...live('live-parent'),
+      messages: [createUserMessage({
+        content: [{ type: 'text', text: 'started subagent live-child-before-call started subagent live-child-before-call' }],
+        source: { kind: 'user' },
+      })],
+    }
+
+    expect(await drain(ctx.llm.stream(options))).toEqual([
+      { type: 'text-delta', index: 0, text: 'live-child-before-call' },
+      { type: 'finish', reason: { kind: 'stop' } },
+    ])
+  })
+
+  it('ignores started-subagent text after every recorded session has bound', async () => {
+    const parentFile = writeSession('session.jsonl', { id: '{{session:1}}', createdAt: 1 }, [TEXT_CHUNKS])
+    const ctx = new Context()
+    await ctx.plugin(LlmRuntime)
+    installLlmReplay(ctx, { file: parentFile })
+
+    expect(await drain(ctx.llm.stream({
+      ...live('live-parent'),
+      messages: [createUserMessage({
+        content: [{ type: 'text', text: 'started subagent unrecorded-child' }],
+        source: { kind: 'user' },
+      })],
+    }))).toEqual(TEXT_CHUNKS)
+  })
+
   it('treats a call with no sessionId as the single anonymous (primary) session', async () => {
     const parentFile = writeSession('session.jsonl', { id: 'p', createdAt: 1 }, [TEXT_CHUNKS])
     const ctx = new Context()

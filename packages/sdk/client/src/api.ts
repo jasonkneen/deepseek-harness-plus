@@ -11,7 +11,7 @@ import { resolve } from 'node:path'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import { createProcessHarnessClient, HarnessClient, isRecord, SdkProtocolError } from './client.ts'
 import type { RuntimeProcessOptions } from './launch.ts'
-import type { ContentBlock, DeepSeekHarnessOptions, HarnessNotification, RunResult } from './types.ts'
+import type { ContentBlock, DeepSeekHarnessOptions, HarnessNotification, RunResult, SdkPromptContentBlock } from './types.ts'
 
 /**
  * Reusable SDK for running DeepSeek Harness agent turns in a runtime
@@ -96,7 +96,7 @@ export class DeepSeekHarness implements AsyncDisposable {
    * @param options - optional session id and per-notification observer.
    * @returns the owned activity interval.
    */
-  run(input: string | ContentBlock[], options?: RunOptions): Promise<RunResult> {
+  run(input: string | SdkPromptContentBlock[], options?: RunOptions): Promise<RunResult> {
     return this.session(options?.sessionId).run(input, options)
   }
 
@@ -159,7 +159,7 @@ export class HarnessSession {
    * @returns the owned activity interval; rejects on transport loss, timeout,
    * or a protocol error.
    */
-  async run(input: string | ContentBlock[], options?: Pick<RunOptions, 'onNotification'>): Promise<RunResult> {
+  async run(input: string | SdkPromptContentBlock[], options?: Pick<RunOptions, 'onNotification'>): Promise<RunResult> {
     await this.harness.start()
     const client = this.harness.client
     const contentBlocks = normalizeInput(input)
@@ -215,7 +215,7 @@ export class HarnessSession {
  * @param input - prompt text or content blocks.
  * @returns the content blocks to send.
  */
-export function normalizeInput(input: string | ContentBlock[]): ContentBlock[] {
+export function normalizeInput(input: string | SdkPromptContentBlock[]): SdkPromptContentBlock[] {
   return typeof input === 'string' ? [{ type: 'text', text: input }] : input
 }
 

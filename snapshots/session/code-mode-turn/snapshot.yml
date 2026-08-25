@@ -1,0 +1,8 @@
+version: 1
+scenario: code-mode-turn
+profile: headless
+composition: code
+recording: live
+header:
+  class: code
+  pin: true

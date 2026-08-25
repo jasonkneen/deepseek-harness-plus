@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-供 [`dsh`](../../../apps/cli/README.zh.md) profile 与[暂时打包的 Python SDK runtime](../../../python/README.zh.md) 共用的 Loader 启动粘合层。产品启动器负责 profile 组合与进程生命周期；直接配置 helper 只为暂缓迁移的 runtime 保留，直至后续迁移。
+供 [`dsh`](../../../apps/cli/README.zh.md) profile 共用的 Loader 启动粘合层，也用于 [Python 运行时 wheel](../../../python/README.zh.md)打包的 CLI。产品启动器负责 profile 组合与进程生命周期。直接配置 helper 服务于底层 embedder 与测试，不会定义另一个受支持的应用入口。
 
 | 导出 | 职责 |
 |---|---|
@@ -35,7 +35,7 @@ Loader 并发挂载各个条目，因此当其他环节失败时，某个界面�
 
 ## Profiles
 
-profile 是位于 `$DSH_HOME/profiles/<name>` 下的目录（harness home 由 [`resolveDshHome`](../../util/home-paths/README.zh.md) 解析：先取 `$DSH_HOME`，否则取 `~/.dsh`），其中包含一个 `package.json`（树外插件 `dependencies`，加上 profile manifest `dsh.profile` 及其有序的 `bundles` 层列表和 `patchReload: live | startup`）和用户自己的 `cordis.patch.yml`。`live` 会在启动后监视 profile 与 home 级 patch 文件；`startup` 只应用每层一次。缺失值为自定义 profile 保留历史 `live` 默认值。组合包是在 manifest 中声明 `"dsh": { "bundle": { "patch": "./cordis.patch.yml" } }` 的 npm 包；`loadProfile` 以双锚点解析每个 `dsh.profile.bundles` 名称（先从 dsh 安装目录，再从 profile 目录），列出的包若没有组合包声明则明确报错。`composeEntries` 通过 include 自己的 `applyEntryPatches` 在空条目列表之上应用各 patch 层，因此组合、标志推导和配置 dump 绝不会与实际启动内容发生偏离。`healProfilesModuleFallback` 维护扁平的 `$DSH_HOME/profiles/node_modules` 目录（安装目录的应用与各组合包依赖的每个包对应一个符号链接），使任意 profile 中的裸插件名都能经 Node 常规的逐级向上查找解析，而无需由 pnpm 管理随安装内置的包。`PROFILE_TEMPLATES` 首次使用时以实时重载初始化 `web`，以仅启动时 patch 初始化 `headless`／`sdk`／`acp`；其他名称在通过 `dsh plugin` 由 `initProfile` 创建前都会明确报错。`loadProfile` 会把安装自有的精确组合包元组和缺失的重载选择规范化为随附模板，同时保留每个显式重载选择和 manifest 中其他所有字段；组合包一旦有任何额外、缺失或重排，列表就归用户所有并保持不变。
+profile 是位于 `$DSH_HOME/profiles/<name>` 下的目录（harness home 由 [`resolveDshHome`](../../util/home-paths/README.zh.md) 解析：先取 `$DSH_HOME`，否则取 `~/.dsh`），其中包含一个 `package.json`（树外插件 `dependencies`，加上 profile manifest `dsh.profile` 及其有序的 `bundles` 层列表和 `patchReload: live | startup`）和用户自己的 `cordis.patch.yml`。`live` 会在启动后监视 profile 与 home 级 patch 文件；`startup` 只应用每层一次。缺失值为自定义 profile 保留历史 `live` 默认值。组合包是在 manifest 中声明 `"dsh": { "bundle": { "patch": "./cordis.patch.yml" } }` 的 npm 包；`loadProfile` 以双锚点解析每个 `dsh.profile.bundles` 名称（先从 dsh 安装目录，再从 profile 目录），列出的包若没有组合包声明则明确报错。`composeEntries` 通过 include 自己的 `applyEntryPatches` 在空条目列表之上应用各 patch 层，因此组合、标志推导和配置 dump 绝不会与实际启动内容发生偏离。`healProfilesModuleFallback` 维护扁平的 `$DSH_HOME/profiles/node_modules` 目录。普通 Node 为安装依赖闭包中的每个包写入一个符号链接；pkg 可执行程序则直接从每个已安装 manifest 中按 Node ESM import 条件解析实际存在的显式 exports，并写入重新导出虚拟模块 URL 的真实代理包，因为操作系统符号链接无法进入 pkg 的 `/snapshot` 树。安装包中不存在的 export 目标保持不可用，但不阻塞其他 exports；格式错误的 exports map 会导致启动失败。只有可执行入口或类型声明入口而没有模块入口的包不会生成代理。完整且匹配的 generation 不会获取写入锁。缺失或过期的配置项会获取跨进程锁、重新检查完整 generation，并在不暴露半成品代理的前提下修复；两种载体都会替换另一种载体留下的受管条目。两种形式都使 profile 插件可以通过 Node 常规的逐级向上查找解析安装包，并让外部插件 peer 共用一个模块实例。`PROFILE_TEMPLATES` 首次使用时以实时重载初始化 `web`，以仅启动时 patch 初始化 `headless`／`sdk`／`sdk-minimal`／`acp`；`sdk-minimal` 只列出自己的独立组合包，其他模板保留 base 加模式层的组合。其他名称在通过 `dsh plugin` 由 `initProfile` 创建前都会明确报错。`loadProfile` 会把安装自有的精确组合包元组和缺失的重载选择规范化为随附模板，同时保留每个显式重载选择和 manifest 中其他所有字段；组合包一旦有任何额外、缺失或重排，列表就归用户所有并保持不变。
 
 用户级的机器本地偏好同样位于 harness home 中：
 

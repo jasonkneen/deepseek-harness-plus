@@ -310,9 +310,15 @@ describe('subagent catalogs', () => {
     })
     await manager.get(S2).open()
     await manager.get(S2).prompt([{ type: 'text', text: 'continue' }], 'queue')
-    expect(api.callsOf('subagent.history')).toEqual([
-      { parentSessionId: S1, childSessionId: S2, mode: 'continuable', throughSeq: -1, maxMessages: 50 },
+    expect(api.callsOf('session.follow')).toEqual([
+      {
+        address: {
+          kind: 'subagent', parentSessionId: S1, childSessionId: S2, mode: 'continuable',
+        },
+        maxMessages: 50,
+      },
     ])
+    expect(api.callsOf('subagent.history')).toEqual([])
     expect(api.callsOf('subagent.prompt')).toEqual([
       {
         parentSessionId: S1, childSessionId: S2, mode: 'continuable',
@@ -507,6 +513,7 @@ describe('subagent catalogs', () => {
       api.onSubagentList = () => first.promise
       const manager = new SessionManager(api, fakeRemote(api), root)
       const refresh = manager.refreshSubagents(root)
+      manager.setSubagentCatalogOpen(root, true)
 
       // A membership frame arrives while the pull is in flight; the debounced
       // refresh it schedules fires 50ms later and is coalesced into the pull —
@@ -768,17 +775,37 @@ describe('connected generation', () => {
     expect(api.callsOf('session.history')).toHaveLength(historyCallsBefore)
   })
 
-  it('reloads the durable parent address for a restored child selection', async () => {
+  it('retains the durable parent address and refreshes its catalogs across reconnect', async () => {
     const api = new FakeApiClient()
     const address = {
       parentSessionId: S1, childSessionId: S2, mode: 'continuable' as const,
     }
+    const parent = deferred<Awaited<ReturnType<FakeApiClient['onSubagentList']>>>()
+    const child = deferred<Awaited<ReturnType<FakeApiClient['onSubagentList']>>>()
+    api.onSubagentList = payload => (
+      (payload as { parentSessionId: SessionId }).parentSessionId === S1
+        ? parent.promise
+        : child.promise
+    )
     const manager = new SessionManager(api, fakeRemote(api), S2, address)
 
     manager.handleConnected()
+    expect(manager.get(S2).getSnapshot().subagent).toEqual({ address })
+    parent.resolve(ok({ entries: [], parentAvailable: true }))
+    child.resolve(ok({ entries: [], parentAvailable: true }))
 
     await vi.waitFor(() => {
-      expect(api.callsOf('subagent.list')).toContainEqual({ parentSessionId: S1 })
+      expect(api.callsOf('session.list')).toHaveLength(1)
+    })
+    await vi.waitFor(() => {
+      expect(api.callsOf('subagent.list')).toEqual([
+        { parentSessionId: S1 },
+        { parentSessionId: S2 },
+      ])
+    })
+    expect(manager.get(S2).getSnapshot().subagent).toEqual({
+      address,
+      parentAvailable: true,
     })
     expect(manager.getListSnapshot().currentAddress).toEqual(address)
   })

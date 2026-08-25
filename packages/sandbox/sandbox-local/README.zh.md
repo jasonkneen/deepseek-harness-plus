@@ -23,7 +23,7 @@ Windows 档为每个工作区保留一个确定性写入 SID 和常驻 ACE，但
   name: '@deepseek-ai/dsh-sandbox-local'
 ```
 
-消费方：[`@deepseek-ai/dsh-bash-sandbox`](../../shell/bash-sandbox/)；可运行的默认组合见 [acp-agent 示例](../../../examples/acp-agent/)。
+消费方：[`@deepseek-ai/dsh-bash-sandbox`](../../shell/bash-sandbox/)；交付的策略／执行器接线位于 [base bundle](../../bundle/base/cordis.patch.yml)。
 
 ## 模型体验
 

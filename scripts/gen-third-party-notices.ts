@@ -24,8 +24,8 @@ const ALL_KINDS = ['dependencies', 'devDependencies', 'optionalDependencies', 'p
 
 /**
  * Workspace areas that never reach a user: repository tooling and gates (the
- * root manifest), test infrastructure, the documentation site, the runnable
- * demo leaves, and the native launcher's build workspace. A runtime
+ * root manifest), test infrastructure, the documentation site, and the native
+ * launcher's build workspace. A runtime
  * declaration by anything outside these areas is a disclosure-relevant
  * runtime dependency because any plugin package can be mounted from a user's
  * `cordis.yml`.
@@ -35,7 +35,6 @@ const DEV_ONLY_AREAS = [
   'packages/test-support/',
   'packages/test-support/client-runtime/',
   'website/',
-  'examples/',
   'native/',
 ] as const
 
@@ -136,9 +135,6 @@ export function manifestPatterns(rootMembers: readonly string[]): string[] {
   return [
     'package.json',
     ...rootMembers.map(member => `${member}/package.json`),
-    // The demo leaves join the workspace through `examples/package.json`, so
-    // their own manifests are members of nothing and no glob above reaches them.
-    'examples/*/package.json',
   ]
 }
 

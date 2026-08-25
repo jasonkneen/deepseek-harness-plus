@@ -19,8 +19,8 @@ import {
   type InitializeParams,
   type InitializeResult,
   type SessionPromptParams,
+  type SdkPromptContentBlock,
 } from '@deepseek-ai/dsh-sdk-protocol'
-import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import { disposeRuntimeProcess } from './dispose.ts'
 import { resolveDshLaunch, type RuntimeProcessOptions } from './launch.ts'
 import type { HarnessClientOptions, HarnessNotification, NotificationFilter } from './types.ts'
@@ -288,7 +288,7 @@ export class HarnessClient {
    * @param contentBlocks - the user message, sent verbatim.
    * @returns the queued message id.
    */
-  async prompt(sessionId: string, contentBlocks: ContentBlock[]): Promise<string> {
+  async prompt(sessionId: string, contentBlocks: SdkPromptContentBlock[]): Promise<string> {
     const params: SessionPromptParams = { sessionId, contentBlocks }
     const result = await this.request('session/prompt', { ...params })
     if (!isRecord(result) || typeof result.messageId !== 'string') {

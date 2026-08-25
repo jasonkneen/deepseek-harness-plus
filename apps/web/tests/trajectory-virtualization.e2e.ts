@@ -24,7 +24,7 @@ import { newEnglishPage, saveFailureShot } from './support.ts'
 
 const MODE = webSnapshotMode()
 const LOAD_MORE_EXPECTED = fileURLToPath(new URL(
-  './snapshots/trajectory-virtualization/load-more.expected.md',
+  './expected/trajectory-virtualization/load-more.expected.md',
   import.meta.url,
 ))
 const SESSION_ID = 'trajectory-virtualization-e2e'

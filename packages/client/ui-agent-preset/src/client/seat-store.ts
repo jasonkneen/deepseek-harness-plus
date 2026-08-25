@@ -11,8 +11,9 @@
  */
 
 import type { IApiClient } from '@deepseek-ai/dsh-api-remotes/client'
+import type { SessionSummary } from '@deepseek-ai/dsh-api-session-controller/client'
 import { createSnapshotStore, type SnapshotStore } from '@deepseek-ai/dsh-client-store'
-import type { SessionId } from '@deepseek-ai/dsh-session/types'
+import type {} from '@deepseek-ai/dsh-agent-presets/types'
 import { messageOf, presetOptions } from './settings-store.ts'
 import type { AgentPresetOption } from './settings-store.ts'
 
@@ -37,16 +38,6 @@ const INITIAL: AgentPresetSeatState = {
   options: [], current: '', error: null, busy: false, introduce: false,
 }
 
-/** One session's identity and whether it has started. */
-export interface SeatSessionSummary {
-  /** The session the chip would apply its staged choice to. */
-  id: SessionId
-  /** False once a turn has run — applying is refused from then on. */
-  blank: boolean
-  /** The preset the session already runs, when the summary reports one. */
-  agentPreset?: string
-}
-
 /** Stages the next session's preset and applies it when one appears. */
 export class AgentPresetSeatController {
   /** Chip snapshot the renderer subscribes to. */
@@ -64,13 +55,10 @@ export class AgentPresetSeatController {
   constructor(
     private readonly api: Pick<IApiClient, 'agentPresets'>,
     /** The session the hero is about to hand over to, when there is one. */
-    private readonly currentSession: () => SeatSessionSummary | undefined,
-    /**
-     * Publish an applied switch into the session list, so the header label
-     * moves with the composition instead of waiting for the next full list
-     * refresh. Optional: a harness that renders no list omits it.
-     */
-    private readonly onApplied?: (sessionId: string, agentPreset: string) => void,
+    private readonly currentSession: () => Pick<
+      SessionSummary,
+      'id' | 'blank' | 'projectionValues'
+    > | undefined,
   ) {}
 
   private set(patch: Partial<AgentPresetSeatState>): void {
@@ -90,6 +78,7 @@ export class AgentPresetSeatController {
       }
       const { presets } = response.result.value
       this.fallback = presets.find(preset => preset.isDefault)?.id ?? presets[0]?.id ?? ''
+      const session = this.currentSession()
       this.set({
         options: presetOptions(presets),
         // Staged pick first, then the composition the current session
@@ -98,7 +87,7 @@ export class AgentPresetSeatController {
         // an applied stage was consumed — the chip mounts (and loads) only
         // once the flow's session is current, so the reply can arrive after
         // apply() already composed it.
-        current: this.staged ?? this.currentSession()?.agentPreset ?? this.fallback,
+        current: this.staged ?? (session === undefined ? this.fallback : presetOf(session) ?? ''),
         error: null,
       })
     } catch (error) {
@@ -150,10 +139,15 @@ export class AgentPresetSeatController {
   async apply(): Promise<void> {
     const staged = this.staged
     const session = this.currentSession()
-    if (staged === undefined || session === undefined) return
+    if (staged === undefined) {
+      const current = session === undefined ? this.fallback : presetOf(session) ?? ''
+      if (current !== this.store.getSnapshot().current) this.set({ current })
+      return
+    }
+    if (session === undefined) return
     // A started session's history was produced under its own composition; the
     // host refuses the swap, so the stage is no longer meaningful.
-    if (!session.blank || session.agentPreset === staged) {
+    if (!session.blank || presetOf(session) === staged) {
       this.staged = undefined
       return
     }
@@ -162,15 +156,29 @@ export class AgentPresetSeatController {
       const response = await this.api.agentPresets.select({ sessionId: session.id, agentPreset: staged })
       this.staged = undefined
       if (!response.result.ok) {
-        this.set({ busy: false, error: response.result.error.message, current: this.fallback })
+        this.set({
+          busy: false,
+          error: response.result.error.message,
+          current: presetOf(session) ?? '',
+        })
         return
       }
       // Consumed: the next new session opens on the deployment default again.
       this.set({ busy: false, current: response.result.value.agentPreset })
-      this.onApplied?.(session.id, response.result.value.agentPreset)
     } catch (error) {
       this.staged = undefined
-      this.set({ busy: false, error: messageOf(error), current: this.fallback })
+      this.set({
+        busy: false,
+        error: messageOf(error),
+        current: presetOf(session) ?? '',
+      })
     }
   }
+}
+
+function presetOf(
+  session: Pick<SessionSummary, 'projectionValues'> | undefined,
+): string | undefined {
+  const value = session?.projectionValues?.agentPreset
+  return typeof value === 'string' ? value : undefined
 }

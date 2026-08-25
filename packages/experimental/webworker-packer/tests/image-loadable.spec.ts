@@ -37,6 +37,7 @@ const repoRoot = fileURLToPath(new URL('../../../../', import.meta.url))
 const SUBJECT = '@deepseek-ai/dsh-timeout'
 const LANDLOCK = '@deepseek-ai/node-addon-landlock-run'
 const PLUGIN_INVENTORY = '@deepseek-ai/dsh-plugin-package-inventory-deepseek'
+const WEB_SERVER = '@deepseek-ai/dsh-host-webserver'
 
 const workspaces = indexWorkspacePackages(repoRoot)
 
@@ -98,6 +99,15 @@ let pluginInventoryMemo: ReturnType<typeof packVfsImage> | undefined
 const packedPluginInventory = (): ReturnType<typeof packVfsImage> => pluginInventoryMemo ??= packVfsImage({
   config: `- id: subject\n  name: '${PLUGIN_INVENTORY}'\n`,
   profile: 'plugin-inventory-check',
+  workspaces,
+  resolveFrom: repoRoot,
+  entries: [],
+})
+
+let webServerMemo: ReturnType<typeof packVfsImage> | undefined
+const packedWebServer = (): ReturnType<typeof packVfsImage> => webServerMemo ??= packVfsImage({
+  config: `- id: subject\n  name: '${WEB_SERVER}'\n`,
+  profile: 'webserver-dependency-check',
   workspaces,
   resolveFrom: repoRoot,
   entries: [],
@@ -186,6 +196,25 @@ const archive = async (): Promise<Uint8Array> =>
     const required = loader.requireFrom(`${DEFAULT_ROOT}/workspace`)(SUBJECT) as Record<string, unknown>
     expect(typeof required.timeoutOf).toBe('function')
     expect(loader.usage().modules).toBeGreaterThan(0)
+  })
+
+  it('keeps third-party runtime JavaScript published under src', async () => {
+    const result = packedWebServer()
+    expect(result.missing).toEqual([])
+    expect(Object.hasOwn(result.files, 'node_modules/debug/src/index.js')).toBe(true)
+    expect(Object.hasOwn(result.files, 'node_modules/ms/index.js')).toBe(true)
+
+    const vfs = loadVfsImage(await inflateImage(result.image, 'the packed webserver'), DEFAULT_ROOT)
+    const loader = new WorkerModuleLoader({
+      vfs,
+      root: DEFAULT_ROOT,
+      staticModules: createNodeBuiltins(),
+      staticModulePrefixes: REPLACED_PREFIXES,
+    })
+    setActiveVfs(vfs)
+    setActiveModuleLoader(loader)
+    const webserver = loader.requireFrom(`${DEFAULT_ROOT}/workspace`)(WEB_SERVER) as { WebServer?: unknown }
+    expect(typeof webserver.WebServer).toBe('function')
   })
 
   it('runs the unchanged Landlock entry package over the Worker platform executable', async () => {

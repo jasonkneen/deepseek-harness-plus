@@ -17,6 +17,7 @@ import {
   DEFAULT_PREPARED_SESSION_CACHE_SIZE,
   DEFAULT_WRITE_BATCH_MAX_DELAY_MS,
   MAX_WRITE_BATCH_DELAY_MS,
+  type BorrowedSessionSource,
   PersistenceCoordinator,
   SessionPersistence,
   type SessionInspection,
@@ -117,6 +118,10 @@ export class SqliteSessionPersistence extends SessionPersistence {
 
   inspect(id: SessionId, signal?: AbortSignal): Promise<SessionInspection> {
     return this.coordinator.inspect(id, signal)
+  }
+
+  override borrowSession(id: SessionId, signal?: AbortSignal): Promise<BorrowedSessionSource> {
+    return this.coordinator.borrowSession(id, signal)
   }
 
   readFrom(

@@ -9,8 +9,7 @@
 
 import type { RpcRequest, RpcResponse } from './rpc.ts'
 import type {
-  ModelCatalogFailure,
-  ModelProviderGroup,
+  ModelCatalog,
 } from '@deepseek-ai/dsh-api-session-controller/types'
 
 /** Wire view of one configurable provider. */
@@ -48,7 +47,7 @@ export interface LlmApi {
    * settings surface's models view, needing no session. Per-provider listing
    * failures ride `failures` without failing the sound groups.
    */
-  models(request: RpcRequest<{}>): Promise<RpcResponse<{ groups: ModelProviderGroup[]; failures: ModelCatalogFailure[] }>>
+  models(request: RpcRequest<{}>): Promise<RpcResponse<ModelCatalog>>
 
   /**
    * Interrogate a provider endpoint the configuration surface is still

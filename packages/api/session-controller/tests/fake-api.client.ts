@@ -12,9 +12,9 @@ import type {
   SessionControlFrame,
   SessionFollowFrame,
   SessionFollowRequest,
-  SessionModels,
   SessionPage,
   SessionPageRequest,
+  SessionProjectionBaseline,
   SessionSelectModelRequest,
   SessionSelectModelValue,
 } from '@deepseek-ai/dsh-api-session-controller/types'
@@ -23,6 +23,7 @@ import type { WorkspaceFollowFrame } from '@deepseek-ai/dsh-api-workspace-contro
 import type { RemoteResult } from '@deepseek-ai/dsh-typert-protocol'
 import {
   RemoteStream,
+  RemoteStreamError,
   type RemoteStreamOptions,
 } from '@deepseek-ai/dsh-api-gateway/client'
 import { RpcId } from '@deepseek-ai/dsh-client-connection/client'
@@ -52,12 +53,6 @@ function fakeWorkspace(id: string, over: Partial<WorkspaceView> = {}): Workspace
 
 function addressSessionId(address: SessionAddress): SessionId {
   return address.kind === 'session' ? address.sessionId : address.childSessionId
-}
-
-function addressKey(address: SessionAddress): string {
-  return address.kind === 'session'
-    ? `session:${address.sessionId}`
-    : `subagent:${address.parentSessionId}:${address.childSessionId}:${address.mode}`
 }
 
 export interface Deferred<T> {
@@ -128,12 +123,6 @@ export class FakeApiClient implements IApiClient {
   onSearch: (payload: unknown) => Promise<RpcResponse<{ items: SessionSearchItem[]; hasMore: boolean }>> =
     () => Promise.resolve(ok({ items: [], hasMore: false }))
   onCreate: (payload: unknown) => Promise<RpcResponse<{ sessionId: SessionId }>> = () => Promise.resolve(ok({ sessionId: 'fk-new' as SessionId }))
-  onModels: (payload: unknown) => Promise<RpcResponse<SessionModels>> = () => Promise.resolve(ok({
-    current: { provider: 'fixture', model: 'fixture' },
-    routable: true,
-    groups: [],
-    failures: [],
-  }))
   onSelectModel: (payload: SessionSelectModelRequest) => Promise<RpcResponse<SessionSelectModelValue>> =
     payload => Promise.resolve(ok({
       selected: {
@@ -147,7 +136,7 @@ export class FakeApiClient implements IApiClient {
   onRename: (payload: unknown) => Promise<RpcResponse<{ title: string; seq: number }>> = () => Promise.resolve(ok({ title: 'fk-renamed', seq: 0 }))
   onFork: (payload: unknown) => Promise<RpcResponse<{ sessionId: SessionId }>> = () => Promise.resolve(ok({ sessionId: 'fk-fork' as SessionId }))
   onHistory: (payload: { sessionId: SessionId; throughSeq?: number; beforeSeq?: number; maxMessages?: number })
-  => Promise<RpcResponse<SessionPage>> =
+  => Promise<RpcResponse<SessionPage & { readonly projections?: SessionProjectionBaseline }>> =
     () => Promise.resolve(ok({ events: [], hasMore: false }))
 
   onPrompt: (payload: unknown) => Promise<RpcResponse<{ accepted: true }>> = () => Promise.resolve(ok({ accepted: true as const }))
@@ -186,7 +175,6 @@ export class FakeApiClient implements IApiClient {
   private readonly followConns = new Map<SessionId, ValueStreamConn<SessionFollowFrame>[]>()
   private readonly controlConns: ValueStreamConn<SessionControlFrame>[] = []
   private readonly workspaceConns: ValueStreamConn<WorkspaceFollowFrame>[] = []
-  private readonly openingPages = new Map<string, Promise<RpcResponse<SessionPage>>>()
   /** Optional Host opening cursor override for stale-page and reconnect tests. */
   followCursor: number | undefined
   controlBaseline: SessionControlBaseline = {
@@ -292,7 +280,12 @@ export class FakeApiClient implements IApiClient {
 
   readonly llm: IApiClient['llm'] = {
     providers: payload => this.record('llm.providers', payload, Promise.resolve(ok({ providers: [] }))),
-    models: payload => this.record('llm.models', payload, Promise.resolve(ok({ groups: [], failures: [] }))),
+    models: payload => this.record('llm.models', payload, Promise.resolve(ok({
+      default: { provider: 'fixture', model: 'fixture' },
+      routableProviders: [],
+      groups: [],
+      failures: [],
+    }))),
     discoverModels: payload => this.record('llm.discoverModels', payload, Promise.resolve(ok({ models: [] }))),
   }
 
@@ -312,7 +305,6 @@ export class FakeApiClient implements IApiClient {
           return this.remoteResult('session.search', payload, this.onSearch(payload))
         },
         create: payload => this.remoteResult('session.create', payload, this.onCreate(payload)),
-        models: payload => this.remoteResult('session.models', payload, this.onModels(payload)),
         selectModel: payload => this.remoteResult(
           'session.selectModel',
           payload,
@@ -412,14 +404,6 @@ export class FakeApiClient implements IApiClient {
   }
 
   private page(request: SessionPageRequest): Promise<RemoteResult<SessionPage>> {
-    const key = addressKey(request.address)
-    if (request.beforeSeq === undefined && request.maxMessages === 50) {
-      const opening = this.openingPages.get(key)
-      if (opening !== undefined) {
-        this.openingPages.delete(key)
-        return this.fetchPage(request, opening)
-      }
-    }
     return this.fetchPage(request)
   }
 
@@ -466,25 +450,42 @@ export class FakeApiClient implements IApiClient {
   ): AsyncGenerator<SessionFollowFrame> {
     const sessionId = addressSessionId(request.address)
     this.followStarts.push(sessionId)
-    const key = addressKey(request.address)
-    const initialPage = this.followCursor === undefined
-      ? this.onHistory({ sessionId, maxMessages: 50 })
-      : undefined
-    if (initialPage !== undefined) this.openingPages.set(key, initialPage)
+    this.calls.push({ method: 'session.follow', payload: request })
     const conns = this.followConns.get(sessionId) ?? []
     if (!this.followConns.has(sessionId)) this.followConns.set(sessionId, conns)
     const stream = this.openValueStream(conns, signal)
     try {
-      const page = initialPage === undefined ? undefined : (await initialPage).result
-      const cursor = this.followCursor
-        ?? (page?.ok ? page.value.events.at(-1)?.event.seq ?? -1 : -1)
-      yield { type: 'opened', cursor }
+      const response = await this.onHistory({
+        sessionId,
+        maxMessages: request.maxMessages ?? 50,
+      })
+      if (!response.result.ok) {
+        throw new RemoteStreamError(
+          response.result.error.code,
+          response.result.error.message,
+          response.result.error.details,
+        )
+      }
+      const page = response.result.value
+      const cursor = this.followCursor ?? page.events.at(-1)?.event.seq ?? -1
+      yield {
+        type: 'snapshot',
+        header: {
+          version: 0,
+          id: sessionId,
+          createdAt: 0,
+          ...(request.address.kind === 'subagent'
+            ? { origin: 'subagent' as const, parentSession: request.address.parentSessionId }
+            : {}),
+        },
+        cursor,
+        events: page.events.filter(entry => entry.event.seq <= cursor),
+        hasMore: page.hasMore,
+        projections: page.projections ?? { asOfSeq: cursor, values: {} },
+      }
       yield* stream.values
     } finally {
       stream.dispose()
-      if (initialPage !== undefined && this.openingPages.get(key) === initialPage) {
-        this.openingPages.delete(key)
-      }
     }
   }
 

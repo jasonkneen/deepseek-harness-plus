@@ -181,6 +181,7 @@ function disabledOnPlatform(value: unknown, processPlatform: string): boolean {
 function processPlatformForTarget(target: string): string {
   if (target.startsWith('linux-')) return 'linux'
   if (target.startsWith('macos-')) return 'darwin'
+  if (target.startsWith('win-')) return 'win32'
   throw new Error(`verify-runtime-closure: unsupported runtime target ${JSON.stringify(target)}`)
 }
 

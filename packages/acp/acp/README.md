@@ -81,7 +81,7 @@ Prompt settlement precedence is explicit cancellation, committed-output failure,
 
 ## Running
 
-`pnpm --dir /path/to/deepseek-harness run demo:acp` boots the repository's automation server composition. The generic keyless conformance test drives this bin using only the ACP SDK, including model selection, MCP attachment, close, process restart, list/resume, and cancellation.
+`pnpm --dir /path/to/deepseek-harness dsh --profile acp` boots the repository's automation server profile. The generic keyless conformance test launches this profile through `dsh` and drives it using only the ACP SDK, including model selection, MCP attachment, close, process restart, list/resume, and cancellation.
 
 ## Model Experience
 

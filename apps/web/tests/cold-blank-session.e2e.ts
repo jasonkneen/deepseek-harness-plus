@@ -12,7 +12,7 @@ import {
 } from './scaffold.ts'
 import { newEnglishPage, saveFailureShot } from './support.ts'
 
-const SNAPSHOT_DIR = fileURLToPath(new URL('./snapshots/cold-blank-session', import.meta.url))
+const SNAPSHOT_DIR = fileURLToPath(new URL('./expected/cold-blank-session', import.meta.url))
 const SIDEBAR_EXPECTED = join(SNAPSHOT_DIR, 'sidebar.expected.md')
 const MODE = webSnapshotMode()
 const SESSION_ID = 'cold-blank-session-web-e2e'

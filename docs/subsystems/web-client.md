@@ -43,7 +43,7 @@ Each API controller package owns a paired Host and Client face. The Host side ow
 - `SessionManager` owns the list baseline, live list/control updates, lazy Session instances, queues, projection stores, subagent catalogs, and conflict ordering between pulls and later updates.
 - Each `Session` owns one contiguous event window, paging, follow, prompt/control state, and the observable snapshot consumed by adapters.
 
-The durable event path opens `follow()` before reading the first page. A page establishes a contiguous window; live events append by sequence; older pages prepend without replacing unrelated objects. A gap or a new physical generation reads a fresh tail through the opening cursor before publishing a replacement. The transient control stream starts every generation with a complete baseline and then applies queue, job, and projection updates.
+The durable event path opens `follow()`, whose first frame contains the current header, tail page, cursor, and complete projection baseline. Each physical generation atomically replaces the retained window from that snapshot; live events then append by sequence. `page()` is reserved for older history and gap repair. The transient control stream starts every generation with a complete baseline and then applies queue, job, and projection updates.
 
 ### Workspaces
 
@@ -75,7 +75,7 @@ Physical and logical recovery are separate. Gateway mux restores the physical We
 
 Recovery follows the data's semantics:
 
-- A durable Session journal resumes from the last accepted sequence and repairs the loaded window against a tail page before accepting later events.
+- A durable Session journal replaces its window from every generation's opening snapshot; `page()` supplies older history and repairs any later sequence gap.
 - Session control and Workspace streams retain the last published value while disconnected, then atomically replace it from a fresh opening baseline.
 - Ordinary forwarded notifications are not replayed. Stateful domains need a baseline, cursor, or explicit query; scoped waterfalls retain their own request lifetime.
 

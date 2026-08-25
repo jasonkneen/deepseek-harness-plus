@@ -1,7 +1,0 @@
-{
-  "name": "python-sdk-agent-example",
-  "private": true,
-  "version": "0.0.1",
-  "type": "module",
-  "description": "Unattended coding-agent composition for the Python SDK runtime"
-}

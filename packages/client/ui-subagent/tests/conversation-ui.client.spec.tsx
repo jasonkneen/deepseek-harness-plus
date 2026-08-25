@@ -770,7 +770,7 @@ describe('SubagentHeaderLineage', () => {
   it.each([
     ['ancestor', vi.fn()],
     ['current', undefined],
-  ] as const)('refreshes an absent %s switcher catalog without waiting for hover', (_kind, openTitle) => {
+  ] as const)('keeps an absent %s switcher catalog lazy until interaction', (_kind, openTitle) => {
     const input = {
       ...props(undefined, {}, {
         [CHILD]: {
@@ -784,7 +784,7 @@ describe('SubagentHeaderLineage', () => {
     }
     render(<SubagentHeaderLineage {...input} />)
 
-    expect(input.refresh).toHaveBeenCalledWith(PARENT)
+    expect(input.refresh).not.toHaveBeenCalled()
   })
 
   it('keeps a nested title switcher scoped to its direct-parent catalog', () => {

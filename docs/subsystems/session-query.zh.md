@@ -374,6 +374,14 @@ Exact reads, filters, and traces are backend-independent concrete behavior. A ba
 
 ```ts cordis-catalog
 /**
+ * Observe one exact live or prepared Session without a persistence listing preflight.
+ * @param sessionId - logical Session identity.
+ * @param options - cancellation and projection selection for this read.
+ * @returns a caller-owned observation lease.
+ */
+observeSession( sessionId: SessionId, options: SessionObservationOptions = {}, ): Promise<SessionObservation>
+
+/**
  * Search the live-preferred logical corpus and group by session.
  * @param request - query text, metadata filters, page size, and cursor.
  * @param exec - optional cancellation control.

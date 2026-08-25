@@ -274,11 +274,11 @@ PascalCase 标识符中的首字母缩略词使用首字母大写格式：`Ui`�
 | `E2BSandboxService` | `E2BRuntime` | 该类创建、复用和释放文件系统与子进程适配器所使用的 E2B 执行环境。它比单个沙箱句柄的职责更广，又比通用所有者更具体。保留 `@deepseek-ai/dsh-e2b`、`ctx.e2b` 和 `e2b/` 组。 |
 | `@deepseek-ai/dsh-frontend-static` | `@deepseek-ai/dsh-host-frontend-static` | 该包是提供前端资源的 Host 插件。此前缀可将它与前端应用代码区分开。 |
 | `PluginInventoryService` | `PluginInventoryGateway` | 该类只负责把实时 Loader 树适配到 `pluginInventory/list` RPC。它不拥有同进程服务、缓存、历史或修改路径。`Gateway` 准确说明现有角色。 |
-| `@deepseek-ai/dsh-jsonrpc-demo`、`@deepseek-ai/dsh-sdk-jsonrpc-demo` | `@deepseek-ai/dsh-sdk-python-runtime` | 该私有包只承载暂时独立的 Python SDK 运行时；其应用边界变更由[单一 dsh 启动器决策](2026-08-22-single-dsh-application-launcher.zh.md)负责。 |
-| `packages/examples/jsonrpc-demo/` | `packages/sdk/python-runtime/` | 该载体是 Python SDK 的生产打包基础设施，不是演示组合包。 |
-| `examples/jsonrpc-agent/` | `examples/python-sdk-agent/` | 直读配置的可运行示例专属于 Python SDK 例外。 |
+| `@deepseek-ai/dsh-jsonrpc-demo`、`@deepseek-ai/dsh-sdk-jsonrpc-demo`、`@deepseek-ai/dsh-sdk-python-runtime` | 已删除 | Python 运行时打包现有 `@deepseek-ai/dsh` CLI 与其 `sdk` profile；私有应用包会重新产生第二个启动器。 |
+| `packages/examples/jsonrpc-demo/`、`packages/sdk/python-runtime/` | 已删除 | Python 运行时 wheel 的闭包 manifest 负责打包，无需独立应用包。 |
+| `examples/jsonrpc-agent/` | `python/sdk/examples/` | 该示例演示 Python 使用 `sdk` profile 与有序 patch。 |
 | `@deepseek-ai/dsh-acp-demo` | `@deepseek-ai/dsh-acp-app` | 该包是 ACP profile 的应用组合包，不是独立 demo bin。 |
-| 部署根 manifest `dsh-jsonrpc-agent-pkg` | `dsh-sdk-python-runtime-closure` | 该 manifest 定义私有 Python 运行时依赖闭包。面向 Python 的可执行文件基本名称保持不变，直至完成已记录的 profile 迁移。 |
+| 部署根 manifest `dsh-jsonrpc-agent-pkg`、`dsh-sdk-python-runtime-closure` | `dsh-python-runtime-closure` | 该零代码 manifest 定义 Python 运行时 wheel 的完整 `dsh` 依赖闭包，不再命名独立 SDK 应用。 |
 | `@deepseek-ai/dsh-frontend` | `@deepseek-ai/dsh-web-frontend` | 该应用是 Web 前端。保留其物理目录 `apps/web/`。 |
 
 保留 atomic-write、brand、native-command、timeout 实用工具、目录选择器、`dsh-base`、`dsh-web-app`、`dsh-sdk-app`、`dsh-acp-app`、应用启动、CLI（命令行界面）名称，以及 `headless` 包、组合包和示例身份。`headless` 是预期的产品本质，未来也可以支持不止一次性执行。

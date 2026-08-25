@@ -1,6 +1,6 @@
 // Boots the shipped Web composition over the built dist this lane already uses
 // and asserts what that composition produces: the model-visible tool catalog
-// and file-reference guidance plus its retry, sandbox, and approval defaults.
+// and file-reference guidance plus its HTTP, retry, sandbox, and approval defaults.
 // No browser and no model call — these are composition facts, and the browser
 // scenarios in this lane cover the surface itself.
 import { readFileSync } from 'node:fs'
@@ -22,7 +22,7 @@ import type {} from '@deepseek-ai/dsh-system-prompt'
 import { launchWebScaffold, type WebScaffold } from './scaffold.ts'
 
 const FILE_REFERENCE_PROMPT = fileURLToPath(new URL(
-  './snapshots/web-runtime-context/file-reference-prompt.expected.md', import.meta.url,
+  './expected/web-runtime-context/file-reference-prompt.expected.md', import.meta.url,
 ))
 
 /**
@@ -74,9 +74,15 @@ afterEach(async () => {
   scaffold = undefined
 })
 
-it('assembles the shipped Web catalog, file-reference guidance, retry policy, and confined access default', async () => {
+it('assembles the shipped Web transport, catalog, guidance, and defaults', async () => {
   scaffold = await launchWebScaffold({ deepSeekMissingCredential: true })
   const ctx = scaffold.ctx
+  const index = await fetch(`http://127.0.0.1:${String(ctx.webServer.port)}`, {
+    headers: { 'accept-encoding': 'gzip' },
+  })
+  expect(index.headers.get('content-encoding')).toBe('gzip')
+  expect(index.headers.get('vary')).toContain('Accept-Encoding')
+  await index.body?.cancel()
   expect(ctx.llm.providerRetryPolicy('deepseek-official')).toMatchInlineSnapshot(`
     {
       "initialDelayMs": 500,

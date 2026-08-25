@@ -63,7 +63,11 @@ function attachmentStore(readImageRequest: (
   policy: ImageRequestPolicy,
   signal?: AbortSignal,
 ) => Promise<RequestImageAttachment>): AttachmentStore {
-  return { readImageRequest } as unknown as AttachmentStore
+  return { readImageRequest, imageHostPath: () => undefined } as unknown as AttachmentStore
+}
+
+function imageContext(attachments: AttachmentStore) {
+  return { attachments, resolveImageAccess: () => undefined }
 }
 
 describe('toPiContext', () => {
@@ -109,7 +113,7 @@ describe('toPiContext', () => {
         content: [{ type: 'text', text: 'describe' }, { type: 'image', attachment }],
         source: { kind: 'plugin', plugin: 'test' },
       })],
-    }, attachmentStore(readImageRequest))
+    }, imageContext(attachmentStore(readImageRequest)))
 
     expect(readImageRequest).toHaveBeenCalledWith(
       attachment,
@@ -161,7 +165,7 @@ describe('toPiContext', () => {
         }],
         source: { kind: 'plugin', plugin: 'test' },
       })],
-    }, attachmentStore(readImageRequest))
+    }, imageContext(attachmentStore(readImageRequest)))
 
     expect(context.messages).toEqual([{
       role: 'toolResult',

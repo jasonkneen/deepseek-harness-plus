@@ -104,6 +104,29 @@ describe('Session control jobs baseline', () => {
 })
 
 describe('Session control jobs updates', () => {
+  it('publishes existing unowned jobs when a Session attaches after the stream opens', async () => {
+    const { ctx, control } = await harness(true)
+    const abort = new AbortController()
+    const iterator = control.control(abort.signal)[Symbol.asyncIterator]()
+    await expect(iterator.next()).resolves.toMatchObject({ value: { type: 'baseline' } })
+    const task = producer('already running')
+    const id = ctx.jobs.start(task.spec)
+    await expect(iterator.next()).resolves.toMatchObject({ value: { type: 'jobs' } })
+
+    const created = ctx.sessions.create(SessionId('late-session'))
+    await expect(iterator.next()).resolves.toMatchObject({
+      value: {
+        type: 'jobs',
+        sessionId: created.id,
+        jobs: [expect.objectContaining({ id, label: 'already running' })],
+      },
+    })
+
+    task.settle({ status: 'completed' })
+    abort.abort()
+    await iterator.return?.()
+  })
+
   it('pushes the owner whole set on registration, stopping, and settlement', async () => {
     const { ctx, session, agent, control } = await harness(true)
     const abort = new AbortController()
@@ -200,16 +223,4 @@ describe('Session control jobs updates', () => {
     expect(task.reads.count).toBe(0)
   })
 
-  it('publishes existing unowned jobs for a session created after stream open', async () => {
-    const { ctx, control } = await harness(true)
-    const abort = new AbortController()
-    const collected = collectJobs(control.control(abort.signal), 2, abort)
-
-    ctx.jobs.start(producer('visible to every caller').spec)
-    const created = ctx.sessions.create()
-
-    const frames = await collected
-    const forNew = frames.filter(frame => frame.sessionId === created.id)
-    expect(forNew.at(-1)?.jobs[0]?.label).toBe('visible to every caller')
-  })
 })

@@ -487,6 +487,27 @@ describe('replacing a composition', () => {
     expect(toolNames(ctx)).toEqual([])
   })
 
+  it('notifies tool views after reparenting and contains notification failures', async () => {
+    const handle = await ctx.agents.create({
+      sessionId: SessionId('sess-tool-change'),
+      setup: async (agentCtx: Context) => void await ctx.agentPresets.mount(agentCtx, 'standard'),
+    })
+    await ctx.agentPresets.standingKeyFor('minimal')
+    let changes = 0
+    const stopCounting = ctx.on('tools/change', () => { changes += 1 })
+    await ctx.agentPresets.recompose(handle.agent.ctx, 'minimal')
+    expect(changes).toBe(1)
+    stopCounting()
+
+    const warnings: string[] = []
+    ctx.logger.warn = ((message: unknown) => { warnings.push(String(message)) }) as typeof ctx.logger.warn
+    const stopThrowing = ctx.on('tools/change', () => { throw new Error('listener failed') })
+    await expect(ctx.agentPresets.recompose(handle.agent.ctx, 'standard')).resolves.toMatchObject({ id: 'standard' })
+    expect(ctx.agentPresets.composedPreset(handle.agent.ctx)).toBe('standard')
+    expect(warnings).toEqual([expect.stringContaining('tools/change listener failed')])
+    stopThrowing()
+  })
+
   it('leaves the agent on its previous composition when the new one is unknown', async () => {
     const handle = await ctx.agents.create({
       sessionId: SessionId('sess-unknown'),

@@ -19,6 +19,7 @@ import type {
 import SessionStore from '@deepseek-ai/dsh-session'
 import type { SessionId } from '@deepseek-ai/dsh-session'
 import type { SessionPromptRequest, SessionRequestId } from '../src/types.ts'
+import { buildModelCatalog } from '../src/catalog.ts'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import { TypertRemoteFailure } from '@deepseek-ai/dsh-typert-protocol'
 import { createSessionTestRemote } from './test-remote.ts'
@@ -146,6 +147,14 @@ function registerTextOnly(ctx: Context): void {
   }('Text Only', []))
 }
 
+/** Resolve the Client-visible next selection from durable state and the Host default. */
+function currentSelection(ctx: Context, sessionId: SessionId) {
+  const session = ctx.sessions.get(sessionId)
+  if (session === undefined) throw new Error('expected a live test Session')
+  return ctx.sessionProjections.snapshot(session).values.modelSelection?.next
+    ?? ctx.agentDefaultModel.currentSelection()
+}
+
 describe('Web session model selection', () => {
   it('validates an ordered image batch before persisting any member', async () => {
     const { ctx, agent, sessionId } = await harness()
@@ -227,7 +236,7 @@ describe('Web session model selection', () => {
       type: 'image' as const,
       attachment: { attachmentId: 'att-history', mediaType: 'image/png' as const, bytes: 1, width: 1, height: 1 },
     }
-    agent.session.append('user/message', {
+    const imageEvent = agent.session.append('user/message', {
       id: 'image-message', role: 'user', source: { kind: 'user' }, content: [image],
     } as never, { surfaceOp: 'append' })
     expect(expectValue(await remote.selectModel(request({
@@ -238,8 +247,8 @@ describe('Web session model selection', () => {
       id: 'summary', role: 'user', source: { kind: 'plugin', plugin: 'compact' },
       content: [{ type: 'text', text: 'image summarized' }],
     } as never, {
-      surfaceOp: { op: 'replace', start: 0, end: agent.session.events.length - 1 },
-      sourceEventSeqs: agent.session.events.map(event => event.seq),
+      surfaceOp: { op: 'replace', start: imageEvent.seq, end: imageEvent.seq },
+      sourceEventSeqs: [imageEvent.seq],
     })
     ;(agent.inbox.nextTurn as UserMessage[]).push({
       id: 'pending-image', role: 'user', source: { kind: 'user' }, content: [image],
@@ -290,10 +299,10 @@ describe('Web session model selection', () => {
       model: 'private-preview',
       reasoningEffort: ReasoningEffortId('max'),
     })
-    const remote = createSessionTestRemote(ctx, { defaultModelSelection: () => ({ provider: 'deepseek-official', model: 'deepseek-chat' }), cwd: '/tmp' })
+    createSessionTestRemote(ctx, { defaultModelSelection: () => ({ provider: 'deepseek-official', model: 'deepseek-chat' }), cwd: '/tmp' })
 
-    const catalog = expectValue(await remote.models(request({ sessionId })))
-    expect(catalog.current).toEqual({
+    const catalog = await buildModelCatalog(ctx)
+    expect(currentSelection(ctx, sessionId)).toEqual({
       provider: 'deepseek-official',
       model: 'private-preview',
       reasoningEffort: 'max',
@@ -324,7 +333,7 @@ describe('Web session model selection', () => {
   })
 
   it('preserves optional catalog metadata and string provider failures', async () => {
-    const { ctx, sessionId } = await harness()
+    const { ctx } = await harness()
     ctx.llm.registerAdapter(['plain'], new CatalogAdapter('Plain', [
       { provider: 'plain', id: 'plain-model', name: 'Plain Model' },
     ]))
@@ -339,12 +348,12 @@ describe('Web session model selection', () => {
         return Promise.reject('string catalog failure')
       }
     }('String Failure', []))
-    const remote = createSessionTestRemote(ctx, {
+    createSessionTestRemote(ctx, {
       defaultModelSelection: () => ({ provider: 'deepseek-official', model: 'deepseek-chat' }),
       cwd: '/tmp',
     })
 
-    const catalog = expectValue(await remote.models(request({ sessionId })))
+    const catalog = await buildModelCatalog(ctx)
     expect(catalog.groups).toEqual(expect.arrayContaining([
       { id: 'plain', name: 'Plain', models: [{ id: 'plain-model', name: 'Plain Model' }] },
       {
@@ -371,10 +380,8 @@ describe('Web session model selection', () => {
     const seed: LlmCallConfig = { provider: 'seed', model: 'seed', temperature: 0.2 }
     const signal = new AbortController().signal
 
-    expect(expectValue(await remote.models(request({ sessionId }))).current)
+    expect(currentSelection(ctx, sessionId))
       .toEqual({ provider: 'deepseek-official', model: 'deepseek-chat' })
-    expect((await ctx.systemPrompt.assemble()).variables)
-      .toMatchObject({ provider: 'deepseek-official', model: 'deepseek-chat' })
 
     const selected = expectValue(await remote.selectModel(request({
       sessionId,
@@ -389,7 +396,7 @@ describe('Web session model selection', () => {
     })
     await expect(agentEvents(ctx, agent).waterfall(
       'agent/request', { turn: 1, step: 0, signal }, () => Promise.resolve(seed),
-    )).resolves.toMatchObject({ provider: 'deepseek-official', model: 'deepseek-chat' })
+    )).resolves.toEqual(seed)
 
     expect((await ctx.systemPrompt.assemble()).variables)
       .toMatchObject({ provider: 'deepseek-official', model: 'private-preview' })
@@ -440,7 +447,7 @@ describe('Web session model selection', () => {
         details: { provider: 'remote-rejected' },
       },
     })
-    expect(expectValue(await remote.models(request({ sessionId }))).current)
+    expect(currentSelection(ctx, sessionId))
       .toEqual({ provider: 'deepseek-official', model: 'private-preview', reasoningEffort: 'max' })
     await ctx.fiber.dispose()
   })
@@ -448,18 +455,18 @@ describe('Web session model selection', () => {
   it('reads the Agent default live for a session whose log names no selection', async () => {
     const { ctx, sessionId } = await harness()
     let stored = { provider: 'deepseek-official', model: 'deepseek-chat' }
-    const remote = createSessionTestRemote(ctx, {
+    createSessionTestRemote(ctx, {
       defaultModelSelection: () => stored,
       cwd: '/tmp',
     })
 
-    expect(expectValue(await remote.models(request({ sessionId }))).current)
+    expect(currentSelection(ctx, sessionId))
       .toEqual({ provider: 'deepseek-official', model: 'deepseek-chat' })
     // The default moving after the session exists still reaches it: New
     // Session reuses a blank session rather than minting another, so a seed
     // captured at creation would show the superseded model there.
     stored = { provider: 'deepseek-official', model: 'deepseek-reasoner' }
-    expect(expectValue(await remote.models(request({ sessionId }))).current)
+    expect(currentSelection(ctx, sessionId))
       .toEqual({ provider: 'deepseek-official', model: 'deepseek-reasoner' })
     await ctx.fiber.dispose()
   })
@@ -470,13 +477,13 @@ describe('Web session model selection', () => {
       model: 'deepseek-chat',
     })
     let stored = { provider: 'deepseek-official', model: 'deepseek-chat' }
-    const remote = createSessionTestRemote(ctx, {
+    createSessionTestRemote(ctx, {
       defaultModelSelection: () => stored,
       cwd: '/tmp',
     })
 
     stored = { provider: 'duplicate', model: 'same' }
-    expect(expectValue(await remote.models(request({ sessionId }))).current)
+    expect(currentSelection(ctx, sessionId))
       .toEqual({ provider: 'deepseek-official', model: 'deepseek-chat' })
     await ctx.fiber.dispose()
   })
@@ -512,7 +519,7 @@ describe('Web session model selection', () => {
       sessionId, provider: 'deepseek-official', model: 'deepseek-chat',
     })))
     expect(stillAccepted.selected).toEqual({ provider: 'deepseek-official', model: 'deepseek-chat', reasoningEffort: 'high' })
-    expect(expectValue(await remote.models(request({ sessionId }))).current)
+    expect(currentSelection(ctx, sessionId))
       .toEqual({ provider: 'deepseek-official', model: 'deepseek-chat', reasoningEffort: 'high' })
     await ctx.fiber.dispose()
   })
@@ -533,15 +540,16 @@ describe('Web session model selection', () => {
       ok: false,
       error: { code: 'model-unavailable', details: { provider: 'deleted-gateway', model: 'deleted-model' } },
     })
-    expect(expectValue(await remote.models(request({ sessionId }))).routable).toBe(false)
+    const unavailableCatalog = await buildModelCatalog(ctx)
+    expect(unavailableCatalog.routableProviders.includes(currentSelection(ctx, sessionId).provider)).toBe(false)
 
     // An advisory-unlisted model on a live route is NOT this: the route
     // serves it, so the prompt goes through and nothing blocks.
     expectValue(await remote.selectModel(request({
       sessionId, provider: 'deepseek-official', model: 'unlisted-but-served',
     })))
-    const catalog = expectValue(await remote.models(request({ sessionId })))
-    expect(catalog.routable).toBe(true)
+    const catalog = await buildModelCatalog(ctx)
+    expect(catalog.routableProviders.includes(currentSelection(ctx, sessionId).provider)).toBe(true)
     expect(catalog.groups.flatMap(group => group.models.map(model => model.id)))
       .not.toContain('unlisted-but-served')
     await ctx.fiber.dispose()
@@ -549,18 +557,18 @@ describe('Web session model selection', () => {
 
   it('serves a session and its catalog when the stored default names a route that is gone', async () => {
     const { ctx, sessionId } = await harness()
-    const remote = createSessionTestRemote(ctx, {
+    createSessionTestRemote(ctx, {
       // What a Models-page removal leaves behind: the settings document still
       // names the route the user last picked, and nothing serves it.
       defaultModelSelection: () => ({ provider: 'deleted-gateway', model: 'deleted-model' }),
       cwd: '/tmp',
     })
 
-    const catalog = expectValue(await remote.models(request({ sessionId })))
+    const catalog = await buildModelCatalog(ctx)
     // Passed through rather than repaired: matching no group is precisely what
     // makes the composer seat prompt for a selection instead of naming a model
     // the deployment cannot reach.
-    expect(catalog.current).toEqual({ provider: 'deleted-gateway', model: 'deleted-model' })
+    expect(currentSelection(ctx, sessionId)).toEqual({ provider: 'deleted-gateway', model: 'deleted-model' })
     expect(catalog.groups.flatMap(group => group.models.map(model => `${group.id}/${model.id}`)))
       .not.toContain('deleted-gateway/deleted-model')
     await ctx.fiber.dispose()

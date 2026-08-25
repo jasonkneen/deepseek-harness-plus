@@ -7,6 +7,7 @@
 
 import { Command } from 'commander'
 import type { Context } from '@deepseek-ai/cordis'
+import z from '@deepseek-ai/schemastery'
 import { exitOnStdinEnd, parseCmdline } from '@deepseek-ai/dsh-cmdline'
 
 /** Stable Cordis plugin name. */
@@ -18,18 +19,30 @@ export const inject = ['cmdlineArgs']
 /** Service the JSON-RPC server row waits for before claiming stdio. */
 export const SDK_APP_STARTUP_SERVICE = 'sdkAppStartup'
 
+/** SDK stdio startup configuration. */
+export interface Config {
+  /** Profile name rendered in help and diagnostics (default `sdk`). */
+  profile?: string
+}
+
+/** Validate and default SDK stdio startup configuration. */
+export const Config: z<Config> = z.object({
+  profile: z.string().default('sdk'),
+})
+
 /**
  * Build this app's zero-option command and help.
+ * @param profile - selected profile name rendered in the command grammar.
  * @returns a fresh program for one invocation.
  */
-function sdkCommand(): Command {
+function sdkCommand(profile: string): Command {
   return new Command()
-    .name('dsh --profile sdk')
+    .name(`dsh --profile ${profile}`)
     .description('Serve DeepSeek Harness SDK clients over stdio JSON-RPC.')
     .helpOption('-h, --help', 'show this help')
     .addHelpText('after', `
 Example:
-  dsh --profile sdk     serve one SDK runtime until its client disconnects
+  dsh --profile ${profile}     serve one SDK runtime until its client disconnects
 `)
 }
 
@@ -37,9 +50,10 @@ Example:
  * Accept an SDK profile invocation, publish readiness, and bind EOF to the
  * launcher's bounded shutdown.
  * @param ctx - plugin context carrying command-line and exit launcher values.
+ * @param config - selected profile identity for command help.
  */
-export function apply(ctx: Context): void {
-  const program = sdkCommand()
+export function apply(ctx: Context, config: Config = {}): void {
+  const program = sdkCommand(config.profile ?? 'sdk')
   program.action(() => {
     exitOnStdinEnd(ctx, 'sdk-app.stdin')
     ctx.provide(SDK_APP_STARTUP_SERVICE, { accepted: true })

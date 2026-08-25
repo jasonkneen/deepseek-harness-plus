@@ -10,7 +10,7 @@ import type {
   SessionControlBaseline,
   SessionControlFrame,
   SessionJob,
-  SessionProjectionsBlock,
+  SessionProjectionBaseline,
   SessionProjectionValues,
   SessionQueuedItem,
 } from './types.ts'
@@ -22,10 +22,6 @@ export class SessionControlController {
   /** @param ctx - Host context carrying live Agent, projection, and jobs services. */
   constructor(private readonly ctx: Context) {
     ctx.on('session/event', (session, event) => { this.onSessionEvent(session, event) })
-    ctx.on('session/created', (session) => {
-      const jobs = this.jobsFor(this.ctx.agents.get(session.id))
-      if (jobs.length > 0) this.broadcast({ type: 'jobs', sessionId: session.id, jobs })
-    })
     ctx.inject(['sessionProjections'], (projectionCtx) => {
       projectionCtx.sessionProjections.onChanged((session, key, value, seq) => {
         this.broadcast({
@@ -39,6 +35,10 @@ export class SessionControlController {
     })
     ctx.inject(['jobs'], (jobsCtx) => {
       jobsCtx.jobs.onJobsChanged((owner) => { this.onJobsChanged(owner) })
+    })
+    ctx.on('session/created', (session) => {
+      const jobs = this.jobsFor(this.ctx.agents.get(session.id))
+      if (jobs.length > 0) this.broadcast({ type: 'jobs', sessionId: session.id, jobs })
     })
     ctx.effect(() => () => {
       for (const stream of this.streams) stream.end()
@@ -82,9 +82,9 @@ export class SessionControlController {
 
   private projectionBaseline(
     sessions: readonly Session[],
-  ): Readonly<Record<SessionId, SessionProjectionsBlock>> {
+  ): Readonly<Record<SessionId, SessionProjectionBaseline>> {
     const registry = this.ctx.get('sessionProjections')
-    const blocks = Object.create(null) as Record<SessionId, SessionProjectionsBlock>
+    const blocks = Object.create(null) as Record<SessionId, SessionProjectionBaseline>
     for (const session of sessions) {
       const snapshot = registry?.snapshot(session)
       blocks[session.id] = snapshot === undefined

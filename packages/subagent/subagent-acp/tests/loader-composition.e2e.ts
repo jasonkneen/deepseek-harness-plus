@@ -16,11 +16,11 @@ import { LOADER_SMOKE_TEST_TIMEOUT_MS, runLoaderSmoke } from '@deepseek-ai/dsh-l
  */
 
 const driver = fileURLToPath(new URL(
-  '../../../../examples/acp-agent/tests/fixtures/subagent/subagent-acp/driver.ts',
+  './fixtures/loader/driver.ts',
   import.meta.url,
 ))
 const configPath = fileURLToPath(new URL(
-  '../../../../examples/acp-agent/tests/fixtures/subagent/subagent-acp/cordis.yml',
+  './fixtures/loader/cordis.yml',
   import.meta.url,
 ))
 const mockServer = fileURLToPath(new URL('./mock-acp-server.ts', import.meta.url))

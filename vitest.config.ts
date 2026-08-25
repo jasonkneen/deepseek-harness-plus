@@ -112,7 +112,6 @@ const pwshCoverageExclusions = spawnSync(resolvePwshPath(), ['-NoLogo', '-NoProf
 const testIncludes = [
   'packages/*/*/tests/**/*.spec.{ts,tsx}',
   'apps/*/tests/**/*.spec.ts',
-  'examples/*/tests/**/*.spec.ts',
   'scripts/**/*.spec.ts',
 ]
 
@@ -193,8 +192,7 @@ export default defineConfig({
     coverage: {
       provider: 'v8',
       // Coverage measures OUR runtime source. Types-only files carry no
-      // executable code; vendor/ and examples/ are out of scope (examples are
-      // exercised by the demo smoke test instead).
+      // executable code; vendor/ and application/config fixtures are out of scope.
       // .tsx: client components are gated like everything else (jsdom lane).
       include: ['packages/*/*/src/**/*.{ts,tsx}'],
       // Types-only files have no runtime coverage. Importing self-executing bins/workers would boot

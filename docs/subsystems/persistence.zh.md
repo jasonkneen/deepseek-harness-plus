@@ -348,6 +348,17 @@ abstract load(id: SessionId): Promise<SessionInspection>
 abstract inspect(id: SessionId, signal?: AbortSignal): Promise<SessionInspection>
 
 /**
+ * Borrow one exact inspection while retaining any reusable prepared source.
+ * A cold observation must pin the exact prepared Session that a later
+ * {@link prepare} reserves. Implementations must not degrade this operation
+ * to a detached {@link inspect} result.
+ * @param id - persisted session to observe.
+ * @param signal - optional cancellation for preparation work.
+ * @returns a disposable immutable observation.
+ */
+abstract borrowSession(id: SessionId, signal?: AbortSignal): Promise<BorrowedSessionSource>
+
+/**
  * Read the stored events from `fromSeq` onward — the read-from-seq
  * primitive for read models that resume from a watermark (e.g. a persisted
  * projection cache folding only the tail past its checkpoint). Unlike

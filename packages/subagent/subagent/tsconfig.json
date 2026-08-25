@@ -48,6 +48,9 @@
       "path": "../../session/session-projection-cache"
     },
     {
+      "path": "../../session-query/session-query"
+    },
+    {
       "path": "../../jobs/jobs"
     },
     {

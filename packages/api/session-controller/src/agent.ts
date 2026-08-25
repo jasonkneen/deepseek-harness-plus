@@ -7,12 +7,13 @@ import type {
   Agent, AgentOptions, AgentSetup, ModelSelection as AgentModelSelection, ModelSelectionRef,
 } from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-agent-default-model'
-import { resolveSessionPreset } from '@deepseek-ai/dsh-agent-presets'
+import type {} from '@deepseek-ai/dsh-agent-presets'
+import { ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 import type { Session, SessionEvent, SessionHeader, SessionId } from '@deepseek-ai/dsh-session'
-import type {} from '@deepseek-ai/dsh-session-persistence'
+import { SessionQueryError, type SessionObservation } from '@deepseek-ai/dsh-session-query'
 import { TypertLookupFailure } from '@deepseek-ai/dsh-typert-protocol'
 import type {} from '@deepseek-ai/dsh-typert-registry'
-import type { SessionError } from './types.ts'
+import type { ModelSelection, SessionError } from './types.ts'
 
 /** Cold Session identity absent from persistence. */
 export class ApiSessionNotFound extends Error {}
@@ -66,7 +67,10 @@ export type ApiSessionAgentResult =
   | { readonly agent: Agent }
   | { readonly error: ApiSessionAgentError }
 
-type InstalledSelection = ModelSelectionRef & { current: AgentModelSelection }
+type InstalledSelection = ModelSelectionRef & {
+  current: AgentModelSelection
+  consume(provider: string, model: string, reasoningEffort: string | undefined): boolean
+}
 
 /**
  * Test whether generic Session routing must leave an identity to subagent routing.
@@ -112,19 +116,22 @@ export async function inspectApiSession(
   sessionId: SessionId,
   signal?: AbortSignal,
 ): Promise<{ meta: SessionHeader; events: SessionEvent[] }> {
-  const persistence = ctx.get('sessionPersistence')
-  if (persistence === undefined) {
-    throw new Error('session persistence is not configured (load a dsh-session-persistence backend)')
+  try {
+    using observation = await ctx.sessionQuery.observeSession(sessionId, {
+      ...(signal === undefined ? {} : { signal }),
+      projectionMode: 'none',
+    })
+    if (observation.header.cwd === undefined) {
+      throw new ApiSessionNotFound(`session "${sessionId}" not found`)
+    }
+    return { meta: observation.header, events: [...observation.events] }
+  } catch (error: unknown) {
+    if (error instanceof SessionQueryError
+      && error.code === 'SESSION_QUERY_SESSION_NOT_FOUND') {
+      throw new ApiSessionNotFound(`session "${sessionId}" not found`)
+    }
+    throw error
   }
-  const meta = (await persistence.list(signal)).find(candidate => candidate.id === sessionId)
-  if (meta === undefined || meta.cwd === undefined) {
-    throw new ApiSessionNotFound(`session "${sessionId}" not found`)
-  }
-  const inspected = await persistence.inspect(sessionId, signal)
-  if (inspected.meta.cwd === undefined) {
-    throw new ApiSessionNotFound(`session "${sessionId}" not found`)
-  }
-  return { meta: inspected.meta, events: [...inspected.events] }
 }
 
 /** Owns every operation that may create, resume, or configure a Web Agent. */
@@ -159,6 +166,22 @@ export class ApiSessionAgentController {
    * @returns the live Agent or a stable Session-domain failure.
    */
   async resolveAgent(sessionId: SessionId): Promise<ApiSessionAgentResult> {
+    return this.resolve(sessionId)
+  }
+
+  /**
+   * Resolve one ordinary Session from an already-retained exact observation.
+   * @param observation - Host-owned observation whose preparation stays pinned through setup.
+   * @returns the live Agent or a stable Session-domain failure.
+   */
+  async resolveObservedAgent(observation: SessionObservation): Promise<ApiSessionAgentResult> {
+    return this.resolve(observation.header.id, observation)
+  }
+
+  private async resolve(
+    sessionId: SessionId,
+    observation?: SessionObservation,
+  ): Promise<ApiSessionAgentResult> {
     const live = this.liveAgent(sessionId)
     if (live !== undefined) return live
     const attached = this.ctx.sessions.get(sessionId)
@@ -168,7 +191,7 @@ export class ApiSessionAgentController {
 
     let resume = this.resumes.get(sessionId)
     if (resume === undefined) {
-      resume = this.resume(sessionId).finally(() => { this.resumes.delete(sessionId) })
+      resume = this.resume(sessionId, observation).finally(() => { this.resumes.delete(sessionId) })
       this.resumes.set(sessionId, resume)
     }
     try {
@@ -240,7 +263,9 @@ export class ApiSessionAgentController {
     if (hasApiSessionSubagentOwner(this.ctx, agent.session, agent)) {
       throw new ApiSessionSubagentOwnership(sessionId)
     }
-    this.assertPresetUnchanged(sessionId, presetId, resolveSessionPreset(agent.session))
+    if (presetId !== undefined) {
+      this.assertPresetUnchanged(sessionId, presetId, this.presetForSession(agent.session))
+    }
     if (agent.session.header.cwd !== cwd) {
       throw new ApiSessionCwdConflict(sessionId, cwd, agent.session.header.cwd)
     }
@@ -255,7 +280,13 @@ export class ApiSessionAgentController {
   selectionFor(agent: Agent): InstalledSelection {
     const installed = this.selections.get(agent)
     if (installed !== undefined) return installed
-    let picked: AgentModelSelection | undefined
+    const projectionState = this.ctx.sessionProjections.stateOf(agent.session, 'modelSelection')
+    if (projectionState === undefined) {
+      throw new Error('api-session: required modelSelection projection is not registered')
+    }
+    let picked = projectionState.pending === null
+      ? undefined
+      : agentModelSelection(projectionState.pending)
     const defaultModel = this.ctx.agentDefaultModel
     const selection: InstalledSelection = {
       get current(): AgentModelSelection {
@@ -271,11 +302,54 @@ export class ApiSessionAgentController {
       set current(next: AgentModelSelection) {
         picked = next
       },
+      consume(provider: string, model: string, reasoningEffort: string | undefined): boolean {
+        if (picked?.provider !== provider
+          || picked.model !== model
+          || picked.reasoningEffort !== reasoningEffort) return false
+        picked = undefined
+        return true
+      },
       assembled: undefined,
     }
     installModelSelection(agent.ctx, selection)
     this.selections.set(agent, selection)
     return selection
+  }
+
+  /**
+   * Commit and cache one validated selection for the next prompt assembly.
+   * @param agent - live Agent that owns the selection.
+   * @param selection - validated selection to record and apply.
+   */
+  selectForNextRequest(agent: Agent, selection: AgentModelSelection): void {
+    agent.session.append('model/selection', selection)
+    this.selectionFor(agent).current = selection
+  }
+
+  /**
+   * Let a matching durable request header retire the execution cache.
+   * @param agent - live Agent whose request was recorded.
+   * @param provider - provider route used by the request.
+   * @param model - provider-owned model used by the request.
+   * @param reasoningEffort - adapter-owned effort used by the request.
+   * @returns whether the pending selection was consumed.
+   */
+  consumeSelection(
+    agent: Agent,
+    provider: string,
+    model: string,
+    reasoningEffort: string | undefined,
+  ): boolean {
+    return this.selections.get(agent)?.consume(provider, model, reasoningEffort) ?? false
+  }
+
+  /**
+   * Read the current Agent preset from the Session projection.
+   * @param session - live Session whose projection state is available.
+   * @returns the current preset, or undefined when the capability is absent.
+   */
+  presetForSession(session: Session): string | undefined {
+    return this.ctx.sessionProjections.stateOf(session, 'agentPreset') ?? undefined
   }
 
   /**
@@ -319,15 +393,31 @@ export class ApiSessionAgentController {
       : { agent }
   }
 
-  private async resume(sessionId: SessionId): Promise<Agent> {
-    const inspected = await inspectApiSession(this.ctx, sessionId)
-    if (hasApiSessionSubagentOwner(this.ctx, { header: inspected.meta }, undefined)) {
+  private async resume(sessionId: SessionId, supplied?: SessionObservation): Promise<Agent> {
+    if (supplied !== undefined) return this.resumeObserved(sessionId, supplied)
+    try {
+      using observation = await this.ctx.sessionQuery.observeSession(sessionId)
+      return await this.resumeObserved(sessionId, observation)
+    } catch (error: unknown) {
+      if (error instanceof SessionQueryError
+        && error.code === 'SESSION_QUERY_SESSION_NOT_FOUND') {
+        throw new ApiSessionNotFound(`session "${sessionId}" not found`)
+      }
+      throw error
+    }
+  }
+
+  private async resumeObserved(
+    sessionId: SessionId,
+    observation: SessionObservation,
+  ): Promise<Agent> {
+    if (observation.header.id !== sessionId || observation.header.cwd === undefined) {
+      throw new ApiSessionNotFound(`session "${sessionId}" not found`)
+    }
+    if (hasApiSessionSubagentOwner(this.ctx, { header: observation.header }, undefined)) {
       throw new ApiSessionSubagentOwnership(sessionId)
     }
-    const composition = await this.composeAgent(resolveSessionPreset({
-      header: inspected.meta,
-      events: inspected.events,
-    }))
+    const composition = await this.composeAgent(this.presetForObservation(observation))
     const published = this.ctx.sessions.get(sessionId)
     const live = this.ctx.agents.get(sessionId)
     if (published !== undefined && hasApiSessionSubagentOwner(this.ctx, published, live)) {
@@ -353,26 +443,27 @@ export class ApiSessionAgentController {
     }
     if (live !== undefined) return live
 
-    const persistence = checkPersistedIdentity ? this.ctx.get('sessionPersistence') : undefined
-    const stored = persistence === undefined
-      ? undefined
-      : (await persistence.list()).find(header => header.id === sessionId)
-    if (persistence !== undefined && stored !== undefined) {
-      const inspected = await persistence.inspect(sessionId)
-      if (hasApiSessionSubagentOwner(this.ctx, { header: inspected.meta }, undefined)) {
-        throw new ApiSessionSubagentOwnership(sessionId)
+    if (checkPersistedIdentity) {
+      try {
+        using observation = await this.ctx.sessionQuery.observeSession(sessionId)
+        if (hasApiSessionSubagentOwner(this.ctx, { header: observation.header }, undefined)) {
+          throw new ApiSessionSubagentOwnership(sessionId)
+        }
+        if (observation.header.cwd !== cwd) {
+          throw new ApiSessionCwdConflict(sessionId, cwd, observation.header.cwd)
+        }
+        const storedPreset = this.presetForObservation(observation)
+        this.assertPresetUnchanged(sessionId, presetId, storedPreset)
+        const composition = await this.composeAgent(storedPreset)
+        return (await this.ctx.agents.resume({
+          resumeSessionId: sessionId,
+          agentOptions: this.agentOptions(),
+          setup: composition.setup,
+        })).agent
+      } catch (error: unknown) {
+        if (!(error instanceof SessionQueryError)
+          || error.code !== 'SESSION_QUERY_SESSION_NOT_FOUND') throw error
       }
-      if (inspected.meta.cwd !== cwd) {
-        throw new ApiSessionCwdConflict(sessionId, cwd, inspected.meta.cwd)
-      }
-      const storedPreset = resolveSessionPreset({ header: inspected.meta, events: inspected.events })
-      this.assertPresetUnchanged(sessionId, presetId, storedPreset)
-      const composition = await this.composeAgent(storedPreset)
-      return (await this.ctx.agents.resume({
-        resumeSessionId: sessionId,
-        agentOptions: this.agentOptions(),
-        setup: composition.setup,
-      })).agent
     }
 
     try {
@@ -403,6 +494,18 @@ export class ApiSessionAgentController {
     this.selectionFor(agent)
   }
 
+  /**
+   * Read the current Agent preset from an all-projections observation.
+   * @param observation - exact Session observation carrying its projection snapshot.
+   * @returns the current preset, or undefined when the capability is absent.
+   */
+  presetForObservation(observation: SessionObservation): string | undefined {
+    if (observation.projections === undefined) {
+      throw new Error('api-session: Agent activation requires a projected Session observation')
+    }
+    return observation.projections.values.agentPreset ?? undefined
+  }
+
   private assertPresetUnchanged(
     sessionId: SessionId,
     requested: string | undefined,
@@ -410,5 +513,15 @@ export class ApiSessionAgentController {
   ): void {
     if (requested === undefined || requested === existing) return
     throw new ApiSessionPresetConflict(sessionId, requested, existing)
+  }
+}
+
+function agentModelSelection(selection: ModelSelection): AgentModelSelection {
+  return {
+    provider: selection.provider,
+    model: selection.model,
+    ...(selection.reasoningEffort === undefined
+      ? {}
+      : { reasoningEffort: ReasoningEffortId(selection.reasoningEffort) }),
   }
 }

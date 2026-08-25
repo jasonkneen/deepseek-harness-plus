@@ -90,6 +90,34 @@ class LogicalStreamInbox {
 const REFUSAL_STATUS = 500
 
 const encoder = new TextEncoder()
+const SOURCE_MAP_TRAILER = /\/\/# sourceMappingURL=([^\r\n]+)\s*$/
+const BASE64_CHUNK_BYTES = 32 * 1024
+
+/** Encode UTF-8 text for an inline data URL without a call-stack-sized spread. */
+function base64(value: string): string {
+  const bytes = encoder.encode(value)
+  let binary = ''
+  for (let offset = 0; offset < bytes.length; offset += BASE64_CHUNK_BYTES) {
+    binary += String.fromCharCode(...bytes.subarray(offset, offset + BASE64_CHUNK_BYTES))
+  }
+  return btoa(binary)
+}
+
+/** Replace a tunnel-only map reference with a self-contained Base64 data URL. */
+async function localizeSourceMap(source: string, bundleUrl: string, fetch: TunnelFetch): Promise<string> {
+  const match = SOURCE_MAP_TRAILER.exec(source)
+  if (match?.[1] === undefined) return source
+  try {
+    const response = await fetch(new URL(match[1], new URL(bundleUrl, globalThis.location.origin)))
+    if (!response.ok) return source.replace(SOURCE_MAP_TRAILER, '')
+    const dataUrl = `data:application/json;charset=utf-8;base64,${base64(await response.text())}`
+    return source.replace(SOURCE_MAP_TRAILER, `//# sourceMappingURL=${dataUrl}`)
+  } catch {
+    // A source map is diagnostic-only; its transport failure must not prevent
+    // the plugin factory from registering.
+    return source.replace(SOURCE_MAP_TRAILER, '')
+  }
+}
 
 /** Normalize a RequestInit body to a transferable ArrayBuffer. */
 function toBodyBuffer(body: RequestInit['body']): ArrayBuffer | undefined {
@@ -262,14 +290,14 @@ export class WorkerTunnel {
    * The image packs each bundle with a trailing `sourceURL` naming its image
    * path, so the blob shows under that name in the debugger instead of as an
    * anonymous blob entry.
-   * @param url - graph row url (`/plugins/<id>/client.js?rev=...`).
+   * @param url - Graph combo URL (`/plugins/??<id>/client.js&rev=...`).
    */
   async loadBundle(url: string): Promise<void> {
     const response = await this.fetch(url)
     if (!response.ok) {
       throw new Error(`web-preview tunnel: bundle ${url} failed with HTTP ${String(response.status)}`)
     }
-    const source = await response.text()
+    const source = await localizeSourceMap(await response.text(), url, this.fetch)
     const blob = URL.createObjectURL(new Blob([source], { type: 'text/javascript' }))
     try {
       await new Promise<void>((resolve, reject) => {

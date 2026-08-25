@@ -134,7 +134,8 @@ root
 │  │     │  ├─ conversation.chat.turnTail
 │  │     │  └─ tool.call.toolview
 │  │     │     └─ tool.view.cordis
-│  │     └─ conversation.message.images
+│  │     ├─ conversation.message.images
+│  │     └─ conversation.trajectory.images
 │  ├─ conversation.session.header
 │  │  ├─ conversation.session.header.lineage
 │  │  ├─ conversation.session.header.actions

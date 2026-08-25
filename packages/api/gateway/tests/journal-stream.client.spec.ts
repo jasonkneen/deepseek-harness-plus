@@ -25,9 +25,12 @@ interface PageRequest {
   readonly limit?: number
 }
 
+type JournalFrame = RemoteJournalFrame<Entry, number, Page>
+type ScriptedFrame = JournalFrame
+
 interface Generation {
   readonly frames: readonly (
-    RemoteJournalFrame<Entry, number> | Promise<RemoteJournalFrame<Entry, number>>
+    ScriptedFrame | Promise<ScriptedFrame>
   )[]
   readonly terminal?: Error
   readonly hold?: boolean
@@ -67,7 +70,7 @@ class FixtureJournal extends RemoteJournalStream<Page, Entry, number, PageReques
     private readonly calls: string[],
     private readonly pageRequests: PageRequest[],
     private readonly pageCursors: number[],
-    private readonly followCursors: (number | undefined)[],
+    private readonly followRequests: PageRequest[],
     changes: RemoteJournalChange<Page, Entry>[],
     failed: (error: unknown) => void,
     factory: RemoteStreamFactory = STREAM_FACTORY,
@@ -87,11 +90,11 @@ class FixtureJournal extends RemoteJournalStream<Page, Entry, number, PageReques
 
   /** @inheritdoc */
   protected override async * follow(
-    after: number | undefined,
+    request: PageRequest,
     signal: AbortSignal,
-  ): AsyncIterable<RemoteJournalFrame<Entry, number>> {
+  ): AsyncIterable<JournalFrame> {
     this.calls.push('follow')
-    this.followCursors.push(after)
+    this.followRequests.push(request)
     const generation = this.generations.shift()
     if (generation === undefined) throw new Error('no scripted journal generation')
     for (const [index, frame] of generation.frames.entries()) {
@@ -138,12 +141,12 @@ function journalFixture(
   readonly calls: string[]
   readonly pageRequests: PageRequest[]
   readonly pageCursors: number[]
-  readonly followCursors: (number | undefined)[]
+  readonly followRequests: PageRequest[]
 } {
   const calls: string[] = []
   const pageRequests: PageRequest[] = []
   const pageCursors: number[] = []
-  const followCursors: (number | undefined)[] = []
+  const followRequests: PageRequest[] = []
   const changes: RemoteJournalChange<Page, Entry>[] = []
   const failed = vi.fn()
   const journal = new FixtureJournal(
@@ -152,24 +155,28 @@ function journalFixture(
     calls,
     pageRequests,
     pageCursors,
-    followCursors,
+    followRequests,
     changes,
     failed,
     factory,
   )
-  return { journal, changes, failed, calls, pageRequests, pageCursors, followCursors }
+  return { journal, changes, failed, calls, pageRequests, pageCursors, followRequests }
+}
+
+function opened(cursor: number, value: Page): JournalFrame {
+  return { type: 'opened', cursor, page: value }
 }
 
 function remoteItem(
   generation: number,
-  value: RemoteJournalFrame<Entry, number>,
+  value: ScriptedFrame,
   signal: AbortSignal,
-): RemoteStreamItem<RemoteJournalFrame<Entry, number>> {
+): RemoteStreamItem<JournalFrame> {
   return { generation, value, signal, accept: vi.fn() }
 }
 
 function controlledFactory(
-  next: () => Promise<IteratorResult<RemoteStreamItem<RemoteJournalFrame<Entry, number>>>>,
+  next: () => Promise<IteratorResult<RemoteStreamItem<JournalFrame>>>,
 ): RemoteStreamFactory {
   const lifetime = new AbortController()
   return {
@@ -189,17 +196,17 @@ function controlledFactory(
 }
 
 describe('RemoteJournalStream', () => {
-  it('opens follow before page, removes overlap, appends live entries, and prepends history', async () => {
+  it('opens from the follow snapshot, removes overlap, appends live entries, and prepends history', async () => {
     const fixture = journalFixture(
       [{
         frames: [
-          { type: 'opened', cursor: 3 },
+          opened(3, page('tail', [2, 3], true)),
           { type: 'entry', entry: { seq: 3 } },
           { type: 'entry', entry: { seq: 4 } },
         ],
         hold: true,
       }],
-      [page('tail', [2, 3], true), page('older', [0, 1])],
+      [page('older', [0, 1])],
     )
 
     await fixture.journal.open({ limit: 2 })
@@ -207,8 +214,8 @@ describe('RemoteJournalStream', () => {
     await fixture.journal.prepend({ before: 2, limit: 2 })
 
     expect(fixture.calls.slice(0, 2)).toEqual(['follow', 'page'])
-    expect(fixture.pageRequests).toEqual([{ limit: 2 }, { before: 2, limit: 2 }])
-    expect(fixture.pageCursors).toEqual([3, 4])
+    expect(fixture.pageRequests).toEqual([{ before: 2, limit: 2 }])
+    expect(fixture.pageCursors).toEqual([4])
     expect(fixture.changes).toEqual([
       { type: 'replace', page: page('tail', [2, 3], true), entries: entries(2, 3), hasMore: true },
       { type: 'append', entry: { seq: 4 } },
@@ -220,8 +227,8 @@ describe('RemoteJournalStream', () => {
 
   it('exposes its shared cancellation signal', async () => {
     const fixture = journalFixture(
-      [{ frames: [{ type: 'opened', cursor: -1 }], hold: true }],
-      [page('empty', [])],
+      [{ frames: [opened(-1, page('empty', []))], hold: true }],
+      [],
     )
 
     expect(fixture.journal.signal.aborted).toBe(false)
@@ -239,10 +246,10 @@ describe('RemoteJournalStream', () => {
     const finish = Promise.withResolvers<undefined>()
     const resumed = journalFixture(
       [
-        { frames: [{ type: 'opened', cursor: 0 }], waitAfterFrames: finish.promise },
+        { frames: [opened(0, page('initial', [0]))], waitAfterFrames: finish.promise },
         { frames: [] },
       ],
-      [page('initial', [0])],
+      [],
     )
     await resumed.journal.open({})
     finish.resolve(undefined)
@@ -255,8 +262,8 @@ describe('RemoteJournalStream', () => {
 
   it('prepends into an empty window and accepts its first live entry', async () => {
     const empty = journalFixture(
-      [{ frames: [{ type: 'opened', cursor: -1 }], hold: true }],
-      [page('empty', []), page('older', [0]), page('oldest', [])],
+      [{ frames: [opened(-1, page('empty', []))], hold: true }],
+      [page('older', [0]), page('oldest', [])],
     )
     await empty.journal.open({})
     await empty.journal.prepend({})
@@ -269,10 +276,10 @@ describe('RemoteJournalStream', () => {
     })
     await empty.journal.dispose()
 
-    const live = Promise.withResolvers<RemoteJournalFrame<Entry, number>>()
+    const live = Promise.withResolvers<ScriptedFrame>()
     const followed = journalFixture(
-      [{ frames: [{ type: 'opened', cursor: -1 }, live.promise], hold: true }],
-      [page('empty', [])],
+      [{ frames: [opened(-1, page('empty', [])), live.promise], hold: true }],
+      [],
     )
     await followed.journal.open({})
     live.resolve({ type: 'entry', entry: { seq: 0 } })
@@ -281,61 +288,27 @@ describe('RemoteJournalStream', () => {
     await followed.journal.dispose()
   })
 
-  it('publishes one sorted replacement from an exact page and live entries queued while it loads', async () => {
-    let resolvePage!: (value: Page) => void
-    const openingPage = new Promise<Page>((resolve) => { resolvePage = resolve })
-    const fixture = journalFixture(
-      [{
-        frames: [
-          { type: 'opened', cursor: 15 },
-          { type: 'entry', entry: { seq: 17 } },
-          { type: 'entry', entry: { seq: 16 } },
-        ],
-        hold: true,
-      }],
-      [openingPage],
-    )
-
-    const opening = fixture.journal.open({ limit: 6 })
-    await vi.waitFor(() => {
-      expect(fixture.calls.filter(call => call === 'page')).toHaveLength(1)
-    })
-    expect(fixture.changes).toEqual([])
-
-    resolvePage(page('opening', [10, 11, 12, 13, 14, 15]))
-    await opening
-
-    expect(fixture.changes).toEqual([{
-      type: 'replace',
-      page: page('opening', [10, 11, 12, 13, 14, 15]),
-      entries: entries(10, 11, 12, 13, 14, 15, 16, 17),
-      hasMore: false,
-    }])
-    expect(fixture.pageCursors).toEqual([15])
-    await fixture.journal.dispose()
-  })
-
   it('repairs a replacement generation through one tail page and drops replay overlap', async () => {
     const lost = new RemoteStreamCarrierError('carrier lost')
     const fixture = journalFixture(
       [
         {
           frames: [
-            { type: 'opened', cursor: 1 },
+            opened(1, page('initial', [0, 1])),
             { type: 'entry', entry: { seq: 2 } },
           ],
           terminal: lost,
         },
         {
           frames: [
-            { type: 'opened', cursor: 4 },
+            opened(4, page('replacement', [0, 1, 2, 3, 4])),
             { type: 'entry', entry: { seq: 3 } },
             { type: 'entry', entry: { seq: 4 } },
           ],
           hold: true,
         },
       ],
-      [page('initial', [0, 1]), page('repair', [0, 1, 2, 3, 4])],
+      [],
     )
 
     await fixture.journal.open({ limit: 5 })
@@ -343,10 +316,10 @@ describe('RemoteJournalStream', () => {
 
     expect(fixture.changes.map(change => change.type)).toEqual(['replace', 'append', 'replace'])
     expect(fixture.changes[2]).toMatchObject({
-      type: 'replace', page: { marker: 'repair' }, entries: entries(0, 1, 2, 3, 4),
+      type: 'replace', page: { marker: 'replacement' }, entries: entries(0, 1, 2, 3, 4),
     })
-    expect(fixture.followCursors).toEqual([undefined, 2])
-    expect(fixture.pageCursors).toEqual([1, 4])
+    expect(fixture.followRequests).toEqual([{ limit: 5 }, { limit: 5 }])
+    expect(fixture.pageCursors).toEqual([])
     expect(fixture.failed).not.toHaveBeenCalled()
     await fixture.journal.dispose()
   })
@@ -355,11 +328,14 @@ describe('RemoteJournalStream', () => {
     const fixture = journalFixture(
       [
         {
-          frames: [{ type: 'opened', cursor: 1 }],
+          frames: [
+            opened(1, page('initial', [0, 1])),
+            { type: 'entry', entry: { seq: 3 } },
+          ],
           terminal: new RemoteStreamCarrierError('carrier lost during page'),
         },
         {
-          frames: [{ type: 'opened', cursor: 2 }],
+          frames: [opened(3, page('replacement', [0, 1, 2, 3]))],
           hold: true,
         },
       ],
@@ -369,20 +345,28 @@ describe('RemoteJournalStream', () => {
           signal.addEventListener('abort', aborted, { once: true })
           if (signal.aborted) aborted()
         }),
-        page('replacement', [0, 1, 2]),
       ],
     )
 
     await fixture.journal.open({ limit: 3 })
+    await vi.waitFor(() => { expect(fixture.changes).toHaveLength(2) })
 
-    expect(fixture.changes).toEqual([{
-      type: 'replace',
-      page: page('replacement', [0, 1, 2]),
-      entries: entries(0, 1, 2),
-      hasMore: false,
-    }])
-    expect(fixture.pageCursors).toEqual([1, 2])
-    expect(fixture.followCursors).toEqual([undefined, 1])
+    expect(fixture.changes).toEqual([
+      {
+        type: 'replace',
+        page: page('initial', [0, 1]),
+        entries: entries(0, 1),
+        hasMore: false,
+      },
+      {
+        type: 'replace',
+        page: page('replacement', [0, 1, 2, 3]),
+        entries: entries(0, 1, 2, 3),
+        hasMore: false,
+      },
+    ])
+    expect(fixture.pageCursors).toEqual([3])
+    expect(fixture.followRequests).toEqual([{ limit: 3 }, { limit: 3 }])
     expect(fixture.failed).not.toHaveBeenCalled()
     await fixture.journal.dispose()
   })
@@ -391,12 +375,12 @@ describe('RemoteJournalStream', () => {
     const fixture = journalFixture(
       [{
         frames: [
-          { type: 'opened', cursor: 1 },
+          opened(1, page('initial', [0, 1])),
           { type: 'entry', entry: { seq: 4 } },
         ],
         hold: true,
       }],
-      [page('initial', [0, 1]), page('repair', [0, 1, 2, 3, 4])],
+      [page('repair', [0, 1, 2, 3, 4])],
     )
 
     await fixture.journal.open({})
@@ -404,24 +388,22 @@ describe('RemoteJournalStream', () => {
 
     expect(fixture.changes.map(change => change.type)).toEqual(['replace', 'replace'])
     expect(fixture.changes[1]).toMatchObject({ page: { marker: 'repair' } })
-    expect(fixture.pageCursors).toEqual([1, 4])
+    expect(fixture.pageCursors).toEqual([4])
     await fixture.journal.dispose()
   })
 
   it('replaces a superseded live-gap repair with the next generation', async () => {
-    const gap = Promise.withResolvers<RemoteJournalFrame<Entry, number>>()
+    const gap = Promise.withResolvers<ScriptedFrame>()
     const fixture = journalFixture(
       [
         {
-          frames: [{ type: 'opened', cursor: 1 }, gap.promise],
+          frames: [opened(1, page('initial', [0, 1])), gap.promise],
           terminal: new RemoteStreamCarrierError('generation lost'),
         },
-        { frames: [{ type: 'opened', cursor: 4 }], hold: true },
+        { frames: [opened(4, page('replacement', [0, 1, 2, 3, 4]))], hold: true },
       ],
       [
-        page('initial', [0, 1]),
         () => new Promise<Page>(() => {}),
-        page('replacement', [0, 1, 2, 3, 4]),
       ],
     )
 
@@ -435,103 +417,173 @@ describe('RemoteJournalStream', () => {
   })
 
   it('replaces a superseded second repair page with the next generation', async () => {
-    const live = Promise.withResolvers<RemoteJournalFrame<Entry, number>>()
-    const liveConsumed = Promise.withResolvers<undefined>()
-    const openingPage = Promise.withResolvers<Page>()
+    const firstLive = Promise.withResolvers<ScriptedFrame>()
+    const secondLive = Promise.withResolvers<ScriptedFrame>()
+    const secondConsumed = Promise.withResolvers<undefined>()
+    const firstRepair = Promise.withResolvers<Page>()
     const finish = Promise.withResolvers<undefined>()
     const fixture = journalFixture(
       [
         {
-          frames: [{ type: 'opened', cursor: 1 }, live.promise],
+          frames: [
+            opened(1, page('initial', [0, 1])),
+            firstLive.promise,
+            secondLive.promise,
+          ],
           waitAfterFrames: finish.promise,
           terminal: new RemoteStreamCarrierError('generation lost'),
-          afterFrame: (index) => { if (index === 1) liveConsumed.resolve(undefined) },
+          afterFrame: (index) => { if (index === 2) secondConsumed.resolve(undefined) },
         },
-        { frames: [{ type: 'opened', cursor: 4 }], hold: true },
+        { frames: [opened(5, page('replacement', [0, 1, 2, 3, 4, 5]))], hold: true },
       ],
       [
-        openingPage.promise,
-        () => new Promise<Page>(() => {}),
-        page('replacement', [0, 1, 2, 3, 4]),
+        firstRepair.promise,
+        signal => new Promise<Page>((_resolve, reject) => {
+          signal.addEventListener('abort', () => { reject(new Error('page aborted')) }, { once: true })
+        }),
       ],
     )
 
-    const opening = fixture.journal.open({})
-    await vi.waitFor(() => { expect(fixture.pageCursors).toEqual([1]) })
-    live.resolve({ type: 'entry', entry: { seq: 3 } })
-    await liveConsumed.promise
-    openingPage.resolve(page('opening', [0, 1]))
-    await vi.waitFor(() => { expect(fixture.pageCursors).toEqual([1, 3]) })
+    await fixture.journal.open({})
+    firstLive.resolve({ type: 'entry', entry: { seq: 3 } })
+    await vi.waitFor(() => { expect(fixture.pageCursors).toEqual([3]) })
+    secondLive.resolve({ type: 'entry', entry: { seq: 5 } })
+    await secondConsumed.promise
+    firstRepair.resolve(page('first-repair', [0, 1, 2, 3]))
+    await vi.waitFor(() => { expect(fixture.pageCursors).toEqual([3, 5]) })
     finish.resolve(undefined)
-    await opening
+    await vi.waitFor(() => { expect(fixture.changes).toHaveLength(2) })
 
-    expect(fixture.pageCursors).toEqual([1, 3, 4])
-    expect(fixture.changes).toEqual([{
-      type: 'replace',
-      page: page('replacement', [0, 1, 2, 3, 4]),
-      entries: entries(0, 1, 2, 3, 4),
-      hasMore: false,
-    }])
+    expect(fixture.pageCursors).toEqual([3, 5])
+    expect(fixture.changes).toEqual([
+      {
+        type: 'replace',
+        page: page('initial', [0, 1]),
+        entries: entries(0, 1),
+        hasMore: false,
+      },
+      {
+        type: 'replace',
+        page: page('replacement', [0, 1, 2, 3, 4, 5]),
+        entries: entries(0, 1, 2, 3, 4, 5),
+        hasMore: false,
+      },
+    ])
     await fixture.journal.dispose()
   })
 
-  it('rereads the tail when queued entries advance beyond the opening page', async () => {
-    const live = Promise.withResolvers<RemoteJournalFrame<Entry, number>>()
-    const liveConsumed = Promise.withResolvers<undefined>()
-    const openingPage = Promise.withResolvers<Page>()
+  it('rereads the tail when queued entries advance beyond the first repair page', async () => {
+    const firstLive = Promise.withResolvers<ScriptedFrame>()
+    const secondLive = Promise.withResolvers<ScriptedFrame>()
+    const secondConsumed = Promise.withResolvers<undefined>()
+    const firstRepair = Promise.withResolvers<Page>()
     const fixture = journalFixture(
       [{
-        frames: [{ type: 'opened', cursor: 1 }, live.promise],
+        frames: [
+          opened(1, page('initial', [0, 1])),
+          firstLive.promise,
+          secondLive.promise,
+        ],
         hold: true,
-        afterFrame: (index) => { if (index === 1) liveConsumed.resolve(undefined) },
+        afterFrame: (index) => { if (index === 2) secondConsumed.resolve(undefined) },
       }],
-      [openingPage.promise, page('repair', [0, 1, 2, 3])],
+      [firstRepair.promise, page('repair', [0, 1, 2, 3, 4, 5])],
     )
 
-    const opening = fixture.journal.open({ limit: 4 })
-    await vi.waitFor(() => { expect(fixture.pageCursors).toEqual([1]) })
-    live.resolve({ type: 'entry', entry: { seq: 3 } })
-    await liveConsumed.promise
-    openingPage.resolve(page('opening', [0, 1]))
-    await opening
+    await fixture.journal.open({ limit: 4 })
+    firstLive.resolve({ type: 'entry', entry: { seq: 3 } })
+    await vi.waitFor(() => { expect(fixture.pageCursors).toEqual([3]) })
+    secondLive.resolve({ type: 'entry', entry: { seq: 5 } })
+    await secondConsumed.promise
+    firstRepair.resolve(page('first-repair', [0, 1, 2, 3]))
+    await vi.waitFor(() => { expect(fixture.changes).toHaveLength(2) })
 
-    expect(fixture.pageCursors).toEqual([1, 3])
-    expect(fixture.changes).toEqual([{
-      type: 'replace', page: page('repair', [0, 1, 2, 3]), entries: entries(0, 1, 2, 3), hasMore: false,
-    }])
+    expect(fixture.pageCursors).toEqual([3, 5])
+    expect(fixture.changes.at(-1)).toEqual({
+      type: 'replace',
+      page: page('repair', [0, 1, 2, 3, 4, 5]),
+      entries: entries(0, 1, 2, 3, 4, 5),
+      hasMore: false,
+    })
+    await fixture.journal.dispose()
+  })
+
+  it('merges contiguous entries that arrive while a replacement page is loading', async () => {
+    const firstLive = Promise.withResolvers<ScriptedFrame>()
+    const secondLive = Promise.withResolvers<ScriptedFrame>()
+    const secondConsumed = Promise.withResolvers<undefined>()
+    const repair = Promise.withResolvers<Page>()
+    const fixture = journalFixture(
+      [{
+        frames: [
+          opened(1, page('initial', [0, 1])),
+          firstLive.promise,
+          secondLive.promise,
+        ],
+        hold: true,
+        afterFrame: (index) => { if (index === 2) secondConsumed.resolve(undefined) },
+      }],
+      [repair.promise],
+    )
+
+    await fixture.journal.open({})
+    firstLive.resolve({ type: 'entry', entry: { seq: 3 } })
+    await vi.waitFor(() => { expect(fixture.pageCursors).toEqual([3]) })
+    secondLive.resolve({ type: 'entry', entry: { seq: 4 } })
+    await secondConsumed.promise
+    repair.resolve(page('repair', [0, 1, 2, 3]))
+    await vi.waitFor(() => { expect(fixture.changes).toHaveLength(2) })
+
+    expect(fixture.changes.at(-1)).toEqual({
+      type: 'replace',
+      page: page('repair', [0, 1, 2, 3]),
+      entries: entries(0, 1, 2, 3, 4),
+      hasMore: false,
+    })
     await fixture.journal.dispose()
   })
 
   it('rejects when queued entries advance beyond the second repair page', async () => {
-    const firstLive = Promise.withResolvers<RemoteJournalFrame<Entry, number>>()
-    const secondLive = Promise.withResolvers<RemoteJournalFrame<Entry, number>>()
-    const firstConsumed = Promise.withResolvers<undefined>()
+    const firstLive = Promise.withResolvers<ScriptedFrame>()
+    const secondLive = Promise.withResolvers<ScriptedFrame>()
+    const thirdLive = Promise.withResolvers<ScriptedFrame>()
     const secondConsumed = Promise.withResolvers<undefined>()
-    const openingPage = Promise.withResolvers<Page>()
-    const repairPage = Promise.withResolvers<Page>()
+    const thirdConsumed = Promise.withResolvers<undefined>()
+    const firstRepair = Promise.withResolvers<Page>()
+    const secondRepair = Promise.withResolvers<Page>()
     const fixture = journalFixture(
       [{
-        frames: [{ type: 'opened', cursor: 1 }, firstLive.promise, secondLive.promise],
+        frames: [
+          opened(1, page('initial', [0, 1])),
+          firstLive.promise,
+          secondLive.promise,
+          thirdLive.promise,
+        ],
         hold: true,
         afterFrame: (index) => {
-          if (index === 1) firstConsumed.resolve(undefined)
           if (index === 2) secondConsumed.resolve(undefined)
+          if (index === 3) thirdConsumed.resolve(undefined)
         },
       }],
-      [openingPage.promise, repairPage.promise],
+      [firstRepair.promise, secondRepair.promise],
     )
 
-    const opening = fixture.journal.open({})
-    await vi.waitFor(() => { expect(fixture.pageCursors).toEqual([1]) })
+    await fixture.journal.open({})
     firstLive.resolve({ type: 'entry', entry: { seq: 3 } })
-    await firstConsumed.promise
-    openingPage.resolve(page('opening', [0, 1]))
-    await vi.waitFor(() => { expect(fixture.pageCursors).toEqual([1, 3]) })
+    await vi.waitFor(() => { expect(fixture.pageCursors).toEqual([3]) })
     secondLive.resolve({ type: 'entry', entry: { seq: 5 } })
     await secondConsumed.promise
-    repairPage.resolve(page('repair', [0, 1, 2, 3]))
+    firstRepair.resolve(page('first-repair', [0, 1, 2, 3]))
+    await vi.waitFor(() => { expect(fixture.pageCursors).toEqual([3, 5]) })
+    thirdLive.resolve({ type: 'entry', entry: { seq: 7 } })
+    await thirdConsumed.promise
+    secondRepair.resolve(page('second-repair', [0, 1, 2, 3, 4, 5]))
 
-    await expect(opening).rejects.toThrow('page did not reach its opening cursor')
+    await vi.waitFor(() => { expect(fixture.failed).toHaveBeenCalledOnce() })
+    expect(fixture.failed.mock.calls[0]?.[0]).toMatchObject({
+      message: 'fixture journal page did not reach its opening cursor',
+    })
+    await fixture.journal.dispose()
   })
 
   it('reports a resumed generation that emits an entry before its cursor', async () => {
@@ -539,13 +591,13 @@ describe('RemoteJournalStream', () => {
     const fixture = journalFixture(
       [
         {
-          frames: [{ type: 'opened', cursor: 0 }],
+          frames: [opened(0, page('initial', [0]))],
           waitAfterFrames: finish.promise,
           terminal: new RemoteStreamCarrierError('lost'),
         },
         { frames: [{ type: 'entry', entry: { seq: 1 } }] },
       ],
-      [page('initial', [0])],
+      [],
     )
 
     await fixture.journal.open({})
@@ -558,14 +610,14 @@ describe('RemoteJournalStream', () => {
   })
 
   it('reports a duplicate opening cursor after the initial page is published', async () => {
-    const duplicate = Promise.withResolvers<RemoteJournalFrame<Entry, number>>()
+    const duplicate = Promise.withResolvers<ScriptedFrame>()
     const fixture = journalFixture(
-      [{ frames: [{ type: 'opened', cursor: 0 }, duplicate.promise], hold: true }],
-      [page('initial', [0])],
+      [{ frames: [opened(0, page('initial', [0])), duplicate.promise], hold: true }],
+      [],
     )
 
     await fixture.journal.open({})
-    duplicate.resolve({ type: 'opened', cursor: 0 })
+    duplicate.resolve(opened(0, page('duplicate', [0])))
     await vi.waitFor(() => { expect(fixture.failed).toHaveBeenCalledOnce() })
     expect(fixture.failed.mock.calls[0]?.[0]).toMatchObject({
       message: 'fixture journal emitted more than one opening cursor',
@@ -573,47 +625,16 @@ describe('RemoteJournalStream', () => {
     await fixture.journal.dispose()
   })
 
-  it('propagates follow failures and duplicate cursors while an opening page is pending', async () => {
-    const pendingPage = new Promise<Page>(() => {})
+  it('reports a follow failure after publishing its opening snapshot', async () => {
     const failedFollow = journalFixture(
-      [{ frames: [{ type: 'opened', cursor: 0 }], terminal: new Error('follow failed') }],
-      [pendingPage],
-    )
-    await expect(failedFollow.journal.open({})).rejects.toThrow('follow failed')
-
-    const duplicate = Promise.withResolvers<RemoteJournalFrame<Entry, number>>()
-    const duplicatePage = new Promise<Page>(() => {})
-    const duplicateOpening = journalFixture(
-      [{ frames: [{ type: 'opened', cursor: 0 }, duplicate.promise] }],
-      [duplicatePage],
-    )
-    const opening = duplicateOpening.journal.open({})
-    await vi.waitFor(() => { expect(duplicateOpening.pageCursors).toEqual([0]) })
-    duplicate.resolve({ type: 'opened', cursor: 0 })
-    await expect(opening).rejects.toThrow('more than one opening cursor')
-  })
-
-  it('rejects an iterator that ends while its opening page is pending', async () => {
-    const generation = new AbortController()
-    const results = [
-      Promise.resolve<IteratorResult<RemoteStreamItem<RemoteJournalFrame<Entry, number>>>>({
-        done: false,
-        value: remoteItem(1, { type: 'opened', cursor: 0 }, generation.signal),
-      }),
-      Promise.resolve<IteratorResult<RemoteStreamItem<RemoteJournalFrame<Entry, number>>>>({
-        done: true,
-        value: undefined,
-      }),
-    ]
-    const fixture = journalFixture(
+      [{ frames: [opened(0, page('initial', [0]))], terminal: new Error('follow failed') }],
       [],
-      [new Promise<Page>(() => {})],
-      controlledFactory(() => results.shift() ?? Promise.resolve({ done: true, value: undefined })),
     )
-
-    await expect(fixture.journal.open({})).rejects.toThrow(
-      'ended while reading its replacement page',
-    )
+    await failedFollow.journal.open({})
+    await vi.waitFor(() => { expect(failedFollow.failed).toHaveBeenCalledOnce() })
+    expect(failedFollow.failed.mock.calls[0]?.[0]).toMatchObject({ message: 'follow failed' })
+    expect(failedFollow.changes).toHaveLength(1)
+    await failedFollow.journal.dispose()
   })
 
   it('rejects an iterator that ends before its opening cursor', async () => {
@@ -627,17 +648,17 @@ describe('RemoteJournalStream', () => {
 
   it('suppresses a consumer failure after disposal begins', async () => {
     const generation = new AbortController()
-    const next = Promise.withResolvers<IteratorResult<RemoteStreamItem<RemoteJournalFrame<Entry, number>>>>()
+    const next = Promise.withResolvers<IteratorResult<RemoteStreamItem<JournalFrame>>>()
     const results = [
-      Promise.resolve<IteratorResult<RemoteStreamItem<RemoteJournalFrame<Entry, number>>>>({
+      Promise.resolve<IteratorResult<RemoteStreamItem<JournalFrame>>>({
         done: false,
-        value: remoteItem(1, { type: 'opened', cursor: 0 }, generation.signal),
+        value: remoteItem(1, opened(0, page('initial', [0])), generation.signal),
       }),
       next.promise,
     ]
     const fixture = journalFixture(
       [],
-      [page('initial', [0])],
+      [],
       controlledFactory(() => results.shift() ?? Promise.resolve({ done: true, value: undefined })),
     )
 
@@ -645,7 +666,7 @@ describe('RemoteJournalStream', () => {
     const closing = fixture.journal.dispose()
     next.resolve({
       done: false,
-      value: remoteItem(1, { type: 'opened', cursor: 0 }, generation.signal),
+      value: remoteItem(1, opened(0, page('duplicate', [0])), generation.signal),
     })
     await closing
     expect(fixture.failed).not.toHaveBeenCalled()
@@ -658,17 +679,17 @@ describe('RemoteJournalStream', () => {
       final: undefined,
       message: 'more than one opening cursor',
     },
-  ])('rejects when an aborted page generation $name', async ({ final, message }) => {
+  ])('reports when an aborted repair generation $name', async ({ final, message }) => {
     const generation = new AbortController()
-    const pending = Promise.withResolvers<IteratorResult<RemoteStreamItem<RemoteJournalFrame<Entry, number>>>>()
-    const nextPending = Promise.withResolvers<IteratorResult<RemoteStreamItem<RemoteJournalFrame<Entry, number>>>>()
+    const gap = Promise.withResolvers<IteratorResult<RemoteStreamItem<JournalFrame>>>()
+    const replacement = Promise.withResolvers<IteratorResult<RemoteStreamItem<JournalFrame>>>()
     const results = [
-      Promise.resolve<IteratorResult<RemoteStreamItem<RemoteJournalFrame<Entry, number>>>>({
+      Promise.resolve<IteratorResult<RemoteStreamItem<JournalFrame>>>({
         done: false,
-        value: remoteItem(1, { type: 'opened', cursor: 0 }, generation.signal),
+        value: remoteItem(1, opened(0, page('initial', [0])), generation.signal),
       }),
-      pending.promise,
-      nextPending.promise,
+      gap.promise,
+      replacement.promise,
     ]
     const fixture = journalFixture(
       [],
@@ -678,47 +699,154 @@ describe('RemoteJournalStream', () => {
       controlledFactory(() => results.shift() ?? Promise.resolve({ done: true, value: undefined })),
     )
 
-    const opening = fixture.journal.open({})
-    await vi.waitFor(() => { expect(results).toHaveLength(1) })
+    await fixture.journal.open({})
+    gap.resolve({
+      done: false,
+      value: remoteItem(1, { type: 'entry', entry: { seq: 2 } }, generation.signal),
+    })
+    await vi.waitFor(() => { expect(fixture.pageCursors).toEqual([2]) })
     generation.abort()
     if (final === undefined) {
-      pending.resolve({
+      replacement.resolve({
         done: false,
-        value: remoteItem(1, { type: 'entry', entry: { seq: 1 } }, generation.signal),
-      })
-      await vi.waitFor(() => { expect(results).toHaveLength(0) })
-      nextPending.resolve({
-        done: false,
-        value: remoteItem(1, { type: 'opened', cursor: 1 }, generation.signal),
+        value: remoteItem(1, opened(2, page('duplicate', [0, 1, 2])), generation.signal),
       })
     } else {
-      pending.resolve(final)
+      replacement.resolve(final)
     }
-    await expect(opening).rejects.toThrow(message)
+    await vi.waitFor(() => { expect(fixture.failed).toHaveBeenCalledOnce() })
+    const failure: unknown = fixture.failed.mock.calls[0]?.[0]
+    expect(failure).toBeInstanceOf(Error)
+    if (!(failure instanceof Error)) throw new Error('journal failure was not an Error')
+    expect(failure.message).toContain(message)
+    await fixture.journal.dispose()
+  })
+
+  it('discards old-generation entries while waiting for the replacement opening', async () => {
+    const generation = new AbortController()
+    const gap = Promise.withResolvers<IteratorResult<RemoteStreamItem<JournalFrame>>>()
+    const stale = Promise.withResolvers<IteratorResult<RemoteStreamItem<JournalFrame>>>()
+    const replacement = Promise.withResolvers<IteratorResult<RemoteStreamItem<JournalFrame>>>()
+    const results = [
+      Promise.resolve<IteratorResult<RemoteStreamItem<JournalFrame>>>({
+        done: false,
+        value: remoteItem(1, opened(0, page('initial', [0])), generation.signal),
+      }),
+      gap.promise,
+      stale.promise,
+      replacement.promise,
+    ]
+    const fixture = journalFixture(
+      [],
+      [signal => new Promise<Page>((_resolve, reject) => {
+        signal.addEventListener('abort', () => { reject(new Error('page aborted')) }, { once: true })
+      })],
+      controlledFactory(() => results.shift() ?? Promise.resolve({ done: true, value: undefined })),
+    )
+
+    await fixture.journal.open({})
+    gap.resolve({
+      done: false,
+      value: remoteItem(1, { type: 'entry', entry: { seq: 2 } }, generation.signal),
+    })
+    await vi.waitFor(() => { expect(fixture.pageCursors).toEqual([2]) })
+    generation.abort()
+    stale.resolve({
+      done: false,
+      value: remoteItem(1, { type: 'entry', entry: { seq: 1 } }, generation.signal),
+    })
+    replacement.resolve({
+      done: false,
+      value: remoteItem(2, opened(2, page('replacement', [0, 1, 2])), new AbortController().signal),
+    })
+
+    await vi.waitFor(() => { expect(fixture.changes).toHaveLength(2) })
+    expect(fixture.changes.at(-1)).toMatchObject({ page: { marker: 'replacement' } })
+    await fixture.journal.dispose()
+  })
+
+  it.each([
+    {
+      name: 'rejects',
+      settle: (
+        _resolve: (value: IteratorResult<RemoteStreamItem<JournalFrame>>) => void,
+        reject: (reason?: unknown) => void,
+      ) => { reject(new Error('replacement follow failed')) },
+      message: 'replacement follow failed',
+    },
+    {
+      name: 'ends',
+      settle: (resolve: (value: IteratorResult<RemoteStreamItem<JournalFrame>>) => void) => {
+        resolve({ done: true, value: undefined })
+      },
+      message: 'ended while reading its replacement page',
+    },
+    {
+      name: 'opens twice',
+      settle: (resolve: (value: IteratorResult<RemoteStreamItem<JournalFrame>>) => void) => {
+        resolve({
+          done: false,
+          value: remoteItem(1, opened(2, page('duplicate', [0, 1, 2])), new AbortController().signal),
+        })
+      },
+      message: 'more than one opening cursor',
+    },
+  ])('reports when a follow $name during live-gap repair', async ({ settle, message }) => {
+    const generation = new AbortController()
+    const gap = Promise.withResolvers<IteratorResult<RemoteStreamItem<JournalFrame>>>()
+    const next = Promise.withResolvers<IteratorResult<RemoteStreamItem<JournalFrame>>>()
+    const results = [
+      Promise.resolve<IteratorResult<RemoteStreamItem<JournalFrame>>>({
+        done: false,
+        value: remoteItem(1, opened(0, page('initial', [0])), generation.signal),
+      }),
+      gap.promise,
+      next.promise,
+    ]
+    const fixture = journalFixture(
+      [],
+      [() => new Promise<Page>(() => {})],
+      controlledFactory(() => results.shift() ?? Promise.resolve({ done: true, value: undefined })),
+    )
+
+    await fixture.journal.open({})
+    gap.resolve({
+      done: false,
+      value: remoteItem(1, { type: 'entry', entry: { seq: 2 } }, generation.signal),
+    })
+    await vi.waitFor(() => { expect(fixture.pageCursors).toEqual([2]) })
+    settle(next.resolve, next.reject)
+
+    await vi.waitFor(() => { expect(fixture.failed).toHaveBeenCalledOnce() })
+    const failure: unknown = fixture.failed.mock.calls[0]?.[0]
+    expect(failure).toBeInstanceOf(Error)
+    if (!(failure instanceof Error)) throw new Error('journal failure was not an Error')
+    expect(failure.message).toContain(message)
+    await fixture.journal.dispose()
   })
 
   it('rejects malformed opening and page sequences', async () => {
     const beforeOpening = journalFixture(
       [{ frames: [{ type: 'entry', entry: { seq: 0 } }] }],
-      [page('unused', [])],
+      [],
     )
     await expect(beforeOpening.journal.open({})).rejects.toThrow('entry before its opening cursor')
 
     const discontinuousPage = journalFixture(
-      [{ frames: [{ type: 'opened', cursor: 3 }], hold: true }],
-      [page('bad', [0, 2, 3])],
+      [{ frames: [opened(3, page('bad', [0, 2, 3]))], hold: true }],
+      [],
     )
     await expect(discontinuousPage.journal.open({})).rejects.toThrow('page contains discontinuous entries')
 
     const shortPage = journalFixture(
-      [{ frames: [{ type: 'opened', cursor: 3 }], hold: true }],
-      [page('short', [0, 1])],
+      [{ frames: [opened(3, page('short', [0, 1]))], hold: true }],
+      [],
     )
     await expect(shortPage.journal.open({})).rejects.toThrow('page did not end at its requested cursor')
 
     const longPage = journalFixture(
-      [{ frames: [{ type: 'opened', cursor: 1 }], hold: true }],
-      [page('long', [0, 1, 2])],
+      [{ frames: [opened(1, page('long', [0, 1, 2]))], hold: true }],
+      [],
     )
     await expect(longPage.journal.open({})).rejects.toThrow('page did not end at its requested cursor')
   })
@@ -726,9 +854,12 @@ describe('RemoteJournalStream', () => {
   it('reports duplicate and regressed generation cursors as terminal failures', async () => {
     const duplicate = journalFixture(
       [{
-        frames: [{ type: 'opened', cursor: 1 }, { type: 'opened', cursor: 1 }],
+        frames: [
+          opened(1, page('initial', [0, 1])),
+          opened(1, page('duplicate', [0, 1])),
+        ],
       }],
-      [page('initial', [0, 1])],
+      [],
     )
     await duplicate.journal.open({})
     await vi.waitFor(() => { expect(duplicate.failed).toHaveBeenCalledOnce() })
@@ -740,12 +871,12 @@ describe('RemoteJournalStream', () => {
     const regressed = journalFixture(
       [
         {
-          frames: [{ type: 'opened', cursor: 1 }, { type: 'entry', entry: { seq: 2 } }],
+          frames: [opened(1, page('initial', [0, 1])), { type: 'entry', entry: { seq: 2 } }],
           terminal: new RemoteStreamCarrierError('lost'),
         },
-        { frames: [{ type: 'opened', cursor: 1 }] },
+        { frames: [opened(1, page('regressed', [0, 1]))] },
       ],
-      [page('initial', [0, 1])],
+      [],
     )
     await regressed.journal.open({})
     await vi.waitFor(() => { expect(regressed.failed).toHaveBeenCalledOnce() })
@@ -757,8 +888,8 @@ describe('RemoteJournalStream', () => {
 
   it('rejects a discontinuous older page after publishing the fail-soft pagination state', async () => {
     const fixture = journalFixture(
-      [{ frames: [{ type: 'opened', cursor: 4 }], hold: true }],
-      [page('initial', [3, 4], true), page('older', [0, 1], true)],
+      [{ frames: [opened(4, page('initial', [3, 4], true))], hold: true }],
+      [page('older', [0, 1], true)],
     )
     await fixture.journal.open({})
 
@@ -771,8 +902,8 @@ describe('RemoteJournalStream', () => {
 
   it('guards lifecycle operations before and after open', async () => {
     const fixture = journalFixture(
-      [{ frames: [{ type: 'opened', cursor: -1 }], hold: true }],
-      [page('empty', [])],
+      [{ frames: [opened(-1, page('empty', []))], hold: true }],
+      [],
     )
 
     await expect(fixture.journal.prepend({})).rejects.toThrow('is not open')

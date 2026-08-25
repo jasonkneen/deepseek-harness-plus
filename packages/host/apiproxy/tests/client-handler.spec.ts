@@ -81,7 +81,12 @@ function scriptedApi(overrides: {
     },
     llm: {
       providers: r => ok(r, { providers: [] }),
-      models: r => ok(r, { groups: [], failures: [] }),
+      models: r => ok(r, {
+        default: { provider: 'test', model: 'test' },
+        routableProviders: [],
+        groups: [],
+        failures: [],
+      }),
       discoverModels: err,
       ...overrides.llm,
     },
@@ -439,7 +444,12 @@ describe('config unary surface', () => {
       },
       llm: {
         providers: record('llm.providers', r => ok(r, { providers: [providerRow] })),
-        models: record('llm.models', r => ok(r, { groups: [group], failures: [] })),
+        models: record('llm.models', r => ok(r, {
+          default: { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
+          routableProviders: ['deepseek-official'],
+          groups: [group],
+          failures: [],
+        })),
         discoverModels: record('llm.discoverModels', r => ok(r, { models: [{ id: 'acme-large', contextWindow: 65536 }] })),
       },
     })
@@ -465,7 +475,15 @@ describe('config unary surface', () => {
     const providers = await c.llm.providers({})
     expect(providers.result).toEqual({ ok: true, value: { providers: [providerRow] } })
     const models = await c.llm.models({})
-    expect(models.result).toEqual({ ok: true, value: { groups: [group], failures: [] } })
+    expect(models.result).toEqual({
+      ok: true,
+      value: {
+        default: { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
+        routableProviders: ['deepseek-official'],
+        groups: [group],
+        failures: [],
+      },
+    })
     const discovered = await c.llm.discoverModels({
       settingsNs: 'llm-pi-ai',
       baseURL: 'https://gateway.acme.example/v1',

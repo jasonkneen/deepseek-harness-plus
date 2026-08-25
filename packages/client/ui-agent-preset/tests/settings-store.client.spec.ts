@@ -7,7 +7,9 @@
 
 import { describe, expect, it } from 'vitest'
 import type { IApiClient } from '@deepseek-ai/dsh-api-remotes/client'
+import type { SessionSummary } from '@deepseek-ai/dsh-api-session-controller/client'
 import { SettingsDescribeMirror } from '@deepseek-ai/dsh-client-ui-settings/src/client/settings-mirror.ts'
+import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import {
   AGENT_PRESET_SETTINGS_NS, AgentPresetSettingsController, messageOf,
 } from '../src/client/settings-store.ts'
@@ -17,7 +19,8 @@ function derivedController(api: IApiClient) {
   return new AgentPresetSettingsController(api, new SettingsDescribeMirror(api))
 }
 import { AgentPresetSeatController } from '../src/client/seat-store.ts'
-import type { SeatSessionSummary } from '../src/client/seat-store.ts'
+
+type SeatSession = Pick<SessionSummary, 'id' | 'blank' | 'projectionValues'>
 
 interface Recorded { ns: string; patch: unknown }
 
@@ -245,7 +248,7 @@ describe('the new-session chip controller', () => {
   /** A chip over a current session the test can move. */
   function chip(
     presets: { id: string; trust: 'system' | 'user'; isDefault: boolean }[],
-    current: { id: string; blank: boolean; agentPreset?: string } | undefined,
+    current: SeatSession | undefined | (() => SeatSession | undefined),
     options: { writes?: Recorded[]; failSelect?: string; failList?: string; throwOn?: 'list' | 'select' } = {},
   ): AgentPresetSeatController {
     const api = {
@@ -265,7 +268,10 @@ describe('the new-session chip controller', () => {
         },
       },
     } as unknown as IApiClient
-    return new AgentPresetSeatController(api, () => current as SeatSessionSummary | undefined)
+    return new AgentPresetSeatController(
+      api,
+      typeof current === 'function' ? current : () => current,
+    )
   }
 
   const ROSTER: { id: string; trust: 'system' | 'user'; isDefault: boolean }[] = [
@@ -331,9 +337,32 @@ describe('the new-session chip controller', () => {
     expect(controller.store.getSnapshot().current).toBe('minimal')
   })
 
+  it('replaces the default display when an existing blank session arrives after roster load', async () => {
+    const state: { current?: SeatSession } = {}
+    const controller = chip([
+      { id: 'standard', trust: 'system', isDefault: false },
+      { id: 'minimal', trust: 'system', isDefault: true },
+    ], () => state.current)
+    await controller.load()
+    expect(controller.store.getSnapshot().current).toBe('minimal')
+
+    state.current = {
+      id: 's1' as SessionId,
+      blank: true,
+      projectionValues: { agentPreset: 'standard' },
+    }
+    await controller.apply()
+
+    expect(controller.store.getSnapshot().current).toBe('standard')
+  })
+
   it('applies the stage to the blank session the flow lands on', async () => {
     const writes: Recorded[] = []
-    const current = { id: 's1', blank: true, agentPreset: 'standard' }
+    const current = {
+      id: 's1' as SessionId,
+      blank: true,
+      projectionValues: { agentPreset: 'standard' },
+    }
     const controller = chip(ROSTER, current, { writes })
     await controller.load()
     await controller.select('minimal')
@@ -344,7 +373,11 @@ describe('the new-session chip controller', () => {
 
   it('spends the stage exactly once', async () => {
     const writes: Recorded[] = []
-    const controller = chip(ROSTER, { id: 's1', blank: true, agentPreset: 'standard' }, { writes })
+    const controller = chip(ROSTER, {
+      id: 's1' as SessionId,
+      blank: true,
+      projectionValues: { agentPreset: 'standard' },
+    }, { writes })
     await controller.load()
     await controller.select('minimal')
 
@@ -358,7 +391,11 @@ describe('the new-session chip controller', () => {
 
   it('drops the stage against a session that already started', async () => {
     const writes: Recorded[] = []
-    const controller = chip(ROSTER, { id: 's1', blank: false, agentPreset: 'standard' }, { writes })
+    const controller = chip(ROSTER, {
+      id: 's1' as SessionId,
+      blank: false,
+      projectionValues: { agentPreset: 'standard' },
+    }, { writes })
     await controller.load()
 
     await controller.select('minimal')
@@ -369,7 +406,11 @@ describe('the new-session chip controller', () => {
 
   it('drops the stage when the session already runs it', async () => {
     const writes: Recorded[] = []
-    const controller = chip(ROSTER, { id: 's1', blank: true, agentPreset: 'minimal' }, { writes })
+    const controller = chip(ROSTER, {
+      id: 's1' as SessionId,
+      blank: true,
+      projectionValues: { agentPreset: 'minimal' },
+    }, { writes })
     await controller.load()
 
     await controller.select('minimal')
@@ -379,7 +420,14 @@ describe('the new-session chip controller', () => {
 
   it('falls back to the default when the host refuses the switch', async () => {
     const controller = chip(
-      ROSTER, { id: 's1', blank: true, agentPreset: 'standard' }, { failSelect: 'already started' })
+      ROSTER,
+      {
+        id: 's1' as SessionId,
+        blank: true,
+        projectionValues: { agentPreset: 'standard' },
+      },
+      { failSelect: 'already started' },
+    )
     await controller.load()
 
     await controller.select('minimal')
@@ -391,7 +439,14 @@ describe('the new-session chip controller', () => {
 
   it('falls back to the default when the switch never reaches the host', async () => {
     const controller = chip(
-      ROSTER, { id: 's1', blank: true, agentPreset: 'standard' }, { throwOn: 'select' })
+      ROSTER,
+      {
+        id: 's1' as SessionId,
+        blank: true,
+        projectionValues: { agentPreset: 'standard' },
+      },
+      { throwOn: 'select' },
+    )
     await controller.load()
 
     await controller.select('minimal')
@@ -402,7 +457,11 @@ describe('the new-session chip controller', () => {
 
   it('ignores a pick while a switch is in flight', async () => {
     const writes: Recorded[] = []
-    const controller = chip(ROSTER, { id: 's1', blank: true, agentPreset: 'standard' }, { writes })
+    const controller = chip(ROSTER, {
+      id: 's1' as SessionId,
+      blank: true,
+      projectionValues: { agentPreset: 'standard' },
+    }, { writes })
     await controller.load()
 
     const first = controller.select('minimal')

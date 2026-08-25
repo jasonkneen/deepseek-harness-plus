@@ -116,6 +116,12 @@ class FakeServer {
 }
 
 /**
+ * Constructor marker read by middleware during feature detection. Tunnel
+ * responses are synthesized objects and are never instances of this class.
+ */
+export class ServerResponse {}
+
+/**
  * Create the fake server and retain its request listener for the tunnel.
  * @param listener - the request listener the webserver installs.
  * @returns the fake Server.
@@ -172,8 +178,8 @@ export const __esModule = true
  * `net.Server` carrying sockets and a Node `RequestListener`, while this one binds
  * nothing and captures the synthesized-request listener the tunnel feeds.
  */
-type NodeFace = Partial<Omit<typeof import('node:http'), 'Server' | 'createServer'>>
-  & Record<'Server' | 'createServer', unknown>
+type NodeFace = Partial<Omit<typeof import('node:http'), 'Server' | 'ServerResponse' | 'createServer'>>
+  & Record<'Server' | 'ServerResponse' | 'createServer', unknown>
 
 /** CommonJS default export: the members `require()` hands a caller of this module. */
-export default { createServer, request, get, STATUS_CODES, Server: FakeServer } satisfies NodeFace
+export default { createServer, request, get, STATUS_CODES, Server: FakeServer, ServerResponse } satisfies NodeFace

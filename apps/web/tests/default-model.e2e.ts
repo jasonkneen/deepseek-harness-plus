@@ -46,9 +46,14 @@ describe('web e2e: the composer model switch is the default for later sessions',
     return response.sessionId
   }
 
-  /** The route the gateway reports for one session, through the real wire face. */
-  const currentOf = async (sessionId: string): Promise<unknown> => {
-    return (await scaffold.ctx.sessionController.models({ sessionId: SessionId(sessionId) })).current
+  /** The route the Client derives from the Session projection and Host default. */
+  const currentOf = (sessionId: string): Promise<unknown> => {
+    const session = scaffold.ctx.sessions.get(SessionId(sessionId))
+    if (session === undefined) throw new Error(`session "${sessionId}" is not live`)
+    return Promise.resolve(
+      scaffold.ctx.sessionProjections.snapshot(session).values.modelSelection?.next
+        ?? scaffold.ctx.agentDefaultModel.currentSelection(),
+    )
   }
 
   beforeAll(async () => {

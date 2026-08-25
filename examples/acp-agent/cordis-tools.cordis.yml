@@ -1,7 +1,0 @@
-# Add the self-referential Cordis tools without changing the base ACP tool
-# presentation mode.
-- insert:
-    - id: cordis-host-runner
-      name: '@deepseek-ai/dsh-cordis-host-runner'
-    - id: tool-cordis
-      name: '@deepseek-ai/dsh-tool-cordis'

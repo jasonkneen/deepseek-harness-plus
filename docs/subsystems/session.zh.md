@@ -641,13 +641,6 @@ inspect( sessionId: SessionId, signal?: AbortSignal, ): Promise<{ meta: SessionH
 @Remote('create') create(request: SessionCreateRequest): Promise<SessionCreateValue>
 
 /**
- * Read model choices after explicitly resuming the addressed Session.
- * @param request - Session whose model state is requested.
- * @returns the current selection and available model groups.
- */
-@Remote('models') models(request: SessionModelsRequest): Promise<SessionModels>
-
-/**
  * Select one Session-local model after explicitly resuming the Session.
  * @param request - Session identity and requested model selection.
  * @returns the normalized selection installed for the Session.
@@ -701,7 +694,7 @@ inspect( sessionId: SessionId, signal?: AbortSignal, ): Promise<{ meta: SessionH
  * Read one cold-safe, message-aligned Session history page.
  * @param request - durable address, backward cursor, and page budget.
  * @param signal - cancellation for persistence reads.
- * @returns one chronological page and optional latest projections.
+ * @returns one chronological page.
  */
 @Remote('page') page(request: SessionPageRequest, signal: AbortSignal): Promise<SessionPage>
 
@@ -709,7 +702,7 @@ inspect( sessionId: SessionId, signal?: AbortSignal, ): Promise<{ meta: SessionH
  * Follow one Session log from its opening or resume cursor.
  * @param request - durable address and last committed sequence already held by the caller.
  * @param signal - cancellation owned by the Remote stream carrier.
- * @returns an opened cursor followed by gap-free event frames.
+ * @returns a complete opening snapshot followed by gap-free event frames.
  */
 @Remote({ mode: 'stream' }) follow(request: SessionFollowRequest, signal: AbortSignal): AsyncIterable<SessionFollowFrame>
 

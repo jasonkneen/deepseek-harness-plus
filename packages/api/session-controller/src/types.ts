@@ -6,7 +6,7 @@ import type {
 import type { Branded } from '@deepseek-ai/dsh-brand'
 import type { MessageId } from '@deepseek-ai/dsh-llm/brand'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm/types'
-import type { JsonValue, SessionId, SurfaceOp } from '@deepseek-ai/dsh-session/types'
+import type { JsonValue, SessionHeader, SessionId, SurfaceOp } from '@deepseek-ai/dsh-session/types'
 import type { SessionProjectionMap } from '@deepseek-ai/dsh-session-projection/types'
 import type { JobId } from '@deepseek-ai/dsh-jobs/brand'
 import type { WorkspaceId } from '@deepseek-ai/dsh-workspace/types'
@@ -17,12 +17,26 @@ declare module '@deepseek-ai/dsh-session-projection/types' {
     sessionListMetadata: SessionListMetadata
     /** Host state for the boot-constant image-limit view. */
     imageLimits: null
+    /** Durable model selection already used by a request and still pending for a later request. */
+    modelSelection: ModelSelectionProjectionState
   }
   interface SessionProjectionMap {
     /** Persisted facts used to summarize a Session without activating it. */
     sessionListMetadata: SessionListMetadata
     /** Image-intake limits enforced by the Session prompt endpoint. */
     imageLimits: ImageAttachmentLimits
+    /** Durable model selection already used and selected for the next request. */
+    modelSelection: ModelSelectionProjection
+  }
+}
+
+declare module '@deepseek-ai/dsh-session/types' {
+  interface SessionEventMap {
+    /**
+     * Complete validated model selection requested for subsequent prompt
+     * assembly. Log-only: it never enters derived model history.
+     */
+    'model/selection': ModelSelection
   }
 }
 
@@ -34,10 +48,17 @@ export interface SessionListMetadata {
   readonly lastPromptAt: number | null
 }
 
-/** Projection values and the durable event position they represent. */
-export interface SessionProjectionsBlock {
+/** Every available cached wire value used as partial, possibly stale Session-list hints. */
+export interface SessionProjectionHints {
   readonly asOfSeq: number
-  /** Provider-validated values across the merge-extensible projection key space. */
+  /** Provider-validated values present in the cache; omitted keys remain unknown. */
+  readonly values: SessionProjectionValues
+}
+
+/** Complete projection values at an exact Session event cursor. */
+export interface SessionProjectionBaseline {
+  readonly asOfSeq: number
+  /** Provider-validated values; omitted keys are absent capabilities at this cut. */
   readonly values: SessionProjectionValues
 }
 
@@ -60,6 +81,22 @@ export interface ModelSelection {
   readonly provider: string
   readonly model: string
   readonly reasoningEffort?: string
+}
+
+/** Host fold state for durable model selection. */
+export interface ModelSelectionProjectionState {
+  /** Selection consumed by the latest recorded model request. */
+  readonly lastUsed: ModelSelection | null
+  /** Later user selection not yet consumed by a matching model request. */
+  readonly pending: ModelSelection | null
+}
+
+/** Client view of the durable model-selection fold. */
+export interface ModelSelectionProjection {
+  /** Selection consumed by the latest recorded model request. */
+  readonly lastUsed: ModelSelection | null
+  /** Selection the next request should use, falling back to {@link lastUsed}. */
+  readonly next: ModelSelection | null
 }
 
 /** One adapter-owned reasoning effort for an exact model route. */
@@ -97,10 +134,11 @@ export interface ModelCatalogFailure {
   readonly message: string
 }
 
-/** Detached model-directory snapshot for one Session. */
-export interface SessionModels {
-  readonly current: ModelSelection
-  readonly routable: boolean
+/** Host-generation model catalog and the default used by unconfigured Sessions. */
+export interface ModelCatalog {
+  readonly default: ModelSelection
+  /** Provider routes currently able to serve a request, including empty catalogs. */
+  readonly routableProviders: readonly string[]
   readonly groups: readonly ModelProviderGroup[]
   readonly failures: readonly ModelCatalogFailure[]
 }
@@ -120,8 +158,7 @@ export interface SessionSummary {
   readonly parentSessionId?: SessionId
   readonly origin?: 'subagent'
   readonly cwd?: string
-  readonly agentPreset?: string
-  readonly projections?: SessionProjectionsBlock
+  readonly projections?: SessionProjectionHints
 }
 
 /** One session-content search result. */
@@ -218,11 +255,6 @@ export interface SessionCreateRequest {
 export interface SessionCreateValue {
   readonly sessionId: SessionId
   readonly agentPreset?: string
-}
-
-/** Model-directory request. */
-export interface SessionModelsRequest {
-  readonly sessionId: SessionId
 }
 
 /** Session model-selection request. */
@@ -352,22 +384,28 @@ export interface SessionPageRequest {
   readonly maxMessages?: number
 }
 
-/** One live event request, optionally resuming after an already-applied event. */
+/** One live event request for a durable Session address. */
 export interface SessionFollowRequest {
   readonly address: SessionAddress
-  readonly afterSeq?: number
+  readonly maxMessages?: number
 }
 
 /** One contiguous backwards page of a Session log. */
 export interface SessionPage {
   readonly events: readonly SessionEventEntry[]
   readonly hasMore: boolean
-  readonly projections?: SessionProjectionsBlock
 }
 
-/** Initial cursor followed by ordered events appended after that cursor. */
+/** Complete opening window followed by ordered events appended after its cursor. */
 export type SessionFollowFrame =
-  | { readonly type: 'opened'; readonly cursor: number }
+  | {
+    readonly type: 'snapshot'
+    readonly header: SessionHeader
+    readonly cursor: number
+    readonly events: readonly SessionEventEntry[]
+    readonly hasMore: boolean
+    readonly projections: SessionProjectionBaseline
+  }
   | ({ readonly type: 'event' } & SessionEventEntry)
 
 /** One pending inbox occurrence in the authoritative queue snapshot. */
@@ -396,7 +434,7 @@ export interface SessionJob {
 export interface SessionControlBaseline {
   readonly queues: Readonly<Record<SessionId, readonly SessionQueuedItem[]>>
   readonly jobs: Readonly<Record<SessionId, readonly SessionJob[]>>
-  readonly projections: Readonly<Record<SessionId, SessionProjectionsBlock>>
+  readonly projections: Readonly<Record<SessionId, SessionProjectionBaseline>>
 }
 
 /** One finished projection value and its durable watermark. */

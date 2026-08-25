@@ -24,6 +24,9 @@
       "path": "../../attachment/attachment"
     },
     {
+      "path": "../../fs/fs"
+    },
+    {
       "path": "../../util/atomic-write"
     },
     {

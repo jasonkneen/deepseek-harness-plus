@@ -10,6 +10,7 @@ import type { ConfigurableProviderView, DiscoveredModelView } from './llm.ts'
 import type {
   ModelCatalogFailure,
   ModelCatalogModel,
+  ModelSelection,
   ModelProviderGroup,
   ModelReasoning,
   ModelReasoningEffort,
@@ -50,6 +51,13 @@ const modelCatalogFailureSchema = z.object({
   message: z.string(),
 }) satisfies z.ZodType<Wire<ModelCatalogFailure>>
 
+/** Complete model selection used as the Host default. */
+const modelSelectionSchema = z.object({
+  provider: z.string().min(1),
+  model: z.string().min(1),
+  reasoningEffort: z.string().min(1).optional(),
+}) satisfies z.ZodType<Wire<ModelSelection>>
+
 /** ConfigurableProviderView row of llm.providers. */
 export const configurableProviderViewSchema = z.object({
   provider: z.string().min(1),
@@ -73,6 +81,8 @@ export const llmModelsRequestSchema = z.object({}) satisfies z.ZodType<Wire<Requ
 
 /** llm.models response value. */
 export const llmModelsValueSchema = z.object({
+  default: modelSelectionSchema,
+  routableProviders: z.array(z.string().min(1)),
   groups: z.array(modelProviderGroupSchema),
   failures: z.array(modelCatalogFailureSchema),
 }) satisfies z.ZodType<Wire<ResponseValue<'llm.models'>>>

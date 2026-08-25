@@ -8,7 +8,7 @@ import { CallId, createMessage, createToolResultMessage, createUserMessage } fro
 import type { Session, SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
 import { SessionHistoryController } from '@deepseek-ai/dsh-api-session-controller/src/history.ts'
 import type { SessionFollowFrame } from '@deepseek-ai/dsh-api-session-controller/types'
-import { createSessionTestRemote } from './test-remote.ts'
+import { createSessionTestRemote, installSessionReadTestServices } from './test-remote.ts'
 
 /** Append a production-shaped human prompt to the session surface. */
 function appendUserText(session: Session, text: string): SessionEvent {
@@ -43,6 +43,7 @@ async function harness(): Promise<{ ctx: Context }> {
   const ctx = new Context()
   await ctx.plugin(SessionStore)
   await ctx.plugin(AgentRegistry)
+  installSessionReadTestServices(ctx)
   return { ctx }
 }
 
@@ -71,7 +72,7 @@ async function openFollow(
   }, signal)[Symbol.asyncIterator]()
   await expect(iterator.next()).resolves.toMatchObject({
     done: false,
-    value: { type: 'opened' },
+    value: { type: 'snapshot' },
   })
   return { [Symbol.asyncIterator]: () => iterator }
 }
@@ -79,8 +80,8 @@ async function openFollow(
 describe('Session history raw journal', () => {
   it('follows raw tool events and preserves result metadata without a Tools service', async () => {
     const { ctx } = await harness()
-    const session = ctx.sessions.create()
-    const history = new SessionHistoryController(ctx)
+    const session = ctx.sessions.create(undefined, { meta: { cwd: '/workspace' } })
+    const history = new SessionHistoryController(ctx, (observation) => { observation[Symbol.dispose]() })
     const abort = new AbortController()
     const stream = await openFollow(history, session.id, abort.signal)
     const collected = collect(stream, 2, abort)
@@ -108,8 +109,8 @@ describe('Session history raw journal', () => {
 
   it('follows live results without rescanning Session history', async () => {
     const { ctx } = await harness()
-    const session = ctx.sessions.create()
-    const history = new SessionHistoryController(ctx)
+    const session = ctx.sessions.create(undefined, { meta: { cwd: '/workspace' } })
+    const history = new SessionHistoryController(ctx, (observation) => { observation[Symbol.dispose]() })
     const abort = new AbortController()
     const stream = await openFollow(history, session.id, abort.signal)
     const iterator = stream[Symbol.asyncIterator]()
@@ -147,7 +148,7 @@ describe('Session history raw journal', () => {
   it('serves raw call and result entries without parsing tool arguments', async () => {
     const { ctx } = await harness()
     const remote = createSessionTestRemote(ctx, { defaultModelSelection: () => ({ provider: 'p', model: 'm' }), cwd: '/tmp' })
-    const session = ctx.sessions.create()
+    const session = ctx.sessions.create(undefined, { meta: { cwd: '/workspace' } })
     const start = session.append('turn/start', { turn: 1 })
     const call = session.append('tool/call', {
       turn: 1, step: 1, callId: CallId('history-call'), name: 'custom', arguments: '{broken',
@@ -178,7 +179,7 @@ describe('Session history raw journal', () => {
   it('counts only append-origin messages toward maxMessages and keeps each compaction summary with its replacement', async () => {
     const { ctx } = await harness()
     const remote = createSessionTestRemote(ctx, { defaultModelSelection: () => ({ provider: 'p', model: 'm' }), cwd: '/tmp' })
-    const session = ctx.sessions.create()
+    const session = ctx.sessions.create(undefined, { meta: { cwd: '/workspace' } })
     session.append('turn/start', { turn: 1 })
     const first = appendUserText(session, 'first prompt')
     appendAssistantText(session, 'first reply', 1)
@@ -227,7 +228,7 @@ describe('Session history raw journal', () => {
   it('paginates a message with many provenance sources without variadic argument expansion', async () => {
     const { ctx } = await harness()
     const remote = createSessionTestRemote(ctx, { defaultModelSelection: () => ({ provider: 'p', model: 'm' }), cwd: '/tmp' })
-    const session = ctx.sessions.create()
+    const session = ctx.sessions.create(undefined, { meta: { cwd: '/workspace' } })
     session.append('turn/start', { turn: 1 })
     const sources = Array.from({ length: 128 }, (_unused, index) => session.append('assistant/chunk', {
       turn: 1,
@@ -265,8 +266,8 @@ describe('Session history raw journal', () => {
 
   it('follows a result after turn/end without reading the addressed Session log', async () => {
     const { ctx } = await harness()
-    const session = ctx.sessions.create()
-    const history = new SessionHistoryController(ctx)
+    const session = ctx.sessions.create(undefined, { meta: { cwd: '/workspace' } })
+    const history = new SessionHistoryController(ctx, (observation) => { observation[Symbol.dispose]() })
     const abort = new AbortController()
     const stream = await openFollow(history, session.id, abort.signal)
     const iterator = stream[Symbol.asyncIterator]()

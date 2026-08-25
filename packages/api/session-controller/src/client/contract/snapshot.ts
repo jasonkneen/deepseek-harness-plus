@@ -29,7 +29,11 @@ export interface SessionSnapshot {
   readonly sessionId: SessionId
   readonly queue: readonly QueuedMessage[]
   readonly running: boolean
-  readonly subagent: { readonly address: SubagentAddress; readonly parentAvailable: boolean } | null
+  readonly subagent: {
+    readonly address: SubagentAddress
+    /** Absent until the direct-parent catalog resolves. */
+    readonly parentAvailable?: boolean
+  } | null
   readonly removed: boolean
   readonly openState: OpenState
   readonly openError: ClientFailure | null

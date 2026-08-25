@@ -43,6 +43,25 @@ function page(events: readonly SessionEventEntry[], hasMore = false): SessionPag
   return { events, hasMore }
 }
 
+function snapshot(
+  cursor: number,
+  events: readonly SessionEventEntry[],
+  hasMore = false,
+): SessionFollowFrame {
+  return {
+    type: 'snapshot',
+    header: {
+      version: 0,
+      id: ADDRESS.kind === 'session' ? ADDRESS.sessionId : ADDRESS.childSessionId,
+      createdAt: 0,
+    },
+    cursor,
+    events,
+    hasMore,
+    projections: { asOfSeq: cursor, values: {} },
+  }
+}
+
 function sessionClient(remote: SessionTransportRemote) {
   return {
     session: remote as SessionRemote,
@@ -108,14 +127,13 @@ describe('Session Client stream adapters', () => {
     const remote = new ScriptedSessionRemote(
       [{
         frames: [
-          { type: 'opened', cursor: 3 },
+          snapshot(3, [entry(2), entry(3)], true),
           { type: 'event', ...entry(3) },
           { type: 'event', ...entry(4) },
         ],
         hold: true,
       }],
       [
-        { ok: true, value: page([entry(2), entry(3)], true) },
         { ok: true, value: page([entry(0), entry(1)], false) },
       ],
     )
@@ -129,9 +147,8 @@ describe('Session Client stream adapters', () => {
     await vi.waitFor(() => { expect(changes).toHaveLength(2) })
     await stream.prepend({ beforeSeq: 2, maxMessages: 50 })
 
-    expect(remote.followRequests).toEqual([{ address: ADDRESS }])
+    expect(remote.followRequests).toEqual([{ address: ADDRESS, maxMessages: 50 }])
     expect(remote.pageRequests).toEqual([
-      { address: ADDRESS, throughSeq: 3, maxMessages: 50 },
       { address: ADDRESS, throughSeq: 4, beforeSeq: 2, maxMessages: 50 },
     ])
     expect(changes).toMatchObject([
@@ -143,20 +160,17 @@ describe('Session Client stream adapters', () => {
     expect(remote.signals[0]?.aborted).toBe(true)
   })
 
-  it('resumes after the applied cursor and repairs through the addressed tail page', async () => {
+  it('replaces the retained window from each reconnect snapshot', async () => {
     const lost = new RemoteStreamCarrierError('lost')
     const remote = new ScriptedSessionRemote(
       [
         {
-          frames: [{ type: 'opened', cursor: 1 }, { type: 'event', ...entry(2) }],
+          frames: [snapshot(1, [entry(0), entry(1)]), { type: 'event', ...entry(2) }],
           terminal: lost,
         },
-        { frames: [{ type: 'opened', cursor: 4 }], hold: true },
+        { frames: [snapshot(4, [entry(0), entry(1), entry(2), entry(3), entry(4)])], hold: true },
       ],
-      [
-        { ok: true, value: page([entry(0), entry(1)]) },
-        { ok: true, value: page([entry(0), entry(1), entry(2), entry(3), entry(4)]) },
-      ],
+      [],
     )
     const changes: SessionJournalChange[] = []
     const carrierFailed = vi.fn()
@@ -170,13 +184,10 @@ describe('Session Client stream adapters', () => {
     await vi.waitFor(() => { expect(remote.followRequests).toHaveLength(2) })
 
     expect(remote.followRequests).toEqual([
-      { address: ADDRESS },
-      { address: ADDRESS, afterSeq: 2 },
+      { address: ADDRESS, maxMessages: 50 },
+      { address: ADDRESS, maxMessages: 50 },
     ])
-    expect(remote.pageRequests).toEqual([
-      { address: ADDRESS, throughSeq: 1, maxMessages: 50 },
-      { address: ADDRESS, throughSeq: 4, maxMessages: 50 },
-    ])
+    expect(remote.pageRequests).toEqual([])
     expect(changes.map(change => change.type)).toEqual(['replace', 'append', 'replace'])
     expect(carrierFailed).toHaveBeenCalledWith(lost)
     await stream.dispose()
@@ -187,16 +198,13 @@ describe('Session Client stream adapters', () => {
     const remote = new ScriptedSessionRemote(
       [
         {
-          frames: [{ type: 'opened', cursor: 0 }],
+          frames: [snapshot(0, [entry(0)])],
           waitAfterFrames: finish.promise,
           terminal: new RemoteStreamCarrierError('lost'),
         },
-        { frames: [{ type: 'opened', cursor: 1 }], hold: true },
+        { frames: [snapshot(1, [entry(0), entry(1)])], hold: true },
       ],
-      [
-        { ok: true, value: page([entry(0)]) },
-        { ok: true, value: page([entry(0), entry(1)]) },
-      ],
+      [],
     )
     const stream = new SessionEventStream(sessionClient(remote), ADDRESS, {
       publish: vi.fn(),
@@ -205,18 +213,33 @@ describe('Session Client stream adapters', () => {
 
     await stream.open({})
     finish.resolve(undefined)
-    await vi.waitFor(() => { expect(remote.pageRequests).toHaveLength(2) })
-    expect(remote.pageRequests).toEqual([
-      { address: ADDRESS, throughSeq: 0 },
-      { address: ADDRESS, throughSeq: 1 },
-    ])
+    await vi.waitFor(() => { expect(remote.followRequests).toHaveLength(2) })
+    expect(remote.followRequests).toEqual([{ address: ADDRESS }, { address: ADDRESS }])
+    expect(remote.pageRequests).toEqual([])
     await stream.dispose()
   })
 
-  it('turns a page failure into a typed stream failure and closes follow', async () => {
+  it('repairs a live gap without adding an absent message limit', async () => {
+    const remote = new ScriptedSessionRemote(
+      [{ frames: [snapshot(0, [entry(0)]), { type: 'event', ...entry(2) }], hold: true }],
+      [{ ok: true, value: page([entry(0), entry(1), entry(2)]) }],
+    )
+    const changes: SessionJournalChange[] = []
+    const stream = new SessionEventStream(sessionClient(remote), ADDRESS, {
+      publish: (change) => { changes.push(change) },
+      failed: vi.fn(),
+    })
+
+    await stream.open({})
+    await vi.waitFor(() => { expect(changes).toHaveLength(2) })
+    expect(remote.pageRequests).toEqual([{ address: ADDRESS, throughSeq: 2 }])
+    await stream.dispose()
+  })
+
+  it('turns a pagination failure into a typed stream failure', async () => {
     const failure = { code: 'session-not-found', message: 'missing', details: { sessionId: 'session-1' } } as const
     const remote = new ScriptedSessionRemote(
-      [{ frames: [{ type: 'opened', cursor: -1 }], hold: true }],
+      [{ frames: [snapshot(-1, [])], hold: true }],
       [{ ok: false, error: failure }],
     )
     const stream = new SessionEventStream(sessionClient(remote), ADDRESS, {
@@ -224,13 +247,16 @@ describe('Session Client stream adapters', () => {
       failed: vi.fn(),
     })
 
-    await expect(stream.open({})).rejects.toBeInstanceOf(RemoteStreamError)
+    await stream.open({})
+    await expect(stream.prepend({})).rejects.toBeInstanceOf(RemoteStreamError)
     await expect(stream.open({})).rejects.toThrow('already opened')
     expect(sessionStreamFailure(new RemoteStreamError(failure.code, failure.message, failure.details)))
       .toEqual(failure)
     expect(sessionStreamFailure(new Error('local'))).toBeUndefined()
-    expect(remote.signals[0]?.aborted).toBe(true)
+    expect(remote.signals[0]?.aborted).toBe(false)
     expect(remote.pageRequests).toEqual([{ address: ADDRESS, throughSeq: -1 }])
+    await stream.dispose()
+    expect(remote.signals[0]?.aborted).toBe(true)
   })
 
   it('maps the Host-wide control baseline and deltas into one snapshot stream', async () => {

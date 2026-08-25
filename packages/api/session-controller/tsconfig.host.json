@@ -15,7 +15,8 @@
     "src/commands.ts",
     "src/control.ts",
     "src/history.ts",
-    "src/list.ts"
+    "src/list.ts",
+    "src/model-selection-projection.ts"
   ],
   "references": [
     { "path": "../../../vendor/cordis" },

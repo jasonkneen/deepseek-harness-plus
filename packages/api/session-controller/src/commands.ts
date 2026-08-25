@@ -3,9 +3,7 @@
 import { randomUUID } from 'node:crypto'
 import type { Context } from '@deepseek-ai/cordis'
 import type { Agent, ModelSelection as AgentModelSelection } from '@deepseek-ai/dsh-agent'
-import {
-  PresetMountError, UnknownPresetError, resolveSessionPreset,
-} from '@deepseek-ai/dsh-agent-presets'
+import { PresetMountError, UnknownPresetError } from '@deepseek-ai/dsh-agent-presets'
 import { AttachmentError, admitEncodedImages } from '@deepseek-ai/dsh-attachment'
 import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import {
@@ -13,7 +11,8 @@ import {
 } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, MessageSource } from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
-import type { Session, SessionEvent, SessionHeader, UserMessage } from '@deepseek-ai/dsh-session'
+import type { SessionEvent, SessionHeader, UserMessage } from '@deepseek-ai/dsh-session'
+import { SessionQueryError, type SessionObservation } from '@deepseek-ai/dsh-session-query'
 import { SessionTitleInvalidError } from '@deepseek-ai/dsh-session-title'
 import { TypertRemoteFailure } from '@deepseek-ai/dsh-typert-protocol'
 import type { Workspace } from '@deepseek-ai/dsh-workspace'
@@ -27,7 +26,6 @@ import {
   hasApiSessionSubagentOwner,
   inspectApiSession,
 } from './agent.ts'
-import { buildModelCatalog } from './catalog.ts'
 import type {
   SessionAttachmentRequest,
   SessionAttachmentValue,
@@ -37,8 +35,6 @@ import type {
   SessionCreateValue,
   SessionForkRequest,
   SessionForkValue,
-  SessionModels,
-  SessionModelsRequest,
   SessionPromptRequest,
   SessionPromptValue,
   SessionRenameRequest,
@@ -110,25 +106,8 @@ export class SessionCommandController {
         )
       }
     }
-    const agentPreset = resolveSessionPreset(adopted.session)
+    const agentPreset = this.agents.presetForSession(adopted.session)
     return { sessionId, ...(agentPreset === undefined ? {} : { agentPreset }) }
-  }
-
-  /**
-   * Read the current selection and advisory model catalog, explicitly resuming the Session.
-   * @param request - Session whose model state is requested.
-   * @returns the current selection and available model groups.
-   */
-  async models(request: SessionModelsRequest): Promise<SessionModels> {
-    const agent = await this.resolveAgent(request.sessionId)
-    const current = this.agents.selectionFor(agent).current
-    const { groups, failures } = await buildModelCatalog(this.ctx)
-    return {
-      current: { ...current },
-      routable: routeServed(this.ctx, current.provider),
-      groups,
-      failures,
-    }
   }
 
   /**
@@ -154,7 +133,7 @@ export class SessionCommandController {
             ? {}
             : { reasoningEffort: resolved.reasoningEffort }),
         }
-        this.agents.selectionFor(agent).current = selected
+        this.agents.selectForNextRequest(agent, selected)
         try {
           await this.ctx.agentDefaultModel.saveSelection(selected)
         } catch (error) {
@@ -210,12 +189,15 @@ export class SessionCommandController {
       && (!Number.isInteger(request.atSeq) || request.atSeq < 0)) {
       reject('bad-request', 'atSeq must be a non-negative integer', {})
     }
-    let source: SessionReadState
+    let observed: SessionObservation
     try {
-      source = await this.readSessionState(request.sessionId)
+      observed = await this.ctx.sessionQuery.observeSession(request.sessionId)
     } catch (error) {
-      if (error instanceof ApiSessionNotFound) {
-        reject('session-not-found', error.message, { sessionId: request.sessionId })
+      if (error instanceof SessionQueryError
+        && error.code === 'SESSION_QUERY_SESSION_NOT_FOUND') {
+        reject('session-not-found', `session "${request.sessionId}" not found`, {
+          sessionId: request.sessionId,
+        })
       }
       reject(
         'internal',
@@ -223,6 +205,7 @@ export class SessionCommandController {
         {},
       )
     }
+    using source = observed
     const lastSeq = source.events.at(-1)?.seq ?? -1
     const atSeq = request.atSeq
     const anchoredBoundary = atSeq === undefined
@@ -245,7 +228,7 @@ export class SessionCommandController {
     while (cut < source.events.length && source.events[cut]?.type !== 'turn/start') cut++
     let workspace: Workspace | undefined
     try {
-      workspace = await this.forkWorkspace(source)
+      workspace = await this.forkWorkspace(source.header)
     } catch (error) {
       reject(
         'internal',
@@ -254,7 +237,7 @@ export class SessionCommandController {
       )
     }
     const childId = SessionId(`session-${randomUUID()}`)
-    const composition = await this.agents.composeAgent(resolveSessionPreset(source))
+    const composition = await this.agents.composeAgent(this.agents.presetForObservation(source))
     try {
       const { provider, model } = this.ctx.agentDefaultModel.currentSelection()
       await this.ctx.agents.create({
@@ -262,7 +245,7 @@ export class SessionCommandController {
         seed: source.events.slice(0, cut),
         meta: {
           ...(source.header.cwd === undefined ? {} : { cwd: source.header.cwd }),
-          parentSession: source.id,
+          parentSession: source.header.id,
           seedLength: cut,
           ...(composition.agentPreset === undefined
             ? {}
@@ -507,10 +490,10 @@ export class SessionCommandController {
     return { id: inspected.meta.id, header: inspected.meta, events: inspected.events }
   }
 
-  private async forkWorkspace(source: Pick<Session, 'id' | 'header'>): Promise<Workspace | undefined> {
+  private async forkWorkspace(source: SessionHeader): Promise<Workspace | undefined> {
     const workspaces = this.ctx.workspaceRegistry.list()
     const direct = workspaces.find(workspace => workspace.sessionIds.includes(source.id))
-    if (direct !== undefined || source.header.origin !== 'subagent') return direct
+    if (direct !== undefined || source.origin !== 'subagent') return direct
     const lineage = await this.ctx.sessionQuery.traceSession(source.id)
     for (const ancestor of lineage.ancestors) {
       const workspace = workspaces.find(candidate => candidate.sessionIds.includes(ancestor.header.id))

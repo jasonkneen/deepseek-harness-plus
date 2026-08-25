@@ -26,7 +26,7 @@ console.log(result.finalResponse)
 
 The dsh process starts lazily on first use and stays owned across `run()` calls. `close()` (or `await using`) is required. `start()` memoizes the bounded `initialize` handshake; `initializeTimeoutMs` defaults to 10 seconds and its diagnostic names the selected profile with the retained stderr tail. A failed handshake reaps the runtime and lets a later call retry with a fresh process until terminal `close()`.
 
-The handshake carries the absolute session workspace plus provider/model and optional positive `maxTokens`. `run(input, { sessionId?, onNotification? })` queues a prompt, waits for its durable inbox receipt, and collects until the whole root agent next becomes idle. It returns `RunResult { sessionId, finalResponse, events, notifications }`; `events` is root-scoped, while notifications also contain discovered descendants.
+The handshake carries the absolute session workspace plus provider/model and optional positive `maxTokens`. `run(input, { sessionId?, onNotification? })` accepts text or `SdkPromptContentBlock[]`; inline raster blocks carry canonical base64 plus `mimeType` and become durable attachments inside the runtime. The call queues the prompt, waits for its durable inbox receipt, and collects until the whole root agent next becomes idle. It returns `RunResult { sessionId, finalResponse, events, notifications }`; `events` is root-scoped, while notifications also contain discovered descendants.
 
 ## HarnessClient
 

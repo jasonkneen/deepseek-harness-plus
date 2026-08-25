@@ -40,9 +40,9 @@ import {
 } from './scaffold.ts'
 import { newEnglishPage, saveFailureShot } from './support.ts'
 
-const SNAPSHOT_DIR = fileURLToPath(new URL('./snapshots/markdown-wide-table', import.meta.url))
+const SNAPSHOT_DIR = fileURLToPath(new URL('./expected/markdown-wide-table', import.meta.url))
 const GEOMETRY_EXPECTED = fileURLToPath(
-  new URL('./snapshots/markdown-wide-table/geometry.expected.md', import.meta.url),
+  new URL('./expected/markdown-wide-table/geometry.expected.md', import.meta.url),
 )
 const MODE = webSnapshotMode()
 const SEED_ID = 'markdown-wide-table-web-e2e'

@@ -24,12 +24,15 @@
 
 import { createRequire } from 'node:module'
 import {
-  existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync, symlinkSync, unlinkSync, writeFileSync,
+  existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync, rmSync, statSync, symlinkSync, unlinkSync, writeFileSync,
 } from 'node:fs'
-import { basename, dirname, join } from 'node:path'
+import { basename, dirname, join, relative, resolve } from 'node:path'
+import { pathToFileURL } from 'node:url'
+import { withFileLock } from '@deepseek-ai/dsh-atomic-write'
 import type { EntryOptions } from '@deepseek-ai/cordis-plugin-loader'
 import { applyEntryPatches, type PatchOptions } from '@deepseek-ai/cordis-plugin-include'
 import { resolveDshHome } from '@deepseek-ai/dsh-home-paths'
+import { resolve as resolvePackage, type Package as ResolvePackageManifest } from 'resolve.exports'
 import { loadOverlayPatches } from './index.ts'
 
 /** Directory under the Harness home holding every profile. */
@@ -143,6 +146,10 @@ export const PROFILE_TEMPLATES: Record<string, ProfileTemplate> = {
     bundles: ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-sdk-app'],
     patchReload: 'startup',
   },
+  'sdk-minimal': {
+    bundles: ['@deepseek-ai/dsh-sdk-minimal'],
+    patchReload: 'startup',
+  },
 }
 
 /** Installation-owned bundle tuples normalized to the shipped template. */
@@ -204,7 +211,16 @@ export function initProfile(
   if (!existsSync(workspacePath)) writeFileSync(workspacePath, PROFILE_PNPM_WORKSPACE)
 }
 
-/** Ensure `link` is a symlink to `target`, replacing a wrong or dangling link; a real directory throws. */
+function readModuleProxyRecord(link: string): ModuleProxyRecord | undefined {
+  try {
+    return JSON.parse(readFileSync(join(link, 'package.json'), 'utf8')) as ModuleProxyRecord
+  } catch {
+    // Missing or invalid metadata is not managed state; callers reject it.
+    return undefined
+  }
+}
+
+/** Ensure `link` is a symlink to `target`, replacing a wrong link or a dsh-managed packaged proxy. */
 function ensureSymlink(link: string, target: string): void {
   let stat
   try {
@@ -216,12 +232,19 @@ function ensureSymlink(link: string, target: string): void {
   }
   if (stat !== undefined) {
     if (!stat.isSymbolicLink()) {
-      throw new Error(`dsh: ${link} exists and is not a symlink; remove it so dsh can manage the installation fallback`)
+      const existing = stat.isDirectory() ? readModuleProxyRecord(link) : undefined
+      if (existing?.dsh?.moduleFallback?.targets === undefined) {
+        throw new Error(`dsh: ${link} exists and is not a symlink or dsh-managed module proxy; remove it so dsh can manage the installation fallback`)
+      }
+      rmSync(link, { recursive: true })
+      stat = undefined
     }
-    if (readlinkSync(link) === target) return
-    // unlink deletes the reparse point itself on Windows too; rmSync treats a
-    // junction as a directory and throws EISDIR unless recursive.
-    unlinkSync(link)
+    if (stat !== undefined) {
+      if (readlinkSync(link) === target) return
+      // unlink deletes the reparse point itself on Windows too; rmSync treats a
+      // junction as a directory and throws EISDIR unless recursive.
+      unlinkSync(link)
+    }
   }
   try {
     symlinkSync(target, link, 'junction')
@@ -238,29 +261,162 @@ function ensureSymlink(link: string, target: string): void {
   }
 }
 
+interface ModuleProxyManifest {
+  name: string
+  version: string
+  private: true
+  type: 'module'
+  exports: Record<string, string>
+  dsh: { moduleFallback: { targets: Record<string, string> } }
+}
+
+interface ModuleProxyRecord {
+  version?: unknown
+  dsh?: { moduleFallback?: { targets?: unknown } }
+}
+
+/** Return whether the process reads application modules from pkg's virtual filesystem. */
+function isPackagedExecutable(): boolean {
+  return (process as NodeJS.Process & { pkg?: unknown }).pkg !== undefined
+}
+
+/** Resolve one available explicit package export under Node ESM import conditions. */
+function packageEntryFromPackage(
+  packageName: string,
+  packageDir: string,
+  declared: ResolvePackageManifest['exports'],
+  subpath: string,
+): string | undefined {
+  let candidates: string[] | void
+  try {
+    candidates = resolvePackage({ name: packageName, exports: declared }, subpath)
+  } catch (error) {
+    if ((error as Error).message.startsWith('No known conditions for ')) return undefined
+    const specifier = subpath === '.' ? packageName : packageName + subpath.slice(1)
+    throw new Error(`dsh: cannot resolve ESM export ${specifier} from installed package ${packageName}`, { cause: error })
+  }
+  for (const candidate of candidates ?? []) {
+    const target = candidate
+    const entry = resolve(packageDir, target)
+    const relativeEntry = relative(packageDir, entry)
+    if (!target.startsWith('./') || /^\.\.(?:[\\/]|$)/u.test(relativeEntry)) {
+      throw new Error(`dsh: installed package ${packageName} export ${subpath} resolves outside its package: ${target}`)
+    }
+    if (existsSync(entry) && statSync(entry).isFile()) return pathToFileURL(entry).href
+  }
+  return undefined
+}
+
+/** Resolve every explicit ESM runtime export that an out-of-tree plugin can import. */
+function packageProxySource(
+  packageName: string,
+  packageDir: string,
+): { version: string; targets: Record<string, string> } {
+  const manifest = JSON.parse(readFileSync(join(packageDir, 'package.json'), 'utf8')) as {
+    bin?: unknown
+    exports?: unknown
+    main?: unknown
+    types?: unknown
+    typings?: unknown
+    version?: unknown
+  }
+  if (typeof manifest.version !== 'string' || manifest.version.length === 0) {
+    throw new Error(`dsh: installed package ${packageName} must declare a non-empty version`)
+  }
+  const declared = manifest.exports
+  if (declared === undefined) {
+    const main = typeof manifest.main === 'string' && manifest.main.length > 0 ? manifest.main : undefined
+    const entry = join(packageDir, main ?? 'index')
+    try {
+      const resolved = createRequire(join(packageDir, 'package.json')).resolve(entry)
+      return { version: manifest.version, targets: { '.': pathToFileURL(resolved).href } }
+    } catch (error) {
+      if (main === undefined
+        && (manifest.bin !== undefined || manifest.types !== undefined || manifest.typings !== undefined)) {
+        return { version: manifest.version, targets: {} }
+      }
+      throw new Error(`dsh: installed package ${packageName} main entry is missing at ${entry}`, { cause: error })
+    }
+  }
+  const subpaths = declared !== null && typeof declared === 'object' && !Array.isArray(declared)
+    && Object.keys(declared).some(key => key.startsWith('.'))
+    ? Object.keys(declared).filter(key => key === '.' || (
+      key.startsWith('./') && !key.includes('*') && !key.endsWith('/') && key !== './package.json'
+    ))
+    : ['.']
+  const targets: Record<string, string> = {}
+  for (const subpath of subpaths) {
+    const target = packageEntryFromPackage(
+      packageName,
+      packageDir,
+      declared as ResolvePackageManifest['exports'],
+      subpath,
+    )
+    if (target !== undefined) targets[subpath] = target
+  }
+  return { version: manifest.version, targets }
+}
+
 /**
- * Maintain the flat module fallback `$DSH_HOME/profiles/node_modules`: one
- * symlink per package in the dsh app's resolvable dependency CLOSURE (BFS
- * over `dependencies` from the app manifest), each resolved from its own
- * real location. Node's parent-directory walk from any profile finds this
- * directory after the profile's own `node_modules`, so every in-box plugin
- * resolves without pnpm ever managing it — the exact "bundles come from the
- * installation" contract. The closure (not just direct dependencies) is
- * required for out-of-tree plugins: their peer dependencies name Service
- * Definition packages (`dsh-compaction`, `dsh-invariants`, ...) that the app
- * reaches only through its Service Provider packages. Symlinked packages
- * resolve their own dependencies from their real directories (Node's default
- * symlink-following), so each package needs only its one flat link.
- * Idempotent: correct links are kept and moved installations are
- * re-pointed; a stale link to a vanished package stays until its name is
- * reused (dangling links are invisible to resolution).
- * @param installAnchor - absolute path of the dsh app's package.json.
- * @param home - the Harness home; defaults to {@link resolveDshHome}.
+ * Materialize a real package proxy whose exports retain pkg's virtual module
+ * URL. Files outside the executable cannot traverse a symlink into
+ * `/snapshot`, while an ESM re-export can import that URL and preserves the
+ * executable's single module instance for out-of-tree plugin peers.
  */
-export function healProfilesModuleFallback(installAnchor: string, home: string = resolveDshHome()): void {
-  const profilesDir = join(home, PROFILES_DIR)
-  const modulesDir = join(profilesDir, 'node_modules')
-  mkdirSync(modulesDir, { recursive: true })
+function ensureModuleProxy(
+  link: string,
+  packageName: string,
+  version: string,
+  targets: Record<string, string>,
+): void {
+  const proxyExports = Object.fromEntries(
+    Object.keys(targets).map((subpath, index) => [subpath, `./entry-${index}.js`]),
+  )
+  const manifest: ModuleProxyManifest = {
+    name: packageName,
+    version,
+    private: true,
+    type: 'module',
+    exports: proxyExports,
+    dsh: { moduleFallback: { targets } },
+  }
+  let stat
+  try {
+    stat = lstatSync(link)
+  } catch {
+    stat = undefined
+  }
+  if (stat?.isSymbolicLink()) {
+    unlinkSync(link)
+    stat = undefined
+  }
+  if (stat !== undefined) {
+    const existing = readModuleProxyRecord(link)
+    if (existing?.dsh?.moduleFallback?.targets === undefined) {
+      throw new Error(`dsh: ${link} exists and is not a dsh-managed module proxy; remove it so dsh can manage the installation fallback`)
+    }
+    if (existing.version === version
+      && JSON.stringify(existing.dsh.moduleFallback.targets) === JSON.stringify(targets)
+      && Object.keys(targets).every((_, index) => existsSync(join(link, `entry-${index}.js`)))) return
+    rmSync(link, { recursive: true })
+  }
+  mkdirSync(link, { recursive: true })
+  writeFileSync(join(link, 'package.json'), JSON.stringify(manifest, undefined, 2) + '\n')
+  for (const [index, target] of Object.values(targets).entries()) {
+    const specifier = JSON.stringify(target)
+    writeFileSync(
+      join(link, `entry-${index}.js`),
+      `export * from ${specifier}\nimport * as target from ${specifier}\nexport default target.default\n`,
+    )
+  }
+}
+
+type ModuleFallbackEntry =
+  | { kind: 'symlink'; packageName: string; packageDir: string }
+  | { kind: 'proxy'; packageName: string; version: string; targets: Record<string, string> }
+
+/** Resolve the installation generation that every profile must find through the fallback directory. */
+function resolveModuleFallbackEntries(installAnchor: string): ModuleFallbackEntry[] {
   const appManifest = JSON.parse(readFileSync(installAnchor, 'utf8')) as ProfileManifest
   const links = new Map<string, string>()
   /* v8 ignore next -- a real app manifest always declares its name */
@@ -284,10 +440,89 @@ export function healProfilesModuleFallback(installAnchor: string, home: string =
       queue.push({ anchor: manifestPath, manifest: JSON.parse(readFileSync(manifestPath, 'utf8')) as ProfileManifest })
     }
   }
-  for (const [packageName, target] of links) {
-    const link = join(modulesDir, packageName)
+  if (!isPackagedExecutable()) {
+    return [...links].map(([packageName, packageDir]) => ({ kind: 'symlink', packageName, packageDir }))
+  }
+  return [...links].flatMap(([packageName, packageDir]) => {
+    const source = packageProxySource(packageName, packageDir)
+    return Object.keys(source.targets).length === 0
+      ? []
+      : [{ kind: 'proxy' as const, packageName, version: source.version, targets: source.targets }]
+  })
+}
+
+/** Return whether one existing fallback entry already matches its resolved installation generation. */
+function moduleFallbackEntryCurrent(modulesDir: string, entry: ModuleFallbackEntry): boolean {
+  const link = join(modulesDir, entry.packageName)
+  try {
+    const stat = lstatSync(link)
+    if (entry.kind === 'symlink') {
+      return stat.isSymbolicLink() && readlinkSync(link) === entry.packageDir
+    }
+    if (!stat.isDirectory()) return false
+    const existing = readModuleProxyRecord(link)
+    return existing?.version === entry.version
+      && JSON.stringify(existing.dsh?.moduleFallback?.targets) === JSON.stringify(entry.targets)
+      && Object.keys(entry.targets).every((_, index) => existsSync(join(link, `entry-${index}.js`)))
+  } catch {
+    return false
+  }
+}
+
+/** Return whether every required fallback entry is already ready for this installation. */
+function moduleFallbackCurrent(modulesDir: string, entries: readonly ModuleFallbackEntry[]): boolean {
+  return entries.every(entry => moduleFallbackEntryCurrent(modulesDir, entry))
+}
+
+/**
+ * Maintain the flat module fallback `$DSH_HOME/profiles/node_modules`: one
+ * entry per package in the dsh app's resolvable dependency CLOSURE (BFS
+ * over `dependencies` from the app manifest), each resolved from its own
+ * installation location. Plain Node uses symlinks. A pkg executable resolves
+ * exports under ESM import conditions and writes small proxy packages because
+ * the host filesystem cannot follow a symlink into pkg's virtual `/snapshot`
+ * tree; the proxy re-exports the virtual URL, preserving the executable's
+ * single module instance. A complete matching generation returns without a
+ * writer lock; actual repairs acquire and recheck one cross-process lock so
+ * partial proxies and carrier transitions remain serialized. Node's
+ * parent-directory walk from any profile finds this
+ * directory after the profile's own `node_modules`, so every in-box plugin
+ * resolves without pnpm ever managing it — the exact "bundles come from the
+ * installation" contract. The closure (not just direct dependencies) is
+ * required for out-of-tree plugins: their peer dependencies name Service
+ * Definition packages (`dsh-compaction`, `dsh-invariants`, ...) that the app
+ * reaches only through its Service Provider packages. Both a symlink target
+ * and a proxy's virtual target resolve transitive imports from the original
+ * package directory, so each package needs one flat fallback entry.
+ * Idempotent: correct entries are kept and changed installation targets are
+ * rewritten; under plain Node, a stale dangling link stays until its name is
+ * reused because resolution cannot discover it.
+ * @param installAnchor - absolute path of the dsh app's package.json.
+ * @param home - the Harness home; defaults to {@link resolveDshHome}.
+ * @returns settlement after current-state validation or a locked repair.
+ */
+export async function healProfilesModuleFallback(installAnchor: string, home: string = resolveDshHome()): Promise<void> {
+  const profilesDir = join(home, PROFILES_DIR)
+  const modulesDir = join(profilesDir, 'node_modules')
+  mkdirSync(modulesDir, { recursive: true })
+  const entries = resolveModuleFallbackEntries(installAnchor)
+  if (moduleFallbackCurrent(modulesDir, entries)) return
+  await withFileLock(modulesDir, () => {
+    if (!moduleFallbackCurrent(modulesDir, entries)) healProfilesModuleFallbackLocked(entries, modulesDir)
+    return Promise.resolve()
+  })
+}
+
+/** Heal one module-fallback generation while the cross-process writer lock is held. */
+function healProfilesModuleFallbackLocked(entries: readonly ModuleFallbackEntry[], modulesDir: string): void {
+  for (const entry of entries) {
+    const link = join(modulesDir, entry.packageName)
     mkdirSync(dirname(link), { recursive: true })
-    ensureSymlink(link, target)
+    if (entry.kind === 'proxy') {
+      ensureModuleProxy(link, entry.packageName, entry.version, entry.targets)
+    } else {
+      ensureSymlink(link, entry.packageDir)
+    }
   }
 }
 

@@ -64,6 +64,7 @@ interface BenchOptions {
   subagent?: Exclude<SessionSnapshot['subagent'], null>
   disabled?: boolean
   inert?: boolean
+  blocked?: { readonly reason: string }
   workspacePickerOpen?: boolean
   onRequestWorkspace?: () => void
   promptError?: SessionSnapshot['promptError']
@@ -186,6 +187,7 @@ function bench(over?: BenchOptions) {
     renderSlot,
     variant: over?.variant ?? 'composer',
     ...(over?.inert === true ? { disabled: true } : {}),
+    ...(over?.blocked !== undefined ? { blocked: over.blocked } : {}),
     ...(over?.workspacePickerOpen !== undefined ? { workspacePickerOpen: over.workspacePickerOpen } : {}),
     ...(over?.onRequestWorkspace !== undefined ? { onRequestWorkspace: over.onRequestWorkspace } : {}),
     ...(over?.placeholder !== undefined ? { placeholder: over.placeholder } : {}),
@@ -196,7 +198,9 @@ function bench(over?: BenchOptions) {
   }
   const view = render(<InputBar {...props} />)
   const textarea = view.container.querySelector('textarea')!
+  const sendableDraft = (over?.draft?.trim() ?? '') !== '' || (over?.attachments?.length ?? 0) > 0
   const primaryStops = over?.running === true && over.subagent === undefined
+    && (!sendableDraft || over.blocked !== undefined)
   const button = view.container.querySelector<HTMLButtonElement>(
     `button[aria-label="${primaryStops ? '停止生成' : '发送消息'}"]`,
   )!
@@ -606,15 +610,53 @@ describe('Enter semantics', () => {
 })
 
 describe('running and lock semantics', () => {
-  it('running keeps the input free (typing + Enter queue) while the primary turns stop', () => {
-    const { textarea, button, stop, sink } = bench({ running: true, draft: '排队消息' })
+  it('running switches the primary between Stop and Queue Send with the draft', async () => {
+    const { textarea, button, stop, sink } = bench({ running: true, busyEnter: 'steer' })
     expect(textarea.disabled).toBe(false)
-    fireEvent.change(textarea, { target: { value: '排队消息2' } })
-    fireEvent.keyDown(textarea, { key: 'Enter' })
-    expect(sink).toHaveBeenCalledWith('排队消息2', [], 'queue', expect.any(AbortSignal))
     expect(button.getAttribute('aria-label')).toBe('停止生成')
     fireEvent.click(button)
     expect(stop).toHaveBeenCalledTimes(1)
+
+    fireEvent.change(textarea, { target: { value: '排队消息' } })
+    expect(button.getAttribute('aria-label')).toBe('发送消息')
+    fireEvent.change(textarea, { target: { value: '   ' } })
+    expect(button.getAttribute('aria-label')).toBe('停止生成')
+    fireEvent.change(textarea, { target: { value: '排队消息2' } })
+    expect(button.getAttribute('aria-label')).toBe('发送消息')
+    fireEvent.click(button)
+    expect(sink).toHaveBeenCalledWith('排队消息2', [], 'queue', expect.any(AbortSignal))
+    await vi.waitFor(() => { expect(button.getAttribute('aria-label')).toBe('停止生成') })
+    expect(stop).toHaveBeenCalledTimes(1)
+  })
+
+  it('running treats an attachment-only draft as Send', async () => {
+    const attachment = {
+      kind: 'image' as const,
+      id: 'draft-1' as DraftAttachmentId,
+      file: new File([Uint8Array.of(1)], 'pixel.png', { type: 'image/png' }),
+      previewUrl: 'blob:pixel',
+    }
+    const { button, sink } = bench({ running: true, attachments: [attachment] })
+    expect(button.getAttribute('aria-label')).toBe('发送消息')
+    fireEvent.click(button)
+    expect(sink).toHaveBeenCalledWith('', ['draft-1'], 'queue', expect.any(AbortSignal))
+    await vi.waitFor(() => { expect(button.getAttribute('aria-label')).toBe('停止生成') })
+  })
+
+  it('running blocked composer keeps Stop with a retained draft', () => {
+    const { button, sink, stop, textarea } = bench({
+      running: true,
+      draft: '保留的草稿',
+      blocked: { reason: '请选择可用模型' },
+      placeholder: '请选择可用模型',
+    })
+    expect(textarea.disabled).toBe(true)
+    expect(textarea.placeholder).toBe('请选择可用模型')
+    expect(button.getAttribute('aria-label')).toBe('停止生成')
+    expect(button.disabled).toBe(false)
+    fireEvent.click(button)
+    expect(stop).toHaveBeenCalledTimes(1)
+    expect(sink).not.toHaveBeenCalled()
   })
 
   it('running plain Enter follows the busy-state Steer preference', () => {

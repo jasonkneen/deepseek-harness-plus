@@ -18,7 +18,7 @@ import * as acp from '../src/index.ts'
 
 // The real ACP profile: dsh plus the example's live DeepSeek patch.
 const binScript = fileURLToPath(new URL('../../../../apps/cli/src/bin.ts', import.meta.url))
-const exampleConfig = fileURLToPath(new URL('../../../../examples/acp-agent/cordis.yml', import.meta.url))
+const exampleConfig = fileURLToPath(new URL('../../../../snapshots/acp/escalation-approved/cordis.yml', import.meta.url))
 const repoTsconfig = fileURLToPath(new URL('../../../../tsconfig.json', import.meta.url))
 
 // How to launch the child ACP profile (src via tsx / lib via plain node, per DSH_EXAMPLE_MODE).

@@ -10,7 +10,9 @@ import SessionStore from '@deepseek-ai/dsh-session'
 import type { Session, SessionEvent, SessionHeader, SessionId } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import type { Workspace } from '@deepseek-ai/dsh-workspace'
-import { createSessionTestRemote } from './test-remote.ts'
+import {
+  createSessionTestRemote, installSessionReadTestServices, testSessionPersistence,
+} from './test-remote.ts'
 
 const sid = (id: string): SessionId => id as SessionId
 
@@ -23,6 +25,7 @@ async function composed(workspaces: readonly Workspace[] = []): Promise<Context>
   await ctx.plugin(SessionStore)
   await ctx.plugin(SystemPrompt, { persona: '' })
   await ctx.plugin(AgentRegistry)
+  installSessionReadTestServices(ctx)
   ctx.provide('workspaceRegistry', { list: () => workspaces } as never)
   ctx.agents.setFactory({
     createAgent: async (ownerCtx: Context, options: CreateAgentOptions): Promise<AgentHandle> => {
@@ -116,18 +119,16 @@ describe('sessions.fork', () => {
       parentSession: child.id,
       origin: 'subagent',
     })
-    ctx.provide('sessionQuery', {
-      traceSession: vi.fn(() => Promise.resolve({
-        target: { header: grandchild.header, live: true, persisted: false },
-        ancestors: [
-          { header: child.header, live: true, persisted: false },
-          { header: owner.header, live: true, persisted: false },
-        ],
-        descendants: [],
-        complete: true,
-        root: { header: owner.header, live: true, persisted: false },
-      })),
-    } as never)
+    vi.spyOn(ctx.sessionQuery, 'traceSession').mockResolvedValue({
+      target: { header: grandchild.header, live: true, persisted: false },
+      ancestors: [
+        { header: child.header, live: true, persisted: false },
+        { header: owner.header, live: true, persisted: false },
+      ],
+      descendants: [],
+      complete: true,
+      root: { header: owner.header, live: true, persisted: false },
+    })
 
     const response = await remote(ctx).fork(request({ sessionId: grandchild.id }))
 
@@ -165,19 +166,10 @@ describe('sessions.fork', () => {
       },
       { type: 'turn/end', seq: 2, time: 3, data: { turn: 1, reason: { kind: 'completed' } } },
     ] as SessionEvent[]
-    ctx.provide('sessionPersistence', {
+    ctx.provide('sessionPersistence', testSessionPersistence(ctx, {
       list: () => Promise.resolve([header]),
       inspect: () => Promise.resolve({ meta: header, events }),
-    } as never)
-    ctx.provide('sessionQuery', {
-      traceSession: () => Promise.resolve({
-        target: { header, live: false, persisted: true },
-        ancestors: [],
-        descendants: [],
-        complete: true,
-        root: { header, live: false, persisted: true },
-      }),
-    } as never)
+    }) as never)
     const resume = vi.spyOn(ctx.agents, 'resume')
 
     const response = await remote(ctx).fork(request({ sessionId: sourceId }))

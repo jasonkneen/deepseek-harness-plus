@@ -105,7 +105,7 @@ function resolveConfiguredFile(field: string, value: string): string {
 
 /**
  * The SDK provider. Advertises NO start-time capabilities: an out-of-process
- * child cannot honor `outputSchema`/`maxDepth`/`toolFilter`/`persona` (the
+ * child cannot honor `agentOptions`/`outputSchema`/`maxDepth`/`toolFilter`/`persona` (the
  * service rejects a request needing any of them before `start` runs).
  */
 class SdkSubagentProvider implements SubagentProvider {

@@ -69,11 +69,12 @@ describe('Session open', () => {
     expect(session.eventSource.getSnapshot().change).toMatchObject({ kind: 'replace' })
   })
 
-  it('is idempotent: concurrent opens share one history call, reopening when open is a no-op', async () => {
+  it('is idempotent: concurrent opens share one follow, reopening when open is a no-op', async () => {
     const { api, session } = makeSession()
     await Promise.all([session.open(), session.open()])
     await session.open()
-    expect(api.callsOf('session.history')).toHaveLength(1)
+    expect(api.callsOf('session.follow')).toHaveLength(1)
+    expect(api.callsOf('session.history')).toEqual([])
   })
 
   it('lands an error result in openState=error with the RpcError kept', async () => {
@@ -98,7 +99,7 @@ describe('Session open', () => {
     const gate = deferred<Awaited<ReturnType<FakeApiClient['onHistory']>>>()
     api.onHistory = () => gate.promise
     const opening = session.open()
-    // Three live frames land mid-open; seq 15 overlaps the page tail (page covers 10..15).
+    // Three live frames land while the opening snapshot is pending; seq 15 overlaps its tail.
     const page = plainTurn(10, 0, '早', '安')
     const deliveries = [
       follow(api, ev.turnStart(15, 1)),
@@ -151,7 +152,7 @@ describe('live event path', () => {
     // seq 9 with tail 5 → gap; the event detours to the buffer and one history refetch fires.
     await follow(api, ev.assistant(9, 1, 'd'))
     await vi.waitFor(() => {
-      expect(api.callsOf('session.history').length).toBe(2)
+      expect(api.callsOf('session.history')).toHaveLength(1)
     })
     await vi.waitFor(() => {
       expect(eventSeqs(session)).toEqual(
@@ -172,8 +173,8 @@ describe('paging', () => {
     await session.open()
     await session.loadOlder()
     const snapshot = session.getSnapshot()
+    expect(api.callsOf('session.follow')).toHaveLength(1)
     expect(api.callsOf('session.history')).toMatchObject([
-      { sessionId: SID, throughSeq: 11 },
       { sessionId: SID, throughSeq: 11, beforeSeq: 6 },
     ])
     expect(snapshot.hasMore).toBe(false)
@@ -231,7 +232,8 @@ describe('paging', () => {
       modelSelection: { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
     }))
     await Promise.all([first, second])
-    expect(api.callsOf('session.history')).toHaveLength(2) // open + one page, not two
+    expect(api.callsOf('session.follow')).toHaveLength(1)
+    expect(api.callsOf('session.history')).toHaveLength(1)
   })
 })
 
@@ -248,9 +250,15 @@ describe('prompt and cancel errors', () => {
 
     expect(prompted).toEqual({ ok: true, value: { accepted: true } })
     expect(cancelled).toEqual({ ok: true, value: { accepted: true } })
-    expect(api.callsOf('subagent.history')).toEqual([
-      { parentSessionId: PARENT, childSessionId: SID, mode: 'continuable', throughSeq: -1, maxMessages: 50 },
+    expect(api.callsOf('session.follow')).toEqual([
+      {
+        address: {
+          kind: 'subagent', parentSessionId: PARENT, childSessionId: SID, mode: 'continuable',
+        },
+        maxMessages: 50,
+      },
     ])
+    expect(api.callsOf('subagent.history')).toEqual([])
     expect(api.callsOf('subagent.prompt')).toEqual([
       {
         parentSessionId: PARENT, childSessionId: SID, mode: 'continuable',
@@ -300,9 +308,15 @@ describe('prompt and cancel errors', () => {
 
     expect(prompted).toMatchObject({ ok: false, error: { code: 'subagent-not-resumable' } })
     expect(cancelled).toMatchObject({ ok: false, error: { code: 'subagent-delivery-unavailable' } })
-    expect(api.callsOf('subagent.history')).toEqual([
-      { parentSessionId: PARENT, childSessionId: SID, mode: 'one-shot', throughSeq: -1, maxMessages: 50 },
+    expect(api.callsOf('session.follow')).toEqual([
+      {
+        address: {
+          kind: 'subagent', parentSessionId: PARENT, childSessionId: SID, mode: 'one-shot',
+        },
+        maxMessages: 50,
+      },
     ])
+    expect(api.callsOf('subagent.history')).toEqual([])
     expect(api.callsOf('subagent.prompt')).toEqual([])
     expect(api.callsOf('subagent.interrupt')).toEqual([])
     expect(api.callsOf('session.cancel')).toEqual([])
@@ -572,7 +586,7 @@ describe('remaining branches', () => {
     const repairPull = deferred<Awaited<ReturnType<FakeApiClient['onHistory']>>>()
     api.onHistory = () => repairPull.promise
     const delivery = follow(api, ev.user(9, '洞'))
-    await vi.waitFor(() => { expect(api.callsOf('session.history')).toHaveLength(2) })
+    await vi.waitFor(() => { expect(api.callsOf('session.history')).toHaveLength(1) })
     api.onHistory = () => histResponse(plainTurn(6, 1, 'c', 'd'))
     const resynced = session.resync() // bumps the generation
     repairPull.resolve(ok({
@@ -626,7 +640,7 @@ describe('remaining branches', () => {
 })
 
 describe('resync', () => {
-  it('keeps the old feed until one sorted page-and-live replacement is ready', async () => {
+  it('keeps the old feed until the reconnect snapshot, then repairs queued live gaps', async () => {
     const { api, session } = makeSession()
     api.onHistory = () => histResponse(plainTurn(0, 0, '旧', '窗'))
     await session.open()
@@ -640,11 +654,16 @@ describe('resync', () => {
     })
 
     const syncing = session.resync()
-    await vi.waitFor(() => { expect(api.callsOf('session.history')).toHaveLength(2) })
+    await vi.waitFor(() => { expect(api.callsOf('session.follow')).toHaveLength(2) })
     expect(session.eventSource.getSnapshot()).toBe(oldWindow)
     expect(publications).toEqual([])
 
-    await Promise.all([
+    api.onHistory = () => histResponse([
+      ...plainTurn(10, 2, '终', '页'),
+      ev.user(16, '后到低位'),
+      ev.user(17, '后到高位'),
+    ])
+    const liveDeliveries = Promise.all([
       follow(api, ev.user(17, '后到高位')),
       follow(api, ev.user(16, '后到低位')),
     ])
@@ -654,12 +673,15 @@ describe('resync', () => {
       hasMore: false,
       modelSelection: { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
     }))
-    await syncing
+    await Promise.all([syncing, liveDeliveries])
+    await vi.waitFor(() => {
+      expect(eventSeqs(session)).toEqual([10, 11, 12, 13, 14, 15, 16, 17])
+    })
 
-    expect(publications).toHaveLength(1)
-    expect(publications[0]?.entries).not.toHaveLength(0)
-    expect(publications[0]?.change.kind).toBe('replace')
-    expect(eventSeqs(session)).toEqual([10, 11, 12, 13, 14, 15, 16, 17])
+    expect(publications).toHaveLength(2)
+    expect(publications.map(snapshot => snapshot.change.kind)).toEqual(['replace', 'replace'])
+    expect(publications[0]?.entries.map(entry => entry.event.seq)).toEqual([10, 11, 12, 13, 14, 15])
+    expect(publications[1]?.entries.map(entry => entry.event.seq)).toEqual([10, 11, 12, 13, 14, 15, 16, 17])
     off()
   })
 

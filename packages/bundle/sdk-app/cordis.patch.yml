@@ -11,6 +11,8 @@
 - insert:
     - id: sdk-app-startup
       name: '@deepseek-ai/dsh-sdk-app'
+      config:
+        profile: sdk
 
     - id: sdk-jsonrpc-server
       name: '@deepseek-ai/dsh-sdk-jsonrpc-server'

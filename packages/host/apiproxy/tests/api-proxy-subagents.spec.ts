@@ -107,7 +107,7 @@ describe('subagent gateway', () => {
       .toMatchObject({ ok: true, value: { entries: [{ activity: 'running' }] } })
   })
 
-  it('maps the missing projections capability to one wire face on list and prompt', async () => {
+  it('maps missing catalog projections on list without preflighting prompt delivery', async () => {
     const listError = () => new SubagentError(
       'listing subagents requires the sessionProjections registry (load @deepseek-ai/dsh-session-projection)',
       'SUBAGENT_CONTROL_PROJECTIONS_UNAVAILABLE',
@@ -124,8 +124,9 @@ describe('subagent gateway', () => {
     const prompt = bench({ listError: listError() })
     expect((await prompt.api.subagents.prompt(request({
       parentSessionId: PARENT, childSessionId: CHILD, mode: 'continuable', content: [],
-    }), new AbortController().signal)).result).toMatchObject({ ok: false, error: expected })
-    expect(prompt.followup).not.toHaveBeenCalled()
+    }), new AbortController().signal)).result).toMatchObject({ ok: true })
+    expect(prompt.listChildren).not.toHaveBeenCalled()
+    expect(prompt.followup).toHaveBeenCalledOnce()
   })
 
   it('routes human content through the exact live parent with rpc attribution', async () => {

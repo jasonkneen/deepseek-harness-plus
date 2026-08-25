@@ -14,8 +14,9 @@ import {
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { JsonTreeLabels, MarkdownLabels } from '@deepseek-ai/dsh-client-ui-primitives'
 import { structuredPatch } from 'diff'
+import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import type {
-  AssistantRequestConfig, ConversationPromptSnapshot,
+  AssistantRequestConfig, ConversationPromptSnapshot, RenderMessageImages,
 } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type {
   AssistantMetricDetail, TrajectoryCellKind, TrajectoryCellProps, TrajectorySourceBlock,
@@ -377,6 +378,8 @@ function AssistantTimingPanel({
 export interface TrajectoryTableProps {
   /** Trajectory locale seat. */
   t: TrajectoryTranslate
+  /** Slot-backed durable image renderer shared with the Chat gallery. */
+  renderImages: RenderMessageImages
   /** Session-global request numbers for the request groups visible in this context. */
   requestNumbers?: readonly TrajectoryRequestNumber[]
   /** Grouped records in display order. */
@@ -1121,10 +1124,12 @@ function MarkdownFragment({
 function SourceBlocks({
   blocks,
   onOpenCall,
+  renderImages,
   t,
 }: {
   blocks: readonly TrajectorySourceBlock[]
   onOpenCall: (callId: string) => void
+  renderImages: RenderMessageImages
   t: TrajectoryTranslate
 }) {
   return (
@@ -1155,8 +1160,10 @@ function SourceBlocks({
                 </span>
               </div>
             )}
-          {block.imageSrc !== undefined
-            ? <PanelImage block={block} t={t} />
+          {/* The Raw view keeps model block order and granularity: one
+              gallery per image block, unlike the aggregated record gallery. */}
+          {block.attachment !== undefined
+            ? renderImages({ images: [{ attachment: block.attachment }], align: 'start' })
             : <pre className={css.sourceBlockContent}>{block.content}</pre>}
         </section>
       ))}
@@ -1164,47 +1171,27 @@ function SourceBlocks({
   )
 }
 
-function PanelImage({
-  block,
-  preview = false,
-  t,
-}: {
-  block: TrajectorySourceBlock
-  preview?: boolean
-  t: TrajectoryTranslate
-}) {
-  if (block.imageSrc === undefined) return null
-  return (
-    <a
-      className={preview ? `${css.panelImageLink} ${css.panelImageLinkPreview}` : css.panelImageLink}
-      href={block.imageSrc}
-      target="_blank"
-      rel="noopener noreferrer"
-      title={t('block.openImage')}
-    >
-      <img
-        className={css.panelImage}
-        src={block.imageSrc}
-        alt={block.imageAlt ?? ''}
-      />
-    </a>
-  )
+function recordImages(
+  blocks: readonly TrajectorySourceBlock[] | undefined,
+): { readonly attachment: ImageAttachmentRef }[] {
+  return (blocks ?? []).flatMap(block =>
+    block.attachment !== undefined ? [{ attachment: block.attachment }] : [])
 }
 
 function MessageImages({
   blocks,
   preview,
-  t,
+  renderImages,
 }: {
   blocks: readonly TrajectorySourceBlock[] | undefined
   preview: boolean
-  t: TrajectoryTranslate
+  renderImages: RenderMessageImages
 }) {
-  const images = blocks?.filter(block => block.imageSrc !== undefined) ?? []
+  const images = recordImages(blocks)
   if (images.length === 0) return null
   return (
     <div className={preview ? `${css.messageImages} ${css.messageImagesPreview}` : css.messageImages}>
-      {images.map((block, index) => <PanelImage block={block} preview={preview} t={t} key={index} />)}
+      {renderImages({ images, align: 'start' })}
     </div>
   )
 }
@@ -1403,13 +1390,16 @@ function SystemPromptDiff({
 function ToolOutputBlocks({
   blocks,
   error,
+  errorDetail,
   preview,
-  t,
+  renderImages,
 }: {
   blocks: readonly TrajectorySourceBlock[]
   error: boolean
+  /** Failure name and code preserved beside image-only error content. */
+  errorDetail?: string | undefined
   preview: boolean
-  t: TrajectoryTranslate
+  renderImages: RenderMessageImages
 }) {
   return (
     <div className={[
@@ -1418,9 +1408,15 @@ function ToolOutputBlocks({
       error ? css.errorPayload : undefined,
     ].filter((value): value is string => value !== undefined).join(' ')}
     >
+      {error && errorDetail !== undefined && errorDetail !== ''
+        && <pre className={css.resultBlockText}>{errorDetail}</pre>}
       {blocks.map((block, index) => (
-        block.imageSrc !== undefined
-          ? <PanelImage block={block} preview={preview} t={t} key={index} />
+        block.attachment !== undefined
+          ? (
+            <div className={css.messageImages} key={index}>
+              {renderImages({ images: [{ attachment: block.attachment }], align: 'start' })}
+            </div>
+          )
           : block.content !== ''
             ? <pre className={css.resultBlockText} key={index}>{block.content}</pre>
             : null
@@ -1436,6 +1432,7 @@ function MarkdownRecordContent({
   thinkingExpanded,
   onThinkingExpandedChange,
   onOpenCall,
+  renderImages,
   t,
 }: {
   record: TableRecord
@@ -1444,10 +1441,18 @@ function MarkdownRecordContent({
   thinkingExpanded: boolean
   onThinkingExpandedChange: (expanded: boolean) => void
   onOpenCall: (callId: string) => void
+  renderImages: RenderMessageImages
   t: TrajectoryTranslate
 }) {
   if (!rendered && record.cell.sourceBlocks && record.cell.sourceBlocks.length > 0) {
-    return <SourceBlocks blocks={record.cell.sourceBlocks} onOpenCall={onOpenCall} t={t} />
+    return (
+      <SourceBlocks
+        blocks={record.cell.sourceBlocks}
+        onOpenCall={onOpenCall}
+        renderImages={renderImages}
+        t={t}
+      />
+    )
   }
   if (record.cell.thinkingDetail) {
     if (!rendered) {
@@ -1502,13 +1507,13 @@ function MarkdownRecordContent({
         <MessageImages
           blocks={record.cell.sourceBlocks}
           preview={preview}
-          t={t}
+          renderImages={renderImages}
         />
       </div>
     )
   }
   const source = markdownSource(record)
-  const hasImages = record.cell.sourceBlocks?.some(block => block.imageSrc !== undefined) === true
+  const hasImages = record.cell.sourceBlocks?.some(block => block.attachment !== undefined) === true
   const hasToolCalls = record.cell.kind === 'message'
     && record.cell.sourceBlocks?.some(block => block.type === 'tool-call') === true
   if (!source && !hasImages && !hasToolCalls) {
@@ -1531,7 +1536,7 @@ function MarkdownRecordContent({
           t={t}
         />
       )}
-      <MessageImages blocks={record.cell.sourceBlocks} preview={preview} t={t} />
+      <MessageImages blocks={record.cell.sourceBlocks} preview={preview} renderImages={renderImages} />
     </div>
   )
 }
@@ -1590,11 +1595,13 @@ function RecordPayload({
   record,
   direction,
   preview = false,
+  renderImages,
   t,
 }: {
   record: TableRecord
   direction: 'input' | 'output'
   preview?: boolean
+  renderImages: RenderMessageImages
   t: TrajectoryTranslate
 }) {
   const value = direction === 'input' ? record.cell.inputDetail : record.cell.outputDetail
@@ -1624,14 +1631,15 @@ function RecordPayload({
   if (
     direction === 'output'
     && record.cell.outputBlocks?.some(block =>
-      block.imageSrc !== undefined || block.content !== '') === true
+      block.attachment !== undefined || block.content !== '') === true
   ) {
     return (
       <ToolOutputBlocks
         blocks={record.cell.outputBlocks}
         error={error}
+        errorDetail={error ? value : undefined}
         preview={preview}
-        t={t}
+        renderImages={renderImages}
       />
     )
   }
@@ -1791,6 +1799,7 @@ function OverviewSection({
  */
 export function TrajectoryTable({
   t,
+  renderImages,
   requestNumbers: sessionRequestNumbers,
   turns,
   streamingCells = [],
@@ -2990,6 +2999,7 @@ export function TrajectoryTable({
                   >
                     <MarkdownRecordContent
                       record={selected}
+                      renderImages={renderImages}
                       rendered
                       thinkingExpanded={thinkingExpanded}
                       onThinkingExpandedChange={setThinkingExpanded}
@@ -3103,6 +3113,7 @@ export function TrajectoryTable({
                         <OverviewSection label={t('tab.preview')} onOpen={() => { activateTab('rendered') }}>
                           <MarkdownRecordContent
                             record={selected}
+                            renderImages={renderImages}
                             rendered
                             preview
                             thinkingExpanded={thinkingExpanded}
@@ -3117,12 +3128,12 @@ export function TrajectoryTable({
                       <>
                         {selected.cell.inputDetail && (
                           <OverviewSection label={t('tab.payload')} onOpen={() => { activateTab('input') }}>
-                            <RecordPayload record={selected} direction="input" preview t={t} />
+                            <RecordPayload record={selected} direction="input" preview renderImages={renderImages} t={t} />
                           </OverviewSection>
                         )}
                         {selected.cell.outputDetail && (
                           <OverviewSection label={t('tab.result')} onOpen={() => { activateTab('output') }}>
-                            <RecordPayload record={selected} direction="output" preview t={t} />
+                            <RecordPayload record={selected} direction="output" preview renderImages={renderImages} t={t} />
                           </OverviewSection>
                         )}
                         <OverviewSection label={t('tab.schema')} onOpen={() => { activateTab('schema') }}>
@@ -3151,6 +3162,7 @@ export function TrajectoryTable({
             {!promptSelected && selected !== undefined && activeTab === 'rendered' && (
               <MarkdownRecordContent
                 record={selected}
+                renderImages={renderImages}
                 rendered
                 thinkingExpanded={thinkingExpanded}
                 onThinkingExpandedChange={setThinkingExpanded}
@@ -3161,6 +3173,7 @@ export function TrajectoryTable({
             {!promptSelected && selected !== undefined && activeTab === 'raw' && (
               <MarkdownRecordContent
                 record={selected}
+                renderImages={renderImages}
                 rendered={false}
                 thinkingExpanded={thinkingExpanded}
                 onThinkingExpandedChange={setThinkingExpanded}
@@ -3172,10 +3185,10 @@ export function TrajectoryTable({
               <MessageSource record={selected} t={t} />
             )}
             {!promptSelected && selected !== undefined && activeTab === 'input' && (
-              <RecordPayload record={selected} direction="input" t={t} />
+              <RecordPayload record={selected} direction="input" renderImages={renderImages} t={t} />
             )}
             {!promptSelected && selected !== undefined && activeTab === 'output' && (
-              <RecordPayload record={selected} direction="output" t={t} />
+              <RecordPayload record={selected} direction="output" renderImages={renderImages} t={t} />
             )}
             {!promptSelected && selected !== undefined && activeTab === 'schema' && (
               <RecordSchema record={selected} t={t} />

@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-由 `apps/cli` 和 [`examples/`](../examples/README.zh.md) demo bin 共享、与渠道无关的启动库。
+由 `apps/cli` 与仅限测试的 Loader fixture 共享、与渠道无关的启动库。
 
 | 包 | 职责 | ctx 键 |
 |---|---|---|
