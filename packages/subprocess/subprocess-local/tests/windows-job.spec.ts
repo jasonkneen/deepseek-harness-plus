@@ -45,7 +45,8 @@ describe('Windows Job runner adapter', () => {
       spawn,
       runnerInvocation: invocation,
     })
-    expect(launch.pid).toBeGreaterThan(0)
+    expect(launch.pid).toBeUndefined()
+    await vi.waitFor(() => { expect(launch.pid).toBeGreaterThan(0) })
     await expect(launch.direct).resolves.toEqual({ exitCode: 7, signal: null })
     await expect(launch.owner.waitForExit()).resolves.toBeUndefined()
   })
@@ -88,7 +89,7 @@ describe('Windows Job runner adapter', () => {
     expect(kill).not.toHaveBeenCalled()
   })
 
-  it('lets a runner-reported startup failure close without a termination race', async () => {
+  it('uses runner exit status as the managed-range settlement fact after startup failure', async () => {
     const child = new EventEmitter() as ChildProcess
     const kill = vi.fn(() => true)
     const send = vi.fn()
@@ -105,7 +106,7 @@ describe('Windows Job runner adapter', () => {
 
     launch.owner.signal('SIGTERM')
     await expect(launch.direct).rejects.toMatchObject({ code: 'ENOENT' })
-    expect(send).not.toHaveBeenCalled()
+    expect(send).toHaveBeenCalledExactlyOnceWith({ type: 'terminate' }, expect.any(Function))
     expect(kill).not.toHaveBeenCalled()
     child.emit('close', 0, null)
     await expect(launch.owner.waitForExit()).resolves.toBeUndefined()
@@ -118,10 +119,11 @@ describe('Windows Job runner adapter', () => {
     const run = vi.fn(() => child) as unknown as typeof spawn
     const launch = launchWindowsJob(spec(['fake-target']), { spawn: run, runnerInvocation: ['missing-runner'] })
 
+    child.emit('error', new Error('spawn missing-runner ENOENT'))
+    child.emit('close', -2, null)
     await expect(launch.direct).rejects.toThrow('runner failed to start')
     launch.owner.signal('SIGTERM')
     expect(kill).not.toHaveBeenCalled()
-    child.emit('close', -2, null)
     await expect(launch.owner.waitForExit()).resolves.toBeUndefined()
   })
 

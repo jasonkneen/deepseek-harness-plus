@@ -3,7 +3,13 @@ import { existsSync } from 'node:fs'
 import { dirname } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import type { SubprocessSpawnSpec } from '@deepseek-ai/dsh-subprocess'
-import { launchLinuxScope, prepareLinuxTerminalScope, probeLinuxScope } from '../src/linux-scope.ts'
+import {
+  launchLinuxScope,
+  prepareLinuxTerminalScope,
+  probeLinuxRunner,
+  probeLinuxScope,
+  probeLinuxUserManager,
+} from '../src/linux-scope.ts'
 import { spawnRunnerInvocation } from '../src/runner-launch.ts'
 
 function spec(argv: string[]): SubprocessSpawnSpec {
@@ -29,7 +35,7 @@ function asyncQuery(runSync: typeof spawnSync) {
 }
 
 describe.skipIf(process.platform === 'win32')('Linux systemd scope adapter', () => {
-  it('requires a readable user manager and literal-argument systemd support', () => {
+  it('separates the live manager, stable scope, and ordinary-runner probes', () => {
     const secretName = 'DSH_SCOPE_TEST_TOKEN'
     const previousSecret = process.env[secretName]
     process.env[secretName] = 'secret'
@@ -42,12 +48,20 @@ describe.skipIf(process.platform === 'win32')('Linux systemd scope adapter', () 
     }) as unknown as typeof spawnSync
     const runnerInvocation: [string, ...string[]] = ['node-runtime', 'runner-entry.js']
     try {
+      expect(probeLinuxUserManager({
+        spawnSync: runSync,
+        systemctl: 'systemctl',
+      })).toBe(true)
+      expect(probeLinuxRunner({
+        spawnSync: runSync,
+        runnerInvocation,
+      })).toBe(true)
       expect(probeLinuxScope({
         spawnSync: runSync,
         systemdRun: 'systemd-run',
         systemctl: 'systemctl',
-        runnerInvocation,
       })).toBe(true)
+      expect(calls[0]).toEqual(['systemctl', '--user', 'show-environment'])
       expect(calls[1]).toEqual([...runnerInvocation, '--mode', 'probe-node'])
       expect(calls[2]).toContain('--expand-environment=no')
       expect(calls[2]).not.toContain('--pipe')
@@ -70,46 +84,30 @@ describe.skipIf(process.platform === 'win32')('Linux systemd scope adapter', () 
       else process.env[secretName] = previousSecret
     }
 
-    const oldSystemd = vi.fn((command: string) => ({
-      status: command === 'systemd-run' ? 1 : 0,
-      error: undefined,
-    })) as unknown as typeof spawnSync
+    const oldSystemd = vi.fn(() => ({ status: 1, error: undefined })) as unknown as typeof spawnSync
     expect(probeLinuxScope({ spawnSync: oldSystemd })).toBe(false)
-
-    const failedRunner = vi.fn((command: string) => ({
-      status: command === 'node-runtime' ? 1 : 0,
-      error: undefined,
-    })) as unknown as typeof spawnSync
     expect(probeLinuxScope({
+      spawnSync: vi.fn(() => ({ status: 0, error: new Error('scope failed') })) as unknown as typeof spawnSync,
+    })).toBe(false)
+
+    const failedRunner = vi.fn(() => ({ status: 1, error: undefined })) as unknown as typeof spawnSync
+    expect(probeLinuxRunner({
       spawnSync: failedRunner,
       runnerInvocation: ['node-runtime', 'runner-entry.js'],
     })).toBe(false)
-    expect(failedRunner).toHaveBeenCalledTimes(2)
-
-    let unreadableProbeCalls = 0
-    const unreadableScope = vi.fn(() => ({
-      status: ++unreadableProbeCalls === 3 ? 1 : 0,
-      error: undefined,
-    })) as unknown as typeof spawnSync
-    expect(probeLinuxScope({ spawnSync: unreadableScope })).toBe(false)
-
-    let erroredProbeCalls = 0
-    const erroredScope = vi.fn(() => {
-      erroredProbeCalls += 1
-      return erroredProbeCalls === 3
-        ? { status: null, error: new Error('scope read failed') }
-        : { status: 0, error: undefined }
-    }) as unknown as typeof spawnSync
-    expect(probeLinuxScope({ spawnSync: erroredScope })).toBe(false)
+    expect(failedRunner).toHaveBeenCalledOnce()
+    expect(probeLinuxRunner({
+      spawnSync: vi.fn(() => ({ status: 0, error: new Error('runner failed') })) as unknown as typeof spawnSync,
+      runnerInvocation: ['node-runtime', 'runner-entry.js'],
+    })).toBe(false)
 
     const managerError = new Error('missing user manager')
-    expect(probeLinuxScope({
+    expect(probeLinuxUserManager({
       spawnSync: vi.fn(() => ({ error: managerError })) as unknown as typeof spawnSync,
     })).toBe(false)
-    expect(probeLinuxScope({
+    expect(probeLinuxUserManager({
       spawnSync: vi.fn(() => ({ status: 1, error: undefined })) as unknown as typeof spawnSync,
     })).toBe(false)
-
   })
 
   it('removes private runner files when systemd-run throws synchronously', () => {
@@ -500,6 +498,8 @@ describe.skipIf(process.platform === 'win32')('Linux systemd scope adapter', () 
     })
     try {
       const defaults = await import('../src/linux-scope.ts')
+      expect(defaults.probeLinuxUserManager()).toBe(true)
+      expect(defaults.probeLinuxRunner()).toBe(true)
       expect(defaults.probeLinuxScope()).toBe(true)
       const terminalLaunch = defaults.prepareLinuxTerminalScope(['shell', 'literal $HOME'])
       expect(terminalLaunch.command).toBe('systemd-run')

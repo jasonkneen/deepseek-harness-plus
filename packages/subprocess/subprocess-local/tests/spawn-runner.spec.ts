@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it, vi } from 'vitest'
-import type { SubprocessOutcome, SubprocessSpawnSpec } from '@deepseek-ai/dsh-subprocess'
+import type { SubprocessSpawnSpec } from '@deepseek-ai/dsh-subprocess'
 import { Win32Error } from '@deepseek-ai/dsh-win32-process'
 import type { NativePtr, Win32ProcessBindings } from '@deepseek-ai/dsh-win32-process'
 import {
@@ -46,7 +46,9 @@ function spec(overrides: Partial<SubprocessSpawnSpec> = {}): SubprocessSpawnSpec
 }
 
 function fakeChild(pid: number | undefined): ChildProcess {
-  return { pid } as ChildProcess
+  const child = new EventEmitter() as ChildProcess
+  Object.assign(child, { pid, exitCode: null, signalCode: null })
+  return child
 }
 
 class FakeRunnerHost extends EventEmitter {
@@ -129,14 +131,20 @@ describe('spawn runner transport', () => {
     })
   })
 
-  it('does not require SharedArrayBuffer until a native handshake runs', async () => {
+  it('observes runner events without SharedArrayBuffer', async () => {
     const descriptor = Object.getOwnPropertyDescriptor(globalThis, 'SharedArrayBuffer')
     Object.defineProperty(globalThis, 'SharedArrayBuffer', { configurable: true, value: undefined })
     vi.resetModules()
+    const files = createRunnerFiles({ argv: ['node'], cwd: '.', env: {} })
     try {
       const isolated = await import('../src/runner-launch.ts')
-      expect(isolated.runnerStdio(spec())).toEqual(['ignore', 'pipe', 'pipe'])
+      const result = isolated.runnerDirectResult(fakeChild(123), files, new Promise<void>(() => {}))
+      appendRunnerEvent(files.eventsPath, { type: 'started', pid: 456 })
+      appendRunnerEvent(files.eventsPath, { type: 'exit', exitCode: 0, signal: null })
+      await expect(result.direct).resolves.toEqual({ exitCode: 0, signal: null })
+      expect(result.pid).toBe(456)
     } finally {
+      cleanupRunnerFiles(files)
       if (descriptor === undefined) Reflect.deleteProperty(globalThis, 'SharedArrayBuffer')
       else Object.defineProperty(globalThis, 'SharedArrayBuffer', descriptor)
       vi.resetModules()
@@ -988,7 +996,6 @@ describe('spawn runner transport', () => {
       })
       const result = runnerDirectResult(fakeChild(123), runnerFailure, new Promise<void>(() => {}))
       expect(result.pid).toBeUndefined()
-      expect(result.failureReported).toBe(true)
       await expect(result.direct).rejects.toMatchObject({ message: 'runner setup failed', code: 'EIO' })
     } finally {
       cleanupRunnerFiles(runnerFailure)
@@ -998,13 +1005,13 @@ describe('spawn runner transport', () => {
     try {
       appendRunnerEvent(afterStartFailure.eventsPath, { type: 'started', pid: 456 })
       const result = runnerDirectResult(fakeChild(123), afterStartFailure, new Promise<void>(() => {}))
+      const directFailure = result.direct.catch((error: unknown) => error)
       appendRunnerEvent(afterStartFailure.eventsPath, {
         type: 'runner-error',
         error: { name: 'Error', message: 'post-start runner failed', code: 'EIO' },
       })
-      expect(result.pid).toBe(456)
-      expect(result.failureReported).toBe(false)
-      await expect(result.direct).rejects.toMatchObject({ message: 'post-start runner failed', code: 'EIO' })
+      await vi.waitFor(() => { expect(result.pid).toBe(456) })
+      await expect(directFailure).resolves.toMatchObject({ message: 'post-start runner failed', code: 'EIO' })
     } finally {
       cleanupRunnerFiles(afterStartFailure)
     }
@@ -1013,8 +1020,7 @@ describe('spawn runner transport', () => {
     try {
       appendRunnerEvent(missing.eventsPath, { type: 'started', pid: 456 })
       const result = runnerDirectResult(fakeChild(123), missing, Promise.resolve())
-      expect(result.pid).toBe(456)
-      expect(result.failureReported).toBe(false)
+      await vi.waitFor(() => { expect(result.pid).toBe(456) })
       await expect(result.direct).rejects.toThrow('exited without a direct-command result')
     } finally {
       cleanupRunnerFiles(missing)
@@ -1022,7 +1028,7 @@ describe('spawn runner transport', () => {
 
   })
 
-  it('publishes terminal events already present in the handshake snapshot', async () => {
+  it('publishes terminal events already present when asynchronous observation starts', async () => {
     const failed = createRunnerFiles({ argv: ['node'], cwd: '.', env: {} })
     try {
       appendRunnerEvent(failed.eventsPath, {
@@ -1030,12 +1036,7 @@ describe('spawn runner transport', () => {
         error: { name: 'Error', message: 'target missing', code: 'ENOENT' },
       })
       const result = runnerDirectResult(fakeChild(123), failed, new Promise<void>(() => {}))
-      let observed: Error | undefined
-      void result.direct.catch((error: unknown) => {
-        observed = error instanceof Error ? error : new Error(String(error))
-      })
-      await Promise.resolve()
-      expect(observed).toMatchObject({ message: 'target missing', code: 'ENOENT' })
+      await expect(result.direct).rejects.toMatchObject({ message: 'target missing', code: 'ENOENT' })
     } finally {
       cleanupRunnerFiles(failed)
     }
@@ -1045,10 +1046,8 @@ describe('spawn runner transport', () => {
       appendRunnerEvent(exited.eventsPath, { type: 'started', pid: 456 })
       appendRunnerEvent(exited.eventsPath, { type: 'exit', exitCode: 23, signal: null })
       const result = runnerDirectResult(fakeChild(123), exited, new Promise<void>(() => {}))
-      let observed: SubprocessOutcome | undefined
-      void result.direct.then((outcome) => { observed = outcome })
-      await Promise.resolve()
-      expect(observed).toEqual({ exitCode: 23, signal: null })
+      await expect(result.direct).resolves.toEqual({ exitCode: 23, signal: null })
+      expect(result.pid).toBe(456)
     } finally {
       cleanupRunnerFiles(exited)
     }
@@ -1075,7 +1074,6 @@ describe('spawn runner transport', () => {
       const exited = Promise.withResolvers<undefined>()
       const isolated = await import('../src/runner-launch.ts')
       const result = isolated.runnerDirectResult(fakeChild(123), files, exited.promise)
-      expect(result.failureReported).toBe(false)
       expect(readCount).toBe(1)
       exited.resolve(undefined)
       await Promise.resolve()
@@ -1116,7 +1114,6 @@ describe('spawn runner transport', () => {
       const lifecycle = observeChildLifecycle(child)
       const result = runnerDirectResult(child, files, lifecycle.exited)
       expect(result.pid).toBeUndefined()
-      expect(result.failureReported).toBe(false)
       await expect(result.direct).rejects.toThrow('runner failed to start')
       await expect(lifecycle.closed).resolves.toBeUndefined()
     } finally {
@@ -1124,32 +1121,17 @@ describe('spawn runner transport', () => {
     }
   })
 
-  it('reports runner startup failure and handshake timeout without leaking request files', async () => {
-    const missingChild = createRunnerFiles({ argv: ['node'], cwd: '.', env: {} })
-    const missingResult = runnerDirectResult(fakeChild(undefined), missingChild, new Promise<void>(() => {}))
-    expect(missingResult.pid).toBeUndefined()
-    expect(missingResult.failureReported).toBe(false)
-    await expect(missingResult.direct).rejects.toThrow('runner failed to start')
-    expect(existsSync(missingChild.directory)).toBe(false)
-
-    const exitedChild = createRunnerFiles({ argv: ['node'], cwd: '.', env: {} })
-    const exitedResult = runnerDirectResult(fakeChild(2_147_483_647), exitedChild, new Promise<void>(() => {}))
-    expect(exitedResult.pid).toBeUndefined()
-    expect(exitedResult.failureReported).toBe(false)
-    await expect(exitedResult.direct).rejects.toThrow('exited before reporting target start')
-    expect(existsSync(exitedChild.directory)).toBe(false)
-
-    const timedOut = createRunnerFiles({ argv: ['node'], cwd: '.', env: {} })
-    const now = vi.spyOn(Date, 'now').mockReturnValueOnce(0).mockReturnValue(10_001)
+  it('returns before target publication and updates the pid getter from runner events', async () => {
+    const files = createRunnerFiles({ argv: ['node'], cwd: '.', env: {} })
     try {
-      const timedOutResult = runnerDirectResult(fakeChild(process.pid), timedOut, new Promise<void>(() => {}))
-      expect(timedOutResult.pid).toBeUndefined()
-      expect(timedOutResult.failureReported).toBe(false)
-      await expect(timedOutResult.direct).rejects.toThrow('did not report target start')
-      expect(existsSync(timedOut.directory)).toBe(false)
+      const result = runnerDirectResult(fakeChild(process.pid), files, new Promise<void>(() => {}))
+      expect(result.pid).toBeUndefined()
+      appendRunnerEvent(files.eventsPath, { type: 'started', pid: 456 })
+      await vi.waitFor(() => { expect(result.pid).toBe(456) })
+      appendRunnerEvent(files.eventsPath, { type: 'exit', exitCode: 0, signal: null })
+      await expect(result.direct).resolves.toEqual({ exitCode: 0, signal: null })
     } finally {
-      now.mockRestore()
-      cleanupRunnerFiles(timedOut)
+      cleanupRunnerFiles(files)
     }
   })
 

@@ -46,12 +46,11 @@ class WindowsJobOwner implements BoundProcessOwner {
 
   constructor(
     private readonly runner: ReturnType<typeof spawn>,
-    private readonly startupFailureReported: boolean,
   ) {
     this.observation = new Promise((resolve, reject) => {
       runner.once('close', (exitCode, signal) => {
         this.runnerClosed = true
-        if (this.startupFailureReported || this.runner.pid === undefined || (exitCode === 0 && signal === null)) {
+        if (this.runner.pid === undefined || (exitCode === 0 && signal === null)) {
           this.stopped = true
           resolve()
           return
@@ -70,7 +69,7 @@ class WindowsJobOwner implements BoundProcessOwner {
   }
 
   signal(_signal: 'SIGTERM' | 'SIGKILL'): void {
-    if (this.stopped || this.runnerClosed || this.startupFailureReported || this.runner.pid === undefined) return
+    if (this.stopped || this.runnerClosed || this.runner.pid === undefined) return
     try {
       if (this.runner.connected) {
         this.runner.send({ type: 'terminate' }, (error) => {
@@ -136,7 +135,7 @@ export function launchWindowsJob(
   }
   const lifecycle = observeChildLifecycle(child)
   const result = runnerDirectResult(child, files, lifecycle.exited)
-  const owner = new WindowsJobOwner(child, result.failureReported)
+  const owner = new WindowsJobOwner(child)
   void result.direct.then(
     () => { stdio.closeInput() },
     () => { stdio.dispose() },
@@ -146,7 +145,7 @@ export function launchWindowsJob(
     stdin: stdio.stdin,
     stdout: stdio.stdout,
     stderr: stdio.stderr,
-    pid: result.pid,
+    get pid() { return result.pid },
     direct: result.direct,
     owner,
   }

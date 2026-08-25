@@ -1,7 +1,6 @@
 /** Parent-side launch and direct-result transport for native runners. */
 
 import type { ChildProcess, StdioOptions } from 'node:child_process'
-import { readFileSync } from 'node:fs'
 import { extname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { setTimeout as sleepMs } from 'node:timers/promises'
@@ -10,14 +9,12 @@ import {
   cleanupRunnerFiles,
   createRunnerFiles,
   deserializeSpawnError,
-  readRunnerEvents,
   readRunnerEventsAsync,
 } from './runner-protocol.ts'
 import type { RunnerEvent, RunnerFiles, RunnerRequest } from './runner-protocol.ts'
 import { DirectResultUnavailableError } from './managed-owner.ts'
 import { childEnv } from './spawn.ts'
 
-const RUNNER_HANDSHAKE_TIMEOUT_MS = 10_000
 const RUNNER_EVENT_POLL_MS = 100
 const PACKAGED_RUNNER_ARG = '--dsh-internal-subprocess-runner'
 
@@ -67,12 +64,6 @@ export function runnerFiles(spec: SubprocessSpawnSpec): RunnerFiles {
   return createRunnerFiles(request)
 }
 
-interface RunnerHandshake {
-  pid: number | undefined
-  events: RunnerEvent[]
-  failureReported: boolean
-}
-
 function directTerminalResult(
   events: readonly RunnerEvent[],
 ): { outcome: SubprocessOutcome } | { error: Error } | undefined {
@@ -87,53 +78,13 @@ function directTerminalResult(
   return undefined
 }
 
-/** Observe wrapper death without waiting for Node's blocked event loop to emit close. */
-function runnerExited(child: ChildProcess, pid: number): boolean {
-  if (child.exitCode !== null || child.signalCode !== null) return true
-  /* v8 ignore start -- Linux zombie detection is exercised by the real user-systemd test environment. */
-  if (process.platform === 'linux') {
-    try {
-      const stat = readFileSync(`/proc/${String(pid)}/stat`, 'utf8')
-      const suffix = stat.slice(stat.lastIndexOf(')') + 2)
-      if (suffix.startsWith('Z') || suffix.startsWith('X')) return true
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return true
-    }
-  }
-  /* v8 ignore stop */
-  try {
-    process.kill(pid, 0)
-    return false
-  } catch (error) {
-    /* v8 ignore next -- EPERM means the known process still exists but is not signalable. */
-    return (error as NodeJS.ErrnoException).code === 'ESRCH'
-  }
-}
-
-/** Wait synchronously only until the runner reports target start or spawn failure. */
-function waitForRunnerHandshake(child: ChildProcess, files: RunnerFiles): RunnerHandshake {
-  const handshakeWait = new Int32Array(new SharedArrayBuffer(4))
-  const deadline = Date.now() + RUNNER_HANDSHAKE_TIMEOUT_MS
-  while (Date.now() < deadline) {
-    const events = readRunnerEvents(files.eventsPath)
-    const terminal = events.find(event => event.type === 'started' || event.type === 'spawn-error' || event.type === 'runner-error')
-    if (terminal?.type === 'started') return { pid: terminal.pid, events, failureReported: false }
-    if (terminal?.type === 'spawn-error' || terminal?.type === 'runner-error') {
-      return { pid: undefined, events, failureReported: true }
-    }
-    if (child.pid === undefined) throw new Error('native subprocess runner failed to start')
-    if (runnerExited(child, child.pid)) throw new Error('native subprocess runner exited before reporting target start')
-    Atomics.wait(handshakeWait, 0, 0, 5)
-  }
-  throw new Error(`native subprocess runner did not report target start within ${String(RUNNER_HANDSHAKE_TIMEOUT_MS)}ms`)
-}
-
 async function waitForDirectResult(
+  child: ChildProcess,
   files: RunnerFiles,
-  initial: RunnerEvent[],
   exited: Promise<void>,
+  publishPid: (pid: number) => void,
 ): Promise<SubprocessOutcome> {
-  let seen = initial.length
+  let seen = 0
   const wrapperState = { exited: false }
   void exited.then(() => { wrapperState.exited = true })
   for (;;) {
@@ -142,13 +93,18 @@ async function waitForDirectResult(
     // event was written before the runner exited.
     const exitedBeforeRead = wrapperState.exited
     const events = await readRunnerEventsAsync(files.eventsPath)
-    const terminal = directTerminalResult(events.slice(seen))
+    const added = events.slice(seen)
+    for (const event of added) {
+      if (event.type === 'started') publishPid(event.pid)
+    }
+    const terminal = directTerminalResult(added)
     if (terminal !== undefined) {
       if ('error' in terminal) throw terminal.error
       return terminal.outcome
     }
     seen = Math.max(seen, events.length)
     if (exitedBeforeRead) {
+      if (child.pid === undefined) throw new Error('native subprocess runner failed to start')
       throw new DirectResultUnavailableError('native subprocess runner exited without a direct-command result')
     }
     await sleepMs(RUNNER_EVENT_POLL_MS)
@@ -156,37 +112,24 @@ async function waitForDirectResult(
 }
 
 /**
- * Bind runner events into one direct result while preserving the target pid.
+ * Bind asynchronous runner events into one direct result and target-pid getter.
  * @param child - native wrapper process.
  * @param files - private request and result paths.
- * @param exited - wrapper exit/error observation attached before the start handshake.
- * @returns target pid, direct result, and whether the runner already reported a pre-start terminal failure.
+ * @param exited - wrapper exit/error observation attached before event polling.
+ * @returns a live target-pid view plus the direct result.
  */
 export function runnerDirectResult(
   child: ChildProcess,
   files: RunnerFiles,
   exited: Promise<void>,
 ): {
-  pid: number | undefined
+  readonly pid: number | undefined
   direct: Promise<SubprocessOutcome>
-  failureReported: boolean
 } {
-  let handshake: RunnerHandshake
-  try {
-    handshake = waitForRunnerHandshake(child, files)
-  } catch (error) {
-    cleanupRunnerFiles(files)
-    return { pid: undefined, direct: Promise.resolve().then(() => { throw error }), failureReported: false }
-  }
-  const terminal = directTerminalResult(handshake.events)
+  let pid: number | undefined
   return {
-    pid: handshake.pid,
-    direct: terminal === undefined
-      ? waitForDirectResult(files, handshake.events, exited)
-      : 'error' in terminal
-        ? Promise.reject(terminal.error)
-        : Promise.resolve(terminal.outcome),
-    failureReported: handshake.failureReported,
+    get pid() { return pid },
+    direct: waitForDirectResult(child, files, exited, (published) => { pid = published }),
   }
 }
 

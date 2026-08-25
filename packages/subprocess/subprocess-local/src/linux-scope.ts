@@ -65,30 +65,48 @@ function unitStem(prefix: string): string {
 }
 
 /**
- * Confirm a modern readable user manager and literal-argument scope launch.
- * @param internals - injected command paths and runners.
- * @returns true only before any user command is selected for native launch.
+ * Confirm that the live user manager is readable for this launch.
+ * @param internals - injected command paths used by tests.
+ * @returns true when the current user manager can be queried.
  */
-export function probeLinuxScope(internals: LinuxScopeInternals = {}): boolean {
+export function probeLinuxUserManager(internals: LinuxScopeInternals = {}): boolean {
   const runSync = internals.spawnSync ?? spawnSync
-  const invocation = internals.runnerInvocation ?? spawnRunnerInvocation()
-  const [runnerCommand, ...runnerPrefix] = invocation
-  const systemdRun = internals.systemdRun ?? 'systemd-run'
   const systemctl = internals.systemctl ?? 'systemctl'
-  const timeout = 5_000
   const manager = runSync(systemctl, ['--user', 'show-environment'], {
     encoding: 'utf8',
     env: systemctlEnv(),
     stdio: 'ignore',
-    timeout,
+    timeout: SYSTEMCTL_TIMEOUT_MS,
   })
-  if (manager.error !== undefined || manager.status !== 0) return false
+  return manager.error === undefined && manager.status === 0
+}
+
+/**
+ * Confirm that the ordinary native runner is executable on this host.
+ * @param internals - injected runner invocation used by tests.
+ * @returns true when the private ordinary runner probe succeeds.
+ */
+export function probeLinuxRunner(internals: LinuxScopeInternals = {}): boolean {
+  const runSync = internals.spawnSync ?? spawnSync
+  const invocation = internals.runnerInvocation ?? spawnRunnerInvocation()
+  const [runnerCommand, ...runnerPrefix] = invocation
   const runner = runSync(runnerCommand, [...runnerPrefix, '--mode', 'probe-node'], {
     env: childEnv(),
     stdio: 'ignore',
-    timeout,
+    timeout: SYSTEMCTL_TIMEOUT_MS,
   })
-  if (runner.error !== undefined || runner.status !== 0) return false
+  return runner.error === undefined && runner.status === 0
+}
+
+/**
+ * Confirm literal-argument transient-scope support and readable scope state.
+ * @param internals - injected command paths used by tests.
+ * @returns true only before any user command is selected for native launch.
+ */
+export function probeLinuxScope(internals: LinuxScopeInternals = {}): boolean {
+  const runSync = internals.spawnSync ?? spawnSync
+  const systemdRun = internals.systemdRun ?? 'systemd-run'
+  const systemctl = internals.systemctl ?? 'systemctl'
   const unitBase = unitStem('dsh-subprocess-probe')
   const probe = runSync(systemdRun, [
     '--user',
@@ -107,7 +125,7 @@ export function probeLinuxScope(internals: LinuxScopeInternals = {}): boolean {
   ], {
     env: childEnv(),
     stdio: 'ignore',
-    timeout,
+    timeout: SYSTEMCTL_TIMEOUT_MS,
   })
   return probe.error === undefined && probe.status === 0
 }
@@ -293,7 +311,7 @@ export function launchLinuxScope(
     stdin: child.stdin,
     stdout: child.stdout,
     stderr: child.stderr,
-    pid: result.pid,
+    get pid() { return result.pid },
     direct,
     owner,
   }

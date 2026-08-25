@@ -407,7 +407,7 @@ describe('E2BSubprocessHandle', () => {
     handle.stdin!.end()
     fake.releaseStart()
     await flush()
-    expect(handle.pid).toBe(4343)
+    expect(handle.pid).toBeUndefined()
     expect(fake.handle.sent.map(value => String(value))).toEqual(['hello'])
     expect(fake.handle.closes).toBe(1)
     const controlEnvs = fake.startOptions?.envs
@@ -1449,11 +1449,12 @@ describe('E2BSubprocessHandle', () => {
     await expect(observed.waitForExit()).resolves.toBe(true)
   })
 
-  it('waits for delayed process-group publication', async () => {
+  it('keeps the public pid unavailable after delayed private process-group publication', async () => {
     const fake = new FakeSandbox()
     fake.processGroupReads.push('', '4242\n')
     const handle = testHandle(runtime(fake), spec(), '/runtime/delayed-group')
-    await vi.waitFor(() => { expect(handle.pid).toBe(4242) })
+    await vi.waitFor(() => { expect(fake.processGroupReads).toHaveLength(0) })
+    expect(handle.pid).toBeUndefined()
     fake.finish()
     await expect(handle.done).resolves.toEqual({ exitCode: 0, signal: null })
   })

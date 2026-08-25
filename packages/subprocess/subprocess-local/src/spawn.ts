@@ -562,7 +562,7 @@ export function bindManagedProcess(
   }
 
   return {
-    pid: launch.pid,
+    get pid() { return launch.pid },
     /* v8 ignore start -- pipe-mode streams exist on every conforming launch;
        the null-coalesces guard an internal adapter defect only. */
     stdin: stdinMode === 'pipe' ? stdin ?? undefined : undefined,

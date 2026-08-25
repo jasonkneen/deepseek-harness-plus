@@ -1672,4 +1672,23 @@ describe('query and process disposal', () => {
     ])
     expect(waitFailure.terminate).toHaveBeenCalledOnce()
   })
+
+  it('reports a tree-wait failure without waiting for a pending direct outcome', async () => {
+    const waitFailure = new Error('managed range observation failed')
+    const child = fakeChild({
+      exitOnTerminate: false,
+      waitForExitError: waitFailure,
+    })
+    const result = await Promise.race([
+      disposeClaudeCodeChild({ close: vi.fn() }, child.handle).then(
+        () => undefined,
+        (error: unknown) => error,
+      ),
+      new Promise<'timeout'>(resolve => setTimeout(() => { resolve('timeout') }, 100)),
+    ])
+
+    expect(result).not.toBe('timeout')
+    expect(errorCause(result)).toBe(waitFailure)
+    expect(child.terminate).toHaveBeenCalledOnce()
+  })
 })

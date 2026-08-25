@@ -16,6 +16,26 @@ function spec(graceMs = 30): SubprocessSpawnSpec {
 }
 
 describe('managed process binding', () => {
+  it('forwards target pid publication after the handle is returned', async () => {
+    const target = { pid: undefined as number | undefined }
+    const handle = bindManagedProcess({
+      ...spec(),
+      stdio: { stdin: 'ignore', stdout: 'inherit', stderr: 'inherit' },
+    }, {
+      stdin: null,
+      stdout: null,
+      stderr: null,
+      get pid() { return target.pid },
+      direct: Promise.resolve({ exitCode: 0, signal: null }),
+      owner: { signal: vi.fn(), waitForExit: async () => {} },
+    })
+
+    expect(handle.pid).toBeUndefined()
+    target.pid = 4242
+    expect(handle.pid).toBe(4242)
+    await expect(handle.done).resolves.toEqual({ exitCode: 0, signal: null })
+  })
+
   it('does not miss an abort between the initial check and listener registration', async () => {
     let aborted = false
     const addEventListener = vi.fn(() => { aborted = true })

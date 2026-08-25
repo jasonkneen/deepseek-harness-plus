@@ -270,6 +270,11 @@ export async function disposeClaudeCodeChild(
   child: SubprocessHandle,
 ): Promise<void> {
   const failures: Error[] = []
+  let outcome: SubprocessOutcome | undefined
+  void child.done.then(
+    (value) => { outcome = value },
+    () => {},
+  )
   try {
     query?.close()
   } catch (error: unknown) {
@@ -282,7 +287,6 @@ export async function disposeClaudeCodeChild(
   } catch (error: unknown) {
     failures.push(thrown(error))
   }
-  const outcome = await child.done.catch(() => undefined)
 
   const firstFailure = failures[0]
   if (firstFailure !== undefined) {
@@ -296,6 +300,7 @@ export async function disposeClaudeCodeChild(
       : new AggregateError(failures, 'Claude Code teardown failures')
     throw new ClaudeCodeFailure(facts, cause)
   }
+  await child.done.catch(() => {})
 }
 
 /**

@@ -73,7 +73,7 @@ function directSpawnFailure(argv: string[], cwd = scratch): Promise<SpawnFailure
 const windowsNative = process.platform === 'win32' && probeWindowsJob()
 
 describe.skipIf(!windowsNative)('Windows Job native containment', () => {
-  it('keeps raw stdin writable after the launch handshake', async () => {
+  it('keeps raw stdin writable before target pid publication', async () => {
     const output = join(scratch, `stdin-${Date.now()}.txt`)
     const script = `
       const { writeFileSync } = require('node:fs')
@@ -90,11 +90,11 @@ describe.skipIf(!windowsNative)('Windows Job native containment', () => {
     if (handle.stdin === undefined) throw new Error('expected piped stdin')
     await new Promise<void>((resolve, reject) => {
       handle.stdin?.once('error', reject)
-      handle.stdin?.end('after-handshake', resolve)
+      handle.stdin?.end('before-publication', resolve)
     })
     await expect(handle.done).resolves.toEqual({ exitCode: 0, signal: null })
     await expect(handle.waitForExit()).resolves.toBe(true)
-    expect(readFileSync(output, 'utf8')).toBe('after-handshake')
+    expect(readFileSync(output, 'utf8')).toBe('before-publication')
   })
 
   it('reports direct exit before terminating its default-inheritance descendant', async () => {

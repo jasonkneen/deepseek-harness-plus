@@ -29,7 +29,13 @@ import {
   validateSubprocessSpec,
 } from './spawn.ts'
 import type { LocalSubprocessHandle, SpawnInternals } from './spawn.ts'
-import { launchLinuxScope, prepareLinuxTerminalScope, probeLinuxScope } from './linux-scope.ts'
+import {
+  launchLinuxScope,
+  prepareLinuxTerminalScope,
+  probeLinuxRunner,
+  probeLinuxScope,
+  probeLinuxUserManager,
+} from './linux-scope.ts'
 import { launchWindowsJob, probeWindowsJob } from './windows-job.ts'
 import { createProcessInspector } from './process-inspector.ts'
 import type { ProcessInspector } from './process-inspector.ts'
@@ -51,6 +57,12 @@ export class LocalSubprocessRuntime extends SubprocessRuntime {
   internals: SpawnInternals = {}
   /** Provider-lifetime latch suppressing repeated weaker-containment warnings. */
   private fallbackWarningIssued = false
+  /** Stable Linux scope features, cached only after a successful probe. */
+  private linuxScopeCapabilityConfirmed = false
+  /** Stable ordinary-runner availability, cached only after a successful probe. */
+  private linuxRunnerCapabilityConfirmed = false
+  /** Stable Windows Job support, cached only after a successful probe. */
+  private windowsJobCapabilityConfirmed = false
   /** Test hook for platform process inspection; production resolves lazily on terminal spawn. */
   terminalInspector: ProcessInspector | undefined
 
@@ -183,8 +195,25 @@ export class LocalSubprocessRuntime extends SubprocessRuntime {
     kind: 'ordinary' | 'terminal',
   ): 'linux-scope' | 'windows-job' | 'fallback' {
     const platform = this.internals.platform ?? process.platform
-    if (platform === 'linux' && probeLinuxScope()) return 'linux-scope'
-    if (kind === 'ordinary' && platform === 'win32' && probeWindowsJob()) return 'windows-job'
+    if (platform === 'linux') {
+      const managerAvailable = probeLinuxUserManager()
+      if (managerAvailable && !this.linuxScopeCapabilityConfirmed) {
+        this.linuxScopeCapabilityConfirmed = probeLinuxScope()
+      }
+      if (managerAvailable && this.linuxScopeCapabilityConfirmed) {
+        if (kind === 'terminal') return 'linux-scope'
+        if (!this.linuxRunnerCapabilityConfirmed) {
+          this.linuxRunnerCapabilityConfirmed = probeLinuxRunner()
+        }
+        if (this.linuxRunnerCapabilityConfirmed) return 'linux-scope'
+      }
+    }
+    if (kind === 'ordinary' && platform === 'win32') {
+      if (!this.windowsJobCapabilityConfirmed) {
+        this.windowsJobCapabilityConfirmed = probeWindowsJob()
+      }
+      if (this.windowsJobCapabilityConfirmed) return 'windows-job'
+    }
     this.warnFallback(platform, kind)
     return 'fallback'
   }

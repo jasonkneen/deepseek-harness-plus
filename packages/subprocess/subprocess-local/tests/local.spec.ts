@@ -409,7 +409,11 @@ describe('LocalSubprocessRuntime', () => {
       args: ['--user', '--scope', '--', ...argv],
       bindOwner,
     }))
+    const probeLinuxUserManager = vi.fn(() => true)
     const probeLinuxScope = vi.fn(() => true)
+    const probeLinuxRunner = vi.fn(() => {
+      throw new Error('terminal selection must not probe the ordinary runner')
+    })
     const inspector = {
       foregroundPgid: () => undefined,
       isStdinWaiting: () => false,
@@ -425,7 +429,9 @@ describe('LocalSubprocessRuntime', () => {
     vi.doMock('../src/linux-scope.ts', () => ({
       launchLinuxScope: vi.fn(),
       prepareLinuxTerminalScope,
+      probeLinuxRunner,
       probeLinuxScope,
+      probeLinuxUserManager,
     }))
     let fiber: { dispose(): Promise<void> } | undefined
     try {
@@ -440,7 +446,9 @@ describe('LocalSubprocessRuntime', () => {
         argv: ['shell', '--literal'], cwd: process.cwd(), rows: 24, cols: 80, graceMs: 10,
       })
 
+      expect(probeLinuxUserManager).toHaveBeenCalledOnce()
       expect(probeLinuxScope).toHaveBeenCalledOnce()
+      expect(probeLinuxRunner).not.toHaveBeenCalled()
       expect(prepareLinuxTerminalScope).toHaveBeenCalledExactlyOnceWith(['shell', '--literal'])
       expect(nodePtySpawn).toHaveBeenCalledWith(
         '/usr/bin/systemd-run',
@@ -566,12 +574,14 @@ describe('LocalSubprocessRuntime', () => {
     }
   })
 
-  it('selects an available native owner for every eligible spawn and contains release-observer failures', async () => {
+  it('rechecks the Linux manager while caching successful stable native probes', async () => {
     const linuxLaunch = { kind: 'linux' }
     const windowsLaunch = { kind: 'windows' }
     const launchLinuxScope = vi.fn(() => linuxLaunch)
     const launchWindowsJob = vi.fn(() => windowsLaunch)
+    const probeLinuxUserManager = vi.fn(() => true)
     const probeLinuxScope = vi.fn(() => true)
+    const probeLinuxRunner = vi.fn(() => true)
     const probeWindowsJob = vi.fn(() => true)
     const prepareManagedProcessBinding = vi.fn(() => ({ spillDir: '/tmp/dsh-test-spill' }))
     let nextPid = 100
@@ -598,7 +608,13 @@ describe('LocalSubprocessRuntime', () => {
     const spawnSubprocess = vi.fn()
 
     vi.resetModules()
-    vi.doMock('../src/linux-scope.ts', () => ({ launchLinuxScope, probeLinuxScope }))
+    vi.doMock('../src/linux-scope.ts', () => ({
+      launchLinuxScope,
+      prepareLinuxTerminalScope: vi.fn(),
+      probeLinuxRunner,
+      probeLinuxScope,
+      probeLinuxUserManager,
+    }))
     vi.doMock('../src/windows-job.ts', () => ({ launchWindowsJob, probeWindowsJob }))
     vi.doMock('../src/spawn.ts', async importOriginal => ({
       ...await importOriginal<typeof import('../src/spawn.ts')>(),
@@ -622,7 +638,9 @@ describe('LocalSubprocessRuntime', () => {
       await new Promise(resolve => setImmediate(resolve))
       await linuxRuntime.spawn(spec('true')).done
       await new Promise(resolve => setImmediate(resolve))
-      expect(probeLinuxScope).toHaveBeenCalledTimes(3)
+      expect(probeLinuxUserManager).toHaveBeenCalledTimes(3)
+      expect(probeLinuxScope).toHaveBeenCalledOnce()
+      expect(probeLinuxRunner).toHaveBeenCalledOnce()
       expect(launchLinuxScope).toHaveBeenCalledTimes(2)
 
       const windowsContext = new Context()
@@ -646,6 +664,78 @@ describe('LocalSubprocessRuntime', () => {
       vi.doUnmock('../src/linux-scope.ts')
       vi.doUnmock('../src/windows-job.ts')
       vi.doUnmock('../src/spawn.ts')
+      vi.resetModules()
+    }
+  })
+
+  it('retries failed stable probes and does not cache Linux manager availability', async () => {
+    const probeLinuxUserManager = vi.fn()
+      .mockReturnValueOnce(false)
+      .mockReturnValueOnce(true)
+      .mockReturnValueOnce(true)
+      .mockReturnValueOnce(true)
+      .mockReturnValueOnce(false)
+      .mockReturnValueOnce(true)
+    const probeLinuxScope = vi.fn()
+      .mockReturnValueOnce(false)
+      .mockReturnValueOnce(true)
+    const probeLinuxRunner = vi.fn()
+      .mockReturnValueOnce(false)
+      .mockReturnValueOnce(true)
+    const probeWindowsJob = vi.fn()
+      .mockReturnValueOnce(false)
+      .mockReturnValueOnce(true)
+
+    vi.resetModules()
+    vi.doMock('../src/linux-scope.ts', () => ({
+      launchLinuxScope: vi.fn(),
+      prepareLinuxTerminalScope: vi.fn(),
+      probeLinuxRunner,
+      probeLinuxScope,
+      probeLinuxUserManager,
+    }))
+    vi.doMock('../src/windows-job.ts', () => ({ launchWindowsJob: vi.fn(), probeWindowsJob }))
+    const fibers: Array<{ dispose(): Promise<void> }> = []
+    try {
+      const { default: IsolatedLocalSubprocessRuntime } = await import('../src/index.ts')
+      const linuxContext = new Context()
+      vi.spyOn(linuxContext.logger, 'warn').mockImplementation(() => {})
+      const linuxFiber = await linuxContext.plugin(IsolatedLocalSubprocessRuntime)
+      fibers.push(linuxFiber)
+      const linuxRuntime = linuxContext.subprocess as InstanceType<typeof IsolatedLocalSubprocessRuntime>
+      linuxRuntime.internals = { platform: 'linux' }
+      const linuxSelect = (linuxRuntime as unknown as {
+        selectContainmentMode(kind: 'ordinary' | 'terminal'): 'linux-scope' | 'windows-job' | 'fallback'
+      }).selectContainmentMode.bind(linuxRuntime)
+
+      expect(linuxSelect('ordinary')).toBe('fallback')
+      expect(linuxSelect('ordinary')).toBe('fallback')
+      expect(linuxSelect('ordinary')).toBe('fallback')
+      expect(linuxSelect('ordinary')).toBe('linux-scope')
+      expect(linuxSelect('ordinary')).toBe('fallback')
+      expect(linuxSelect('ordinary')).toBe('linux-scope')
+      expect(probeLinuxUserManager).toHaveBeenCalledTimes(6)
+      expect(probeLinuxScope).toHaveBeenCalledTimes(2)
+      expect(probeLinuxRunner).toHaveBeenCalledTimes(2)
+
+      const windowsContext = new Context()
+      vi.spyOn(windowsContext.logger, 'warn').mockImplementation(() => {})
+      const windowsFiber = await windowsContext.plugin(IsolatedLocalSubprocessRuntime)
+      fibers.push(windowsFiber)
+      const windowsRuntime = windowsContext.subprocess as InstanceType<typeof IsolatedLocalSubprocessRuntime>
+      windowsRuntime.internals = { platform: 'win32' }
+      const windowsSelect = (windowsRuntime as unknown as {
+        selectContainmentMode(kind: 'ordinary' | 'terminal'): 'linux-scope' | 'windows-job' | 'fallback'
+      }).selectContainmentMode.bind(windowsRuntime)
+
+      expect(windowsSelect('ordinary')).toBe('fallback')
+      expect(windowsSelect('ordinary')).toBe('windows-job')
+      expect(windowsSelect('ordinary')).toBe('windows-job')
+      expect(probeWindowsJob).toHaveBeenCalledTimes(2)
+    } finally {
+      for (const fiber of fibers.reverse()) await fiber.dispose()
+      vi.doUnmock('../src/linux-scope.ts')
+      vi.doUnmock('../src/windows-job.ts')
       vi.resetModules()
     }
   })
