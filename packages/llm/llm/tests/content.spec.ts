@@ -5,6 +5,7 @@ import {
   CallId,
   createUserMessage,
   offloadedImageText,
+  offloadedImagePrefixCount,
   offloadRequestImagesWithPolicy,
   projectImagesForTextModel,
   resolveImageAttachmentAccess,
@@ -110,6 +111,19 @@ describe('base64 request-image offload', () => {
       nested,
       { type: 'text', text: OMITTED },
     ])
+  })
+})
+
+describe('offloadedImagePrefixCount', () => {
+  it('removes nothing under unbounded budgets and whole quanta past them', () => {
+    const lengths = [4, 4, 4, 4]
+    expect(offloadedImagePrefixCount(lengths, {})).toBe(0)
+    expect(offloadedImagePrefixCount(lengths, { maxBytes: 16 })).toBe(0)
+    expect(offloadedImagePrefixCount(lengths, { maxImages: 4 })).toBe(0)
+    // One excess image rounds up to the whole count quantum.
+    expect(offloadedImagePrefixCount([...lengths, 4], { maxImages: 4, countQuantum: 2 })).toBe(2)
+    // One excess byte removes a whole byte quantum, crossing the second image.
+    expect(offloadedImagePrefixCount([...lengths, 1], { maxBytes: 16, byteQuantum: 5 })).toBe(2)
   })
 })
 

@@ -16,11 +16,13 @@
   name: '@deepseek-ai/dsh-subagent-claude-code'
   config:
     providerName: claude-primary
+    model: claude-primary-model
 
 - id: subagent-claude-secondary
   name: '@deepseek-ai/dsh-subagent-claude-code'
   config:
     providerName: claude-secondary
+    model: claude-secondary-model
 
 - id: tool-subagent-codex
   name: '@deepseek-ai/dsh-tool-subagent'

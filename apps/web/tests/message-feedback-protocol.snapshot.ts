@@ -65,7 +65,7 @@ describe('message feedback Host Remote protocol', () => {
     const exchanges: ProtocolExchange[] = []
     const invoke = async (rpcId: string, endpoint: string, request: unknown): Promise<unknown> => {
       const payload = { args: { request } }
-      const response = await fetch(`${scaffold.baseUrl}/api/${endpoint}`, {
+      const response = await scaffold.hostFetch(`/api/${endpoint}`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({

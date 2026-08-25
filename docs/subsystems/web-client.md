@@ -2,7 +2,7 @@
 
 English | [中文](web-client.zh.md)
 
-The Web Client is a browser-side Cordis application assembled from independently loaded plugins. Its architecture has four reusable foundations: [Client Modules](client-modules.md) loads the plugin graph, the [API Gateway](../api-gateway.md) provides typed Host communication, [Slots](slots.md) composes React UI, and [Conversation](conversation.md) turns a Session event window into target-owned views. This page connects those systems and defines where Client models and feature packages belong.
+The Web Client is a browser-side Cordis application assembled from independently loaded plugins. Its architecture has four reusable foundations: [Client Modules](client-modules.md) loads the plugin graph, the [API Gateway](../api-gateway.md) provides typed Host communication, [Slots](slots.md) composes React UI, and [Conversation](conversation.md) turns a Session history window into target-owned views. This page connects those systems and defines where Client models and feature packages belong.
 
 ## Layers and ownership
 
@@ -12,7 +12,7 @@ The Web Client is a browser-side Cordis application assembled from independently
 | Transport and API assembly | `client/connection`, `api/gateway`, `api/remotes` | Establish a Client generation, expose generated `ctx.remote` methods and streams, forward selected Cordis events, and carry cancellation and results. |
 | Client models | `api/session-controller/client`, `api/workspace-controller/client` | Maintain React-free mirrors of Host state, resolve stream/unary races, own object identities and subscriptions, and expose narrow command services. |
 | UI adapters | `client/ui-session`, `client/ui-workspace` | Convert model observables into root or Session-scoped standard Slot sources without taking ownership of business state. |
-| Conversation data | `client/ui-conversation`, target packages such as `ui-chat` and `ui-trajectory` | Assemble durable Session events into independent target snapshots and own the shared conversation shell and input flow. |
+| Conversation data | `client/ui-conversation`, target packages such as `ui-chat` and `ui-trajectory` | Assemble standard events and compact historical Assistant runs into independent target snapshots and own the shared conversation shell and input flow. |
 | Composition and rendering | `client/ui-slots`, `client/ui-renderer`, `client/ui-layout`, feature UI packages | Declare extension locations, derive component props, bind observables to React hooks, and mount the final tree. |
 
 The dependency direction is Host state → Remote transport → Client model → UI adapter → Conversation or presentation → Slots → React. User actions travel back through callbacks that close over an injected Client service or generated Remote namespace. A presentation component never receives Cordis `ctx`, a transport object, or another feature plugin's implementation.
@@ -41,9 +41,9 @@ Each API controller package owns a paired Host and Client face. The Host side ow
 
 - `ClientSessions` provides `ctx.sessions`, owns Session scopes and stable `SessionBinding` objects, and projects the selected list state.
 - `SessionManager` owns the list baseline, live list/control updates, lazy Session instances, queues, projection stores, subagent catalogs, and conflict ordering between pulls and later updates.
-- Each `Session` owns one contiguous event window, paging, follow, prompt/control state, and the observable snapshot consumed by adapters.
+- Each `Session` owns one contiguous logical-event window represented by `SessionEventLikeEntry` values, paging, follow, prompt/control state, and the observable snapshot consumed by adapters.
 
-The durable event path opens `follow()`, whose first frame contains the current header, tail page, cursor, and complete projection baseline. Each physical generation atomically replaces the retained window from that snapshot; live events then append by sequence. `page()` is reserved for older history and gap repair. The transient control stream starts every generation with a complete baseline and then applies queue, job, and projection updates.
+The durable event path opens `follow()`, whose first frame contains the current header, tail page, cursor, and complete projection baseline. History records have an explicit `event` or `chunks` discriminator and an aligned inner `event`; the journal validates each inclusive logical sequence range before the Client retains the records as `SessionEventLikeEntry` values without per-record conversion. Each physical generation atomically replaces the retained window from that snapshot; standard live events then append by sequence. `page()` is reserved for older history and gap repair. The transient control stream starts every generation with a complete baseline and then applies queue, job, and projection updates.
 
 ### Workspaces
 
@@ -55,7 +55,7 @@ This pairing is not a second source of business truth. Host controllers decide d
 
 `ui-session` installs the `session` scope adapter and publishes `useSessions`, `useSession`, `sessionId`, and `useProjection`. Domain adapters add further standard sources without putting React hooks on the model objects.
 
-`ui-conversation` binds once to each `SessionBinding.eventSource`. Its event registry correlates raw durable events into stable business Contexts, and its view registry materializes target snapshots. `ui-chat` and `ui-trajectory` register separate Definitions and builders: they may interpret the same event family, but they do not import or share each other's final display model. The shell selects a registered view and passes its snapshot through standard hooks and Slots. [Conversation](conversation.md) defines Context identity, replay, Location data, target builders, and keyed renderers.
+`ui-conversation` binds once to each `SessionBinding.eventSource`. Its event registry correlates standard events and Client-only `chunkrow/*` history events into stable business Contexts, and its view registry materializes target snapshots. Packed runs stay single inputs and Matches through replay; Chat Assistant, Trajectory Assistant, and Turn Tail are the built-in Definitions that interpret them. `ui-chat` and `ui-trajectory` register separate Definitions and builders: they may interpret the same event family, but they do not import or share each other's final display model. The shell selects a registered view and passes its snapshot through standard hooks and Slots. [Conversation](conversation.md) defines Context identity, replay, Location data, target builders, and keyed renderers.
 
 `ui-slots` provides the typed registry and lifecycle ledger; `ui-renderer` is the only package that binds bare observables through `useSyncExternalStore`, owns React contexts, and renders the root tree. Feature components receive framework hooks, owner props, store actions, and explicit injection through their derived props. [Web Client Slots](slots.md) lists those inputs, extension APIs, and the current Slot hierarchy.
 
@@ -63,7 +63,7 @@ This pairing is not a second source of business truth. Host controllers decide d
 
 | Path | Sequence |
 |---|---|
-| durable Session display | Host Session log → Remote `follow` plus `page` → Client `Session` event window → Conversation Contexts → target snapshot (`chat`, `trajectory`, or another registered target) → Slot view → React |
+| durable Session display | Host Session log → packed Remote `follow`/`page` history → Client `SessionEventLikeEntry` window → Conversation Contexts → target snapshot (`chat`, `trajectory`, or another registered target) → Slot view → React |
 | transient Session control | Host control baseline → Remote snapshot stream → `SessionManager` queue/job/projection stores → Session and list snapshots → standard hooks → components |
 | Workspace state | Host Workspace baseline and increments → `ClientWorkspaceModel` → `ctx.workspaces.list` → `useWorkspaces` → sidebar, hero, and navigation entries |
 | scoped interaction | Host Cordis waterfall → API Remotes `$events` → `ctx.remote.$on()` on the Session Context → owning UI package → result or `next()` |
@@ -75,7 +75,7 @@ Physical and logical recovery are separate. Gateway mux restores the physical We
 
 Recovery follows the data's semantics:
 
-- A durable Session journal replaces its window from every generation's opening snapshot; `page()` supplies older history and repairs any later sequence gap.
+- A durable Session journal validates logical sequence ranges and replaces its window from every generation's opening snapshot; `page()` supplies older history and repairs any later range gap.
 - Session control and Workspace streams retain the last published value while disconnected, then atomically replace it from a fresh opening baseline.
 - Ordinary forwarded notifications are not replayed. Stateful domains need a baseline, cursor, or explicit query; scoped waterfalls retain their own request lifetime.
 

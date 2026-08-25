@@ -24,6 +24,7 @@
 import * as nodeAsyncHooks from './builtin_modules/implemented/async_hooks.ts'
 import * as nodeBuffer from './builtin_modules/implemented/buffer.ts'
 import * as nodeCrypto from './builtin_modules/implemented/crypto.ts'
+import * as nodeDnsPromises from './builtin_modules/mock/dns/promises.ts'
 import * as nodeEvents from './builtin_modules/implemented/events.ts'
 import * as nodeFs from './builtin_modules/implemented/fs.ts'
 import * as nodeFsPromises from './builtin_modules/implemented/fs/promises.ts'
@@ -59,6 +60,7 @@ const BUILTINS: Record<string, StaticModuleFactory> = {
   buffer: () => nodeBuffer,
   child_process: () => nodeChildProcess,
   crypto: () => nodeCrypto,
+  'dns/promises': () => nodeDnsPromises,
   events: () => nodeEvents,
   fs: () => nodeFs,
   'fs/promises': () => nodeFsPromises,

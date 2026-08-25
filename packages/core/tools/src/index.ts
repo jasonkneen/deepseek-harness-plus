@@ -13,7 +13,7 @@ import { assertNever, deepFreeze, HarnessError } from '@deepseek-ai/dsh-llm'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { snapshotJsonValue } from '@deepseek-ai/dsh-session'
 import type { JsonValue, UserMessage } from '@deepseek-ai/dsh-session'
-import type { ToolProviderResult } from '@deepseek-ai/dsh-system-prompt'
+import { FIRST_PARTY_SECTION_ORDER, type ToolProviderResult } from '@deepseek-ai/dsh-system-prompt'
 import type { CodeRuntime } from '@deepseek-ai/dsh-code-runtime'
 // Type-only: makes `ctx.get('approval')` resolve to the ApprovalService
 // augmentation. The seam stays optional at runtime — see `serviceAsk`.
@@ -45,10 +45,10 @@ import { renderToolsSdkPy } from './py-types.ts'
  */
 /**
  * Prompt order of the `code` collapse statement: after the persona and before
- * the 100-199 per-tool guidance band, so the model reads which tools it may
- * call before it reads what each one is for.
+ * per-tool guidance, so the model reads which tools it may call before it
+ * reads what each one is for.
  */
-const COLLAPSE_SECTION_ORDER = 99
+const COLLAPSE_SECTION_ORDER = FIRST_PARTY_SECTION_ORDER.CODE_ONLY
 
 /**
  * The model-facing statement of the `code` collapse. Names the consequence
@@ -842,12 +842,11 @@ export class ToolRuntime extends Service {
    * {@link sdkSection} is and rendering empty outside an effective `code`.
    *
    * Every tool contributes its own guidance section naming its tool, none of
-   * them qualify how that tool is reached, and they all render before the SDK
-   * (orders 100-199 against {@link SDK_SECTION_ORDER}). Without this the model
-   * reads a catalog of tools it is told to use and no statement that only
-   * `run_code` may be called, so it emits a native call, receives
-   * `UNKNOWN_TOOL` for a tool the prompt just declared, and concludes the
-   * deployment is inconsistent. {@link COLLAPSE_SECTION_ORDER} places the rule
+   * them qualify how that tool is reached, and they all render before the SDK.
+   * Without this the model reads a catalog of tools it is told to use and no
+   * statement that only `run_code` may be called, so it emits a native call,
+   * receives `UNKNOWN_TOOL` for a tool the prompt just declared, and concludes
+   * the deployment is inconsistent. {@link COLLAPSE_SECTION_ORDER} places the rule
    * before that guidance rather than after it.
    *
    * `both` renders empty: native calls do execute there, so the rule is false.

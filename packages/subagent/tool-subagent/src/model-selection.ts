@@ -89,12 +89,14 @@ export function hasConfiguredLlmSelection(options: AgentOptions | undefined): bo
  * @param parentOptions - Current parent values whose compatible fields the child inherits.
  * @param requested - Per-child options after request/config merging.
  * @param signal - Tool-call cancellation signal.
+ * @param inheritParentReasoningEffort - Whether an omitted effort may inherit from the parent route.
  */
 export async function preflightChildLlmRoute(
   llm: LlmRuntime,
   parentOptions: AgentOptions,
   requested: AgentOptions | undefined,
   signal: AbortSignal,
+  inheritParentReasoningEffort = true,
 ): Promise<void> {
   const provider = requested?.provider ?? parentOptions.provider
   const model = requested?.model ?? parentOptions.model
@@ -103,7 +105,7 @@ export async function preflightChildLlmRoute(
   }
   const routeChanged = provider !== parentOptions.provider || model !== parentOptions.model
   const reasoningEffort = requested?.reasoningEffort
-    ?? (routeChanged ? undefined : parentOptions.reasoningEffort)
+    ?? (inheritParentReasoningEffort && !routeChanged ? parentOptions.reasoningEffort : undefined)
   await llm.resolveCallConfig({
     provider,
     model,

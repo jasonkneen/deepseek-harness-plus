@@ -13,6 +13,11 @@
   name: '@deepseek-ai/dsh-agent-instructions'
   disabled: true
 
+- id: skill-filesystem
+  name: '@deepseek-ai/dsh-skill-filesystem'
+  config:
+    includeDefaultRoots: false
+
 - id: session-persistence-jsonl
   name: '@deepseek-ai/dsh-session-persistence-jsonl'
   config:

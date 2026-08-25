@@ -6,7 +6,7 @@ recording: authored
 header:
   class: agent-instructions
   pin: true
-  toolSchemasSource: text-turn
+  changes: 1
 replay:
   override: true
 platform: posix

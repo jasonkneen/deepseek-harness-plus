@@ -92,14 +92,27 @@ describe('tool-str-replace-editor', () => {
     expect(ctx.tools.schemas().map(item => item.name)).toEqual(['str_replace_editor'])
     expect(schema?.description).toBe('custom editor description')
     const properties = (schema?.parameters as {
-      properties: Record<string, { type?: string; items?: { type?: string } }>
+      properties: Record<string, {
+        type?: string
+        items?: { type?: string }
+        oneOf?: { type?: string; items?: { type?: string } }[]
+      }>
     }).properties
     expect(properties).not.toHaveProperty('replace_all')
-    expect(properties.insert_line?.type).toBe('integer')
-    expect(properties.view_range?.items?.type).toBe('integer')
+    expect(properties.file_text?.oneOf?.map(option => option.type)).toEqual(['string', 'null'])
+    expect(properties.insert_line?.oneOf?.map(option => option.type)).toEqual(['integer', 'null'])
+    expect(properties.new_str?.oneOf?.map(option => option.type)).toEqual(['string', 'null'])
+    expect(properties.old_str?.oneOf?.map(option => option.type)).toEqual(['string', 'null'])
+    expect(properties.view_range?.oneOf?.map(option => option.type)).toEqual(['array', 'null'])
+    expect(properties.view_range?.oneOf?.[0]?.items?.type).toBe('integer')
     expect(ctx.tools.get('str_replace_editor')?.presentCall?.({
       command: 'view',
       path: '/workspace/a.txt',
+      file_text: null,
+      insert_line: null,
+      new_str: null,
+      old_str: null,
+      view_range: null,
     })).toMatchObject({
       card: 'generic',
       kind: 'read',
@@ -109,6 +122,10 @@ describe('tool-str-replace-editor', () => {
       command: 'create',
       path: '/workspace/a.txt',
       file_text: 'hello',
+      insert_line: null,
+      new_str: null,
+      old_str: null,
+      view_range: null,
     })).toMatchObject({
       card: 'diff',
       diffs: [{ path: '/workspace/a.txt', oldText: null, newText: 'hello' }],
@@ -118,6 +135,9 @@ describe('tool-str-replace-editor', () => {
       path: '/workspace/a.txt',
       old_str: 'old',
       new_str: 'new',
+      file_text: null,
+      insert_line: null,
+      view_range: null,
     })).toMatchObject({
       card: 'diff',
       diffs: [{ path: '/workspace/a.txt', oldText: 'old', newText: 'new' }],
@@ -125,8 +145,21 @@ describe('tool-str-replace-editor', () => {
     expect(ctx.tools.get('str_replace_editor')?.presentCall?.({
       command: 'insert',
       path: '/workspace/a.txt',
+      insert_line: null,
+      new_str: 'x',
+    })).toMatchObject({
+      card: 'generic',
+      kind: 'edit',
+      locations: [{ path: '/workspace/a.txt' }],
+    })
+    expect(ctx.tools.get('str_replace_editor')?.presentCall?.({
+      command: 'insert',
+      path: '/workspace/a.txt',
       insert_line: 0,
       new_str: 'x',
+      file_text: null,
+      old_str: null,
+      view_range: null,
     })).toMatchObject({
       card: 'generic',
       kind: 'edit',
@@ -163,7 +196,21 @@ describe('tool-str-replace-editor', () => {
       command: 'create',
       path: sample,
       file_text: 'one\ntwo\nthree\n',
+      insert_line: null,
+      new_str: null,
+      old_str: null,
+      view_range: null,
     }))).toBe(`New file created successfully at: ${sample}`)
+
+    expect(text(await call(ctx, owner, {
+      command: 'view',
+      path: sample,
+      file_text: null,
+      insert_line: null,
+      new_str: null,
+      old_str: null,
+      view_range: null,
+    }))).toContain('     2  two')
 
     expect(text(await call(ctx, owner, {
       command: 'view',
@@ -182,6 +229,9 @@ describe('tool-str-replace-editor', () => {
       path: sample,
       old_str: 'two',
       new_str: 'TWO',
+      file_text: null,
+      insert_line: null,
+      view_range: null,
     }))).toBe(`The file ${sample} has been edited successfully.`)
     expect(text(await call(ctx, owner, {
       command: 'str_replace',
@@ -193,6 +243,9 @@ describe('tool-str-replace-editor', () => {
       path: sample,
       insert_line: 1,
       new_str: 'between',
+      file_text: null,
+      old_str: null,
+      view_range: null,
     }))).toBe(`The file ${sample} has been edited successfully.`)
     expect(await readFile(sample, 'utf8')).toBe('one\nbetween\n\nthree\n')
   })
@@ -399,6 +452,8 @@ describe('tool-str-replace-editor', () => {
     await mkdir(directory)
 
     const cases = [
+      { command: null, path: ambiguous },
+      { command: 'view', path: null },
       { command: 'view', path: '' },
       { command: 'view', path: join(root, 'missing.txt') },
       { command: 'view', path: ambiguous, view_range: [1] },
@@ -408,10 +463,15 @@ describe('tool-str-replace-editor', () => {
       { command: 'view', path: threeLines, view_range: [2, 1] },
       { command: 'view', path: directory, view_range: [1, 1] },
       { command: 'create', path: join(root, 'new.txt') },
+      { command: 'create', path: join(root, 'new.txt'), file_text: null },
       { command: 'create', path: ambiguous, file_text: 'overwrite' },
       { command: 'str_replace', path: ambiguous, new_str: 'x' },
+      { command: 'str_replace', path: ambiguous, old_str: null, new_str: 'x' },
+      { command: 'str_replace', path: ambiguous, old_str: 'same same', new_str: null },
       { command: 'str_replace', path: ambiguous, old_str: '', new_str: 'x' },
       { command: 'insert', path: ambiguous, new_str: 'x' },
+      { command: 'insert', path: ambiguous, insert_line: null, new_str: 'x' },
+      { command: 'insert', path: ambiguous, insert_line: 0, new_str: null },
       { command: 'insert', path: ambiguous, insert_line: -1, new_str: 'x' },
       { command: 'insert', path: ambiguous, insert_line: 1.5, new_str: 'x' },
       { command: 'insert', path: ambiguous, insert_line: 99, new_str: 'x' },

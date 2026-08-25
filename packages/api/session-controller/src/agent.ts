@@ -291,12 +291,18 @@ export class ApiSessionAgentController {
     const selection: InstalledSelection = {
       get current(): AgentModelSelection {
         if (picked !== undefined) return picked
-        const logged = agent.session.requestHeader()?.config
-        if (logged === undefined) return defaultModel.currentSelection()
+        const loggedHeader = agent.session.requestHeader()
+        if (loggedHeader === undefined) return defaultModel.currentSelection()
+        const logged = loggedHeader.config
         return {
           provider: logged.provider,
           model: logged.model,
-          ...(logged.reasoningEffort === undefined ? {} : { reasoningEffort: logged.reasoningEffort }),
+          // An effort the adapter defaulted is not a conversation choice: restoring
+          // it as one would make an unchanged default read as a request change.
+          ...(logged.reasoningEffort === undefined
+            || loggedHeader.adapterDefaults?.reasoningEffort === true
+            ? {}
+            : { reasoningEffort: logged.reasoningEffort }),
         }
       },
       set current(next: AgentModelSelection) {

@@ -14,7 +14,9 @@ Web 统计行原先从当前已加载的会话节点推导 token 总量。该窗
 
 这两个值都是普通的持久会话投影状态。当 `ctx.sessionProjections` 存在时，`@deepseek-ai/dsh-token-meter` 会注册两个单元。
 
-`tokenUsage` 将完整持久日志归并为未缓存输入、输出、缓存读取和缓存写入四类计数项。即使后续请求失败，`assistant/chunk` 用量样本仍会保留；同一 `(turn, step)` 的 `assistant/message` 用量值会替换先前样本，不会重复计数。推理（reasoning）仍是输出的细分项。压缩和表层替换不会抹除先前的计费用量。
+`tokenUsage` 将完整持久日志归并为未缓存输入、输出、缓存读取和缓存写入四类计数项。即使后续请求失败，`assistant/chunk` 用量样本仍会保留；`assistant/message` 用量值会替换同一次模型 attempt 的先前样本，不会重复计数。匹配的 `llm/retry-started` 边界会结束该替换作用域，因此复用同一 `(turn, step)` 的重试会贡献一次新的 attempt。推理（reasoning）仍是输出的细分项。压缩和表层替换不会抹除先前的计费用量。
+
+token-meter 还拥有在持久事件上运行的共享纯 attempt／Turn fold。它采用相同的重试边界，并增加精确单轮次 disclosure 所需的更严格完整性与精确总量检查。展示消费方可以选择完整 Turn 窗口并调用该 fold，但不拥有或复制记账语义。
 
 `contextPressure` 携带可选的 `pressureTokens`（提供方报告的最新提示词规模，为未缓存输入加缓存读取与写入之和，不含输出），以及来自最新一条 `request/context` 记录的可选 `contextWindow`。在各自来源出现前，两个字段都不会被合成。
 
@@ -56,4 +58,4 @@ token 总量在分页、压缩、回放、重启和重连期间保持稳定，�
 
 占用率在上文记录的意义上是近似值。由于两个字段都是持久的，它在恢复或重连后立即可用；代价是它描述的是最后一条已记录的请求，而不是精确的当前边界。
 
-每个会话日志会为每次路由或已公布容量变化增加一条小型 `request/context` 记录。token-meter 投影是持久会话投影用量语义的正典所有方；TUI 未挂载通用投影 seam，因此保留自己的实时逐步骤 map，而独立浏览器 fixture（测试前置数据）会镜像该单元。ApiProxy 不携带任何 token 专用代码，不拥有逐会话指标缓存，也不执行测量。浏览器只保留两个通用投影值，不保留连接本地的遥测数据；流式文本增量仍不会迫使统计行重新计算。
+每个会话日志会为每次路由或已公布容量变化增加一条小型 `request/context` 记录。token-meter 是持久用量语义的正典所有方，包括累计投影中的重试 attempt 分离，以及可复用的精确 attempt／Turn fold；Web Chat 只选择已完整加载的 Turn 并渲染 fold 结果。TUI 未挂载通用投影 seam，因此保留自己的实时逐步骤 map，而独立浏览器 fixture（测试前置数据）会镜像该单元。ApiProxy 不携带任何 token 专用代码，不拥有逐会话指标缓存，也不执行测量。浏览器只保留两个通用投影值，不保留连接本地的遥测数据；流式文本增量仍不会迫使统计行重新计算。

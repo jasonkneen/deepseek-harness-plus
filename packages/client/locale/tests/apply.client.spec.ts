@@ -128,6 +128,30 @@ describe('locale apply', () => {
     await vi.waitFor(() => { expect(b.mutate).toHaveBeenCalledTimes(2) })
   })
 
+  it('projects external locale registration and disposal into the Language row', async () => {
+    const b = await bench()
+    declareItems(b.slots)
+    await b.ctx.plugin({ inject: [...inject], apply }).await()
+    const { instance } = faceOf(b.slots)
+
+    const languagePack = b.ctx.plugin({
+      inject: ['locale'],
+      apply: packCtx => packCtx.effect(
+        () => packCtx.locale.addLanguage({ id: 'ja', label: '日本語', fallback: 'en' }),
+        'test language pack registration',
+      ),
+    })
+    await languagePack.await()
+    expect(instance.getSnapshot().options).toEqual([
+      { id: 'zh', label: '中文' },
+      { id: 'en', label: 'English' },
+      { id: 'ja', label: '日本語' },
+    ])
+
+    await languagePack.dispose()
+    expect(instance.getSnapshot().options.map(option => option.id)).toEqual(['zh', 'en'])
+  })
+
   it('loads and refreshes the explicit Host preference after nonblocking activation', async () => {
     const b = await bench()
     // The shared mirror read once at bench time; a Host-side change reaches it

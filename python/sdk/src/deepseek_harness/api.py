@@ -21,6 +21,7 @@ class DeepSeekHarnessConfig:
 
     provider: str = "deepseek-official"
     model: str = "deepseek-v4-flash"
+    reasoning_effort: str | None = None
     max_tokens: int | None = None
     cwd: str | None = None
     runtime_cwd: str | None = None
@@ -107,6 +108,7 @@ class DeepSeekHarness:
             cwd=self._cwd,
             provider=self.config.provider,
             model=self.config.model,
+            reasoning_effort=self.config.reasoning_effort,
             max_tokens=self.config.max_tokens,
         )
         self._initialized = True

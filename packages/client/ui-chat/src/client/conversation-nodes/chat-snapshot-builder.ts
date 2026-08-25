@@ -305,6 +305,8 @@ function legacyContribution(raw: ChatConversationViewNode): LegacyContribution {
         running: null,
       }
     case 'turn-tail':
+    case 'system-prompt':
+      // These known Chat rows intentionally make no legacy timeline contribution.
       return EMPTY_CONTRIBUTION
     default:
       return EMPTY_CONTRIBUTION

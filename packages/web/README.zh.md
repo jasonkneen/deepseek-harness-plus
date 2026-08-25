@@ -15,4 +15,4 @@
 
 [web 能力决策](../../.agents/notes/implemented/architecture/2026-06-24-web-capability-seam.zh.md)记录了搜索和抓取共用一项提供方选择服务的原因。
 
-子系统参考——搜索/抓取请求与结果、可用性、`WebError`——见 [docs/subsystems/web.md](../../docs/subsystems/web.zh.md)；依据（含延后的 SSRF 防护）见 [web 能力 seam Agent Note](../../.agents/notes/implemented/architecture/2026-06-24-web-capability-seam.zh.md)。
+子系统参考——搜索／抓取请求与结果、可用性、`WebError` 和公开地址强制校验——见 [docs/subsystems/web.md](../../docs/subsystems/web.zh.md)；依据见 [web 能力 seam Agent Note](../../.agents/notes/implemented/architecture/2026-06-24-web-capability-seam.zh.md)。

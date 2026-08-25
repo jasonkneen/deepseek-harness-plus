@@ -4,16 +4,17 @@ import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import type {
   ISessions, SessionBinding, SessionEventSource, SessionEventWindow,
 } from '@deepseek-ai/dsh-api-session-controller/client'
-import type { SessionEventEntry } from '@deepseek-ai/dsh-api-session-controller/types'
 import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session/types'
 import {
   createSnapshotStore, type ObservableSnapshot, type SnapshotStore,
 } from '@deepseek-ai/dsh-client-store'
 import type {
-  ConversationEventInput, ConversationPublication, ConversationViewSnapshotMap,
+  ConversationPublication, ConversationViewSnapshotMap,
   ConversationViewSnapshotStore,
 } from '../contract/conversation.ts'
 import type { ConversationSnapshot } from '../contract/snapshot.ts'
+import type { ConversationPromptSnapshot, RequestPromptInspection } from '../contract/request-inspection.ts'
+import { inspectRequestPrompt } from '../contract/request-inspection.ts'
 import { ConversationNodeAssembler } from './assembler.ts'
 import { ConversationEventRegistry } from './event-registry.ts'
 import { HistoricalImageCache } from './historical-images.ts'
@@ -79,7 +80,7 @@ class BoundConversation implements ConversationBinding {
 
   private replace(window: SessionEventWindow): void {
     this.revision = window.revision
-    this.publish(this.assembler.replaceWindow(window.entries.map(conversationInput), window.hasMore))
+    this.publish(this.assembler.replaceWindow(window.entries, window.hasMore))
   }
 
   private accept(window: SessionEventWindow): void {
@@ -91,12 +92,12 @@ class BoundConversation implements ConversationBinding {
     this.revision = window.revision
     switch (window.change.kind) {
       case 'prepend':
-        this.publish(this.assembler.prepend(window.change.entries.map(conversationInput), window.hasMore))
+        this.publish(this.assembler.prepend(window.change.entries, window.hasMore))
         return
       case 'append': {
         let publication: ConversationPublication = 'none'
-        for (const entry of window.change.entries) {
-          const next = this.assembler.append(conversationInput(entry))
+        for (const event of window.change.entries) {
+          const next = this.assembler.append(event)
           if (next === 'immediate' || publication === 'none') publication = next
         }
         this.publish(publication)
@@ -127,10 +128,6 @@ class BoundConversation implements ConversationBinding {
       activeTargets: this.assembler.activeTargets(),
     }
   }
-}
-
-function conversationInput(entry: SessionEventEntry): ConversationEventInput {
-  return { event: entry.event as unknown as SessionEvent }
 }
 
 interface BindingRecord {
@@ -215,6 +212,23 @@ export class UiConversation extends Service {
    */
   imageUrl(sessionId: SessionId, attachment: ImageAttachmentRef): Promise<string> {
     return this.images.resolve(sessionId, attachment)
+  }
+
+  /**
+   * Canonicalize one `request/header` event against the previous prompt state.
+   *
+   * A pure interpretation shared by the Chat and Trajectory Definitions, exposed
+   * as a service method because cross-plugin value imports are forbidden in
+   * client bundles.
+   * @param previous - prompt recorded by the preceding loaded header, if any.
+   * @param event - the `request/header` session event to interpret.
+   * @returns the canonical prompt snapshot and any model-visible change.
+   */
+  inspectRequestPrompt(
+    previous: ConversationPromptSnapshot | undefined,
+    event: SessionEvent<'request/header'>,
+  ): RequestPromptInspection {
+    return inspectRequestPrompt(previous, event)
   }
 
   private drop(record: BindingRecord, releaseScope: boolean): void {

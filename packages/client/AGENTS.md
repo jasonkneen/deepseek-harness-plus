@@ -99,7 +99,7 @@ The seam is `loader.internal = modules`: cordis reaches plugin code through `Ent
 ## Conversation Node discipline
 
 - A Chat business feature registers one `ConversationNodeDefinition` and its keyed `conversation.chat.node` renderer; do not add its event switch or fold to `Session`, `SessionManager`, or a central built-in dispatcher. Follow the [Conversation reference](../../docs/subsystems/conversation.md).
-- `match(event)` reads only the current event. Every event in a multi-event Context carries or independently derives the same stable business id; `update` folds one Match into State and remains deterministically replayable by log `seq`.
+- `match(event)` reads only the current `SessionEventLike`. Every scalar event or packed Assistant run in a multi-input Context carries or independently derives the same stable business id; `update` folds one Match into State and remains deterministically replayable by logical log `seq`. Packed rows are update-only, and a Definition that consumes Assistant deltas implements both scalar and `chunkrow/*` branches without expanding members.
 - The append hot path and renderers never scan the full event window, Contexts, or Chat Nodes. Accumulate in State, publish same-Turn/Step facts through `buildLocationData()`, and consume final Node data or constrained Location hooks.
 
 ## Directory regime (plugin packages)

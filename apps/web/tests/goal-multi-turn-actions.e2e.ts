@@ -117,7 +117,7 @@ describe('web e2e: Goal keeps one assistant action row per completed turn', () =
     browser = await chromium.launch()
     page = await newEnglishPage(browser)
     tripwire = watchConsole(page)
-    await page.goto(scaffold.baseUrl, { waitUntil: 'load' })
+    await page.goto(scaffold.authenticatedUrl, { waitUntil: 'load' })
     await page.waitForSelector('[class*="frame"]', { timeout: 30_000 })
     await connectFreshWorkspace(page, scaffold.workspaceCwd)
   }
@@ -151,6 +151,11 @@ describe('web e2e: Goal keeps one assistant action row per completed turn', () =
     expect(sessionEvents.flatMap(event => event.type === 'turn/end' ? [event.data.turn] : []))
       .toEqual([1, 2])
     expect(goalRounds(sessionEvents)).toEqual([1, 2])
+    expect(sessionEvents.flatMap(event =>
+      event.type === 'request/header' ? [event.data.reason] : [])).toEqual(['initial', 'series'])
+    await expect.poll(() => page.getByRole('button', { name: 'System prompt' }).count(), {
+      timeout: 15_000,
+    }).toBe(2)
     const branchButtons = page.getByRole('button', { name: 'Branch into a new conversation' })
     await expect.poll(() => branchButtons.count(), { timeout: 15_000 }).toBe(2)
     expect(await branchButtons.evaluateAll(buttons => buttons.map(button => button.getAttribute('aria-disabled'))))

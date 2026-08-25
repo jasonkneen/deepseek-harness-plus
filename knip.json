@@ -26,6 +26,7 @@
       "entry": [
         "scripts/**/*.mjs",
         "scripts/**/*.cjs",
+        "snapshots/**/*.mjs",
         "scripts/types/client-build-environment/index.d.ts"
       ],
       "ignoreUnresolved": [
@@ -34,7 +35,8 @@
       "project": [
         "scripts/**/*.ts",
         "scripts/**/*.mjs",
-        "scripts/**/*.cjs"
+        "scripts/**/*.cjs",
+        "snapshots/**/*.mjs"
       ]
     },
     "packages/host/directory-picker-auto": {
@@ -89,6 +91,14 @@
       ]
     },
     "packages/client/ui-conversation": {
+      "entry": [
+        "tests/**/*.spec.{ts,tsx}",
+        "tests/**/*.perf.client.ts"
+      ],
+      "project": [
+        "src/**/*.{ts,tsx}",
+        "tests/**/*.{ts,tsx}"
+      ],
       "ignoreDependencies": [
         "@deepseek-ai/dsh-client-ui-workspace"
       ]
@@ -690,6 +700,7 @@
         "@deepseek-ai/dsh-llm-deepseek",
         "@deepseek-ai/dsh-session-checkpoint-policy",
         "@deepseek-ai/dsh-session-persistence-jsonl",
+        "@deepseek-ai/dsh-skill-filesystem",
         "@deepseek-ai/dsh-tool-subagent"
       ]
     },

@@ -1,6 +1,7 @@
 # Agent Note: 等序系统提示词分段按激活顺序渲染
 
 Status: implemented
+Archived: 2026-08-25
 
 [English](2026-08-24-system-prompt-section-order-ties.md) | 中文
 

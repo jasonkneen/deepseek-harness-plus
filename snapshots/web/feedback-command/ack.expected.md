@@ -9,6 +9,10 @@
   - tablist:
     - tab "Chat" [selected]
     - tab "Trajectory"
+- button "System prompt":
+  - img
+  - img
+  - text: System prompt
 - text: Reply with the single word LIGHTHOUSE and stop. {{clock}}
 - button "Copy":
   - img

@@ -16,7 +16,7 @@ WebSocket 只承担 host→browser 下行。所有 client→host unary 调用和
 
 ## Upgrade 与生命周期边界
 
-`dsh-host-webserver` 提供与普通 route 并列的精确 upgrade-route 注册点，只按 pathname 分发 Node upgrade socket，隔离原始 socket 错误，并在 server teardown 期间等待仍存活的升级连接关闭；它不认识 Harness 帧或 WebSocket 消息。`dsh-client-connection` 拥有 WebSocket handshake、frame 写出和流取消，并在 upgrade 前复用 `/api` 的 Host／Origin 信任栅栏。未受信任的 authority 或跨来源 Origin 在 `ctx.apiProxy.events.*` 启动前即被拒绝。
+`dsh-host-webserver` 提供与普通 route 并列的精确 upgrade-route 注册点，只按 pathname 分发 Node upgrade socket，隔离原始 socket 错误，并在 server teardown 期间等待仍存活的升级连接关闭；它不认识 Harness 帧或 WebSocket 消息。`dsh-client-connection` 拥有 WebSocket handshake、frame 写出和流取消。upgrade 前先执行 `/api` Host／Origin 校验，再执行与一元 HTTP 相同的签名浏览器 cookie 认证。未受信任的 authority 或跨来源 Origin 得到 403；Host 可信但未认证的请求得到 401；两者都不会启动 Remote stream。
 
 浏览器 abort 或 socket close 会取消对应的 host 流；插件 teardown 还会等待该 source iterator 完成清理。host 流中途抛错时，载体发送一个现有的 `stream/error` frame 后关闭 socket；客户端把该 frame 收敛为连接丢失，不投递给业务 sink。每条 WebSocket 独立报告 open，既有 readiness handshake 仍等待 mux、host 都 open 且 `host.describe` HTTP 调用成功后才发布 connected。
 

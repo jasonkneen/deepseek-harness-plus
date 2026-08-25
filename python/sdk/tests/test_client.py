@@ -94,6 +94,7 @@ for line in sys.stdin:
 
     with DeepSeekHarness(
         model="deepseek-v4-flash",
+        reasoning_effort="max",
         max_tokens=4096,
         cwd=str(tmp_path),
         _launch_args=(sys.executable, str(script)),
@@ -119,6 +120,7 @@ for line in sys.stdin:
         "cwd": str(tmp_path),
         "provider": "deepseek-official",
         "model": "deepseek-v4-flash",
+        "reasoningEffort": "max",
         "maxTokens": 4096,
     }
 
@@ -856,7 +858,9 @@ def test_public_signatures_omit_unsupported_wire_parameters() -> None:
     assert "profile" not in inspect.signature(Session.run).parameters
     assert "system_prompt" not in DeepSeekHarnessConfig.__dataclass_fields__
     assert "max_tokens" in DeepSeekHarnessConfig.__dataclass_fields__
+    assert "reasoning_effort" in DeepSeekHarnessConfig.__dataclass_fields__
     assert "max_tokens" in inspect.signature(HarnessClient.initialize).parameters
+    assert "reasoning_effort" in inspect.signature(HarnessClient.initialize).parameters
     assert "client_name" not in HarnessConfig.__dataclass_fields__
     assert "client_version" not in HarnessConfig.__dataclass_fields__
     assert {"dsh_bin", "profile", "patches", "dsh_home"} <= set(

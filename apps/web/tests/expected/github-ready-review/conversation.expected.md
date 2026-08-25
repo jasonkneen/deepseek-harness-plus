@@ -20,6 +20,10 @@
   - tablist:
     - tab "Chat" [selected]
     - tab "Trajectory"
+- button "System prompt":
+  - img
+  - img
+  - text: System prompt
 - button "Context injection webhook github webhook handled by review-pr-when-ready":
   - img
   - img

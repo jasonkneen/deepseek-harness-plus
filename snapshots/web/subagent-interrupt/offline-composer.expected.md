@@ -11,6 +11,10 @@
   - tablist:
     - tab "Chat" [selected]
     - tab "Trajectory"
+- button "System prompt":
+  - img
+  - img
+  - text: System prompt
 - text: Explain event sourcing in one sentence. {{clock}}
 - button "Copy":
   - img

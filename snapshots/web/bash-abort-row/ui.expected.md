@@ -7,6 +7,10 @@
   - tablist:
     - tab "Chat" [selected]
     - tab "Trajectory"
+- button "System prompt":
+  - img
+  - img
+  - text: System prompt
 - text: "Run two shell commands: wait for cancellation, then write skipped.txt. {{clock}}"
 - button "Copy":
   - img

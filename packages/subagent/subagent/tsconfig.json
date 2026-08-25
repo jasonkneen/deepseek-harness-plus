@@ -27,6 +27,9 @@
       "path": "../../core/scope"
     },
     {
+      "path": "../../core/system-prompt"
+    },
+    {
       "path": "../../interaction/user-approval"
     },
     {

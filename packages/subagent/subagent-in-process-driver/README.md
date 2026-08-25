@@ -39,7 +39,7 @@ Depth enforcement is internal to `startInProcessRun`: it reads the parent depth 
 `attachStructuredRuntime(childCtx, schema)` installs the whole contract in the child's scope:
 
 - A `structured_output` tool registered with the requested schema validates and stages the model's value.
-- An order-190 system-prompt section tells the child that the tool call is the terminal answer.
+- A trailing first-party order-9900 system-prompt section tells the child that the tool call is the terminal answer.
 - Both contributions are ordinary child-scoped registrations. An expert `system-prompt/assemble` listener may replace them and therefore owns preserving the structured-output protocol for that child.
 - A `tools/result` observer commits a staged value only after that execution's authoritative final tool result succeeds, including the enclosing `run_code` result for Code Mode sub-dispatch.
 - A monotonic tool guard blocks later calls after capture, and the structured-output execution's `concludeTurn()` marker ends the turn after the result commits.

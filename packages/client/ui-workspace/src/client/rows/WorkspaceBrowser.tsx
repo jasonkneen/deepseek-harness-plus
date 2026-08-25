@@ -40,6 +40,21 @@ const SEARCH_QUERY_MAX_CODE_UNITS = 500
 /** Session rows visible per Workspace before the local overflow control. */
 const COLLAPSED_SESSION_LIMIT = 5
 
+/** Fold one Workspace without charging its provisional New Session against the ordinary-row limit. */
+function collapsedSessionRows(sessions: readonly SessionNode[]): {
+  rows: readonly SessionNode[]
+  hiddenCount: number
+} {
+  let ordinaryCount = 0
+  const rows = sessions.filter((session) => {
+    if (session.blank) return true
+    if (ordinaryCount >= COLLAPSED_SESSION_LIMIT) return false
+    ordinaryCount += 1
+    return true
+  })
+  return { rows, hiddenCount: sessions.length - rows.length }
+}
+
 /** Keep controlled input and RPC payload inside the session.search wire contract. */
 function sanitizeSearchQuery(value: string): string {
   const withoutNul = value.replaceAll('\0', '')
@@ -339,22 +354,47 @@ function SessionTree({
     setDrag(null)
     const group = groups.find(candidate => candidate.key === activeDrag.accountKey)
     if (group === undefined) return
-    const targetIndex = group.sessions.findIndex(session => session.id === over.id)
+    const sessionsExpanded = expandedSessionGroups.includes(group.key)
+    const renderedSessions = sessionsExpanded ? group.sessions : collapsedSessionRows(group.sessions).rows
+    const targetIndex = renderedSessions.findIndex(session => session.id === over.id)
     if (targetIndex === -1) return
-    const anchor = over.half === 'before' ? over.id : group.sessions[targetIndex + 1]?.id
-    if (anchor === activeDrag.sessionId) return
-    const sourceIndex = group.sessions.findIndex(session => session.id === activeDrag.sessionId)
-    const anchorIndex = anchor === undefined
-      ? group.sessions.length
-      : group.sessions.findIndex(session => session.id === anchor)
-    if (sourceIndex !== -1 && (anchorIndex === sourceIndex || anchorIndex === sourceIndex + 1)) return
+    const sourceIndex = renderedSessions.findIndex(session => session.id === activeDrag.sessionId)
+    if (over.id === activeDrag.sessionId) return
+    const withoutSource = renderedSessions.filter(session => session.id !== activeDrag.sessionId)
+    const targetWithoutSourceIndex = withoutSource.findIndex(session => session.id === over.id)
+    if (targetWithoutSourceIndex === -1) return
+    const visibleInsertAt = over.half === 'before' ? targetWithoutSourceIndex : targetWithoutSourceIndex + 1
+    if (sourceIndex !== -1 && visibleInsertAt === sourceIndex) return
     const accountSessionIds = activeDrag.accountKey === UNGROUPED_KEY
       ? orderedUngroupedSessionIds
       : orderedWorkspaces.find(workspace => workspace.workspaceId === activeDrag.accountKey)?.sessionIds
     if (accountSessionIds === undefined) return
     const nextOrder = accountSessionIds.filter(id => id !== activeDrag.sessionId)
+    let anchor: SessionId | undefined
+    if (sessionsExpanded) {
+      anchor = over.half === 'before' ? over.id : renderedSessions[targetIndex + 1]?.id
+    } else {
+      // A collapsed group may render the blank row after hidden ordinary rows.
+      // Place the source at the visible boundary before those hidden account members.
+      const previousVisible = withoutSource[visibleInsertAt - 1]?.id
+      if (previousVisible === undefined) {
+        anchor = nextOrder[0]
+      } else {
+        const previousIndex = nextOrder.indexOf(previousVisible)
+        if (previousIndex === -1) return
+        anchor = nextOrder[previousIndex + 1]
+      }
+    }
     const insertAt = anchor === undefined ? nextOrder.length : nextOrder.indexOf(anchor)
     nextOrder.splice(insertAt === -1 ? nextOrder.length : insertAt, 0, activeDrag.sessionId)
+    if (!sessionsExpanded && sourceIndex !== -1) {
+      const nodes = new Map(group.sessions.map(node => [node.id, node]))
+      const nextGroup = nextOrder.flatMap((id) => {
+        const node = nodes.get(id)
+        return node === undefined ? [] : [node]
+      })
+      if (!collapsedSessionRows(nextGroup).rows.some(node => node.id === activeDrag.sessionId)) return
+    }
     setSessionOrder(activeDrag.accountKey, nextOrder.map(id => id as string))
     if (orderBy === 'updated' || activeDrag.accountKey === UNGROUPED_KEY) return
     insertSessionBefore(activeDrag.accountKey as WorkspaceId, activeDrag.sessionId, anchor).catch((reason: unknown) => {
@@ -398,6 +438,8 @@ function SessionTree({
         )}
         {groups.map((group) => {
           const workspaceId = group.workspaceId
+          const collapsed = collapsedSessionRows(group.sessions)
+          const sessionsExpanded = expandedSessionGroups.includes(group.key)
           const workspaceMarker = workspaceId !== undefined && workspaceDrag?.over?.id === workspaceId
             ? workspaceDrag.over.half
             : null
@@ -483,9 +525,9 @@ function SessionTree({
                     },
                   }}
               />
-              {(expandedSessionGroups.includes(group.key)
+              {(sessionsExpanded
                 ? group.sessions
-                : group.sessions.slice(0, COLLAPSED_SESSION_LIMIT)
+                : collapsed.rows
               ).map((node) => {
               // Session drag never leaves its group. Ungrouped writes only the
               // browser-local account; real Workspaces may also write Host order.
@@ -527,16 +569,16 @@ function SessionTree({
                   />
                 )
               })}
-              {group.sessions.length > COLLAPSED_SESSION_LIMIT && (
+              {collapsed.hiddenCount > 0 && (
                 <button
                   type="button"
                   className={css.sessionOverflowButton}
-                  aria-expanded={expandedSessionGroups.includes(group.key)}
+                  aria-expanded={sessionsExpanded}
                   onClick={() => { setExpandedSessionGroups(keys => toggled(keys, group.key)) }}
                 >
-                  {expandedSessionGroups.includes(group.key)
+                  {sessionsExpanded
                     ? t('sessions.collapse')
-                    : t('sessions.expand', { n: group.sessions.length - COLLAPSED_SESSION_LIMIT })}
+                    : t('sessions.expand', { n: collapsed.hiddenCount })}
                 </button>
               )}
             </div>

@@ -14,6 +14,7 @@ import {
   TypertRemoteFailure,
 } from '@deepseek-ai/dsh-typert-protocol'
 import TypertRegistry from '@deepseek-ai/dsh-typert-registry'
+import { provideBrowserCredentials } from './browser-credentials.ts'
 import TypertGatewayService, {
   TypertGatewayError,
   type TypertRemoteEventDispatch,
@@ -32,8 +33,30 @@ vi.mock('node:crypto', async (importOriginal) => {
 })
 
 const randomUuid = vi.mocked(randomUUID)
+const browserCookies = new WeakMap<Context, string>()
 type AgentWireId = TypertContextWire<TypertContextMap['agent']>
 const agentId = (value: string): AgentWireId => value as AgentWireId
+
+/** Exchange this test Host's process token for its WebSocket/HTTP Cookie header. */
+function browserCookie(ctx: Context): string {
+  const existing = browserCookies.get(ctx)
+  if (existing !== undefined) return existing
+  const origin = `http://127.0.0.1:${String(ctx.webServer.port)}`
+  const target = new URL(ctx.connection.authenticatedUrl(origin))
+  let setCookie: string | undefined
+  ctx.connection.authorizeIndex({
+    method: 'GET',
+    url: `${target.pathname}${target.search}`,
+    headers: { host: target.host },
+  }, {
+    writeHead(_status, headers) { setCookie = headers?.['set-cookie'] },
+    end() {},
+  })
+  if (setCookie === undefined) throw new Error('gateway stream fixture did not receive a browser cookie')
+  const cookie = setCookie.split(';', 1)[0]!
+  browserCookies.set(ctx, cookie)
+  return cookie
+}
 
 class FeedService extends Service {
   readonly typertRemote = bindTypertRemote(this, 'feed')
@@ -259,7 +282,9 @@ describe('Typert Remote streams', () => {
 
   it('multiplexes independent streams over one WebSocket and propagates cancellation', async () => {
     const { ctx, service } = await setup(true)
-    const socket = new WebSocket(`ws://127.0.0.1:${String(ctx.webServer.port)}/api/remote.mux`)
+    const socket = new WebSocket(`ws://127.0.0.1:${String(ctx.webServer.port)}/api/remote.mux`, {
+      headers: { cookie: browserCookie(ctx) },
+    })
     await once(socket, 'open')
     const frames: Record<string, unknown>[] = []
     socket.on('message', (data) => { frames.push(JSON.parse(rawText(data)) as Record<string, unknown>) })
@@ -341,7 +366,9 @@ describe('Typert Remote streams', () => {
     expect(() => { ctx.typertGateway.registerRemoteEvents(source) })
       .toThrow('forwarded Remote event source is already registered')
 
-    const socket = new WebSocket(`ws://127.0.0.1:${String(ctx.webServer.port)}/api/remote.mux`)
+    const socket = new WebSocket(`ws://127.0.0.1:${String(ctx.webServer.port)}/api/remote.mux`, {
+      headers: { cookie: browserCookie(ctx) },
+    })
     await once(socket, 'open')
     const frames: Record<string, unknown>[] = []
     socket.on('message', (data) => { frames.push(JSON.parse(rawText(data)) as Record<string, unknown>) })
@@ -861,7 +888,9 @@ describe('Typert Remote streams', () => {
 
   it('validates the internal Remote event request and reports an absent source', async () => {
     const { ctx } = await setup(true)
-    const socket = new WebSocket(`ws://127.0.0.1:${String(ctx.webServer.port)}/api/remote.mux`)
+    const socket = new WebSocket(`ws://127.0.0.1:${String(ctx.webServer.port)}/api/remote.mux`, {
+      headers: { cookie: browserCookie(ctx) },
+    })
     await once(socket, 'open')
     const frames: Record<string, unknown>[] = []
     socket.on('message', (data) => { frames.push(JSON.parse(rawText(data)) as Record<string, unknown>) })
@@ -920,6 +949,19 @@ describe('Typert Remote streams', () => {
     rejected.resume()
     ;(request as { abort(): void }).abort()
   })
+
+  it('answers an unauthenticated trusted Host with 401 before opening a stream', async () => {
+    const { ctx } = await setup(true)
+    const socket = new WebSocket(`ws://127.0.0.1:${String(ctx.webServer.port)}/api/remote.mux`)
+    socket.on('error', () => {})
+    const responseEvent: unknown[] = await once(socket, 'unexpected-response')
+    const request = responseEvent[0]
+    const response = responseEvent[1]
+    const rejected = response as { statusCode?: number; resume(): void }
+    expect(rejected.statusCode).toBe(401)
+    rejected.resume()
+    ;(request as { abort(): void }).abort()
+  })
 })
 
 async function setup(transport: boolean): Promise<{ readonly ctx: Context; readonly service: FeedService }> {
@@ -927,6 +969,7 @@ async function setup(transport: boolean): Promise<{ readonly ctx: Context; reado
   roots.push(ctx)
   if (transport) {
     await ctx.plugin(WebServer, { host: '127.0.0.1', port: 0 })
+    provideBrowserCredentials(ctx)
   }
   await ctx.plugin(TypertRegistry)
   await ctx.plugin(TypertGatewayService)
@@ -989,11 +1032,15 @@ interface RemoteEventTestClient {
   readonly streamId: string
   readonly clientId: RemoteEventClientId
   readonly origin: string
+  readonly cookie: string
 }
 
 async function openEventClient(ctx: Context, streamId: string): Promise<RemoteEventTestClient> {
   const origin = `http://127.0.0.1:${String(ctx.webServer.port)}`
-  const socket = new WebSocket(`${origin.replace('http:', 'ws:')}/api/remote.mux`)
+  const cookie = browserCookie(ctx)
+  const socket = new WebSocket(`${origin.replace('http:', 'ws:')}/api/remote.mux`, {
+    headers: { cookie },
+  })
   await once(socket, 'open')
   const frames: Record<string, unknown>[] = []
   socket.on('message', (data) => { frames.push(JSON.parse(rawText(data)) as Record<string, unknown>) })
@@ -1010,7 +1057,7 @@ async function openEventClient(ctx: Context, streamId: string): Promise<RemoteEv
     if (typeof candidate === 'string') clientId = candidate as RemoteEventClientId
   })
   if (clientId === undefined) throw new Error('Remote event stream omitted its Client id')
-  return { socket, frames, streamId, clientId, origin }
+  return { socket, frames, streamId, clientId, origin, cookie }
 }
 
 function deliveredInvocation(client: RemoteEventTestClient): RemoteEventInvocationFrame | undefined {
@@ -1042,7 +1089,7 @@ async function sendEventResult(
   const rpcId = `remote-event-result-${client.streamId}`
   const response = await fetch(`${client.origin}/api/$events/result`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: { 'content-type': 'application/json', cookie: client.cookie },
     body: JSON.stringify({
       type: 'client-request',
       rpcId,

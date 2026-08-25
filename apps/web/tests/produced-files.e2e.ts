@@ -118,7 +118,7 @@ describe('web e2e: a finished turn ends with the files it produced', () => {
     // the assertion itself narrows the conversation after navigation.
     await page.setViewportSize({ width: 1280, height: 900 })
     tripwire = watchConsole(page)
-    await page.goto(scaffold.baseUrl, { waitUntil: 'load' })
+    await page.goto(scaffold.authenticatedUrl, { waitUntil: 'load' })
     await page.waitForSelector('[class*="frame"]', { timeout: 30_000 })
   }, 120_000)
 

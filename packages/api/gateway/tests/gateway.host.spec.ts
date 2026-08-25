@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest'
 import { Context, Service, symbols } from '@deepseek-ai/cordis'
 import { z } from 'zod'
 import { apply as applyConnection, inject as connectionInject } from '@deepseek-ai/dsh-client-connection'
+import type { HostConnectionHandle } from '@deepseek-ai/dsh-client-connection'
 import type { WebServer, WebRoute } from '@deepseek-ai/dsh-host-webserver'
 import {
   bindTypertRemote,
@@ -17,6 +18,7 @@ import {
 } from '@deepseek-ai/dsh-typert-protocol'
 import TypertRegistry, { type TypertContribution } from '@deepseek-ai/dsh-typert-registry'
 import TypertGatewayService, { TypertGatewayError } from '@deepseek-ai/dsh-api-gateway'
+import { provideBrowserCredentials } from './browser-credentials.ts'
 
 interface FixtureAgent {
   readonly id: string
@@ -104,7 +106,6 @@ type FakeRpcHandler = (endpoint: string, payload: unknown, signal: AbortSignal) 
 
 class FakeConnectionService extends Service {
   channel: string | undefined
-  authority: string | undefined
   matches: ((endpoint: string) => boolean) | undefined
   handler: FakeRpcHandler | undefined
 
@@ -119,21 +120,22 @@ class FakeConnectionService extends Service {
         channel: string,
         matches: (endpoint: string) => boolean,
         handler: FakeRpcHandler,
-        options: { readonly authority: string },
       ) =>
         owner.effect(() => {
           this.channel = channel
-          this.authority = options.authority
           this.matches = matches
           this.handler = handler
           return () => {
             this.channel = undefined
-            this.authority = undefined
             this.matches = undefined
             this.handler = undefined
           }
         }),
     }
+  }
+
+  requestRejection(): undefined {
+    return undefined
   }
 }
 
@@ -166,6 +168,22 @@ async function serveRoute(route: WebRoute): Promise<{ readonly origin: string; c
       })
     }),
   }
+}
+
+/** Exchange a Connection launch token without mounting the frontend fallback. */
+function browserCookie(connection: HostConnectionHandle, origin: string): string {
+  const target = new URL(connection.authenticatedUrl(origin))
+  let setCookie: string | undefined
+  connection.authorizeIndex({
+    method: 'GET',
+    url: `${target.pathname}${target.search}`,
+    headers: { host: target.host },
+  }, {
+    writeHead(_status, headers) { setCookie = headers?.['set-cookie'] },
+    end() {},
+  })
+  if (setCookie === undefined) throw new Error('gateway fixture did not receive an authentication cookie')
+  return setCookie.split(';', 1)[0]!
 }
 
 class FirstSharedService extends Service {
@@ -958,7 +976,7 @@ describe('TypertGatewayService', () => {
     await gatewayFiber
     await ctx.plugin(GoalService)
     const connection = rawConnection(ctx)
-    expect(connection).toMatchObject({ channel: '/api', authority: 'trusted-host' })
+    expect(connection).toMatchObject({ channel: '/api' })
 
     registerAgentLookup(ctx, { id: 'agent-1' })
     registerStrict(ctx, [createDescriptor(), maybeDescriptor()])
@@ -1150,6 +1168,7 @@ describe('TypertGatewayService', () => {
   it('dispatches claimed invocations through /api and leaves unclaimed endpoints to its fallback', async () => {
     const ctx = new Context().extend({ fixtureScope: 'http-caller' })
     const routes: WebRoute[] = []
+    provideBrowserCredentials(ctx)
     ctx.provide('webServer', fakeHttpServer(routes) as WebServer)
     const connectionFiber = ctx.plugin({ inject: [...connectionInject], apply: applyConnection })
     await connectionFiber
@@ -1163,11 +1182,12 @@ describe('TypertGatewayService', () => {
     let strictActive = true
     expect(routes).toHaveLength(1)
     const server = await serveRoute(routes[0]!)
+    const cookie = browserCookie(ctx.connection, server.origin)
 
     try {
       const response = await fetch(`${server.origin}/api/goals/create`, {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
+        headers: { 'content-type': 'application/json', cookie },
         body: JSON.stringify({
           type: 'client-request',
           rpcId: 'rpc-http',
@@ -1187,7 +1207,7 @@ describe('TypertGatewayService', () => {
 
       const invalid = await fetch(`${server.origin}/api/goals/create`, {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
+        headers: { 'content-type': 'application/json', cookie },
         body: JSON.stringify({
           type: 'client-request',
           rpcId: 'rpc-invalid',
@@ -1211,7 +1231,7 @@ describe('TypertGatewayService', () => {
       strictActive = false
       const withdrawn = await fetch(`${server.origin}/api/goals/create`, {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
+        headers: { 'content-type': 'application/json', cookie },
         body: JSON.stringify({
           type: 'client-request',
           rpcId: 'rpc-withdrawn',
@@ -1231,7 +1251,10 @@ describe('TypertGatewayService', () => {
       })
       expect(JSON.stringify(withdrawnBody)).toContain('strict definition was withdrawn')
 
-      const unclaimed = await fetch(`${server.origin}/api/legacy/list`, { method: 'POST' })
+      const unclaimed = await fetch(`${server.origin}/api/legacy/list`, {
+        method: 'POST',
+        headers: { cookie },
+      })
       expect(unclaimed.status).toBe(404)
     } finally {
       await server.close()

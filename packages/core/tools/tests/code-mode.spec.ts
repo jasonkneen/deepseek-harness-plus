@@ -3,7 +3,7 @@ import { Context } from '@deepseek-ai/cordis'
 import { createUserMessage, CallId  } from '@deepseek-ai/dsh-llm'
 import { createScope } from '@deepseek-ai/dsh-scope'
 import type { Scope } from '@deepseek-ai/dsh-scope'
-import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
+import SystemPrompt, { FIRST_PARTY_SECTION_ORDER } from '@deepseek-ai/dsh-system-prompt'
 import { CodeRuntime } from '@deepseek-ai/dsh-code-runtime'
 import type { CodeRunRequest, CodeRunResult } from '@deepseek-ai/dsh-code-runtime'
 import ToolRuntime, { CodeRunFailedError, RUN_CODE_NAME, TOOL_ABORTED_BEFORE_DISPATCH, defineContentToolFixture, defineTool } from '@deepseek-ai/dsh-tools'
@@ -138,9 +138,13 @@ describe('mode-aware wire contribution', () => {
   it("mode 'code' states the run_code-only rule BEFORE the per-tool guidance that names each tool", async () => {
     const { ctx, systemPrompt } = await setup({ mode: 'code' })
     registerEcho(ctx)
-    // Stand in for a real tool's guidance section, which sits in the 100-199
-    // band and names its tool without saying how it is reached.
-    ctx.systemPrompt.section({ name: 'tool:echo', order: 100, text: 'Use the echo tool.' })
+    // Stand in for a real tool's guidance section, which names its tool without
+    // saying how it is reached.
+    ctx.systemPrompt.section({
+      name: 'tool:echo',
+      order: FIRST_PARTY_SECTION_ORDER.TOOL_READ,
+      text: 'Use the echo tool.',
+    })
 
     const assembly = await systemPrompt.assemble()
     const names = assembly.sections.map(section => section.name)
@@ -206,7 +210,11 @@ describe('mode-aware wire contribution', () => {
     const { ctx, systemPrompt } = await setup({ mode })
     registerEcho(ctx)
     const { scope, agent } = await mintAgentScope(ctx)
-    scope.ctx.systemPrompt.section({ name: 'tools:sdk', order: 150, text: 'SCOPED SDK' })
+    scope.ctx.systemPrompt.section({
+      name: 'tools:sdk',
+      order: FIRST_PARTY_SECTION_ORDER.TOOLS_SDK,
+      text: 'SCOPED SDK',
+    })
 
     const scoped = await systemPrompt.assemble({ scope: agent })
     const global = await systemPrompt.assemble()
@@ -290,7 +298,11 @@ describe('mode-aware wire contribution', () => {
     expect(() => ctx.tools.register(impostor)).toThrow(/reserved for the Code Mode presentation transport/)
     expect(() => scope.ctx.tools.restrict({ allow: [RUN_CODE_NAME] })).toThrow(/cannot name reserved Code Mode presentation transport/)
     expect(() => scope.ctx.tools.restrict({ deny: [RUN_CODE_NAME] })).toThrow(/cannot name reserved Code Mode presentation transport/)
-    scope.ctx.systemPrompt.section({ name: 'scoped-note', order: 149, text: 'safe note' })
+    scope.ctx.systemPrompt.section({
+      name: 'scoped-note',
+      order: FIRST_PARTY_SECTION_ORDER.TOOLS_SDK - 10,
+      text: 'safe note',
+    })
     scope.ctx.tools.register(defineContentToolFixture({
       name: 'scoped_safe',
       description: 'Safe scoped tool.',

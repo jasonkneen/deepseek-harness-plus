@@ -87,7 +87,7 @@ describe('SessionHistoryController', () => {
       { address: { kind: 'session', sessionId: session.id }, throughSeq: 1 },
       new AbortController().signal,
     )
-    expect(page.events.map(entry => entry.event.seq)).toEqual([0, 1])
+    expect(page.records.map(entry => entry.event.seq)).toEqual([0, 1])
 
     abort.abort()
     expect(await iterator.next()).toMatchObject({ done: true })
@@ -137,7 +137,11 @@ describe('SessionHistoryController', () => {
       value: {
         type: 'snapshot',
         cursor: 2,
-        events: [{ event: { seq: 0 } }, { event: { seq: 1 } }, { event: { seq: 2 } }],
+        records: [
+          { type: 'event', event: { seq: 0 } },
+          { type: 'event', event: { seq: 1 } },
+          { type: 'event', event: { seq: 2 } },
+        ],
       },
     })
     session.append('turn/end', { turn: 2, reason: { kind: 'completed' } })
@@ -200,7 +204,12 @@ describe('SessionHistoryController', () => {
     await expect(opening).resolves.toMatchObject({
       done: false,
       value: {
-        type: 'snapshot', cursor: 1, events: [{ event: { seq: 0 } }, { event: { seq: 1 } }],
+        type: 'snapshot',
+        cursor: 1,
+        records: [
+          { type: 'event', event: { seq: 0 } },
+          { type: 'event', event: { seq: 1 } },
+        ],
       },
     })
     expect(attached.id).toBe(sessionId)
@@ -301,7 +310,7 @@ describe('SessionHistoryController', () => {
     await expect(iterator.next()).resolves.toMatchObject({ done: false, value: { type: 'snapshot', cursor: -1 } })
     await expect(transport.page({
       address: { kind: 'session', sessionId: session.id }, throughSeq: -1,
-    }, signal())).resolves.toMatchObject({ events: [], hasMore: false })
+    }, signal())).resolves.toMatchObject({ records: [], hasMore: false })
     abort.abort()
     await expect(iterator.next()).resolves.toMatchObject({ done: true })
   })
@@ -377,7 +386,9 @@ describe('SessionHistoryController', () => {
     await expect(transport.page({
       address: { kind: 'subagent', parentSessionId, childSessionId, mode: 'continuable' },
       throughSeq: 0,
-    }, signal)).resolves.toMatchObject({ events: [{ event: { type: 'subagent/descriptor' } }] })
+    }, signal)).resolves.toMatchObject({
+      records: [{ type: 'event', event: { type: 'subagent/descriptor' } }],
+    })
     await expect(transport.page({
       address: {
         kind: 'subagent',
@@ -505,7 +516,9 @@ describe('SessionHistoryController', () => {
     await expect(ordinaryBench.transport.page({
       address: { kind: 'session', sessionId: ordinaryId },
       throughSeq: 0,
-    }, signal())).resolves.toMatchObject({ events: [{ event: { seq: 0 } }] })
+    }, signal())).resolves.toMatchObject({
+      records: [{ type: 'event', event: { seq: 0 } }],
+    })
 
     const parentSessionId = SessionId('cold-parent')
     const childSessionId = SessionId('cold-child')
@@ -618,12 +631,13 @@ describe('SessionHistoryController', () => {
     const page = await transport.page({
       address: { kind: 'session', sessionId: session.id }, throughSeq: replacement.seq, maxMessages: 2,
     }, signal())
-    expect(page.events.map(entry => entry.event.seq)).toEqual([3, 4, 5, replacement.seq])
+    expect(page.records.map(entry => entry.event.seq))
+      .toEqual([3, 4, 5, replacement.seq])
     expect(page.hasMore).toBe(true)
     const before = await transport.page({
       address: { kind: 'session', sessionId: session.id }, throughSeq: replacement.seq, beforeSeq: 3, maxMessages: 1,
     }, signal())
-    expect(before.events.map(entry => entry.event.seq)).toEqual([2])
+    expect(before.records.map(entry => entry.event.seq)).toEqual([2])
   })
 
   it('keeps cited source events in the page that owns their appended message', async () => {
@@ -637,7 +651,7 @@ describe('SessionHistoryController', () => {
     const page = await transport.page({
       address: { kind: 'session', sessionId: session.id }, throughSeq: 1, maxMessages: 1,
     }, signal())
-    expect(page.events.map(entry => entry.event.seq)).toEqual([0, 1])
+    expect(page.records.map(entry => entry.event.seq)).toEqual([0, 1])
     expect(page.hasMore).toBe(false)
   })
 

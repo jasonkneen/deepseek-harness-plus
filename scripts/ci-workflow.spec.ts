@@ -27,21 +27,24 @@ describe('CI workflow', () => {
     for (const { jobName, step } of setups) {
       expect(step, `${jobName} must not share pnpm/action-setup's default destination`).toMatchObject({
         with: {
-          dest: jobName === 'windows-native'
+          dest: jobName.startsWith('windows-')
             ? nativeWindowsPnpmDestination
             : runnerPrivatePnpmDestination,
         },
       })
-      if (jobName === 'windows-native') expect(step).not.toMatchObject({ with: { standalone: true } })
+      if (jobName.startsWith('windows-')) expect(step).not.toMatchObject({ with: { standalone: true } })
     }
   })
 
-  it('keeps a required Wine Windows job, a non-blocking native Windows job with failover, and a master-only standby', () => {
+  it('keeps required Wine and split native Windows jobs with failover, plus a master-only standby', () => {
     const workflow = loadWorkflow('.github/workflows/ci.yml')
     const masterWorkflow = loadWorkflow('.github/workflows/ci-master.yml')
     if (!isRecord(workflow.jobs)
       || !isRecord(workflow.jobs.windows)
-      || !isRecord(workflow.jobs['windows-native'])
+      || !isRecord(workflow.jobs['windows-build'])
+      || !isRecord(workflow.jobs['windows-coverage'])
+      || !isRecord(workflow.jobs['windows-native-tests'])
+      || !isRecord(workflow.jobs['windows-observational'])
       || !isRecord(workflow.jobs['node-24'])
       || !isRecord(workflow.jobs['node-24-coverage'])
       || !isRecord(workflow.jobs['node-24-consumers'])
@@ -49,11 +52,14 @@ describe('CI workflow', () => {
       || !isRecord(masterWorkflow.jobs)
       || !isRecord(masterWorkflow.jobs['wine-apt-cache'])
       || !isRecord(masterWorkflow.jobs['serial-windows'])) {
-      throw new TypeError('CI workflow must define windows, windows-native, node-24, node-24-coverage, node-24-consumers, and all-checks-passed; ci-master must define wine-apt-cache and serial-windows')
+      throw new TypeError('CI workflow must define windows, windows-build, windows-coverage, windows-native-tests, windows-observational, node-24, node-24-coverage, node-24-consumers, and all-checks-passed; ci-master must define wine-apt-cache and serial-windows')
     }
 
     const windows = workflow.jobs.windows
-    const windowsNative = workflow.jobs['windows-native']
+    const windowsBuild = workflow.jobs['windows-build']
+    const windowsCoverage = workflow.jobs['windows-coverage']
+    const windowsNativeTests = workflow.jobs['windows-native-tests']
+    const windowsObservational = workflow.jobs['windows-observational']
     const wineAptCache = masterWorkflow.jobs['wine-apt-cache']
     const serialWindows = masterWorkflow.jobs['serial-windows']
     const node24 = workflow.jobs['node-24']
@@ -73,24 +79,49 @@ describe('CI workflow', () => {
     expect(windows.if).toBe("github.event_name == 'pull_request'")
     expect(commandSteps.some(step => step.run.includes('wine-windows-gates.sh'))).toBe(true)
 
-    // windows-native: non-blocking native job with failover, runs windows-complete.
-    // Its pool is resolved by the Windows-specific switch.
-    expect(typeof windowsNative['runs-on']).toBe('string')
-    expect(windowsNative['runs-on']).toContain('DSH_CI_FAILOVER_WINDOWS')
-    expect(windowsNative['runs-on']).not.toContain('DSH_CI_FAILOVER_LINUX')
-    expect(windowsNative['runs-on']).toContain('self-hosted')
-    expect(windowsNative['runs-on']).toContain('dsh-win-ci')
-    expect(windowsNative['runs-on']).toContain('dsh-windows-2025-16core')
-    expect(windowsNative.name).toBe('windows node 24 / native complete')
-    expect(windowsNative.if).toBe("github.event_name == 'pull_request'")
-    expect(windowsNative.env).toMatchObject({
-      DSH_COVERAGE_TEST_TIMEOUT_MS: '30000',
-    })
-    const nativeSteps = windowsNative.steps as unknown[]
-    const nativeCommandSteps = nativeSteps.filter((step): step is Record<string, unknown> & { run: string } => (
+    // The split native jobs all resolve their pool through the Windows switch.
+    for (const [jobName, job] of [['windows-build', windowsBuild], ['windows-coverage', windowsCoverage], ['windows-native-tests', windowsNativeTests], ['windows-observational', windowsObservational]] as const) {
+      expect(typeof job['runs-on']).toBe('string')
+      expect(job['runs-on'], `${jobName} runs-on must use the Windows failover switch`).toContain('DSH_CI_FAILOVER_WINDOWS')
+      expect(job['runs-on'], `${jobName} runs-on must not use the Linux failover switch`).not.toContain('DSH_CI_FAILOVER_LINUX')
+      expect(job['runs-on']).toContain('self-hosted')
+      expect(job['runs-on']).toContain('dsh-win-ci')
+      expect(job['runs-on']).toContain('dsh-windows-2025-16core')
+      expect(job.if).toBe("github.event_name == 'pull_request'")
+    }
+
+    // windows-build runs the blocking build/site pair.
+    expect(windowsBuild.name).toBe('windows node 24 / build')
+    const buildSteps = windowsBuild.steps as unknown[]
+    const buildCommands = buildSteps.filter((step): step is Record<string, unknown> & { run: string } => (
       isRecord(step) && typeof step.run === 'string'
     ))
-    expect(nativeCommandSteps.map(step => step.run)).toContain('pnpm run check:ci:windows-complete')
+    expect(buildCommands.map(step => step.run)).toContain('pnpm run check:ci:windows-blocking')
+
+    // windows-coverage uses the lower 4-partition profile.
+    expect(windowsCoverage.name).toBe('windows node 24 / coverage')
+    expect(windowsCoverage.env).toMatchObject({ DSH_COVERAGE_PARTITIONS: '4' })
+    const coverageSteps = windowsCoverage.steps as unknown[]
+    const coverageCommands = coverageSteps.filter((step): step is Record<string, unknown> & { run: string } => (
+      isRecord(step) && typeof step.run === 'string'
+    ))
+    expect(coverageCommands.map(step => step.run)).toContain('pnpm run check:ci:coverage')
+
+    // windows-native-tests runs the Windows-specific specs.
+    expect(windowsNativeTests.name).toBe('windows node 24 / native tests')
+    const nativeTestSteps = windowsNativeTests.steps as unknown[]
+    const nativeTestCommands = nativeTestSteps.filter((step): step is Record<string, unknown> & { run: string } => (
+      isRecord(step) && typeof step.run === 'string'
+    ))
+    const nativeTestCommand = nativeTestCommands.map(step => step.run).join('\n')
+    expect(nativeTestCommand).toContain('--no-file-parallelism')
+    expect(nativeTestCommand).toContain('--testTimeout 30000')
+    expect(nativeTestCommand).toContain('tool-pwsh/tests/loader.spec.ts')
+    expect(nativeTestCommand).toContain('workflow-worker-thread.spec.ts')
+
+    // windows-observational is non-blocking.
+    expect(windowsObservational.name).toBe('windows node 24 / observational')
+    expect(windowsObservational['continue-on-error']).toBe(true)
 
     // wine-apt-cache: master-only, seeds the Wine apt cache, lives in ci-master.
     expect(wineAptCache.if).toBe("github.event_name == 'push' && github.ref == 'refs/heads/master'")
@@ -101,9 +132,14 @@ describe('CI workflow', () => {
     expect(serialWindows['runs-on']).toEqual(['self-hosted', 'dsh-win-ci', 'windows'])
     expect(serialWindows.name).toBe('serial / windows (self-hosted standby)')
 
-    // Aggregate: Wine `windows` required, native `windows-native` excluded.
+    // Aggregate: Wine and the required split native jobs are needed;
+    // windows-coverage is temporarily non-blocking while Windows ACP
+    // half-close tests are stabilized; observational stays out too.
     expect(aggregate.needs).toContain('windows')
-    expect(aggregate.needs).not.toContain('windows-native')
+    expect(aggregate.needs).toContain('windows-build')
+    expect(aggregate.needs).not.toContain('windows-coverage')
+    expect(aggregate.needs).toContain('windows-native-tests')
+    expect(aggregate.needs).not.toContain('windows-observational')
     expect(aggregate.needs).not.toContain('serial-windows')
 
     // Linux failover is a separate switch: the three required Linux workers

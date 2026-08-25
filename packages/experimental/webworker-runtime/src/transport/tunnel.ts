@@ -4,11 +4,9 @@
  *
  * - `GET /__boot__` answers from tunnel glue, never from the host API surface,
  *   because the page needs the boot payload before its Cordis tree exists.
- * - Privileged `/api` methods take that same direct entry: the browser strips the
- *   `host` header from the WHATWG `Request` the route lane rebuilds, so the
- *   privileged fence would answer 403 for every one of them. The method set is
- *   not restated here — an unexpected 403 from the route lane is retried on the
- *   direct lane, which keeps the split honest without a copied list.
+ * - Privileged `/api` methods take that same direct entry. The method set is not
+ *   restated here: a 401 or 403 from the route lane is retried on the direct
+ *   lane because the page owns the worker and needs no network authentication.
  * - Everything else is fed into the real webserver route table through the
  *   request listener the app's fake `node:http` captured, keeping the trust
  *   fences, byte limits, and status semantics intact.
@@ -88,7 +86,7 @@ export interface TunnelPort {
 export interface TunnelSeams {
   /**
    * Direct entry to the API fetch handler for privileged methods and any unary
-   * call the route lane refused with 403.
+   * call the route lane refused with 401 or 403.
    */
   readonly directFetch: (request: Request) => Promise<Response>
   /** Boot payload for `GET /__boot__`: the structured index injection table. */
@@ -118,12 +116,12 @@ export interface TunnelServerOptions {
   readonly requestListener: () => Promise<RequestListener>
   /**
    * Methods that skip the route lane outright. Supply the host's own privileged
-   * set when it is reachable; omitting it leaves the 403 retry as the mechanism.
+   * set when it is reachable; omitting it leaves the 401/403 retry as the mechanism.
    */
   readonly privilegedMethods?: ReadonlySet<string>
   /**
    * Escape hatch for the unary `/api` lane. `route` (default) keeps every fence
-   * and byte limit with a 403 retry on the direct lane; `direct` sends every
+   * and byte limit with a 401/403 retry on the direct lane; `direct` sends every
    * unary `/api` call straight to the fetch handler.
    */
   readonly unaryApiLane?: 'route' | 'direct'
@@ -135,7 +133,7 @@ interface InFlight {
 
 type QueuedFrame = TunnelRequestFrame | TunnelStreamOpenFrame
 
-/** Recorded response frames, so a 403 from the route lane can be discarded. */
+/** Recorded response frames, so a route-lane authentication refusal can be discarded. */
 class BufferedSink {
   private readonly calls: Array<() => void> = []
   private target: ResponseSink | undefined
@@ -228,7 +226,7 @@ export class TunnelServer {
    */
   serve(seams: TunnelSeams): void {
     this.seams = seams
-    console.info(`webworker tunnel: serving (unary /api lane=${this.unaryApiLane}${this.unaryApiLane === 'route' ? ' with 403 retry' : ''}, privileged set=${this.privilegedMethods === undefined ? 'none' : String(this.privilegedMethods.size)}, queued=${String(this.queue.length)})`)
+    console.info(`webworker tunnel: serving (unary /api lane=${this.unaryApiLane}${this.unaryApiLane === 'route' ? ' with 401/403 retry' : ''}, privileged set=${this.privilegedMethods === undefined ? 'none' : String(this.privilegedMethods.size)}, queued=${String(this.queue.length)})`)
     for (const frame of this.queue.splice(0)) this.dispatchFrame(frame)
   }
 
@@ -380,7 +378,7 @@ export class TunnelServer {
 
   /**
    * Unary `/api`: keep the route lane's fences, but fall back to the direct lane
-   * when the privileged fence refuses a request the page is entitled to make.
+   * when network authentication or trust rejects the worker-owning page.
    */
   private async serveApi(
     original: TunnelRequestFrame,
@@ -405,9 +403,8 @@ export class TunnelServer {
     if (outcome === 'aborted' || exchange.aborted) return
     // The decision happens at the first frame, before anything reaches the page:
     // the route lane streams its answers, so a refusal can carry a body too.
-    if (outcome.status === 403) {
-      // The privileged fence read a Request the browser stripped `host` from.
-      console.debug(`webworker tunnel: route lane refused ${method} with 403; answering on the direct lane`)
+    if (outcome.status === 401 || outcome.status === 403) {
+      console.debug(`webworker tunnel: route lane refused ${method} with ${String(outcome.status)}; answering on the direct lane`)
       await this.serveDirect(original, sink)
       return
     }

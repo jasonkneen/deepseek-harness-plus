@@ -175,14 +175,17 @@ function rawText(data: RawData): string {
 /**
  * Reject an upgrade without transferring socket ownership to ws.
  * @param socket - carrier socket that receives the HTTP rejection.
+ * @param status - authentication or browser-trust rejection status.
  */
-export function rejectRemoteStreamUpgrade(socket: Duplex): void {
+export function rejectRemoteStreamUpgrade(socket: Duplex, status: 401 | 403): void {
+  const reason = status === 401 ? 'Unauthorized' : 'Forbidden'
+  const body = reason.toLowerCase()
   socket.end([
-    'HTTP/1.1 403 Forbidden',
+    `HTTP/1.1 ${String(status)} ${reason}`,
     'Connection: close',
     'Content-Type: text/plain; charset=utf-8',
-    'Content-Length: 9',
+    `Content-Length: ${String(Buffer.byteLength(body))}`,
     '',
-    'forbidden',
+    body,
   ].join('\r\n'))
 }

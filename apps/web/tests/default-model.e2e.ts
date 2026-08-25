@@ -81,7 +81,7 @@ describe('web e2e: the composer model switch is the default for later sessions',
     browser = await chromium.launch()
     page = await browser.newPage({ viewport: { width: 1680, height: 1000 }, locale: ZH_BROWSER_LOCALE })
     tripwire = watchConsole(page)
-    await page.goto(scaffold.baseUrl, { waitUntil: 'load' })
+    await page.goto(scaffold.authenticatedUrl, { waitUntil: 'load' })
     await page.waitForSelector('[class*="frame"]', { timeout: 30_000 })
     // The composer's seats only exist once a workspace is connected: without
     // one the input is the locked placeholder and no session scope is open.

@@ -155,11 +155,12 @@ describe('session.history projections block', () => {
     ctx.sessionProjections.register(lastUserUnit())
     seedMessages(session, 3)
     const snapshot = await opening(remote(ctx), session.id)
-    const { events, projections } = snapshot
+    const { records, projections } = snapshot
     expect(projections.asOfSeq).toBe(session.seq - 1)
     expect(projections.values['test/last-user']).toEqual({ text: 'm2' })
     // asOfSeq IS the window tail: the last served event carries it.
-    expect(events.at(-1)?.event.seq).toBe(projections.asOfSeq)
+    const last = records.at(-1)
+    expect(last?.event.seq).toBe(projections.asOfSeq)
   })
 
   it('reconstructs a cold persisted queue without publishing or resuming an Agent', async () => {
@@ -237,7 +238,7 @@ describe('session.history projections block', () => {
 
     const snapshot = await opening(remote(ctx), session.id)
 
-    expect(snapshot.events.map(entry => entry.event.seq)).toEqual([0, 1])
+    expect(snapshot.records.map(record => record.event.seq)).toEqual([0, 1])
     expect(snapshot.projections.asOfSeq).toBe(1)
     expect(snapshot.projections.values).toEqual(
       expect.objectContaining({ 'test/last-user': { text: 'm1' } }),
@@ -250,7 +251,7 @@ describe('session.history projections block', () => {
 
     const snapshot = await opening(remote(ctx), session.id)
 
-    expect(snapshot.events).toEqual([])
+    expect(snapshot.records).toEqual([])
     expect(snapshot.projections.asOfSeq).toBe(-1)
     expect(snapshot.projections.values).toEqual(
       expect.objectContaining({ 'test/last-user': null }),

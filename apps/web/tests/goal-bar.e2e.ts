@@ -30,6 +30,8 @@ describe('web e2e: goal bar clear convergence', () => {
     browser = await chromium.launch()
     page = await newEnglishPage(browser)
     tripwire = watchConsole(page)
+    const login = await page.context().request.get(scaffold.authenticatedUrl, { maxRedirects: 0 })
+    expect(login.status()).toBe(303)
     await page.goto(`${scaffold.baseUrl}?fixture`, { waitUntil: 'load' })
     await page.waitForSelector('[class*="frame"]', { timeout: 30_000 })
   }, 120_000)

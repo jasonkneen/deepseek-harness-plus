@@ -277,6 +277,79 @@ describe('WorkspaceBrowser', () => {
     expect(screen.getByRole('button', { name: '展开其余 2 个会话' })).toBeTruthy()
   })
 
+  it('keeps the blank New Session outside the five-row folding quota', () => {
+    const ordinary = Array.from({ length: 6 }, (_, index) => summary(`session-${index + 1}`, 6 - index))
+    const blank = summary('blank', 7, { blank: true })
+    const b = mount({
+      useSessions: hook(sessionState([blank, ...ordinary], { current: blank.id })),
+      useWorkspaces: hook(workspaceState([workspace('alpha', [blank.id, ...ordinary.map(item => item.id)])])),
+    })
+    expect(screen.getByText('新会话')).toBeTruthy()
+    for (const item of ordinary.slice(0, 5)) expect(screen.getByText(item.displayTitle)).toBeTruthy()
+    expect(screen.queryByText('session-6')).toBeNull()
+    expect(screen.getByRole('button', { name: '展开其余 1 个会话' })).toBeTruthy()
+
+    fireEvent.click(screen.getByRole('button', { name: '展开其余 1 个会话' }))
+    expect(screen.getByText('session-6')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: '收起' }))
+    expect(screen.queryByText('session-6')).toBeNull()
+
+    rerender(b, {
+      useSessions: hook(sessionState([{ ...blank, blank: false }, ...ordinary], { current: blank.id })),
+    })
+    expect(screen.getByText('blank')).toBeTruthy()
+    expect(screen.queryByText('session-5')).toBeNull()
+    expect(screen.getByRole('button', { name: '展开其余 2 个会话' })).toBeTruthy()
+  })
+
+  it('anchors collapsed drags before hidden rows so the source stays visible', async () => {
+    const ordinary = Array.from({ length: 6 }, (_, index) => summary(`session-${index + 1}`, 6 - index))
+    const blank = summary('blank', 7, { blank: true })
+    const insertSessionBefore = vi.fn(async () => {})
+    const b = mount({
+      useSessions: hook(sessionState([blank, ...ordinary], { current: blank.id })),
+      useWorkspaces: hook(workspaceState([workspace('alpha', [blank.id, ...ordinary.map(item => item.id)])])),
+      insertSessionBefore,
+    })
+    await waitFor(() => {
+      expect(b.store.getSnapshot().sessionOrderByAccount.alpha)
+        .toEqual(['blank', 'session-1', 'session-2', 'session-3', 'session-4', 'session-5', 'session-6'])
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: '展开其余 1 个会话' }))
+    const blankRow = screen.getByText('新会话').closest('[role="treeitem"]') as HTMLElement
+    const session6 = screen.getByText('session-6').closest('[role="treeitem"]') as HTMLElement
+    session6.getBoundingClientRect = () => ({
+      top: 200, bottom: 234, left: 0, right: 200, width: 200, height: 34,
+      x: 0, y: 200, toJSON: () => ({}),
+    })
+    fireEvent.dragStart(blankRow, { dataTransfer: dragData() })
+    fireDrag(session6, 'drop', 230)
+    expect(b.store.getSnapshot().sessionOrderByAccount.alpha)
+      .toEqual(['session-1', 'session-2', 'session-3', 'session-4', 'session-5', 'session-6', 'blank'])
+
+    insertSessionBefore.mockClear()
+    fireEvent.click(screen.getByRole('button', { name: '收起' }))
+    const collapsedBlank = screen.getByText('新会话').closest('[role="treeitem"]') as HTMLElement
+    collapsedBlank.getBoundingClientRect = () => ({
+      top: 200, bottom: 234, left: 0, right: 200, width: 200, height: 34,
+      x: 0, y: 200, toJSON: () => ({}),
+    })
+    const session5 = screen.getByText('session-5').closest('[role="treeitem"]') as HTMLElement
+    fireEvent.dragStart(session5, { dataTransfer: dragData() })
+    fireDrag(collapsedBlank, 'drop', 205)
+    expect(insertSessionBefore).not.toHaveBeenCalled()
+
+    const session4 = screen.getByText('session-4').closest('[role="treeitem"]') as HTMLElement
+    fireEvent.dragStart(session4, { dataTransfer: dragData() })
+    fireDrag(collapsedBlank, 'drop', 205)
+    expect(b.store.getSnapshot().sessionOrderByAccount.alpha)
+      .toEqual(['session-1', 'session-2', 'session-3', 'session-5', 'session-4', 'session-6', 'blank'])
+    expect(insertSessionBefore).toHaveBeenCalledWith(wid('alpha'), sid('session-4'), sid('session-6'))
+    expect(screen.getByText('session-4')).toBeTruthy()
+    expect(screen.queryByText('session-6')).toBeNull()
+  })
+
   it('shares one editable order across modes and promotes only while Last updated is active', async () => {
     const initial = sessionState([summary('one', 3), summary('two', 2)])
     const b = mount({

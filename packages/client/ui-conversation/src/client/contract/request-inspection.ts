@@ -1,4 +1,5 @@
 import type { ContentBlock, ToolSchema } from '@deepseek-ai/dsh-llm/types'
+import type { SessionEvent } from '@deepseek-ai/dsh-session/types'
 import type {
   AssistantProvenanceView, AssistantRequestConfig,
 } from './records.ts'
@@ -27,6 +28,61 @@ export interface RequestPromptChange {
   kind: 'initial' | 'system' | 'tools' | 'system-and-tools'
   /** State immediately before this change; absent for the initial header. */
   previous?: ConversationPromptSnapshot
+}
+
+/** Canonical prompt snapshot and any model-visible change introduced by one request header. */
+export interface RequestPromptInspection {
+  /** Complete prompt state recorded by the header. */
+  prompt: ConversationPromptSnapshot
+  /** System/tool change relative to the preceding loaded header. */
+  change?: RequestPromptChange
+}
+
+/**
+ * The {@link inspectRequestPrompt} signature as a value seam: Chat and
+ * Trajectory Definitions receive it from the uiConversation service because a
+ * client bundle cannot value-import another plugin's module.
+ */
+export type RequestPromptInspector = (
+  previous: ConversationPromptSnapshot | undefined,
+  event: SessionEvent<'request/header'>,
+) => RequestPromptInspection
+
+/**
+ * Canonicalize one request header and classify its model-visible prompt change.
+ * @param previous - Prompt from the preceding loaded request header, when available.
+ * @param event - Durable full request header to inspect.
+ * @returns The canonical prompt and an initial/system/tool change when it can be established.
+ */
+export function inspectRequestPrompt(
+  previous: ConversationPromptSnapshot | undefined,
+  event: SessionEvent<'request/header'>,
+): RequestPromptInspection {
+  const header = event.data.header
+  const rawTools: unknown = header.tools
+  const prompt: ConversationPromptSnapshot = {
+    config: header.config,
+    system: header.system ?? '',
+    tools: Array.isArray(rawTools) ? rawTools as readonly ToolSchema[] : [],
+  }
+  if (previous === undefined && event.data.reason !== 'initial') return { prompt }
+  const systemChanged = previous !== undefined && previous.system !== prompt.system
+  const toolsChanged = previous !== undefined
+    && JSON.stringify(previous.tools) !== JSON.stringify(prompt.tools)
+  if (previous !== undefined && !systemChanged && !toolsChanged) return { prompt }
+  return {
+    prompt,
+    change: {
+      seq: event.seq,
+      time: event.time,
+      kind: previous === undefined
+        ? 'initial'
+        : systemChanged && toolsChanged
+          ? 'system-and-tools'
+          : systemChanged ? 'system' : 'tools',
+      ...(previous === undefined ? {} : { previous }),
+    },
+  }
 }
 
 /** Lifecycle fields shared by ordinary generation and compaction requests. */

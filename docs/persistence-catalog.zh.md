@@ -576,7 +576,12 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
  * Full header for the next request, appended inside its step before dispatch.
  * It is log-only; the latest snapshot reconstructs the request header.
  */
-'request/header': { header: EpochHeader; reason: RequestHeaderReason }
+'request/header': {
+  header: EpochHeader
+  reason: RequestHeaderReason
+  /** A changed header also begins a distinct model-message series. */
+  startsSeries?: true
+}
 ```
 
 来源：[`packages/core/session/src/types.ts:289`](../packages/core/session/src/types.ts)

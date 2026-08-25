@@ -12,21 +12,23 @@ Composition customization stays in the profile system. Install persistent bundle
 
 ```ts
 import { DeepSeekHarness } from '@deepseek-ai/dsh-sdk-client'
+import { ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 
 await using harness = new DeepSeekHarness({
   profile: 'sdk',
   patches: ['./automation.cordis.yml'],
   provider: 'deepseek-official',
   model: 'deepseek-v4-flash',
+  reasoningEffort: ReasoningEffortId('max'),
   maxTokens: 49_152,
 })
 const result = await harness.run('say hi')
 console.log(result.finalResponse)
 ```
 
-The dsh process starts lazily on first use and stays owned across `run()` calls. `close()` (or `await using`) is required. `start()` memoizes the bounded `initialize` handshake; `initializeTimeoutMs` defaults to 10 seconds and its diagnostic names the selected profile with the retained stderr tail. A failed handshake reaps the runtime and lets a later call retry with a fresh process until terminal `close()`.
+The dsh process starts lazily on first use and stays owned across `run()` calls. `close()` (or `await using`) is required. `start()` memoizes the bounded `initialize` handshake, which carries the workspace cwd, provider/model route, optional adapter-owned `reasoningEffort`, and optional positive `maxTokens` output cap. `initializeTimeoutMs` defaults to 10 seconds, and its diagnostic names the selected profile with the retained stderr tail. The server validates the exact route before accepting prompts; omitting the effort preserves the model's own default. A failed handshake reaps the runtime and lets a later call retry with a fresh process until terminal `close()`. The cap applies to each root-agent request and is inherited by in-process descendants; compaction plugins own their separate summary limits. `session(id?)` opens a named or fresh session handle.
 
-The handshake carries the absolute session workspace plus provider/model and optional positive `maxTokens`. `run(input, { sessionId?, onNotification? })` accepts text or `SdkPromptContentBlock[]`; inline raster blocks carry canonical base64 plus `mimeType` and become durable attachments inside the runtime. The call queues the prompt, waits for its durable inbox receipt, and collects until the whole root agent next becomes idle. It returns `RunResult { sessionId, finalResponse, events, notifications }`; `events` is root-scoped, while notifications also contain discovered descendants.
+The handshake carries the absolute session workspace plus provider/model, optional `reasoningEffort`, and optional positive `maxTokens`. `run(input, { sessionId?, onNotification? })` accepts text or `SdkPromptContentBlock[]`; inline raster blocks carry canonical base64 plus `mimeType` and become durable attachments inside the runtime. The call queues the prompt, waits for its durable inbox receipt, and collects until the whole root agent next becomes idle. It returns `RunResult { sessionId, finalResponse, events, notifications }`; `events` is root-scoped, while notifications also contain discovered descendants.
 
 ## HarnessClient
 

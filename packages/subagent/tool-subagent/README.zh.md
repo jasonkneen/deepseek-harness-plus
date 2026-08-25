@@ -6,7 +6,7 @@
 
 ## 提供方选择与生命周期
 
-每个插件实例把一个 subagent 传输 `provider` 绑定到一个 `toolName`；模型不能改变该传输。如需公开另一种传输，请加载另一个名称不同的实例。`enableModelSelection: true`，或 `modelSelectionSettings: true` 时已启用的 Host 偏好，都要求该提供方具备子级 `agentOptions` 能力，并且无需额外路由配置即可公开可选的子 agent LLM `provider`、`model` 与 `reasoning_effort` 字段。调用可以提供完整的提供方／模型对；当配置值或父 Agent 值能够提供生效路由时，也可以只提供推理强度。实时 adapter 会在创建子 agent 前解析显式或配置的路由。完全省略选择字段的调用使用 `agentOptions`，再从父 Agent 最新记录的请求选择中继承兼容的缺失值；首个请求之前回退到其创建选项，并保留其中配置的 `maxTokens`。如果更换提供方或模型但没有指定强度，则清除下层路由所属的强度，使所选模型解析自己的默认值。
+每个插件实例把一个 subagent 传输 `provider` 绑定到一个 `toolName`；模型不能改变该传输。如需公开另一种传输，请加载另一个名称不同的实例。`enableModelSelection: true`，或 `modelSelectionSettings: true` 时已启用的 Host 偏好，都要求该提供方具备子级 `agentOptions` 能力，并且无需额外路由配置即可公开可选的子 agent LLM `provider`、`model` 与 `reasoning_effort` 字段。调用可以提供完整的提供方／模型对；当配置值、父 Agent 值或提供方持有的路由默认值能够提供生效路由时，也可以只提供推理强度。静态的 `provider.agentRouteDefaults` 在存在时构成 provider／model 基线；工具配置与模型字段会在路由相关强度合并和确切路由预检前覆盖它。没有这些默认值的提供方会从父 Agent 最新记录的请求选择中保留兼容的缺失值；首个请求之前回退到其创建选项，并保留其中配置的 `maxTokens`。如果更换提供方或模型但没有指定强度，则清除下层路由所属的强度，使所选模型解析自己的默认值。
 
 委派工具只在其 subagent 提供方存在时注册，从而避免对同级加载顺序和提供方重新加载的依赖。启用模型选择时，即使没有 `ctx.llm`，可选字段仍然可见；选择路由的调用会在该服务缺失时失败。禁用时，schema 会省略这些字段，执行阶段也会拒绝强制传入的选择。配置的 `agentOptions` 仍是部署方所有的子级默认值，不受这个面向模型的开关影响。adapter 目录和拓扑变化不会改写或重新注册工具。工具描述遵循 `provider.inheritsParentContext`：新建子 agent（智能体）需要独立提示词，而 fork 子 agent 已能看到父级已完成轮次。
 
@@ -28,7 +28,7 @@
 | `modelSelectionSettings` | 组合 Agent 时读取 Host 的 `subagent-model-selection` 偏好，把启用决定记录进其 Session，并让子 Session 继承该决定。默认为 `false`；与 `enableModelSelection` 互斥，且只能用于 Agent 作用域组合。该偏好默认关闭，只影响之后组合的新顶层 Session。 |
 | `enableRunInBackground` | 公开后台模式，默认 `true`；禁用时也会拒绝强制后台调用。 |
 | `backgroundMode` | 后台生命周期策略，默认 `one-shot`。`one-shot` 默认前台调用；`continuable` 默认后台调用，要求提供方具备 `prepareContinuable` 能力，并返回持久化子 agent ID，且不要求加载后续消息工具。 |
-| `agentOptions` | 配置的子 agent LLM `provider`、`model`、adapter 自有 `reasoningEffort` 与正整数 `maxTokens`；要求 subagent 提供方具备 `agentOptions` 能力。进程内提供方把显式值合并到父 Agent 最新记录的请求选择之上；首个请求之前则合并到其创建选项之上。只有生效提供方／模型路由不变时才会保留继承的推理强度；改变路由但不显式提供强度时，由所选模型提供默认值。即使调用省略模型选择字段，配置的提供方、模型或强度也会在创建子 agent 前通过可选 `ctx.llm` 服务进行校验；服务缺失或值无效都会拒绝调用。 |
+| `agentOptions` | 配置的子 agent LLM `provider`、`model`、adapter 自有 `reasoningEffort` 与正整数 `maxTokens`；要求 subagent 提供方具备 `agentOptions` 能力。静态提供方路由默认值在存在时会先于工具配置与模型覆盖合并；否则进程内提供方会把显式值合并到父 Agent 最新记录的请求选择之上，首个请求之前则合并到其创建选项之上。只有生效提供方／模型路由不变时才会保留继承的推理强度；改变路由但不显式提供强度时，由所选模型提供默认值。即使调用省略模型选择字段，配置的提供方、模型或强度也会在创建子 agent 前通过可选 `ctx.llm` 服务进行校验；服务缺失或值无效都会拒绝调用。 |
 | `persona` | 每个子 agent 独立的 persona；要求提供方具备 `persona` 能力。 |
 | `toolFilter` | 每个子 agent 独立的全局工具限制；要求提供方具备 `toolFilter` 能力。 |
 | `maxDepth` | 绝对委派深度上限，默认 `3`（`0` 禁止委派）；数值上限要求 `depthLimit` 能力，缺失时挂载失败。对于预算由子 harness 拥有的进程外提供方，`'provider-managed'` 不发送上限。工具在达到上限时仍然可见；每次尝试启动都会检查调用 agent 的当前深度，被拒绝时返回出错的工具结果。 |
@@ -100,4 +100,4 @@ adapter 注册和目录变化不会改变 schema 的前缀稳定性。每次结�
 - **后台运行不通过本工具公开结果**：一次性任务的最终输出通过通用 Task 接口收集，可继续子 agent 的输出留在其自身会话中，按其 subagent id 读取。结算通知会说明该子 agent 如何结束，并携带可能存在的最终 assistant 消息，但它不是本次调用的返回值，也无法在此等待。
 - **等待中的一次性实例较晚才发现重复名称**（`TODO(subagent-dup-toolname)`）：可继续实例会在插件应用期间预留提示词 section 名称，但若要阻止等待中的一次性实例回滚提供方注册，仍需要一份预期名称注册表。
 - **随附 fork 工具无法选择子级 LLM 路由**：它们会继承父级的提供方与模型，使复制的对话前缀仍可供 KV Cache 复用。只有在路由变化仍能保留复用，或接口能公开一项有界的重算成本时，才重新启用这些字段。
-- **每个实例的非路由子 agent 策略固定**：其他 persona、工具过滤器或深度上限都需要另一个名称不同的工具。LLM 提供方／模型／推理强度选择要求静态启用或每 Session 偏好已启用，并要求 subagent 提供方声明 `agentOptions`；进程外提供方目前会拒绝启用它，而不是忽略它。
+- **每个实例的非路由子 agent 策略固定**：其他 persona、工具过滤器或深度上限都需要另一个名称不同的工具。LLM 提供方／模型／推理强度选择要求静态启用或每 Session 偏好已启用，并要求 subagent 提供方声明 `agentOptions`；ACP、Codex 与 Claude Code 会拒绝它，而不是忽略它。

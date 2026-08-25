@@ -13,10 +13,11 @@ import { tmpdir } from 'node:os'
 import { join, relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import SubagentRuntime from '@deepseek-ai/dsh-subagent'
-import type { Agent } from '@deepseek-ai/dsh-agent'
+import type { Agent, AgentOptions } from '@deepseek-ai/dsh-agent'
 import { createProcessDeepSeekHarness } from '../../../sdk/client/src/api.ts'
 import type { RuntimeProcessOptions } from '../../../sdk/client/src/launch.ts'
 import type { DeepSeekHarnessOptions } from '@deepseek-ai/dsh-sdk-client'
+import { ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 import * as sdk from '../src/index.ts'
 import {
   DEFAULT_DISPOSE_EOF_GRACE_MS,
@@ -63,8 +64,14 @@ afterEach(() => {
 /** A parent Agent stub. The SDK backend reads exactly one thing off it: the session header's cwd (the workspace its child inherits). */
 const fakeParent = { id: 'parent', session: { header: { cwd: process.cwd() } } } as unknown as Agent
 
-function request(text = 'p', signal = new AbortController().signal) {
-  return { label: text, prompt: [{ type: 'text' as const, text }], parent: fakeParent, signal }
+function request(text = 'p', signal = new AbortController().signal, agentOptions?: AgentOptions) {
+  return {
+    label: text,
+    prompt: [{ type: 'text' as const, text }],
+    parent: fakeParent,
+    signal,
+    ...agentOptions === undefined ? {} : { agentOptions },
+  }
 }
 
 /** Mount the SDK backend pointed at the fake runtime, scripted by `fakeEnv`. */
@@ -177,6 +184,77 @@ describe('dsh-subagent-dsh-sdk provider', () => {
         model: 'fake-model',
         maxTokens: 4096,
       }])
+      await ctx.fiber.dispose()
+    } finally {
+      rmSync(tmp, { recursive: true, force: true })
+    }
+  })
+
+  it('preserves instance defaults around a partial request override', async () => {
+    const tmp = mkdtempSync(join(tmpdir(), 'subagent-dsh-sdk-partial-route-'))
+    const recordFile = join(tmp, 'init.jsonl')
+    try {
+      const ctx = await setup({ FAKE_RECORD_INIT: recordFile }, { maxTokens: 4096 })
+      const run = await ctx.subagents.start('dsh-sdk', request('partial', new AbortController().signal, {
+        reasoningEffort: ReasoningEffortId('high'),
+      }))
+      await run.result
+      await run.dispose()
+      const { readFileSync } = await import('node:fs')
+      expect(JSON.parse(readFileSync(recordFile, 'utf8'))).toEqual({
+        cwd: process.cwd(),
+        provider: 'fake-provider',
+        model: 'fake-model',
+        reasoningEffort: 'high',
+        maxTokens: 4096,
+      })
+      await ctx.fiber.dispose()
+    } finally {
+      rmSync(tmp, { recursive: true, force: true })
+    }
+  })
+
+  it('isolates complete per-run route overrides on concurrent children', async () => {
+    const tmp = mkdtempSync(join(tmpdir(), 'subagent-dsh-sdk-routes-'))
+    const recordFile = join(tmp, 'init.jsonl')
+    try {
+      const ctx = await setup({ FAKE_RECORD_INIT: recordFile }, { maxTokens: 4096 })
+      const runs = await Promise.all([
+        ctx.subagents.start('dsh-sdk', request('first', new AbortController().signal, {
+          provider: 'provider-a',
+          model: 'model-a',
+          reasoningEffort: ReasoningEffortId('high'),
+          maxTokens: 111,
+        })),
+        ctx.subagents.start('dsh-sdk', request('second', new AbortController().signal, {
+          provider: 'provider-b',
+          model: 'model-b',
+          reasoningEffort: ReasoningEffortId('max'),
+          maxTokens: 222,
+        })),
+      ])
+      await Promise.all(runs.map(run => run.result))
+      await Promise.all(runs.map(run => run.dispose()))
+      const { readFileSync } = await import('node:fs')
+      const records = readFileSync(recordFile, 'utf8').trim().split('\n')
+        .map(line => JSON.parse(line) as Record<string, unknown>)
+        .sort((left, right) => String(left.provider).localeCompare(String(right.provider)))
+      expect(records).toEqual([
+        {
+          cwd: process.cwd(),
+          provider: 'provider-a',
+          model: 'model-a',
+          reasoningEffort: 'high',
+          maxTokens: 111,
+        },
+        {
+          cwd: process.cwd(),
+          provider: 'provider-b',
+          model: 'model-b',
+          reasoningEffort: 'max',
+          maxTokens: 222,
+        },
+      ])
       await ctx.fiber.dispose()
     } finally {
       rmSync(tmp, { recursive: true, force: true })
@@ -433,7 +511,7 @@ describe('dsh-subagent-dsh-sdk provider', () => {
     expect(ctx.subagents.getProvider('sdk-hmr')?.name).toBe('sdk-hmr')
     expect(ctx.subagents.getProvider('sdk-hmr')?.inheritsParentContext).toBe(false)
     expect(ctx.subagents.getProvider('sdk-hmr')?.capabilities).toEqual({
-      agentOptions: false,
+      agentOptions: true,
       outputSchema: false,
       depthLimit: false,
       toolFilter: false,

@@ -356,9 +356,9 @@ function requireLoweredImage(vfs: MemoryVfs, path: string): void {
  * endpoints (`/api/<service>/<method>`) are served by an interceptor the gateway
  * registers on the Connection service, and answer 404 from the core routes. The
  * Connection service composes both halves in `createSharedFetchHandler`, whose
- * fallback — not the composition — carries the privileged fence, so composing it
- * here keeps every interceptor while leaving out the fence the direct lane exists
- * to bypass.
+ * fallback — not the composition — carries network authentication and trust, so
+ * composing it here keeps every interceptor while leaving out the fences the
+ * worker-local direct lane exists to bypass.
  * @param ctx - Booted host context.
  * @param core - Fetch handler over the API surface.
  * @returns Handler covering interceptors and the core surface.

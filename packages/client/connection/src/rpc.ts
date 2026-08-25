@@ -12,19 +12,25 @@ export type ConnectionRpcResult<T> =
   | { readonly ok: true; readonly value: T }
   | { readonly ok: false; readonly error: ConnectionRpcFailure }
 
-/** HTTP request facts consumed by the existing browser trust fence. */
+/** HTTP request facts consumed by browser trust and authentication. */
 export interface ConnectionTrustRequest {
   /** Request headers supplied by either the Fetch or node:http representation. */
   readonly headers: Headers | Readonly<Record<string, string | readonly string[] | undefined>>
 }
 
-/** Trust fence applied before a Host RPC channel reaches its handler. */
-export type ConnectionRpcAuthority = 'trusted-host' | 'loopback'
+/** HTTP status returned before dispatch, or undefined when the request may proceed. */
+export type ConnectionRequestRejection = 401 | 403 | undefined
 
-/** Registration policy for one logical RPC channel. */
-export interface ConnectionRpcHandlerOptions {
-  /** Browser authority accepted by every endpoint in this channel. */
-  readonly authority: ConnectionRpcAuthority
+/** Root/index request facts used by the browser-token exchange. */
+export interface ConnectionIndexRequest extends ConnectionTrustRequest {
+  readonly method?: string | undefined
+  readonly url?: string | undefined
+}
+
+/** Root/index response operations owned by the browser-token exchange. */
+export interface ConnectionIndexResponse {
+  writeHead(status: number, headers?: Readonly<Record<string, string>>): unknown
+  end(body?: string): unknown
 }
 
 /** Handler invoked after Connection has decoded the transport envelope. */
@@ -40,16 +46,14 @@ export type ConnectionRpcEndpointMatcher = (endpoint: string) => boolean
 /** Host registry for logical RPC channels carried by the current transport. */
 export interface HostConnectionRpc {
   /**
-   * Register one absolute channel prefix and its trust policy.
+   * Register one authenticated absolute channel prefix.
    * @param channel - absolute logical channel such as `/rpc`.
    * @param handler - decoded endpoint handler returning the existing RPC result shape.
-   * @param options - channel trust policy.
    * @returns asynchronous disposer removing the channel and its physical route.
    */
   handle(
     channel: string,
     handler: ConnectionRpcHandler,
-    options: ConnectionRpcHandlerOptions,
   ): () => Promise<void>
 
   /**
@@ -57,14 +61,12 @@ export interface HostConnectionRpc {
    * @param channel - reserved shared channel; currently `/api`.
    * @param matches - synchronous endpoint ownership test.
    * @param handler - decoded endpoint handler returning the existing RPC result shape.
-   * @param options - trust policy for every endpoint claimed by this interceptor.
    * @returns asynchronous disposer removing the interceptor.
    */
   intercept(
     channel: '/api',
     matches: ConnectionRpcEndpointMatcher,
     handler: ConnectionRpcHandler,
-    options: ConnectionRpcHandlerOptions,
   ): () => Promise<void>
 }
 
@@ -74,12 +76,27 @@ export interface HostConnectionHandle {
   readonly rpc: HostConnectionRpc
 
   /**
-   * Apply Connection's configured browser trust policy to another Web route.
+   * Apply Connection's Host/Origin checks and browser authentication to
+   * another Web route.
    * @param request - request headers from the HTTP or upgrade request.
-   * @param authority - configured trusted hosts or loopback-only policy.
-   * @returns whether the route may accept the request.
+   * @returns rejection status, or undefined when the route may accept the request.
    */
-  isTrustedRequest(request: ConnectionTrustRequest, authority: ConnectionRpcAuthority): boolean
+  requestRejection(request: ConnectionTrustRequest): ConnectionRequestRejection
+
+  /**
+   * Authenticate one frontend index request, owning a token redirect or 401.
+   * @param request - root or configured-index HTTP request.
+   * @param response - response owned when the result is false.
+   * @returns true only when the frontend may serve index.html.
+   */
+  authorizeIndex(request: ConnectionIndexRequest, response: ConnectionIndexResponse): boolean
+
+  /**
+   * Add the fresh process token to an ordinary Web application URL.
+   * @param baseUrl - clean canonical browser origin.
+   * @returns root URL accepted by {@link authorizeIndex} for initial login.
+   */
+  authenticatedUrl(baseUrl: string): string
 }
 
 /** Client caller for logical RPC channels carried by the current transport. */

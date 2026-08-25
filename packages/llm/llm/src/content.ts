@@ -81,13 +81,13 @@ export function textOnlyImageText(ref: ImageAttachmentRef): string {
  * attachment id, so one shared version may serve occurrences whose display
  * names differ.
  * @param ref - the occurrence's durable normalized attachment.
- * @param version - exact request image shown beside the text.
+ * @param version - exact request-image dimensions shown beside the text.
  * @param access - optional path resolved for the current tool execution world.
  * @returns attachment handle and request-image dimensions.
  */
 export function requestImageHandleText(
   ref: ImageAttachmentRef,
-  version: RequestImageAttachment,
+  version: Pick<RequestImageAttachment, 'width' | 'height'>,
   access?: ImageAttachmentAccess,
 ): string {
   const preview = `Image ${imageIdentity(ref)}; request preview ${version.width}x${version.height}px.`
@@ -230,6 +230,39 @@ export function projectImagesForTextModel(messages: readonly Message[]): readonl
 }
 
 /**
+ * Number of oldest image occurrences one request projection removes, in whole
+ * count and byte quanta, once a route budget is exceeded. The result depends
+ * only on the represented lengths, so provider request pricing reproduces the
+ * exact serialization decision without building the projected messages.
+ * @param lengths - represented byte length of every occurrence, in request order.
+ * @param policy - count/byte budgets and removal quanta; unbounded when absent.
+ * @returns how many leading occurrences the projection replaces with placeholders.
+ */
+export function offloadedImagePrefixCount(
+  lengths: readonly number[],
+  policy: Pick<RequestImageOffloadPolicy, 'maxImages' | 'maxBytes' | 'countQuantum' | 'byteQuantum'>,
+): number {
+  const total = lengths.reduce((sum, bytes) => sum + bytes, 0)
+  const excessCount = policy.maxImages === undefined ? 0 : Math.max(0, lengths.length - policy.maxImages)
+  const excessBytes = policy.maxBytes === undefined ? 0 : Math.max(0, total - policy.maxBytes)
+  if (excessCount === 0 && excessBytes === 0) return 0
+  const countQuantum = policy.countQuantum ?? 1
+  const byteQuantum = policy.byteQuantum ?? 1
+  const removeCount = excessCount === 0 ? 0 : Math.ceil(excessCount / countQuantum) * countQuantum
+  const removeBytes = excessBytes === 0 ? 0 : Math.ceil(excessBytes / byteQuantum) * byteQuantum
+  let count = 0
+  let removedBytes = 0
+  for (const imageBytes of lengths) {
+    const byteTargetMet = removeBytes === 0
+      || (byteQuantum === 1 ? removedBytes >= removeBytes : removedBytes > removeBytes)
+    if (count >= removeCount && byteTargetMet) break
+    removedBytes += imageBytes
+    count += 1
+  }
+  return count
+}
+
+/**
  * Return a deterministic transient projection whose oldest images are replaced
  * in whole count and byte quanta after a route budget is exceeded. The target
  * depends only on complete durable history: at 129 one-megabyte images under
@@ -246,23 +279,8 @@ export function offloadRequestImagesWithPolicy(
 ): readonly Message[] {
   const lengths: number[] = []
   for (const message of messages) collectImageLengths(message.content, lengths, policy)
-  const total = lengths.reduce((sum, bytes) => sum + bytes, 0)
-  const excessCount = policy.maxImages === undefined ? 0 : Math.max(0, lengths.length - policy.maxImages)
-  const excessBytes = policy.maxBytes === undefined ? 0 : Math.max(0, total - policy.maxBytes)
-  if (excessCount === 0 && excessBytes === 0) return messages
-  const countQuantum = policy.countQuantum ?? 1
-  const byteQuantum = policy.byteQuantum ?? 1
-  const removeCount = excessCount === 0 ? 0 : Math.ceil(excessCount / countQuantum) * countQuantum
-  const removeBytes = excessBytes === 0 ? 0 : Math.ceil(excessBytes / byteQuantum) * byteQuantum
-  let count = 0
-  let removedBytes = 0
-  for (const imageBytes of lengths) {
-    const byteTargetMet = removeBytes === 0
-      || (byteQuantum === 1 ? removedBytes >= removeBytes : removedBytes > removeBytes)
-    if (count >= removeCount && byteTargetMet) break
-    removedBytes += imageBytes
-    count += 1
-  }
+  const count = offloadedImagePrefixCount(lengths, policy)
+  if (count === 0) return messages
   const remaining = { count }
   return messages.map((message) => {
     const content = replaceOldestImages(message.content, remaining, policy.placeholder)

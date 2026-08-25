@@ -4,7 +4,7 @@ import { createHash, randomUUID } from 'node:crypto'
 import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import sharp, { type Sharp } from 'sharp'
-import { AttachmentError, ImageVariantId } from '@deepseek-ai/dsh-attachment'
+import { AttachmentError, ImageVariantId, requestImageDimensions } from '@deepseek-ai/dsh-attachment'
 import type {
   ImageMediaType,
   ImageAttachmentRef,
@@ -37,38 +37,6 @@ interface VerifiedRequestImage extends EncodedRequestImage {
 
 function digest(value: string | Uint8Array): string {
   return createHash('sha256').update(value).digest('hex')
-}
-
-/**
- * Compute aspect-preserving integer dimensions within a hard total-pixel budget.
- * @param width - positive source width.
- * @param height - positive source height.
- * @param maxPixels - positive width-times-height cap.
- * @returns inward-rounded dimensions; small images are not enlarged.
- */
-export function requestImageDimensions(
-  width: number,
-  height: number,
-  maxPixels: number,
-): { width: number; height: number } {
-  const scale = Math.min(1, Math.sqrt(maxPixels / (width * height)))
-  if (scale === 1) return { width, height }
-  if (width >= height) {
-    let projectedWidth = Math.max(1, Math.floor(width * scale))
-    let projectedHeight = Math.max(1, Math.round(projectedWidth * height / width))
-    while (projectedWidth * projectedHeight > maxPixels && projectedWidth > 1) {
-      projectedWidth -= 1
-      projectedHeight = Math.max(1, Math.round(projectedWidth * height / width))
-    }
-    return { width: projectedWidth, height: projectedHeight }
-  }
-  let projectedHeight = Math.max(1, Math.floor(height * scale))
-  let projectedWidth = Math.max(1, Math.round(projectedHeight * width / height))
-  while (projectedWidth * projectedHeight > maxPixels && projectedHeight > 1) {
-    projectedHeight -= 1
-    projectedWidth = Math.max(1, Math.round(projectedHeight * width / height))
-  }
-  return { width: projectedWidth, height: projectedHeight }
 }
 
 function checkedInteger(value: number, name: string): number {

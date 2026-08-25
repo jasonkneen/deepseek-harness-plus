@@ -6,7 +6,7 @@ import type { SessionEvent } from '@deepseek-ai/dsh-session/types'
 import type { SessionId } from '@deepseek-ai/dsh-api-remotes/client'
 import { Session, type SessionOptions } from '../src/client/sessions/session.ts'
 import { FakeApiClient, deferred, err, fakeRemote, ok } from './fake-api.client.ts'
-import { entries, ev, plainTurn } from './event-script.client.ts'
+import { entries, ev, historyValue, plainTurn } from './event-script.client.ts'
 
 const SID = 'fk-s1' as SessionId
 const PARENT = 'fk-parent' as SessionId
@@ -41,8 +41,7 @@ function eventSeqs(session: Session): number[] {
 }
 
 function histResponse(events: SessionEvent[], hasMore = false) {
-  // History returns raw journal envelopes around each event.
-  return Promise.resolve(ok({ events: entries(events) as never[], hasMore }))
+  return Promise.resolve(ok(historyValue(events, hasMore)))
 }
 
 describe('Session open', () => {
@@ -106,7 +105,7 @@ describe('Session open', () => {
       follow(api, ev.user(16, '插进来的')),
     ]
     gate.resolve(ok({
-      events: entries(page) as never[],
+      records: entries(page) as never[],
       hasMore: false,
       modelSelection: { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
     }))
@@ -227,7 +226,7 @@ describe('paging', () => {
     const first = session.loadOlder()
     const second = session.loadOlder()
     gate.resolve(ok({
-      events: entries(plainTurn(0, 0, 'a', 'b')) as never[],
+      records: entries(plainTurn(0, 0, 'a', 'b')) as never[],
       hasMore: false,
       modelSelection: { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
     }))
@@ -571,7 +570,7 @@ describe('remaining branches', () => {
     api.onHistory = () => histResponse(plainTurn(6, 1, '新', '代'))
     const resynced = session.resync()
     stale.resolve(ok({
-      events: entries(plainTurn(0, 0, '旧', '代')) as never[],
+      records: entries(plainTurn(0, 0, '旧', '代')) as never[],
       hasMore: false,
       modelSelection: { provider: 'deepseek-official', model: 'stale' },
     })) // success, but its generation is gone
@@ -590,7 +589,7 @@ describe('remaining branches', () => {
     api.onHistory = () => histResponse(plainTurn(6, 1, 'c', 'd'))
     const resynced = session.resync() // bumps the generation
     repairPull.resolve(ok({
-      events: entries(plainTurn(0, 0, '旧', '页')) as never[],
+      records: entries(plainTurn(0, 0, '旧', '页')) as never[],
       hasMore: false,
       modelSelection: { provider: 'deepseek-official', model: 'stale' },
     })) // repair result: stale, dropped
@@ -617,25 +616,25 @@ describe('remaining branches', () => {
     const historyCall = ev.toolCall(6, 1, 'h1', 'bash', '{"cmd":"pwd"}')
     const historyResult = ev.toolResult(7, 1, 'h1', 'done')
     api.onHistory = () => Promise.resolve(ok({
-      events: [
+      records: [
         ...entries(plainTurn(0, 0, 'a', 'b')),
-        { event: historyCall },
-        { event: historyResult },
+        { type: 'event', event: historyCall },
+        { type: 'event', event: historyResult },
       ] as never[],
       hasMore: false,
       modelSelection: { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
     }))
     await session.open()
     expect(windowEntries(session).slice(-2)).toEqual([
-      { event: historyCall },
-      { event: historyResult },
+      { type: 'event', event: historyCall },
+      { type: 'event', event: historyResult },
     ])
     const liveCall = ev.toolCall(8, 2, 'l1', 'write', '{"file_path":"a.ts"}')
     await follow(api, liveCall)
-    expect(windowEntries(session).at(-1)).toEqual({ event: liveCall })
+    expect(windowEntries(session).at(-1)).toEqual({ type: 'event', event: liveCall })
     const liveResult = ev.toolResult(9, 2, 'l1', 'ok')
     await follow(api, liveResult)
-    expect(windowEntries(session).at(-1)).toEqual({ event: liveResult })
+    expect(windowEntries(session).at(-1)).toEqual({ type: 'event', event: liveResult })
   })
 })
 
@@ -669,7 +668,7 @@ describe('resync', () => {
     ])
     expect(session.eventSource.getSnapshot()).toBe(oldWindow)
     replacement.resolve(ok({
-      events: entries(plainTurn(10, 2, '终', '页')) as never[],
+      records: entries(plainTurn(10, 2, '终', '页')) as never[],
       hasMore: false,
       modelSelection: { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
     }))

@@ -43,7 +43,14 @@ export type {
 export type { ISession, ProjectionsFace, SessionFace } from './contract/session.ts'
 export type { ISessions } from './contract/sessions.ts'
 export { MutableSessionEventSource } from './contract/events.ts'
-export type { SessionEventChange, SessionEventSource, SessionEventWindow } from './contract/events.ts'
+export type {
+  SessionEventChange,
+  SessionEventLike,
+  SessionEventLikeEntry,
+  SessionEventSource,
+  SessionEventWindow,
+  SessionLiveEventEntry,
+} from './contract/events.ts'
 export type {
   OpenState,
   PromptError,

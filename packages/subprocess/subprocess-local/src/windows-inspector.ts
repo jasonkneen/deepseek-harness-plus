@@ -93,7 +93,7 @@ export class WindowsProcessInspector implements ProcessInspector {
     return shellPid
   }
 
-  isStdinWaiting(_pgid: number): boolean {
+  isStdinWaiting(_pgid: number, _shellPid: number): boolean {
     return false
   }
 

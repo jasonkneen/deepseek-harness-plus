@@ -12,7 +12,7 @@ Host API Proxy 仍承载许多一元方法。这些方法的实现仅执行服�
 
 API Proxy 还包含一些不以业务方法为约定的 BFF 操作：Session 生命周期与 transcript（文本记录）组装、模型选择状态、仅限 live 的输入控制、配置过滤、skill（技能）呈现、Host 组合信息和原生桌面操作。有状态交互与流又具有不同的生命周期。若把一元调用的语法一概视为方法简单的依据，就会把产品策略移入任意服务包，或者迫使系统新增没有独立业务所有者的包。
 
-最后，Connection 目前在 API Proxy 回退路径内执行仅限环回地址的特权方法清单。Typert interceptor 会先于该回退路径认领自己的端点，因此，如果迁移凭据或 preset 创作调用时不一并迁移权限检查，受信任的局域网调用方就会获得目前仅向环回调用方开放的操作权限。
+最后，Connection 必须在选择 API Proxy 回退路径或 Typert interceptor 前认证请求。若迁移只在回退路径执行认证，由 Remote 持有的 endpoint 就能绕过每个 Host 操作都要求的浏览器身份。
 
 ## 提案
 
@@ -76,14 +76,9 @@ Lookup 策略作用于整个 key，而非特定端点。提示词输入、队列
 
 Resolver 拥有的 `session-not-found` 和 `agent-busy` 错误保持稳定，因为共享 resolver 会抛出 `TypertLookupFailure`。普通业务异常会变成 Gateway 现有的 `internal` RPC 失败。只有在选定的 Client 消费方不根据更具体的旧版业务错误码进行分支时，才能迁移该调用；如果实现过程中发现这种分支，除非业务包新增与传输无关的类型化失败，否则该 RPC 将退出此集合。
 
-## 特权调用权限
+## 浏览器认证
 
-Connection 必须在选择 Typert interceptor 或 API Proxy 回退路径之前检查调用方是否有权访问特权端点。该检查必须同时识别旧式点分名称和 Remote 斜杠端点，并保持以下已迁移操作仅限环回地址：
-
-- `agentPresets/readDocument`、`agentPresets/copy` 和 `agentPresets/remove`；
-- `credentials/describe`、`credentials/set` 和 `credentials/unset`。
-
-贯穿整个载体的 trusted-host 和 origin 检查保持不变。这是一项非升权要求：端点所有权可以变化，但获准调用该操作的调用方集合不得扩大。
+Connection 在选择 Typert interceptor 或 API Proxy 回退路径前认证完整 `/api` 请求。旧式点分名称和 Remote 斜杠 endpoint 因此无需 endpoint 清单，就能使用同一个由进程令牌建立的浏览器会话。这是一条非提权要求：endpoint 所有权可以变化，但未认证请求不能进入任一分发路径。
 
 ## 提交边界
 
@@ -101,14 +96,14 @@ Connection 必须在选择 Typert interceptor 或 API Proxy 回退路径之前�
 
 **保留每一个旧版 RPC 名称和响应 envelope。** 这会使业务包变成旧协议的副本。面向服务的名称和业务值让 Client 负责关联操作，而 Connection 继续负责统一的 RPC envelope。
 
-**依赖 API Proxy 回退路径强制执行特权方法权限。** interceptor 选择会绕过该回退路径，因此这会悄然扩大已迁移方法的权限范围。
+**依赖 API Proxy 回退路径认证请求。** interceptor 选择会绕过该回退路径，使 Remote 方法变成匿名可调用。
 
 ## 验收标准
 
 - 迁移表中的每个方法都可通过表中列出的 `ctx.remote` 服务调用，并且不存在生产环境中的旧版 API Proxy 路由、schema、映射表行、客户端 stub 或调用。
 - 签名匹配的现有方法直接带有 `@Remote`；每个新增方法都执行表中所述的适配，且不保留只做恒等转发的 `remote*` 包装层。
 - Agent／Session 集成测试证明共享 lookup 的各项结果，subagent 中断测试证明不会发生冷恢复。
-- 已迁移的特权端点拒绝受信任的非环回调用方，并接受环回调用方，且该判定在任一分发路径运行前完成。
+- 已迁移 endpoint 拒绝未认证请求，并在任一分发路径运行前接受与旧 endpoint 相同的有效浏览器会话。
 - 每项已迁移调用的 Client 行为和立即提交状态的行为保持等价，包括支持取消之处的取消行为。
 - 暂缓迁移的方法及其现有行为仍保留在 API Proxy 上。
 - 一次从干净状态开始的生成与构建会生成并消费所选的每项 Remote 贡献，且聚焦测试和最终仓库门禁均通过。
@@ -119,6 +114,6 @@ Connection 必须在选择 Typert interceptor 或 API Proxy 回退路径之前�
 
 生成的 Remote 约定会为每个业务包引入构建顺序要求和发布条目。如果遗漏运行时挂载、声明导出、source map 来源、包依赖或 Project Reference 中的任何一项，局部源码测试可能仍会通过，但从干净状态开始的 Client 构建会失败。
 
-将权限强制执行移至复合分发会改变安全敏感的载体代码。测试必须覆盖一个由 Remote 拥有的端点和一个旧版回退端点，确保两条路径都无法绕过环回判定。
+复合分发会改变安全敏感的载体代码。测试必须覆盖一个由 Remote 拥有的 endpoint 和一个旧版回退 endpoint，确保两条路径都无法绕过浏览器认证。
 
-本文应用现有 Typert Remote 架构，而非取代它。本文部分取代 [GUI RPC 协议笔记](../../implemented/architecture/2026-07-19-gui-layering-and-rpc-protocol.zh.md)中的中央一元调用所有权和五步扩展检查清单，以及 [Web 配置平面笔记](../../implemented/architecture/2026-07-30-web-config-plane.zh.md)中的中央接线清单；对于已迁移方法之外的 Connection envelope 和配置行为，这些笔记仍具权威性。标题、命令、配置边界、subagent 中断和归档笔记继续负责各自的业务行为，只需如实更新传输相关事实，无需归档。[浏览器信任边界](../../implemented/architecture/2026-07-28-api-browser-trust-boundary.zh.md)和[生成约定构建顺序](../../implemented/process/2026-08-08-api-remotes-generated-contract-build.zh.md)仍具权威性，无需执行归档操作。
+本文应用现有 Typert Remote 架构，而非取代它。本文部分取代 [GUI RPC 协议笔记](../../implemented/architecture/2026-07-19-gui-layering-and-rpc-protocol.zh.md)中的中央一元调用所有权和五步扩展检查清单，以及 [Web 配置平面笔记](../../implemented/architecture/2026-07-30-web-config-plane.zh.md)中的中央接线清单；对于已迁移方法之外的 Connection envelope 和配置行为，这些笔记仍具权威性。标题、命令、配置边界、subagent 中断和归档笔记继续负责各自的业务行为，只需如实更新传输相关事实，无需归档。[浏览器信任边界](../../implemented/architecture/2026-07-28-api-browser-trust-boundary.zh.md)、[浏览器认证](../../implemented/architecture/2026-08-24-browser-token-authentication.zh.md)和[生成约定构建顺序](../../implemented/process/2026-08-08-api-remotes-generated-contract-build.zh.md)仍具权威性，无需执行归档操作。

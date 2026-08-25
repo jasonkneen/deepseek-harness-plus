@@ -49,7 +49,7 @@ function buildWelcome(
 }
 
 describe('WelcomeNoticeStore', () => {
-  it('acknowledges in memory without calling loopback-only settings APIs', async () => {
+  it('acknowledges in memory while Host settings persistence is disabled', async () => {
     const describeCall = vi.fn()
     const mutate = vi.fn()
     const { controller } = buildWelcome({ describe: describeCall, mutate }, 'memory')

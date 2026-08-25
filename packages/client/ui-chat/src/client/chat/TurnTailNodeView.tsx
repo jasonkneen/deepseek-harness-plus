@@ -2,6 +2,7 @@ import { memo } from 'react'
 import type { PropsRenderSlots } from '@deepseek-ai/dsh-client-ui-slots'
 import type { ChatNodeViewProps, TurnTailOwnerProps } from '../contract/slots.ts'
 import { MessageIconActions } from './MessageIconActions.tsx'
+import { TurnUsageDisclosure } from './TurnUsageDisclosure.tsx'
 import { assistantText } from './turn-assistant.ts'
 import css from './TurnTailNodeView.module.css'
 
@@ -35,19 +36,22 @@ export const TurnTailNodeView = memo(function TurnTailNodeView({
   return (
     <div className={css.root} data-turn-tail={data.turn} data-time-hover-root>
       {tail}
-      <MessageIconActions
-        text={assistantText(closing.blocks)}
-        time={closing.time}
-        runMs={runMs}
-        ttftMs={data.ttftMs}
-        tokensPerSecond={data.tokensPerSecond}
-        clock="end"
-        onBranch={() => { forkAt(closing.finalNode.seq) }}
-        branchUnavailable={data.branchUnavailable || hasLaterChatNode}
-        className={css.actions}
-        extraActions={assistantActions}
-        t={t}
-      />
+      <div className={css.footer}>
+        {data.tokenUsage === undefined ? null : <TurnUsageDisclosure usage={data.tokenUsage} t={t} />}
+        <MessageIconActions
+          text={assistantText(closing.blocks)}
+          time={closing.time}
+          runMs={runMs}
+          ttftMs={data.ttftMs}
+          tokensPerSecond={data.tokensPerSecond}
+          clock="end"
+          onBranch={() => { forkAt(closing.finalNode.seq) }}
+          branchUnavailable={data.branchUnavailable || hasLaterChatNode}
+          className={css.actions}
+          extraActions={assistantActions}
+          t={t}
+        />
+      </div>
     </div>
   )
 })

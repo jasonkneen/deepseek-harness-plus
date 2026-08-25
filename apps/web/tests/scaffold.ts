@@ -205,6 +205,8 @@ export interface WebScaffold {
   mode: WebSnapshotMode
   /** Browser-facing origin for the bound test server. */
   baseUrl: string
+  /** Process-token URL that establishes this scaffold's browser session. */
+  authenticatedUrl: string
   /** Settled root context (the in-process readiness barrier; headless event subscription is its sanctioned use). */
   ctx: Context
   /** Temp project directory sessions run in (shell/fs tool cwd). */
@@ -213,6 +215,8 @@ export interface WebScaffold {
   persistenceRoot: string
   /** Isolated harness home the settings/credentials rows write ($DSH_HOME double). */
   harnessHome: string
+  /** Send a browser-equivalent Host request with this scaffold's authenticated cookie. */
+  hostFetch(path: string, init?: RequestInit): Promise<Response>
   /** Await a settled turn end: in-process turn/end, then the agent's idle flip (which follows the persistence flush). */
   whenTurnSettled(timeoutMs?: number): Promise<SessionId>
   /**
@@ -559,6 +563,9 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
     observedSessions.set(session.id, session)
   })
   let port = 0
+  let baseUrl = ''
+  let authenticatedUrl = ''
+  let cookieHeader = ''
   let replayHandle: ReplayHandle | undefined
   try {
     process.chdir(workspaceCwd)
@@ -663,6 +670,17 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
         new RouteOnlyAdapter(replayProviders(options.replayContextWindow)),
       ), 'web e2e scaffold: route-only adapter')
     }
+    baseUrl = `http://${browserHost}:${String(port)}`
+    authenticatedUrl = ctx.connection.authenticatedUrl(baseUrl)
+    const login = await fetch(authenticatedUrl, { redirect: 'manual' })
+    const setCookie = login.headers.get('set-cookie')
+    if (login.status !== 303 || login.headers.get('location') !== '/' || setCookie === null) {
+      throw new Error('web e2e scaffold: browser token exchange did not return its session cookie')
+    }
+    cookieHeader = setCookie.split(';', 1)[0] ?? ''
+    if (cookieHeader.length === 0) {
+      throw new Error('web e2e scaffold: browser token exchange returned an empty session cookie')
+    }
   } catch (error) {
     if (process.cwd() !== originalCwd) process.chdir(originalCwd)
     const cleanupFailures = await cleanupScaffoldWorld(ctx, workspaceCwd, persistenceRoot)
@@ -679,10 +697,16 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
   return {
     harnessHome,
     mode,
-    baseUrl: `http://${browserHost}:${port}`,
+    baseUrl,
+    authenticatedUrl,
     ctx,
     workspaceCwd,
     persistenceRoot,
+    hostFetch(path: string, init: RequestInit = {}): Promise<Response> {
+      const headers = new Headers(init.headers)
+      headers.set('cookie', cookieHeader)
+      return fetch(new URL(path, baseUrl), { ...init, headers })
+    },
     // Barrier stack: the in-process turn/end identifies the session, its
     // explicit flush makes the transcript durable, and the caller's browser
     // settled-poll comes last because host completion strictly precedes render.

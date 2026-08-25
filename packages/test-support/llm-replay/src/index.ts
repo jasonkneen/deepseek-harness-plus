@@ -16,6 +16,7 @@ import { decodeStorageRecord, type SessionEvent } from '@deepseek-ai/dsh-session
 import type {
   ContentBlock,
   GenerateOptions,
+  LlmImageRequestPricing,
   LlmModelInfo,
   LlmProviderInfo,
   LlmResolvedModelInfo,
@@ -25,7 +26,7 @@ import type {
   StreamChunk,
   TokenUsage,
 } from '@deepseek-ai/dsh-llm'
-import { LlmAdapter, LlmError, ReasoningEffortId, assertNever, resolveRetryPolicy } from '@deepseek-ai/dsh-llm'
+import { LlmAdapter, LlmError, ReasoningEffortId, assertNever, requestImageHandleText, resolveRetryPolicy } from '@deepseek-ai/dsh-llm'
 
 const PACKED_CHUNK_ROW_TYPES = new Set(['text-chunks', 'reasoning-chunks', 'tool-call-chunks'])
 
@@ -61,6 +62,15 @@ export interface ReplayModelConfig {
    * omit one, so replay reconstructs the request header a live catalog produced.
    */
   defaultMaxTokens?: number
+  /**
+   * Optional flat visual-token price the replay route declares for every
+   * retained request image, so keyless scenarios exercise route-priced
+   * request pressure; each occurrence is priced at this value plus its
+   * request-preview handle text. Requires {@link inputModalities} to include
+   * `image` — a text-only route never sends visual tokens. Absent declares
+   * no image pricing.
+   */
+  imageRequestTokens?: number
   /** Optional reasoning-effort ids the replay route accepts, in display order. */
   reasoningEfforts?: string[]
   /**
@@ -658,6 +668,18 @@ class ReplayAdapter extends LlmAdapter {
       : resolveRetryPolicy(configured.retryPolicy, `llm-replay: provider "${provider}" retryPolicy`)
   }
 
+  override imageRequestPricing(provider: string, model: string): LlmImageRequestPricing | undefined {
+    const configured = this.providers.get(provider)
+    const visualTokens = configured?.models?.find(candidate => candidate.id === model)?.imageRequestTokens
+    if (visualTokens === undefined) return undefined
+    return {
+      priceImages: images => images.map(ref => ({
+        visualTokens,
+        text: requestImageHandleText(ref, { width: ref.width, height: ref.height }),
+      })),
+    }
+  }
+
   override listModels(provider: string): Promise<readonly LlmModelInfo[]> {
     const configured = this.providers.get(provider)
     /* v8 ignore next -- LlmRuntime only asks about routes registered from this same map. */
@@ -906,16 +928,32 @@ export interface Config {
   paceMs?: number
 }
 
-function validateConfiguredModalities(providers: ReplayProviderConfig[] | undefined): void {
+function validateConfiguredModels(providers: ReplayProviderConfig[] | undefined): void {
   for (const provider of providers ?? []) {
     for (const model of provider.models ?? []) {
       const modalities: unknown = model.inputModalities
-      if (modalities === undefined) continue
-      if (!Array.isArray(modalities)
-        || !modalities.every((modality: unknown) => modality === 'text' || modality === 'image')) {
+      if (modalities !== undefined && (!Array.isArray(modalities)
+        || !modalities.every((modality: unknown) => modality === 'text' || modality === 'image'))) {
         throw new Error(
           `llm-replay: provider "${provider.id}" model "${model.id}" inputModalities `
           + 'must be an array containing only "text" and "image"',
+        )
+      }
+      const imageRequestTokens: unknown = model.imageRequestTokens
+      if (imageRequestTokens !== undefined
+        && (!Number.isSafeInteger(imageRequestTokens) || (imageRequestTokens as number) <= 0)) {
+        throw new Error(
+          `llm-replay: provider "${provider.id}" model "${model.id}" imageRequestTokens `
+          + 'must be a positive safe integer',
+        )
+      }
+      // A text-only route never sends visual tokens: LlmRuntime substitutes
+      // its images with deterministic text before dispatch, so declared
+      // visual pricing would contradict the actual request projection.
+      if (imageRequestTokens !== undefined && model.inputModalities?.includes('image') !== true) {
+        throw new Error(
+          `llm-replay: provider "${provider.id}" model "${model.id}" imageRequestTokens `
+          + 'requires inputModalities to include "image"',
         )
       }
     }
@@ -927,7 +965,7 @@ export function apply(ctx: Context, config: Config = {}): void {
   if (file === undefined || file.length === 0) {
     throw new Error('llm-replay: a fixture path is required (Config.file or $DSH_SNAPSHOT_FILE)')
   }
-  validateConfiguredModalities(config.providers)
+  validateConfiguredModels(config.providers)
   const overrideFile = config.overrideFile ?? process.env.DSH_SNAPSHOT_OVERRIDE
   const childEnv = process.env.DSH_SNAPSHOT_CHILD_FILES
   const childFiles = config.childFiles

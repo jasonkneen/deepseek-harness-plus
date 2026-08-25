@@ -1,4 +1,5 @@
-import { createUserMessage } from '@deepseek-ai/dsh-llm'
+import { createUserMessage, LlmAdapter, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
+import type { GenerateOptions, LlmResolvedModelInfo, StreamChunk } from '@deepseek-ai/dsh-llm'
 import { createServer } from 'node:http'
 import type { IncomingMessage, Server, ServerResponse } from 'node:http'
 import { mkdtemp, rm } from 'node:fs/promises'
@@ -123,6 +124,7 @@ describe('HarnessSdkJsonRpcServer', () => {
         cwd: storageDir,
         provider: 'deepseek-official',
         model: 'dsagent-model',
+        reasoningEffort: 'max',
         maxTokens: 321,
       }) as { serverInfo: { name: string } }
       expect(init.serverInfo.name).toBe('deepseek-harness-sdk-runtime')
@@ -134,8 +136,14 @@ describe('HarnessSdkJsonRpcServer', () => {
       expect((receipt as { messageId?: unknown }).messageId).toBeTypeOf('string')
 
       await vi.waitFor(() => { expect(llmServer.requests).toHaveLength(1) })
-      const body = llmServer.requests[0] as { model: string; messages: { role: string }[]; max_tokens?: number }
+      const body = llmServer.requests[0] as {
+        model: string
+        messages: { role: string }[]
+        reasoning_effort?: string
+        max_tokens?: number
+      }
       expect(body.model).toBe('dsagent-model')
+      expect(body.reasoning_effort).toBe('max')
       expect(body.max_tokens).toBe(321)
       expect(body.messages[0]?.role).toBe('system')
       expect(body.messages.at(-1)?.role).toBe('user')
@@ -193,6 +201,8 @@ describe('HarnessSdkJsonRpcServer', () => {
       get: () => undefined,
     } as unknown as Context
     const server = new HarnessSdkJsonRpcServer(ctx, new FakeTransport())
+    // This isolated prompt test begins after the handshake boundary.
+    ;(server as unknown as { initialized: boolean }).initialized = true
     const prompt = (sessionId: string, text: string) => server.prompt({
       sessionId,
       contentBlocks: [{ type: 'text', text }],
@@ -227,6 +237,8 @@ describe('HarnessSdkJsonRpcServer', () => {
       get: (name: string) => name === 'attachments' ? { saveImages } : undefined,
     } as unknown as Context
     const server = new HarnessSdkJsonRpcServer(ctx, new FakeTransport())
+    // This isolated prompt test begins after the handshake boundary.
+    ;(server as unknown as { initialized: boolean }).initialized = true
 
     await server.prompt({
       sessionId: 'image',
@@ -254,6 +266,8 @@ describe('HarnessSdkJsonRpcServer', () => {
       get: () => undefined,
     } as unknown as Context
     const server = new HarnessSdkJsonRpcServer(ctx, new FakeTransport())
+    // This isolated prompt test begins after the handshake boundary.
+    ;(server as unknown as { initialized: boolean }).initialized = true
 
     await expect(server.prompt({
       sessionId: 'image',
@@ -283,6 +297,8 @@ describe('HarnessSdkJsonRpcServer', () => {
       get: (name: string) => name === 'attachments' ? { saveImages } : undefined,
     } as unknown as Context
     const server = new HarnessSdkJsonRpcServer(ctx, new FakeTransport())
+    // This isolated prompt test begins after the handshake boundary.
+    ;(server as unknown as { initialized: boolean }).initialized = true
 
     const prompting = server.prompt({
       sessionId: 'image-race',
@@ -317,6 +333,8 @@ describe('HarnessSdkJsonRpcServer', () => {
       get: () => undefined,
     } as unknown as Context
     const server = new HarnessSdkJsonRpcServer(ctx, new FakeTransport())
+    // This isolated prompt test begins after the handshake boundary.
+    ;(server as unknown as { initialized: boolean }).initialized = true
     const prompt = (text: string) => server.prompt({
       sessionId: 'zombie',
       contentBlocks: [{ type: 'text', text }],
@@ -924,6 +942,113 @@ describe('HarnessSdkJsonRpcServer', () => {
     },
   )
 
+  it('rejects malformed initialize reasoningEffort values at the wire boundary', async () => {
+    const ctx = new Context()
+    const server = new HarnessSdkJsonRpcServer(ctx, new FakeTransport())
+    try {
+      for (const reasoningEffort of ['', 42]) {
+        await expect(server.handleRequest('initialize', {
+          cwd: '.',
+          provider: 'deepseek-official',
+          model: 'model',
+          reasoningEffort,
+        })).rejects.toThrow('initialize reasoningEffort must be a non-empty string')
+      }
+      await server.shutdown()
+    } finally {
+      await ctx.fiber.dispose()
+    }
+  })
+
+  it('rejects an unavailable exact model during initialize', async () => {
+    const storageDir = await mkdtemp(join(tmpdir(), 'dsh-jsonrpc-invalid-route-'))
+    const ctx = await makeHarness(storageDir)
+    class RejectingAdapter extends LlmAdapter {
+      override resolveModel(provider: string, model: string): Promise<LlmResolvedModelInfo> {
+        return Promise.reject(new Error(`model unavailable: ${provider}/${model}`))
+      }
+
+      async * stream(_options: GenerateOptions): AsyncIterable<StreamChunk> {
+        throw new Error('unreachable')
+      }
+    }
+    const disposeAdapter = ctx.llm.registerAdapter(['private'], new RejectingAdapter())
+    try {
+      const server = new HarnessSdkJsonRpcServer(ctx, new FakeTransport())
+      await expect(server.initialize({ cwd: storageDir, provider: 'private', model: 'missing' }))
+        .rejects.toThrow('model unavailable: private/missing')
+      await expect(server.prompt({
+        sessionId: 'invalid-route',
+        contentBlocks: [{ type: 'text', text: 'must not run' }],
+      })).rejects.toThrow('SDK server is not initialized')
+      expect((server as unknown as { sessions: Map<string, unknown> }).sessions.size).toBe(0)
+      await server.shutdown()
+    } finally {
+      disposeAdapter()
+      await ctx.fiber.dispose()
+      await rm(storageDir, { recursive: true, force: true })
+    }
+  })
+
+  it('rejects prompts while exact-route initialization is pending', async () => {
+    const storageDir = await mkdtemp(join(tmpdir(), 'dsh-jsonrpc-pending-route-'))
+    const ctx = await makeHarness(storageDir)
+    const resolution = Promise.withResolvers<LlmResolvedModelInfo>()
+    const resolvedModel = { provider: 'private', id: 'selected', name: 'Selected' }
+    let resolveModelCalled = false
+    class PendingAdapter extends LlmAdapter {
+      override resolveModel(): Promise<LlmResolvedModelInfo> {
+        resolveModelCalled = true
+        return resolution.promise
+      }
+
+      async * stream(_options: GenerateOptions): AsyncIterable<StreamChunk> {
+        throw new Error('unreachable')
+      }
+    }
+    const disposeAdapter = ctx.llm.registerAdapter(['private'], new PendingAdapter())
+    try {
+      const server = new HarnessSdkJsonRpcServer(ctx, new FakeTransport())
+      const initialization = server.initialize({ cwd: storageDir, provider: 'private', model: 'selected' })
+      await vi.waitFor(() => { expect(resolveModelCalled).toBe(true) })
+
+      await expect(server.prompt({
+        sessionId: 'too-early',
+        contentBlocks: [{ type: 'text', text: 'must not run' }],
+      })).rejects.toThrow('SDK server is not initialized')
+      expect((server as unknown as { sessions: Map<string, unknown> }).sessions.size).toBe(0)
+
+      resolution.resolve(resolvedModel)
+      await initialization
+      await server.shutdown()
+    } finally {
+      resolution.resolve(resolvedModel)
+      disposeAdapter()
+      await ctx.fiber.dispose()
+      await rm(storageDir, { recursive: true, force: true })
+    }
+  })
+
+  it('rejects an unsupported reasoning effort during initialize', async () => {
+    const storageDir = await mkdtemp(join(tmpdir(), 'dsh-jsonrpc-unsupported-reasoning-'))
+    const ctx = await makeHarness(storageDir)
+    vi.stubEnv('DEEPSEEK_API_KEY', 'test-key')
+    try {
+      const server = new HarnessSdkJsonRpcServer(ctx, new FakeTransport())
+      await expect(server.handleRequest('initialize', {
+        cwd: storageDir,
+        provider: 'deepseek-official',
+        model: 'deepseek-v4-flash',
+        reasoningEffort: 'impossible',
+      })).rejects.toThrow('does not support reasoning effort "impossible"')
+      expect((server as unknown as { sessions: Map<string, unknown> }).sessions.size).toBe(0)
+      await server.shutdown()
+    } finally {
+      await ctx.fiber.dispose()
+      await rm(storageDir, { recursive: true, force: true })
+    }
+  })
+
   it('reports no adapter when the LLM service is absent', async () => {
     const ctx = new Context()
     try {
@@ -995,23 +1120,35 @@ describe('HarnessSdkJsonRpcServer', () => {
   it('resolves a relative cwd before creating the session', async () => {
     const create = vi.fn<(options: unknown) => Promise<AgentHandle>>()
       .mockResolvedValue({ agent: {} as Agent, dispose: () => Promise.resolve() })
+    const resolveCallConfig = vi.fn(async (config: unknown) => config)
     const ctx = {
       on: vi.fn(() => () => undefined),
       agents: { create, get: () => undefined },
-      get: () => ({ listProviders: () => [{ id: 'mock', name: 'Mock' }] }),
+      get: () => ({ listProviders: () => [{ id: 'mock', name: 'Mock' }], resolveCallConfig }),
     } as unknown as Context
     const server = new HarnessSdkJsonRpcServer(ctx, new FakeTransport()) as unknown as {
-      initialize(params: { cwd: string; provider: string; model: string; maxTokens?: number }): Promise<unknown>
+      initialize(params: { cwd: string; provider: string; model: string; reasoningEffort?: string; maxTokens?: number }): Promise<unknown>
       getOrCreateSession(sessionId: string): Promise<unknown>
       shutdown(): Promise<Record<string, never>>
     }
 
-    await server.initialize({ cwd: '.', provider: 'mock', model: 'model', maxTokens: 123 })
+    await server.initialize({ cwd: '.', provider: 'mock', model: 'model', reasoningEffort: 'high', maxTokens: 123 })
     await server.getOrCreateSession('relative')
 
+    expect(resolveCallConfig).toHaveBeenCalledWith({
+      provider: 'mock',
+      model: 'model',
+      reasoningEffort: ReasoningEffortId('high'),
+      maxTokens: 123,
+    })
     expect(create).toHaveBeenCalledWith(expect.objectContaining({
       meta: { cwd: process.cwd() },
-      agentOptions: { provider: 'mock', model: 'model', maxTokens: 123 },
+      agentOptions: {
+        provider: 'mock',
+        model: 'model',
+        reasoningEffort: ReasoningEffortId('high'),
+        maxTokens: 123,
+      },
     }))
     await server.shutdown()
   })

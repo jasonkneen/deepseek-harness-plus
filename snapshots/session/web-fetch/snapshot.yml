@@ -3,6 +3,7 @@ scenario: web-fetch
 profile: headless
 composition: web
 recording: live
+permission: workspace-write
 header:
   class: web
   pin: true

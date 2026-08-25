@@ -25,11 +25,12 @@ export class DeepSeekHarness implements AsyncDisposable {
   private readonly cwd: string
   private readonly provider: string
   private readonly model: string
+  private readonly reasoningEffort: DeepSeekHarnessOptions['reasoningEffort']
   private readonly maxTokens: number | undefined
   private initialized: Promise<void> | undefined
   private closed = false
 
-  /** @param options - dsh launch configuration plus the session route. */
+  /** @param options - dsh launch configuration plus the session route, effort, and output cap. */
   constructor(options?: DeepSeekHarnessOptions)
   constructor(options: DeepSeekHarnessOptions = {}, clientFactory?: () => HarnessClient) {
     this.createClient = clientFactory ?? (() => new HarnessClient(options))
@@ -40,6 +41,7 @@ export class DeepSeekHarness implements AsyncDisposable {
     this.cwd = resolve(options.cwd ?? options.processCwd ?? process.cwd())
     this.provider = options.provider ?? 'deepseek-official'
     this.model = options.model ?? 'deepseek-v4-flash'
+    this.reasoningEffort = options.reasoningEffort
     this.maxTokens = options.maxTokens
   }
 
@@ -68,6 +70,7 @@ export class DeepSeekHarness implements AsyncDisposable {
           cwd: this.cwd,
           provider: this.provider,
           model: this.model,
+          ...this.reasoningEffort === undefined ? {} : { reasoningEffort: this.reasoningEffort },
           ...this.maxTokens === undefined ? {} : { maxTokens: this.maxTokens },
         })
       } catch (error) {

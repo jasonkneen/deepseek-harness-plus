@@ -12,6 +12,7 @@ import {
 
 interface Entry {
   readonly seq: number
+  readonly lastSeq?: number
 }
 
 interface Page {
@@ -51,8 +52,16 @@ const AVAILABLE_CONNECTION = {
 
 const entries = (...seqs: number[]): Entry[] => seqs.map(seq => ({ seq }))
 
+const rangedEntry = (first: number, last: number): Entry => ({ seq: first, lastSeq: last })
+
 const page = (marker: string, seqs: number[], hasMore = false): Page => ({
   entries: entries(...seqs),
+  hasMore,
+  marker,
+})
+
+const rangedPage = (marker: string, values: Entry[], hasMore = false): Page => ({
+  entries: values,
   hasMore,
   marker,
 })
@@ -80,7 +89,8 @@ class FixtureJournal extends RemoteJournalStream<Page, Entry, number, PageReques
       emptyCursor: -1,
       entries: value => value.entries,
       hasMore: value => value.hasMore,
-      cursor: entry => entry.seq,
+      first: entry => entry.seq,
+      last: entry => entry.lastSeq ?? entry.seq,
       compare: (left, right) => left - right,
       follows: (left, right) => right === left + 1,
       publish: (change) => { changes.push(change) },
@@ -196,6 +206,40 @@ function controlledFactory(
 }
 
 describe('RemoteJournalStream', () => {
+  it('replaces from pages whose entries cover contiguous cursor ranges', async () => {
+    const snapshot = rangedPage(
+      'ranged',
+      [rangedEntry(0, 2), rangedEntry(3, 5)],
+      true,
+    )
+    const fixture = journalFixture(
+      [{ frames: [opened(5, snapshot)], hold: true }],
+      [],
+    )
+
+    await fixture.journal.open({})
+
+    expect(fixture.changes).toEqual([{
+      type: 'replace',
+      page: snapshot,
+      entries: snapshot.entries,
+      hasMore: true,
+    }])
+    await fixture.journal.dispose()
+  })
+
+  it('rejects an inverted cursor range', async () => {
+    const fixture = journalFixture(
+      [{ frames: [opened(2, rangedPage('inverted', [rangedEntry(3, 2)]))], hold: true }],
+      [],
+    )
+
+    await expect(fixture.journal.open({})).rejects.toThrow(
+      'fixture journal entry has an inverted cursor range',
+    )
+    expect(fixture.changes).toEqual([])
+  })
+
   it('opens from the follow snapshot, removes overlap, appends live entries, and prepends history', async () => {
     const fixture = journalFixture(
       [{
@@ -286,6 +330,67 @@ describe('RemoteJournalStream', () => {
     await vi.waitFor(() => { expect(followed.changes).toHaveLength(2) })
     expect(followed.changes.at(-1)).toEqual({ type: 'append', entry: { seq: 0 } })
     await followed.journal.dispose()
+  })
+
+  it('prepends at the first cursor and rejects a partially overlapping ranged entry', async () => {
+    const initial = rangedPage('initial', [rangedEntry(4, 6)], true)
+    const older = rangedPage('older', [rangedEntry(0, 3)])
+    const fixture = journalFixture(
+      [{ frames: [opened(6, initial)], hold: true }],
+      [older],
+    )
+
+    await fixture.journal.open({})
+    await fixture.journal.prepend({ before: 4 })
+
+    expect(fixture.pageCursors).toEqual([6])
+    expect(fixture.changes.at(-1)).toEqual({
+      type: 'prepend', page: older, entries: older.entries, hasMore: false,
+    })
+    await fixture.journal.dispose()
+
+    const overlap = rangedPage('overlap', [rangedEntry(0, 4)], true)
+    const overlapping = journalFixture(
+      [{ frames: [opened(6, initial)], hold: true }],
+      [overlap],
+    )
+    await overlapping.journal.open({})
+
+    await expect(overlapping.journal.prepend({ before: 4 })).rejects.toThrow(
+      'history page is discontinuous',
+    )
+    expect(overlapping.changes.at(-1)).toEqual({
+      type: 'prepend', page: overlap, entries: [], hasMore: false,
+    })
+    await overlapping.journal.dispose()
+  })
+
+  it('deduplicates complete ranged entries and rejects partial live overlap', async () => {
+    const initial = rangedPage('initial', [rangedEntry(0, 2)])
+    const fixture = journalFixture(
+      [{
+        frames: [
+          opened(2, initial),
+          { type: 'entry', entry: rangedEntry(0, 2) },
+          { type: 'entry', entry: rangedEntry(3, 5) },
+          { type: 'entry', entry: rangedEntry(5, 7) },
+        ],
+        hold: true,
+      }],
+      [],
+    )
+
+    await fixture.journal.open({})
+    await vi.waitFor(() => { expect(fixture.failed).toHaveBeenCalledOnce() })
+
+    expect(fixture.changes).toHaveLength(2)
+    expect(fixture.changes.at(-1)).toEqual({
+      type: 'append', entry: rangedEntry(3, 5),
+    })
+    expect(fixture.failed.mock.calls[0]?.[0]).toMatchObject({
+      message: 'fixture journal emitted a partially overlapping entry',
+    })
+    await fixture.journal.dispose()
   })
 
   it('repairs a replacement generation through one tail page and drops replay overlap', async () => {
@@ -389,6 +494,26 @@ describe('RemoteJournalStream', () => {
     expect(fixture.changes.map(change => change.type)).toEqual(['replace', 'replace'])
     expect(fixture.changes[1]).toMatchObject({ page: { marker: 'repair' } })
     expect(fixture.pageCursors).toEqual([4])
+    await fixture.journal.dispose()
+  })
+
+  it('reports a page failure during live-gap repair', async () => {
+    const fixture = journalFixture(
+      [{
+        frames: [
+          opened(0, page('initial', [0])),
+          { type: 'entry', entry: { seq: 2 } },
+        ],
+        hold: true,
+      }],
+      [() => Promise.reject(new Error('repair page failed'))],
+    )
+
+    await fixture.journal.open({})
+    await vi.waitFor(() => { expect(fixture.failed).toHaveBeenCalledOnce() })
+
+    expect(fixture.failed.mock.calls[0]?.[0]).toMatchObject({ message: 'repair page failed' })
+    expect(fixture.changes).toHaveLength(1)
     await fixture.journal.dispose()
   })
 
@@ -539,6 +664,39 @@ describe('RemoteJournalStream', () => {
       page: page('repair', [0, 1, 2, 3]),
       entries: entries(0, 1, 2, 3, 4),
       hasMore: false,
+    })
+    await fixture.journal.dispose()
+  })
+
+  it('rejects a partially overlapping ranged entry queued during repair', async () => {
+    const firstLive = Promise.withResolvers<ScriptedFrame>()
+    const secondLive = Promise.withResolvers<ScriptedFrame>()
+    const secondConsumed = Promise.withResolvers<undefined>()
+    const repair = Promise.withResolvers<Page>()
+    const fixture = journalFixture(
+      [{
+        frames: [
+          opened(1, page('initial', [0, 1])),
+          firstLive.promise,
+          secondLive.promise,
+        ],
+        hold: true,
+        afterFrame: (index) => { if (index === 2) secondConsumed.resolve(undefined) },
+      }],
+      [repair.promise],
+    )
+
+    await fixture.journal.open({})
+    firstLive.resolve({ type: 'entry', entry: rangedEntry(3, 5) })
+    await vi.waitFor(() => { expect(fixture.pageCursors).toEqual([5]) })
+    secondLive.resolve({ type: 'entry', entry: rangedEntry(5, 7) })
+    await secondConsumed.promise
+    repair.resolve(rangedPage('repair', [rangedEntry(0, 2), rangedEntry(3, 5)]))
+
+    await vi.waitFor(() => { expect(fixture.failed).toHaveBeenCalledOnce() })
+    expect(fixture.changes).toHaveLength(1)
+    expect(fixture.failed.mock.calls[0]?.[0]).toMatchObject({
+      message: 'fixture journal replacement contains a partially overlapping entry',
     })
     await fixture.journal.dispose()
   })

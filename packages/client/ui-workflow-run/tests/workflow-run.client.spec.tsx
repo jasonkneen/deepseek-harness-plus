@@ -6,12 +6,15 @@ import {
   ConversationNodeAssembler, UiConversation,
 } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type {
-  ConversationEventInput, ConversationMatch, ConversationNodeDefinition, ConversationViewDefinition,
+  ConversationMatch, ConversationNodeDefinition, ConversationStartMatch,
+  ConversationViewDefinition,
 } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type { ChatConversationViewNode } from '@deepseek-ai/dsh-client-ui-chat/client'
 import { SlotRegistry } from '@deepseek-ai/dsh-client-ui-renderer/client'
-import type { SessionListState } from '@deepseek-ai/dsh-api-session-controller/client'
-import type { SessionId } from '@deepseek-ai/dsh-session/types'
+import type {
+  SessionListState, SessionLiveEventEntry,
+} from '@deepseek-ai/dsh-api-session-controller/client'
+import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session/types'
 import { apply as applyLocale, inject as localeInject } from '@deepseek-ai/dsh-client-locale/client'
 import {
   chatSnapshot as emptyChatSnapshot, conversationSnapshot, makeTranslate, sessionSnapshot,
@@ -84,15 +87,17 @@ const chatViewDefinition: ConversationViewDefinition<ChatConversationViewNode, C
   },
 }
 
-function at(seq: number, type: string, data: unknown): ConversationEventInput {
-  return { event: { seq, time: seq * 100, type, data } as ConversationEventInput['event'] }
+function at(seq: number, type: string, data: unknown): SessionLiveEventEntry {
+  return { type: 'event', event: { seq, time: seq * 100, type, data } as SessionEvent }
 }
 
-function matched(input: ConversationEventInput, role: ConversationMatch['role']): ConversationMatch {
-  return { ...input, role, location: { kind: 'unresolved' } }
+function matched(input: SessionLiveEventEntry, role: 'start'): ConversationStartMatch
+function matched(input: SessionLiveEventEntry, role: 'update'): ConversationMatch
+function matched(input: SessionLiveEventEntry, role: ConversationMatch['role']): ConversationMatch {
+  return { event: input.event, role, location: { kind: 'unresolved' } }
 }
 
-function assembler(entries: readonly ConversationEventInput[], hasMore = false): ConversationNodeAssembler {
+function assembler(entries: readonly SessionLiveEventEntry[], hasMore = false): ConversationNodeAssembler {
   const value = new ConversationNodeAssembler(new TestEventDefinitions(), new TestViewDefinitions())
   value.replaceWindow(entries, hasMore)
   value.flush()
@@ -104,7 +109,7 @@ function workflowData(value: ConversationNodeAssembler): WorkflowRunChatData | u
   return [...snapshot.nodes.values()][0]?.data as WorkflowRunChatData | undefined
 }
 
-function completeEvents(): ConversationEventInput[] {
+function completeEvents(): SessionLiveEventEntry[] {
   return [
     at(1, 'turn/start', { turn: 1 }),
     at(2, 'step/start', { turn: 1, step: 1 }),

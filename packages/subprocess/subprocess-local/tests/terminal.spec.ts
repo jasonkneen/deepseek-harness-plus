@@ -59,12 +59,16 @@ class FakeInspector implements ProcessInspector {
   readonly alive = new Set<number>()
   readonly groups: Array<[number, SubprocessTerminalSignal]> = []
   readonly processes: Array<[number, 'SIGTERM' | 'SIGKILL']> = []
+  readonly stdinChecks: Array<[number, number]> = []
   throwGroup = false
   throwProcess = false
   removeOnSignal = true
 
   foregroundPgid() { return this.pgid }
-  isStdinWaiting() { return this.waiting }
+  isStdinWaiting(pgid: number, shellPid: number) {
+    this.stdinChecks.push([pgid, shellPid])
+    return this.waiting
+  }
   processTree() { return this.root === undefined ? this.members : [this.root, ...this.members] }
   processSession() { return this.sessionMembers }
   isAlive(identity: ProcessIdentity) { return this.alive.has(identity.pid) }
@@ -182,6 +186,7 @@ describe('LocalTerminalHandle', () => {
     await handle.write('input\r')
     expect(pty.writes).toEqual(['input\r'])
     expect(await handle.inspectForeground()).toEqual({ processGroupId: 456, inputWaiting: true })
+    expect(inspector.stdinChecks).toEqual([[456, 123]])
     expect(await handle.signalForeground('SIGINT')).toBe(456)
     expect(inspector.groups).toEqual([[456, 'SIGINT']])
 

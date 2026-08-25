@@ -6,6 +6,7 @@ import type {
 } from '@deepseek-ai/dsh-client-ui-chat/client'
 import { assistantStepReading, deriveTurnMetrics } from '../src/client/contract/turn-metrics.ts'
 import { formatLatencySeconds, formatTokensPerSecond } from '../src/client/chat/message-chrome.ts'
+import { formatCacheHitPercent } from '../src/client/chat/token-format.ts'
 
 interface StepSpec {
   seq: number
@@ -139,6 +140,10 @@ describe('deriveTurnMetrics', () => {
 })
 
 describe('footer figure formatters', () => {
+  it('omits a redundant decimal zero in cache-hit percentages', () => {
+    expect(formatCacheHitPercent(1, 2, 1)).toBe('50')
+  })
+
   it('formats latency with one decimal under ten seconds and whole seconds beyond', () => {
     expect(formatLatencySeconds(840)).toBe('0.8')
     expect(formatLatencySeconds(1_000)).toBe('1')

@@ -50,8 +50,10 @@ export interface RemoteJournalStreamOptions<Page, Entry, Cursor> {
   readonly entries: (page: Page) => readonly Entry[]
   /** Read whether an older page exists. */
   readonly hasMore: (page: Page) => boolean
-  /** Read one entry's durable cursor. */
-  readonly cursor: (entry: Entry) => Cursor
+  /** Read the inclusive first durable cursor covered by one entry. */
+  readonly first: (entry: Entry) => Cursor
+  /** Read the inclusive final cursor, which must not precede the first. */
+  readonly last: (entry: Entry) => Cursor
   /** Compare two cursors. */
   readonly compare: (left: Cursor, right: Cursor) => number
   /** Test whether the right cursor immediately follows the left cursor. */
@@ -175,15 +177,15 @@ export abstract class RemoteJournalStream<Page, Entry, Cursor, PageRequest = voi
     const before = this.firstCursor
     const accepted = before === undefined
       ? [...entries]
-      : entries.filter(entry => this.options.compare(this.options.cursor(entry), before) < 0)
+      : entries.filter(entry => this.options.compare(this.options.first(entry), before) < 0)
     const tail = accepted.at(-1)
     if (tail !== undefined && before !== undefined
-      && !this.options.follows(this.options.cursor(tail), before)) {
+      && !this.options.follows(this.options.last(tail), before)) {
       this.options.publish({ type: 'prepend', page, entries: [], hasMore: false })
       throw new Error(`${this.options.name} history page is discontinuous`)
     }
     const first = accepted[0]
-    if (first !== undefined) this.firstCursor = this.options.cursor(first)
+    if (first !== undefined) this.firstCursor = this.options.first(first)
     this.options.publish({
       type: 'prepend',
       page,
@@ -268,7 +270,7 @@ export abstract class RemoteJournalStream<Page, Entry, Cursor, PageRequest = voi
     const entries = [...this.options.entries(page)]
     this.assertPage(entries)
     const first = entries[0]
-    this.firstCursor = first === undefined ? undefined : this.options.cursor(first)
+    this.firstCursor = first === undefined ? undefined : this.options.first(first)
     this.lastCursor = cursor
     this.setResumeCursor(cursor)
     this.options.publish({
@@ -284,10 +286,13 @@ export abstract class RemoteJournalStream<Page, Entry, Cursor, PageRequest = voi
     item: JournalStreamItem<Page, Entry, Cursor>,
     iterator: AsyncIterator<JournalStreamItem<Page, Entry, Cursor>>,
   ): Promise<void> {
-    const cursor = this.options.cursor(entry)
+    const { first, last: cursor } = this.entryRange(entry)
     const last = this.lastCursor as Cursor
     if (this.options.compare(cursor, last) <= 0) return
-    if (!this.options.follows(last, cursor)) {
+    if (this.options.compare(first, last) <= 0) {
+      throw new Error(`${this.options.name} emitted a partially overlapping entry`)
+    }
+    if (!this.options.follows(last, first)) {
       const request = this.repairPageRequest()
       const superseded = await this.replaceThrough(
         request,
@@ -302,7 +307,7 @@ export abstract class RemoteJournalStream<Page, Entry, Cursor, PageRequest = voi
       }
       return
     }
-    if (this.firstCursor === undefined) this.firstCursor = cursor
+    if (this.firstCursor === undefined) this.firstCursor = first
     this.lastCursor = cursor
     this.setResumeCursor(cursor)
     this.options.publish({ type: 'append', entry })
@@ -349,7 +354,7 @@ export abstract class RemoteJournalStream<Page, Entry, Cursor, PageRequest = voi
     }
     const first = entries[0]
     /* v8 ignore next -- a successful positive-cursor replacement page cannot be empty. */
-    this.firstCursor = first === undefined ? undefined : this.options.cursor(first)
+    this.firstCursor = first === undefined ? undefined : this.options.first(first)
     this.lastCursor = this.tailCursor(entries)
     this.setResumeCursor(this.lastCursor)
     this.options.publish({
@@ -435,16 +440,21 @@ export abstract class RemoteJournalStream<Page, Entry, Cursor, PageRequest = voi
   private mergeReplacement(page: Page, queued: readonly Entry[]): Entry[] | undefined {
     const entries = [...this.options.entries(page)]
     this.assertPage(entries)
+    for (const entry of queued) this.entryRange(entry)
     const sorted = [...queued].sort((left, right) => (
-      this.options.compare(this.options.cursor(left), this.options.cursor(right))
+      this.options.compare(this.options.first(left), this.options.first(right))
     ))
     let tail = this.tailCursor(entries)
     for (const entry of sorted) {
-      const cursor = this.options.cursor(entry)
-      if (this.options.compare(cursor, tail) <= 0) continue
-      if (!this.options.follows(tail, cursor)) return undefined
+      const first = this.options.first(entry)
+      const last = this.options.last(entry)
+      if (this.options.compare(last, tail) <= 0) continue
+      if (this.options.compare(first, tail) <= 0) {
+        throw new Error(`${this.options.name} replacement contains a partially overlapping entry`)
+      }
+      if (!this.options.follows(tail, first)) return undefined
       entries.push(entry)
-      tail = cursor
+      tail = last
     }
     return entries
   }
@@ -452,7 +462,7 @@ export abstract class RemoteJournalStream<Page, Entry, Cursor, PageRequest = voi
   private maxCursor(cursor: Cursor, entries: readonly Entry[]): Cursor {
     let result = cursor
     for (const entry of entries) {
-      const candidate = this.options.cursor(entry)
+      const candidate = this.options.last(entry)
       if (this.options.compare(candidate, result) > 0) result = candidate
     }
     return result
@@ -495,20 +505,30 @@ export abstract class RemoteJournalStream<Page, Entry, Cursor, PageRequest = voi
 
   private tailCursor(entries: readonly Entry[]): Cursor {
     const tail = entries.at(-1)
-    return tail === undefined ? this.options.emptyCursor : this.options.cursor(tail)
+    return tail === undefined ? this.options.emptyCursor : this.options.last(tail)
   }
 
   private assertPage(entries: readonly Entry[]): void {
     const iterator = entries[Symbol.iterator]()
     const first = iterator.next()
     if (first.done) return
-    let previous = first.value
+    let previousRange = this.entryRange(first.value)
     for (const entry of iterator) {
-      if (!this.options.follows(this.options.cursor(previous), this.options.cursor(entry))) {
+      const range = this.entryRange(entry)
+      if (!this.options.follows(previousRange.last, range.first)) {
         throw new Error(`${this.options.name} page contains discontinuous entries`)
       }
-      previous = entry
+      previousRange = range
     }
+  }
+
+  private entryRange(entry: Entry): { readonly first: Cursor; readonly last: Cursor } {
+    const first = this.options.first(entry)
+    const last = this.options.last(entry)
+    if (this.options.compare(first, last) > 0) {
+      throw new Error(`${this.options.name} entry has an inverted cursor range`)
+    }
+    return { first, last }
   }
 
   private assertPageThrough(page: Page, through: Cursor): void {

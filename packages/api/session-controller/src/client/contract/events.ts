@@ -1,10 +1,22 @@
 /** Observable contiguous Session event window consumed by domain assemblers. */
 import { notifySubscribers, type ObservableSnapshot } from '@deepseek-ai/dsh-client-store'
-import type { SessionEventEntry } from '../../types.ts'
+import type { SessionEvent } from '@deepseek-ai/dsh-session/types'
+import type { ChunkRowEvent } from '../../types.ts'
+
+/** Standard Session event or compact historical Assistant run. */
+export type SessionEventLike = SessionEvent | ChunkRowEvent
+
+/** Client history entry retaining its coarse transport discriminator. */
+export type SessionEventLikeEntry =
+  | { readonly type: 'event'; readonly event: SessionEvent }
+  | { readonly type: 'chunks'; readonly event: ChunkRowEvent }
+
+/** Scalar live entry accepted by append-only Client paths. */
+export type SessionLiveEventEntry = Extract<SessionEventLikeEntry, { readonly type: 'event' }>
 
 interface EventWindowLeaf {
   readonly kind: 'leaf'
-  readonly entries: readonly SessionEventEntry[]
+  readonly entries: readonly SessionEventLikeEntry[]
   readonly length: number
 }
 
@@ -17,7 +29,7 @@ interface EventWindowConcat {
 
 type EventWindowNode = EventWindowLeaf | EventWindowConcat
 
-function leaf(entries: readonly SessionEventEntry[]): EventWindowLeaf {
+function leaf(entries: readonly SessionEventLikeEntry[]): EventWindowLeaf {
   return { kind: 'leaf', entries, length: entries.length }
 }
 
@@ -25,9 +37,9 @@ function concat(left: EventWindowNode, right: EventWindowNode): EventWindowConca
   return { kind: 'concat', left, right, length: left.length + right.length }
 }
 
-function materialize(node: EventWindowNode): readonly SessionEventEntry[] {
+function materialize(node: EventWindowNode): readonly SessionEventLikeEntry[] {
   if (node.kind === 'leaf') return node.entries
-  const entries = new Array<SessionEventEntry>(node.length)
+  const entries = new Array<SessionEventLikeEntry>(node.length)
   const pending: EventWindowNode[] = [node]
   let index = 0
   while (pending.length > 0) {
@@ -50,7 +62,7 @@ function windowSnapshot(
   revision: number,
   change: SessionEventChange,
 ): SessionEventWindow {
-  let entries: readonly SessionEventEntry[] | undefined
+  let entries: readonly SessionEventLikeEntry[] | undefined
   return {
     get entries() {
       entries ??= materialize(node)
@@ -64,13 +76,13 @@ function windowSnapshot(
 
 /** Exact delta that produced the latest event-window revision. */
 export type SessionEventChange =
-  | { readonly kind: 'replace'; readonly entries: readonly SessionEventEntry[] }
-  | { readonly kind: 'prepend'; readonly entries: readonly SessionEventEntry[] }
-  | { readonly kind: 'append'; readonly entries: readonly SessionEventEntry[] }
+  | { readonly kind: 'replace'; readonly entries: readonly SessionEventLikeEntry[] }
+  | { readonly kind: 'prepend'; readonly entries: readonly SessionEventLikeEntry[] }
+  | { readonly kind: 'append'; readonly entries: readonly SessionLiveEventEntry[] }
 
 /** Current contiguous event window and its latest synchronous delta. */
 export interface SessionEventWindow {
-  readonly entries: readonly SessionEventEntry[]
+  readonly entries: readonly SessionEventLikeEntry[]
   readonly hasMore: boolean
   readonly revision: number
   readonly change: SessionEventChange
@@ -108,7 +120,7 @@ export class MutableSessionEventSource implements SessionEventSource {
    * @param entries - complete window.
    * @param hasMore - whether older history remains.
    */
-  replace(entries: readonly SessionEventEntry[], hasMore: boolean): void {
+  replace(entries: readonly SessionEventLikeEntry[], hasMore: boolean): void {
     this.window = leaf(entries)
     this.publish(hasMore, { kind: 'replace', entries })
   }
@@ -118,7 +130,7 @@ export class MutableSessionEventSource implements SessionEventSource {
    * @param entries - newly loaded older entries.
    * @param hasMore - whether still older history remains.
    */
-  prepend(entries: readonly SessionEventEntry[], hasMore: boolean): void {
+  prepend(entries: readonly SessionEventLikeEntry[], hasMore: boolean): void {
     this.window = concat(leaf(entries), this.window)
     this.publish(hasMore, { kind: 'prepend', entries })
   }
@@ -127,7 +139,7 @@ export class MutableSessionEventSource implements SessionEventSource {
    * Append one contiguous live entry.
    * @param entry - live tail entry.
    */
-  append(entry: SessionEventEntry): void {
+  append(entry: SessionLiveEventEntry): void {
     const entries = [entry]
     this.window = concat(this.window, leaf(entries))
     this.publish(this.snapshot.hasMore, {

@@ -4,10 +4,16 @@ import { describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
 import SessionStore from '@deepseek-ai/dsh-session'
+import { decodeStorageRecord, type ChunkRow } from '@deepseek-ai/dsh-session/chunk-rows'
 import { CallId, createMessage, createToolResultMessage, createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { Session, SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
 import { SessionHistoryController } from '@deepseek-ai/dsh-api-session-controller/src/history.ts'
-import type { SessionFollowFrame } from '@deepseek-ai/dsh-api-session-controller/types'
+import type {
+  ChunkRowEvent,
+  SessionFollowFrame,
+  SessionPage,
+  SessionWireEvent,
+} from '@deepseek-ai/dsh-api-session-controller/types'
 import { createSessionTestRemote, installSessionReadTestServices } from './test-remote.ts'
 
 /** Append a production-shaped human prompt to the session surface. */
@@ -75,6 +81,24 @@ async function openFollow(
     value: { type: 'snapshot' },
   })
   return { [Symbol.asyncIterator]: () => iterator }
+}
+
+/** Expand packed page records for assertions over the logical journal. */
+function pageEvents(page: SessionPage): SessionWireEvent[] {
+  return page.records.flatMap(record => record.type === 'event'
+    ? [record.event]
+    : decodeStorageRecord(chunkRow(record.event)).map(event => event as unknown as SessionWireEvent))
+}
+
+function chunkRow(event: ChunkRowEvent): ChunkRow {
+  switch (event.type) {
+    case 'chunkrow/text-chunks':
+      return { type: 'text-chunks', seq0: event.seq, time0: event.time, data: event.data }
+    case 'chunkrow/reasoning-chunks':
+      return { type: 'reasoning-chunks', seq0: event.seq, time0: event.time, data: event.data }
+    case 'chunkrow/tool-call-chunks':
+      return { type: 'tool-call-chunks', seq0: event.seq, time0: event.time, data: event.data }
+  }
 }
 
 describe('Session history raw journal', () => {
@@ -169,10 +193,10 @@ describe('Session history raw journal', () => {
     })
     expect(response.ok).toBe(true)
     if (!response.ok) throw new Error('unreachable')
-    expect(response.value.events).toEqual([
-      { event: start },
-      { event: call },
-      { event: result },
+    expect(response.value.records).toEqual([
+      { type: 'event', event: start },
+      { type: 'event', event: call },
+      { type: 'event', event: result },
     ])
   })
 
@@ -210,7 +234,7 @@ describe('Session history raw journal', () => {
       maxMessages: 2,
     })
     if (!response.ok) throw new Error('unreachable')
-    const page = response.value.events.map(entry => entry.event)
+    const page = pageEvents(response.value)
     // Two append-origin messages fill the page even though a replacement copy of
     // the same event type sits in the window: the copy is model-only.
     const messages = page.filter(event => event.type === 'user/message' || event.type === 'assistant/message')
@@ -230,10 +254,10 @@ describe('Session history raw journal', () => {
     const remote = createSessionTestRemote(ctx, { defaultModelSelection: () => ({ provider: 'p', model: 'm' }), cwd: '/tmp' })
     const session = ctx.sessions.create(undefined, { meta: { cwd: '/workspace' } })
     session.append('turn/start', { turn: 1 })
-    const sources = Array.from({ length: 128 }, (_unused, index) => session.append('assistant/chunk', {
+    const sources = Array.from({ length: 128 }, () => session.append('assistant/chunk', {
       turn: 1,
       step: 1,
-      chunk: { type: 'text-delta', index, text: 'x' },
+      chunk: { type: 'text-delta', index: 0, text: 'x' },
     }).seq)
     const message = session.append('assistant/message', {
       turn: 1,
@@ -257,11 +281,69 @@ describe('Session history raw journal', () => {
         maxMessages: 1,
       })
       if (!response.ok) throw new Error('unreachable')
-      expect(response.value.events.map(entry => entry.event.seq)).toEqual([...sources, message.seq])
+      expect(pageEvents(response.value).map(event => event.seq)).toEqual([...sources, message.seq])
+      expect(response.value.records.filter(record => record.type === 'chunks')).toHaveLength(1)
       expect(response.value.hasMore).toBe(true)
     } finally {
       min.mockRestore()
     }
+  })
+
+  it('encodes reasoning and tool-call runs as aligned chunk events', async () => {
+    const { ctx } = await harness()
+    const remote = createSessionTestRemote(ctx, { defaultModelSelection: () => ({ provider: 'p', model: 'm' }), cwd: '/tmp' })
+    const session = ctx.sessions.create(undefined, { meta: { cwd: '/workspace' } })
+    const reasoning = [0, 1, 2].map(index => session.append('assistant/chunk', {
+      turn: 1,
+      step: 1,
+      chunk: { type: 'reasoning-delta', index: 0, text: `r${String(index)}` },
+    }))
+    const callId = CallId('packed-call')
+    const toolCall = [0, 1, 2].map(index => session.append('assistant/chunk', {
+      turn: 1,
+      step: 1,
+      chunk: { type: 'tool-call-delta', index: 1, id: callId, argumentsDelta: `a${String(index)}` },
+    }))
+
+    const response = await remote.page({
+      address: { kind: 'session', sessionId: session.id },
+      throughSeq: session.seq - 1,
+    })
+    if (!response.ok) throw new Error('unreachable')
+    expect(response.value.records).toEqual([
+      {
+        type: 'chunks',
+        event: {
+          type: 'chunkrow/reasoning-chunks',
+          seq: reasoning[0]?.seq,
+          time: reasoning[0]?.time,
+          data: {
+            turn: 1,
+            step: 1,
+            index: 0,
+            dt: reasoning.slice(1).map((event, index) => event.time - (reasoning[index]?.time ?? 0)),
+            texts: ['r0', 'r1', 'r2'],
+          },
+        },
+      },
+      {
+        type: 'chunks',
+        event: {
+          type: 'chunkrow/tool-call-chunks',
+          seq: toolCall[0]?.seq,
+          time: toolCall[0]?.time,
+          data: {
+            turn: 1,
+            step: 1,
+            index: 1,
+            id: callId,
+            dt: toolCall.slice(1).map((event, index) => event.time - (toolCall[index]?.time ?? 0)),
+            args: ['a0', 'a1', 'a2'],
+          },
+        },
+      },
+    ])
+    await ctx.fiber.dispose()
   })
 
   it('follows a result after turn/end without reading the addressed Session log', async () => {
@@ -273,11 +355,17 @@ describe('Session history raw journal', () => {
     const iterator = stream[Symbol.asyncIterator]()
 
     session.append('turn/start', { turn: 1 })
-    await expect(iterator.next()).resolves.toMatchObject({ value: { event: { type: 'turn/start' } } })
+    await expect(iterator.next()).resolves.toMatchObject({
+      value: { type: 'event', event: { type: 'turn/start' } },
+    })
     session.append('tool/call', { turn: 1, step: 1, callId: CallId('c-late'), name: 'term', arguments: '{"cmd":"tail"}' })
-    await expect(iterator.next()).resolves.toMatchObject({ value: { event: { type: 'tool/call' } } })
+    await expect(iterator.next()).resolves.toMatchObject({
+      value: { type: 'event', event: { type: 'tool/call' } },
+    })
     session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
-    await expect(iterator.next()).resolves.toMatchObject({ value: { event: { type: 'turn/end' } } })
+    await expect(iterator.next()).resolves.toMatchObject({
+      value: { type: 'event', event: { type: 'turn/end' } },
+    })
     const events = vi.spyOn(session, 'events', 'get').mockImplementation(() => {
       throw new Error('live result rescanned Session history')
     })

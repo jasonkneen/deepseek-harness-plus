@@ -9,6 +9,7 @@ import fc from 'fast-check'
 import { CallId } from '@deepseek-ai/dsh-llm'
 import type { StreamChunk } from '@deepseek-ai/dsh-llm'
 import { decodeStorageRecord, packChunkRuns } from '@deepseek-ai/dsh-session'
+import { chunkRowLength, isChunkRow } from '@deepseek-ai/dsh-session/chunk-rows'
 import type { ChunkRow, SessionEvent, StorageRecord } from '@deepseek-ai/dsh-session'
 
 /** Build an `assistant/chunk` event with the exact live-append shape. */
@@ -37,6 +38,9 @@ describe('packChunkRuns', () => {
     expect(row.seq0).toBe(0)
     expect(row.time0).toBe(1000)
     expect(row.data).toMatchObject({ turn: 1, step: 1, index: 0, dt: [10, 10, 10, 10], texts: ['t0', 't1', 't2', 't3', 't4'] })
+    expect(isChunkRow(row)).toBe(true)
+    expect(chunkRowLength(row)).toBe(5)
+    expect(isChunkRow(events[0] as SessionEvent)).toBe(false)
     expect(decodeAll(packed)).toStrictEqual(events)
   })
 
@@ -48,6 +52,7 @@ describe('packChunkRuns', () => {
     expect(packed.map(r => (r as ChunkRow).type)).toStrictEqual(['reasoning-chunks', 'tool-call-chunks'])
     const row = packed[1] as ChunkRow & { type: 'tool-call-chunks' }
     expect(row.data).toMatchObject({ id: 'c1', name: 'write', args: ['a4', 'a5', 'a6'] })
+    expect(chunkRowLength(row)).toBe(3)
     expect(decodeAll(packed)).toStrictEqual([...reasoning, ...toolCall])
   })
 
@@ -167,7 +172,7 @@ describe('decodeStorageRecord', () => {
     ['a dt arity mismatch', { type: 'text-chunks', seq0: 0, time0: 1, data: { turn: 1, step: 1, index: 0, dt: [1, 2], texts: ['a', 'b'] } }],
     ['a non-finite dt gap', { type: 'text-chunks', seq0: 0, time0: 1, data: { turn: 1, step: 1, index: 0, dt: [NaN], texts: ['a', 'b'] } }],
     ['a fractional dt gap', { type: 'text-chunks', seq0: 0, time0: 1, data: { turn: 1, step: 1, index: 0, dt: [0.5], texts: ['a', 'b'] } }],
-    ['a member seq leaving safe range', { type: 'text-chunks', seq0: Number.MAX_SAFE_INTEGER, time0: 1, data: { turn: 1, step: 1, index: 0, dt: [0, 0], texts: ['a', 'b', 'c'] } }],
+    ['a member seq leaving safe range', { type: 'text-chunks', seq0: Number.MAX_SAFE_INTEGER, time0: 1, data: { turn: 1, step: 1, index: 0, dt: [0], texts: ['a', 'b'] } }],
     ['a member time leaving safe range', { type: 'text-chunks', seq0: 0, time0: Number.MAX_SAFE_INTEGER, data: { turn: 1, step: 1, index: 0, dt: [1], texts: ['a', 'b'] } }],
     ['a non-numeric turn', { type: 'text-chunks', seq0: 0, time0: 1, data: { turn: 'x', step: 1, index: 0, dt: [], texts: ['a'] } }],
     ['a tool-call row without id', { type: 'tool-call-chunks', seq0: 0, time0: 1, data: { turn: 1, step: 1, index: 0, dt: [], args: ['a'] } }],

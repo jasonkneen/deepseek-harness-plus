@@ -26,7 +26,7 @@ interface PagingAnchor {
   top: number
 }
 
-/** Find an already-rendered settled row without interpolating a selector. */
+/** Find an already-rendered row without interpolating a selector. */
 function anchorElement(list: HTMLElement, key: string): HTMLElement | null {
   for (const row of list.querySelectorAll<HTMLElement>('[data-chat-anchor-key]')) {
     if (row.dataset.chatAnchorKey === key) return row
@@ -45,31 +45,30 @@ function pagingAnchor(list: HTMLElement, scrollport: HTMLElement): HTMLElement |
   const viewport = scrollport.getBoundingClientRect()
   const composer = scrollport.querySelector<HTMLElement>('[data-composer-seat]')
   const visibleBottom = composer?.getBoundingClientRect().top ?? viewport.bottom
-  // Scroll events are hot: hit-test a few points through the stretched flow
-  // rows before considering the full mounted set. The fallback keeps jsdom
-  // and pre-layout states deterministic; a virtualizer naturally bounds it.
+  // The leading edge preserves nested call identity when it hits a row.
+  // Chrome/gap misses use logarithmic layout reads over the ordered flex rows.
   if (typeof document.elementsFromPoint === 'function' && visibleBottom > viewport.top) {
     const content = list.getBoundingClientRect()
     const left = Math.max(viewport.left, content.left)
     const right = Math.min(viewport.right, content.right)
     const x = left + Math.max(0, right - left) / 2
-    const height = visibleBottom - viewport.top
-    const points = [1, Math.min(32, height / 3), height / 2, Math.max(1, height - 1)]
-    for (const offset of points) {
-      for (const element of document.elementsFromPoint(x, viewport.top + offset)) {
-        const row = element instanceof HTMLElement
-          ? element.closest<HTMLElement>('[data-chat-anchor-key]')
-          : null
-        if (row !== null && list.contains(row)) return row
-      }
+    for (const element of document.elementsFromPoint(x, viewport.top + 1)) {
+      const row = element instanceof HTMLElement
+        ? element.closest<HTMLElement>('[data-chat-anchor-key]')
+        : null
+      if (row !== null && list.contains(row)) return row
     }
   }
-  const rows = [...list.querySelectorAll<HTMLElement>('[data-chat-anchor-key]')]
-  const visibleRows = rows.filter((row) => {
-    const rect = row.getBoundingClientRect()
-    return rect.bottom > viewport.top && rect.top < visibleBottom
-  })
-  return visibleRows[0] ?? rows[0] ?? null
+  const rows = list.querySelectorAll<HTMLElement>('[data-chat-flow] > [data-chat-flow-key]:not(:empty)')
+  let low = 0
+  let high = rows.length
+  while (low < high) {
+    const middle = (low + high) >>> 1
+    if (rows.item(middle).getBoundingClientRect().bottom > viewport.top) high = middle
+    else low = middle + 1
+  }
+  const row = rows[low]
+  return row !== undefined && row.getBoundingClientRect().top < visibleBottom ? row : rows[0] ?? null
 }
 
 type ChatScrollPosition = NonNullable<ReturnType<ChatViewSlotProps['chatScroll']['read']>>

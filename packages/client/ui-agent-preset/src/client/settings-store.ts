@@ -168,7 +168,7 @@ export interface AgentPresetSettingsState {
   error: string | null
   /**
    * Whether this browser may persist the choice at all. `settings.describe` is
-   * loopback-only and reports a read-only provider as `writable: false`; the
+   * enabled Host settings path reports a read-only provider as `writable: false`; the
    * row then shows the current default and disables the control rather than
    * offering a write the gateway will refuse.
    */

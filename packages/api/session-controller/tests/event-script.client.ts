@@ -5,6 +5,11 @@ import {
 // host emits; only the fields the object layer reads).
 import type { ContentBlock } from '@deepseek-ai/dsh-llm/types'
 import type { SessionEvent } from '@deepseek-ai/dsh-session/types'
+import type {
+  SessionEventEntry,
+  SessionPage,
+  SessionWireEvent,
+} from '../src/types.ts'
 
 /** One text content block (local helper). */
 const text = (t: string): ContentBlock[] => [{ type: 'text', text: t }]
@@ -143,6 +148,14 @@ export function plainTurn(startSeq: number, turn: number, ask: string, answer: s
 }
 
 /** Wrap raw events in the journal envelope returned by history. */
-export function entries(events: readonly SessionEvent[]): { event: SessionEvent }[] {
-  return events.map(event => ({ event }))
+export function entries(events: readonly SessionEvent[]): SessionEventEntry[] {
+  return events.map(event => ({ type: 'event', event: event as unknown as SessionWireEvent }))
+}
+
+/** Build one view-less history response value. */
+export function historyValue(events: readonly SessionEvent[], hasMore = false): SessionPage {
+  return {
+    records: entries(events),
+    hasMore,
+  }
 }

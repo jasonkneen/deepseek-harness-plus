@@ -107,7 +107,7 @@ export class SessionReferenceResolver extends TypertRemoteService {
       const decision = await next()
       if (decision.kind === 'reject') return decision
       return {
-        kind: 'enter',
+        ...decision,
         messages: await this.prepareDirectMessages(agent, decision.messages, signal),
       }
     }, { prepend: true })

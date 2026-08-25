@@ -5,6 +5,7 @@ import { SessionId } from '@deepseek-ai/dsh-session'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
 import InvariantRegistry from '@deepseek-ai/dsh-invariants'
+import { FIRST_PARTY_SECTION_ORDER } from '@deepseek-ai/dsh-system-prompt'
 import * as SessionInvariant from '@deepseek-ai/dsh-session/invariant'
 import * as AgentInvariant from '@deepseek-ai/dsh-agent/invariant'
 import * as AgentLoopInvariant from '@deepseek-ai/dsh-agent-loop/invariant'
@@ -552,14 +553,18 @@ describe('in-process structured output', () => {
         toolCallResponse('c1', STRUCTURED_OUTPUT_TOOL, { answer: 7 }),
       ])
       // A global tool sorts lexicographically after structured_output, while a
-      // global section above the 190 band follows the capture instruction.
+      // global section after the final-output slot follows the capture instruction.
       ctx.tools.register(defineContentToolFixture({
         name: 'zz_probe',
         description: 'probe',
         parameters: {},
         execute: () => Promise.resolve([{ type: 'text', text: 'x' }]),
       }))
-      ctx.systemPrompt.section({ name: 'after-band', order: 200, text: 'AFTER-BAND' })
+      ctx.systemPrompt.section({
+        name: 'after-band',
+        order: FIRST_PARTY_SECTION_ORDER.STRUCTURED_OUTPUT + 10,
+        text: 'AFTER-BAND',
+      })
       const run = await ctx.subagents.start('spawn', structuredRequest(parent))
       await run.result
       const request = adapter.requests[0]!

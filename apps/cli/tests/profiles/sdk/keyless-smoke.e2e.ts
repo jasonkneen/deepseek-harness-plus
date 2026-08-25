@@ -106,7 +106,13 @@ describe('Python SDK dsh profile keyless smoke', () => {
         jsonrpc: '2.0',
         id: 1,
         method: 'initialize',
-        params: { cwd: root, provider: 'deepseek-official', model: 'deepseek-v4-pro', maxTokens: 1234 },
+        params: {
+          cwd: root,
+          provider: 'deepseek-official',
+          model: 'deepseek-v4-pro',
+          reasoningEffort: 'max',
+          maxTokens: 1234,
+        },
       })}\n`)
       const initialized = await waitForLine(lines, value => value.id === 1, () => stderr)
       expect(initialized).toMatchObject({
@@ -145,6 +151,7 @@ describe('Python SDK dsh profile keyless smoke', () => {
         },
       })
       const tools = modelRequests[0]?.tools as { function?: { name?: string } }[]
+      expect(modelRequests[0]?.reasoning_effort).toBe('max')
       expect(modelRequests[0]?.max_tokens).toBe(1234)
       expect(tools.map(tool => tool.function?.name)).toContain('list_subagent_models')
 

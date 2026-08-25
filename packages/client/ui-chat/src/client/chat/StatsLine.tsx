@@ -13,6 +13,7 @@ import type { ChatViewSlotProps } from '../contract/slots.ts'
 import type { ChatSnapshot } from '../contract/snapshot.ts'
 import { formatTokensPerSecond } from './message-chrome.ts'
 import { assistantStepReading } from '../contract/turn-metrics.ts'
+import { formatCacheHitPercent, formatTokens } from './token-format.ts'
 import css from './StatsLine.module.css'
 
 interface WindowStats {
@@ -78,19 +79,6 @@ export function deriveStats(nodes: ChatSnapshot['legacy']['nodes']): WindowStats
 }
 
 /**
- * Compact token count: 517 / 12.2K / 517K / 1.2M (one decimal under three digits).
- * @param n - token count.
- * @returns display string.
- */
-export function formatTokens(n: number, t: ChatViewSlotProps['t']): string {
-  const scaled = (v: number): string =>
-    v >= 100 ? String(Math.round(v)) : String(Math.round(v * 10) / 10)
-  if (n < 1_000) return String(n)
-  if (n < 1_000_000) return t('number.thousand', { value: scaled(n / 1_000) })
-  return t('number.million', { value: scaled(n / 1_000_000) })
-}
-
-/**
  * Compact duration: 45.2s under a minute, 2m42s from there on.
  * @param ms - duration in milliseconds.
  * @returns display string.
@@ -105,26 +93,6 @@ export function formatDuration(ms: number, t: ChatViewSlotProps['t']): string {
   })
 }
 
-/** Round a cache-read ratio to an integer percentage, with positive ties rounded up. */
-function roundedIntegerPercent(cacheReadTokens: number, denominator: number): number {
-  const denominatorQuotient = Math.floor(denominator / 200)
-  const denominatorRemainder = denominator % 200
-  let lower = 0
-  let upper = 100
-  while (lower < upper) {
-    const candidate = Math.floor((lower + upper + 1) / 2)
-    const factor = candidate * 2 - 1
-    const threshold = factor * denominatorQuotient
-      + Math.ceil(factor * denominatorRemainder / 200)
-    if (cacheReadTokens >= threshold) {
-      lower = candidate
-    } else {
-      upper = candidate - 1
-    }
-  }
-  return lower
-}
-
 /**
  * Display-ready cache-hit share of prompt-side input over the whole durable log.
  * @param usage - the session's token-usage projection value.
@@ -134,35 +102,7 @@ function roundedIntegerPercent(cacheReadTokens: number, denominator: number): nu
  */
 export function cacheHitPercent(usage: TokenUsageProjection): string | null {
   const denominator = billedInputTokens(usage)
-  if (denominator === 0) return null
-  const missedInputTokens = usage.uncachedInputTokens + usage.cacheWriteTokens
-  if (missedInputTokens === 0) return '100'
-
-  const integerPercent = roundedIntegerPercent(usage.cacheReadTokens, denominator)
-  if (integerPercent < 100) return String(integerPercent)
-
-  // At the first distinguishing precision, the rounded result is 100 minus
-  // one to five units in the final decimal place. Scale only while the next
-  // multiplication remains at or below the denominator, then derive that
-  // final digit through exact small-factor comparisons.
-  let decimalPlaces = 1
-  let scaledDoubleGap = missedInputTokens * 200
-  const denominatorTens = Math.floor(denominator / 10)
-  while (scaledDoubleGap <= denominatorTens) {
-    scaledDoubleGap *= 10
-    decimalPlaces += 1
-  }
-  const denominatorOnes = denominator % 10
-  let roundedLoss = 5
-  for (let loss = 1; loss < 5; loss += 1) {
-    const factor = loss * 2 + 1
-    const threshold = factor * denominatorTens + Math.floor(factor * denominatorOnes / 10)
-    if (scaledDoubleGap <= threshold) {
-      roundedLoss = loss
-      break
-    }
-  }
-  return `99.${'9'.repeat(decimalPlaces - 1)}${10 - roundedLoss}`
+  return formatCacheHitPercent(usage.cacheReadTokens, denominator)
 }
 
 /**

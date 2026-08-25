@@ -24,6 +24,42 @@ function seams(openStream: TunnelSeams['openStream']): TunnelSeams {
   }
 }
 
+describe('worker tunnel unary authentication', () => {
+  it.each([401, 403])('retries a route-lane HTTP %s through the worker-local direct lane', async (status) => {
+    const frames: TunnelOutboundFrame[] = []
+    const directFetch = vi.fn(async () => new Response('direct answer', {
+      status: 200,
+      headers: { 'content-type': 'text/plain' },
+    }))
+    const server = new TunnelServer({
+      port: { postMessage: (frame) => { frames.push(frame) } },
+      requestListener: () => Promise.resolve((_req, response) => {
+        const res = response as {
+          writeHead(status: number, headers: Record<string, string>): void
+          end(body: string): void
+        }
+        res.writeHead(status, { 'content-type': 'text/plain' })
+        res.end('network request rejected')
+      }),
+    })
+    server.serve({
+      ...seams(async () => (async function *(): AsyncGenerator { yield undefined })()),
+      directFetch,
+    })
+
+    server.handleMessage({
+      t: 'req', id: status, method: 'POST', url: 'http://localhost/api/session/list', headers: {},
+    })
+
+    await vi.waitFor(() => { expect(frames).toHaveLength(1) })
+    const [frame] = frames
+    expect(frame).toMatchObject({ t: 'res', id: status, status: 200 })
+    if (frame?.t !== 'res' || frame.body === undefined) throw new Error('direct retry did not return one body')
+    expect(new TextDecoder().decode(frame.body)).toBe('direct answer')
+    expect(directFetch).toHaveBeenCalledOnce()
+  })
+})
+
 describe('worker tunnel logical streams', () => {
   it('drains a pre-boot open through the worker-local Gateway seam', async () => {
     const { server, frames } = harness()

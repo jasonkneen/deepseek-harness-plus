@@ -1,16 +1,17 @@
-import type { SessionEventEntry } from '@deepseek-ai/dsh-api-session-controller/types'
 import { describe, expect, it, vi } from 'vitest'
-import { MutableSessionEventSource } from '../src/client/contract/events.ts'
+import {
+  MutableSessionEventSource, type SessionLiveEventEntry,
+} from '../src/client/contract/events.ts'
 import { transportResult } from '../src/client/contract/result.ts'
 
-function entry(seq: number): SessionEventEntry {
+function entry(seq: number): SessionLiveEventEntry {
   return {
+    type: 'event',
     event: {
-      type: 'fixture/event',
+      type: 'turn/start',
       seq,
       time: seq,
-      data: { seq },
-      ignorable: true,
+      data: { turn: seq },
     },
   }
 }

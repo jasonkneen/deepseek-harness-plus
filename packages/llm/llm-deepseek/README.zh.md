@@ -103,7 +103,7 @@ DeepSeek 请求身份独立于应用归因。凭据解析成功后，每个提�
 - 第一个思考模式分片携带 `reasoning_content: ""`，系统会处理它（不会产生多余 reasoning 块）。
 - **推理回传规则**：每个携带推理内容的 assistant 轮次都会将 `reasoning_content` 序列化回历史。思考模式在工具调用轮次上必需它；DeepSeek 在其他轮次上会忽略它，而将该对话重新编码转发给其他厂商的网关，要靠对回传原文取哈希来恢复该轮次上游的思考签名。
 - 支持图片的 user 消息会保留文本／图片顺序。Tool role 内容仍为字符串；连续工具结果中的图片会用 `Attached image(s) from tool result:` 汇总到随后一条 user 消息。
-- Cache 计量：`cacheReadTokens` ← `prompt_cache_hit_tokens` / `prompt_tokens_details.cached_tokens`；DeepSeek 不报告 cache-write 指标。
+- Token 计量：`cacheReadTokens` ← `prompt_cache_hit_tokens` / `prompt_tokens_details.cached_tokens`；DeepSeek 不报告 cache-write 指标。`totalTokens` 是精确的 `prompt_tokens + completion_tokens` 聚合值；提供的 `total_tokens` 若不一致，则省略该字段。
 
 ## 错误
 
@@ -119,7 +119,7 @@ DeepSeek 请求身份独立于应用归因。凭据解析成功后，每个提�
 
 #### Token 影响
 
-精确文本与图片 token 输入取决于提供方 tokenization。推理回传会把每个含推理轮次的思维链带入后续请求，丢弃超出上限的图片则避免再次支付这些 token；可用时会报告 cache-read 用量。
+精确文本与图片 token 输入取决于提供方 tokenization。适配器另外声明按路由的请求图片定价（`imageRequestPricing`）：它根据持久字节长度复现请求投影的最旧优先 offload，并按投影后的请求尺寸用官方公布的 v4 视觉计量（14px patch 网格、3:1 降采样、单图 384 token 上限、最坏对齐 pad）为每张保留图片计价，使 token 计量服务能在请求发出前为图片压力定价；上报的 usage 仍是权威值。推理回传会把每个含推理轮次的思维链带入后续请求，丢弃超出上限的图片则避免再次支付这些 token；可用时会报告 cache-read 用量。
 
 #### KV Cache 影响
 

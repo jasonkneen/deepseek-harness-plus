@@ -12,13 +12,14 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import AttachmentStore from '@deepseek-ai/dsh-attachment'
 import LlmRuntime, { LlmAdapter, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 import type {
-  GenerateOptions, LlmCallConfig, LlmModelInfo, LlmModelReasoningInfo, LlmProviderInfo,
-  LlmResolvedModelInfo, StreamChunk,
+  GenerateOptions, LlmCallConfig, LlmCallConfigAdapterDefaults, LlmModelInfo,
+  LlmModelReasoningInfo, LlmProviderInfo, LlmResolvedModelInfo, StreamChunk,
   UserMessage,
 } from '@deepseek-ai/dsh-llm'
 import SessionStore from '@deepseek-ai/dsh-session'
 import type { SessionId } from '@deepseek-ai/dsh-session'
 import type { SessionPromptRequest, SessionRequestId } from '../src/types.ts'
+import { ApiSessionAgentController } from '../src/agent.ts'
 import { buildModelCatalog } from '../src/catalog.ts'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import { TypertRemoteFailure } from '@deepseek-ai/dsh-typert-protocol'
@@ -86,6 +87,7 @@ async function harness(logged?: {
   provider: string
   model: string
   reasoningEffort?: ReasoningEffortId
+  adapterDefaults?: LlmCallConfigAdapterDefaults
 }): Promise<{
   ctx: Context
   agent: Agent
@@ -121,7 +123,11 @@ async function harness(logged?: {
   ]))
   const session = ctx.sessions.create()
   if (logged !== undefined) {
-    session.append('request/header', { header: { config: logged }, reason: 'initial' })
+    const { adapterDefaults, ...config } = logged
+    session.append('request/header', {
+      header: { config, ...adapterDefaults === undefined ? {} : { adapterDefaults } },
+      reason: 'initial',
+    })
   }
   const agent = {
     id: session.id,
@@ -484,6 +490,23 @@ describe('Web session model selection', () => {
 
     stored = { provider: 'duplicate', model: 'same' }
     expect(currentSelection(ctx, sessionId))
+      .toEqual({ provider: 'deepseek-official', model: 'deepseek-chat' })
+    await ctx.fiber.dispose()
+  })
+
+  it('does not reinterpret an adapter-owned reasoning default as an explicit Web selection', async () => {
+    const { ctx, agent } = await harness({
+      provider: 'deepseek-official',
+      model: 'deepseek-chat',
+      reasoningEffort: ReasoningEffortId('high'),
+      adapterDefaults: { reasoningEffort: true },
+    })
+    createSessionTestRemote(ctx, {
+      defaultModelSelection: () => ({ provider: 'duplicate', model: 'same' }),
+      cwd: '/tmp',
+    })
+
+    expect(new ApiSessionAgentController(ctx).selectionFor(agent).current)
       .toEqual({ provider: 'deepseek-official', model: 'deepseek-chat' })
     await ctx.fiber.dispose()
   })

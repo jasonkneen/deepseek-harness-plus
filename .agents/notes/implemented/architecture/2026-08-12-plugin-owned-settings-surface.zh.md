@@ -32,7 +32,7 @@ Status: implemented
 
 这道门确实挡住了一样东西，本 note 如实写出，因为这个决策必须在准确版本下也站得住：不在名单上的已注册命名空间，其 resolved、`base` 与 `user` 值根本不会抵达浏览器。插件清单页不能替代它——`PluginInventoryEntry` 携带的是 `entryId`、`moduleName`、`enabled` 与 `fiberPhase`，它那一行「configuration」渲染的是启用／停用标签，从不是任何已存值。
 
-这道门不是的，是它所处位置暗示的那种边界。每个 `settings.*` 方法都在 `PRIVILEGED_METHODS` 里（`packages/client/connection`），非回环或跨源请求在到达这段代码之前就以 403 被拒；`role('secret')` 字段在每种响应的每一层都被结构性剥离；而这个面所编辑的文档，本就是用户自己的 `settings.yaml`，同一个设置页还提供了打开它的入口。它没有挡住的写入，恰恰是有分量的那些：`permission`（能放宽审批预设）与 `agent-presets`（决定一个会话挂载什么）本来就已被服务。
+这道门不是的，是它所处位置暗示的那种安全边界。Connection 在到达这段代码前认证每个 Host API 请求；`role('secret')` 字段在每种响应的每一层都被结构性剥离；而这个面所编辑的文档，本就是用户自己的 `settings.yaml`，同一个设置页还提供了打开它的入口。它没有挡住的写入，恰恰是有分量的那些：`permission`（能放宽审批预设）与 `agent-presets`（决定一个会话挂载什么）本来就已被服务。
 
 因此本次改动在本仓库实际新增的暴露面是一个命名空间：`agent-default-model`——它的两个字段指明一个提供方与一个模型，且没有任何浏览器半侧渲染它。将来若某个命名空间的值确实不该跨越协议，由 `role('secret')` 逐字段作答：比整命名空间开关更精细，而且已经在执行。
 

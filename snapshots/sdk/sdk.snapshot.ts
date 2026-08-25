@@ -67,7 +67,11 @@ const MINIMAL_BASH_DESCRIPTION = `Run commands in a bash shell
 const mode = process.env.DSH_SNAPSHOT ?? 'replay'
 const recording = mode === 'record'
 const refreshing = mode === 'refresh'
-const RUNTIME_WORKSPACE_ENTRIES = ['.agents', '.dsh', '.replay-fixtures', '.snapshot-patches'] as const
+const RUNTIME_WORKSPACE_ENTRIES = ['.agents', '.child-dsh', '.dsh', '.replay-fixtures', '.snapshot-patches'] as const
+const dshSdkChildConfig = fileURLToPath(new URL(
+  '../../packages/subagent/subagent-dsh-sdk/tests/fixtures/loader/child.cordis.yml',
+  import.meta.url,
+))
 
 function dirOf(url: string): string {
   return fileURLToPath(new URL('.', url))
@@ -76,6 +80,13 @@ function dirOf(url: string): string {
 interface SdkAssertions {
   /** Environment overrides passed to the runtime subprocess. */
   environment?: Readonly<Record<string, string>>
+  /** A separate DSH SDK child whose persisted session joins the evidence. */
+  dshSdkChild?: {
+    /** Profile patch materialized for the child runtime. */
+    config: string
+    /** Exact request configuration committed by the child runtime. */
+    agentConfig: Readonly<Record<string, unknown>>
+  }
   /** Assembled model-facing tool names and required argument keys. */
   expectedTools?: Readonly<Record<string, readonly string[]>>
   /** Exact assembled system prompt for the root request. */
@@ -95,6 +106,18 @@ const SDK_ASSERTIONS: Readonly<Record<string, SdkAssertions>> = {
     runtimeContext: {
       includes: ['Current DSH file policy: danger-full-access', 'Approval prompts are disabled in this session'],
       excludes: ['workspace-write'],
+    },
+  },
+  'subagent-dsh-sdk-dynamic-route': {
+    environment: { DSH_TEST_PARENT_PROVIDER: 'deepseek-official' },
+    dshSdkChild: {
+      config: dshSdkChildConfig,
+      agentConfig: {
+        provider: 'mock',
+        model: 'mock-routed',
+        reasoningEffort: 'max',
+        maxTokens: 777,
+      },
     },
   },
 }
@@ -458,6 +481,19 @@ async function runScenario(scenario: CorpusScenario): Promise<{
   await mkdir(patchRoot, { recursive: true })
   const patches = authoredPatches(scenario, !recording)
     .map((patch, index) => materializeProfilePatch(patch, cwd, patchRoot, index))
+  const assertions = SDK_ASSERTIONS[scenario.name] ?? {}
+  let childSessionsRoot: string | undefined
+  let childEnvironment: Record<string, string> = {}
+  if (assertions.dshSdkChild !== undefined) {
+    const childHome = join(cwd, '.child-dsh')
+    const childPatch = materializeProfilePatch(assertions.dshSdkChild.config, cwd, patchRoot, patches.length)
+    await mkdir(childHome, { recursive: true })
+    childSessionsRoot = join(childHome, 'sessions')
+    childEnvironment = {
+      DSH_TEST_CHILD_PATCHES: JSON.stringify([childPatch]),
+      DSH_TEST_CHILD_HOME: childHome,
+    }
+  }
   const workspaceDir = join(scenario.dir, 'workspace')
   if (existsSync(workspaceDir)) {
     for (const entry of await readdir(workspaceDir)) {
@@ -468,7 +504,6 @@ async function runScenario(scenario: CorpusScenario): Promise<{
     ignoredRootEntries: RUNTIME_WORKSPACE_ENTRIES,
   })
   const [parentFixture, ...childFixtures] = replayFixtures
-  const assertions = SDK_ASSERTIONS[scenario.name] ?? {}
   const env: Record<string, string> = {
     ...Object.fromEntries(Object.entries(process.env).filter(([, value]) => value !== undefined)) as Record<string, string>,
     DSH_SNAPSHOT: mode,
@@ -486,6 +521,7 @@ async function runScenario(scenario: CorpusScenario): Promise<{
       : {},
     ...scenario.manifest.environment,
     ...assertions.environment,
+    ...childEnvironment,
   }
 
   const harness = new DeepSeekHarness({
@@ -547,7 +583,10 @@ async function runScenario(scenario: CorpusScenario): Promise<{
       subscription.close()
     }
     await harness.close()
-    const logs = await persistedLogs(sessionsRoot)
+    const logs = (await Promise.all([
+      persistedLogs(sessionsRoot),
+      ...(childSessionsRoot === undefined ? [] : [persistedLogs(childSessionsRoot)]),
+    ])).flat()
     const finalWorkspace = await captureWorkspaceSnapshot(cwd, {
       ignoredRootEntries: RUNTIME_WORKSPACE_ENTRIES,
     })
@@ -559,7 +598,11 @@ async function runScenario(scenario: CorpusScenario): Promise<{
 }
 
 /** Order logs parent-first, children by creation time (fixture layout order). */
-function orderLogs(logs: PersistedLog[], expectedCount: number): PersistedLog[] {
+function orderLogs(logs: PersistedLog[], expectedCount: number, separateDshSdkChild: boolean): PersistedLog[] {
+  if (separateDshSdkChild) {
+    expect(logs).toHaveLength(expectedCount)
+    return logs
+  }
   const parents = logs.filter(log => typeof log.header.parentSession !== 'string')
   const children = logs.filter(log => typeof log.header.parentSession === 'string')
     .sort((left, right) => Number(left.header.createdAt) - Number(right.header.createdAt))
@@ -615,6 +658,7 @@ async function verifyHeaders(
   scenario: CorpusScenario,
   ordered: readonly PersistedLog[],
   ctx: NormalizeContext,
+  dshSdkChildConfig?: Readonly<Record<string, unknown>>,
 ): Promise<void> {
   const pin = headerPin(scenario)
   const pinFixture = await readFile(join(pin.dir, 'session.jsonl'), 'utf8')
@@ -650,9 +694,12 @@ async function verifyHeaders(
     for (const [index, header] of headers.entries()) {
       const selectedSchemas = childSchemas.get(logIndex)?.[index]
       const base = reconstructed[index] ?? reconstructed[0]
+      const configured = logIndex === 1 && dshSdkChildConfig !== undefined
+        ? { ...base as JsonObject, config: dshSdkChildConfig }
+        : base
       const expected = selectedSchemas === undefined
-        ? base
-        : { ...base as JsonObject, tools: selectedSchemas }
+        ? configured
+        : { ...configured as JsonObject, tools: selectedSchemas }
       expect(header, `${scenario.name}: session ${logIndex} header ${index + 1}`).toEqual(expected)
       expect(formatSystemPromptSnapshot(prompts[index] as string), `${scenario.name}: session ${logIndex} prompt ${index + 1}`)
         .toBe(childPrompts.get(logIndex) ?? prompt)
@@ -672,7 +719,11 @@ describe('TypeScript SDK snapshots over the jsonrpc runtime', () => {
 
       const files = await fixtureFiles(scenario)
       const { results, notifications, observedMethods, logs, initialWorkspace, finalWorkspace, cwd } = await runScenario(scenario)
-      const ordered = orderLogs(logs, recording ? logs.length : files.length)
+      const ordered = orderLogs(
+        logs,
+        recording ? logs.length : files.length,
+        assertions.dshSdkChild !== undefined,
+      )
       const actualContext = contextOf(ordered, cwd)
 
       let expectedContents = await Promise.all(files.map(file => readFile(file, 'utf8')))
@@ -733,7 +784,7 @@ describe('TypeScript SDK snapshots over the jsonrpc runtime', () => {
       for (const [index, actual] of actualSnapshots.entries()) {
         expect(actual, `${scenario.name}: session ${index}`).toBe(expectedSnapshots[index])
       }
-      await verifyHeaders(scenario, ordered, actualContext)
+      await verifyHeaders(scenario, ordered, actualContext, assertions.dshSdkChild?.agentConfig)
 
       // Genuine SDK protocol cases retain their secondary wire projections.
       const finalResult = results.at(-1)
@@ -786,7 +837,7 @@ describe('TypeScript SDK snapshots over the jsonrpc runtime', () => {
           for (const clause of assertions.runtimeContext.includes) expect(system).not.toContain(clause)
         }
       }
-      if (ordered.length > 1) {
+      if (ordered.length > 1 && assertions.dshSdkChild === undefined) {
         expect(observedMethods.has('subagent.started')).toBe(true)
         expect(observedMethods.has('subagent.finished')).toBe(true)
       }

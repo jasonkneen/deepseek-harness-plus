@@ -10,6 +10,7 @@ import { tmpdir } from 'node:os'
 import { isAbsolute, join, relative, resolve as resolvePath } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
+import { ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 import {
   DeepSeekHarness,
   HarnessClient,
@@ -155,13 +156,14 @@ describe('DeepSeekHarness', () => {
     await harness.close()
   })
 
-  it('sends the configured cwd/provider/model/maxTokens in the handshake exactly once', async () => {
+  it('sends the configured cwd/provider/model/reasoningEffort/maxTokens in the handshake exactly once', async () => {
     const dir = await tempDir('sdk-client-init-')
     const recordFile = join(dir, 'init.jsonl')
     const harness = createProcessDeepSeekHarness(fakeLaunch({ FAKE_RECORD_INIT: recordFile }), {
       cwd: dir,
       provider: 'custom-provider',
       model: 'custom-model',
+      reasoningEffort: ReasoningEffortId('max'),
       maxTokens: 4096,
     })
     cleanups.push(() => harness.close())
@@ -173,6 +175,7 @@ describe('DeepSeekHarness', () => {
       cwd: dir,
       provider: 'custom-provider',
       model: 'custom-model',
+      reasoningEffort: 'max',
       maxTokens: 4096,
     }])
   })

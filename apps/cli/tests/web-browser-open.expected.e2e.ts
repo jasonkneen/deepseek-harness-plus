@@ -32,7 +32,9 @@ interface BrowserOpenRecord {
 }
 
 function normalizeLocalUrl(url: string): string {
-  return url.replace(/:\d+$/, ':{{port}}')
+  return url
+    .replace(/:\d+/u, ':{{port}}')
+    .replace(/token=[^&]+/u, 'token={{token}}')
 }
 
 describe.skipIf(!builtArtifactsExist)('dsh web browser-open assembled snapshot', () => {
@@ -85,9 +87,9 @@ describe.skipIf(!builtArtifactsExist)('dsh web browser-open assembled snapshot',
         "bootManifest": true,
         "dshHomePresent": false,
         "exitCode": 0,
-        "openedUrl": "http://127.0.0.1:{{port}}",
+        "openedUrl": "http://127.0.0.1:{{port}}/?token={{token}}",
         "opening": true,
-        "readyUrl": "http://127.0.0.1:{{port}}",
+        "readyUrl": "http://127.0.0.1:{{port}}/?token={{token}}",
         "status": 200,
         "stderr": "",
       }
@@ -124,7 +126,6 @@ describe.skipIf(!builtArtifactsExist)('dsh web browser-open assembled snapshot',
     const readyUrl = /dsh web: (http:\/\/[^\s]+)/u.exec(result.stdout)?.[1]
     const diagnostic = result.stderr.split(/\r?\n/u)
       .find(line => line.startsWith('web-app: could not open the default browser because '))
-      ?.replace(/http:\/\/127\.0\.0\.1:\d+/u, 'http://127.0.0.1:{{port}}')
 
     expect({
       diagnostic,
@@ -134,11 +135,11 @@ describe.skipIf(!builtArtifactsExist)('dsh web browser-open assembled snapshot',
       readyUrl: readyUrl === undefined ? undefined : normalizeLocalUrl(readyUrl),
     }).toMatchInlineSnapshot(`
       {
-        "diagnostic": "web-app: could not open the default browser because fixture desktop unavailable; visit http://127.0.0.1:{{port}} manually",
+        "diagnostic": "web-app: could not open the default browser because fixture desktop unavailable; use the dsh web URL printed at startup",
         "exitCode": 0,
         "opened": false,
         "opening": true,
-        "readyUrl": "http://127.0.0.1:{{port}}",
+        "readyUrl": "http://127.0.0.1:{{port}}/?token={{token}}",
       }
     `)
   })
@@ -183,7 +184,7 @@ describe.skipIf(!builtArtifactsExist)('dsh web browser-open assembled snapshot',
         "exitCode": 0,
         "opened": false,
         "opening": false,
-        "readyUrl": "http://127.0.0.1:{{port}}",
+        "readyUrl": "http://127.0.0.1:{{port}}/?token={{token}}",
         "stderr": "",
       }
     `)

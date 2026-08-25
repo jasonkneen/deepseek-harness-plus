@@ -208,7 +208,7 @@ describe('web e2e: seeded history renders through cold resume', () => {
     browser = await chromium.launch()
     page = await newEnglishPage(browser)
     tripwire = watchConsole(page)
-    await page.goto(scaffold.baseUrl, { waitUntil: 'load' })
+    await page.goto(scaffold.authenticatedUrl, { waitUntil: 'load' })
     await page.waitForSelector('[class*="frame"]', { timeout: 30_000 })
   }, 120_000)
 
@@ -288,6 +288,10 @@ describe('web e2e: seeded history renders through cold resume', () => {
     // only — the prompt and full tool output must stay on screen.
     expect(await page.getByText(PROMPT, { exact: true }).count()).toBe(1)
 
+    await expect.poll(
+      () => scaffold.ctx.agents.get(SessionId(SEED_ID)) !== undefined,
+      { timeout: 10_000 },
+    ).toBe(true)
     const agent = scaffold.ctx.agents.get(SessionId(SEED_ID))
     if (agent === undefined) throw new Error('seeded session did not attach an agent')
     agent.session.append('user/message', createUserMessage({

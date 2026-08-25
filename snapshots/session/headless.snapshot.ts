@@ -258,13 +258,76 @@ function turnReasonFromSession(log: string): JsonObject | undefined {
 }
 
 function stderrFromSession(log: string): string {
+  let output = ''
+  let started = false
+  let open = false
+  let endsWithNewline = true
+  const appendReasoning = (text: string): void => {
+    if (text === '') return
+    if (!open) {
+      output += 'dsh: reasoning:\n'
+      open = true
+    }
+    output += text
+    endsWithNewline = text.endsWith('\n')
+  }
+  const close = (): void => {
+    if (!open) return
+    if (!endsWithNewline) output += '\n'
+    open = false
+    endsWithNewline = true
+  }
+  for (const record of records(log)) {
+    if (record.type === 'turn/start') {
+      close()
+      started = true
+      continue
+    }
+    if (!started) continue
+    const data = record.data as JsonObject | undefined
+    if (record.type === 'reasoning-chunks') {
+      if (!Array.isArray(data?.texts) || data.texts.some(text => typeof text !== 'string')) {
+        throw new Error('headless snapshot reasoning chunks have invalid text')
+      }
+      for (const text of data.texts as string[]) appendReasoning(text)
+      continue
+    }
+    if (record.type === 'text-chunks' || record.type === 'tool-call-chunks') {
+      close()
+      continue
+    }
+    if (record.type !== 'assistant/chunk') continue
+    const chunk = data?.chunk as JsonObject | undefined
+    switch (chunk?.type) {
+      case 'reasoning-delta':
+        if (typeof chunk.text !== 'string') throw new Error('headless snapshot reasoning delta has invalid text')
+        appendReasoning(chunk.text)
+        break
+      case 'block-start':
+        if (chunk.blockType !== 'reasoning') close()
+        break
+      case 'block-end': {
+        const block = chunk.block as JsonObject | undefined
+        if (block?.type !== 'reasoning') close()
+        break
+      }
+      case 'usage':
+        break
+      case 'text-delta':
+      case 'tool-call-delta':
+      case 'finish':
+        close()
+        break
+    }
+  }
+  close()
   const reason = turnReasonFromSession(log)
-  if (reason?.kind !== 'error') return ''
+  if (reason?.kind !== 'error') return output
   const error = reason.error as JsonObject | undefined
   if (typeof error?.code !== 'string' || typeof error.message !== 'string') {
     throw new Error('headless snapshot error reason has no code and message')
   }
-  return `dsh: ${error.code}: ${error.message}\n`
+  return `${output}dsh: ${error.code}: ${error.message}\n`
 }
 
 function modelFromSession(log: string): { provider: string; model: string } {
@@ -426,8 +489,12 @@ async function verifyHeaders(scenario: HeadlessScenario, actualLogs: readonly Se
       const base = reconstructed[index] ?? reconstructed[0]
       const expected = selectedSchemas === undefined ? base : { ...base as JsonObject, tools: selectedSchemas }
       expect(header, `${scenario.name}: request header ${index + 1}`).toEqual(expected)
-      expect(formatSystemPromptSnapshot(prompts[index] as string), `${scenario.name}: system prompt ${index + 1}`)
-        .toBe(childPrompts.get(logIndex) ?? prompt)
+    }
+    if (prompts.length > 0) {
+      expect(
+        formatSystemPromptSnapshot(prompts[0] as string, prompts.slice(1)),
+        `${scenario.name}: system prompts`,
+      ).toBe(childPrompts.get(logIndex) ?? prompt)
     }
   }
 }
@@ -482,6 +549,28 @@ describe('headless recorded-session snapshots', () => {
       ...parseSessionLog(fixture).map(withoutVolatileMessage),
     ]
     expect(logical(packed)).toStrictEqual(logical(source))
+  })
+
+  it('reconstructs reasoning stderr across packed output boundaries', () => {
+    const log = [
+      { type: 'turn/start', data: { turn: 1 } },
+      { type: 'reasoning-chunks', data: { texts: ['first', ''] } },
+      { type: 'text-chunks', data: { texts: ['text'] } },
+      { type: 'reasoning-chunks', data: { texts: ['second'] } },
+      { type: 'tool-call-chunks', data: { args: ['{}'] } },
+      { type: 'reasoning-chunks', data: { texts: ['third\n'] } },
+      { type: 'turn/end', data: { turn: 1, reason: { kind: 'completed' } } },
+    ].map(record => JSON.stringify(record)).join('\n')
+
+    expect(stderrFromSession(log)).toBe([
+      'dsh: reasoning:',
+      'first',
+      'dsh: reasoning:',
+      'second',
+      'dsh: reasoning:',
+      'third',
+      '',
+    ].join('\n'))
   })
 
   for (const scenario of scenarios) {
@@ -583,12 +672,16 @@ describe('headless recorded-session snapshots', () => {
         await rm(spillRoot, { recursive: true, force: true })
       }
 
+      const stderrLog = mode === 'replay' ? primaryFixture : actualLogs[0]?.content
+      if (stderrLog === undefined) throw new Error(`${scenario.name}: stderr projection has no primary session`)
+      const expectedStderr = stderrFromSession(stderrLog)
+
       if (mode !== 'replay') {
         fixtures = await writeSessionFixtures(scenario, actualLogs, fixtures, contextOf(actualLogs.map(log => log.content)))
       }
 
       expect(result.stdout).toBe(`${finalTextFromSession(fixtures[0] as string)}\n`)
-      expect(result.stderr).toBe(stderrFromSession(fixtures[0] as string))
+      expect(result.stderr).toBe(expectedStderr)
       expect(actualLogs, `${scenario.name}: persisted session count`).toHaveLength(fixtures.length)
       const actualContext = contextOf(actualLogs.map(log => log.content))
       const fixtureContext = contextOf(fixtures)

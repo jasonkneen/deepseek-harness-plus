@@ -5,10 +5,11 @@ export type { ConversationBinding } from './conversation/assembly.ts'
 export { ConversationController, UnsupportedImageMediaTypeError } from './service.ts'
 export type { IConversation } from './service.ts'
 export type {
-  ConversationContextReader, ConversationEventInput, ConversationLocation,
+  ConversationContextReader, ConversationLocation,
   ConversationLocationData, ConversationLocationDataScope, ConversationLocationDataStore,
   ConversationMatch, ConversationMatchResult, ConversationNodeContext,
   ConversationNodeDefinition, ConversationPreviousContext, ConversationPublication,
+  ConversationStartMatch,
   ConversationStepDataMap, ConversationTimelineSnapshot, ConversationTurnDataMap,
   ConversationViewBuilder, ConversationViewDefinition, ConversationViewNode,
   ConversationViewSnapshotMap, ConversationViewSnapshotStore, StepLocation, TurnLocation,
@@ -28,8 +29,9 @@ export type {
   ContextProvenanceView, ContextRole, KnownContextForm,
 } from './contract/context-provenance.ts'
 export type {
-  ConversationPromptSnapshot, RequestInspectionSnapshot, RequestPromptChange, RequestView,
+  ConversationPromptSnapshot, RequestInspectionSnapshot, RequestPromptChange, RequestPromptInspection, RequestPromptInspector, RequestView,
 } from './contract/request-inspection.ts'
+export { inspectRequestPrompt } from './contract/request-inspection.ts'
 export type { ConversationStoreState, ConversationViewRequest, ViewTab } from './contract/views.ts'
 
 export { ConversationNodeAssembler } from './conversation/assembler.ts'

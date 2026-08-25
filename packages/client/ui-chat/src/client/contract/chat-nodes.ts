@@ -59,6 +59,29 @@ export interface RetryChatData {
   readonly current: ModelRetryNode
 }
 
+/** One provider/model route that contributed a billed request attempt. */
+export interface TurnTokenUsageRoute {
+  readonly provider: string
+  readonly model: string
+}
+
+/** Exact provider-reported token accounting for every attempt in one completed Turn. */
+export interface TurnTokenUsage {
+  /** Sum of uncached prompt input across all attempts. */
+  readonly uncachedInputTokens: number
+  readonly outputTokens: number
+  /** Exact aggregate prompt plus output total across all attempts. */
+  readonly totalTokens: number
+  /** Present only when every attempt reported the bucket. */
+  readonly cacheReadTokens?: number
+  /** Present only when every attempt reported the bucket. */
+  readonly cacheWriteTokens?: number
+  /** Output subset, present only when every attempt reported it. */
+  readonly reasoningTokens?: number
+  /** Present only when every billed attempt has provider/model attribution. */
+  readonly routes?: readonly TurnTokenUsageRoute[]
+}
+
 /** Turn-local footer row that owns actions and optional feature contributions. */
 export interface TurnTailChatData {
   readonly turn: number
@@ -70,6 +93,8 @@ export interface TurnTailChatData {
   readonly branchUnavailable: boolean
   readonly ttftMs?: number
   readonly tokensPerSecond?: number
+  /** Exact per-Turn accounting; absent when the loaded evidence is incomplete. */
+  readonly tokenUsage?: TurnTokenUsage
 }
 
 /**

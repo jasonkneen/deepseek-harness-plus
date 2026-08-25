@@ -114,7 +114,7 @@ describe('web e2e: navigation & panes over a rich seeded session', () => {
     // Workspace stream settles through the user-visible Ungrouped barrier.
     const sessionBaseline = baselineResponse(page)
     const [, sessionResponse] = await Promise.all([
-      page.goto(scaffold.baseUrl, { waitUntil: 'load' }),
+      page.goto(scaffold.authenticatedUrl, { waitUntil: 'load' }),
       sessionBaseline,
     ])
     await assertBaselineSucceeded(sessionResponse, 'session.list')
@@ -327,7 +327,7 @@ describe('web e2e: navigation & panes over a rich seeded session', () => {
     })
     const observerSessionBaseline = baselineResponse(observer)
     const [, observerSessionResponse] = await Promise.all([
-      observer.goto(scaffold.baseUrl, { waitUntil: 'load' }),
+      observer.goto(scaffold.authenticatedUrl, { waitUntil: 'load' }),
       observerSessionBaseline,
     ])
     await assertBaselineSucceeded(observerSessionResponse, 'observer session.list')

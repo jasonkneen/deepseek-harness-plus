@@ -106,7 +106,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
   {
     key: 'locale',
     summary: 'Dictionary registry plus locale preference.',
-    description: 'Dictionary registry plus locale preference. Lookup chain per key: the entry\'s namespace in the active locale -> that namespace\'s en fallback -> the shared common namespace (active, then en) -> the key itself (missing text stays visible, fail loud in the UI rather than blank). Reads go through getLocale; writes only through setLocale; continuous sync through the `locale/change` event, or through the LocaleFace getSnapshot/subscribe pair the render machinery consumes (installed via `ctx.slots.installLocale`).',
+    description: 'Dictionary registry plus locale preference. Lookup walks the active language\'s declared fallback chain in the entry namespace, then repeats it in the shared common namespace before showing the key itself. Reads go through getLocale; preferences change only through setLocale, while language packs extend the catalog through addLanguage. Continuous sync uses the `locale/change` event or the LocaleFace getSnapshot/subscribe pair installed through `ctx.slots.installLocale`.',
     methods: [
       {
         signature: 'getLocale(): LocaleSnapshot',
@@ -122,7 +122,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
       {
         signature: 'subscribe(fn: () => void): () => void',
-        description: 'LocaleFace subscribe: notified on every snapshot change (locale switch or dictionary registration — registrations bump the revision so already rendered outlets pick up late-arriving dictionaries).',
+        description: 'LocaleFace subscribe: notified on every snapshot change (locale switch or dictionary registration — registrations bump the revision so already rendered outlets pick up late-arriving dictionaries and locale definitions).',
         parameters: [{ name: 'fn', description: 'change callback.' }],
         returns: 'unsubscribe.',
       },
@@ -132,19 +132,27 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         parameters: [{ name: 'id', description: 'a registered locale id; unknown ids throw.' }],
       },
       {
-        signature: 'register<N extends keyof LocaleNamespaceMap & string>(ns: N, dicts: Record<LocaleId, LocaleDictOf<N>>): () => void',
+        signature: 'addLanguage(input: LanguageRegistration): () => void',
+        description: 'Add one selectable language to the shared catalog. Its fallback must already be registered, and following fallback definitions must terminate at English. Dictionaries may register before or after this definition. Registration rechecks an unresolved Host preference and the browser\'s ordered language list. The caller owns the returned disposer; removing an active language falls back without clearing the stored id.',
+        parameters: [{ name: 'input', description: 'stable id, self-described label, and fallback language id.' }],
+        returns: 'idempotent disposer removing this exact definition.',
+        throws: ['when fields are malformed, the id is occupied, or the fallback target is unknown or creates a cycle.'],
+      },
+      {
+        signature: 'register<N extends Extract<keyof LocaleNamespaceMap, string>>(ns: N, dicts: Record<BuiltInLocaleId, LocaleDictOf<N>>): () => void',
         description: 'Register a declared namespace\'s dictionaries, all locales in one call — the typed form: each dictionary is checked against the namespace\'s LocaleNamespaceMap key union (a missing or extra key is a compile error), and every shipped locale is required (bilingual balance enforced at registration). Duplicate (ns, locale) throws (single occupant; a namespace\'s texts have one owner). Registration bumps the revision so mounted outlets pick up late-arriving dictionaries.',
-        parameters: [{ name: 'ns', description: 'a namespace merged into LocaleNamespaceMap.' }, { name: 'dicts', description: 'complete dictionaries keyed by locale id.' }],
+        parameters: [{ name: 'ns', description: 'a namespace merged into LocaleNamespaceMap.' }, { name: 'dicts', description: 'complete dictionaries keyed by built-in locale id.' }],
         returns: 'disposer removing every locale registered by this call (idempotent).',
       },
       {
         signature: 'register(ns: string, locale: string, dict: LocaleDict): () => void',
-        description: 'Single-locale untyped form for namespaces outside the merge table (dynamic composition, tests).',
+        description: 'Single-locale untyped form for language-pack contributions and namespaces outside the merge table.',
         parameters: [{ name: 'ns', description: 'namespace.' }, { name: 'locale', description: 'locale tag.' }, { name: 'dict', description: 'dictionary.' }],
         returns: 'disposer (idempotent).',
+        throws: ['when locale is not a BCP 47-style tag.'],
       },
       {
-        signature: 'bind<N extends keyof LocaleNamespaceMap & string>(ns: N): TranslateNS<N>',
+        signature: 'bind<N extends Extract<keyof LocaleNamespaceMap, string>>(ns: N): TranslateNS<N>',
         description: 'Bind a declared namespace to a translate function typed to its dictionary key union (plus the shared common vocabulary) — the same key domain the framework-injected `t` seat carries. The returned reference is stable per namespace (repeat binds return the same function), so it can ride inject surfaces without breaking memoization.',
         parameters: [{ name: 'ns', description: 'a namespace merged into LocaleNamespaceMap.' }],
         returns: 'the typed translate function (reads the active locale at call time).',
@@ -434,6 +442,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type BoundActions<H> = H extends StoreHandle<infer T, infer A> ? BakedActions<T, A> : never;',
   },
   {
+    name: 'BuiltInLocaleId',
+    declaration: 'export type BuiltInLocaleId = typeof LOCALE_IDS[number];',
+  },
+  {
     name: 'ChainKeysOf',
     declaration: 'export type ChainKeysOf<S extends keyof SlotMap & string> = S extends unknown ? (SlotMap[S][\'kind\'] extends \'chain\' ? S : never) : never;',
   },
@@ -444,6 +456,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'ChildrenDecl',
     declaration: 'export type ChildrenDecl = {\n    [P in keyof SlotMap & string]?: SlotSpec<SlotMap[P]>;\n};',
+  },
+  {
+    name: 'ChunkRowEvent',
+    declaration: 'export type ChunkRowEvent = {\n    [Kind in ChunkRow[\'type\']]: {\n        readonly type: `chunkrow/${Kind}`;\n        readonly seq: number;\n        readonly time: number;\n        readonly data: Extract<ChunkRow, {\n            readonly type: Kind;\n        }>[\'data\'];\n    };\n}[ChunkRow[\'type\']];',
   },
   {
     name: 'ClientConnectionRpc',
@@ -534,8 +550,12 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type KeyPropsOf<K extends keyof SlotMap & string, EntryKey extends EntryKeyOf<K>> = SlotMap[K] extends {\n    kind: \'keyed\';\n    keyProps: infer P extends object;\n} ? EntryKey extends keyof P ? P[EntryKey] extends object ? P[EntryKey] : never : never : object;',
   },
   {
+    name: 'LanguageRegistration',
+    declaration: 'export interface LanguageRegistration {\n    id: LocaleId;\n    label: string;\n    fallback: LocaleId;\n}',
+  },
+  {
     name: 'LocaleDefinition',
-    declaration: 'export interface LocaleDefinition {\n    id: LocaleId;\n    label: string;\n}',
+    declaration: 'export interface LocaleDefinition {\n    readonly id: LocaleId;\n    readonly label: string;\n    readonly fallback?: LocaleId;\n}',
   },
   {
     name: 'LocaleDict',
@@ -547,7 +567,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'LocaleId',
-    declaration: 'export type LocaleId = typeof LOCALE_IDS[number];',
+    declaration: 'export type LocaleId = string;',
   },
   {
     name: 'LocaleKeysOf',
@@ -643,11 +663,11 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SessionEventChange',
-    declaration: 'export type SessionEventChange = {\n    readonly kind: \'replace\';\n    readonly entries: readonly SessionEventEntry[];\n} | {\n    readonly kind: \'prepend\';\n    readonly entries: readonly SessionEventEntry[];\n} | {\n    readonly kind: \'append\';\n    readonly entries: readonly SessionEventEntry[];\n};',
+    declaration: 'export type SessionEventChange = {\n    readonly kind: \'replace\';\n    readonly entries: readonly SessionEventLikeEntry[];\n} | {\n    readonly kind: \'prepend\';\n    readonly entries: readonly SessionEventLikeEntry[];\n} | {\n    readonly kind: \'append\';\n    readonly entries: readonly SessionLiveEventEntry[];\n};',
   },
   {
-    name: 'SessionEventEntry',
-    declaration: 'export interface SessionEventEntry {\n    readonly event: SessionWireEvent;\n}',
+    name: 'SessionEventLikeEntry',
+    declaration: 'export type SessionEventLikeEntry = {\n    readonly type: \'event\';\n    readonly event: SessionEvent;\n} | {\n    readonly type: \'chunks\';\n    readonly event: ChunkRowEvent;\n};',
   },
   {
     name: 'SessionEventSource',
@@ -655,7 +675,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SessionEventWindow',
-    declaration: 'export interface SessionEventWindow {\n    readonly entries: readonly SessionEventEntry[];\n    readonly hasMore: boolean;\n    readonly revision: number;\n    readonly change: SessionEventChange;\n}',
+    declaration: 'export interface SessionEventWindow {\n    readonly entries: readonly SessionEventLikeEntry[];\n    readonly hasMore: boolean;\n    readonly revision: number;\n    readonly change: SessionEventChange;\n}',
   },
   {
     name: 'SessionFace',
@@ -664,6 +684,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'SessionIdOf',
     declaration: 'export type SessionIdOf = SessionStandardProps extends {\n    sessionId: infer S;\n} ? S : string;',
+  },
+  {
+    name: 'SessionLiveEventEntry',
+    declaration: 'export type SessionLiveEventEntry = Extract<SessionEventLikeEntry, {\n    readonly type: \'event\';\n}>;',
   },
   {
     name: 'SessionMaybeStandardProps',
@@ -684,10 +708,6 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'SessionStandardProps',
     declaration: 'export interface SessionStandardProps {\n}',
-  },
-  {
-    name: 'SessionWireEvent',
-    declaration: 'export interface SessionWireEvent {\n    readonly type: string;\n    readonly seq: number;\n    readonly time: number;\n    readonly data: JsonValue;\n    readonly ignorable?: true;\n    readonly sourceEventSeqs?: number[];\n    readonly surfaceOp?: SurfaceOp;\n}',
   },
   {
     name: 'SlotComponent',

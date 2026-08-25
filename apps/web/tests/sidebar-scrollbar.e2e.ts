@@ -292,7 +292,7 @@ describe('web e2e: sidebar session list scrollbar (reserved gutter / themed thum
     // the list with room to spare.
     page = await newEnglishPage(browser, 800)
     tripwire = watchConsole(page)
-    await page.goto(scaffold.baseUrl, { waitUntil: 'load' })
+    await page.goto(scaffold.authenticatedUrl, { waitUntil: 'load' })
     await page.waitForSelector('[class*="frame"]', { timeout: 30_000 })
     await expandSeededSessions(page)
     // Every assertion about a thumb colour needs a drawn thumb, and the column

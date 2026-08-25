@@ -98,7 +98,7 @@ describe.skipIf(MODE === 'record')('web e2e: GitHub ready-for-review', () => {
     page = await browser.newPage({ viewport: { width: 1680, height: 1000 }, locale: 'en-US' })
     await page.addInitScript(() => { localStorage.setItem('dsh.locale', 'en') })
     tripwire = watchConsole(page)
-    await page.goto(scaffold.baseUrl, { waitUntil: 'load' })
+    await page.goto(scaffold.authenticatedUrl, { waitUntil: 'load' })
     await page.waitForSelector('[class*="frame"]', { timeout: 30_000 })
   }, 60_000)
 

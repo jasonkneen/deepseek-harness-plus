@@ -1,4 +1,5 @@
-/* Figma 10:2482: 24px Tool calls header, 4px gap, 141px code block cap. */
+/* Figma 10:2482: 24px Tool calls header, 4px gap, 141px code block cap.
+   SystemPromptRow reuses this sheet so both disclosures share one body. */
 
 .root {
   min-width: 0;

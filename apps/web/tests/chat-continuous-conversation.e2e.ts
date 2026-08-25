@@ -197,7 +197,7 @@ describe('web e2e: continuous conversation grown through the composer', () => {
     page.on('console', (message) => {
       if (message.type() === 'warning') consoleWarnings.push(message.text())
     })
-    await page.goto(scaffold.baseUrl, { waitUntil: 'load' })
+    await page.goto(scaffold.authenticatedUrl, { waitUntil: 'load' })
     await page.waitForSelector('[class*="frame"]', { timeout: 30_000 })
     await connectFreshWorkspace(page, scaffold.workspaceCwd, 'continuous-chat-e2e')
   }, 120_000)
@@ -330,6 +330,11 @@ describe('web e2e: continuous conversation grown through the composer', () => {
     expect(scaffold.ctx.agents.get(sessionId)?.session.events.filter(event => (
       event.type === 'turn/end' && event.data.reason.kind === 'completed'
     ))).toHaveLength(TURN_COUNT)
+    expect(sessionEvents.flatMap(event =>
+      event.type === 'request/header' ? [event.data.reason] : [])).toEqual(['initial'])
+    await expect.poll(() => page.getByRole('button', { name: 'System prompt' }).count(), {
+      timeout: 10_000,
+    }).toBe(1)
     expect(specs.at(-1)?.prompt.length).toBeGreaterThan(4_000)
     expect(sessionEvents.filter(event => (
       event.type === 'assistant/chunk' && event.data.turn === TURN_COUNT

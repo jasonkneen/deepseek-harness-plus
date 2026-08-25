@@ -1,6 +1,6 @@
 /** Test adapter for the production conversation.details.tool registration. */
 import type { HostDescription } from '@deepseek-ai/dsh-client-connection/client'
-import type { SessionEventEntry } from '@deepseek-ai/dsh-api-session-controller/types'
+import type { SessionLiveEventEntry } from '@deepseek-ai/dsh-api-session-controller/client'
 import { isJsonValue, type JsonValue } from '@deepseek-ai/dsh-session'
 import type {
   ChatConversationViewNode, ChatSnapshot, ConversationNode, DetailsSlotProps,
@@ -68,10 +68,11 @@ export function toolChatSnapshot(
 }
 
 /** Build the Session event window that projects settled root Tool calls into Chat. */
-export function toolSessionEvents(nodes: readonly ToolResultNode[]): readonly SessionEventEntry[] {
+export function toolSessionEvents(nodes: readonly ToolResultNode[]): readonly SessionLiveEventEntry[] {
   const firstTime = nodes[0]?.callTime ?? nodes[0]?.time ?? 0
-  const entries: SessionEventEntry[] = [
+  const entries: SessionLiveEventEntry[] = [
     {
+      type: 'event',
       event: {
         seq: 1,
         time: firstTime - 2,
@@ -80,6 +81,7 @@ export function toolSessionEvents(nodes: readonly ToolResultNode[]): readonly Se
       },
     },
     {
+      type: 'event',
       event: {
         seq: 2,
         time: firstTime - 1,
@@ -91,7 +93,8 @@ export function toolSessionEvents(nodes: readonly ToolResultNode[]): readonly Se
   for (const [index, node] of nodes.entries()) {
     if (node.call === null) throw new Error(`tool fixture "${node.callId}" requires its call event`)
     const callSeq = 3 + index * 2
-    const callEntry: SessionEventEntry = {
+    const callEntry: SessionLiveEventEntry = {
+      type: 'event',
       event: {
         seq: callSeq,
         time: node.callTime ?? node.time - 1,
@@ -103,10 +106,11 @@ export function toolSessionEvents(nodes: readonly ToolResultNode[]): readonly Se
           name: node.call.name,
           arguments: node.call.argsRaw,
         },
-      },
+      } as unknown as SessionLiveEventEntry['event'],
     }
     entries.push(callEntry)
-    const resultEntry: SessionEventEntry = {
+    const resultEntry: SessionLiveEventEntry = {
+      type: 'event',
       event: {
         seq: callSeq + 1,
         time: node.time,
@@ -129,7 +133,7 @@ export function toolSessionEvents(nodes: readonly ToolResultNode[]): readonly Se
           ...(node.meta === undefined ? {} : { meta: node.meta }),
         }),
         surfaceOp: 'append',
-      },
+      } as unknown as SessionLiveEventEntry['event'],
     }
     entries.push(resultEntry)
   }

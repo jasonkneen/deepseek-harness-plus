@@ -109,6 +109,65 @@ describe('TrajectorySnapshotBuilder', () => {
       : undefined)).toEqual(['initial', undefined])
   })
 
+  it('retains a same-step prompt change when a later series header supplies the latest snapshot', () => {
+    const initial = {
+      config: { provider: 'test', model: 'test' },
+      system: 'initial prompt',
+      tools: [],
+    }
+    const changed = { ...initial, system: 'changed prompt' }
+    const nodes: TrajectoryConversationViewNode[] = [
+      contribution('header:initial', 2, {
+        kind: 'request-header',
+        header: {
+          seq: 2,
+          time: 2,
+          prompt: initial,
+          change: { seq: 2, time: 2, kind: 'initial' },
+          location: { kind: 'session' },
+        },
+      }),
+      contribution('assistant:1', 3, {
+        kind: 'assistant',
+        partial: null,
+        request: assistantRequest(3, 1),
+      }),
+      contribution('header:change', 5, {
+        kind: 'request-header',
+        header: {
+          seq: 5,
+          time: 5,
+          prompt: changed,
+          change: { seq: 5, time: 5, kind: 'system', previous: initial },
+          location: stepLocation(1, 2),
+        },
+      }),
+      contribution('header:series', 6, {
+        kind: 'request-header',
+        header: {
+          seq: 6,
+          time: 6,
+          prompt: changed,
+          location: stepLocation(1, 2),
+        },
+      }),
+      contribution('assistant:2', 7, {
+        kind: 'assistant',
+        partial: null,
+        request: assistantRequest(7, 2),
+      }),
+    ]
+
+    const snapshot = new TrajectorySnapshotBuilder().replace({ nodes })
+
+    expect(snapshot.requests.map(request => request.purpose === 'assistant'
+      ? request.prompt?.system
+      : undefined)).toEqual(['initial prompt', 'changed prompt'])
+    expect(snapshot.requests.map(request => request.purpose === 'assistant'
+      ? request.promptChange?.seq
+      : undefined)).toEqual([2, 5])
+  })
+
   it('indexes exact step headers and the active tool schema without backward scans', () => {
     const basePrompt = {
       config: { provider: 'test', model: 'base' },

@@ -25,7 +25,6 @@ import type {
   AttachmentId,
   AttachmentStore,
   ImageAttachmentRef,
-  ImageRequestPolicy,
   RequestImageAttachment,
 } from '@deepseek-ai/dsh-attachment'
 import type { CredentialRef } from '@deepseek-ai/dsh-credentials'
@@ -38,6 +37,7 @@ import type {
 } from '@deepseek-ai/dsh-deepseek-llm-api-extensions'
 import { serializeRequest, serializeRequestWithImages } from './serialize.ts'
 import type { ImageWireLocation, RequestDefaults } from './serialize.ts'
+import { deepSeekImageRequestPricing, resolveRequestImagePolicy } from './request-pricing.ts'
 import { DeepSeekFileStore } from './file-store.ts'
 import type { DeepSeekFilePolicy } from './file-store.ts'
 import type { DeepSeekFileId } from './file-id.ts'
@@ -140,18 +140,8 @@ export const DEFAULT_STREAM_IDLE_TIMEOUT_MS = 300_000
 export const DEFAULT_CONTEXT_WINDOW = 1_000_000
 /** Default per-request output-token cap. */
 export const DEFAULT_MAX_TOKENS = 256_000
-/** Default bound on accumulated file-referenced image bytes per request. */
-export const DEFAULT_MAX_REQUEST_FILES_BYTES = 128 * 1024 * 1024
 /** Default bound on accumulated base64 image payload after Files API fallback. */
 export const DEFAULT_MAX_INLINE_REQUEST_IMAGE_BYTES = 20 * 1024 * 1024
-/** Provider request image-count limit. */
-export const DEFAULT_MAX_IMAGES_PER_REQUEST = 600
-/** Total-pixel budget matching DeepSeek's normal vision projection. */
-export const DEFAULT_REQUEST_IMAGE_PIXEL_BUDGET = 640_000
-/** Total-pixel budget matching provider low-detail image input. */
-export const DEFAULT_LOW_DETAIL_IMAGE_PIXEL_BUDGET = 512 * 512
-/** Encoded-byte target for one deterministic model-request image; the smallest quality-ladder output is used when no quality fits. */
-export const DEFAULT_REQUEST_IMAGE_MAX_BYTES = 1024 * 1024
 /** Deterministic raw-byte removal step. */
 export const DEFAULT_IMAGE_OFFLOAD_BYTE_QUANTUM = 64 * 1024 * 1024
 /** Deterministic base64-byte removal step after Files API fallback. */
@@ -217,24 +207,6 @@ function collectImageRefs(
   for (const block of content) {
     if (block.type === 'image') refs.set(block.attachment.attachmentId, block.attachment)
     else if (block.type === 'tool-result') collectImageRefs(block.content, refs)
-  }
-}
-
-/**
- * Resolve the request-image budgets owned by one DeepSeek model route.
- * @param model - Advertised model route and its optional image overrides.
- * @returns Complete pixel and encoded-byte budgets.
- * @internal
- */
-export function resolveRequestImagePolicy(model: DeepSeekCatalogModel): ImageRequestPolicy {
-  const maxPixels = model.imagePixelBudget === 'low'
-    ? DEFAULT_LOW_DETAIL_IMAGE_PIXEL_BUDGET
-    : model.imagePixelBudget ?? DEFAULT_REQUEST_IMAGE_PIXEL_BUDGET
-  return {
-    maxPixels,
-    maxBytes: model.imageMaxBytes === undefined
-      ? DEFAULT_REQUEST_IMAGE_MAX_BYTES
-      : model.imageMaxBytes,
   }
 }
 
@@ -392,6 +364,18 @@ export class DeepSeekAdapter extends LlmAdapter {
 
   override providerRetryPolicy(_provider: string): ResolvedRetryPolicy {
     return this.config.options().retryPolicy
+  }
+
+  override imageRequestPricing(_provider: string, model: string): ReturnType<LlmAdapter['imageRequestPricing']> {
+    // The same access resolution the serializer uses, so priced handle and
+    // placeholder text matches what the request actually sends.
+    const attachments = this.config.resolveAttachments?.()
+    const resolveAccess = attachments === undefined
+      ? undefined
+      : (ref: ImageAttachmentRef): ImageAttachmentAccess | undefined => (
+        this.config.resolveImageAccess?.(attachments, ref)
+      )
+    return deepSeekImageRequestPricing(this.config.options(), model, resolveAccess)
   }
 
   override listModels(provider: string): Promise<readonly LlmModelInfo[]> {

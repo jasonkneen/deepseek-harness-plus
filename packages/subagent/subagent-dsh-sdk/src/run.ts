@@ -12,7 +12,7 @@
 
 import { randomUUID } from 'node:crypto'
 import { DeepSeekHarness, type DeepSeekHarnessOptions, type HarnessNotification } from '@deepseek-ai/dsh-sdk-client'
-import type { ContentBlock } from '@deepseek-ai/dsh-llm'
+import type { ContentBlock, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 import { SessionId, type SessionEvent, type TurnEndReason } from '@deepseek-ai/dsh-session'
 import type { SubagentResult, SubagentRun, SubagentStartRequest, SubagentStopReason } from '@deepseek-ai/dsh-subagent'
 import { AssistantOutputFold, settleRunResult, subprocessRunHandle } from '@deepseek-ai/dsh-subagent'
@@ -38,6 +38,8 @@ export interface SdkRunSpec {
   provider: string
   /** Model the child runtime initializes with. */
   model: string
+  /** Optional adapter-owned reasoning effort sent in the child runtime's initialize handshake. */
+  reasoningEffort?: ReasoningEffortId
   /** Optional per-request output-token cap sent in the child runtime's initialize handshake. */
   maxTokens?: number
   /**
@@ -114,7 +116,8 @@ function toError(value: unknown): Error {
  * after process reap. Disposal shuts the runtime down and reaps it.
  * @param request - the start request; its signal is the cancellation channel.
  * @param spec - the resolved spawn spec: profile/patches/home/cwd, the child's
- * provider/model route, env, timeouts, and the optional error sink.
+ * provider/model/reasoning route, output cap, env, timeouts, and the optional
+ * error sink.
  * @returns the ready run handle for the child subprocess.
  */
 export async function startSdkRun(request: SubagentStartRequest, spec: SdkRunSpec): Promise<SubagentRun> {
@@ -136,6 +139,7 @@ export async function startSdkRun(request: SubagentStartRequest, spec: SdkRunSpe
     cwd: spec.cwd,
     provider: spec.provider,
     model: spec.model,
+    ...spec.reasoningEffort === undefined ? {} : { reasoningEffort: spec.reasoningEffort },
     ...spec.maxTokens === undefined ? {} : { maxTokens: spec.maxTokens },
   })
 

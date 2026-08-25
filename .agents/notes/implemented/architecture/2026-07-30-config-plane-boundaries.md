@@ -20,7 +20,7 @@ Three smaller defects sat beside them. `llm/adapters-updated` documented contain
 
 ## Decision
 
-**Reading configuration is as privileged as writing it.** `settings.describe` and `credentials.describe` join the loopback-only set, so the whole configuration plane stays same-origin until real authentication exists. The model catalog (`llm.providers`, `llm.models`) deliberately does not: it carries provider ids, display names, and model lists — no endpoints, no key state — and a LAN client's model picker needs it. The boundary is asserted over a real HTTP server rather than a hand-assembled request, because the `Host` header a browser actually sends is what decides it.
+**Reading configuration is as privileged as writing it.** `settings.describe`, `credentials.describe`, the model catalog, and every other Host operation require one browser session. The configuration plane still redacts secrets independently of authentication. The boundary is asserted over a real HTTP server rather than a hand-assembled request, proving that a forged loopback `Host` value never establishes identity.
 
 **The plane serves exactly the namespaces a registered model provider addresses.** `ctx.llm.listConfigurableProviders()` is the allow-list, so the product boundary is enforced rather than inferred from the installed plugin set, and a future namespace becomes web-configurable only by joining that directory. An unregistered namespace and an unexposed one answer identically (`settings-not-exposed`), so probing cannot enumerate the registry.
 

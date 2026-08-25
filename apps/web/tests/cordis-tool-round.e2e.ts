@@ -91,7 +91,7 @@ describe('web e2e: Cordis tools use their owned cards', () => {
       })
     })
     tripwire = watchConsole(page)
-    await page.goto(scaffold.baseUrl, { waitUntil: 'load' })
+    await page.goto(scaffold.authenticatedUrl, { waitUntil: 'load' })
     await page.waitForSelector('[class*="frame"]', { timeout: 30_000 })
     await connectFreshWorkspace(page, scaffold.workspaceCwd)
   }, 120_000)
@@ -134,6 +134,16 @@ describe('web e2e: Cordis tools use their owned cards', () => {
     await input.fill(STOP_PROMPT)
     await input.press('Enter')
     await stopTurnSettled
+    await expect.poll(() => {
+      const stop = sessionEvents.find(
+        (event): event is Extract<SessionEvent, { type: 'tool/call' }> =>
+          event.type === 'tool/call' && event.data.name === 'cordis_stop',
+      )
+      return stop !== undefined && sessionEvents.some(
+        event => event.type === 'tool/result'
+          && String(event.data.message.source.callId) === String(stop.data.callId),
+      )
+    }, { timeout: 15_000 }).toBe(true)
     if (MODE === 'record') {
       assertCompleteCordisLifecycle(sessionEvents)
       await expect.poll(() => page.getByText('CORDIS_UI_DONE', { exact: true }).count(), { timeout: 15_000 })
@@ -181,6 +191,12 @@ describe('web e2e: Cordis tools use their owned cards', () => {
   it.skipIf(MODE === 'record')('matches the conversation aria golden', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-cordis-aria'))
     console.log('MODEL_TRACE', { modelChanges, frameCount: modelFrames.length, modelFrames })
+    // Final Assistant text precedes turn/end. Three footers prove every turn
+    // reached the render state covered by the ARIA golden.
+    await expect.poll(
+      () => page.getByRole('button', { name: 'Branch into a new conversation', exact: true }).count(),
+      { timeout: 15_000 },
+    ).toBe(3)
     await page.locator('[data-conversation-scroll]').evaluate((host) => { host.scrollTop = host.scrollHeight })
     await expect.poll(
       async () => page.getByRole('button', { name: 'Back to bottom', exact: true }).count(),

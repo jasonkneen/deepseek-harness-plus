@@ -1329,6 +1329,56 @@ describe('apply (the plugin entry)', () => {
     expect(await drain(ctx.llm.stream({ provider: 'm', model: 'm', messages: [] }))).toEqual(TEXT_CHUNKS)
   })
 
+  it('declares flat image request pricing only for models that configure it', async () => {
+    writeFileSync(file, sessionJsonl(TEXT_CHUNKS.map((c, i) => chunkEvent(i + 1, 1, 1, c))), 'utf8')
+    const ctx = new Context()
+    await ctx.plugin(LlmRuntime)
+    installLlmReplay(ctx, {
+      file,
+      providers: [{
+        id: 'deepseek',
+        models: [
+          { id: 'vision', inputModalities: ['text', 'image'], imageRequestTokens: 384 },
+          { id: 'plain' },
+        ],
+      }],
+    })
+    const pricing = ctx.llm.imageRequestPricing('deepseek', 'vision')
+    expect(pricing).toBeDefined()
+    const ref = {
+      attachmentId: 'sha256:aaaaaaaa',
+      mediaType: 'image/png',
+      bytes: 10,
+      width: 640,
+      height: 480,
+    } as never
+    const priced = pricing?.priceImages([ref, ref])
+    expect(priced?.map(price => price.visualTokens)).toEqual([384, 384])
+    expect(priced?.every(price => price.text.includes('640x480px'))).toBe(true)
+    expect(ctx.llm.imageRequestPricing('deepseek', 'plain')).toBeUndefined()
+  })
+
+  it('rejects imageRequestTokens on a model without the image modality during load', () => {
+    const ctx = new Context()
+    const providers = [{ id: 'm', models: [{ id: 'm', imageRequestTokens: 384 }] }] as unknown as
+      NonNullable<Config['providers']>
+    expect(() => { apply(ctx, { file, providers }) }).toThrow(
+      'llm-replay: provider "m" model "m" imageRequestTokens requires inputModalities to include "image"',
+    )
+  })
+
+  it.each([
+    ['zero', 0],
+    ['a float', 1.5],
+  ])('rejects imageRequestTokens configured as %s during load', (_case, imageRequestTokens) => {
+    const ctx = new Context()
+    const providers = [{ id: 'm', models: [{ id: 'm', imageRequestTokens }] }] as unknown as
+      NonNullable<Config['providers']>
+    expect(() => { apply(ctx, { file, providers }) }).toThrow(
+      'llm-replay: provider "m" model "m" imageRequestTokens must be a positive safe integer',
+    )
+  })
+
   it.each([
     ['a string', 'image'],
     ['an unknown modality', ['audio']],

@@ -185,7 +185,8 @@ describe('TokenMeter pricing', () => {
     expect(Object.isFrozen(snapshot.nodes[0])).toBe(true)
     expectSurfaceTotal(snapshot)
     expect(() => {
-      ;(snapshot.nodes as Array<{ seq: number; tokens: number }>).push({ seq: 99, tokens: 1 })
+      ;(snapshot.nodes as Array<{ seq: number; tokens: number; heuristicTokens: number }>)
+        .push({ seq: 99, tokens: 1, heuristicTokens: 1 })
     }).toThrow(TypeError)
     expect(() => {
       ;(snapshot.nodes[0] as { seq: number; tokens: number }).tokens = 1
@@ -437,7 +438,7 @@ describe('replay anchors and surface folds', () => {
     })
     const measurement = meter().measure(session)
     const assistant = session.events.find(event => event.type === 'assistant/message')!
-    expect(measurement.nodes).toEqual([{ seq: assistant.seq, tokens: 0 }])
+    expect(measurement.nodes).toEqual([{ seq: assistant.seq, tokens: 0, heuristicTokens: 0 }])
     expect(measurement.surfaceTokens).toBe(0)
     expectSurfaceTotal(measurement)
   })
@@ -486,12 +487,11 @@ describe('malformed replay and listener lifecycle', () => {
     }, { surfaceOp: 'append', sourceEventSeqs: [] })
     const service = meter()
     const states = (service as unknown as {
-      states: WeakMap<Session, { surface: unknown[]; surfaceTokens: number }>
+      states: WeakMap<Session, { surface: unknown[] }>
     }).states
     expectRepeatedFailure(service, session, /no matching step\/start/)
     const state = states.get(session)
     expect(state?.surface).toEqual([])
-    expect(state?.surfaceTokens).toBe(0)
   })
 
   it('clears completed step boundaries and rejects overlapping or late step events', () => {

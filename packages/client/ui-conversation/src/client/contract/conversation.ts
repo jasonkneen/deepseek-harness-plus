@@ -1,13 +1,9 @@
+import type { SessionEventLike } from '@deepseek-ai/dsh-api-session-controller/client'
 import type { SessionEvent } from '@deepseek-ai/dsh-session/types'
 
 /* oxlint-disable typescript/no-duplicate-type-constituents, typescript/no-redundant-type-constituents --
  * The unaugmented declaration-merge maps intentionally resolve to never in the Runtime program;
  * installed business packages supply their concrete keys in consuming Client programs. */
-
-/** One raw Session log event consumed by Conversation assembly. */
-export interface ConversationEventInput {
-  readonly event: SessionEvent
-}
 
 /** Definition-local identity and lifecycle role extracted from one event. */
 export interface ConversationMatchResult {
@@ -93,11 +89,22 @@ export type ConversationLocation =
   | { readonly kind: 'step'; readonly turn: TurnLocation; readonly step: StepLocation }
   | { readonly kind: 'unresolved' }
 
-/** One event accepted by a Definition, with its current resolved Location. */
-export interface ConversationMatch extends ConversationEventInput {
-  readonly role: 'start' | 'update'
+interface ConversationMatchOf<
+  Event extends SessionEventLike,
+  Role extends ConversationMatchResult['role'],
+> {
+  readonly event: Event
+  readonly role: Role
   readonly location: ConversationLocation
 }
+
+/** One scalar event accepted as a Context's unique start. */
+export type ConversationStartMatch = ConversationMatchOf<SessionEvent, 'start'>
+
+/** One event accepted by a Definition, with its lifecycle role and resolved Location. */
+export type ConversationMatch =
+  | ConversationStartMatch
+  | ConversationMatchOf<SessionEventLike, 'update'>
 
 /** Target-neutral identity returned by a business Definition. */
 export interface ConversationViewNode {
@@ -125,7 +132,7 @@ export interface ConversationNodeContext<State = unknown> {
   readonly kind: string
   readonly id: string
   readonly matches: readonly ConversationMatch[]
-  readonly start: ConversationMatch | undefined
+  readonly start: ConversationStartMatch | undefined
   readonly state: State | undefined
   readonly current: ReadonlyMap<string, ConversationViewNode | null>
 }
@@ -164,10 +171,10 @@ export interface ConversationNodeDefinition<State = unknown> {
   readonly target?: string
   /**
    * Extract this Definition's stable business identity from one event.
-   * @param event - raw Session event; no Context or history access is available.
+   * @param event - standard or compact Client history event; no Context or history access is available.
    * @returns identity and lifecycle role, or null when unrelated.
    */
-  match(event: SessionEvent): ConversationMatchResult | null
+  match(event: SessionEventLike): ConversationMatchResult | null
   /**
    * Create State from the unique start Match.
    * @param context - complete evidence currently collected for the Context.
@@ -177,7 +184,7 @@ export interface ConversationNodeDefinition<State = unknown> {
    */
   start(
     context: ConversationNodeContext<State>,
-    match: ConversationMatch,
+    match: ConversationStartMatch,
     reader: ConversationContextReader,
   ): State
   /**

@@ -13,12 +13,14 @@ import {
 import { bridge, type FetchHandler } from './http-bridge.ts'
 import { isTrustedApiRequest } from './api-request-trust.ts'
 import { API_PATH } from './api-path.ts'
+import type { BrowserAuth } from './browser-auth.ts'
 import type {
+  ConnectionIndexRequest,
+  ConnectionIndexResponse,
   ConnectionRpcEndpointMatcher,
   ConnectionRpcHandler,
-  ConnectionRpcHandlerOptions,
   ConnectionRpcResult,
-  ConnectionRpcAuthority,
+  ConnectionRequestRejection,
   ConnectionTrustRequest,
   HostConnectionHandle,
   HostConnectionRpc,
@@ -31,7 +33,6 @@ const ENDPOINT_SEGMENT_PATTERN = /^[A-Za-z0-9_$.-]+$/
 interface ConnectionRpcInterceptor {
   readonly matches: ConnectionRpcEndpointMatcher
   readonly fetchHandler: FetchHandler
-  readonly options: ConnectionRpcHandlerOptions
 }
 
 interface ConnectionServerResponse {
@@ -54,9 +55,14 @@ export class HostConnectionService extends Service implements HostConnectionHand
   /**
    * Provide the Host half over the active HTTP server.
    * @param ctx - owning Connection plugin context.
-   * @param trustedHosts - deployment authorities accepted by trusted-host channels.
+   * @param trustedHosts - deployment authorities accepted by the Host/Origin fence.
+   * @param browserAuth - process token and persistent browser-session owner.
    */
-  constructor(ctx: Context, private readonly trustedHosts: readonly string[]) {
+  constructor(
+    ctx: Context,
+    private readonly trustedHosts: readonly string[],
+    private readonly browserAuth: BrowserAuth,
+  ) {
     super(ctx, 'connection')
   }
 
@@ -64,15 +70,26 @@ export class HostConnectionService extends Service implements HostConnectionHand
   get rpc(): HostConnectionRpc {
     const owner = this.ctx
     return {
-      handle: (channel, handler, options) => this.register(owner, channel, handler, options),
-      intercept: (channel, matches, handler, options) =>
-        this.registerInterceptor(owner, channel, matches, handler, options),
+      handle: (channel, handler) => this.register(owner, channel, handler),
+      intercept: (channel, matches, handler) =>
+        this.registerInterceptor(owner, channel, matches, handler),
     }
   }
 
-  /** Apply the existing configured request trust policy to a sibling Web route. */
-  isTrustedRequest(request: ConnectionTrustRequest, authority: ConnectionRpcAuthority): boolean {
-    return isTrustedApiRequest(request, authority === 'loopback' ? [] : this.trustedHosts)
+  /** Apply the configured Host/Origin fence, then browser authentication. */
+  requestRejection(request: ConnectionTrustRequest): ConnectionRequestRejection {
+    if (!isTrustedApiRequest(request, this.trustedHosts)) return 403
+    return this.browserAuth.isAuthenticated(request) ? undefined : 401
+  }
+
+  /** Authenticate an index request through the process-token exchange or cookie. */
+  authorizeIndex(request: ConnectionIndexRequest, response: ConnectionIndexResponse): boolean {
+    return this.browserAuth.authorizeIndex(request, response)
+  }
+
+  /** Add this process's launch token to the clean application URL. */
+  authenticatedUrl(baseUrl: string): string {
+    return this.browserAuth.authenticatedUrl(baseUrl)
   }
 
   /**
@@ -92,9 +109,6 @@ export class HostConnectionService extends Service implements HostConnectionHand
         if (endpoint === undefined || interceptor === undefined || !interceptor.matches(endpoint)) {
           return fallback.fetch(request)
         }
-        if (interceptor.options.authority === 'loopback' && !isTrustedApiRequest(request, [])) {
-          return Promise.resolve(new Response('forbidden', { status: 403 }))
-        }
         return interceptor.fetchHandler.fetch(request)
       },
     }
@@ -104,18 +118,17 @@ export class HostConnectionService extends Service implements HostConnectionHand
     owner: Context,
     channel: string,
     handler: ConnectionRpcHandler,
-    options: ConnectionRpcHandlerOptions,
   ): () => Promise<void> {
     assertChannel(channel)
-    const trustedHosts = options.authority === 'loopback' ? [] : this.trustedHosts
     const fetchHandler = rpcFetchHandler(channel, handler)
     const route: WebRoute = {
       kind: 'prefix',
       path: channel,
       handler: async (req, res) => {
-        if (!isTrustedApiRequest(req, trustedHosts)) {
-          res.writeHead(403)
-          res.end('forbidden')
+        const rejection = this.requestRejection(req)
+        if (rejection !== undefined) {
+          res.writeHead(rejection)
+          res.end(rejection === 401 ? 'unauthorized' : 'forbidden')
           return
         }
         await bridge(req, res, fetchHandler)
@@ -132,7 +145,6 @@ export class HostConnectionService extends Service implements HostConnectionHand
     channel: string,
     matches: ConnectionRpcEndpointMatcher,
     handler: ConnectionRpcHandler,
-    options: ConnectionRpcHandlerOptions,
   ): () => Promise<void> {
     if (channel !== API_PATH) {
       throw new Error(`connection: invalid shared RPC channel ${JSON.stringify(channel)}`)
@@ -140,7 +152,6 @@ export class HostConnectionService extends Service implements HostConnectionHand
     const interceptor: ConnectionRpcInterceptor = {
       matches,
       fetchHandler: rpcFetchHandler(channel, handler),
-      options,
     }
     return owner.effect(() => {
       if (this.interceptors.has(channel)) {

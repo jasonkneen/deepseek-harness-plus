@@ -23,7 +23,7 @@ import {
 } from '@deepseek-ai/dsh-subagent'
 import type { SubagentProvider, SubagentResult, SubagentRun } from '@deepseek-ai/dsh-subagent'
 import type { JobOutcome } from '@deepseek-ai/dsh-jobs'
-import type {} from '@deepseek-ai/dsh-system-prompt'
+import { FIRST_PARTY_SECTION_ORDER } from '@deepseek-ai/dsh-system-prompt'
 import {
   hasConfiguredLlmSelection,
   hasDelegationModelRequest,
@@ -42,7 +42,7 @@ export const name = 'tool-subagent'
 export const inject = ['tools', 'subagents', 'systemPrompt']
 
 /** Prompt order after bounded delegation policy and before child reporting. */
-const SUBAGENT_SECTION_ORDER = 116.5
+const SUBAGENT_SECTION_ORDER = FIRST_PARTY_SECTION_ORDER.TOOL_SUBAGENT
 
 /** Config: which registered provider this tool delegates to, plus child defaults. */
 export interface Config {
@@ -365,9 +365,13 @@ export function apply(ctx: Context, config: Config): void {
     const mount = (subagentProvider: SubagentProvider): void => {
       assertSubagentProviderConfiguration(subagentProvider)
       const wording = providerWording(subagentProvider.inheritsParentContext)
+      const providerRouteDefaults = subagentProvider.agentRouteDefaults
+      const selectionDescription = providerRouteDefaults !== undefined
+        ? ' Child LLM selection is optional. Omit `provider`, `model`, and `reasoning_effort` to use configured child defaults and this provider\'s route defaults. Supply `provider` and `model` together after using `list_subagent_models` to inspect advertised routes and efforts. Changing the effective route without naming an effort uses the selected model\'s default effort.'
+        : ' Child LLM selection is optional. Omit `provider`, `model`, and `reasoning_effort` to use configured child defaults and inherit compatible missing values from the parent Agent. Supply `provider` and `model` together after using `list_subagent_models` to inspect advertised routes and efforts. Changing the effective route without naming an effort uses the selected model\'s default effort.'
       const choiceDescription = !modelSelectionEnabled
         ? ''
-        : ' Child LLM selection is optional. Omit `provider`, `model`, and `reasoning_effort` to use configured child defaults and inherit compatible missing values from the parent Agent. Supply `provider` and `model` together after using `list_subagent_models` to inspect advertised routes and efforts. Changing the effective route without naming an effort uses the selected model\'s default effort.'
+        : selectionDescription
           + (subagentProvider.inheritsParentContext
             ? ' Changing the route can prevent provider-side reuse of the inherited conversation prefix.'
             : '')
@@ -395,15 +399,21 @@ export function apply(ctx: Context, config: Config): void {
           ...modelSelectionEnabled ? {
             provider: {
               type: 'string' as const,
-              description: 'LLM provider route for the child. Supply together with model; omit both to use configured child defaults or inherit the parent route.',
+              description: providerRouteDefaults !== undefined
+                ? 'LLM provider route for the child. Supply together with model; omit both to use configured child defaults or this provider\'s route defaults.'
+                : 'LLM provider route for the child. Supply together with model; omit both to use configured child defaults or inherit the parent route.',
             },
             model: {
               type: 'string' as const,
-              description: 'Model id interpreted by provider. Supply together with provider; omit both to use configured child defaults or inherit the parent route.',
+              description: providerRouteDefaults !== undefined
+                ? 'Model id interpreted by provider. Supply together with provider; omit both to use configured child defaults or this provider\'s route defaults.'
+                : 'Model id interpreted by provider. Supply together with provider; omit both to use configured child defaults or inherit the parent route.',
             },
             reasoning_effort: {
               type: 'string' as const,
-              description: 'Adapter-owned reasoning effort for the effective child route. Omit to inherit a compatible configured/parent effort or use a newly selected model\'s default.',
+              description: providerRouteDefaults !== undefined
+                ? 'Adapter-owned reasoning effort for the effective child route. Omit to use a compatible configured effort or the selected model\'s default.'
+                : 'Adapter-owned reasoning effort for the effective child route. Omit to inherit a compatible configured/parent effort or use a newly selected model\'s default.',
             },
           } : {},
           ...backgroundEnabled ? {
@@ -466,18 +476,32 @@ export function apply(ctx: Context, config: Config): void {
 
           const modelRequest = args as DelegationModelRequest
           const parentOptions = parentAgentOptionsForDelegation(parent)
-          const childAgentOptions = requestedAgentOptions(
+          const requiresRoutePreflight = hasDelegationModelRequest(modelRequest)
+            || hasConfiguredLlmSelection(config.agentOptions)
+          const configuredChildAgentOptions = requiresRoutePreflight && providerRouteDefaults !== undefined
+            ? { ...providerRouteDefaults, ...config.agentOptions }
+            : config.agentOptions
+          const requestedChildAgentOptions = requestedAgentOptions(
             parentOptions,
-            config.agentOptions,
+            configuredChildAgentOptions,
             modelRequest,
             modelSelectionEnabled,
           )
-          if (hasDelegationModelRequest(modelRequest) || hasConfiguredLlmSelection(config.agentOptions)) {
+          if (requiresRoutePreflight) {
             const llm = runtimeCtx.get('llm')
             if (llm === undefined) {
               throw new Error('cannot resolve the selected child LLM route because the `llm` service is unavailable')
             }
-            await preflightChildLlmRoute(llm, parentOptions, childAgentOptions, exec.signal)
+            await preflightChildLlmRoute(
+              llm,
+              parentOptions,
+              requestedChildAgentOptions,
+              exec.signal,
+              providerRouteDefaults === undefined,
+            )
+            if (runtimeCtx.subagents.getProvider(config.provider) !== subagentProvider) {
+              throw new Error(`subagent provider "${config.provider}" changed while resolving the child LLM route; retry the delegation`)
+            }
           }
           exec.signal.throwIfAborted()
           const maxDepth = typeof config.maxDepth === 'number' ? config.maxDepth : undefined
@@ -485,7 +509,7 @@ export function apply(ctx: Context, config: Config): void {
             label: args.description,
             prompt: [{ type: 'text', text: args.prompt }] as ContentBlock[],
             parent,
-            ...childAgentOptions !== undefined ? { agentOptions: childAgentOptions } : {},
+            ...requestedChildAgentOptions !== undefined ? { agentOptions: requestedChildAgentOptions } : {},
             ...config.persona !== undefined ? { persona: config.persona } : {},
             ...config.toolFilter !== undefined ? { toolFilter: config.toolFilter } : {},
             ...maxDepth !== undefined ? { maxDepth } : {},

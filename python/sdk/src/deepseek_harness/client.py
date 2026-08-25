@@ -136,6 +136,7 @@ class HarnessClient:
         cwd: str,
         provider: str,
         model: str,
+        reasoning_effort: str | None = None,
         max_tokens: int | None = None,
     ) -> InitializeResponse:
         payload: JsonObject = {
@@ -143,6 +144,8 @@ class HarnessClient:
             "provider": provider,
             "model": model,
         }
+        if reasoning_effort is not None:
+            payload["reasoningEffort"] = reasoning_effort
         if max_tokens is not None:
             payload["maxTokens"] = max_tokens
         try:

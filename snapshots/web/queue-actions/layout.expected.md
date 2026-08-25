@@ -14,6 +14,10 @@
   - img
   - img
   - text: "goal Goal created Status: active Objective: Keep the composer context panels aligned Rounds: 0/256 Activation: armed Commands: /goal edit <objective>, /goal pause, /goal clear"
+- button "System prompt":
+  - img
+  - img
+  - text: System prompt
 - button "Context injection goal":
   - img
   - img

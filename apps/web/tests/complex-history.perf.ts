@@ -907,7 +907,7 @@ async function openPerformancePage(
   world: PerformanceWorld,
   expectedSessions: number,
 ): Promise<Locator> {
-  await world.page.goto(world.scaffold.baseUrl, { waitUntil: 'load' })
+  await world.page.goto(world.scaffold.authenticatedUrl, { waitUntil: 'load' })
   await world.page.waitForSelector('[class*="frame"]', { timeout: 30_000 })
   const group = world.page.getByRole('treeitem').first()
   await expect.poll(() => group.textContent(), { timeout: 30_000 })
@@ -1389,7 +1389,7 @@ describe('manual web performance: complex workspace and history', () => {
     })
     let testFailure: unknown
     try {
-      await world.page.goto(world.scaffold.baseUrl, { waitUntil: 'load' })
+      await world.page.goto(world.scaffold.authenticatedUrl, { waitUntil: 'load' })
       await world.page.waitForSelector('[class*="frame"]', { timeout: 30_000 })
       await connectFreshWorkspace(world.page, world.scaffold.workspaceCwd, 'continuous-conversation-perf')
       const cdp = await world.page.context().newCDPSession(world.page)

@@ -50,7 +50,7 @@ describe('web e2e: fresh round trip through the real assembly', () => {
     browser = await chromium.launch()
     page = await newEnglishPage(browser)
     tripwire = watchConsole(page)
-    await page.goto(scaffold.baseUrl, { waitUntil: 'load' })
+    await page.goto(scaffold.authenticatedUrl, { waitUntil: 'load' })
     await page.waitForSelector('[class*="frame"]', { timeout: 30_000 })
     // Fresh world: connect a Workspace so the composer scenarios start live.
     await connectFreshWorkspace(page, scaffold.workspaceCwd)
@@ -148,6 +148,25 @@ describe('web e2e: fresh round trip through the real assembly', () => {
     }).waitFor({ timeout: 10_000 })
     const snapshot = await captureStableAria(page, '[class*="centerCol"]', scaffold.workspaceCwd)
     await compareOrRefreshGolden(UI_EXPECTED, snapshot, MODE)
+  })
+
+  it.skipIf(MODE === 'record')('renders the system prompt as a collapsed expandable disclosure', async () => {
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-round-trip-system-prompt'))
+    const disclosure = page.getByRole('button', { name: 'System prompt', exact: true })
+    const body = page.locator('[data-system-prompt-body]')
+    await expect.poll(() => disclosure.count(), { timeout: 10_000 }).toBe(1)
+    await expect.poll(() => disclosure.getAttribute('aria-expanded')).toBe('false')
+    expect(await body.count()).toBe(0)
+
+    await disclosure.click()
+    await expect.poll(() => disclosure.getAttribute('aria-expanded')).toBe('true')
+    const opaque = body.locator('[data-context-text]')
+    await expect.poll(() => opaque.count(), { timeout: 5_000 }).toBe(1)
+    expect(await opaque.textContent()).toContain('You are an AI agent powered by DeepSeek Harness.')
+
+    await disclosure.click()
+    await expect.poll(() => disclosure.getAttribute('aria-expanded')).toBe('false')
+    await expect.poll(() => body.count()).toBe(0)
   })
 
   it.skipIf(MODE === 'record')('expands and collapses the reasoning fold from its click target', async () => {

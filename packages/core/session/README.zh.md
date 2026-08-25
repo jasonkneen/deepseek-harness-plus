@@ -52,7 +52,7 @@
 
 ### 分片行存储编解码器（`chunk-rows.ts`）
 
-共享的[存储编解码器](src/chunk-rows.ts)在事件序列与紧凑行之间无损转换。它会逐字保留无法识别的事件，并拒绝形态错误的编码行；是否启用打包写入由持久化后端决定。
+共享的[行编解码器](src/chunk-rows.ts)在事件序列与紧凑行之间无损转换。它会逐字保留无法识别的事件，并拒绝形态错误的编码行。持久化后端决定是否启用打包写入；有界历史传输也可以使用同一种行，同时保留完整的逻辑事件区间，并向需要 token 边界的消费方提供精确解码能力。
 
 ### Surface 类型
 
@@ -60,7 +60,7 @@
 
 ### 请求头重建（`request-header.ts`）
 
-`request/header` 记录非历史请求封装的完整规范快照，其原因为 `initial`、`resume` 或 `change`。其可选 `adapterDefaults` 映射会标记由精确模型解析填入的生效 `reasoningEffort` 或 `maxTokens` 值，使下一次请求提议能够将它们与显式对话设置区分开。`foldRequestHeader()` 选择最新快照；旧版增量事件和已移除的 `fallback` 原因会被拒绝。详见[可重建请求 Agent Note](../../../.agents/notes/implemented/architecture/2026-07-05-reconstructable-requests.zh.md)。
+`request/header` 记录非历史请求封装的完整规范快照，其原因为 `initial`、`resume`、`change` 或 `series`。当 `agent/pre-step` 显式开启独立的模型消息序列，或表层替换改变模型消息列表时，`series` 会重复记录内容未变的封装；如果该边界与封装变化同时发生，`change` 快照会携带 `startsSeries: true`，从而同时保留这两个事实。普通的仅追加后续 turn 仍属于当前序列。同一序列内封装未变的 step 和重试继续使用最新快照。重复完整系统提示词和工具目录会使日志随消息序列线性增长，但能让每个 header 自包含，以支持局部窗口渲染和精确请求重建；轻量引用标记则会要求前序始终可用，并引入第二种回放表示。其可选 `adapterDefaults` 映射会标记由精确模型解析填入的生效 `reasoningEffort` 或 `maxTokens` 值，使下一次请求提议能够将它们与显式对话设置区分开。`foldRequestHeader()` 选择最新快照；旧版增量事件和已移除的 `fallback` 原因会被拒绝。详见[可重建请求 Agent Note](../../../.agents/notes/implemented/architecture/2026-07-05-reconstructable-requests.zh.md)。
 
 `user/message` 会直接存储完整的 `UserMessage`，其中包括收件箱路由或进入步骤前创建的标识。无论它是直接人类提示词、合成注入，还是已进入的 Goal Round，都会原样呈现其 `content`；带类型的 `source` 是区分三者的唯一通道，并携带各领域专有的持久事实。`assistant/message` 和 `tool/result` 也会存储完整的消息值。轮次执行仍由 `turn/start` 与 `turn/end` 包围；`agent.inject()` 会把输入排队，直到后续某次 pre-step 领取它，并在 enter 决策中返回它。
 

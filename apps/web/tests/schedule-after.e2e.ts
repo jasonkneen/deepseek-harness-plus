@@ -235,7 +235,7 @@ describe.skipIf(MODE === 'record')('web e2e: conversational reminders', () => {
     })
     await page.addInitScript(() => { localStorage.setItem('dsh.locale', 'en') })
     tripwire = watchConsole(page)
-    await page.goto(scaffold.baseUrl, { waitUntil: 'load' })
+    await page.goto(scaffold.authenticatedUrl, { waitUntil: 'load' })
     await page.waitForSelector('[class*="frame"]', { timeout: 30_000 })
     await connectFreshWorkspace(page, scaffold.workspaceCwd)
     expect(await page.evaluate(() => Intl.DateTimeFormat().resolvedOptions().timeZone))

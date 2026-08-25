@@ -33,7 +33,7 @@ describe('startup RPC budget', () => {
       const url = new URL(request.url())
       if (url.pathname.startsWith('/api/')) calls.push(url.pathname.slice('/api/'.length))
     })
-    await page.goto(scaffold.baseUrl)
+    await page.goto(scaffold.authenticatedUrl)
     // Boot settles when the workspace picker is interactive; the trailing wait
     // absorbs the first-connection reset wave the budget must include.
     await page.getByRole('textbox', { name: 'Choose workspace' }).waitFor({ timeout: 30_000 })

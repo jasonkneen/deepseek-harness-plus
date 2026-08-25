@@ -1,6 +1,9 @@
+import {
+  type SessionEventLike, type SessionEventLikeEntry,
+} from '@deepseek-ai/dsh-api-session-controller/client'
 import type { SessionEvent } from '@deepseek-ai/dsh-session/types'
 import type {
-  ConversationEventInput, ConversationLocation, ConversationLocationData,
+  ConversationLocation, ConversationLocationData,
   ConversationLocationDataStore, ConversationStepDataMap, ConversationTimelineSnapshot,
   ConversationTurnDataMap, StepLocation, TurnLocation,
 } from '../contract/conversation.ts'
@@ -82,7 +85,7 @@ interface TurnDraft {
 const SESSION_LOCATION = { kind: 'session' } as const
 const UNRESOLVED_LOCATION = { kind: 'unresolved' } as const
 
-function payloadCoordinates(event: SessionEvent): Coordinates {
+function payloadCoordinates(event: SessionEventLike): Coordinates {
   const data = event.data as unknown as { turn?: unknown; step?: unknown }
   if (data.turn === null) return { session: true }
   const turn = Number.isSafeInteger(data.turn) && (data.turn as number) >= 0
@@ -194,7 +197,7 @@ export class ConversationLocationIndex {
    * @param event - event already ingested into this index.
    * @returns current Location, falling back to session when it has no Turn/Step affinity.
    */
-  locationOf(event: SessionEvent): ConversationLocation {
+  locationOf(event: SessionEventLike): ConversationLocation {
     return this.locations.get(event.seq) ?? SESSION_LOCATION
   }
 
@@ -203,7 +206,7 @@ export class ConversationLocationIndex {
    * @param entries - complete current window in ascending seq order.
    * @returns seqs whose resolved Location changed.
    */
-  rebuild(entries: readonly ConversationEventInput[]): ReadonlySet<number> {
+  rebuild(entries: readonly SessionEventLikeEntry[]): ReadonlySet<number> {
     const previousLocations = this.locations
     const turns = new Map<number, TurnDraft>()
     const coordinates = new Map<number, Coordinates>()

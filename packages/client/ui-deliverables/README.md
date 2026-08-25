@@ -26,7 +26,7 @@ One fixed prompt paragraph whenever this package is loaded; no tool schema, tool
 
 #### KV Cache effect
 
-The section is static at order 190 for the lifetime of the package mount, so it remains in the reusable prompt prefix and does not change across Turns.
+The section is static at first-party order 9000 for the lifetime of the package mount, so it remains in the reusable prompt prefix and does not change across Turns.
 
 ## Known Limitations and Deferred Work
 

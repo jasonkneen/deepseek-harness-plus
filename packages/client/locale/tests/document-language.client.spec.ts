@@ -91,4 +91,11 @@ describe('document language', () => {
     await vi.waitFor(() => { expect(locale.getLocale().active).toBe('en') })
     await vi.waitFor(() => { expect(langOf()).toBe('en') })
   })
+
+  it('uses an external locale definition for the document language', async () => {
+    const { locale } = await bench()
+    locale.addLanguage({ id: 'pt-BR', label: 'Português', fallback: 'en' })
+    locale.setLocale('pt-BR')
+    expect(langOf()).toBe('pt-BR')
+  })
 })

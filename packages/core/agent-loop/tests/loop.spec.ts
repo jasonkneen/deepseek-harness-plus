@@ -437,7 +437,8 @@ describe('agent loop', () => {
     await waitForIdle(ctx, agent)
     expect(contextEvents()).toHaveLength(3)
     expect(adapter.requests.map(request => request.system)).toEqual(Array(5).fill(adapter.requests[0]?.system))
-    expect(agent.session.events.filter(event => event.type === 'request/header')).toHaveLength(1)
+    expect(agent.session.events.flatMap(event =>
+      event.type === 'request/header' ? [event.data.reason] : [])).toEqual(['initial'])
   })
 
   it('re-emits unchanged runtime context when a surface replacement removed the retained snapshot', async () => {

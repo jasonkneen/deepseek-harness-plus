@@ -20,13 +20,9 @@ Two rows stay surface-specific. `tmux-context` is TUI-only because a browser sur
 
 ### What stays unmounted, and why
 
-Three capabilities stay out on the evidence their own packages record, and are listed here so "we forgot" and "we decided against" stay distinguishable.
+Two capabilities stay out on the evidence their own packages record, and are listed here so "we forgot" and "we decided against" stay distinguishable.
 
 **`dsh-tool-cordis`** lets the model write JavaScript and mount it as a temporary plugin. Its README states the limit: "The sandbox is containment for honest code, not a security boundary — host-realm helpers on the sandbox global are reachable, so mount code can reach Node" ([Known limitations](../../../../packages/extensions/tool-cordis/README.md)). The `node:vm` realm lives inside the harness process while `dsh-sandbox-local` confines only the argv it spawns, so on the Web surface both the sandbox and the approval seam are bypassed rather than enforced.
-
-**`dsh-web-fetch-http`** stays unmounted and `dsh-tool-web` keeps `fetch: false`. SSRF protection is deferred in the implementation ([`policy.ts`](../../../../packages/web/web-fetch-http/src/policy.ts) validates protocol, credentials, and length only) and the package says so: "this provider is an SSRF primitive and **must not be enabled** in a deployment that can reach sensitive internal network targets" ([README](../../../../packages/web/web-fetch-http/README.md)). The model chooses the target, which includes the harness's own gateway on loopback, private ranges, and cloud metadata endpoints.
-
-Withholding it narrows the surface without removing the reach: `bash` is mounted, so `curl` gets the same page, as a live run confirmed. What the absence buys is the removal of an argument-shaped request primitive that needs no shell — and with it the accidental path where a summarization request quietly reaches loopback. A deployment that must contain outbound traffic needs a network-level control.
 
 **The LSP trio** stays out for an operational reason rather than a security one: `command` resolves from `PATH` at plugin load, so a missing language server fails the whole boot rather than one tool. It becomes mountable once absence degrades to a skipped registration.
 

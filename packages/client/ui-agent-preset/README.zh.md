@@ -50,7 +50,7 @@ preset 自行发布描述，长度不限，而网格让每一行卡片等高—�
 
 设置默认值写入的是 `agent-presets` settings 命名空间，宿主需将其暴露给配置客户端（[`dsh-apiproxy`](../../host/apiproxy/README.zh.md) 维护一份显式白名单——不在其中的命名空间会让选择器动一下然后悄悄忘记）。
 
-`agentPreset.read`、`copy`、`openDocument` 与 `remove` 被固定在环回地址（见 [`dsh-client-connection`](../connection/README.zh.md)）：组装指明了一个会话所运行的插件，因此读取它是侦察，其余几个则管理名单并驱动宿主桌面。`agentPreset.list` 不在其中——它携带 id、信任级别与两个不含路径的能力标志，而局域网客户端的选择器需要它。
+[`dsh-client-connection`](../connection/README.zh.md) 用同一浏览器会话认证 `agentPreset.read`、`copy`、`openDocument`、`remove`、`list` 及其他所有 Host API 方法。组装仍指明一个会话所运行的插件，因此读取它是侦察，而 copy/remove/openDocument 管理名单并驱动宿主桌面。
 
 ## 何时不显示这些表层
 

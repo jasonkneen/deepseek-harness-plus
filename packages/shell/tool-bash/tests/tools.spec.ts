@@ -6,7 +6,7 @@ import { Context } from '@deepseek-ai/cordis'
 import { CallId } from '@deepseek-ai/dsh-llm'
 import { ShellExecutor } from '@deepseek-ai/dsh-shell'
 import type { ShellExecRequest, ShellExecSpec, ShellProcess, ShellProcessRead, ShellRunResult } from '@deepseek-ai/dsh-shell'
-import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
+import SystemPrompt, { FIRST_PARTY_SECTION_ORDER } from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime, { TOOL_ABORTED, TOOL_ABORTED_BEFORE_DISPATCH } from '@deepseek-ai/dsh-tools'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
@@ -377,8 +377,16 @@ describe('bash tool', () => {
 
   it('contributes the exit-code habit as its prompt section (guidance the descriptions cannot carry)', async () => {
     const ctx = await setup()
-    ctx.systemPrompt.section({ name: 'test:before-bash', order: 104, text: 'before' })
-    ctx.systemPrompt.section({ name: 'test:after-bash', order: 106, text: 'after' })
+    ctx.systemPrompt.section({
+      name: 'test:before-bash',
+      order: FIRST_PARTY_SECTION_ORDER.TOOL_BASH - 10,
+      text: 'before',
+    })
+    ctx.systemPrompt.section({
+      name: 'test:after-bash',
+      order: FIRST_PARTY_SECTION_ORDER.TOOL_BASH + 10,
+      text: 'after',
+    })
     const assembly = await ctx.systemPrompt.assemble()
     const section = assembly.sections.find(s => s.name === 'tool:bash')
     expect(assembly.sections.map(s => s.name)).toEqual([

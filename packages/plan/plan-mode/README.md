@@ -45,7 +45,7 @@ Design: [plan-specific collaboration state](../../../.agents/notes/implemented/s
 
 #### What the model sees
 
-While plan mode is active, the model sees the deployment's exact `section` text at prompt order 50; inactive mode contributes no text.
+While plan mode is active, the model sees the deployment's exact `section` text at first-party prompt order 500; inactive mode contributes no text.
 
 ##### Configuration example
 
@@ -59,7 +59,7 @@ Inactive mode adds no tokens; active mode adds the configured section to every r
 
 #### KV Cache effect
 
-The section is stable within plan mode, but entering or leaving changes the system prompt from order 50 onward.
+The section is stable within plan mode, but entering or leaving changes the system prompt from first-party order 500 onward.
 
 ### Human command
 

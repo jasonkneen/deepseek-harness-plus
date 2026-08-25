@@ -42,5 +42,5 @@ guard 是可选的插件扩展；安全不变量不能依赖部署恰好组装�
 - `both` 与 `native` 行为不变；SDK 子调用不变（判别信号是 `parent` token）。
 - 被塌缩的调用在 `prepare` 阶段即被拒绝——在可扩展策略流水线之前：pre-execute 监听器、approval `ask` 与 guard 永远不会观察到它。`executionMode` 同样 fail-closed（`exclusive`），调度无可观察差异。
 - 原生工具指引段（`tool:read`、`tool:write`、`tool:bash` 等）保留在系统提示词中，因为它们同时描述了通过生成 SDK 及原生函数调用可用的能力，其中若干段还承载着任何单个工具描述都装不下的跨工具路由策略（`read` 优先于 `bash cat`、默认 fs-observation-policy 要求先 `read` 再 `write`、一两个委派用 `subagent` 而非 `workflow`）。防止模型直呼原生工具的是执行器塌缩，而非提示词过滤。
-- 提示词会**声明**这条塌缩，位于排在 100–199 指导段之前的 `tools:code-only` 段。那些段只写出工具名而不限定其可达方式，因此只读到它们的模型会发出原生调用，为一个同一份提示词刚刚声明过的工具收到 `UNKNOWN_TOOL`，进而判定部署不一致，而不是自行纠正。拒绝信息给出正确路径也是同一原因。`both` 下该规则渲染为空：它的原生调用确实会执行，在那里声明就是假话——这也是 `both-mode-turn` 不再与 `code-mode-turn` 共用期望提示词的原因。
+- 提示词会**声明**这条塌缩，位于 first-party 逐工具指导之前的 `tools:code-only` 段。那些段只写出工具名而不限定其可达方式，因此只读到它们的模型会发出原生调用，为一个同一份提示词刚刚声明过的工具收到 `UNKNOWN_TOOL`，进而判定部署不一致，而不是自行纠正。拒绝信息给出正确路径也是同一原因。`both` 下该规则渲染为空：它的原生调用确实会执行，在那里声明就是假话——这也是 `both-mode-turn` 不再与 `code-mode-turn` 共用期望提示词的原因。
 - 未来任何设置 `parent` token 的组合传输，其子调用自动走全表，与该 token 已有的嵌套调用语义一致。
