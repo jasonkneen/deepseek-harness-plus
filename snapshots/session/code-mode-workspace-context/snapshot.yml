@@ -1,0 +1,12 @@
+version: 1
+scenario: code-mode-workspace-context
+profile: headless
+composition: code-workspace-context
+recording: authored
+header:
+  class: code-workspace-context
+  pin: true
+  systemPromptSource: code-mode-turn
+  toolSchemasSource: code-mode-turn
+replay:
+  override: true

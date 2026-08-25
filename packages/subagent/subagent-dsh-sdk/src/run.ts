@@ -11,8 +11,8 @@
  */
 
 import { randomUUID } from 'node:crypto'
-import { DeepSeekHarness, type HarnessNotification } from '@deepseek-ai/dsh-sdk-client'
-import type { ContentBlock } from '@deepseek-ai/dsh-llm'
+import { DeepSeekHarness, type DeepSeekHarnessOptions, type HarnessNotification } from '@deepseek-ai/dsh-sdk-client'
+import type { ContentBlock, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 import { SessionId, type SessionEvent, type TurnEndReason } from '@deepseek-ai/dsh-session'
 import type { SubagentResult, SubagentRun, SubagentStartRequest, SubagentStopReason } from '@deepseek-ai/dsh-subagent'
 import { AssistantOutputFold, settleRunResult, subprocessRunHandle } from '@deepseek-ai/dsh-subagent'
@@ -20,10 +20,14 @@ import { scrubbedParentEnv } from '@deepseek-ai/dsh-subprocess'
 
 /** Resolved spawn spec for an SDK runtime child process (no defaults — see Config). */
 export interface SdkRunSpec {
-  /** The executable to spawn (the child runtime — a `dsh-jsonrpc-agent` bin or packaged exe). */
-  command: string
-  /** Arguments passed to {@link command} (typically the child's `cordis.yml` path). */
-  args: string[]
+  /** Explicit dsh CLI module; omission resolves the SDK client's same-version dependency. */
+  dshBin?: string
+  /** Named child profile. */
+  profile: string
+  /** Ordered per-launch profile patch files. */
+  patches: string[]
+  /** Absolute isolated Harness home for the nested runtime. */
+  dshHome: string
   /**
    * Absolute working directory for the child process AND the workspace cwd
    * of its SDK session. The provider resolves it before this spec exists:
@@ -34,11 +38,13 @@ export interface SdkRunSpec {
   provider: string
   /** Model the child runtime initializes with. */
   model: string
+  /** Optional adapter-owned reasoning effort sent in the child runtime's initialize handshake. */
+  reasoningEffort?: ReasoningEffortId
   /** Optional per-request output-token cap sent in the child runtime's initialize handshake. */
   maxTokens?: number
   /**
    * Extra environment variables to ADD for the child (e.g. the child
-   * runtime's own `DEEPSEEK_API_KEY`, or `DSH_CORDIS_CONFIG`). Merged after
+   * runtime's own `DEEPSEEK_API_KEY`). Merged after
    * the seam's `scrubbedParentEnv()` base, so an explicit credential or
    * current `DSH_*` fact survives while ambient namesakes never leak.
    */
@@ -66,6 +72,11 @@ export const DEFAULT_DISPOSE_GRACE_MS = 3_000
 
 /** Default bound on the protocol `shutdown` exchange during dispose. */
 export const DEFAULT_SHUTDOWN_TIMEOUT_MS = 1_000
+
+/** Runtime constructor seam replaced only by package-local fake-runtime tests. */
+export const internals: { createHarness(options: DeepSeekHarnessOptions): DeepSeekHarness } = {
+  createHarness: options => new DeepSeekHarness(options),
+}
 
 /**
  * Map a child turn-end reason to a harness {@link SubagentStopReason}.
@@ -104,8 +115,9 @@ function toError(value: unknown): Error {
  * Child failures resolve through the run result; startup failures reject
  * after process reap. Disposal shuts the runtime down and reaps it.
  * @param request - the start request; its signal is the cancellation channel.
- * @param spec - the resolved spawn spec: command/args/cwd, the child's
- * provider/model route, env, timeouts, and the optional error sink.
+ * @param spec - the resolved spawn spec: profile/patches/home/cwd, the child's
+ * provider/model/reasoning route, output cap, env, timeouts, and the optional
+ * error sink.
  * @returns the ready run handle for the child subprocess.
  */
 export async function startSdkRun(request: SubagentStartRequest, spec: SdkRunSpec): Promise<SubagentRun> {
@@ -114,19 +126,20 @@ export async function startSdkRun(request: SubagentStartRequest, spec: SdkRunSpe
   // (minted below, private to the wire) exists only inside the child process.
   const id = SessionId(randomUUID())
 
-  const harness = new DeepSeekHarness({
-    launch: {
-      command: spec.command,
-      args: spec.args,
-      cwd: spec.cwd,
-      env: { ...scrubbedParentEnv(), ...spec.env },
-      shutdownTimeoutMs: spec.shutdownTimeoutMs,
-      disposeEofGraceMs: spec.disposeEofGraceMs,
-      disposeGraceMs: spec.disposeGraceMs,
-    },
+  const harness = internals.createHarness({
+    ...spec.dshBin === undefined ? {} : { dshBin: spec.dshBin },
+    profile: spec.profile,
+    patches: spec.patches,
+    dshHome: spec.dshHome,
+    processCwd: spec.cwd,
+    env: { ...scrubbedParentEnv(), ...spec.env },
+    shutdownTimeoutMs: spec.shutdownTimeoutMs,
+    disposeEofGraceMs: spec.disposeEofGraceMs,
+    disposeGraceMs: spec.disposeGraceMs,
     cwd: spec.cwd,
     provider: spec.provider,
     model: spec.model,
+    ...spec.reasoningEffort === undefined ? {} : { reasoningEffort: spec.reasoningEffort },
     ...spec.maxTokens === undefined ? {} : { maxTokens: spec.maxTokens },
   })
 
@@ -151,7 +164,7 @@ export async function startSdkRun(request: SubagentStartRequest, spec: SdkRunSpe
     ])
     // Defensive: an abort() is a macrotask and no user callback runs inside
     // the microtask drain between handshake fulfillment and this continuation,
-    // so the recheck is not schedulable today; it guards future reentrancy.
+    // so current callback ordering cannot schedule the recheck; it guards future reentrancy.
     /* v8 ignore next */
     if (flags.cancelled) throw new Error('subagent cancelled before the SDK child initialized')
   } catch (error: unknown) {

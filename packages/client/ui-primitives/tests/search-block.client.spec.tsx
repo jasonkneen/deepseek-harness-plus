@@ -2,8 +2,29 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
-import { DEFAULT_SEARCH_MAX_LINES, SearchBlock } from '../src/index.ts'
-import type { SearchFileGroup } from '../src/index.ts'
+import { DEFAULT_SEARCH_MAX_LINES, SearchBlock as LocalizedSearchBlock } from '../src/index.ts'
+import type {
+  SearchFileGroup, SearchMatchesBlockProps, SearchPathsBlockProps,
+} from '../src/index.ts'
+import { searchBlockLabels } from './labels.client.ts'
+
+type SearchBlockProps =
+  | Omit<SearchMatchesBlockProps, 'labels'>
+  | Omit<SearchPathsBlockProps, 'labels'>
+
+function SearchMatchesBlock(props: Omit<SearchMatchesBlockProps, 'labels'>) {
+  return <LocalizedSearchBlock {...props} labels={searchBlockLabels} />
+}
+
+function SearchPathsBlock(props: Omit<SearchPathsBlockProps, 'labels'>) {
+  return <LocalizedSearchBlock {...props} labels={searchBlockLabels} />
+}
+
+function SearchBlock(props: SearchBlockProps) {
+  return props.kind === 'matches'
+    ? <SearchMatchesBlock {...props} />
+    : <SearchPathsBlock {...props} />
+}
 
 afterEach(cleanup)
 

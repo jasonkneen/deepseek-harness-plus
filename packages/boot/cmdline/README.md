@@ -10,8 +10,11 @@ A launcher calls `provideCmdline(ctx, host)` before any tree entry mounts, which
 
 - `ctx.cmdlineArgs` — the invocation's inner arguments. `get()` is the whole interface, and it returns a snapshot: `dsh --profile tui --resume abc` yields `['--resume', 'abc']`.
 - `ctx.appExit` — a bounded process-exit request, wired to the launcher's shutdown controller.
+- `ctx.appReady` — the launcher's successful-startup signal. It commits only after the Loader tree and launcher-owned setup succeed; failed or externally terminated startup never calls pending listeners.
 
 An embedding host with no command line provides an empty list; that is the honest answer, not a missing value.
+
+`exitOnStdinEnd(ctx, label)` binds a successfully accepted stdio application's EOF to `ctx.appExit(0)` after `ctx.appReady` commits. It never reads or resumes stdin, so the protocol transport receives bytes buffered before it mounts. A startup rejection wins over a racing EOF, an already-ended stream still requests shutdown after successful startup, and the calling plugin's fiber removes both pending listeners. An app calls it inside the same command action that publishes its startup service, so help and rejected arguments leave the transport and EOF lifecycle unmounted.
 
 ## Ordinary providers and injected config
 
@@ -71,3 +74,4 @@ None; this package neither assembles nor sends a provider request.
 - **Launcher flags must precede app arguments.** The split is positional: the first token the launcher does not recognize starts the inner arguments, so `--patch` placed after an app flag belongs to the app. The launcher's parser consumes one `--`, so an app argument that must survive as a literal `--` needs `-- --`.
 - **An app-owned service has no statically declared provider.** Consumer rows name it through ordinary injection; a bundle that omits its provider fails at settlement with pending entries naming the service rather than at load.
 - **A user patch that replaces a row's whole `config` drops its expressions.** A flag beats the value written beside it, not a literal a user wrote in place of the expression; keeping the expression is what keeps the flag winning.
+- **EOF means successful application shutdown.** `exitOnStdinEnd` is for a stdio protocol process whose client owns stdin; an interactive application with unrelated stdin semantics does not call it.

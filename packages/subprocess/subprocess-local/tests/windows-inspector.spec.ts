@@ -65,7 +65,7 @@ describe('WindowsProcessInspector (injected internals)', () => {
     const fake = fakeInternals()
     const inspector = new WindowsProcessInspector(fake.internals)
     expect(inspector.foregroundPgid(77)).toBe(77)
-    expect(inspector.isStdinWaiting(77)).toBe(false)
+    expect(inspector.isStdinWaiting(77, 10)).toBe(false)
     expect(inspector.processSession(77)).toEqual([])
   })
 

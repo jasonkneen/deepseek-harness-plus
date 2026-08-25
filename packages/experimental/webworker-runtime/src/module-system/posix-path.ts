@@ -8,8 +8,9 @@
  * answers `/`, the directory that actually holds the entry. Node's three are
  * purely lexical and answer `/a/b`. A `node:path` proxy owes callers Node's
  * literal answers, so it needs its own port of Node's implementation rather than
- * a facade over this module (`apps/web-preview` keeps one; the divergence covers
- * 45 of ~200 cases, all in these three functions).
+ * a facade over this module; measured over ~200 cases, the normalizing and
+ * lexical forms diverge in 45, all in these three functions. The Node-facing
+ * port is pinned separately by `../../tests/node/path-diff.spec.ts`.
  * @module @deepseek-ai/dsh-experimental-webworker-runtime/src/module-system/posix-path
  */
 

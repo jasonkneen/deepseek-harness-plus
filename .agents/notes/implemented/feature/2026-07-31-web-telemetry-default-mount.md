@@ -10,7 +10,7 @@ The telemetry seam and OTel backend ([revival Note](2026-07-23-session-telemetry
 
 ## Decision
 
-The shared dsh base bundle (`packages/bundle/base/cordis.patch.yml`) mounts the `session-telemetry-otel` row with a baked-in production endpoint, so every profile has one consistent telemetry capability. The [default-off decision](2026-08-10-telemetry-default-off.md) keeps that row in `DISABLED` mode unless a deployment explicitly selects `FULL` or `FEEDBACK_ONLY`; the endpoint alone does not authorize reporting. Web and headless use the [bounded, escalating process-shutdown controller](../bug-fix/2026-08-03-cli-signal-shutdown-escalation.md) on SIGINT/SIGTERM, giving an enabled backend's three-second shutdown deadline time to drain before the five-second launcher bound.
+The shared dsh base bundle (`packages/bundle/base/cordis.patch.yml`) mounts the `session-telemetry-otel` row with a baked-in production endpoint, so every base-backed profile has one consistent telemetry capability. The standalone [`sdk-minimal` profile](../architecture/2026-08-24-standalone-sdk-minimal-profile.md) deliberately omits that row. The [default-off decision](2026-08-10-telemetry-default-off.md) keeps the mounted row in `DISABLED` mode unless a deployment explicitly selects `FULL` or `FEEDBACK_ONLY`; the endpoint alone does not authorize reporting. Web and headless use the [bounded, escalating process-shutdown controller](../bug-fix/2026-08-03-cli-signal-shutdown-escalation.md) on SIGINT/SIGTERM, giving an enabled backend's three-second shutdown deadline time to drain before the five-second launcher bound.
 
 | Ruling | Value | Rationale |
 |---|---|---|
@@ -27,7 +27,7 @@ The base bundle test pins the shipped `DISABLED` mode expression, the backend su
 
 ## Alternatives considered
 
-**No default mount; deployments add the row themselves.** Rejected because the mounted `DISABLED` mode retains a local feedback warning and gives all profiles one patch target without authorizing any upload.
+**No default mount; deployments add the row themselves.** Rejected because the mounted `DISABLED` mode retains a local feedback warning and gives every base-backed profile one patch target without authorizing any upload.
 
 **A config field instead of an env patch for the switch.** Infeasible: cordis rows have no config-level disable semantic, and `exporter.url` validation fails loud at plugin construction, so the switch must take effect before the Loader — AppCLIEntry's patch layer is the only seat.
 

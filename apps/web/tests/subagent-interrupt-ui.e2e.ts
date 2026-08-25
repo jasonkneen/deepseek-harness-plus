@@ -26,9 +26,9 @@ import {
 } from './scaffold.ts'
 import { connectFreshWorkspace, newEnglishPage, saveFailureShot } from './support.ts'
 
-const BASE_FIXTURE = fileURLToPath(new URL('./snapshots/live-interactions/session.jsonl', import.meta.url))
+const BASE_FIXTURE = fileURLToPath(new URL('../../../snapshots/web/live-interactions/session.jsonl', import.meta.url))
 
-const SNAPSHOT_DIR = fileURLToPath(new URL('./snapshots/subagent-interrupt', import.meta.url))
+const SNAPSHOT_DIR = fileURLToPath(new URL('../../../snapshots/web/subagent-interrupt', import.meta.url))
 const OFFLINE_COMPOSER_EXPECTED = join(SNAPSHOT_DIR, 'offline-composer.expected.md')
 const MODE = webSnapshotMode()
 const LABEL = 'event-sourcing researcher'
@@ -134,7 +134,7 @@ describe.skipIf(MODE === 'record')('web e2e: composer interrupt for a running co
       if (path.startsWith('/api/')) apiCalls.push(path)
     })
     tripwire = watchConsole(page)
-    await page.goto(scaffold.baseUrl, { waitUntil: 'load' })
+    await page.goto(scaffold.authenticatedUrl, { waitUntil: 'load' })
     await page.waitForSelector('[class*="frame"]', { timeout: 30_000 })
     await connectFreshWorkspace(page, scaffold.workspaceCwd)
 
@@ -203,6 +203,7 @@ describe.skipIf(MODE === 'record')('web e2e: composer interrupt for a running co
         name: 'Parent session offline; sending is unavailable but you can still stop the run',
       })
       await input.waitFor({ timeout: 15_000 })
+      await page.getByText(INITIAL, { exact: true }).waitFor({ timeout: 15_000 })
       expect(await input.isDisabled()).toBe(true)
       const stop = page.getByRole('button', { name: 'Stop generating' })
       expect(await stop.count()).toBe(1)
@@ -232,7 +233,7 @@ describe.skipIf(MODE === 'record')('web e2e: composer interrupt for a running co
       expect(((await (await interruptResponse).json()) as {
         result: { ok: boolean; value?: { accepted: boolean } }
       }).result).toMatchObject({ ok: true, value: { accepted: true } })
-      expect(apiCalls.filter(path => path === '/api/session.cancel')).toEqual([])
+      expect(apiCalls.filter(path => path === '/api/session/cancel')).toEqual([])
       await aborted
       await expect.poll(() => scaffold.ctx.agents.get(childId)?.status, { timeout: 15_000 }).toBe('idle')
 
@@ -247,7 +248,7 @@ describe.skipIf(MODE === 'record')('web e2e: composer interrupt for a running co
       await waitFor(() => existsSync(rearmedReadyFile), 'the re-armed child turn to open')
       expect(scaffold.ctx.agents.get(childId)?.status).toBe('running')
     } finally {
-      await page.unroute(pattern)
+      await page.unrouteAll({ behavior: 'wait' })
     }
   }, 60_000)
 
@@ -280,7 +281,7 @@ describe.skipIf(MODE === 'record')('web e2e: composer interrupt for a running co
       result: { ok: boolean; value?: { accepted: boolean } }
     }).result).toMatchObject({ ok: true, value: { accepted: true } })
     // The addressed child stops through its own RPC, never the generic one.
-    expect(apiCalls.filter(path => path === '/api/session.cancel')).toEqual([])
+    expect(apiCalls.filter(path => path === '/api/session/cancel')).toEqual([])
     await aborted
 
     // Parked: the Activation stays resident and idle with the retained

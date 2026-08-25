@@ -103,7 +103,7 @@ class PresetTree extends Include {
    * backs every session that names it.
    *
    * Dropping the write drops the `loader/config-update` the inherited method
-   * emits with it. Nothing observes one for a preset subtree today, and a
+   * emits with it. No consumer observes one for a preset subtree, and a
    * future "edit your preset while it runs" flow needs a deliberate
    * persistence path rather than this method's return.
    */
@@ -117,6 +117,8 @@ export interface PresetMount {
   readonly presetId: string
   /** The mounted subtree's fiber. */
   readonly fiber: Fiber
+  /** Loader entry tree whose active rows form this standing composition. */
+  readonly tree: EntryTree
   /** The standing scope key agents are parented to (undefined only in torn-down records). */
   readonly key: ScopeKey | undefined
 }
@@ -365,7 +367,7 @@ export async function mountPreset(agentCtx: Context, preset: AgentPreset): Promi
         + 'a preset service must sit behind an `isolate` realm or move to the host composition',
       )
     }
-    mounts.add({ presetId: preset.id, fiber, key: scopeOf(agentCtx) })
+    mounts.add({ presetId: preset.id, fiber, tree, key: scopeOf(agentCtx) })
   } catch (error) {
     try {
       await handle.dispose()

@@ -8,7 +8,7 @@
 
 包根只导出 Cordis 插件约定（`name`、`inject`、`Config`、`apply`）；结果渲染（`src/render.ts`）与后台任务适配（`src/background.ts`）镜像 bash 工具的结构，并可通过包的 `./src/*` 导出访问。
 
-插件还贡献 `tool:pwsh` 提示词段落（order 105）：非零退出以 `[exit code: N]` marker 报告，Windows 上的中断以无 signal 的 exit 1 结算。
+插件还贡献 `tool:pwsh` 提示词段落（first-party 顺序 1010）：非零退出以 `[exit code: N]` marker 报告，Windows 上的中断以无 signal 的 exit 1 结算。
 
 ## 工具
 

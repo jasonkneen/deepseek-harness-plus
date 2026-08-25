@@ -1,8 +1,8 @@
 /**
  * CommonJS module loader over the worker VFS. It fills the `loader.internal`
  * seam Cordis uses for every entry import, and backs the `node:module`
- * `createRequire` proxy that `typert-loader` and `client-modules` resolve
- * package metadata through.
+ * `createRequire` proxy that `typert-loader`, `client-modules`, and the plugin
+ * package inventory resolve package metadata through.
  *
  * Resolution is a narrowed Node `require` algorithm: `exports` walk with a
  * fixed condition order, extension probing, and one cache keyed by resolved
@@ -49,10 +49,26 @@ interface ModuleRecord {
   readonly module: { exports: unknown }
 }
 
+/** Resolution helpers carried by a Worker-backed CommonJS require. */
+export interface WorkerRequireResolve {
+  /**
+   * Resolve one specifier without evaluating its module.
+   * @param specifier - Module request relative to the require base.
+   * @returns Static or VFS-backed module identity.
+   */
+  (specifier: string): string
+  /**
+   * Return the directories this loader's Node-style package discovery searches.
+   * @param specifier - Module request whose lookup roots are requested.
+   * @returns Search roots, or null for a Worker-provided module.
+   */
+  paths(specifier: string): string[] | null
+}
+
 /** The `require` function shape the roster consumes through `createRequire`. */
 export interface WorkerRequire {
   (specifier: string): unknown
-  resolve(specifier: string): string
+  readonly resolve: WorkerRequireResolve
 }
 
 /** Construction inputs for {@link WorkerModuleLoader}. */
@@ -226,6 +242,16 @@ export class WorkerModuleLoader {
     return this.fail(`cannot resolve "${specifier}": no file at ${candidates.join(', ')}`)
   }
 
+  /** @returns The Worker-provided implementation of a static specifier. */
+  private staticModule(specifier: string): StaticModuleFactory | undefined {
+    const exact = this.staticModules.get(specifier)
+    if (exact !== undefined) return exact
+    for (const [prefix, factory] of this.staticPrefixes) {
+      if (specifier.startsWith(prefix)) return factory
+    }
+    return this.staticModules.get(`node:${specifier}`)
+  }
+
   /**
    * Resolve a specifier the way the module that requested it would.
    * @param specifier - Bare name, relative path, absolute path, or file URL.
@@ -233,11 +259,8 @@ export class WorkerModuleLoader {
    * @returns Static module or the resolved VFS path.
    */
   resolve(specifier: string, fromDirectory: string): Resolution {
-    const exact = this.staticModules.get(specifier)
-    if (exact !== undefined) return { kind: 'static', specifier, factory: exact }
-    for (const [prefix, factory] of this.staticPrefixes) {
-      if (specifier.startsWith(prefix)) return { kind: 'static', specifier, factory }
-    }
+    const staticModule = this.staticModule(specifier)
+    if (staticModule !== undefined) return { kind: 'static', specifier, factory: staticModule }
     if (specifier.startsWith('cordis:') || specifier.startsWith('node:')) {
       return this.fail(`no static module is registered for "${specifier}"`)
     }
@@ -250,9 +273,6 @@ export class WorkerModuleLoader {
     if (isAbsolute(specifier)) {
       return { kind: 'file', path: this.probe(specifier, specifier) }
     }
-    // Node resolves `fs` and `node:fs` to the same builtin; the proxy table may register either.
-    const prefixed = this.staticModules.get(`node:${specifier}`)
-    if (prefixed !== undefined) return { kind: 'static', specifier, factory: prefixed }
     const segments = specifier.split('/')
     const packageName = specifier.startsWith('@') ? segments.slice(0, 2).join('/') : segments[0] ?? specifier
     const rest = specifier.slice(packageName.length).replace(/^\//, '')
@@ -356,15 +376,20 @@ export class WorkerModuleLoader {
    * @returns Callable require with `resolve`.
    */
   requireFrom(fromDirectory: string): WorkerRequire {
-    const require = ((specifier: string): unknown => this.load(this.resolve(specifier, fromDirectory))) as WorkerRequire
-    require.resolve = (specifier: string): string => {
+    const require = (specifier: string): unknown => this.load(this.resolve(specifier, fromDirectory))
+    const resolve = ((specifier: string): string => {
       const resolution = this.resolve(specifier, fromDirectory)
       if (resolution.kind === 'static') {
         return this.fail(`"${specifier}" is a worker-provided module and has no VFS path`)
       }
       return resolution.path
+    }) as WorkerRequireResolve
+    resolve.paths = (specifier: string): string[] | null => {
+      if (this.staticModule(specifier) !== undefined || specifier.startsWith('node:')) return null
+      if (specifier.startsWith('.')) return [resolvePath(fromDirectory, '.')]
+      return [join(this.root, 'node_modules')]
     }
-    return require
+    return Object.assign(require, { resolve })
   }
 
   /**

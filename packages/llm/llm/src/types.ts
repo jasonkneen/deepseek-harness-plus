@@ -66,7 +66,7 @@ export interface ReasoningBlock {
  * A durable raster image reference, valid in user or assistant content. The
  * block is deliberately role-neutral; assistant-side rendering is forward
  * compatibility — the current production adapters declare text-only output,
- * so only user content carries images today.
+ * so only user messages may carry images.
  */
 export interface ImageBlock {
   type: 'image'
@@ -135,9 +135,47 @@ export type FinishReason = FinishReasonMap[keyof FinishReasonMap]
 export interface TokenUsage {
   inputTokens: number
   outputTokens: number
+  /**
+   * Exact full-call total including aggregate prompt and output tokens.
+   *
+   * Adapters preserve a provider total or derive it from authoritative
+   * aggregate prompt/output counters; they omit it when unavailable or
+   * inconsistent.
+   */
+  totalTokens?: number
   cacheReadTokens?: number
   cacheWriteTokens?: number
   reasoningTokens?: number
+}
+
+/**
+ * Request price of one ordered image occurrence under one exact model route's
+ * request projection. Every occurrence resolves to the pair the wire actually
+ * carries: provider visual tokens for a retained image, plus the model-visible
+ * text sent with or instead of it (request-preview handle, offload placeholder,
+ * or text-only substitution). The caller prices `text` with its own text
+ * estimator so provider pricing never fixes a text tokenization.
+ */
+export interface LlmImageRequestPrice {
+  /** Provider visual tokens for the retained request image; 0 when only text represents this occurrence. */
+  visualTokens: number
+  /** Model-visible text sent for this occurrence, to be priced by the caller's text estimator. */
+  text: string
+}
+
+/**
+ * Provider-side request-image pricing for one exact model route. Implemented
+ * by adapters whose provider charges visual tokens; consumers (the token
+ * meter) resolve it synchronously per measurement, so implementations must not
+ * perform I/O.
+ */
+export interface LlmImageRequestPricing {
+  /**
+   * Price every image occurrence of one request projection.
+   * @param images - durable image references in request order, one entry per occurrence.
+   * @returns one price per occurrence, aligned by index with `images`.
+   */
+  priceImages(images: readonly ImageAttachmentRef[]): readonly LlmImageRequestPrice[]
 }
 
 /** Display metadata for one registered provider route. */

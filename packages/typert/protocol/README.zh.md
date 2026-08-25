@@ -20,9 +20,9 @@
 
 业务包扩展 `TypertLookupMap` 和 `TypertContextMap`，以关联宿主对象或作用域 Context 与其协议身份。生成的产物扩展 `TypertRemoteMap`、`TypertRemoteScopeMap` 和 `TypertRemoteNamespaceMap`，使客户端导入后仅暴露选定的 Remote 方法。`InvocationDescriptor` 是供注册表、网关和客户端 Remote 使用的共享运行时形式。
 
-Host 装配以转发给消费端的 Host 事件扩展 `TypertRemoteEventSelection`，从而收窄 `ctx.remote.$on` 的键面；`TypertForwardableEvent` 陈述单向投递根本能承载哪些形状，把 Scope 化事件与有返回值的事件排除在外。`TypertClientRemote` 承载该面的两种角色：消费方经 `$on` 订阅，持有 Host 帧 sink 的 Client 半经 `$dispatch` 交出帧。
+Host 装配以转发给消费端的 Cordis 事件扩展 `TypertRemoteEventSelection`，从而收窄 `ctx.remote.$on` 的键面。`TypertForwardableEvent` 接受无作用域且返回 `void` 的通知，以及最后一个 `next()` 回调返回事件结果类型的异步作用域 waterfall。`TypertClientEventListener` 从同一条 `Events` 成员派生 Client listener：在 `TypertLookupMap` 与 `TypertContextMap` 中使用同名 key 声明的 Host subject 类型会变为 Client `Context`，同时保留 `AbortSignal`、可选与只读对象字段、数组、回调和结果类型。`TypertClientRemote` 只公开 `$mount()` 与 `$on()`；事件传输由 Gateway 私有持有。
 
-查找包与 Context 包同时负责该约定的两侧：声明合并提供静态关联，运行时提供方则向 `ctx.typert` 注册身份解析。查找提供方或宿主 Context 提供方提供稳定声明与默认解析器，宿主组合可以另行配置同步或异步解析器；策略拒绝可用 `TypertLookupFailure` 携带由边界适配器拥有的失败值。严格编解码器携带生成的 schema；`src-json` 编解码器标识约束更弱的源码启动路径。
+查找包与 Context 包同时负责该约定的两侧：声明合并提供静态关联，运行时提供方向 `ctx.typert` 注册身份解析。Host 与 Client Context adapter 都提供 `Context -> wire identity` 和 `wire identity -> Context`；Host adapter 还提供稳定的 wire 声明，Host 组合可以覆盖其同步或异步 resolver。策略拒绝可用 `TypertLookupFailure` 携带由边界适配器拥有的失败值。严格编解码器携带生成的 schema；`src-json` 编解码器标识约束更弱的源码启动路径。
 
 ## 模型体验
 

@@ -96,7 +96,7 @@ export class LocalTerminalHandle implements SubprocessTerminalHandle {
     if (processGroupId === undefined) return undefined
     return {
       processGroupId,
-      inputWaiting: this.inspector.isStdinWaiting(processGroupId),
+      inputWaiting: this.inspector.isStdinWaiting(processGroupId, this.pid),
     }
   }
 

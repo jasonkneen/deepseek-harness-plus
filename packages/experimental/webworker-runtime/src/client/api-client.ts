@@ -1,9 +1,7 @@
 /**
- * Page-side API carrier over the postMessage tunnel. Only `doFetch` is
- * implemented: the streaming methods stay on `AbstractApiClient`'s default
- * `readSse`, which is exactly what the worker answers on the two event-stream
- * paths — so unary calls and downstream streams share one framing and neither
- * side needs a WebSocket.
+ * Page-side unary API carrier over the postMessage tunnel. Gateway Remote
+ * streams use the tunnel's dedicated logical-stream frames instead of this
+ * fetch-shaped API path.
  */
 import { AbstractApiClient } from '@deepseek-ai/dsh-host-apiproxy/client'
 import type { WorkerTunnel } from './client.ts'

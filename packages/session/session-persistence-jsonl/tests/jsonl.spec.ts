@@ -191,7 +191,7 @@ describe('JsonlSessionPersistence: format helpers', () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
     const fiber = await ctx.plugin(JsonlSessionPersistence, { root: absoluteRoot, compression: 'none' })
-    // A future format need not satisfy today's header shape at all (no
+    // A future format need not satisfy this build's header shape at all (no
     // createdAt, unknown fields): the version must be refused before shape
     // validation, so the user sees the upgrade direction.
     const id = SessionId('future-shape')
@@ -284,6 +284,27 @@ describe('JsonlSessionPersistence: durability and crash semantics', () => {
     expect((await stat(dir)).isDirectory()).toBe(true)
     expect((await stat(rawLogPath(root, '/work', m.id))).isFile()).toBe(true)
     expect((await ctx.sessionPersistence.list()).map(h => h.id)).toContain(m.id)
+  })
+
+  it('materializes an explicitly durable empty live session without an event row', async () => {
+    const id = SessionId('durable-empty')
+    const session = ctx.sessions.create(id, { meta: { cwd: '/work' } })
+
+    await ctx.sessionPersistence.ensureMaterialized(session)
+
+    expect(await readFile(rawLogPath(root, '/work', id), 'utf8')).toBe(`${JSON.stringify(toHeaderLine(session.header))}\n`)
+    await expect(ctx.sessionPersistence.load(id)).resolves.toEqual({ meta: session.header, events: [] })
+  })
+
+  it('delegates direct preparation through the JSONL provider', async () => {
+    const m = meta('direct-prepare', '/work')
+    await ctx.sessionPersistence.create(m)
+    await ctx.sessionPersistence.append(m.id, oneTurnLog())
+
+    const preparation = await ctx.sessionPersistence.prepare(m.id)
+
+    expect(preparation.session.header).toMatchObject(m)
+    preparation[Symbol.dispose]()
   })
 
   it('readRaw returns the stored artifact text verbatim with its original filename', async () => {

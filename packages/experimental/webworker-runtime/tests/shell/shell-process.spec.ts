@@ -6,8 +6,7 @@
  * (`runShellProcess`) against the REAL host half, so the frames, the
  * filesystem service, and the termination ladder are the shipped ones — only
  * the thread boundary is simulated, because a Node test host has no DOM
- * `Worker` to cross. That a browser worker really can start a nested worker
- * and terminate it mid-burn is measured separately, in the preview probe.
+ * `Worker` to cross. The real browser Worker boundary is not exercised here.
  */
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { MemoryVfs } from '@deepseek-ai/dsh-experimental-webworker-runtime/src/storage/memory.ts'

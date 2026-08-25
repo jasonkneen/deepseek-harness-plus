@@ -209,7 +209,7 @@ The same domain tree as `ApiProxy`, but unary methods **take the business payloa
 
 ### The instance-level envelope observation aspect
 
-All four quadrant full forms pass through `onEnvelope`; the base implementation is an **instance-owned microtask-batched buffer** (frame storms must not disturb consumers per frame; module-level state would leak across instances/tests, hence instance-owned). Observers subscribe via `subscribeEnvelopes(listener)` (receiving whole batches as `readonly RpcMessage[]`, returning an unsubscribe function); a listener throw is isolated (observation must never bite the carrier). With no subscribers the buffering costs nothing. No shipped consumer subscribes today — the aspect is the designated seat for wire diagnostics (the retired RPC debug panel was its first consumer, and a future one plugs in without touching the carrier).
+All four quadrant full forms pass through `onEnvelope`; the base implementation is an **instance-owned microtask-batched buffer** (frame storms must not disturb consumers per frame; module-level state would leak across instances/tests, hence instance-owned). Observers subscribe via `subscribeEnvelopes(listener)` (receiving whole batches as `readonly RpcMessage[]`, returning an unsubscribe function); a listener throw is isolated (observation must never bite the carrier). With no subscribers the buffering costs nothing. No shipped consumer subscribes — the aspect is the designated seat for wire diagnostics (the retired RPC debug panel was its first consumer, and a future one plugs in without touching the carrier).
 
 ### The subclass table (transport carriage)
 

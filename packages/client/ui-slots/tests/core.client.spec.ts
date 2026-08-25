@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import type { SlotComponent, StoreHandle } from '@deepseek-ai/dsh-client-ui-slots'
 import { SlotCore } from '@deepseek-ai/dsh-client-ui-slots'
 
-// 'root' is NOT merged here: the runtime package owns the built-in row, and
+// 'root' is NOT merged here: ui-renderer owns the built-in row, and
 // the client aggregate program would see both merges collide.
 declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface SlotMap {

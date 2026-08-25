@@ -15,7 +15,7 @@ await ctx.plugin(LocalFileSystem, { cwd: process.cwd() })
 ## 行为
 
 - **`resolve(path, opts?)`**：相对 `path` 在调用方提供 `opts.cwd` 时以该值为基准解析（面向模型的工具会传入调用 agent（智能体）的会话 cwd；见[每会话 cwd Agent Note](../../../.agents/notes/implemented/architecture/2026-07-02-fs-per-session-cwd.zh.md)），否则以 `config.cwd` 为基准（默认 `process.cwd()`）；绝对 `path` 会忽略两者。`opts.signal` 会在本地解析前后检查，远程同级后端则可以用它中止往返。`targetKey` 是文件的 `realpath`，因此经符号链接到达同一文件的两个输入路径会共享一个身份，写入/编辑落在链接目标上，同时保留链接。尚不存在的路径在父目录存在时使用 realpath 后的父目录加 basename；只有父目录无法解析时才回退到绝对路径。`displayPath` 是绝对但未经解析的路径。
-- **执行世界坐标**：`processPath` 公开目标的规范化宿主路径，`fileUrl` 通过 Node 的平台感知 URL 转换对该路径编码，`contains` 则使用平台路径语义检查身份相等或后代包含关系，消费方无需解析 `targetKey`。
+- **执行世界坐标**：`processPath` 公开目标的规范化宿主路径。由于该后端共享宿主文件系统，`processPathFromHostPath` 接受绝对宿主路径。`fileUrl` 通过 Node 的平台感知 URL 转换对目标路径编码。`contains` 使用平台路径语义检查身份相等或后代包含关系，消费方无需解析 `targetKey`。
 - **`stat` / `lstat`**：返回目标元数据；目标不存在时返回 `undefined`。`stat` 为已解析目标报告 `FsInfo`（`version` 是由 bigint `dev:ino:size:mtimeNs:ctimeNs` 派生的不透明 token，`type` 为 `file`/`directory`/`other`，`size` 以字节计）；路径形态的 `lstat` 不跟随最后一个符号链接，报告 `FsPathInfo`，因此可以返回 `symlink`。两者都会在异步元数据探测前后检查取消，因此异步探测进行期间发生的中止会报告 `FS_ABORTED`，而非陈旧的不存在结果。
 - **`readText` / `streamText`**：只支持 UTF-8。`readText` 读取整个文件；`streamText` 按分片解码，因此超大文件无需整体保存在内存中，消费方也可以自行限制保留量。两者都会拒绝无效 UTF-8、包含 NUL 字节的二进制样本（`FS_NOT_TEXT`）以及非普通文件目标。`read` 工具（`@deepseek-ai/dsh-tool-fs`）拥有行窗口逻辑。
 - **`readBytes`**：按原始字节读取整个文件，不做解码或二进制拒绝（`read_image` 工具通过附件服务校验内容）。必填的字节上限在任何内容 I/O 之前先按 stat 大小短路；随后的流最多多读一个字节，因此 stat 之后增长的文件仍会以 `FS_TOO_LARGE` 失败，不会无界缓冲。

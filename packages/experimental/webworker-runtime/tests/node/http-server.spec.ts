@@ -13,7 +13,7 @@
  */
 import { describe, expect, it } from 'vitest'
 import {
-  createServer, get, request, requestListener, STATUS_CODES, whenRequestListener,
+  createServer, get, request, requestListener, ServerResponse, STATUS_CODES, whenRequestListener,
 } from '../../src/node/builtin_modules/implemented/http.ts'
 import type { RequestListener } from '../../src/transport/synthetic-http.ts'
 
@@ -46,6 +46,10 @@ describe('request listener capture', () => {
 })
 
 describe('binding', () => {
+  it('exposes the response prototype middleware probes during module loading', () => {
+    expect(ServerResponse.prototype).not.toHaveProperty('appendHeader')
+  })
+
   it('reports the bind through the callback the webserver fiber waits on', async () => {
     const server = createServer(listener)
     let bound = false

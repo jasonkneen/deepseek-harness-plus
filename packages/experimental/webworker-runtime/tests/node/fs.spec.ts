@@ -3,38 +3,30 @@
  * encoding branches, Dirent, file descriptors, FileHandle append/replace semantics,
  * and Node's error codes.
  *
- * Migrated from apps/web-preview/scripts/checks/fs-check.ts.
- *
- * ONE module instance, and every import says so explicitly. The bridge reaches
- * the VFS through a module-level slot (`setActiveVfs`/`requireActiveVfs`), so the
- * harness that mounts the VFS and the bridge that reads it must be the same copy
- * of `src/storage/memory.ts`. Two copies mean the mount lands in one and the bridge reports
- * `no filesystem is mounted` from the other — the incident this check itself
- * caused once, when it imported the built `lib/` while the bridge resolved to
- * `src/`.
- *
- * Note the package-name subtlety that made that bug possible: the BARE specifier
- * `@deepseek-ai/dsh-experimental-webworker-runtime` resolves to built `lib/index.js`, while
- * `…/src/*` resolves to source. Under tsx those two happen to share a `vfs`
- * instance today, so a mixed-path version of this file passes — for now. Pinning
- * every import to `src/` removes the coincidence instead of depending on it.
+ * Every import resolves through `src/` so the harness and bridge share the same
+ * module-level VFS slot. Mixing the bare package's built entry with `/src/*`
+ * imports can create two slots, leaving the bridge with no mounted filesystem.
  */
 import { expect, test } from 'vitest'
 import { MemoryVfs } from '@deepseek-ai/dsh-experimental-webworker-runtime/src/storage/memory.ts'
 import { setActiveVfs } from '@deepseek-ai/dsh-experimental-webworker-runtime/src/storage/active.ts'
 import * as fs from '@deepseek-ai/dsh-experimental-webworker-runtime/src/node/builtin_modules/implemented/fs.ts'
 import * as fsp from '@deepseek-ai/dsh-experimental-webworker-runtime/src/node/builtin_modules/implemented/fs/promises.ts'
-import type { VfsBigIntStats, VfsStats } from '@deepseek-ai/dsh-experimental-webworker-runtime/src/storage/types.ts'
+import type { VfsBigIntStats, VfsMutationSink, VfsStats } from '@deepseek-ai/dsh-experimental-webworker-runtime/src/storage/types.ts'
 
-const vfs = new MemoryVfs()
+let flushes = 0
+const sink: VfsMutationSink = {
+  record: () => {},
+  flush: () => {
+    flushes += 1
+    return Promise.resolve()
+  },
+}
+const vfs = new MemoryVfs({ sink })
 setActiveVfs(vfs)
 
-// Precondition, not a behaviour: prove the bridge reads the VFS this file mounted.
-// If these ever resolve to two module copies again, the write below would report
-// `no filesystem is mounted` — but a bridge that answered from some OTHER mounted
-// VFS would pass the whole suite while testing the wrong world, so the identity is
-// asserted rather than inferred from things working. The probe creates its own
-// directory: the suite's `/dsh` tree does not exist yet at this point.
+// Identity precondition: the bridge must read this exact mounted VFS; successful
+// calls alone could come from another mounted instance.
 fs.mkdirSync('/dsh/.probe', { recursive: true })
 fs.writeFileSync('/dsh/.probe/instance', 'x')
 if (!vfs.existsSync('/dsh/.probe/instance')) {
@@ -92,9 +84,6 @@ throws('readFileSync missing', () => fs.readFileSync('/dsh/missing'), 'ENOENT')
 throws('statSync missing', () => fs.statSync('/dsh/missing'), 'ENOENT')
 throws('accessSync missing', () =>{  fs.accessSync('/dsh/missing') }, 'ENOENT')
 throws('readdirSync missing', () => fs.readdirSync('/dsh/missing'), 'ENOENT')
-throws('watchFile is loud', () => fs.watchFile('/dsh/config/cordis.yml'), 'not implemented')
-throws('createReadStream is loud', () => fs.createReadStream('/dsh/config/cordis.yml'), 'not implemented')
-
 const appendFd = fs.openSync('/dsh/log.jsonl', 'a')
 fs.writeSync(appendFd, '{"a":1}\n')
 fs.writeSync(appendFd, '{"a":2}\n')
@@ -128,6 +117,7 @@ const appendHandle = await fsp.open('/dsh/log-handle.jsonl', 'a')
 check('append handle sees the existing size', (await appendHandle.stat()).size, 7)
 await appendHandle.writeFile('batch-1\n')
 await appendHandle.sync()
+check('handle.sync flushes the active VFS', flushes, 1)
 await appendHandle.close()
 const secondHandle = await fsp.open('/dsh/log-handle.jsonl', 'a')
 await secondHandle.writeFile('batch-2\n')

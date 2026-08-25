@@ -2,7 +2,13 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
-import { DEFAULT_DIFF_MAX_LINES, DiffBlock, type DiffHunk } from '../src/index.ts'
+import type { ComponentProps } from 'react'
+import { DEFAULT_DIFF_MAX_LINES, DiffBlock as LocalizedDiffBlock, type DiffHunk } from '../src/index.ts'
+import { diffBlockLabels } from './labels.client.ts'
+
+function DiffBlock(props: Omit<ComponentProps<typeof LocalizedDiffBlock>, 'labels'>) {
+  return <LocalizedDiffBlock {...props} labels={diffBlockLabels} />
+}
 
 afterEach(cleanup)
 

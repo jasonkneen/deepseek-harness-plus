@@ -24,6 +24,7 @@
 import * as nodeAsyncHooks from './builtin_modules/implemented/async_hooks.ts'
 import * as nodeBuffer from './builtin_modules/implemented/buffer.ts'
 import * as nodeCrypto from './builtin_modules/implemented/crypto.ts'
+import * as nodeDnsPromises from './builtin_modules/mock/dns/promises.ts'
 import * as nodeEvents from './builtin_modules/implemented/events.ts'
 import * as nodeFs from './builtin_modules/implemented/fs.ts'
 import * as nodeFsPromises from './builtin_modules/implemented/fs/promises.ts'
@@ -32,7 +33,9 @@ import * as nodeModule from './builtin_modules/implemented/module.ts'
 import * as nodeOs from './builtin_modules/implemented/os.ts'
 import * as nodePath from './builtin_modules/implemented/path.ts'
 import * as nodePerfHooks from './builtin_modules/implemented/perf_hooks.ts'
+import * as nodeStream from './builtin_modules/implemented/stream.ts'
 import * as nodeTimersPromises from './builtin_modules/implemented/timers/promises.ts'
+import * as nodeTty from './builtin_modules/implemented/tty.ts'
 import * as nodeUrl from './builtin_modules/implemented/url.ts'
 import * as nodeUtil from './builtin_modules/implemented/util.ts'
 import * as nodeUtilTypes from './builtin_modules/implemented/util/types.ts'
@@ -40,12 +43,9 @@ import * as nodeZlib from './builtin_modules/implemented/zlib.ts'
 import * as nodeChildProcess from './builtin_modules/implemented/child_process.ts'
 import * as nodeNet from './builtin_modules/mock/net.ts'
 import * as nodeSqlite from './builtin_modules/mock/sqlite.ts'
-import * as nodeStream from './builtin_modules/mock/stream.ts'
 import * as nodeVm from './builtin_modules/mock/vm.ts'
 import * as nodeWorkerThreads from './builtin_modules/mock/worker_threads.ts'
-import * as chokidar from './external_packages/chokidar.ts'
 import * as koffi from './external_packages/koffi.ts'
-import * as landlockRun from './external_packages/node-addon-landlock-run.ts'
 import * as nodePty from './external_packages/node-pty.ts'
 import * as piAi from './external_packages/pi-ai.ts'
 import * as ripgrep from './external_packages/ripgrep.ts'
@@ -60,6 +60,7 @@ const BUILTINS: Record<string, StaticModuleFactory> = {
   buffer: () => nodeBuffer,
   child_process: () => nodeChildProcess,
   crypto: () => nodeCrypto,
+  'dns/promises': () => nodeDnsPromises,
   events: () => nodeEvents,
   fs: () => nodeFs,
   'fs/promises': () => nodeFsPromises,
@@ -73,6 +74,7 @@ const BUILTINS: Record<string, StaticModuleFactory> = {
   sqlite: () => nodeSqlite,
   stream: () => nodeStream,
   'timers/promises': () => nodeTimersPromises,
+  tty: () => nodeTty,
   url: () => nodeUrl,
   util: () => nodeUtil,
   'util/types': () => nodeUtilTypes,
@@ -83,14 +85,12 @@ const BUILTINS: Record<string, StaticModuleFactory> = {
 
 /** External npm packages replaced wholesale (structural not-implemented stubs and fakes). */
 const EXTERNALS: Record<string, StaticModuleFactory> = {
-  'chokidar': () => chokidar,
   'koffi': () => koffi,
   'sharp': () => sharp,
   'node-pty': () => nodePty,
   'ws': () => ws,
   '@vscode/ripgrep': () => ripgrep,
   '@earendil-works/pi-ai': () => piAi,
-  '@deepseek-ai/node-addon-landlock-run': () => landlockRun,
 }
 
 /**

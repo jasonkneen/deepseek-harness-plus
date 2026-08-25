@@ -7,7 +7,7 @@ import { Session, SessionId, type UserMessage } from '@deepseek-ai/dsh-session'
 import AgentRegistry, { agentEvents, type Agent } from '@deepseek-ai/dsh-agent'
 import { createScope } from '@deepseek-ai/dsh-scope'
 import UserQuestionService, {
-  UserQuestionError, type AskUserQuestionRequest,
+  UserQuestionError, type AskUserQuestionAnswer, type AskUserQuestionRequest,
 } from '@deepseek-ai/dsh-user-questions'
 import CommandRuntime from '@deepseek-ai/dsh-commands'
 import { CodeRuntime, type CodeRunRequest, type CodeRunResult } from '@deepseek-ai/dsh-code-runtime'
@@ -16,6 +16,14 @@ import type { PlanModeConfig } from '../src/index.ts'
 
 const TEST_PLAN_SECTION = 'Test plan mode instructions.'
 const PLAN_CONFIG = { section: TEST_PLAN_SECTION } satisfies PlanModeConfig
+
+interface QuestionAnswerer {
+  ask(request: AskUserQuestionRequest): Promise<AskUserQuestionAnswer>
+}
+
+function registerQuestionAnswerer(ctx: Context, answerer: QuestionAnswerer): () => void {
+  return ctx.on('user-questions/request', request => answerer.ask(request))
+}
 
 /**
  * Drives the REAL plugin: mounts `dsh-plan-mode` beside real `SystemPrompt` and
@@ -733,7 +741,7 @@ describe('exit_plan_mode', () => {
     await ctx.plugin(UserQuestionService)
     const asked: AskUserQuestionRequest[] = []
     if (answer !== undefined) {
-      ctx.userQuestions.registerProvider({
+      registerQuestionAnswerer(ctx, {
         ask: (request) => {
           asked.push(request)
           return Promise.resolve({ answers: [{ id: 'plan-review', ...answer }] })
@@ -803,7 +811,7 @@ describe('exit_plan_mode', () => {
     const { ctx, agent } = await setupWithReview()
     const result = await callExit(ctx, agent)
     expect(result.isError).toBe(true)
-    expect(result.content).toEqual([{ type: 'text', text: 'Error: no user-questions provider is registered' }])
+    expect(result.content).toEqual([{ type: 'text', text: 'Error: no user-questions answerer accepted the request' }])
     expect(foldPlanMode(agent.session.events)).toBe(true)
   })
 
@@ -812,7 +820,7 @@ describe('exit_plan_mode', () => {
     await ctx.plugin(AgentRegistry)
     await ctx.plugin(UserQuestionService)
     const ask = vi.fn(async () => ({ answers: [{ id: 'plan-review', selected: ['Approve'] }] }))
-    ctx.userQuestions.registerProvider({ ask })
+    registerQuestionAnswerer(ctx, { ask })
     const root = await agentWithSession(ctx, 'review-root')
     const child = await agentWithSession(ctx, 'review-child', { active: true, owner: root })
 
@@ -865,7 +873,7 @@ describe('exit_plan_mode', () => {
     await ctx.plugin(AgentRegistry)
     await ctx.plugin(UserQuestionService)
     const asked: AskUserQuestionRequest[] = []
-    ctx.userQuestions.registerProvider({
+    registerQuestionAnswerer(ctx, {
       ask: (request) => {
         asked.push(request)
         return Promise.resolve({ answers: [{ id: 'plan-review', selected: ['Approve'] }] })
@@ -964,7 +972,7 @@ describe('exit_plan_mode', () => {
 
   it('treats duplicate review answer items as non-consent', async () => {
     const { ctx, agent } = await setupWithReview()
-    ctx.userQuestions.registerProvider({
+    registerQuestionAnswerer(ctx, {
       ask: () => Promise.resolve({ answers: [
         { id: 'plan-review', selected: ['Approve'] },
         { id: 'plan-review', selected: ['Keep planning'] },
@@ -978,7 +986,7 @@ describe('exit_plan_mode', () => {
 
   it('a missing answer item reads as keep-planning', async () => {
     const { ctx, agent } = await setupWithReview()
-    ctx.userQuestions.registerProvider({ ask: () => Promise.resolve({ answers: [] }) })
+    registerQuestionAnswerer(ctx, { ask: () => Promise.resolve({ answers: [] }) })
     const result = await callExit(ctx, agent)
     expect(result.isError).toBe(true)
     expect(result.content).toEqual([{ type: 'text', text: 'Error: The user chose to keep planning; revise the plan and present it again.' }])
@@ -996,9 +1004,11 @@ describe('exit_plan_mode', () => {
 
   it('reads a dismissed review as the user taking the turn back, not as a failure', async () => {
     const { ctx, agent } = await setupWithReview()
-    ctx.userQuestions.registerProvider({
-      ask: () => Promise.reject(new UserQuestionError(
-        'the user cancelled ask_user_question', 'ASK_CANCELLED')),
+    registerQuestionAnswerer(ctx, {
+      ask: () => Promise.reject(Object.assign(
+        new Error('the user cancelled ask_user_question'),
+        { name: 'UserQuestionError', code: 'ASK_CANCELLED' },
+      )),
     })
     const result = await callExit(ctx, agent)
     expect(result.isError).toBe(true)
@@ -1008,7 +1018,7 @@ describe('exit_plan_mode', () => {
 
   it('leaves every other review failure its own message', async () => {
     const { ctx, agent } = await setupWithReview()
-    ctx.userQuestions.registerProvider({
+    registerQuestionAnswerer(ctx, {
       ask: () => Promise.reject(new UserQuestionError(
         'ask_user_question was aborted before the user answered', 'ASK_ABORTED')),
     })
@@ -1040,7 +1050,7 @@ describe('exit_plan_mode', () => {
     await ctx.plugin(AgentRegistry)
     await ctx.plugin(UserQuestionService)
     let answer!: (value: { answers: { id: string; selected: string[] }[] }) => void
-    ctx.userQuestions.registerProvider({
+    registerQuestionAnswerer(ctx, {
       ask: () => new Promise((resolve) => { answer = resolve }),
     })
     const agent = await agentWithSession(ctx, 'agent-1', { active: true })
@@ -1059,7 +1069,7 @@ describe('exit_plan_mode', () => {
 
   it('a throwing provider surfaces as the corrective isError and the mode stays plan', async () => {
     const { ctx, agent } = await setupWithReview()
-    ctx.userQuestions.registerProvider({ ask: () => { throw new Error('review aborted') } })
+    registerQuestionAnswerer(ctx, { ask: () => { throw new Error('review aborted') } })
     const result = await callExit(ctx, agent)
     expect(result.isError).toBe(true)
     expect(result.content).toEqual([{ type: 'text', text: 'Error: review aborted' }])

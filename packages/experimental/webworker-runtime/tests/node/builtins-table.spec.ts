@@ -15,11 +15,11 @@
  */
 import { describe, expect, it } from 'vitest'
 import { createNodeBuiltins, REPLACED_PREFIXES } from '../../src/node/builtins.ts'
-import { WorkerModuleLoader } from '../../src/module-system/module-loader.ts'
+import { WorkerModuleLoader, type WorkerRequire } from '../../src/module-system/module-loader.ts'
 import { MemoryVfs } from '../../src/storage/memory.ts'
 
 /** A loader over an empty image: every specifier below resolves from the table. */
-function loaderRequire(): (specifier: string) => unknown {
+function loaderRequire(): WorkerRequire {
   const vfs = new MemoryVfs()
   vfs.seedDirectory('/dsh')
   const loader = new WorkerModuleLoader({ vfs, root: '/dsh', staticModules: createNodeBuiltins() })
@@ -69,6 +69,12 @@ describe('module identity through the loader', () => {
     const require = loaderRequire()
     expect(require('events')).toBe(require('node:events'))
     expect(require('fs')).toBe(require('node:fs'))
+    expect(require('tty')).toBe(require('node:tty'))
+  })
+
+  it('reports that worker file descriptors are not terminals', () => {
+    const tty = loaderRequire()('tty') as { isatty(fd: number): boolean }
+    expect(tty.isatty(2)).toBe(false)
   })
 
   it('keeps class identity across those specifiers', () => {
@@ -83,5 +89,13 @@ describe('module identity through the loader', () => {
   it('refuses a specifier the table does not hold, instead of resolving it empty', () => {
     const require = loaderRequire()
     expect(() => require('node:dns')).toThrow()
+  })
+
+  it('exposes the package search paths used by the VFS resolver', () => {
+    const require = loaderRequire()
+    expect(require.resolve.paths('node:fs')).toBeNull()
+    expect(require.resolve.paths('node:dns')).toBeNull()
+    expect(require.resolve.paths('workspace-package')).toEqual(['/dsh/node_modules'])
+    expect(require.resolve.paths('./local.js')).toEqual(['/dsh'])
   })
 })

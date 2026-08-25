@@ -7,13 +7,17 @@
  * only the source roster. One controller per session scope; the service
  * disposes it with the scope fiber.
  */
-import type { ClientContext, SessionId, SnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
-import { createSnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
+import type { Context as ClientContext } from '@deepseek-ai/cordis'
+import { createSnapshotStore, type SnapshotStore } from '@deepseek-ai/dsh-client-store'
+import type {
+  ArbitrateKey, ArbitrateOutcome, PickOutcome,
+} from '@deepseek-ai/dsh-client-ui-conversation/client'
+import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import { detectTrigger } from '../core/detect.ts'
 import { MENU_CLOSED, menuReduce, seedGroups } from '../core/menu.ts'
 import type { MenuEvent, MenuState, TriggerHit } from '../core/contract.ts'
 import type {
-  ArbitrateKey, ArbitrateOutcome, ClientSessionContext, PickOutcome, InputTriggerSource, SubmitEnvelope, TriggerChar, TriggerGuard,
+  ClientSessionContext, InputTriggerSource, SubmitEnvelope, TriggerChar, TriggerGuard,
 } from '../types.ts'
 
 /** Roster access the controller borrows from the root service (registration order preserved). */
@@ -360,7 +364,17 @@ export class InputTriggerController {
   /** Wire one source's lexicon invalidation channel into refresh (hookless or roll-less sources never notify). */
   private watchLexicon(source: InputTriggerSource, projection: ClientSessionContext): void {
     if (source.lexicon === undefined || source.subscribeLexicon === undefined) return
-    this.lexiconOffs.set(source, source.subscribeLexicon(projection, () => { this.refreshLexicon() }))
+    this.lexiconOffs.set(source, source.subscribeLexicon(projection, () => {
+      this.refreshLexicon()
+      const hit = this.hit
+      if (hit === null || !this.menu.getSnapshot().open || hit.trigger !== source.trigger) return
+      // Let every source process the same invalidation before rebuilding the
+      // open menu, so one source cannot contribute its previous catalog.
+      void Promise.resolve().then(() => {
+        if (this.disposed || this.hit !== hit || !this.menu.getSnapshot().open) return
+        this.fetchCandidates(hit, this.deps.roster.sources(hit.trigger))
+      })
+    }))
   }
 
   /** Launch the candidate fetch for one hit generation, superseding the previous one. */

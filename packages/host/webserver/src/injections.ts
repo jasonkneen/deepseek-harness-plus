@@ -23,6 +23,8 @@ export type IndexInjection =
    * loader resolves worker-only URLs such as `/plugins/...`).
    */
   | { kind: 'script-src'; placement: IndexInjectionPlacement; src: string }
+  /** Advisory preload for an external classic script; static workers may ignore it. */
+  | { kind: 'script-preload'; src: string }
   /** A `<style>` element in the head. `text` must not contain `</style`, which would close the element early. */
   | { kind: 'style'; text: string }
   /** Raw markup fragment. */
@@ -57,6 +59,8 @@ function renderRow(row: IndexInjection): { placement: IndexInjectionPlacement; m
       return { placement: row.placement, markup: `<script>${row.text}</script>` }
     case 'script-src':
       return { placement: row.placement, markup: `<script src="${escapeHtmlAttribute(row.src)}"></script>` }
+    case 'script-preload':
+      return { placement: 'head', markup: `<link rel="preload" as="script" href="${escapeHtmlAttribute(row.src)}">` }
     case 'style':
       return { placement: 'head', markup: `<style>${row.text}</style>` }
     case 'html':

@@ -12,7 +12,7 @@ Moving a method mechanically is not sufficient. Agent-bound API Proxy methods ca
 
 The API Proxy also contains BFF operations whose contract is not a business method: Session lifecycle and transcript assembly, model-selection state, live-only input control, configuration filtering, skill presentation, Host composition facts, and native desktop operations. Stateful interactions and streams have different lifecycles again. Treating all unary syntax as evidence that a method is simple would move product policy into arbitrary Service packages or force new packages that have no independent business owner.
 
-Finally, Connection currently applies its loopback-only privileged-method list inside the API Proxy fallback. A Typert interceptor claims its endpoint before that fallback, so migrating credential or preset authoring calls without moving the privilege check would grant trusted-LAN callers operations that are currently loopback-only.
+Finally, Connection must authenticate a request before choosing the API Proxy fallback or a Typert interceptor. A migration that authenticates only the fallback would let Remote-owned endpoints bypass the browser identity required by every Host operation.
 
 ## Proposal
 
@@ -72,18 +72,13 @@ Methods whose signatures contain only branded ids do not invoke Typert object lo
 
 ## Client and error behavior
 
-Generated Remote methods return business values and throw an Error whose `cause` contains the existing RPC failure. Client business services own adaptation to their current result/store interfaces. They must settle successful results immediately exactly as they do today so event frames remain idempotent replays rather than the only update path.
+Generated Remote methods return business values and throw an Error whose `cause` contains the existing RPC failure. Client business services own adaptation to their current result/store interfaces. They must settle successful results immediately exactly as the existing services do so event frames remain idempotent replays rather than the only update path.
 
 Resolver-owned `session-not-found` and `agent-busy` errors remain stable because the shared resolver raises `TypertLookupFailure`. Ordinary business exceptions become the Gateway's existing `internal` RPC failure. A selected Client consumer may migrate only if it does not branch on a more specific legacy business error code; if implementation finds such a branch, that RPC leaves this set unless the business package gains a transport-independent typed failure.
 
-## Privileged authority
+## Browser authentication
 
-Connection must enforce privileged endpoint authority before choosing the Typert interceptor or API Proxy fallback. The check must recognize both legacy dotted names and Remote slash endpoints and keep these migrated operations loopback-only:
-
-- `agentPresets/readDocument`, `agentPresets/copy`, and `agentPresets/remove`;
-- `credentials/describe`, `credentials/set`, and `credentials/unset`.
-
-The carrier-wide trusted-host and origin checks remain unchanged. This is a non-escalation requirement: endpoint ownership may change, but the set of callers authorized to invoke the operation may not widen.
+Connection authenticates the complete `/api` request before choosing the Typert interceptor or API Proxy fallback. Legacy dotted names and Remote slash endpoints therefore use the same process-token-established browser session without an endpoint list. This is a non-escalation requirement: endpoint ownership may change, but an unauthenticated request can reach neither dispatch path.
 
 ## Commit boundaries
 
@@ -101,14 +96,14 @@ The final commit generates every `/remote` artifact from a clean state, updates 
 
 **Preserve every legacy RPC name and response envelope.** That would turn business packages into copies of the old protocol. Service-oriented names and business values let the Client own joins while Connection continues to own the one RPC envelope.
 
-**Trust the API Proxy fallback to enforce privileged methods.** Interceptor selection bypasses that fallback, so this would silently widen authority for migrated methods.
+**Trust the API Proxy fallback to authenticate requests.** Interceptor selection bypasses that fallback, so Remote methods would become anonymously callable.
 
 ## Acceptance criteria
 
 - Every migration-table method is callable through its listed `ctx.remote` Service and has no production legacy API Proxy route, schema, map row, client stub, or invocation.
 - Existing methods with matching signatures carry `@Remote` directly; every added method performs the adaptation stated in the table and no identity `remote*` wrapper remains.
 - Agent/Session integration tests prove the shared lookup outcomes, and subagent interrupt tests prove no cold resume occurs.
-- Privileged migrated endpoints reject trusted non-loopback callers and accept loopback callers before either dispatch path runs.
+- Migrated endpoints reject unauthenticated requests and accept the same valid browser session as legacy endpoints before either dispatch path runs.
 - Client behavior and immediate state settlement remain equivalent for every migrated call, including cancellation where supported.
 - Deferred methods remain on the API Proxy with their existing behavior.
 - A clean generation/build produces and consumes every selected Remote contribution, and focused tests plus final repository gates pass.
@@ -119,6 +114,6 @@ Removing legacy schemas also removes their protocol-specific error taxonomy. A h
 
 Generated Remote contracts add build ordering and publication entries to each business package. Missing one runtime mount, declaration export, source-map source, package dependency, or Project Reference can pass a narrow source test while failing a clean Client build.
 
-Moving privilege enforcement to composite dispatch changes security-sensitive carrier code. Tests must exercise both a Remote-owned endpoint and a legacy fallback endpoint so neither path can bypass the loopback decision.
+Composite dispatch changes security-sensitive carrier code. Tests must exercise both a Remote-owned endpoint and a legacy fallback endpoint so neither path can bypass browser authentication.
 
-This note applies the existing Typert Remote architecture rather than superseding it. It partially supersedes the central unary ownership and five-step extension checklist in the [GUI RPC protocol note](../../implemented/architecture/2026-07-19-gui-layering-and-rpc-protocol.md) and the central wiring inventory in the [Web configuration plane note](../../implemented/architecture/2026-07-30-web-config-plane.md); those notes remain authoritative for Connection envelopes and configuration behavior outside the migrated methods. The title, command, configuration-boundary, subagent-interrupt, and archive notes continue to own their business behavior and require factual transport updates rather than archival. The [browser trust boundary](../../implemented/architecture/2026-07-28-api-browser-trust-boundary.md) and [generated-contract build order](../../implemented/process/2026-08-08-api-remotes-generated-contract-build.md) remain authoritative and require no archival action.
+This note applies the existing Typert Remote architecture rather than superseding it. It partially supersedes the central unary ownership and five-step extension checklist in the [GUI RPC protocol note](../../implemented/architecture/2026-07-19-gui-layering-and-rpc-protocol.md) and the central wiring inventory in the [Web configuration plane note](../../implemented/architecture/2026-07-30-web-config-plane.md); those notes remain authoritative for Connection envelopes and configuration behavior outside the migrated methods. The title, command, configuration-boundary, subagent-interrupt, and archive notes continue to own their business behavior and require factual transport updates rather than archival. The [browser trust boundary](../../implemented/architecture/2026-07-28-api-browser-trust-boundary.md), [browser authentication](../../implemented/architecture/2026-08-24-browser-token-authentication.md), and [generated-contract build order](../../implemented/process/2026-08-08-api-remotes-generated-contract-build.md) remain authoritative and require no archival action.

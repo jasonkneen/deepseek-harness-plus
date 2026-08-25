@@ -16,7 +16,7 @@
 4. 发布子 agent，保留返回的 `AgentHandle`，并通过先调用 `child.followup(prompt)`、再调用 `child.whenIdle()` 来驱动一项任务。
 5. 从完整的自有子运行中读取子 agent 自身的输出——最后一条非空 assistant 消息（记录 usage 的空内容消息会被跳过），若没有这类消息则取其累积的 assistant 文本——以及最终持久化的轮次原因，并排除任何 fork 初始内容。
 
-子 agent 会获得父 agent 的工作目录／会话谱系；除非 `request.agentOptions` 覆盖，否则还会继承父 agent 的提供方、模型和输出 token 上限。它获得全新的扁平注册作用域：父级所有权不会导入父 agent 的工具限制，也不会建立权限子集。
+子 agent 会获得父 agent 的工作目录／会话谱系；除非 `request.agentOptions` 覆盖，否则还会继承父 agent 的提供方、模型、推理强度与输出 token 上限。它获得全新的扁平注册作用域：父级所有权不会导入父 agent 的工具限制，也不会建立权限子集。
 
 该结果边界成立，是因为提供方拥有从发布到完全停稳的隔离子 agent 生命周期。在该生命周期内提交的 steering（中途引导）属于子运行；提供方不会声称输出只归初始 follow-up 所有。
 
@@ -39,7 +39,7 @@
 `attachStructuredRuntime(childCtx, schema)` 会在子 agent 作用域中安装完整约定：
 
 - 使用请求 schema 注册的 `structured_output` 工具会校验并暂存模型值。
-- 一个顺序为 190 的系统提示词段会告诉子 agent，该工具调用就是终态答案。
+- 一个位于末尾、first-party 顺序为 9900 的系统提示词段会告诉子 agent，该工具调用就是终态答案。
 - 两项贡献都是普通的子 agent 作用域注册。专家级 `system-prompt/assemble` 监听器可以替换它们，因此负责为该子 agent 保留结构化输出协议。
 - `tools/result` 观察器只会在该次执行的权威最终工具结果成功后提交暂存值；Code Mode 子分派外层的 `run_code` 结果也包括在内。
 - 单调工具防护会在捕获值后阻止后续调用，结构化输出执行的 `concludeTurn()` 标记则在结果提交后结束轮次。

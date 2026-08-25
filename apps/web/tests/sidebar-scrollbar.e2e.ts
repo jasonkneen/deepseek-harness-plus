@@ -15,8 +15,8 @@ import {
 } from './scaffold.ts'
 import { newEnglishPage, saveFailureShot } from './support.ts'
 
-const SEED = fileURLToPath(new URL('./snapshots/seeded-history/seed.jsonl', import.meta.url))
-const SNAPSHOT_DIR = fileURLToPath(new URL('./snapshots/sidebar-scrollbar', import.meta.url))
+const SEED = fileURLToPath(new URL('../../../snapshots/web/seeded-history/session.jsonl', import.meta.url))
+const SNAPSHOT_DIR = fileURLToPath(new URL('../../../snapshots/web/sidebar-scrollbar', import.meta.url))
 /** Geometry and resolved style are absent from ARIA snapshots, so this scenario records them directly. */
 const GEOMETRY_EXPECTED = join(SNAPSHOT_DIR, 'geometry.expected.md')
 const MODE = webSnapshotMode()
@@ -292,7 +292,7 @@ describe('web e2e: sidebar session list scrollbar (reserved gutter / themed thum
     // the list with room to spare.
     page = await newEnglishPage(browser, 800)
     tripwire = watchConsole(page)
-    await page.goto(scaffold.baseUrl, { waitUntil: 'load' })
+    await page.goto(scaffold.authenticatedUrl, { waitUntil: 'load' })
     await page.waitForSelector('[class*="frame"]', { timeout: 30_000 })
     await expandSeededSessions(page)
     // Every assertion about a thumb colour needs a drawn thumb, and the column
@@ -412,7 +412,7 @@ describe('web e2e: sidebar session list scrollbar (reserved gutter / themed thum
   }, 60_000)
 
   it('commits exactly the fixtures it reads', async () => {
-    // The scenario borrows seeded-history's seed.jsonl rather than committing a
+    // The scenario borrows seeded-history's session.jsonl rather than committing a
     // second copy, so this directory holds the golden alone.
     await assertFixtureInventory(SNAPSHOT_DIR, ['geometry.expected.md'])
   })

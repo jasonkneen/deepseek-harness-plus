@@ -2,7 +2,7 @@
  * Semantic check of the worker module transform (`src/compile/transform.ts`): what the
  * emitted CommonJS body looks like for each module form, how suspension points
  * are rewritten, that line numbers survive, which forms are refused, and that
- * every trap the retired lexer pipeline hit stays fixed.
+ * every covered trap form stays fixed.
  *
  * Scope boundary: this file checks the transform itself; the image collector's
  * loop around it is covered by the packer's `transform-image.spec.ts`.
@@ -12,11 +12,9 @@
  * one — the code parses as script, publishes the right bindings, keeps line
  * count, and routes suspension through `__als`.
  *
- * The trap cases come from the two reports the lexer retirement produced
- * (`.artifacts/w0-lexer-conclusion.md` §"seven traps", `.artifacts/v3-transform.md`
- * §2). Five traps cannot recur under an AST pass, but they are checked anyway:
- * they are the forms that actually broke a boot, and a future parser swap would
- * reintroduce exactly them.
+ * The trap cases are module forms that break a boot when the transform
+ * mishandles them. Five traps cannot recur while the AST pass is the parser,
+ * but they stay checked because a future parser swap could reintroduce them.
  */
 import { expect, test } from 'vitest'
 import { parse } from 'acorn'
@@ -210,7 +208,7 @@ check(
 
 {
   // Local exports are getters, so a later assignment is observable through
-  // `exports` — the ESM live-binding property the report calls out explicitly.
+  // `exports` — the ESM live-binding property.
   const code = transformModule('export let counter = 0\nexport function bump() { counter += 1 }\n', 'probe.js')
   parsesAsScript('live binding', code)
   const exports = runBody(code)
@@ -226,9 +224,7 @@ check(
 }
 
 {
-  // Trap 4 in the lexer report: `export const a = 1, b = 2` reported only the
-  // first declarator, so the AST pass upgraded this from "loud refusal" to
-  // "correctly supported". Both bindings must appear.
+  // Trap 4: a multi-declarator export publishes every binding.
   const code = transformModule('export const a = 1, b = 2\n', 'probe.js')
   parsesAsScript('multi-declarator export', code)
   const exports = runBody(code)
@@ -417,7 +413,7 @@ function recordingAls(): { als: Record<string, unknown>; calls: string[] } {
 
 {
   // for-await desugars to an explicit loop; `return()` must run only on abrupt
-  // completion, which is the language rule the report calls out. The two
+  // completion, which is the language rule. The two
   // completion paths need two different loop bodies, so they are separate cases.
   const plain = 'export const run = async (src) => { const seen = []\n'
     + 'for await (const item of src) { seen.push(item) }\n'
@@ -596,25 +592,24 @@ refuses('unparseable source is refused', 'export const = \n', 'parse failed')
 }
 
 // ---------------------------------------------------------------------------
-// 9. Trap regressions. Each case broke a real boot under the retired lexer
-//    pipeline; the AST pass must keep them fixed.
-//    Sources: .artifacts/w0-lexer-conclusion.md, .artifacts/v3-transform.md §2.
+// 9. Trap regressions. Each case is a module form that breaks a boot when the
+//    transform mishandles it; the AST pass must keep them fixed.
 // ---------------------------------------------------------------------------
 
 {
-  // Trap 1: a file with no module syntax can still contain a dynamic import.
-  // Early-returning on "no module syntax" left it unrewritten and it escaped to
-  // the host engine's parser.
+  // Trap 1: a file with no module syntax can still contain a dynamic import. A
+  // transform that skips such files would leave it unrewritten, and it would
+  // escape to the host engine's parser.
   const code = transformModule("module.exports = () => import('./x.js')\n", 'probe.js')
   contains('trap 1: dynamic import in a CommonJS file is still rewritten', code, '__dsh$dynImport')
   parsesAsScript('trap 1', code)
 }
 
 {
-  // Trap 2: `export {}` is a bundler module marker. The lexer reported nothing
-  // for it, so it survived into `new Function` as `Unexpected token 'export'`.
-  // The needle is the keyword in statement position, since `exports.` in the
-  // prologue legitimately contains the same letters.
+  // Trap 2: `export {}` is a bundler module marker and must be removed before
+  // `new Function` parses the body. The needle is the keyword in statement
+  // position, since `exports.` in the prologue legitimately contains the same
+  // letters.
   const code = transformModule('export {};\n', 'probe.js')
   lacks('trap 2: bare export {} is removed', code, 'export {')
   lacks('trap 2: no export keyword survives', code, 'export;')
@@ -623,9 +618,8 @@ refuses('unparseable source is refused', 'export const = \n', 'parse failed')
 }
 
 {
-  // Trap 3/4: `export const a = 1, b = 2` — only the first declarator was
-  // reported. Now both are published (checked in §4); here the point is that
-  // the no-initializer form works too.
+  // Trap 3/4: every declarator is published, including declarations without an
+  // initializer.
   const code = transformModule('export let x, y\nexport const set = () => { x = 1; y = 2 }\n', 'probe.js')
   parsesAsScript('trap 3', code)
   const exports = runBody(code)
@@ -634,10 +628,10 @@ refuses('unparseable source is refused', 'export const = \n', 'parse failed')
 }
 
 {
-  // Trap 6, the most costly one: a block comment before a class member named
-  // `import` made the lexer report a dynamic import, renaming
-  // `EntryTree.prototype.import` and breaking the loading chain at
-  // `Entry._init` with "this.parent.tree.import is not a function".
+  // Trap 6: a block comment before a class member named `import` must not be
+  // treated as a dynamic import. Renaming `EntryTree.prototype.import` breaks
+  // the loading chain at `Entry._init` with
+  // "this.parent.tree.import is not a function".
   const source = 'export class A {\n  /** doc */ import(name) { return name }\n}\n'
   const code = transformModule(source, 'probe.js')
   lacks('trap 6: a method named import is not rewritten', code, '__dsh$dynImport')
@@ -647,19 +641,19 @@ refuses('unparseable source is refused', 'export const = \n', 'parse failed')
 }
 
 {
-  // Trap 7: a comment between `export` and the declaration keyword made the
-  // gap-matching regex miss, refusing zod's `export /*@__NO_SIDE_EFFECTS__*/ function`
-  // and taking 30-odd roster rows down with it.
+  // Trap 7: a comment between `export` and the declaration keyword must not
+  // hide the declaration; refusing zod's
+  // `export /*@__NO_SIDE_EFFECTS__*/ function` takes 30-odd roster rows down
+  // with it.
   const code = transformModule('export /*@__NO_SIDE_EFFECTS__*/ function $constructor(x) { return x }\n', 'probe.js')
   parsesAsScript('trap 7', code)
   check('trap 7: export with an interposed comment still publishes', typeof runBody(code).$constructor, 'function')
 }
 
 {
-  // The trap the AST pass introduced and the byte-level oracle caught:
-  // `new.target` is also a MetaProperty. Replacing every MetaProperty made
-  // `new.target === Cls` permanently false, silently disabling abstract-seam
-  // guards in `jobs` and `llm`.
+  // `new.target` is also a MetaProperty. Replacing every MetaProperty would
+  // make `new.target === Cls` permanently false, silently disabling
+  // abstract-seam guards in `jobs` and `llm`.
   const source = 'export class Base {\n  constructor() { this.direct = new.target === Base }\n}\n'
   const code = transformModule(source, 'probe.js')
   contains('trap 8: new.target survives verbatim', code, 'new.target')
@@ -672,9 +666,9 @@ refuses('unparseable source is refused', 'export const = \n', 'parse failed')
 }
 
 {
-  // Shebang handling (found while packing `yaml/bin.mjs`): `#!` is only legal at
-  // offset 0, which the prologue occupies. It is commented out in place so both
-  // offsets and the line count stay put.
+  // Shebang handling: `#!` is only legal at offset 0, which the prologue
+  // occupies. It is commented out in place so both offsets and the line count
+  // stay put.
   const source = '#!/usr/bin/env node\nexport const main = 1\n'
   const code = transformModule(source, 'probe.js')
   lacks('shebang is not left in the emitted body', code, '#!')

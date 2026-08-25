@@ -2,11 +2,10 @@
  * goals domain contract. Method signatures are the source of truth:
  * unary methods take the RpcRequest<P> narrow form and the impl echoes rpcId.
  *
- * Mutations only: the read side is the 'goal' session projection (history
- * tail-page projections block + session/projection frames), so there is no
- * goal.get and no wire goal view — responses acknowledge with the new CAS
- * ref and never feed client state (the committed goal/change event reaches
- * every client through the mux stream carrying the same whole value).
+ * Mutations only: the read side is the `goal` Session projection carried by
+ * Session Controller history and control streams. There is no goal.get or
+ * separate wire goal view; responses acknowledge with the new CAS ref, and
+ * committed goal/change events update the projection.
  */
 
 import type { Branded } from '@deepseek-ai/dsh-brand'

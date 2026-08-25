@@ -10,3 +10,5 @@
 | `attachment-local/` | `DSH_HOME` 下的私有内容寻址存储 | （注册至 `ctx.attachments`） |
 
 未发送的浏览器草稿刻意位于这项能力之外。只有用户提交提示词，或提供方适配器提交结构化模型输出时，字节才进入持久存储。
+
+有关引用校验、存储和经过校验的读取约定，参见[持久图片附件](../../docs/subsystems/attachment.zh.md)。

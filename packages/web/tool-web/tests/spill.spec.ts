@@ -7,7 +7,7 @@
  * deliberate spill notice (the full formatted result lands in the spill file).
  */
 
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
 import { AddressInfo } from 'node:net'
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
@@ -26,6 +26,7 @@ import * as WebFetchLocal from '@deepseek-ai/dsh-web-fetch-http'
 import LocalSpillStore from '@deepseek-ai/dsh-spill-local'
 import * as SpillPolicy from '@deepseek-ai/dsh-spill-policy'
 import * as ToolWeb from '@deepseek-ai/dsh-tool-web'
+import { publicHttpNetwork } from '../../web-fetch-http/src/network.ts'
 
 type Handler = (req: IncomingMessage, res: ServerResponse) => void
 
@@ -39,6 +40,7 @@ const BODY = 'X'.repeat(4000) // formatted result is well over the policy cap
 const MAX_INLINE_BYTES = 1000 // leaves room for a head/tail preview beside the notice
 
 beforeEach(async () => {
+  vi.spyOn(publicHttpNetwork, 'resolve').mockResolvedValue([{ address: '127.0.0.1', family: 4 }])
   handler = (_req, res) => { res.writeHead(200, { 'content-type': 'text/plain' }); res.end(BODY) }
   server = createServer((req, res) => { handler(req, res) })
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
@@ -58,6 +60,7 @@ beforeEach(async () => {
 })
 
 afterEach(async () => {
+  vi.restoreAllMocks()
   await new Promise<void>(resolve => server.close(() => { resolve() }))
   rmSync(spillRoot, { recursive: true, force: true })
 })

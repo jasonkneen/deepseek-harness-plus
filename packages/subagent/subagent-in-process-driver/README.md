@@ -16,7 +16,7 @@ The driver follows this sequence:
 4. Publish the child, retain the returned `AgentHandle`, and drive one task with `child.followup(prompt)` followed by `child.whenIdle()`.
 5. Read the child's own output — its last non-empty assistant message (an empty-content message that records usage is skipped), or its accumulated assistant text when no such message exists — and the final durable turn reason from the complete owned child run, excluding any fork seed.
 
-The child gets the parent's working-directory/session lineage and inherits the parent provider, model, and output-token cap unless `request.agentOptions` overrides them. It gets a fresh flat registration scope: parent ownership does not import parent tool restrictions or establish an authority subset.
+The child gets the parent's working-directory/session lineage and inherits the parent provider, model, reasoning effort, and output-token cap unless `request.agentOptions` overrides them. It gets a fresh flat registration scope: parent ownership does not import parent tool restrictions or establish an authority subset.
 
 This result boundary is valid because the provider owns an isolated child lifecycle from publication through quiescence. Steering submitted during that lifecycle belongs to the child run; the provider does not pretend the initial follow-up alone owns its output.
 
@@ -39,7 +39,7 @@ Depth enforcement is internal to `startInProcessRun`: it reads the parent depth 
 `attachStructuredRuntime(childCtx, schema)` installs the whole contract in the child's scope:
 
 - A `structured_output` tool registered with the requested schema validates and stages the model's value.
-- An order-190 system-prompt section tells the child that the tool call is the terminal answer.
+- A trailing first-party order-9900 system-prompt section tells the child that the tool call is the terminal answer.
 - Both contributions are ordinary child-scoped registrations. An expert `system-prompt/assemble` listener may replace them and therefore owns preserving the structured-output protocol for that child.
 - A `tools/result` observer commits a staged value only after that execution's authoritative final tool result succeeds, including the enclosing `run_code` result for Code Mode sub-dispatch.
 - A monotonic tool guard blocks later calls after capture, and the structured-output execution's `concludeTurn()` marker ends the turn after the result commits.

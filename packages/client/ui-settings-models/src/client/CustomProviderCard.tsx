@@ -226,7 +226,7 @@ export function CustomProviderCard(props: CustomProviderCardProps): ReactNode {
           className={styles['input']}
           type="text"
           value={baseURL}
-          placeholder="https://gateway.example/v1"
+          placeholder={t('customBaseUrlPlaceholder')}
           aria-label={t('baseUrl')}
           disabled={profileDisabled}
           onChange={(event) => { setBaseURL(event.target.value) }}
@@ -285,8 +285,8 @@ export function CustomProviderCard(props: CustomProviderCardProps): ReactNode {
         t={t}
         busy={busy}
         submitDisabled={disabled || !ready}
-        submitLabel="create"
-        submitBusyLabel="creating"
+        submitLabelKey="create"
+        submitBusyLabelKey="creating"
         onCancel={() => { props.onClose(committed) }}
         onSubmit={() => { void create() }}
       />

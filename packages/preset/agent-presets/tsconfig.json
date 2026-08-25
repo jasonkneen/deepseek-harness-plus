@@ -28,7 +28,13 @@
       "path": "../../core/session"
     },
     {
+      "path": "../../session/session-projection"
+    },
+    {
       "path": "../../core/system-prompt"
+    },
+    {
+      "path": "../../core/tools"
     },
     {
       "path": "../../settings/settings"

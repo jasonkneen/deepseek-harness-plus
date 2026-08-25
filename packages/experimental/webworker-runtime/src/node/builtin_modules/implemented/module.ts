@@ -1,7 +1,8 @@
 /**
  * `node:module` for the worker: `createRequire` hands out the worker module
- * loader's synchronous require, so typert's `require.resolve('<pkg>/package.json')
- * + readFileSync + import()` bypass runs unmodified over the VFS.
+ * loader's synchronous require. Typert can resolve package exports, and package
+ * inventory can discover manifests through `require.resolve.paths()` without
+ * either consumer changing for the Worker.
  */
 import { requireActiveModuleLoader, type WorkerRequire } from '../../../module-system/module-loader.ts'
 
@@ -11,7 +12,7 @@ export type NodeRequire = WorkerRequire
 /**
  * Build a `require` bound to a base path or file URL.
  * @param base - directory, file path, or file URL the resolution starts from.
- * @returns the synchronous require face.
+ * @returns the synchronous require face, including `resolve()` and `resolve.paths()`.
  */
 export function createRequire(base: string | URL): NodeRequire {
   return requireActiveModuleLoader().createRequire(base)
@@ -20,7 +21,7 @@ export function createRequire(base: string | URL): NodeRequire {
 /** Builtin specifiers the module proxy table answers (without the `node:` prefix). */
 export const builtinModules = [
   'assert', 'async_hooks', 'buffer', 'child_process', 'crypto', 'events', 'fs', 'http', 'module',
-  'net', 'os', 'path', 'process', 'stream', 'url', 'util', 'worker_threads',
+  'net', 'os', 'path', 'process', 'stream', 'tty', 'url', 'util', 'worker_threads',
 ]
 
 /**

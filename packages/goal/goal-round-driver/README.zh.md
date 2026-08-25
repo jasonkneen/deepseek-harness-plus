@@ -21,7 +21,7 @@
 
 ## Round 约定
 
-当对应的活跃 agent（智能体）实例处于 idle 状态，且目标 phase 为 active、已启用续行并有剩余容量时，驱动器先为待处理 goal 变更创建检查点，再预留 `roundsStarted + 1`，对应当前 `{ goalId, revision }`。它会排入一条 `<goal_round>` 提示词，并携带 `GoalMessageSource`。`agent/pre-step` 监听器会在下游监听器前后验证完整的已领取记录与当前 goal；只有进入步骤的 `user/message` 才会增加 `roundsStarted`。因陈旧而被拒绝的预留不会消耗 Round 编号。
+当对应的活跃 agent（智能体）实例处于 idle 状态，且目标 phase 为 active、已启用续行并有剩余容量时，驱动器先为待处理 goal 变更创建检查点，再预留 `roundsStarted + 1`，对应当前 `{ goalId, revision }`。它会排入一条 `<goal_round>` 提示词，并携带 `GoalMessageSource`。`agent/pre-step` 监听器会在下游监听器前后验证完整的已领取记录与当前 goal；接纳的 Round 会设置 `startsRequestSeries: true`，因此未变化的 header 以 `series` 记录该边界，而同时发生的 `change` 则携带 `startsSeries: true`。Chat 会把该 header 渲染在 Round 消息之前，以匹配提供方信封顺序。只有进入步骤的 `user/message` 才会增加 `roundsStarted`。因陈旧而被拒绝的预留不会消耗 Round 编号。
 
 `MessageId` 通过持久 inbox 插入和领取来标识预留消息；它不标识轮次结果。人类消息不消耗 goal 上限。如果人类工作在预留前进入 inbox，或加入预留的待处理批次，自动工作会让行，直到 agent 进入 idle；混合批次中的待处理自动提示词会被拒绝，只有在该检查点之后才重新预留。
 

@@ -95,7 +95,7 @@ The logger fired first: `tools/result` is emitted as part of result materializat
 
 ## From here to a full agent
 
-A real agent is this composition plus more plugins: an LLM adapter, the agent loop, persistence, an entry point. Compare [examples/headless-agent/cordis.yml](../../examples/headless-agent/cordis.yml) — you can read every entry in it now. Add your `greet-tool.ts` to a copy of that file.
+A real agent is this composition plus more plugins: an LLM adapter, the agent loop, persistence, and an application entry. Compare the [base profile layer](../../packages/bundle/base/cordis.patch.yml) and [headless layer](../../packages/bundle/headless/cordis.patch.yml) — you can read their entries now. Add your `greet-tool.ts` through a small `--patch` overlay.
 
 Where to go next:
 

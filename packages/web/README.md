@@ -15,4 +15,4 @@ This family provides provider-neutral web search and fetch operations plus the m
 
 The [web capability decision](../../.agents/notes/implemented/architecture/2026-06-24-web-capability-seam.md) records why search and fetch share one provider-selection service.
 
-The subsystem reference — search/fetch requests and results, availability, `WebError` — is [docs/subsystems/web.md](../../docs/subsystems/web.md); rationale (including deferred SSRF protection) in the [web capability seam Agent Note](../../.agents/notes/implemented/architecture/2026-06-24-web-capability-seam.md).
+The subsystem reference — search/fetch requests and results, availability, `WebError`, and public-address enforcement — is [docs/subsystems/web.md](../../docs/subsystems/web.md); rationale is in the [web capability seam Agent Note](../../.agents/notes/implemented/architecture/2026-06-24-web-capability-seam.md).

@@ -1,16 +1,12 @@
-/** Test-owned Remote face: `$on` subscriptions driven by the internal forwarded-event plumbing. */
+/** Test-owned Remote face: `$on` subscriptions with an explicit test event driver. */
 import type { Context } from '@deepseek-ai/cordis'
 
 /**
  * Remote service test double for the forwarded-event path. Feature specs need
  * `ctx.remote.$on` to exist (their plugins inject `remote`) and need forwarded
- * host events to reach those subscribers, but not the generated namespaces or
- * the wire — so this double implements subscription and dispatch only.
- *
- * Dispatch is driven the same way production drives it: `client/runtime` owns the
- * host frame sink and hands each decoded `host/remote-event` frame to
- * `$dispatch`. A spec therefore exercises its refresh chains by calling
- * `$dispatch(name, args)` on this double.
+ * Host events to reach those subscribers, but not the generated namespaces or
+ * the wire — so this double implements subscription plus an explicit `emit`
+ * driver available only on the concrete test object.
  *
  * `$mount` rejects: a spec that reaches a generated namespace through this
  * double has outgrown it and needs the real Client Remote service.
@@ -37,7 +33,7 @@ export class TestRemote {
    * @param event - forwarded host event name.
    * @param args - the Host argument list, verbatim.
    */
-  $dispatch(event: string, args: readonly unknown[]): void {
+  emit(event: string, args: readonly unknown[]): void {
     const listeners = this.subscriptions.get(event)
     if (listeners === undefined) return
     for (const listener of [...listeners]) listener(...args as never[])

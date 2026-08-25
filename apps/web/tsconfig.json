@@ -42,10 +42,13 @@
     "tests/settings-chrome.e2e.ts",
     "tests/models-settings.e2e.ts",
     "tests/default-model.e2e.ts",
+    "tests/github-ready-review.e2e.ts",
+    "tests/streaming-fence-highlight.e2e.ts",
     "tests/declared-reasoning.e2e.ts",
     "tests/onboarding-deepseek-config.e2e.ts",
     "tests/onboarding-usable-provider.e2e.ts",
     "tests/remote-welcome.e2e.ts",
+    "tests/workspace-new-session-folding.e2e.ts",
     "tests/workspace-management.e2e.ts",
     "tests/replay-round-trip.e2e.ts",
     "tests/hmr-live.e2e.ts",
@@ -103,6 +106,9 @@
     "tests/workflow-run.e2e.ts"
   ],
   "references": [
+    {
+      "path": "../../packages/client/store"
+    },
     {
       "path": "../../packages/client/web"
     },

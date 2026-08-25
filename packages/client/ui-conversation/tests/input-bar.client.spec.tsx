@@ -2,19 +2,21 @@
 
 import { afterEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 import { act, cleanup, fireEvent, render } from '@testing-library/react'
-import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-test-runtime'
+import type { Context } from '@deepseek-ai/cordis'
+import type { SessionSnapshot } from '@deepseek-ai/dsh-api-session-controller/client'
+import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
 import {
-  createSnapshotStore, EMPTY_CHAT_SNAPSHOT, EMPTY_CONVERSATION_VIEWS,
-} from '@deepseek-ai/dsh-client-runtime/client'
-import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
+  bindSnapshotSelector, conversationSnapshot, makeTranslate, sessionSnapshot,
+} from '@deepseek-ai/dsh-client-test-runtime'
+import type { SessionPendingInteractionSnapshot } from '@deepseek-ai/dsh-client-ui-session/client'
 import { zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/zh.ts'
-import type { ClientContext, ConversationSnapshot, SessionId } from '@deepseek-ai/dsh-client-runtime/client'
+import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { SubmitOutcome } from '@deepseek-ai/dsh-client-ui-input-trigger/client'
 import { SessionInputShell } from '../src/client/input/facade.ts'
 import type {
   ComposerAttachment, ComposerAttachmentsOwnerProps,
 } from '../src/client/contract/slots.ts'
-import type { DraftAttachmentId } from '../src/client/input/contract.ts'
+import type { DraftAttachmentId } from '../src/client/contract/input.ts'
 import { InputBar } from '../src/client/skeleton/InputBar.tsx'
 import type { InputBarProps } from '../src/client/skeleton/InputBar.tsx'
 import { zh } from '../src/client/locales.ts'
@@ -33,18 +35,11 @@ Range.prototype.getBoundingClientRect = ZERO_RECT
 const NATIVE_SET_START = Object.getOwnPropertyDescriptor(Range.prototype, 'setStart')!
   .value as (this: Range, node: Node, offset: number) => void
 
-const SCTX = {} as ClientContext
+const SCTX = {} as Context
 const SID = 's1' as SessionId
 
-function snapshotOf(overrides: Partial<ConversationSnapshot> = {}): ConversationSnapshot {
-  return {
-    sessionId: SID, views: EMPTY_CONVERSATION_VIEWS, chat: EMPTY_CHAT_SNAPSHOT,
-    nodes: [], turnTimings: new Map(), turnEnds: new Map(), partial: null, runningCalls: [],
-    pending: [], queue: [], running: false, composerPhase: 'active', removed: false,
-    openState: 'open', openError: null, hasMore: false, loadingOlder: false,
-    promptError: null, blank: false, subagent: null, lastAgentError: null,
-    ...overrides,
-  }
+function snapshotOf(overrides: Partial<SessionSnapshot> = {}): SessionSnapshot {
+  return { ...sessionSnapshot(SID), ...overrides }
 }
 
 interface BenchOptions {
@@ -66,14 +61,15 @@ interface BenchOptions {
   }
   draft?: string
   running?: boolean
-  subagent?: Exclude<ConversationSnapshot['subagent'], null>
+  subagent?: Exclude<SessionSnapshot['subagent'], null>
   disabled?: boolean
   inert?: boolean
+  blocked?: { readonly reason: string }
   workspacePickerOpen?: boolean
   onRequestWorkspace?: () => void
-  promptError?: ConversationSnapshot['promptError']
+  promptError?: SessionSnapshot['promptError']
   /** Authoritative queue rows served to the machine overlay (empty = none). */
-  queue?: ConversationSnapshot['queue']
+  queue?: SessionSnapshot['queue']
   /** The hub's steer-all face (empty-draft accelerated Enter). */
   steerQueue?: () => void
   variant?: 'hero' | 'composer'
@@ -92,7 +88,7 @@ interface BenchOptions {
 }
 
 /** One pending queue row (the runtime snapshot shape, as the dock tests build it). */
-function row(id: string): ConversationSnapshot['queue'][number] {
+function row(id: string): SessionSnapshot['queue'][number] {
   return {
     id: id as never, messageId: `message-${id}` as never, placement: 'queued',
     content: [{ type: 'text', text: id }], preview: id, text: id,
@@ -108,7 +104,7 @@ function bench(over?: BenchOptions) {
     signal: AbortSignal,
   ) => Promise<SubmitOutcome>>(() => Promise.resolve({ kind: 'success' }))
   const lex = over?.lexicon
-  const session = createSnapshotStore<ConversationSnapshot>(snapshotOf({
+  const session = createSnapshotStore<SessionSnapshot>(snapshotOf({
     running: over?.running ?? false,
     subagent: over?.subagent ?? null,
     removed: over?.disabled ?? false,
@@ -149,12 +145,15 @@ function bench(over?: BenchOptions) {
   }) as InputBarProps['renderSlot']
   const props: InputBarProps = {
     sessionId: SID,
-    SessionProvider: ({ children }) => children(SID),
+    SessionProvider: ({ children }) => children,
     useSession: bindSnapshotSelector(session),
     useSessions: bindSnapshotSelector(createSnapshotStore({
       ids: [], byId: {}, current: undefined, phase: 'ready',
       subagentsByParent: {}, jobsBySession: {}, currentAddress: undefined,
     })),
+    useSessionPendingInteraction: bindSnapshotSelector(
+      createSnapshotStore<SessionPendingInteractionSnapshot>(new Map()),
+    ),
     useWorkspaces: bindSnapshotSelector(createSnapshotStore({
       items: [], archivedSessionIds: [], state: 'idle', phase: 'ready', error: null,
       baselinesReady: true, recentWorkspaceId: undefined,
@@ -163,6 +162,7 @@ function bench(over?: BenchOptions) {
       (selector ?? (v => v))(key === 'permissions'
         ? over?.permissions
         : key === 'plan' ? over?.plan : key === 'imageLimits' ? over?.imageLimits : undefined)),
+    useConversation: bindSnapshotSelector(createSnapshotStore(conversationSnapshot())),
     useInput: bindSnapshotSelector(shell.state),
     inputActions: shell.actions,
     keyboard: shell,
@@ -187,6 +187,7 @@ function bench(over?: BenchOptions) {
     renderSlot,
     variant: over?.variant ?? 'composer',
     ...(over?.inert === true ? { disabled: true } : {}),
+    ...(over?.blocked !== undefined ? { blocked: over.blocked } : {}),
     ...(over?.workspacePickerOpen !== undefined ? { workspacePickerOpen: over.workspacePickerOpen } : {}),
     ...(over?.onRequestWorkspace !== undefined ? { onRequestWorkspace: over.onRequestWorkspace } : {}),
     ...(over?.placeholder !== undefined ? { placeholder: over.placeholder } : {}),
@@ -197,7 +198,9 @@ function bench(over?: BenchOptions) {
   }
   const view = render(<InputBar {...props} />)
   const textarea = view.container.querySelector('textarea')!
+  const sendableDraft = (over?.draft?.trim() ?? '') !== '' || (over?.attachments?.length ?? 0) > 0
   const primaryStops = over?.running === true && over.subagent === undefined
+    && (!sendableDraft || over.blocked !== undefined)
   const button = view.container.querySelector<HTMLButtonElement>(
     `button[aria-label="${primaryStops ? '停止生成' : '发送消息'}"]`,
   )!
@@ -326,7 +329,7 @@ describe('image draft rail', () => {
   })
 
   it('announces server attachment rejections as product copy, other codes as developer text', () => {
-    const attachmentError = (reason: string): ConversationSnapshot['promptError'] => ({
+    const attachmentError = (reason: string): SessionSnapshot['promptError'] => ({
       op: 'send',
       error: { code: 'attachment-error', message: 'raw wire text', details: { reason } },
     })
@@ -607,15 +610,53 @@ describe('Enter semantics', () => {
 })
 
 describe('running and lock semantics', () => {
-  it('running keeps the input free (typing + Enter queue) while the primary turns stop', () => {
-    const { textarea, button, stop, sink } = bench({ running: true, draft: '排队消息' })
+  it('running switches the primary between Stop and Queue Send with the draft', async () => {
+    const { textarea, button, stop, sink } = bench({ running: true, busyEnter: 'steer' })
     expect(textarea.disabled).toBe(false)
-    fireEvent.change(textarea, { target: { value: '排队消息2' } })
-    fireEvent.keyDown(textarea, { key: 'Enter' })
-    expect(sink).toHaveBeenCalledWith('排队消息2', [], 'queue', expect.any(AbortSignal))
     expect(button.getAttribute('aria-label')).toBe('停止生成')
     fireEvent.click(button)
     expect(stop).toHaveBeenCalledTimes(1)
+
+    fireEvent.change(textarea, { target: { value: '排队消息' } })
+    expect(button.getAttribute('aria-label')).toBe('发送消息')
+    fireEvent.change(textarea, { target: { value: '   ' } })
+    expect(button.getAttribute('aria-label')).toBe('停止生成')
+    fireEvent.change(textarea, { target: { value: '排队消息2' } })
+    expect(button.getAttribute('aria-label')).toBe('发送消息')
+    fireEvent.click(button)
+    expect(sink).toHaveBeenCalledWith('排队消息2', [], 'queue', expect.any(AbortSignal))
+    await vi.waitFor(() => { expect(button.getAttribute('aria-label')).toBe('停止生成') })
+    expect(stop).toHaveBeenCalledTimes(1)
+  })
+
+  it('running treats an attachment-only draft as Send', async () => {
+    const attachment = {
+      kind: 'image' as const,
+      id: 'draft-1' as DraftAttachmentId,
+      file: new File([Uint8Array.of(1)], 'pixel.png', { type: 'image/png' }),
+      previewUrl: 'blob:pixel',
+    }
+    const { button, sink } = bench({ running: true, attachments: [attachment] })
+    expect(button.getAttribute('aria-label')).toBe('发送消息')
+    fireEvent.click(button)
+    expect(sink).toHaveBeenCalledWith('', ['draft-1'], 'queue', expect.any(AbortSignal))
+    await vi.waitFor(() => { expect(button.getAttribute('aria-label')).toBe('停止生成') })
+  })
+
+  it('running blocked composer keeps Stop with a retained draft', () => {
+    const { button, sink, stop, textarea } = bench({
+      running: true,
+      draft: '保留的草稿',
+      blocked: { reason: '请选择可用模型' },
+      placeholder: '请选择可用模型',
+    })
+    expect(textarea.disabled).toBe(true)
+    expect(textarea.placeholder).toBe('请选择可用模型')
+    expect(button.getAttribute('aria-label')).toBe('停止生成')
+    expect(button.disabled).toBe(false)
+    fireEvent.click(button)
+    expect(stop).toHaveBeenCalledTimes(1)
+    expect(sink).not.toHaveBeenCalled()
   })
 
   it('running plain Enter follows the busy-state Steer preference', () => {

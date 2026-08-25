@@ -2,7 +2,9 @@
  * `node:path` for the worker: the POSIX algorithm, transliterated from Node's
  * implementation. It is NOT a face over the worker host's `posixPath`: that helper
  * normalizes before splitting, so `dirname('/a/b/..')` answers `/` where Node
- * answers `/a/b` (45 cases diverge — `.artifacts/p2/path-diff.ts` enumerates them).
+ * answers `/a/b` (measured: 45 cases diverge between the normalizing helper and
+ * Node). `../../../../tests/node/path-diff.spec.ts` pins the port below to
+ * Node's answers.
  * A `node:` proxy has to answer what Node answers, since VFS paths were built with
  * Node semantics. `win32` members throw: the worker host reports
  * `process.platform === 'linux'`, so a Windows branch means a bug.

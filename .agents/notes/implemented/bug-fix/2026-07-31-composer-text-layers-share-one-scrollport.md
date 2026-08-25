@@ -48,7 +48,7 @@ Revealing the caret is the one thing that now depends on the browser rather than
 
 **Scroll both layers from JavaScript, with the textarea `overflow: hidden` and a wheel handler assigning both offsets in one task.** No divergence during wheel gestures, since nothing scrolls without us. Rejected because it replaces native scrolling — momentum, trackpad rubber-banding, scrollbar dragging, keyboard scrolling — with a hand-written approximation, and the caret-reveal path (the browser setting the textarea's own offset) still lands asynchronously.
 
-**Keep the cap on the mirror and just wrap today's structure in a scroller.** The layers would stay window-sized, not draft-sized: `inset: 0` on an absolutely positioned child resolves against the scrollport's padding box, not its scrollable overflow area, so both layers would scroll away from the content that is supposed to be underneath them. The stack has to be the full draft height for the arrangement to mean anything.
+**Keep the cap on the mirror and just wrap the existing structure in a scroller.** The layers would stay window-sized, not draft-sized: `inset: 0` on an absolutely positioned child resolves against the scrollport's padding box, not its scrollable overflow area, so both layers would scroll away from the content that is supposed to be underneath them. The stack has to be the full draft height for the arrangement to mean anything.
 
 **Give the backdrop `overflow: auto` and let it scroll itself.** It would then have an offset of its own to keep in step, which is the same problem plus a second scrollbar painted over the input. The backdrop is a projection of the textarea, not an independently navigable surface.
 

@@ -34,6 +34,10 @@ export async function applyIndexInjections(
       case 'script-src':
         await loadScript(row.src)
         break
+      case 'script-preload':
+        // The worker tunnel has no browser URL to warm without also executing
+        // the script; loadScript handles the real request when the row arrives.
+        break
       case 'style': {
         const el = document.createElement('style')
         el.textContent = row.text

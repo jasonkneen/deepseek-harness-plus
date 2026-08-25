@@ -1,0 +1,15 @@
+# Configured-effort rejection snapshot overlay: keep one invalid configured
+# effort so the tool rejects before starting a child instead of deferring the
+# failure to the child agent loop.
+- id: tool-subagent
+  name: '@deepseek-ai/dsh-tool-subagent'
+  config:
+    provider: spawn
+    toolName: subagent
+    enableModelSelection: true
+    backgroundMode: continuable
+    maxDepth: 1
+    agentOptions:
+      provider: deepseek-official
+      model: deepseek-v4-flash
+      reasoningEffort: unsupported

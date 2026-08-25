@@ -20,6 +20,6 @@ None beyond the loaded tree; the helper neither changes the request prefix nor r
 
 ## Known Limitations and Deferred Work
 
-- **Built mode requires a prior build** — the config must also resolve every named package upward through `examples/node_modules`.
+- **Built mode requires a prior build** — the config must also resolve every named package through its owning package manifest.
 - **Captured stdout and stderr are bounded only by execa's default 100 MB `maxBuffer`** — a runaway child is terminated at that ceiling rather than at a smoke-chosen budget.
 - **Timeout kills only the direct child** — a process tree spawned by a faulty fixture can outlive the smoke and needs external cleanup.

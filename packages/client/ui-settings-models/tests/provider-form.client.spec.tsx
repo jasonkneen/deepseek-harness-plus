@@ -808,8 +808,8 @@ describe('hand-declared providers', () => {
   })
 
   it('names the provider as the refreshed directory reports it after a rename', async () => {
-    // The status line used to echo the target captured when the card opened,
-    // which never lied while the name could not change. It can now.
+    // A name can change after the card opens, so the saved status reads the
+    // refreshed directory name rather than the target captured at open.
     const { face } = await mountSection({
       providers: { 'acme-gateway': { displayName: 'Acme Gateway', api: 'openai-completions' } },
       declaredRoutes: ['acme-gateway'],

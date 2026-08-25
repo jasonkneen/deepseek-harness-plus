@@ -10,7 +10,8 @@
  */
 import { Context } from '@deepseek-ai/cordis'
 import { describe, expect, it } from 'vitest'
-import { SlotRegistry, type SessionId } from '@deepseek-ai/dsh-client-runtime/client'
+import { SlotRegistry } from '@deepseek-ai/dsh-client-ui-renderer/client'
+import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import { LocaleRuntime } from '@deepseek-ai/dsh-client-locale/client'
 import { TestRemote } from '@deepseek-ai/dsh-client-test-runtime'
 import { apply as settingsApply, inject as settingsInject } from '@deepseek-ai/dsh-client-ui-settings/client'
@@ -39,9 +40,7 @@ async function bench() {
   const locale = new LocaleRuntime(ctx)
   locale.setLocale('en')
   ctx.provide('locale', locale)
-  // The plugin injects `remote`; forwarded events reach it through the same
-  // `$dispatch` handoff the connection sink makes.
-  new TestRemote(ctx)
+  const remote = new TestRemote(ctx)
   ctx.slots.register({
     name: 'root',
     children: {
@@ -90,7 +89,7 @@ async function bench() {
   const fiber = ctx.plugin({ inject: [...inject], apply })
   await fiber.await()
   return {
-    ctx, fiber, values, commands,
+    ctx, fiber, values, commands, remote,
     setResult: (r: { ok: boolean; matched?: boolean }) => { commandResult = r },
     decoration: () => decoration,
     permissionRow: () => ctx.slots.entries('settings.general.item')
@@ -164,8 +163,8 @@ describe('ui-permission browser plugin', () => {
   it('disposal removes the decoration (HMR safety)', async () => {
     const b = await bench()
     expect(b.decoration()).toBeDefined()
-    b.ctx.remote.$dispatch('settings/document-updated', ['another', 1])
-    b.ctx.remote.$dispatch('settings/document-updated', ['permission', 1])
+    b.remote.emit('settings/document-updated', ['another', 1])
+    b.remote.emit('settings/document-updated', ['permission', 1])
     b.ctx.emit('connection/reset')
     await b.fiber.dispose()
     expect(b.decoration()).toBeUndefined()

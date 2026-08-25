@@ -1,13 +1,13 @@
 /**
  * Wire-protocol coverage over the isomorphic point: InProcessApiClient →
  * toFetchHandler(scripted impl) runs the real envelope wrap/unwrap, zod
- * two-level parse, rpcId discipline, and SSE framing with no network and no
- * browser. Each case scripts its own minimal ApiProxy.
+ * two-level parse, and rpcId discipline with no network or browser. Each case
+ * scripts its own minimal ApiProxy.
  */
 
 import { describe, expect, it, vi } from 'vitest'
 import type { SessionId } from '@deepseek-ai/dsh-session'
-import type { ApiProxy, GoalRef, HostFrame, MuxFrame, RpcMessage, RpcRequest, RpcResponse } from '@deepseek-ai/dsh-host-apiproxy'
+import type { ApiProxy, GoalRef, RpcMessage, RpcRequest, RpcResponse } from '@deepseek-ai/dsh-host-apiproxy'
 import { InProcessApiClient, RpcId, toFetchHandler } from '@deepseek-ai/dsh-host-apiproxy'
 
 const sid = (id: string): SessionId => id as SessionId
@@ -18,54 +18,20 @@ function ok<T>(request: RpcRequest<unknown>, value: T): Promise<RpcResponse<T>> 
 
 /** Scripted impl: every method resolves an empty-ish OK unless a case overrides it. */
 function scriptedApi(overrides: {
-  sessions?: Partial<ApiProxy['sessions']>
   subagents?: Partial<ApiProxy['subagents']>
   host?: Partial<ApiProxy['host']>
   skills?: Partial<ApiProxy['skills']>
   agentPresets?: Partial<ApiProxy['agentPresets']>
-  events?: Partial<ApiProxy['events']>
   goals?: Partial<ApiProxy['goals']>
   settings?: Partial<ApiProxy['settings']>
   credentials?: Partial<ApiProxy['credentials']>
   llm?: Partial<ApiProxy['llm']>
-  respond?: ApiProxy['respond']
 } = {}): ApiProxy {
-  async function *empty<F>(): AsyncGenerator<RpcRequest<F>> { /* no frames */ }
   const err = <T>(r: RpcRequest<unknown>): Promise<RpcResponse<T>> =>
     Promise.resolve({ rpcId: r.rpcId, result: { ok: false, error: { code: 'internal' as const, message: 'stub', details: {} } } })
   return {
-    sessions: {
-      list: r => ok(r, { items: [] }),
-      search: r => ok(r, { items: [], hasMore: false }),
-      create: r => ok(r, { sessionId: sid('s-new') }),
-      history: r => ok(r, {
-        events: [],
-        hasMore: false,
-        modelSelection: { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
-      }),
-      models: r => ok(r, {
-        current: { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
-        routable: true,
-        groups: [],
-        failures: [],
-      }),
-      selectModel: r => ok(r, {
-        selected: { provider: r.payload.provider, model: r.payload.model },
-      }),
-      rename: r => ok(r, { title: 'renamed', seq: 0 }),
-      fork: r => ok(r, { sessionId: sid('s-fork') }),
-      prompt: r => ok(r, { accepted: true as const }),
-      attachment: r => ok(r, {
-        attachment: { attachmentId: 'a' as never, mediaType: 'image/png', bytes: 1, width: 1, height: 1 },
-        data: 'AA==',
-      }),
-      updateQueue: r => ok(r, { accepted: true as const }),
-      cancel: r => ok(r, { accepted: true as const }),
-      ...overrides.sessions,
-    },
     subagents: {
       list: r => ok(r, { entries: [], parentAvailable: false }),
-      history: r => ok(r, { events: [], hasMore: false }),
       prompt: r => ok(r, { messageId: 'message-1' as never }),
       interrupt: r => ok(r, { accepted: true as const }),
       ...overrides.subagents,
@@ -79,15 +45,6 @@ function scriptedApi(overrides: {
       createDirectory: r => ok(r, { path: '/t/new' }),
       openPath: r => ok(r, { opened: true as const }),
       ...overrides.host,
-    },
-    workspace: {
-      list: r => ok(r, { items: [], archivedSessionIds: [] }),
-      create: r => ok(r, { workspace: { workspaceId: 'w1' as never, path: '/t', title: 't', sessionIds: [], createdAt: '0', updatedAt: '0' }, created: true }),
-      rename: r => ok(r, { workspace: { workspaceId: 'w1' as never, path: '/t', title: 't', sessionIds: [], createdAt: '0', updatedAt: '0' } }),
-      delete: r => ok(r, { deleted: true as const }),
-      insertBefore: r => ok(r, { workspaceIds: [r.payload.workspaceId] }),
-      insertSessionBefore: r => ok(r, { workspace: { workspaceId: 'w1' as never, path: '/t', title: 't', sessionIds: [], createdAt: '0', updatedAt: '0' } }),
-      archiveSession: r => ok(r, { archivedSessionIds: [r.payload.sessionId] }),
     },
     skills: { list: r => ok(r, { skills: [] }), ...overrides.skills },
     agentPresets: {
@@ -124,12 +81,15 @@ function scriptedApi(overrides: {
     },
     llm: {
       providers: r => ok(r, { providers: [] }),
-      models: r => ok(r, { groups: [], failures: [] }),
+      models: r => ok(r, {
+        default: { provider: 'test', model: 'test' },
+        routableProviders: [],
+        groups: [],
+        failures: [],
+      }),
       discoverModels: err,
       ...overrides.llm,
     },
-    events: { mux: () => empty<MuxFrame>(), host: () => empty<HostFrame>(), ...overrides.events },
-    respond: overrides.respond ?? (() => Promise.resolve({ accepted: false as const, reason: 'not-pending' as const })),
     downloads: { sessionLog: async () => new Response('stub', { status: 404 }) },
   }
 }
@@ -149,94 +109,20 @@ function recorderInto(seen: { method: string; payload: unknown }[]) {
 
 describe('unary round trip', () => {
   it('carries payload out and value back through the full wire form', async () => {
-    let seen: RpcRequest<{ cursor?: string }> | undefined
+    let seen: RpcRequest<{}> | undefined
     const api = scriptedApi({
-      sessions: {
-        list: (r) => {
-          seen = r
-          return ok(r, { items: [{ sessionId: sid('s1'), updatedAt: 7, running: false, blank: false }] })
+      host: {
+        describe: (request) => {
+          seen = request
+          return ok(request, { version: '0-test', cwd: '/t', attachedSessions: 0, home: '/h', canOpenPath: true })
         },
       },
     })
-    const response = await client(api).sessions.list({ cursor: 'c1' })
-    // Impl received the narrow form with a minted id; client returned the same id and value.
-    expect(seen?.payload).toEqual({ cursor: 'c1' })
+    const response = await client(api).host.describe({})
+    expect(seen?.payload).toEqual({})
     expect(seen?.rpcId).toBeTruthy()
     expect(response.rpcId).toBe(seen?.rpcId)
-    expect(response.result).toEqual({ ok: true, value: { items: [{ sessionId: 's1', updatedAt: 7, running: false, blank: false }] } })
-  })
-
-  it('round-trips a trimmed session search query and its bounded result metadata', async () => {
-    let seen: RpcRequest<{ query: string }> | undefined
-    const api = scriptedApi({
-      sessions: {
-        search: (request) => {
-          seen = request
-          return ok(request, {
-            items: [{ sessionId: sid('s1'), snippet: 'matching message text' }],
-            hasMore: true,
-          })
-        },
-      },
-    })
-    const response = await client(api).sessions.search({ query: '  message text  ' })
-    expect(seen?.payload).toEqual({ query: 'message text' })
-    expect(response.result).toEqual({
-      ok: true,
-      value: {
-        items: [{ sessionId: 's1', snippet: 'matching message text' }],
-        hasMore: true,
-      },
-    })
-  })
-
-  it('rejects an overlong session-search snippet at the client value boundary', async () => {
-    const api = scriptedApi({
-      sessions: {
-        search: request => ok(request, {
-          items: [{ sessionId: sid('s1'), snippet: '😀'.repeat(241) }],
-          hasMore: false,
-        }),
-      },
-    })
-
-    await expect(client(api).sessions.search({ query: 'message' }))
-      .rejects.toThrow(/240 Unicode code points/)
-  })
-
-  it('routes session fork with its optional cut anchor through the wire', async () => {
-    let seen: RpcRequest<{ sessionId: SessionId; atSeq?: number }> | undefined
-    const api = scriptedApi({
-      sessions: {
-        fork: (request) => {
-          seen = request
-          return ok(request, { sessionId: sid('s-child') })
-        },
-      },
-    })
-    const response = await client(api).sessions.fork({ sessionId: sid('s-parent'), atSeq: 7 })
-    expect(seen?.payload).toEqual({ sessionId: 's-parent', atSeq: 7 })
-    expect(response.result).toEqual({ ok: true, value: { sessionId: 's-child' } })
-  })
-
-  it('routes workspace rename, delete, and ordering through the wire', async () => {
-    const api = scriptedApi()
-    const c = client(api)
-    const renamed = await c.workspace.rename({ workspaceId: 'w1' as never, title: 'next' })
-    expect(renamed.result.ok).toBe(true)
-    const blankTitle = await c.workspace.rename({ workspaceId: 'w1' as never, title: '   ' })
-    expect(blankTitle.result).toMatchObject({ ok: false, error: { code: 'bad-request' } })
-    const deleted = await c.workspace.delete({ workspaceId: 'w1' as never })
-    expect(deleted.result).toEqual({ ok: true, value: { deleted: true } })
-    const workspaceOrder = await c.workspace.insertBefore({
-      workspaceId: 'w1' as never,
-      beforeWorkspaceId: 'w2' as never,
-    })
-    expect(workspaceOrder.result).toEqual({ ok: true, value: { workspaceIds: ['w1'] } })
-    const anchored = await c.workspace.insertSessionBefore({ workspaceId: 'w1' as never, sessionId: sid('s1'), beforeSessionId: sid('s2') })
-    expect(anchored.result.ok).toBe(true)
-    const appended = await c.workspace.insertSessionBefore({ workspaceId: 'w1' as never, sessionId: sid('s1') })
-    expect(appended.result.ok).toBe(true)
+    expect(response.result).toMatchObject({ ok: true, value: { version: '0-test' } })
   })
 
   it('routes the agent-preset roster and switch through the wire', async () => {
@@ -253,29 +139,27 @@ describe('unary round trip', () => {
 
   it('passes business errors through as 200 + err result, not a throw', async () => {
     const api = scriptedApi({
-      sessions: {
-        cancel: r => Promise.resolve({ rpcId: r.rpcId, result: { ok: false, error: { code: 'session-not-found', message: 'nope', details: { sessionId: sid('sx') } } } }),
+      host: {
+        describe: request => Promise.resolve({
+          rpcId: request.rpcId,
+          result: { ok: false, error: { code: 'internal', message: 'nope', details: {} } },
+        }),
       },
     })
-    const response = await client(api).sessions.cancel({ sessionId: sid('sx') })
-    expect(response.result).toEqual({ ok: false, error: { code: 'session-not-found', message: 'nope', details: { sessionId: 'sx' } } })
+    const response = await client(api).host.describe({})
+    expect(response.result).toEqual({ ok: false, error: { code: 'internal', message: 'nope', details: {} } })
   })
 
   it('throws on rpcId echo mismatch', async () => {
     const api = scriptedApi({
-      sessions: { list: () => Promise.resolve({ rpcId: RpcId('forged'), result: { ok: true, value: { items: [] } } }) },
+      host: {
+        describe: () => Promise.resolve({
+          rpcId: RpcId('forged'),
+          result: { ok: true, value: { version: '0-test', cwd: '/t', attachedSessions: 0, home: '/h', canOpenPath: true } },
+        }),
+      },
     })
-    await expect(client(api).sessions.list({})).rejects.toThrow(/rpcId mismatch/)
-  })
-
-  it('rejects an invalid payload at the handler as 200 + bad-request with issues', async () => {
-    const api = scriptedApi()
-    const response = await client(api).sessions.history({ sessionId: 123 as unknown as SessionId })
-    expect(response.result.ok).toBe(false)
-    if (!response.result.ok) {
-      expect(response.result.error.code).toBe('bad-request')
-      expect((response.result.error.details as { issues: unknown[] }).issues.length).toBeGreaterThan(0)
-    }
+    await expect(client(api).host.describe({})).rejects.toThrow(/rpcId mismatch/)
   })
 
   it('round-trips subagent.interrupt and rejects a one-shot or incomplete address', async () => {
@@ -306,8 +190,8 @@ describe('unary round trip', () => {
 
   it('rejects a method/path mismatch as bad-request', async () => {
     const handler = toFetchHandler(scriptedApi())
-    const body = { type: 'client-request', rpcId: 'r1', method: 'session.create', payload: {} }
-    const response = await handler.fetch('http://dsh.internal/api/session.list', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })
+    const body = { type: 'client-request', rpcId: 'r1', method: 'host.describe', payload: {} }
+    const response = await handler.fetch('http://dsh.internal/api/skill.list', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })
     expect(response.status).toBe(200)
     const parsed = await response.json() as { result: { ok: boolean; error?: { code: string; message: string } } }
     expect(parsed.result.ok).toBe(false)
@@ -318,13 +202,13 @@ describe('unary round trip', () => {
   it('rejects a malformed envelope as bad-request, salvaging the rpcId or falling back to the sentinel', async () => {
     const handler = toFetchHandler(scriptedApi())
     // No salvageable rpcId → the fixed invalid-request sentinel keeps the response a valid ServerResponse.
-    const noId = await handler.fetch('http://dsh.internal/api/session.list', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ nonsense: true }) })
+    const noId = await handler.fetch('http://dsh.internal/api/host.describe', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ nonsense: true }) })
     expect(noId.status).toBe(200)
     const noIdParsed = await noId.json() as { rpcId: string; result: { ok: boolean } }
     expect(noIdParsed.result.ok).toBe(false)
     expect(noIdParsed.rpcId).toBe('invalid-request')
     // A string rpcId in the otherwise-bad body is salvaged for correlation.
-    const withId = await handler.fetch('http://dsh.internal/api/session.list', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ rpcId: 'salvage-me', nonsense: true }) })
+    const withId = await handler.fetch('http://dsh.internal/api/host.describe', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ rpcId: 'salvage-me', nonsense: true }) })
     const withIdParsed = await withId.json() as { rpcId: string; result: { ok: boolean } }
     expect(withIdParsed.result.ok).toBe(false)
     expect(withIdParsed.rpcId).toBe('salvage-me')
@@ -336,29 +220,31 @@ describe('unary round trip', () => {
     const notFound = await handler.fetch('http://dsh.internal/api/no.such', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' })
     expect(notFound.status).toBe(404)
     // Non-JSON body → 400.
-    const badBody = await handler.fetch('http://dsh.internal/api/session.list', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{oops' })
+    const badBody = await handler.fetch('http://dsh.internal/api/host.describe', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{oops' })
     expect(badBody.status).toBe(400)
     // Impl crash → 500, and through the client that is a throw, not an err result.
-    const crashing = scriptedApi({ sessions: { list: () => { throw new Error('impl exploded') } } })
-    await expect(client(crashing).sessions.list({})).rejects.toThrow(/transport failure .*500/)
+    const crashing = scriptedApi({ host: { describe: () => { throw new Error('impl exploded') } } })
+    await expect(client(crashing).host.describe({})).rejects.toThrow(/transport failure .*500/)
   })
 
   it('rejects non-JSON media types before executing anything (cross-site simple-request fence)', async () => {
-    const list = vi.fn((r: RpcRequest<{}>) => ok(r, { items: [] }))
-    const handler = toFetchHandler(scriptedApi({ sessions: { list } }))
-    const body = JSON.stringify({ type: 'client-request', rpcId: 'r1', method: 'session.list', payload: {} })
+    const describe = vi.fn((request: RpcRequest<{}>) => ok(request, {
+      version: '0-test', cwd: '/t', attachedSessions: 0, home: '/h', canOpenPath: true,
+    }))
+    const handler = toFetchHandler(scriptedApi({ host: { describe } }))
+    const body = JSON.stringify({ type: 'client-request', rpcId: 'r1', method: 'host.describe', payload: {} })
     // A "simple" browser POST (text/plain — sent with no CORS preflight) is
     // refused at the carrier before the impl runs.
-    const plain = await handler.fetch('http://dsh.internal/api/session.list', { method: 'POST', headers: { 'content-type': 'text/plain' }, body })
+    const plain = await handler.fetch('http://dsh.internal/api/host.describe', { method: 'POST', headers: { 'content-type': 'text/plain' }, body })
     expect(plain.status).toBe(415)
     // A string body with no explicit header defaults to text/plain — same fence.
-    const unlabelled = await handler.fetch('http://dsh.internal/api/session.list', { method: 'POST', body })
+    const unlabelled = await handler.fetch('http://dsh.internal/api/host.describe', { method: 'POST', body })
     expect(unlabelled.status).toBe(415)
-    expect(list).not.toHaveBeenCalled()
+    expect(describe).not.toHaveBeenCalled()
     // Media-type parameters pass: the fence checks the type, not the exact string.
-    const charset = await handler.fetch('http://dsh.internal/api/session.list', { method: 'POST', headers: { 'content-type': 'application/json; charset=utf-8' }, body })
+    const charset = await handler.fetch('http://dsh.internal/api/host.describe', { method: 'POST', headers: { 'content-type': 'application/json; charset=utf-8' }, body })
     expect(charset.status).toBe(200)
-    expect(list).toHaveBeenCalledTimes(1)
+    expect(describe).toHaveBeenCalledTimes(1)
   })
 
   it('rejects when the transport never resolves within timeoutMs', async () => {
@@ -368,7 +254,7 @@ describe('unary round trip', () => {
         init?.signal?.addEventListener('abort', () => { reject(new Error('aborted by timeout')) })
       }),
     }, 25)
-    await expect(never.sessions.list({})).rejects.toThrow()
+    await expect(never.host.describe({})).rejects.toThrow()
   })
 
   it('aborts a unary call through the caller-supplied external signal', async () => {
@@ -376,7 +262,7 @@ describe('unary round trip', () => {
     // works even when the transport ignores the signal entirely (hung impl).
     const gate = new AbortController()
     const hung = new InProcessApiClient({ fetch: () => new Promise<Response>(() => {}) }, 60_000)
-    const call = hung.sessions.list({}, gate.signal)
+    const call = hung.host.describe({}, gate.signal)
     gate.abort(new Error('externally aborted'))
     await expect(call).rejects.toThrow(/externally aborted/)
   })
@@ -391,14 +277,14 @@ describe('unary round trip', () => {
     }, 60_000)
     const gate = new AbortController()
     gate.abort('gone before start')
-    await expect(c.sessions.list({}, gate.signal)).rejects.toThrow('gone before start')
+    await expect(c.host.describe({}, gate.signal)).rejects.toThrow('gone before start')
     expect(touched).toBe(false)
   })
 
   it('maps a non-Error, non-string abort reason to the default AbortError message', async () => {
     const gate = new AbortController()
     const hung = new InProcessApiClient({ fetch: () => new Promise<Response>(() => {}) }, 60_000)
-    const call = hung.sessions.list({}, gate.signal)
+    const call = hung.host.describe({}, gate.signal)
     gate.abort(42)
     await expect(call).rejects.toThrow('This operation was aborted')
   })
@@ -417,179 +303,9 @@ describe('unary round trip', () => {
   it('throws on an S→C ok value that fails the method value schema (second-level parse)', async () => {
     // Impl echoes rpcId but returns a wrong-shaped value: envelope parse passes, value parse must reject.
     const api = scriptedApi({
-      sessions: { list: r => Promise.resolve({ rpcId: r.rpcId, result: { ok: true, value: { items: 'not-an-array' } } }) as never },
+      host: { describe: request => Promise.resolve({ rpcId: request.rpcId, result: { ok: true, value: { version: 1 } } }) as never },
     })
-    await expect(client(api).sessions.list({})).rejects.toThrow()
-  })
-})
-
-describe('workspace domain round trip', () => {
-  it('routes both workspace methods through their handler rows and value schemas', async () => {
-    const c = client(scriptedApi())
-    const list = await c.workspace.list({})
-    expect(list.result).toEqual({ ok: true, value: { items: [], archivedSessionIds: [] } })
-    const created = await c.workspace.create({ path: '/t' })
-    expect(created.result.ok).toBe(true)
-    if (created.result.ok) expect(created.result.value.created).toBe(true)
-    const archivedResponse = await c.workspace.archiveSession({ sessionId: 's-arch' as never })
-    expect(archivedResponse.result).toEqual({ ok: true, value: { archivedSessionIds: ['s-arch'] } })
-  })
-
-  it('rejects a pathless create payload at the handler schema', async () => {
-    const response = await client(scriptedApi()).workspace.create({} as never)
-    expect(response.result.ok).toBe(false)
-    if (!response.result.ok) expect(response.result.error.code).toBe('bad-request')
-  })
-})
-
-describe('SSE stream path', () => {
-  it('yields frames in order and skips the comment preamble', async () => {
-    const frames: MuxFrame[] = [
-      { type: 'session/subscribed', sessionId: sid('s1'), lastSeq: 3 },
-      { type: 'stream/error', error: { code: 'internal', message: 'x', details: {} } },
-    ]
-    const api = scriptedApi({
-      events: {
-        async *mux(request) {
-          let n = 0
-          for (const frame of frames) yield { rpcId: RpcId(`push-${n++}-${request.rpcId}`), payload: frame }
-        },
-      },
-    })
-    const seen: MuxFrame[] = []
-    for await (const envelope of client(api).events.mux({}, new AbortController().signal)) {
-      seen.push(envelope.payload)
-    }
-    expect(seen).toEqual(frames)
-  })
-
-  it('reassembles frames across arbitrary chunk boundaries', async () => {
-    // Two SSE frames split so one frame spans chunks and one chunk carries parts of both.
-    const f1 = { type: 'server-request', rpcId: 'a', method: 'session/subscribed', payload: { type: 'session/subscribed', sessionId: 's1', lastSeq: 1 } }
-    const f2 = { type: 'server-request', rpcId: 'b', method: 'session/subscribed', payload: { type: 'session/subscribed', sessionId: 's2', lastSeq: 2 } }
-    const wire = `: connected\n\ndata: ${JSON.stringify(f1)}\n\ndata: ${JSON.stringify(f2)}\n\n`
-    const cuts = [5, 40, wire.indexOf('data: ', 40) + 3]
-    const encoder = new TextEncoder()
-    const doFetch = (): Promise<Response> => Promise.resolve(new Response(new ReadableStream<Uint8Array>({
-      start(controller) {
-        let prev = 0
-        for (const cut of [...cuts, wire.length]) {
-          controller.enqueue(encoder.encode(wire.slice(prev, cut)))
-          prev = cut
-        }
-        controller.close()
-      },
-    }), { status: 200 }))
-    const chopped = new InProcessApiClient({ fetch: doFetch })
-    const seen: string[] = []
-    for await (const envelope of chopped.events.mux({}, new AbortController().signal)) {
-      seen.push((envelope.payload as { sessionId: string }).sessionId)
-      expect(envelope.rpcId).toBe(seen.length === 1 ? 'a' : 'b')
-    }
-    expect(seen).toEqual(['s1', 's2'])
-  })
-
-  it('emits a stream/error frame then closes when the impl throws mid-stream', async () => {
-    const api = scriptedApi({
-      events: {
-        async *host(request): AsyncGenerator<RpcRequest<HostFrame>> {
-          yield { rpcId: RpcId(`p-${request.rpcId}`), payload: { type: 'host/session-added', sessionId: sid('s1'), blank: true } }
-          throw new Error('impl died mid-stream')
-        },
-      },
-    })
-    const seen: HostFrame[] = []
-    for await (const envelope of client(api).events.host({}, new AbortController().signal)) {
-      seen.push(envelope.payload)
-    }
-    expect(seen.map(f => f.type)).toEqual(['host/session-added', 'stream/error'])
-    const last = seen.at(-1)
-    if (last?.type === 'stream/error') expect(last.error.message).toMatch(/impl died mid-stream/)
-  })
-
-  it('drops a malformed SSE frame and keeps the stream alive (S→C two-level parse)', async () => {
-    const good = { type: 'server-request', rpcId: 'g1', method: 'session/subscribed', payload: { type: 'session/subscribed', sessionId: 's1', lastSeq: 1 } }
-    const badEnvelope = { type: 'server-response', rpcId: 'x' } // wrong quadrant for a stream
-    const badFrame = { type: 'server-request', rpcId: 'b1', method: 'nope', payload: { type: 'no/such-frame' } }
-    const wire = [
-      'data: {oops', // not JSON
-      `data: ${JSON.stringify(badEnvelope)}`,
-      `data: ${JSON.stringify(badFrame)}`,
-      `data: ${JSON.stringify(good)}`,
-    ].map(l => `${l}\n\n`).join('')
-    const doFetch = (): Promise<Response> => Promise.resolve(new Response(new ReadableStream<Uint8Array>({
-      start(controller) {
-        controller.enqueue(new TextEncoder().encode(wire))
-        controller.close()
-      },
-    }), { status: 200 }))
-    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
-    try {
-      const seen: MuxFrame[] = []
-      for await (const envelope of new InProcessApiClient({ fetch: doFetch }).events.mux({}, new AbortController().signal)) {
-        seen.push(envelope.payload)
-      }
-      // The three corrupt frames are reported and skipped; the good one still arrives.
-      expect(seen).toEqual([{ type: 'session/subscribed', sessionId: 's1', lastSeq: 1 }])
-      expect(errorSpy.mock.calls.length).toBe(3)
-    } finally {
-      errorSpy.mockRestore()
-    }
-  })
-
-  it('fires onOpen once headers are in, before the first frame, and not on transport failure', async () => {
-    const api = scriptedApi({
-      events: {
-        async *mux(request): AsyncGenerator<RpcRequest<MuxFrame>> {
-          yield { rpcId: RpcId(`p-${request.rpcId}`), payload: { type: 'session/subscribed', sessionId: sid('s1'), lastSeq: 0 } }
-        },
-      },
-    })
-    const order: string[] = []
-    const iterator = client(api).events.mux({}, new AbortController().signal, () => order.push('open'))
-    expect(order).toEqual([]) // lazy generator: no fetch (and no onOpen) before iteration
-    for await (const _ of iterator) order.push('frame')
-    expect(order).toEqual(['open', 'frame'])
-
-    // Transport failure path: onOpen must not fire.
-    const failing = new InProcessApiClient({ fetch: () => Promise.resolve(new Response('down', { status: 503 })) })
-    const failOrder: string[] = []
-    await expect((async () => {
-      for await (const _ of failing.events.mux({}, new AbortController().signal, () => failOrder.push('open'))) { /* unreachable */ }
-    })()).rejects.toThrow(/transport failure/)
-    expect(failOrder).toEqual([])
-  })
-
-  it('stops consuming when the caller aborts', async () => {
-    let implSawAbort = false
-    const api = scriptedApi({
-      events: {
-        async *mux(_request, signal): AsyncGenerator<RpcRequest<MuxFrame>> {
-          try {
-            let n = 0
-            while (true) {
-              yield { rpcId: RpcId(`p${n}`), payload: { type: 'session/subscribed', sessionId: sid('s1'), lastSeq: n++ } }
-              await new Promise(resolve => setTimeout(resolve, 5))
-              if (signal.aborted) return
-            }
-          } finally {
-            implSawAbort = true
-          }
-        },
-      },
-    })
-    const abort = new AbortController()
-    let count = 0
-    // In-process abort ends the stream (impl returns on signal.aborted); over a real
-    // network fetch the same abort surfaces as a rejection — both stop the loop.
-    await (async () => {
-      for await (const _ of client(api).events.mux({}, abort.signal)) {
-        if (++count === 2) abort.abort()
-      }
-    })().catch(() => undefined)
-    expect(count).toBe(2)
-    // Generator teardown may lag the abort by a microtask; poll briefly.
-    await vi.waitFor(() => { expect(implSawAbort).toBe(true) })
+    await expect(client(api).host.describe({})).rejects.toThrow()
   })
 })
 
@@ -650,36 +366,13 @@ describe('goals unary surface', () => {
   })
 })
 
-describe('respond path', () => {
-  it('round-trips a client-response to a receipt', async () => {
-    const seen: unknown[] = []
-    const api = scriptedApi({
-      respond: (message) => {
-        seen.push(message)
-        return Promise.resolve({ accepted: true as const })
-      },
-    })
-    const receipt = await client(api).respond({ type: 'client-response', rpcId: RpcId('req-1'), result: { ok: true, value: { behavior: 'allow' } } })
-    expect(receipt).toEqual({ accepted: true })
-    expect(seen).toEqual([{ type: 'client-response', rpcId: 'req-1', result: { ok: true, value: { behavior: 'allow' } } }])
-  })
-
-  it('returns bad-response for a malformed client-response without reaching the impl', async () => {
-    const respond = vi.fn()
-    const handler = toFetchHandler(scriptedApi({ respond }))
-    const response = await handler.fetch('http://dsh.internal/api/respond', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ type: 'client-response' }) })
-    expect(await response.json()).toEqual({ accepted: false, reason: 'bad-response' })
-    expect(respond).not.toHaveBeenCalled()
-  })
-})
-
 describe('envelope tap', () => {
   it('delivers one microtask batch of full forms per unary call', async () => {
     const api = scriptedApi()
     const tapped = client(api)
     const batches: (readonly RpcMessage[])[] = []
     tapped.subscribeEnvelopes(batch => batches.push(batch))
-    await tapped.sessions.list({})
+    await tapped.host.describe({})
     await vi.waitFor(() => { expect(batches.length).toBeGreaterThan(0) })
     const all = batches.flat()
     expect(all.map(m => m.type)).toEqual(['client-request', 'server-response'])
@@ -694,7 +387,7 @@ describe('envelope tap', () => {
       const good: string[] = []
       tapped.subscribeEnvelopes(() => { throw new Error('listener bug') })
       tapped.subscribeEnvelopes(batch => good.push(...batch.map(m => m.type)))
-      const response = await tapped.sessions.list({})
+      const response = await tapped.host.describe({})
       expect(response.result.ok).toBe(true)
       await vi.waitFor(() => { expect(good).toContain('server-response') })
     } finally {
@@ -705,11 +398,11 @@ describe('envelope tap', () => {
   it('buffers nothing with zero subscribers and unsubscribes cleanly', async () => {
     const api = scriptedApi()
     const tapped = client(api)
-    await tapped.sessions.list({}) // no subscribers: must not accumulate
+    await tapped.host.describe({}) // no subscribers: must not accumulate
     const batches: (readonly RpcMessage[])[] = []
     const unsubscribe = tapped.subscribeEnvelopes(batch => batches.push(batch))
     unsubscribe()
-    await tapped.sessions.list({})
+    await tapped.host.describe({})
     await new Promise(resolve => setTimeout(resolve, 0))
     expect(batches).toEqual([])
   })
@@ -751,7 +444,12 @@ describe('config unary surface', () => {
       },
       llm: {
         providers: record('llm.providers', r => ok(r, { providers: [providerRow] })),
-        models: record('llm.models', r => ok(r, { groups: [group], failures: [] })),
+        models: record('llm.models', r => ok(r, {
+          default: { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
+          routableProviders: ['deepseek-official'],
+          groups: [group],
+          failures: [],
+        })),
         discoverModels: record('llm.discoverModels', r => ok(r, { models: [{ id: 'acme-large', contextWindow: 65536 }] })),
       },
     })
@@ -777,7 +475,15 @@ describe('config unary surface', () => {
     const providers = await c.llm.providers({})
     expect(providers.result).toEqual({ ok: true, value: { providers: [providerRow] } })
     const models = await c.llm.models({})
-    expect(models.result).toEqual({ ok: true, value: { groups: [group], failures: [] } })
+    expect(models.result).toEqual({
+      ok: true,
+      value: {
+        default: { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
+        routableProviders: ['deepseek-official'],
+        groups: [group],
+        failures: [],
+      },
+    })
     const discovered = await c.llm.discoverModels({
       settingsNs: 'llm-pi-ai',
       baseURL: 'https://gateway.acme.example/v1',

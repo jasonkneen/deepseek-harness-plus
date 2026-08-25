@@ -9,9 +9,9 @@
 export const DEFAULT_ROOT = '/dsh'
 
 /**
- * Leaf name of the packed image: one gzip member holding the ustar archive. The
- * app build writes it beside the page and the page's boot fetches it from there,
- * so the extension is part of what a deployment serves.
+ * Leaf name of the packed base image: one gzip member holding the ustar archive.
+ * The app build writes it beside the page and the page's boot fetches it from
+ * there, so the extension is part of what a deployment serves.
  */
 export const IMAGE_FILE_NAME = 'vfs-image.tar.gz'
 
@@ -26,6 +26,12 @@ export const IMAGE_HOME_DIRECTORY = 'home'
 
 /** Working directories the host tree expects to exist, empty. */
 export const IMAGE_EMPTY_DIRECTORIES: readonly string[] = ['home/', 'workspace/', 'tmp/']
+
+/**
+ * Top-level directories an overlay archive may populate. Runtime code,
+ * configuration, and the lowering manifest remain owned by the base image.
+ */
+export const IMAGE_OVERLAY_DIRECTORIES: readonly string[] = ['home', 'workspace']
 
 /**
  * Identity of the lowered code shape, recorded in the image manifest by the

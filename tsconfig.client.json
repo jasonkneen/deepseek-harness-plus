@@ -42,13 +42,11 @@
     // smoke policy). webserver has zero workspace deps and no cordis merge,
     // so it cannot drag host-side Context augmentation into this program.
     { "path": "./packages/host/webserver" },
-    // Compaction seam: the client-runtime pin test value-imports the canonical
-    // checkpoint const from the cordis-free dsh-compaction/checkpoint leaf and
-    // deliberately never loads the dsh-compaction package root or the host-side
-    // Context merges reachable through it. The client package pins the same
-    // leaf through a type-only import in transcript-adapter.ts; composite
-    // rootDir rules make both paths depend on this runtime project reference.
+    // Compaction seam: ui-chat type-imports the canonical checkpoint contract
+    // from the cordis-free dsh-compaction/checkpoint leaf. Composite rootDir
+    // rules make that path depend on this project reference.
     { "path": "./packages/compaction/compaction" },
+    { "path": "./packages/client/store" },
     { "path": "./packages/client/ui-slots" },
     { "path": "./packages/client/ui-attachment" },
     { "path": "./packages/client/ui-primitives" },
@@ -57,14 +55,17 @@
     { "path": "./packages/client/connection/tsconfig.client.json" },
     { "path": "./packages/typert/registry" },
     { "path": "./packages/api/gateway/tsconfig.client.json" },
+    { "path": "./packages/api/session-controller/tsconfig.client.json" },
+    { "path": "./packages/api/workspace-controller/tsconfig.client.json" },
     { "path": "./packages/api/remotes/tsconfig.client.json" },
-    { "path": "./packages/client/runtime" },
     { "path": "./packages/extensions/cordis-client-runner" },
     { "path": "./packages/extensions/ui-cordis" },
     { "path": "./packages/test-support/client-runtime" },
     { "path": "./packages/client/ui-layout" },
     { "path": "./packages/client/ui-sidebar" },
     { "path": "./packages/client/ui-brand-official" },
+    { "path": "./packages/client/ui-approval" },
+    { "path": "./packages/client/ui-chat" },
     { "path": "./packages/client/ui-conversation" },
     { "path": "./packages/client/ui-tool" },
     { "path": "./packages/client/ui-deliverables" },
@@ -95,6 +96,7 @@
     { "path": "./packages/client/ui-settings-plugin-inventory" },
     { "path": "./packages/client/locale" },
     { "path": "./packages/client/ui-renderer" },
+    { "path": "./packages/client/ui-session" },
     { "path": "./packages/client/web" },
     { "path": "./apps/web" }
   ]

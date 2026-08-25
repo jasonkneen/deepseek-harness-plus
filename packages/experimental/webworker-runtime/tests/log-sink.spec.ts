@@ -4,10 +4,9 @@
  * Cordis's `LoggerService` accepts every message and, with no exporter mounted,
  * only fills a ring buffer. No profile in this repository mounts one, so a
  * provider that fails and is skipped — the skill registry logs exactly that —
- * used to look identical to one that found nothing. That is how an empty skill
- * catalog hid a filesystem fault through two rounds of diagnosis, so the sink is
- * exercised here rather than trusted: a diagnostic nothing runs is a diagnostic
- * that silently stops working.
+ * is indistinguishable from one that found nothing. The sink is exercised here
+ * rather than trusted: a diagnostic that runs nothing is a diagnostic that
+ * silently stops working.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { installLogSink, type LogExporter, type LogMessage } from '../src/worker-host.ts'

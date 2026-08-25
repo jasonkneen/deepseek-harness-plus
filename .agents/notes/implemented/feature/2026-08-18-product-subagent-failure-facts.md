@@ -12,7 +12,7 @@ Copying SDK error text, app-server payloads, or stderr into the result would exp
 
 ## Decision
 
-Each product Provider owns the mapping from its pinned official error union, current operation, and managed process outcome to one fixed safe diagnostic line. `SubagentResult` remains unchanged: consumers receive the existing bounded `diagnostic` string and do not parse its product-private fields.
+Each product Provider owns the mapping from its pinned official structured failures, current operation, and managed process outcome to one fixed safe diagnostic line. `SubagentResult` remains unchanged: consumers receive the existing bounded `diagnostic` string and do not parse its product-private fields. The [minimal-diagnostics decision](../simplification/2026-08-21-product-subagent-minimal-diagnostics.md) supersedes this note's complete Claude Code subtype mirror; this note continues to own the current detailed Codex categories until that provider adopts the same simplification.
 
 ### Safe diagnostic
 
@@ -28,14 +28,7 @@ Successful results and local cancellation expose no failure fact. Raw product er
 
 ### Claude Code facts
 
-Agent SDK 0.3.220 defines four error subtypes: `error_during_execution`, `error_max_turns`, `error_max_budget_usd`, and `error_max_structured_output_retries`. The Claude Code Provider preserves each exact subtype as the category while keeping the shared stop reason `error`. An error-marked or blank success uses `invalid-success`, a missing result uses `missing-result`, a process exit before an SDK terminal result uses `process-exit`, and an unrecognized value or exception uses `unknown` without copying the value.
-
-| Stage | Owned operation | Observable failure |
-| --- | --- | --- |
-| `query-start` | SDK query construction, native platform-payload startup, and unpublished rollback | `start()` rejects with fixed safe facts and any process outcome observed before rollback |
-| `query-run` | Published SDK message iteration and strict terminal-result validation | The run resolves as `error` with the exact known subtype or a fixed result category |
-| `process` | Managed CLI exits before the SDK supplies a terminal result | The run resolves as `error` with `process-exit` and the available exit code and signal |
-| `teardown` | Query close and managed process-tree release | `dispose()` rejects independently with fixed safe facts after cleanup still reaches its final exit wait |
+The [minimal-diagnostics decision](../simplification/2026-08-21-product-subagent-minimal-diagnostics.md) exclusively owns Claude Code categories, stages, process facts, permission ordering, and verification for Agent SDK 0.3.241 and Claude Code 2.1.241. This note carries no separate Claude category contract.
 
 ### Codex facts
 
@@ -56,7 +49,7 @@ Codex app-server 0.147.0 defines eleven string categories and five object varian
 
 | Fact or resource | Owner | Consumer behavior |
 | --- | --- | --- |
-| Product error category | Pinned official SDK or app-server version | The Provider maps only the declared structured union and uses `unknown` outside it |
+| Codex error category | Codex Provider over its pinned official app-server | The Provider preserves its current structured category and uses `unknown` outside the recognized set |
 | Current failure stage | Product Provider operation | Derived at the failure site; never persisted or used as a recovery state |
 | Exit code and signal | `dsh-subprocess` process handle | The Provider displays observed values without inferring missing ones |
 | Diagnostic bytes and delivery | `dsh-subagent`, foreground tool, and Job runtime | The same bounded text is presented separately from assistant output in both scheduling modes |
@@ -64,7 +57,7 @@ Codex app-server 0.147.0 defines eleven string categories and five object varian
 
 ## Verification
 
-Claude Code package tests pin all four SDK subtypes, invalid success, missing result, unknown values and exceptions, all four stages, independent exit code and signal fields, permission-fact ordering, sanitization, successful-result and cancellation omission, concurrent-run isolation, and cleanup completion. Codex package tests pin all sixteen error-info variants, HTTP status presence and absence, all six stages, unknown fallback, stop-reason preservation, permission ordering, sanitization, cancellation, concurrency, and cleanup aggregation. The real SDK/CLI fixture produces an actual Claude `error_max_turns`; the real app-server fixture produces an actual Codex `internalServerError`; both fixtures cover process/protocol failure and whole-tree quiescence. The keyless ACP snapshot records each product's exact diagnostic in foreground error output, a background completion notice, and `job_output`.
+Claude Code verification is owned by the [minimal-diagnostics decision](../simplification/2026-08-21-product-subagent-minimal-diagnostics.md). Codex package tests pin all sixteen current error-info variants, HTTP status presence and absence, all six stages, unknown fallback, stop-reason preservation, permission ordering, sanitization, cancellation, concurrency, and cleanup aggregation. The real app-server fixture produces an actual Codex `internalServerError` and covers process/protocol failure and whole-tree quiescence. The keyless ACP snapshot records the Codex diagnostic in foreground error output, a background completion notice, and `job_output`.
 
 ## Alternatives considered
 
@@ -80,8 +73,8 @@ Claude Code package tests pin all four SDK subtypes, invalid success, missing re
 
 ## Consequences
 
-The parent can distinguish important Claude Code limits and Codex budget, usage, service, policy, request, connection, stream, rollback, sandbox, and active-turn failures without receiving raw product text. Foreground and background scheduling preserve the same fact because both consume one `SubagentResult`.
+The parent can distinguish the current Codex budget, usage, service, policy, request, connection, stream, rollback, sandbox, and active-turn categories without receiving raw product text. The [minimal-diagnostics decision](../simplification/2026-08-21-product-subagent-minimal-diagnostics.md) owns the corresponding Claude result. Foreground and background scheduling preserve the same fact because both consume one `SubagentResult`.
 
-The diagnostic is display text rather than a new public protocol. Callers may present it but must not branch on its punctuation or product-private category names. A pinned product-version upgrade must update the Provider mapping and evidence when its official error union changes.
+The diagnostic is display text rather than a new public protocol. Callers may present it but must not branch on its punctuation or product-private category names. A pinned product-version upgrade revalidates the Provider mapping and evidence without requiring every official error member to remain model-visible.
 
 This decision adds no product session persistence, retry policy, recovery state, stderr classifier, authentication or configuration taxonomy, progress stream, or human interaction path.

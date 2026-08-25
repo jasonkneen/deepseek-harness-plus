@@ -16,20 +16,20 @@ import {
 } from './scaffold.ts'
 import { connectFreshWorkspace, newEnglishPage, saveFailureShot } from './support.ts'
 
-const SNAPSHOT_DIR = fileURLToPath(new URL('./snapshots/steering', import.meta.url))
+const SNAPSHOT_DIR = fileURLToPath(new URL('../../../snapshots/web/steering', import.meta.url))
 const FIXTURE = join(SNAPSHOT_DIR, 'session.jsonl')
 // Two goldens pin the transient Host projection and its durable handoff: the
-// mid-turn state renders accepted steering from session/queue while the
+// mid-turn state renders accepted steering from the Session control queue while the
 // question blocks admission, then the settled state renders the same message
 // from user/message beside the reply that obeys it.
 const MID_EXPECTED = join(SNAPSHOT_DIR, 'mid-steer.expected.md')
 const SETTLED_EXPECTED = join(SNAPSHOT_DIR, 'settled.expected.md')
 const MODE = webSnapshotMode()
 // The question composer replaces the textarea, so fill → Queue row → Steer
-// must finish inside the first replay chunk window. At 15 ms that window is
-// shorter than Playwright's round trips; 50 ms supplies test-only headroom,
-// while larger values lengthen all three replay scenarios linearly.
-const REPLAY_PACE_MS = 50
+// starts only after request/context and must finish before the first replay
+// chunk. The compact canonical call plus 500 ms pacing gives loaded CI enough
+// time without stretching a long provider-authored chunk sequence.
+const REPLAY_PACE_MS = 500
 
 const PROMPT = 'Use the ask_user_question tool to ask me exactly one question with id "checkpoint", question "Ready to continue?", header "Checkpoint", and options labeled "Yes" and "No". After I answer, reply with one short sentence acknowledging my answer and stop.'
 const STEER = 'Interjection: include the word BANANA in your final reply.'
@@ -38,7 +38,7 @@ const STEER = 'Interjection: include the word BANANA in your final reply.'
 // replacement answers both model calls of a FRESH session (no recorded
 // session.jsonl exists — call 0 keeps the turn open with a question-tool
 // call, call 1 is the reply after both steerings drain).
-const STEER_ALL_DIR = fileURLToPath(new URL('./snapshots/steer-all', import.meta.url))
+const STEER_ALL_DIR = fileURLToPath(new URL('./expected/steer-all', import.meta.url))
 const STEER_ALL_FIXTURE = join(STEER_ALL_DIR, 'session.jsonl')
 const STEER_ALL_OVERRIDE = join(STEER_ALL_DIR, 'replay.override.json')
 const STEER_ALL_MID = join(STEER_ALL_DIR, 'mid-steer.expected.md')
@@ -73,12 +73,12 @@ describe('web e2e: mid-turn steering lands durably and visibly', () => {
   beforeAll(async () => {
     scaffold = await launchWebScaffold(MODE === 'record'
       ? {}
-      : { replayFixture: FIXTURE, paceMs: REPLAY_PACE_MS })
+      : { replayFixture: FIXTURE, paceMs: REPLAY_PACE_MS, compareReplaySession: true })
     scaffold.ctx.on('session/event', (_session, event) => { sessionEvents.push(event) })
     browser = await chromium.launch()
     page = await newEnglishPage(browser)
     tripwire = watchConsole(page)
-    await page.goto(scaffold.baseUrl, { waitUntil: 'load' })
+    await page.goto(scaffold.authenticatedUrl, { waitUntil: 'load' })
     await page.waitForSelector('[class*="frame"]', { timeout: 30_000 })
     // Fresh world: connect a Workspace so the composer scenarios start live.
     await connectFreshWorkspace(page, scaffold.workspaceCwd)
@@ -101,6 +101,10 @@ describe('web e2e: mid-turn steering lands durably and visibly', () => {
     const settled = scaffold.whenTurnSettled(MODE === 'record' ? 180_000 : 30_000)
     await input.fill(PROMPT)
     await input.press('Enter')
+    await expect.poll(
+      () => sessionEvents.some(event => event.type === 'request/context'),
+      { timeout: 10_000 },
+    ).toBe(true)
 
     // Enter remains the Queue gesture. The row action then atomically moves
     // this exact occurrence into the current turn's steering outbox.
@@ -182,12 +186,12 @@ describe('web e2e: composer shortcut steers directly', () => {
   const sessionEvents: SessionEvent[] = []
 
   beforeAll(async () => {
-    scaffold = await launchWebScaffold({ replayFixture: FIXTURE, paceMs: REPLAY_PACE_MS })
+    scaffold = await launchWebScaffold({ replayFixture: FIXTURE, paceMs: REPLAY_PACE_MS, compareReplaySession: false })
     scaffold.ctx.on('session/event', (_session, event) => { sessionEvents.push(event) })
     browser = await chromium.launch()
     page = await newEnglishPage(browser)
     tripwire = watchConsole(page)
-    await page.goto(scaffold.baseUrl, { waitUntil: 'load' })
+    await page.goto(scaffold.authenticatedUrl, { waitUntil: 'load' })
     await page.waitForSelector('[class*="frame"]', { timeout: 30_000 })
     await connectFreshWorkspace(page, scaffold.workspaceCwd)
   }, 120_000)
@@ -239,12 +243,12 @@ describe('web e2e: composer shortcut follows the swapped busy behavior', () => {
   const sessionEvents: SessionEvent[] = []
 
   beforeAll(async () => {
-    scaffold = await launchWebScaffold({ replayFixture: FIXTURE, paceMs: REPLAY_PACE_MS })
+    scaffold = await launchWebScaffold({ replayFixture: FIXTURE, paceMs: REPLAY_PACE_MS, compareReplaySession: false })
     scaffold.ctx.on('session/event', (_session, event) => { sessionEvents.push(event) })
     browser = await chromium.launch()
     page = await newEnglishPage(browser)
     tripwire = watchConsole(page)
-    await page.goto(scaffold.baseUrl, { waitUntil: 'load' })
+    await page.goto(scaffold.authenticatedUrl, { waitUntil: 'load' })
     await page.waitForSelector('[class*="frame"]', { timeout: 30_000 })
     await connectFreshWorkspace(page, scaffold.workspaceCwd)
   }, 120_000)
@@ -310,7 +314,7 @@ describe('web e2e: empty-draft Cmd+Enter steers the whole queue', () => {
     browser = await chromium.launch()
     page = await newEnglishPage(browser)
     tripwire = watchConsole(page)
-    await page.goto(scaffold.baseUrl, { waitUntil: 'load' })
+    await page.goto(scaffold.authenticatedUrl, { waitUntil: 'load' })
     await page.waitForSelector('[class*="frame"]', { timeout: 30_000 })
     await connectFreshWorkspace(page, scaffold.workspaceCwd)
     await page.getByText('Standard mode', { exact: true }).waitFor({ timeout: 10_000 })

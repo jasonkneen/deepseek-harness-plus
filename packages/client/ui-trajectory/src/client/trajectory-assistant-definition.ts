@@ -1,13 +1,13 @@
 import type { Context } from '@deepseek-ai/cordis'
 import type {
-  AssistantBlock, AssistantMessageNode, ConversationLocation, ConversationMatch,
-  ConversationNodeContext, ConversationNodeDefinition, PartialAssistant, RequestView,
-} from '@deepseek-ai/dsh-client-runtime/client'
-import {
-  displayFailureMessage, emptyAssistantBlock, isTokenDelta, toAssistantBlock,
-  toAssistantBlocks,
-} from '@deepseek-ai/dsh-client-runtime/client'
+  AssistantBlock, AssistantMessageNode, ConversationLocation,
+  ConversationMatch, ConversationNodeContext, ConversationNodeDefinition,
+  PartialAssistant, RequestView,
+} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import { trajectoryNode } from './trajectory-definition-common.ts'
+import {
+  displayFailure, emptyAssistantBlock, isTokenDelta, toAssistantBlock, toAssistantBlocks,
+} from './trajectory-event-projection.ts'
 
 /* jscpd:ignore-start -- Target-owned Definitions intentionally keep their event
  * state machines independent; see ../../../../../.agents/notes/implemented/
@@ -22,6 +22,7 @@ interface UsageValue {
 
 interface RetryValue {
   readonly message: string
+  readonly code?: string
   readonly retry: number
   readonly maxRetries?: number
   readonly delayMs: number
@@ -261,6 +262,7 @@ function assistantRequest(
       ? {}
       : {
         error: state.retry.message,
+        ...(state.retry.code === undefined ? {} : { errorCode: state.retry.code }),
         retry: state.retry.retry,
         ...(state.retry.maxRetries === undefined ? {} : { maxRetries: state.retry.maxRetries }),
         retryDelayMs: state.retry.delayMs,
@@ -316,6 +318,7 @@ const trajectoryAssistantDefinition: ConversationNodeDefinition<AssistantState> 
     if (match.event.type === 'step/end') return { ...context.state, stepEnd: match }
     if (match.event.type !== 'llm/retry') return context.state
     const data = match.event.data
+    const failure = displayFailure(data.failure)
     return {
       ...initialState(
         context.state.turn,
@@ -327,7 +330,8 @@ const trajectoryAssistantDefinition: ConversationNodeDefinition<AssistantState> 
       firstTokenTime: context.state.firstTokenTime,
       usage: context.state.usage,
       retry: {
-        message: displayFailureMessage(data.failure),
+        message: failure.message,
+        ...(failure.code === undefined ? {} : { code: failure.code }),
         retry: data.retry,
         ...(data.mode === 'normal' ? { maxRetries: data.maxRetries } : {}),
         delayMs: data.delayMs,
@@ -364,6 +368,7 @@ interface TurnEndState {
   readonly seq: number
   readonly time: number
   readonly error?: string
+  readonly errorCode?: string
 }
 
 const trajectoryTurnEndDefinition: ConversationNodeDefinition<TurnEndState> = {
@@ -377,11 +382,15 @@ const trajectoryTurnEndDefinition: ConversationNodeDefinition<TurnEndState> = {
       throw new Error('trajectory-turn-end start requires turn/end')
     }
     const reason = match.event.data.reason
+    const failure = reason.kind === 'error' ? displayFailure(reason.error) : undefined
     return {
       turn: match.event.data.turn,
       seq: match.event.seq,
       time: match.event.time,
-      ...(reason.kind === 'error' ? { error: displayFailureMessage(reason.error) } : {}),
+      ...(failure === undefined ? {} : {
+        error: failure.message,
+        ...(failure.code === undefined ? {} : { errorCode: failure.code }),
+      }),
     }
   },
   update: context => context.state,
@@ -392,6 +401,7 @@ const trajectoryTurnEndDefinition: ConversationNodeDefinition<TurnEndState> = {
       turn: context.state.turn,
       time: context.state.time,
       ...(context.state.error === undefined ? {} : { error: context.state.error }),
+      ...(context.state.errorCode === undefined ? {} : { errorCode: context.state.errorCode }),
     }),
 }
 /* jscpd:ignore-end */
@@ -402,6 +412,6 @@ const trajectoryTurnEndDefinition: ConversationNodeDefinition<TurnEndState> = {
  * @param ctx - Plugin context receiving the Definitions.
  */
 export function registerTrajectoryAssistantDefinition(ctx: Context): void {
-  ctx.conversationEvents.register(trajectoryAssistantDefinition)
-  ctx.conversationEvents.register(trajectoryTurnEndDefinition)
+  ctx.uiConversation.events.register(trajectoryAssistantDefinition)
+  ctx.uiConversation.events.register(trajectoryTurnEndDefinition)
 }

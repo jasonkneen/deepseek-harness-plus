@@ -9,7 +9,7 @@ import type {} from '@deepseek-ai/dsh-agent-presets'
 import type {} from '@deepseek-ai/dsh-system-prompt'
 import { assertFixtureInventory, launchWebScaffold, type WebScaffold } from './scaffold.ts'
 
-const SNAPSHOT_DIR = fileURLToPath(new URL('./snapshots/minimal-preset', import.meta.url))
+const SNAPSHOT_DIR = fileURLToPath(new URL('../../../snapshots/web/minimal-preset', import.meta.url))
 const FIXTURE = join(SNAPSHOT_DIR, 'session.jsonl')
 const PROMPT = 'Reply exactly MINIMAL_PRESET_REQUEST_OK and stop.'
 
@@ -19,7 +19,7 @@ describe('minimal agent preset', () => {
   let disposeInjectedPrompt: () => void
 
   beforeAll(async () => {
-    scaffold = await launchWebScaffold({ replayFixture: FIXTURE })
+    scaffold = await launchWebScaffold({ replayFixture: FIXTURE, compareReplaySession: true })
     disposeInjectedPrompt = scaffold.ctx.systemPrompt.section({
       name: 'test:injected-prompt',
       order: 999,
@@ -100,6 +100,7 @@ describe('minimal agent preset', () => {
     expect({
       prompt: requestHeader.system,
       tools: requestHeader.tools?.map(tool => tool.name),
+      goalCommand: scaffold.ctx.commands.find(agentHandle.agent, 'goal') !== undefined,
       bash: text(bash),
       editor: text(editor),
     }).toMatchInlineSnapshot(`
@@ -108,6 +109,7 @@ describe('minimal agent preset', () => {
         "editor": "Here's the content of {{cwd}}/preset-smoke.txt with line numbers (which has a total of 2 lines):
            1  MINIMAL_EDITOR_OK
            2",
+        "goalCommand": false,
         "prompt": "You are a helpful software engineer assistant.",
         "tools": [
           "bash",
@@ -117,6 +119,10 @@ describe('minimal agent preset', () => {
     `)
     expect(requestHeader.tools?.toSorted((left, right) => left.name.localeCompare(right.name)))
       .toEqual(scaffold.ctx.tools.schemas(agentHandle.agent).toSorted((left, right) => left.name.localeCompare(right.name)))
-    await assertFixtureInventory(SNAPSHOT_DIR, ['session.jsonl'])
+    await assertFixtureInventory(SNAPSHOT_DIR, [
+      'session.jsonl',
+      'system-prompt.expected.md',
+      'tool-schemas.expected.json',
+    ])
   })
 })

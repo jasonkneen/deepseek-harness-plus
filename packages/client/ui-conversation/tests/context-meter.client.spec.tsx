@@ -5,6 +5,7 @@ import { cleanup, fireEvent, render } from '@testing-library/react'
 import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
 import { en as commonEn, zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/index.ts'
 import { ContextMeter, type ContextMeterProps } from '../src/client/skeleton/ContextMeter.tsx'
+import { contextOccupancy } from '../src/client/context-occupancy.ts'
 import css from '../src/client/skeleton/ContextMeter.module.css'
 import { en, zh } from '../src/client/locales.ts'
 
@@ -27,6 +28,17 @@ function meter(values: Record<string, unknown>, translate: ContextMeterProps['t'
 }
 
 describe('ContextMeter', () => {
+  it('computes occupancy only when both a numerator and capacity are known', () => {
+    expect(contextOccupancy({ pressureTokens: 32_000, projectedTokens: 6_000, contextWindow: 128_000 }))
+      .toEqual({ percent: 5, usedTokens: 6_000, contextWindow: 128_000 })
+    expect(contextOccupancy({ pressureTokens: 32_000, contextWindow: 128_000 }))
+      .toEqual({ percent: 25, usedTokens: 32_000, contextWindow: 128_000 })
+    expect(contextOccupancy({ pressureTokens: 32_000 })).toBeNull()
+    expect(contextOccupancy({ contextWindow: 128_000 })).toBeNull()
+    expect(contextOccupancy(undefined)).toBeNull()
+    expect(contextOccupancy({ pressureTokens: 300_000, contextWindow: 128_000 })?.percent).toBe(100)
+  })
+
   it('renders nothing until both pressure and capacity are known', () => {
     expect(meter({}).container.textContent).toBe('')
     expect(meter({ contextPressure: { pressureTokens: 32_000 } }).container.textContent).toBe('')

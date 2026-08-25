@@ -2,8 +2,8 @@ import type { Context } from '@deepseek-ai/cordis'
 import { describe, expect, it } from 'vitest'
 import type {
   ConversationEventInput, ConversationNodeDefinition, ConversationViewDefinition,
-} from '@deepseek-ai/dsh-client-runtime/client'
-import { ConversationNodeAssembler } from '@deepseek-ai/dsh-client-runtime/client'
+} from '@deepseek-ai/dsh-client-ui-conversation/client'
+import { ConversationNodeAssembler, inspectRequestPrompt } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import { registerTrajectoryAssistantDefinition } from '../src/client/trajectory-assistant-definition.ts'
 import { registerTrajectoryCompactionDefinitions } from '../src/client/trajectory-compaction-definition.ts'
 import type { TrajectorySnapshot } from '../src/client/trajectory-contract.ts'
@@ -14,11 +14,14 @@ import { registerTrajectoryToolDefinition } from '../src/client/trajectory-tool-
 
 const DEFINITIONS: ConversationNodeDefinition[] = []
 const registrationContext = {
-  conversationEvents: {
-    register: (definition: ConversationNodeDefinition) => {
-      DEFINITIONS.push(definition)
-      return () => {}
+  uiConversation: {
+    events: {
+      register: (definition: ConversationNodeDefinition) => {
+        DEFINITIONS.push(definition)
+        return () => {}
+      },
     },
+    inspectRequestPrompt,
   },
 } as unknown as Context
 
@@ -58,7 +61,6 @@ function at(
       data,
       ...extra,
     } as unknown as ConversationEventInput['event'],
-    view: undefined,
   }
 }
 
@@ -73,7 +75,7 @@ function assembler(events: readonly ConversationEventInput[]): ConversationNodeA
 }
 
 function snapshot(value: ConversationNodeAssembler): TrajectorySnapshot {
-  const current = value.snapshot('trajectory') as TrajectorySnapshot | undefined
+  const current = value.get('trajectory')
   if (current === undefined) throw new Error('trajectory view was not registered')
   return current
 }
@@ -142,6 +144,8 @@ describe('Trajectory conversation Definitions', () => {
     expect(settled.requests).toMatchObject([{
       purpose: 'assistant',
       status: 'error',
+      error: 'temporary failure',
+      errorCode: 'TRANSPORT',
       retry: 1,
       maxRetries: 2,
       retryDelayMs: 25,
@@ -181,7 +185,7 @@ describe('Trajectory conversation Definitions', () => {
     }])
   })
 
-  it('keeps parallel interrupted roots and nests Code Dispatch results', () => {
+  it('keeps parallel roots, raw Tool facts, and nested Code Dispatch results', () => {
     const current = snapshot(assembler([
       at(1, 'turn/start', { turn: 1 }),
       at(2, 'step/start', { turn: 1, step: 1 }),
@@ -206,16 +210,44 @@ describe('Trajectory conversation Definitions', () => {
         arguments: { path: 'README.md' },
         content: [{ type: 'text', text: 'contents' }],
       }),
-      at(7, 'step/end', { turn: 1, step: 1 }),
+      at(7, 'tool/result', {
+        turn: 1,
+        step: 1,
+        message: {
+          id: 'result-root-a',
+          role: 'user',
+          source: { kind: 'tool', callId: 'root-a' },
+          content: [{
+            type: 'tool-result',
+            toolCallId: 'root-a',
+            content: [{ type: 'text', text: 'root failed' }],
+            isError: true,
+          }],
+        },
+        error: { name: 'ToolError', code: 'failed' },
+        meta: { presentation: 'raw' },
+      }, { surfaceOp: 'append' }),
+      at(8, 'step/end', { turn: 1, step: 1 }),
     ]))
 
     const tools = current.eventNodes.filter(node => node.kind === 'tool-result')
     expect(tools.map(node => node.callId).sort()).toEqual(['root-a', 'root-b'])
-    expect(tools.find(node => node.callId === 'root-a')?.subCalls).toMatchObject([{
+    expect(tools.find(node => node.callId === 'root-a')).toMatchObject({
       kind: 'tool-result',
-      callId: 'child',
-      call: { name: 'read' },
-    }])
+      callId: 'root-a',
+      call: { name: 'code', argsRaw: '{}' },
+      content: [{ type: 'text', text: 'root failed' }],
+      isError: true,
+      error: { name: 'ToolError', code: 'failed' },
+      meta: { presentation: 'raw' },
+      subCalls: [{
+        kind: 'tool-result', callId: 'child', parentCallId: 'root-a', call: { name: 'read' },
+      }],
+    })
+    expect(tools.find(node => node.callId === 'root-b')).toMatchObject({
+      isError: true,
+      error: { name: 'Interrupted', code: 'interrupted' },
+    })
   })
 
   it('assembles compaction lifecycle, checkpoint replacement, and orphan interruption', () => {

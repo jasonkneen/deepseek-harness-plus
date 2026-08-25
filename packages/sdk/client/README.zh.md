@@ -2,48 +2,51 @@
 
 [English](README.md) | 中文
 
-以子进程方式驱动 DeepSeek Harness 运行时、走 stdio JSON-RPC 的 TypeScript 客户端 SDK——[Python SDK](../../../python/README.zh.md)（`deepseek-harness`）的设计孪生，共享同一个运行时对端、协议与分层：`DeepSeekHarness` 是高层自有运行 API，`HarnessClient` 是低层协议客户端。包（package）根枚举消费方接口：两层客户端、面向调用方的类型和 `JsonRpcResponseError`；源模块、规范化辅助函数与订阅投递机制不供消费方导入。纯库：不在任何 Cordis 上下文注册；它所 spawn 的运行时进程是一个完整 harness，其组成由自己的 `cordis.yml` 决定。
+通过 stdio JSON-RPC 驱动同版本 [`dsh`](../../../apps/cli/README.zh.md) runtime 的 TypeScript client SDK。`DeepSeekHarness` 是高层自有运行 API，`HarnessClient` 是低层协议 client。本包依赖 `@deepseek-ai/dsh` 并直接解析随安装的 CLI，因此普通消费方无需发现 runtime 可执行文件，也无需维护第二套应用配置。干净源码 checkout 中若不存在 `lib/bin.js`，client 会通过已解析的 `tsx/esm` loader 启动同一包的 `src/bin.ts`，并应用一个省略构建期生成 Typert 贡献加载的内部 patch；SDK JSON-RPC 应用不消费该远程网关。已安装包使用完整的构建后入口。
 
-与 Python SDK 不同，启动规格完全显式（`command`/`args`）：本包面向仓库近旁的 TypeScript 消费方，包括 [`dsh-subagent-dsh-sdk`](../../subagent/subagent-dsh-sdk/README.zh.md) 后端和自动化；它们知道自己要启动哪个运行时。捆绑运行时解析（寻找打包可执行文件）仍归 Python 发行版负责。
+两层 client 接受同一组启动字段：`dshBin?`、`profile?`（默认 `sdk`）、有序 `patches?`、`dshHome?`、`processCwd?`、`env?`，以及请求、初始化、关闭和 dispose 超时。相对调用方的 CLI 模块、patch、显式 home 与进程 cwd 路径会在 spawn 前转为绝对路径。client 会在所有平台上通过自身当前的 Node 可执行文件运行 dsh CLI 模块。省略 home 时保留 dsh 的普通解析（先 `DSH_HOME`，再 `~/.dsh`）；显式 home 会覆盖子进程环境。提供 `env` 时，它整体替换子进程环境；client 会在 `start()` 实际 spawn 时读取该对象或 `process.env`，所以首次启动前的修改会生效。
+
+组合自定义属于 profile 系统。使用 `dsh plugin --profile <name> …` 安装持久组合包与插件依赖，编辑该 profile 的 `cordis.patch.yml`，再通过 `profile` 选择。`patches` 用于有序的逐次启动覆盖。patch 会替换配置行的完整 config；自定义 profile 必须保留 `@deepseek-ai/dsh-sdk-app` 或另一个 SDK server 配置行。
 
 ## DeepSeekHarness
 
 ```ts
 import { DeepSeekHarness } from '@deepseek-ai/dsh-sdk-client'
+import { ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 
 await using harness = new DeepSeekHarness({
-  launch: { command: 'node', args: ['lib/bin.js', 'cordis.yml'] },
+  profile: 'sdk',
+  patches: ['./automation.cordis.yml'],
   provider: 'deepseek-official',
   model: 'deepseek-v4-flash',
+  reasoningEffort: ReasoningEffortId('max'),
   maxTokens: 49_152,
 })
 const result = await harness.run('say hi')
 console.log(result.finalResponse)
 ```
 
-子进程在首次使用时惰性启动，并在多次 `run()` 之间持续归实例所有；必须 `close()`（或 `await using`），子进程才总能被回收。`start()` 记忆化 `initialize` 握手（工作区 cwd——在通过协议传输之前解析为绝对路径——加 provider/model 路由和可选的正整数 `maxTokens` 输出上限）；握手失败会回收运行时并换入全新客户端，后续调用用新子进程重试（直到终结性的 `close()`）。该上限作用于根 agent（智能体）的每次请求，并由进程内后代继承；压缩（compaction）插件单独持有摘要上限。`session(id?)` 打开具名或全新的会话句柄。
+dsh 进程在首次使用时惰性启动，并在多次 `run()` 之间持续归实例所有；必须调用 `close()`（或使用 `await using`）。`start()` 会记忆化有界的 `initialize` 握手，其中包含工作区 cwd、提供方／模型路由、可选且由适配器持有的 `reasoningEffort`，以及可选的正整数 `maxTokens` 输出上限。`initializeTimeoutMs` 默认 10 秒，诊断会写明所选 profile 并附带保留的 stderr 尾部。服务器会在接受提示词前校验确切路由；省略推理强度时保留模型自身的默认值。握手失败会回收运行时，之后的调用可以用新进程重试，直至终结性的 `close()`。该上限作用于根 agent（智能体）的每次请求，并由进程内后代继承；压缩（compaction）插件单独持有摘要上限。`session(id?)` 打开具名或全新的会话句柄。
 
-`run(input, { sessionId?, onNotification? })` 拥有一个活动区间：它将提示词排入队列，等待其 `MessageId` 出现在持久的 `agent/inbox/spliced` 回执中，然后持续收集到整个 agent 下一次进入 `idle`。它返回 `RunResult { sessionId, finalResponse, events, notifications }`。`finalResponse` 是该区间内根会话最后提交的助手文本，并非因果上归属于该提示词的响应；steering（中途引导）、注入的上下文和其他排队工作都可能在 idle 前参与其中。`events` 包含根会话事件，`notifications` 还包含通过 `subagent.started` 发现的后代，均按协议传输顺序排列。结果不携带提示词级状态或轮次原因。传输丢失、超时和协议违例会导致 Promise 被拒绝；模型结果仍可在事件流中观察，但不会归属于某一输入。
+握手携带绝对 session workspace、provider/model、可选的 `reasoningEffort` 和可选的正整数 `maxTokens`。`run(input, { sessionId?, onNotification? })` 接受文本或 `SdkPromptContentBlock[]`；内联栅格图片块携带规范 base64 与 `mimeType`，并在运行时内成为持久附件。该调用将 prompt 入队，等待持久 inbox 回执，并收集到整个根 agent 下次 idle。它返回 `RunResult { sessionId, finalResponse, events, notifications }`；`events` 仅限根 session，notification 还包括发现的后代。
 
 ## HarnessClient
 
-自有运行 API 之下的协议客户端：显式 `start()`/`initialize()`/`prompt()`/`request()`/`close()`，外加通知订阅。`prompt()` 在运行时接受排队消息后立即返回该消息的 ID，绝不等待 agent 活动。`subscribe(filter?)` 返回 `NotificationSubscription`（可等待的 `next()`、非阻塞 `tryNext()`、异步迭代）；`subscribeSessionTree(id)` 把范围限定到一个会话及从 `subagent.started` 血缘边发现的后代——运行时对上下文内每个会话都发通知，范围限定在客户端完成，与 Python SDK 完全一致。本包导出有明确类型的错误：`JsonRpcResponseError`（协议错误响应，保留 code/data）、`RequestTimeoutError`（配置的时限已到）、`SdkProtocolError`（响应超出文档化协议）、`TransportClosedError`（运行时已消失——消息携带退出码与有界 stderr 尾部）。
+低层 client 提供 `start()`/`initialize()`/`prompt()`/`request()`/`close()` 与 notification 订阅。`prompt()` 返回入队后的持久消息 ID，而不是 prompt 结果。`subscribeSessionTree(id)` 把进程级 notification 流限定到一个 session 血缘。导出的失败类型为 `JsonRpcResponseError`、`RequestTimeoutError`、`SdkProtocolError` 与 `TransportClosedError`。
 
-`close()` 先请求协议 `shutdown`（受 `shutdownTimeoutMs` 约束，默认 1000 毫秒），然后走 stdin-EOF → SIGTERM → SIGKILL 阶梯（`disposeEofGraceMs` 默认 6000，`disposeGraceMs` 默认 3000）直到进程真正退出。该阶梯为本客户端私有：它运行在任何 harness 上下文之外，无法搭乘 [`dsh-subprocess`](../../subprocess/README.zh.md) 服务——即该 seam 所记录的 SDK 托管传输例外。幂等，已关闭的客户端拒绝复用。
-
-`HarnessClientOptions.env` 给定时整体替换子进程环境（`undefined` 原样继承父进程环境）；凭据策略归调用方——`dsh-subprocess` 的 `scrubbedParentEnv` 是面向隔离启动的共享擦除基底。
+`close()` 先请求协议 `shutdown`（默认上限 1000 毫秒），再执行 stdin EOF → SIGTERM → SIGKILL（`disposeEofGraceMs` 6000、`disposeGraceMs` 3000），直到进程退出。client 位于任何 Harness context 之外，因此其私有进程 adapter 是 `dsh-subprocess` 中记录的 SDK 托管传输例外；通用 command/argv 启动仅是包测试机制，不是消费方接口。
 
 ## 模型体验
 
-无，因为这是一个客户端进程库；模型运行在 spawn 出的运行时中，其体验由该运行时的 `cordis.yml` 所组合的插件决定。
+本库不会增加任何模型可见内容；所选 dsh profile 负责子进程模型的 prompt、工具、策略和缓存前缀（见 [`dsh-sdk-app`](../../bundle/sdk-app/README.zh.md)）。
 
 #### KV Cache 影响
 
-无；本包既不组装也不发送提供方请求。
+client 进程中无影响。子进程的 profile、patch、provider、model 与历史决定缓存复用。
 
 ## 已知限制与暂缓事项
 
-- **无捆绑运行时解析**——调用方显式指定运行时可执行文件；打包可执行文件的发现留在 Python 侧，直到出现 TypeScript 发行版消费方。
-- **无轮次中取消**——协议层没有提示词取消方法；放弃轮次意味着关闭运行时（见协议的 [已知限制](../protocol/README.zh.md)）。
-- **没有逐提示词结果或取消**——低层 `prompt()` 只返回入队回执；高层 `run()` 负责从回执收集到 idle，放弃该过程意味着关闭运行时。
-- **客户端→服务端通知与服务端→客户端请求**在协议两端都未实现；传输层为未来审批流保留了承载能力。
+- **所选 profile 可以省略 SDK server**：初始化会在配置的上限失败并写明 profile；请保留 SDK app 组合包或等价 server 配置行。
+- **没有轮次中取消或逐 prompt 结果**：放弃自有活动意味着关闭 runtime；模型结果保留在 session event 中。
+- **受信任 patch 可能破坏 stdout 纯净性**：随附 SDK profile 只写协议 frame，但任意用户插件负责自己的输出行为。
+- **client→server notification 与 server→client request 尚未实现**。

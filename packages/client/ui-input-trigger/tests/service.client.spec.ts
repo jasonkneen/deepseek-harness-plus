@@ -9,8 +9,8 @@
  */
 import { Context } from '@deepseek-ai/cordis'
 import { describe, expect, it, vi } from 'vitest'
-import { createScope, scopeOf } from '@deepseek-ai/dsh-client-runtime/client'
-import type { SessionId } from '@deepseek-ai/dsh-client-runtime/client'
+import { createScope, scopeOf } from '@deepseek-ai/dsh-api-session-controller/client'
+import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import { InputTriggerController, InputTriggerService } from '@deepseek-ai/dsh-client-ui-input-trigger/client'
 import type {
   BeginCommandRequest, ClientSessionContext, CommandClaim, InsertReferenceRequest, PickOutcome,
@@ -623,13 +623,13 @@ describe('lexicon', () => {
     expect(rolls.has('@')).toBe(false)
   })
 
-  it('a source lexicon notification republishes the aggregated store', () => {
-    let roll: readonly string[] | undefined = undefined
+  it('a source lexicon notification republishes the roll and refreshes an open menu', async () => {
+    let roll: readonly string[] | undefined = ['old']
     let notify: (() => void) | undefined
     const source: InputTriggerSource = {
       trigger: '/',
       name: 'skill',
-      candidates: () => Promise.resolve([]),
+      candidates: () => Promise.resolve((roll ?? []).map(name => ({ name }))),
       onPick: () => undefined,
       lexicon: () => roll,
       subscribeLexicon: (_session, listener) => {
@@ -638,12 +638,18 @@ describe('lexicon', () => {
       },
     }
     const { controller } = controllerBench([source])
-    expect(controller.lexicon.getSnapshot().size).toBe(0)
+    expect(controller.lexicon.getSnapshot().get('/')).toEqual(['old'])
+    controller.track('/', 1, { tier: 'plain' }, 1)
+    await tick()
+    expect(controller.menu.getSnapshot().groups[0]?.items).toEqual([{ name: 'old' }])
     const seen: number[] = []
     controller.lexicon.subscribe(() => { seen.push(controller.lexicon.getSnapshot().size) })
     roll = ['commit-helper']
     notify?.()
+    await tick()
+    await tick()
     expect(controller.lexicon.getSnapshot().get('/')).toEqual(['commit-helper'])
+    expect(controller.menu.getSnapshot().groups[0]?.items).toEqual([{ name: 'commit-helper' }])
     expect(seen).toEqual([1])
     controller.dispose()
     expect(notify).toBeUndefined()

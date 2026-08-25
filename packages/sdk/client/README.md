@@ -2,48 +2,51 @@
 
 English | [中文](README.zh.md)
 
-The TypeScript client SDK for driving a DeepSeek Harness runtime as a subprocess over stdio JSON-RPC — the design twin of the [Python SDK](../../../python/README.md) (`deepseek-harness`), sharing the same runtime peer, protocol, and layering: `DeepSeekHarness` is the high-level owned-run API, `HarnessClient` the lower-level protocol client. The package root enumerates the consumer interface: the two client layers, caller-facing types, and `JsonRpcResponseError`; source modules, normalization helpers, and subscription-delivery machinery are not consumer imports. A pure library: it registers nothing on a Cordis context; the runtime process it spawns is a complete harness whose composition its own `cordis.yml` decides.
+The TypeScript client SDK for driving the same-version [`dsh`](../../../apps/cli/README.md) runtime over stdio JSON-RPC. `DeepSeekHarness` is the high-level owned-run API; `HarnessClient` is the lower-level protocol client. The package depends on `@deepseek-ai/dsh` and resolves that installed CLI directly, so ordinary consumers do not discover a runtime executable or maintain a second application configuration. A clean source checkout whose `lib/bin.js` does not exist launches the same package's `src/bin.ts` through its resolved `tsx/esm` loader and an internal patch that omits build-generated Typert contribution loading; the SDK JSON-RPC application does not consume that remote gateway. An installed package uses the complete built entry.
 
-Unlike the Python SDK, the launch spec is fully explicit (`command`/`args`): this package is for repo-adjacent TypeScript consumers — including the [`dsh-subagent-dsh-sdk`](../../subagent/subagent-dsh-sdk/README.md) backend and automation — that know which runtime they are launching. Bundled-runtime resolution (finding a packaged executable) remains the Python distribution's concern.
+Both client layers accept the same launch fields: `dshBin?`, `profile?` (default `sdk`), ordered `patches?`, `dshHome?`, `processCwd?`, `env?`, and request/initialize/shutdown/disposal timeouts. Caller-relative CLI-module, patch, explicit home, and process-cwd paths become absolute before spawn. The client runs the dsh CLI module through its current Node executable on every platform. An omitted home keeps normal dsh resolution (`DSH_HOME`, then `~/.dsh`); an explicit home overrides the child environment. `env` replaces the child environment when supplied; the client reads either that object or `process.env` when `start()` actually spawns, so mutations before the first start are visible.
+
+Composition customization stays in the profile system. Install persistent bundles and plugin dependencies with `dsh plugin --profile <name> …`, edit that profile's `cordis.patch.yml`, and select it with `profile`. Use `patches` for ordered per-launch overrides. A patch replaces a row's complete config, and a custom profile must retain `@deepseek-ai/dsh-sdk-app` or another SDK server row.
 
 ## DeepSeekHarness
 
 ```ts
 import { DeepSeekHarness } from '@deepseek-ai/dsh-sdk-client'
+import { ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 
 await using harness = new DeepSeekHarness({
-  launch: { command: 'node', args: ['lib/bin.js', 'cordis.yml'] },
+  profile: 'sdk',
+  patches: ['./automation.cordis.yml'],
   provider: 'deepseek-official',
   model: 'deepseek-v4-flash',
+  reasoningEffort: ReasoningEffortId('max'),
   maxTokens: 49_152,
 })
 const result = await harness.run('say hi')
 console.log(result.finalResponse)
 ```
 
-The subprocess starts lazily on first use and stays owned by the instance across `run()` calls; `close()` (or `await using`) is required so the child is always reaped. `start()` memoizes the `initialize` handshake (the workspace cwd — resolved absolute before it crosses the wire — plus the provider/model route and optional positive `maxTokens` output cap); a failed handshake reaps the runtime and swaps in a fresh client, so a later call retries with a new subprocess (until `close()`, which is terminal). The cap applies to each root-agent request and is inherited by in-process descendants; compaction plugins own their separate summary limits. `session(id?)` opens a named or fresh session handle.
+The dsh process starts lazily on first use and stays owned across `run()` calls. `close()` (or `await using`) is required. `start()` memoizes the bounded `initialize` handshake, which carries the workspace cwd, provider/model route, optional adapter-owned `reasoningEffort`, and optional positive `maxTokens` output cap. `initializeTimeoutMs` defaults to 10 seconds, and its diagnostic names the selected profile with the retained stderr tail. The server validates the exact route before accepting prompts; omitting the effort preserves the model's own default. A failed handshake reaps the runtime and lets a later call retry with a fresh process until terminal `close()`. The cap applies to each root-agent request and is inherited by in-process descendants; compaction plugins own their separate summary limits. `session(id?)` opens a named or fresh session handle.
 
-`run(input, { sessionId?, onNotification? })` owns one activity interval: it queues the prompt, waits until its `MessageId` appears in a durable `agent/inbox/spliced` receipt, then collects through the next whole-agent `idle`. It returns `RunResult { sessionId, finalResponse, events, notifications }`. `finalResponse` is the last committed root-session assistant text in that interval, not a response causally assigned to the prompt; steering, injected context, and other queued work may contribute before idle. `events` contains root-session events, while `notifications` also contains descendants discovered from `subagent.started`, all in wire order. The result carries no prompt-level status or turn reason. Transport loss, timeout, and protocol violations reject; model outcomes remain observable in the event stream without being attributed to one input.
+The handshake carries the absolute session workspace plus provider/model, optional `reasoningEffort`, and optional positive `maxTokens`. `run(input, { sessionId?, onNotification? })` accepts text or `SdkPromptContentBlock[]`; inline raster blocks carry canonical base64 plus `mimeType` and become durable attachments inside the runtime. The call queues the prompt, waits for its durable inbox receipt, and collects until the whole root agent next becomes idle. It returns `RunResult { sessionId, finalResponse, events, notifications }`; `events` is root-scoped, while notifications also contain discovered descendants.
 
 ## HarnessClient
 
-The protocol client under the owned-run API: explicit `start()`/`initialize()`/`prompt()`/`request()`/`close()`, plus notification subscriptions. `prompt()` returns the queued message id as soon as the runtime accepts it; it never waits for agent activity. `subscribe(filter?)` returns a `NotificationSubscription` (awaitable `next()`, non-blocking `tryNext()`, async iteration); `subscribeSessionTree(id)` scopes to one session and the descendants discovered from `subagent.started` lineage edges — the runtime notifies for every session in its context, and scoping is client-side, exactly like the Python SDK. Error surfaces are typed and exported from this package: `JsonRpcResponseError` (wire error response, code/data preserved), `RequestTimeoutError` (a configured bound elapsed), `SdkProtocolError` (a response outside the documented protocol), `TransportClosedError` (the runtime is gone — message carries the exit code and a bounded stderr tail).
+The low-level client exposes `start()`/`initialize()`/`prompt()`/`request()`/`close()` and notification subscriptions. `prompt()` returns the durable message id after enqueue, not a prompt result. `subscribeSessionTree(id)` scopes the process-wide notification stream to one session lineage. Exported failures are `JsonRpcResponseError`, `RequestTimeoutError`, `SdkProtocolError`, and `TransportClosedError`.
 
-`close()` requests protocol `shutdown` (bounded by `shutdownTimeoutMs`, default 1000 ms), then walks a stdin-EOF → SIGTERM → SIGKILL ladder (`disposeEofGraceMs` default 6000, `disposeGraceMs` default 3000) until the process has actually exited. The ladder is private to this client: it runs outside any harness context, so it cannot ride the [`dsh-subprocess`](../../subprocess/README.md) service — the seam's documented exception for SDK-managed transports. It is idempotent, and a closed client refuses reuse.
-
-`HarnessClientOptions.env` replaces the child environment entirely when given (`undefined` inherits the parent's); callers own credential policy — `scrubbedParentEnv` from `dsh-subprocess` is the shared scrub base for isolation-minded launches.
+`close()` requests protocol `shutdown` (default bound 1000 ms), then uses stdin EOF → SIGTERM → SIGKILL (`disposeEofGraceMs` 6000, `disposeGraceMs` 3000) until the process exits. This client lives outside any Harness context, so its private process adapter is the documented SDK-managed transport exception to `dsh-subprocess`; generic command/argv launching is package-test machinery, not a consumer interface.
 
 ## Model Experience
 
-None, as this is a client-process library; the model runs in the spawned runtime, whose experience is owned by the plugins its `cordis.yml` composes.
+None, as this library adds no model-visible content; the selected dsh profile owns the spawned model's prompt, tools, policy, and cache prefix (see [`dsh-sdk-app`](../../bundle/sdk-app/README.md)).
 
 #### KV Cache effect
 
-None; this package neither assembles nor sends a provider request.
+None in the client process. Profile, patch, provider, model, and history choices determine cache reuse in the child.
 
 ## Known Limitations and Deferred Work
 
-- **No bundled-runtime resolution** — callers name the runtime executable explicitly; packaged-executable discovery stays Python-side until a TypeScript distribution consumer exists.
-- **No mid-turn cancel** — the wire has no prompt-cancel method; abandoning a turn means closing the runtime (see the protocol's [Known Limitations](../protocol/README.md)).
-- **No per-prompt result or cancel** — low-level `prompt()` returns only an enqueue receipt; high-level `run()` owns receipt-to-idle collection, and abandoning it means closing the runtime.
-- **Client→server notifications and server→client requests are unimplemented** on both wire ends; the transport carries them for future approval flows.
+- **A selected profile can omit the SDK server** — initialization fails at its configured bound and names that profile; retain the SDK app bundle or an equivalent server row.
+- **No mid-turn cancel or per-prompt result** — abandoning an owned activity means closing the runtime; model outcomes remain in session events.
+- **Trusted patches can violate stdout purity** — the shipped SDK profile writes only protocol frames, but arbitrary user plugins own their output behavior.
+- **Client→server notifications and server→client requests are unimplemented** on both wire ends.

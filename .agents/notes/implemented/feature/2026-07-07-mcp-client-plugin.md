@@ -83,7 +83,7 @@ The model sees `mcp__github__create_issue`, `mcp__github__search_code`, `mcp__we
 
 ### Lifecycle
 
-Boot-time from `cordis.yml`. HMR (`@cordisjs/plugin-hmr`) provides hot-swap: editing the yml entry triggers dispose of the old instance (disconnects, unregisters tools) and creation of a new one (connects, discovers, registers). No runtime-dynamic API for now. Public names are pure functions of `(serverName, rawName)`, so an HMR swap that keeps `serverName` recreates identical model-facing names — session history and permission rules stay valid — and adding or removing an unrelated server never renames an existing tool.
+Boot-time from `cordis.yml`. HMR (`@cordisjs/plugin-hmr`) provides hot-swap: editing the yml entry triggers dispose of the old instance (disconnects, unregisters tools) and creation of a new one (connects, discovers, registers). No runtime-dynamic API is provided. Public names are pure functions of `(serverName, rawName)`, so an HMR swap that keeps `serverName` recreates identical model-facing names — session history and permission rules stay valid — and adding or removing an unrelated server never renames an existing tool.
 
 ### Tool discovery and registration
 
@@ -167,7 +167,7 @@ Rejected. There is no foreseeable alternative MCP client implementation — MCP 
 
 ### Auto-reconnect with exponential backoff
 
-Rejected for v1: it added a partial-availability state (tools registered but temporarily non-functional), and stdio crashes often indicate configuration problems retrying cannot fix; HMR was the recovery path. Operational feedback reversed the deferral — the [auto-reconnect Agent Note](2026-08-06-mcp-client-auto-reconnect.md) implements it with a bounded per-outage budget and an opt-out.
+Rejected by the connect-once design: it added a partial-availability state (tools registered but temporarily non-functional), and stdio crashes often indicate configuration problems retrying cannot fix; HMR was the recovery path. Operational feedback reversed the deferral — the [auto-reconnect Agent Note](2026-08-06-mcp-client-auto-reconnect.md) implements it with a bounded per-outage budget and an opt-out.
 
 ### Bridge Resources and Prompts
 
@@ -179,7 +179,7 @@ Rejected — this was the original proposal, built on the premise that "most MCP
 
 ### Server-only namespace (`github__create_issue`, no `mcp__` marker)
 
-Rejected for v1. It prevents cross-server collisions but does not separate MCP registrations from native harness tools, and it forfeits MCP-wide policy shapes (`mcp__*`). The marker costs 5 characters; the `mcp__<server>__<tool>` spelling matches Claude Code and Codex, maximizing model familiarity. If the ToolRuntime later grows source-aware namespaces, dropping the literal marker can be revisited as a naming-policy change.
+Rejected. It prevents cross-server collisions but does not separate MCP registrations from native harness tools, and it forfeits MCP-wide policy shapes (`mcp__*`). The marker costs 5 characters; the `mcp__<server>__<tool>` spelling matches Claude Code and Codex, maximizing model familiarity. If the ToolRuntime later grows source-aware namespaces, dropping the literal marker can be revisited as a naming-policy change.
 
 ### Deriving the namespace from the server-announced `serverInfo.name`
 
@@ -212,7 +212,7 @@ Coverage is named per tier; each behavior lives at the cheapest tier that can ex
 ## Consequences
 
 - A `cordis.yml` entry per MCP server is the entire integration cost: `serverName: filesystem` + a stdio command (or a Streamable HTTP URL) puts `mcp__filesystem__read_file` in the model's tool list, callable, with the raw `read_file` on the wire.
-- Public names are part of session history and permission/configuration APIs; the naming algorithm is a v1 contract pinned by tests, and changing it after release is a breaking change.
+- Public names are part of session history and permission/configuration APIs; tests pin the naming algorithm, and changing it after release is a breaking change.
 - The `mcp__<serverName>__` qualifier costs tokens on every name. Accepted: descriptions and JSON schemas dominate tool-definition tokens, and the qualifier buys stable identity, collision isolation, and MCP-wide policy shapes (`mcp__*`, `mcp__github__*`).
 - **MCP SDK stability**: the `@modelcontextprotocol/sdk` is still evolving; breaking changes require updating the bridge. The version is pinned, and the SDK is widely adopted (Claude Desktop, Cursor, VS Code) so breaking changes are unlikely to be silent.
 - **Tool schema quality**: MCP servers may expose poorly-described tools (vague descriptions, incomplete JSON schemas). The harness passes them through as-is — garbage-in-garbage-out; that is the server author's responsibility, not the bridge's.

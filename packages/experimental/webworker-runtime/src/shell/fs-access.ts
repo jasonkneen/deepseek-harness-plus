@@ -57,7 +57,8 @@ export function describeFailure(program: string, path: string, error: unknown): 
  * @returns the error to throw.
  */
 export function filesystemError(code: string, syscall: string, path: string): VfsError {
-  const error = new Error(`${code}: ${syscall} failed, ${syscall} '${path}'`) as VfsError
+  const reason = code === 'EACCES' ? 'permission denied' : `${syscall} failed`
+  const error = new Error(`${code}: ${reason}, ${syscall} '${path}'`) as VfsError
   error.code = code
   error.path = path
   error.syscall = syscall
@@ -75,19 +76,17 @@ function statsOf(stats: VfsStats): ShellStats {
  */
 export function hostFileSystem(): ShellFileSystem {
   const vfs = (): ReturnType<typeof requireActiveVfs> => requireActiveVfs()
-  // oxlint-disable-next-line typescript/require-await -- async face, in-memory backend; see the note below.
-  const stat = async (path: string): Promise<ShellStats | undefined> => {
+  const stat = (path: string): Promise<ShellStats | undefined> => {
     try {
-      return statsOf(vfs().statSync(path) as VfsStats)
+      return Promise.resolve(statsOf(vfs().statSync(path) as VfsStats))
     } catch {
       // Absence is the answer callers branch on; every other failure mode of
       // the in-memory backend is also "this path holds nothing readable".
-      return undefined
+      return Promise.resolve(undefined)
     }
   }
   // Several members take no await: the face is asynchronous because a process
   // worker's filesystem is, while this backend answers from memory.
-  /* oxlint-disable typescript/require-await -- see the note above. */
   return {
     stat,
     list: async (path: string): Promise<ShellDirent[]> => {
@@ -102,19 +101,22 @@ export function hostFileSystem(): ShellFileSystem {
       if ((await stat(path))?.directory === true) throw filesystemError('EISDIR', 'read', path)
       return vfs().readFileSync(path, 'utf8') as string
     },
-    writeText: async (path: string, text: string, append = false): Promise<void> => {
+    writeText: (path: string, text: string, append = false): Promise<void> => {
       if (append) vfs().appendFileSync(path, text)
       else vfs().writeFileSync(path, text)
+      return Promise.resolve()
     },
-    mkdir: async (path: string, recursive: boolean): Promise<void> => {
+    mkdir: (path: string, recursive: boolean): Promise<void> => {
       vfs().mkdirSync(path, { recursive })
+      return Promise.resolve()
     },
-    remove: async (path: string, options: { recursive: boolean; force: boolean }): Promise<void> => {
+    remove: (path: string, options: { recursive: boolean; force: boolean }): Promise<void> => {
       vfs().rmSync(path, options)
+      return Promise.resolve()
     },
-    rename: async (from: string, to: string): Promise<void> => {
+    rename: (from: string, to: string): Promise<void> => {
       vfs().renameSync(from, to)
+      return Promise.resolve()
     },
   }
-  /* oxlint-enable typescript/require-await */
 }

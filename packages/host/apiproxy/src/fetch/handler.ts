@@ -6,43 +6,19 @@
  * business errors are always 200 + ServerResponse.
  */
 
-import { randomUUID } from 'node:crypto'
 import type { z } from 'zod'
-import type { ApiProxy, MuxFrame, HostFrame } from '../api/index.ts'
+import type { ApiProxy } from '../api/index.ts'
 import { sessionLogQuerySchema } from '../api/downloads.schema.ts'
 import type { RequestPayload, ResponseValue, RpcMethodMap } from '../api/rpc-map.ts'
-import type { ClientRequest, RpcError, RpcRequest, RpcResponse, ServerRequest, ServerResponse } from '../api/rpc.ts'
+import type { ClientRequest, RpcError, RpcRequest, RpcResponse, ServerResponse } from '../api/rpc.ts'
 import { RpcId } from '../api/rpc.ts'
 import type { Wire } from '../api/rpc.schema.ts'
-import { clientRequestSchema, clientResponseSchema } from '../api/rpc.schema.ts'
-import {
-  sessionCancelRequestSchema,
-  sessionAttachmentRequestSchema,
-  sessionCreateRequestSchema,
-  sessionForkRequestSchema,
-  sessionHistoryRequestSchema,
-  sessionListRequestSchema,
-  sessionModelsRequestSchema,
-  sessionPromptRequestSchema,
-  sessionRenameRequestSchema,
-  sessionSearchRequestSchema,
-  sessionSelectModelRequestSchema,
-  sessionUpdateQueueRequestSchema,
-} from '../api/sessions.schema.ts'
+import { clientRequestSchema } from '../api/rpc.schema.ts'
 import {
   hostCreateDirectoryRequestSchema, hostDescribeRequestSchema,
   hostListDirectoryRequestSchema, hostOpenPathRequestSchema,
   hostPickDirectoryRequestSchema,
 } from '../api/host.schema.ts'
-import {
-  workspaceArchiveSessionRequestSchema,
-  workspaceCreateRequestSchema,
-  workspaceDeleteRequestSchema,
-  workspaceInsertBeforeRequestSchema,
-  workspaceInsertSessionBeforeRequestSchema,
-  workspaceListRequestSchema,
-  workspaceRenameRequestSchema,
-} from '../api/workspace.schema.ts'
 import { skillListRequestSchema } from '../api/skills.schema.ts'
 import {
   agentPresetCopyRequestSchema, agentPresetListRequestSchema, agentPresetOpenDocumentRequestSchema,
@@ -65,7 +41,6 @@ import {
 } from '../api/credentials.schema.ts'
 import { llmDiscoverModelsRequestSchema, llmModelsRequestSchema, llmProvidersRequestSchema } from '../api/llm.schema.ts'
 import {
-  subagentHistoryRequestSchema,
   subagentInterruptRequestSchema,
   subagentListRequestSchema,
   subagentPromptRequestSchema,
@@ -88,20 +63,7 @@ type UnaryRoutes = {
 }
 
 const UNARY_ROUTES: UnaryRoutes = {
-  'session.list': { schema: sessionListRequestSchema, invoke: (api, r) => api.sessions.list(r) },
-  'session.search': { schema: sessionSearchRequestSchema, invoke: (api, r, signal) => api.sessions.search(r, signal) },
-  'session.create': { schema: sessionCreateRequestSchema, invoke: (api, r) => api.sessions.create(r) },
-  'session.history': { schema: sessionHistoryRequestSchema, invoke: (api, r) => api.sessions.history(r) },
-  'session.models': { schema: sessionModelsRequestSchema, invoke: (api, r) => api.sessions.models(r) },
-  'session.selectModel': { schema: sessionSelectModelRequestSchema, invoke: (api, r) => api.sessions.selectModel(r) },
-  'session.rename': { schema: sessionRenameRequestSchema, invoke: (api, r) => api.sessions.rename(r) },
-  'session.fork': { schema: sessionForkRequestSchema, invoke: (api, r) => api.sessions.fork(r) },
-  'session.prompt': { schema: sessionPromptRequestSchema, invoke: (api, r) => api.sessions.prompt(r) },
-  'session.attachment': { schema: sessionAttachmentRequestSchema, invoke: (api, r) => api.sessions.attachment(r) },
-  'session.updateQueue': { schema: sessionUpdateQueueRequestSchema, invoke: (api, r) => api.sessions.updateQueue(r) },
-  'session.cancel': { schema: sessionCancelRequestSchema, invoke: (api, r) => api.sessions.cancel(r) },
   'subagent.list': { schema: subagentListRequestSchema, invoke: (api, r, signal) => api.subagents.list(r, signal) },
-  'subagent.history': { schema: subagentHistoryRequestSchema, invoke: (api, r, signal) => api.subagents.history(r, signal) },
   'subagent.prompt': { schema: subagentPromptRequestSchema, invoke: (api, r, signal) => api.subagents.prompt(r, signal) },
   'subagent.interrupt': { schema: subagentInterruptRequestSchema, invoke: (api, r) => api.subagents.interrupt(r) },
   'host.describe': { schema: hostDescribeRequestSchema, invoke: (api, r) => api.host.describe(r) },
@@ -109,13 +71,6 @@ const UNARY_ROUTES: UnaryRoutes = {
   'host.listDirectory': { schema: hostListDirectoryRequestSchema, invoke: (api, r, signal) => api.host.listDirectory(r, signal) },
   'host.createDirectory': { schema: hostCreateDirectoryRequestSchema, invoke: (api, r) => api.host.createDirectory(r) },
   'host.openPath': { schema: hostOpenPathRequestSchema, invoke: (api, r, signal) => api.host.openPath(r, signal) },
-  'workspace.list': { schema: workspaceListRequestSchema, invoke: (api, r) => api.workspace.list(r) },
-  'workspace.create': { schema: workspaceCreateRequestSchema, invoke: (api, r) => api.workspace.create(r) },
-  'workspace.rename': { schema: workspaceRenameRequestSchema, invoke: (api, r) => api.workspace.rename(r) },
-  'workspace.delete': { schema: workspaceDeleteRequestSchema, invoke: (api, r) => api.workspace.delete(r) },
-  'workspace.insertBefore': { schema: workspaceInsertBeforeRequestSchema, invoke: (api, r) => api.workspace.insertBefore(r) },
-  'workspace.insertSessionBefore': { schema: workspaceInsertSessionBeforeRequestSchema, invoke: (api, r) => api.workspace.insertSessionBefore(r) },
-  'workspace.archiveSession': { schema: workspaceArchiveSessionRequestSchema, invoke: (api, r) => api.workspace.archiveSession(r) },
   'skill.list': { schema: skillListRequestSchema, invoke: (api, r) => api.skills.list(r) },
   'agentPreset.list': { schema: agentPresetListRequestSchema, invoke: (api, r) => api.agentPresets.list(r) },
   'agentPreset.select': { schema: agentPresetSelectRequestSchema, invoke: (api, r) => api.agentPresets.select(r) },
@@ -191,50 +146,6 @@ async function handleUnary<K extends keyof RpcMethodMap>(
   }
 }
 
-/** SSE frame: complete the narrow RpcRequest<frame> into a ServerRequest full form (method = frame type). */
-function fullFrame(narrow: RpcRequest<MuxFrame | HostFrame>): ServerRequest {
-  return { type: 'server-request', rpcId: narrow.rpcId, method: narrow.payload.type, payload: narrow.payload }
-}
-
-/**
- * Wrap a frame stream as an SSE Response; stops when req.signal aborts. An
- * impl throw mid-stream emits one stream/error frame and then closes.
- */
-function sseResponse(frames: AsyncIterable<RpcRequest<MuxFrame | HostFrame>>): Response {
-  const encoder = new TextEncoder()
-  const stream = new ReadableStream<Uint8Array>({
-    async start(controller) {
-      try {
-        // Send an SSE comment line on open so clients/proxies see a live channel (the host
-        // stream has no baseline frames and would otherwise emit zero bytes while idle;
-        // a comment line is not a frame, so client frame parsing skips it naturally).
-        controller.enqueue(encoder.encode(': connected\n\n'))
-        for await (const narrow of frames) {
-          controller.enqueue(encoder.encode(`data: ${JSON.stringify(fullFrame(narrow))}\n\n`))
-        }
-      } catch (error: unknown) {
-        // Mid-stream impl failure → one stream/error frame, then close: the client must see
-        // the failure instead of a silent end (which reads as a normal disconnect). A fresh
-        // rpcId is minted — this is a server-initiated push like any other frame.
-        const failure: MuxFrame | HostFrame = { type: 'stream/error', error: { code: 'internal', message: String(error), details: {} } }
-        try {
-          controller.enqueue(encoder.encode(`data: ${JSON.stringify(fullFrame({ rpcId: RpcId(randomUUID()), payload: failure }))}\n\n`))
-        } catch {
-          // Consumer already cancelled the stream: enqueue-after-cancel is the
-          // only reachable error, and there is no one left to tell.
-        }
-      } finally {
-        try {
-          controller.close()
-        } catch { /* already cancelled by the consumer: a double close is the only reachable error */ }
-      }
-    },
-  })
-  return new Response(stream, {
-    headers: { 'content-type': 'text/event-stream', 'cache-control': 'no-cache' },
-  })
-}
-
 /**
  * Wraps an ApiProxy into a pure fetch function (isomorphic point: feed the returned fetch straight to InProcessApiClient).
  * @param api - the host-side ApiProxy implementation.
@@ -249,14 +160,8 @@ export function toFetchHandler(api: ApiProxy): { fetch: typeof fetch } {
       const url = new URL(req.url)
       const path = url.pathname
 
-      // No-envelope read channels (SSE GET streams + host-only download):
+      // No-envelope Host-only download channel:
       // physical routes that answer directly, without a wire envelope.
-      if (path === '/api/events.mux' && req.method === 'GET') {
-        return sseResponse(api.events.mux({ rpcId: RpcId(randomUUID()), payload: {} }, req.signal))
-      }
-      if (path === '/api/events.host' && req.method === 'GET') {
-        return sseResponse(api.events.host({ rpcId: RpcId(randomUUID()), payload: {} }, req.signal))
-      }
       if (path === '/api/session.export' && (req.method === 'GET' || req.method === 'HEAD')) {
         // Query params are a different boundary from the POST envelope, but
         // the request still casts its brands only through the domain schema.
@@ -277,7 +182,7 @@ export function toFetchHandler(api: ApiProxy): { fetch: typeof fetch } {
       // Cross-site write fence: browsers send "simple" POSTs (text/plain,
       // form encodings) without a CORS preflight, so a malicious page could
       // otherwise execute side-effectful RPCs blind — the response stays
-      // unreadable cross-origin, but session.prompt would still run. Only the
+      // unreadable cross-origin, but the requested mutation would still run. Only the
       // JSON media type is accepted; anything else is forced into a preflight
       // this server never answers. 415 = carrier layer, like the 400 below.
       const mediaType = req.headers.get('content-type')?.split(';', 1)[0]?.trim().toLowerCase()
@@ -291,12 +196,6 @@ export function toFetchHandler(api: ApiProxy): { fetch: typeof fetch } {
       } catch {
         // 400 = carrier layer (body is not even JSON); valid JSON with a bad shape goes 200 + bad-request.
         return new Response('body is not JSON', { status: 400 })
-      }
-
-      if (path === '/api/respond') {
-        const parsed = clientResponseSchema.safeParse(body)
-        if (!parsed.success) return Response.json({ accepted: false, reason: 'bad-response' })
-        return Response.json(await api.respond(parsed.data))
       }
 
       const method = methodFor(path.slice('/api/'.length))

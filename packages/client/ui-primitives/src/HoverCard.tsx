@@ -14,21 +14,21 @@ import css from './HoverCard.module.css'
  * @param props.disabled - suppress opening; turning true closes an open card.
  * @param props.copyText - optional primary value copied by activation and
  * included in the card's accessible name.
- * @param props.copyLabel - accessible activation-label prefix (default "复制").
- * @param props.copiedLabel - visible success label (default "复制成功").
+ * @param props.copyLabel - localized accessible activation-label prefix.
+ * @param props.copiedLabel - localized visible success label.
  * @returns anchor wrapper with the conditional portaled card.
  */
 export function HoverCard({
   anchor, content, openDelayMs = 500, disabled = false,
-  copyText, copyLabel = '复制', copiedLabel = '复制成功',
+  copyText, copyLabel, copiedLabel,
 }: {
   anchor: ReactNode
   content: ReactNode
   openDelayMs?: number
   disabled?: boolean
   copyText?: string | undefined
-  copyLabel?: string | undefined
-  copiedLabel?: string | undefined
+  copyLabel: string
+  copiedLabel: string
 }) {
   const rootRef = useRef<HTMLSpanElement>(null)
   const cardRef = useRef<HTMLDivElement>(null)

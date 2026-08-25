@@ -9,10 +9,10 @@ import { CONVERSATION_NS as NS } from '../../locale.ts'
 
 type SearchRowProps = ToolCallViewProps & PropsLocale<'conversation'>
 
-const SEARCH_TITLES: Record<string, string> = {
-  grep: 'Grep',
-  glob: 'Glob',
-}
+const SEARCH_TITLE_KEYS = {
+  grep: 'tool.title.grep',
+  glob: 'tool.title.glob',
+} as const
 
 /** Lets users expand grep or glob results and recover capped searches. */
 export function SearchRow({ toolName, block, inspect, t }: SearchRowProps) {
@@ -24,8 +24,10 @@ export function SearchRow({ toolName, block, inspect, t }: SearchRowProps) {
       variant={model.variant}
       toolName={toolName}
       icon={<IconSearchOutline16 size={14} />}
-      title={SEARCH_TITLES[toolName] ?? model.title}
-      summary={search?.title ?? model.summary}
+      title={t(toolName === 'grep'
+        ? SEARCH_TITLE_KEYS.grep
+        : toolName === 'glob' ? SEARCH_TITLE_KEYS.glob : model.titleKey)}
+      summary={model.summary}
       body={null}
       // ToolRow ignores output when a structured card is present; otherwise it
       // preserves the generic fallback for errors and legacy results.

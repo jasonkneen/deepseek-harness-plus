@@ -12,6 +12,8 @@
  */
 
 import type { ConnectionHandle } from '@deepseek-ai/dsh-api-remotes/client'
+// Type-only: pulls the Session Controller service merge (ctx.sessions).
+import type {} from '@deepseek-ai/dsh-api-session-controller/client'
 // Type-only: pulls the locale plugin's Context merge (ctx.locale).
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 // Type-only: pulls the ctx.remote merge and the forwarded-event key face
@@ -19,7 +21,10 @@ import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type {} from '@deepseek-ai/dsh-api-remotes/client'
 // Type-only: pulls the settings shell's SlotMap merge (the 'settings.section' entry).
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
-import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
+import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
+// Type-only: pulls the Workspace UI navigation service merge (ctx.uiWorkspace).
+import type {} from '@deepseek-ai/dsh-client-ui-workspace/client'
+import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import { AgentPresetLabel } from './AgentPresetLabel.tsx'
 import type { AgentPresetLabelInjected } from './AgentPresetLabel.tsx'
 import { AgentPresetRow } from './AgentPresetRow.tsx'
@@ -29,7 +34,6 @@ import type { AgentPresetSeatInjected } from './AgentPresetSeat.tsx'
 import { AgentPresetSection } from './AgentPresetSection.tsx'
 import type { AgentPresetSectionInjected } from './AgentPresetSection.tsx'
 import { AgentPresetSeatController } from './seat-store.ts'
-import type { SeatSessionSummary } from './seat-store.ts'
 import { AgentPresetSectionController } from './section-store.ts'
 import { en, zh } from './locales.ts'
 import { AGENT_PRESET_SETTINGS_NS, AgentPresetSettingsController } from './settings-store.ts'
@@ -38,7 +42,7 @@ export type { AgentPresetLabelInjected, AgentPresetLabelProps } from './AgentPre
 export type { AgentPresetRowInjected, AgentPresetRowProps } from './AgentPresetRow.tsx'
 export type { AgentPresetSeatInjected, AgentPresetSeatProps } from './AgentPresetSeat.tsx'
 export type { AgentPresetSectionInjected, AgentPresetSectionProps } from './AgentPresetSection.tsx'
-export type { AgentPresetSeatState, SeatSessionSummary } from './seat-store.ts'
+export type { AgentPresetSeatState } from './seat-store.ts'
 export {
   draftBlocker, type AgentPresetSectionState, type CopyDraft, type PresetRow, type PresetView,
 } from './section-store.ts'
@@ -99,20 +103,11 @@ export function apply(ctx: ClientContext): void {
 
   // The new-session chip and the header label: one controller, because the
   // staged choice belongs to the flow rather than to any one session.
-  ctx.inject(['slots', 'conversation', 'sessions', 'workspaces'], (scope: ClientContext) => {
+  ctx.inject(['slots', 'conversation', 'sessions', 'uiWorkspace'], (scope: ClientContext) => {
     const api = (scope.get('connection') as ConnectionHandle).api
-    const seat = new AgentPresetSeatController(api, (): SeatSessionSummary | undefined => {
+    const seat = new AgentPresetSeatController(api, () => {
       const state = scope.sessions.list.getSnapshot()
-      const summary = state.current === undefined ? undefined : state.byId[state.current]
-      return summary === undefined
-        ? undefined
-        : {
-          id: summary.id,
-          blank: summary.blank,
-          ...summary.agentPreset === undefined ? {} : { agentPreset: summary.agentPreset },
-        }
-    }, (sessionId, agentPreset) => {
-      scope.sessions.noteAgentPreset(sessionId as never, agentPreset)
+      return state.current === undefined ? undefined : state.byId[state.current]
     })
 
     const seatInjected = (): AgentPresetSeatInjected => ({
@@ -141,11 +136,6 @@ export function apply(ctx: ClientContext): void {
         if (ns !== AGENT_PRESET_SETTINGS_NS) return
         void seat.load()
       })
-      // Every tab folds the committed preset into the shared session row; the
-      // initiating tab may already have applied the RPC echo, which is idempotent.
-      const presetSelected = scope.remote.$on('agent-preset/selected', (sessionId, agentPreset) => {
-        scope.sessions.noteAgentPreset(sessionId, agentPreset)
-      })
       // Authoring writes a FILE, not a setting, so nothing on the wire
       // announces it — without this the screen that starts the next session
       // keeps offering the roster as it stood when the chip first loaded, and
@@ -160,7 +150,7 @@ export function apply(ctx: ClientContext): void {
         // The introduce cue makes the chip announce the pick the user never
         // made on this screen — the stage happened back in settings.
         seat.stage('cordis', true)
-        scope.workspaces.startSession()
+        scope.uiWorkspace.startSession()
       }
       const chip = scope.slots.register({
         name: 'conversation.hero.agentPreset',
@@ -178,7 +168,6 @@ export function apply(ctx: ClientContext): void {
       return () => {
         stop()
         settingsMoved()
-        presetSelected()
         rosterReaders.delete(readRoster)
         creatorDraft = undefined
         chip()

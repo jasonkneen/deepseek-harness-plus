@@ -12,9 +12,7 @@ export const DEFAULT_TERMINAL_MAX_LINES = 16
 
 /**
  * Display copy for the terminal surface; the owner passes localized labels
- * (this package is cordis-free, so copy arrives via props). Every field
- * defaults to the current built-in value, so existing consumers render
- * unchanged.
+ * (this package is cordis-free, so copy arrives via props).
  */
 export interface TerminalBlockLabels {
   /** Status pill text for a signal-terminated command. */
@@ -43,21 +41,6 @@ export interface TerminalBlockLabels {
   expand: (hidden: number) => string
 }
 
-const DEFAULT_LABELS: TerminalBlockLabels = {
-  signal: signal => `信号 ${signal}`,
-  exitCode: exitCode => `退出码 ${exitCode}`,
-  running: '运行中',
-  failed: '失败',
-  done: '已完成',
-  copy: '复制',
-  copied: '复制成功',
-  noOutput: '无输出',
-  collapseAria: '收起输出',
-  collapse: '收起',
-  expandAria: hidden => `展开其余 ${hidden} 行输出`,
-  expand: hidden => `… 其余 ${hidden} 行`,
-}
-
 export interface TerminalBlockProps {
   /** The command line, rendered verbatim after the prompt label. */
   command: string
@@ -77,8 +60,8 @@ export interface TerminalBlockProps {
   maxLines?: number | undefined
   /** Extra class merged onto the wrapper (callers position; this component draws). */
   className?: string | undefined
-  /** Localized display copy; omitted fields keep the built-in defaults. */
-  labels?: Partial<TerminalBlockLabels> | undefined
+  /** Localized display copy supplied by the owning render site. */
+  labels: TerminalBlockLabels
 }
 
 /**
@@ -172,10 +155,7 @@ export function TerminalBlock({
   className,
   labels,
 }: TerminalBlockProps) {
-  const copy = useMemo<TerminalBlockLabels>(
-    () => (labels === undefined ? DEFAULT_LABELS : { ...DEFAULT_LABELS, ...labels }),
-    [labels],
-  )
+  const copy = labels
   const text = output ?? ''
   // A command's output ends with a newline; that terminator is not an extra
   // blank line to draw or to count against the height cap. The check runs on the

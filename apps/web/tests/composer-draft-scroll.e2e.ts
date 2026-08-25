@@ -12,7 +12,7 @@ import {
 } from './scaffold.ts'
 import { connectFreshWorkspace, newEnglishPage, saveFailureShot } from './support.ts'
 
-const SNAPSHOT_DIR = fileURLToPath(new URL('./snapshots/composer-draft-scroll', import.meta.url))
+const SNAPSHOT_DIR = fileURLToPath(new URL('./expected/composer-draft-scroll', import.meta.url))
 /** Scroll geometry is absent from ARIA snapshots, so this scenario records it directly. */
 const GEOMETRY_EXPECTED = join(SNAPSHOT_DIR, 'geometry.expected.md')
 const MODE = webSnapshotMode()
@@ -195,7 +195,7 @@ describe('web e2e: composer draft scrolling', () => {
     browser = await chromium.launch()
     page = await newEnglishPage(browser)
     tripwire = watchConsole(page)
-    await page.goto(scaffold.baseUrl, { waitUntil: 'load' })
+    await page.goto(scaffold.authenticatedUrl, { waitUntil: 'load' })
     await page.waitForSelector('[class*="frame"]', { timeout: 30_000 })
     await connectFreshWorkspace(page, scaffold.workspaceCwd, 'composer-draft-scroll')
     await page.locator('textarea:enabled').first().fill(DRAFT)

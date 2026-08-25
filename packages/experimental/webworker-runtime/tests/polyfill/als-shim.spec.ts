@@ -17,15 +17,11 @@
  *
  * Scope boundary: this file owns the shim (the state). `als-runtime.spec.ts`
  * owns the protocol that moves snapshots around, with the causality face stubbed.
- * The cross-session end-to-end proof is the browser concurrency probe, whose
- * control arm (`?als=inert`) relies on the protocol being genuinely inert.
  *
- * Migrated from apps/web-preview/scripts/checks/als-check.ts after the Node
- * compatibility layer was reorganized into implemented/mock/globals. Every import
- * goes through the **package name**, not a relative path: a check that reached
- * built `lib/` while the shim resolved by package name to `src/` produced two
- * module instances and a shim mounted in the wrong world (the `fs-check`
- * incident — "no filesystem is mounted"). One resolution path per module.
+ * Every import goes through the **package name**, not a relative path: a check
+ * that reaches built `lib/` while the shim resolves by package name to `src/`
+ * gets two module instances and a shim mounted in the wrong world (the failure
+ * mode asserted in `../node/fs.spec.ts`). One resolution path per module.
  */
 import { expect, test } from 'vitest'
 import {

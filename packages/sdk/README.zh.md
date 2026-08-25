@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-本组包含用于从另一进程驱动 Harness 运行时的协议栈。调用方提供运行时可执行文件及其 `cordis.yml`；本组不创建、配置、构建或启动开发者项目。[TypeScript SDK 决策](../../.agents/notes/implemented/feature/2026-07-27-typescript-sdk-and-sdk-subagent-backend.zh.md)负责客户端约定，[工具链移除](../../.agents/notes/implemented/simplification/2026-08-11-remove-sdk-project-toolchain.zh.md)负责产品边界。
+本组包含用于从另一进程驱动 Harness 运行时的协议栈。TypeScript 与 Python 客户端都通过具名 profile 与有序 patch 启动 `dsh`；本组没有任何包定义独立应用。[TypeScript SDK 决策](../../.agents/notes/implemented/feature/2026-07-27-typescript-sdk-and-sdk-subagent-backend.zh.md)负责客户端约定，[Python profile 运行时决策](../../.agents/notes/implemented/architecture/2026-08-23-python-sdk-dsh-profile-runtime.zh.md)负责打包后的 Python 启动。
 
 | 包 | 职责 |
 |---|---|

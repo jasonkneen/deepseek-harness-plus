@@ -22,13 +22,14 @@
  * @module @deepseek-ai/dsh-experimental-webworker-runtime/src/worker-host
  */
 import { setActiveModuleLoader, WorkerModuleLoader, type StaticModuleFactory } from './module-system/module-loader.ts'
+import type { TypertGateway } from '@deepseek-ai/dsh-api-gateway'
 import type { AlsCausality } from './polyfill/async-context/als-runtime.ts'
 import { dirname, join } from './module-system/posix-path.ts'
 import { installProcessGlobal } from './node/globals/process.ts'
 import type { RequestListener } from './transport/synthetic-http.ts'
 import { TunnelServer, type TunnelPort } from './transport/tunnel.ts'
 import { inflateImage, inflateImageStream } from './storage/image-gzip.ts'
-import { loadVfsImage, MemoryVfs } from './storage/memory.ts'
+import { loadVfsImage, loadVfsOverlay, MemoryVfs } from './storage/memory.ts'
 import { setActiveVfs } from './storage/active.ts'
 import {
   DEFAULT_ROOT, IMAGE_CONFIG_PATH, IMAGE_EMPTY_DIRECTORIES, IMAGE_HOME_DIRECTORY, IMAGE_MANIFEST_PATH,
@@ -86,6 +87,8 @@ export interface WorkerHostOptions {
   readonly requestListener: () => Promise<RequestListener>
   /** Image bytes, or the URL the worker fetches them from. */
   readonly image: Uint8Array | string
+  /** Ordered data overlays applied after the base image and before boot. */
+  readonly overlays?: readonly (Uint8Array | string)[]
   /** Virtual root; defaults to {@link DEFAULT_ROOT}. */
   readonly root?: string
   /** Composed configuration inside the image; defaults to `<root>/config/cordis.yml`. */
@@ -181,8 +184,12 @@ export function createWorkerHost(options: WorkerHostOptions): WorkerHost {
       const home = join(root, IMAGE_HOME_DIRECTORY)
       installProcessGlobal({ cwd: root, env: { DSH_HOME: home, HOME: home, ...options.env } })
 
-      const bytes = await readImage(options.image)
+      const [bytes, overlays] = await Promise.all([
+        readImage(options.image),
+        Promise.all((options.overlays ?? []).map(readImage)),
+      ])
       const mounted = loadVfsImage(bytes, root)
+      for (const overlay of overlays) loadVfsOverlay(overlay, root, mounted)
       // Belt and braces over the image's own empty-directory entries: a hand
       // -built image without them still boots.
       for (const directory of IMAGE_EMPTY_DIRECTORIES) {
@@ -237,17 +244,23 @@ export function createWorkerHost(options: WorkerHostOptions): WorkerHost {
 
       const apiProxy = ctx.get('apiProxy')
       if (apiProxy === undefined) throw new Error('webworker host: the tree activated without an apiProxy service')
+      const typertGateway = ctx.get('typertGateway') as TypertGateway | undefined
+      if (typertGateway === undefined) {
+        throw new Error('webworker host: the tree activated without a typertGateway service')
+      }
       const { toFetchHandler } = require('@deepseek-ai/dsh-host-apiproxy') as {
         toFetchHandler: (api: unknown) => { fetch(request: Request): Promise<Response> }
       }
       const shared = ctx.get('connection') !== undefined
       const handler = directFetchHandler(ctx, toFetchHandler(apiProxy))
       const usage = loader.usage()
-      console.info(`webworker host: tree active (modules=${String(usage.modules)}, preset root overlay=${presetOverlay ? 'applied' : 'already in roster'}, direct lane=${shared ? 'connection.createSharedFetchHandler (interceptors kept)' : 'api surface only'}, als causality=${options.alsCausality === undefined ? 'inert' : 'snapshot/restore'}, image lowering=${LOWERING_VERSION})`)
+      console.info(`webworker host: tree active (modules=${String(usage.modules)}, data overlays=${String(overlays.length)}, preset root overlay=${presetOverlay ? 'applied' : 'already in roster'}, direct lane=${shared ? 'connection.createSharedFetchHandler (interceptors kept)' : 'api surface only'}, als causality=${options.alsCausality === undefined ? 'inert' : 'snapshot/restore'}, image lowering=${LOWERING_VERSION})`)
 
       tunnel.serve({
         directFetch: (request: Request) => handler.fetch(request),
         bootPayload: () => readBootPayload(ctx),
+        openStream: typertGateway.wireStream.open,
+        streamFailure: typertGateway.wireStream.failure,
       })
     } catch (reason) {
       tunnel.fail(reason)
@@ -343,9 +356,9 @@ function requireLoweredImage(vfs: MemoryVfs, path: string): void {
  * endpoints (`/api/<service>/<method>`) are served by an interceptor the gateway
  * registers on the Connection service, and answer 404 from the core routes. The
  * Connection service composes both halves in `createSharedFetchHandler`, whose
- * fallback — not the composition — carries the privileged fence, so composing it
- * here keeps every interceptor while leaving out the fence the direct lane exists
- * to bypass.
+ * fallback — not the composition — carries network authentication and trust, so
+ * composing it here keeps every interceptor while leaving out the fences the
+ * worker-local direct lane exists to bypass.
  * @param ctx - Booted host context.
  * @param core - Fetch handler over the API surface.
  * @returns Handler covering interceptors and the core surface.

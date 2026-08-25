@@ -2,7 +2,7 @@
 import { Context } from '@deepseek-ai/cordis'
 import { describe, expect, it, vi } from 'vitest'
 import { resolveSlotLabel } from '@deepseek-ai/dsh-client-ui-slots'
-import { SlotRegistry } from '@deepseek-ai/dsh-client-runtime/client'
+import { SlotRegistry } from '@deepseek-ai/dsh-client-ui-renderer/client'
 import { LocaleRuntime } from '@deepseek-ai/dsh-client-locale/client'
 import { TestRemote } from '@deepseek-ai/dsh-client-test-runtime'
 import { apply as settingsApply, inject as settingsInject } from '@deepseek-ai/dsh-client-ui-settings/client'
@@ -24,9 +24,7 @@ async function bench(isLoopback = true, settings?: object, services: object = {}
   const locale = new LocaleRuntime(ctx)
   locale.setLocale('zh')
   ctx.provide('locale', locale)
-  // The plugins inject `remote`; forwarded events reach them through the
-  // same `$dispatch` handoff the connection sink makes.
-  new TestRemote(ctx)
+  const remote = new TestRemote(ctx)
   // Without a settings face the mirror's reads fail and stay contained; the
   // Models join itself never fetches until a section actually loads. The real
   // ui-settings apply also provides the settingsSchema service.
@@ -35,7 +33,7 @@ async function bench(isLoopback = true, settings?: object, services: object = {}
     isLoopback,
   } as never)
   await ctx.plugin({ inject: [...settingsInject], apply: settingsApply }).await()
-  return { ctx, slots: ctx.get('slots') as SlotRegistry, locale }
+  return { ctx, slots: ctx.get('slots') as SlotRegistry, locale, remote }
 }
 
 function declare(slots: SlotRegistry): () => void {
@@ -176,9 +174,9 @@ describe('pushed invalidations', () => {
     declare(b.slots)
     await b.ctx.plugin({ inject: [...inject], apply }).await()
     // The fake wire face has no methods: a fetch attempt would throw.
-    b.ctx.remote.$dispatch('settings/document-updated', ['llm-pi-ai', 1])
-    b.ctx.remote.$dispatch('credentials/reference-updated', ['OPENAI_API_KEY'])
-    b.ctx.remote.$dispatch('llm/adapters-updated', [])
+    b.remote.emit('settings/document-updated', ['llm-pi-ai', 1])
+    b.remote.emit('credentials/reference-updated', ['OPENAI_API_KEY'])
+    b.remote.emit('llm/adapters-updated', [])
     b.ctx.emit('connection/reset')
   })
 
@@ -210,7 +208,7 @@ describe('pushed invalidations', () => {
     )()
     injected.controller.store.update((state) => { state.status = 'ready' })
     const load = vi.spyOn(injected.controller, 'load').mockResolvedValue()
-    b.ctx.remote.$dispatch('credentials/reference-updated', ['DEEPSEEK_API_KEY'])
+    b.remote.emit('credentials/reference-updated', ['DEEPSEEK_API_KEY'])
     expect(load).toHaveBeenCalledTimes(1)
   })
 
@@ -252,7 +250,7 @@ describe('pushed invalidations', () => {
       expect(injected.hooks.welcome.getSnapshot()).toMatchObject({ status: 'ready', acknowledged: false })
     })
     acknowledgement.current = WELCOME_NOTICE_VERSION
-    b.ctx.remote.$dispatch('settings/document-updated', ['ui-onboarding', 1])
+    b.remote.emit('settings/document-updated', ['ui-onboarding', 1])
     await vi.waitFor(() => {
       expect(injected.hooks.welcome.getSnapshot()).toMatchObject({ status: 'ready', acknowledged: true })
     })
@@ -295,7 +293,7 @@ describe('pushed invalidations', () => {
     expect(injected.hooks.snapshot.getSnapshot().namespaces.get('llm-test')?.revision).toBe(1)
 
     revision = 2
-    b.ctx.remote.$dispatch('settings/document-updated', ['llm-test', revision])
+    b.remote.emit('settings/document-updated', ['llm-test', revision])
 
     await vi.waitFor(() => {
       expect(injected.hooks.snapshot.getSnapshot().namespaces.get('llm-test')?.revision).toBe(2)

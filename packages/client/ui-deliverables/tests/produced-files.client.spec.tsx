@@ -9,15 +9,16 @@ import { Context } from '@deepseek-ai/cordis'
 import { act, cleanup, fireEvent, render, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
-  ConversationEventRegistry, ConversationNodeAssembler, SlotRegistry,
-} from '@deepseek-ai/dsh-client-runtime/client'
+  ConversationNodeAssembler, UiConversation,
+} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type {
   ConversationEventInput, ConversationLocationDataStore, ConversationMatch, ConversationNodeDefinition,
   ConversationTimelineSnapshot, ConversationTurnDataMap, ConversationViewDefinition,
-  ConversationViewNode, ToolResultNode, TurnLocation,
-} from '@deepseek-ai/dsh-client-runtime/client'
+  ConversationViewNode, TurnLocation,
+} from '@deepseek-ai/dsh-client-ui-conversation/client'
+import { SlotRegistry } from '@deepseek-ai/dsh-client-ui-renderer/client'
 import { apply as applyLocale, inject as localeInject } from '@deepseek-ai/dsh-client-locale/client'
-import type { ChatFileMentions, TurnTailOwnerProps } from '@deepseek-ai/dsh-client-ui-conversation/client'
+import type { ChatFileMentions, TurnTailOwnerProps } from '@deepseek-ai/dsh-client-ui-chat/client'
 import { makeTranslate, stubSettingsScope } from '@deepseek-ai/dsh-client-test-runtime'
 import {
   fitProducedFiles, ProducedFiles, type ProducedFilesProps,
@@ -108,14 +109,12 @@ function at(
   seq: number,
   type: string,
   data: unknown,
-  view?: ConversationEventInput['view'],
 ): ConversationEventInput {
   return {
     event: {
       seq, time: seq * 1_000, type, data,
       ...(type === 'tool/result' ? { surfaceOp: 'append' } : {}),
     } as ConversationEventInput['event'],
-    view,
   }
 }
 
@@ -126,14 +125,24 @@ function matched(input: ConversationEventInput, role: ConversationMatch['role'])
 function call(
   seq: number,
   callId: string,
-  view: ToolResultNode['callView'],
+  name: string,
+  args: Readonly<Record<string, unknown>>,
+  turn = 1,
+): ConversationEventInput {
+  return rawCall(seq, callId, name, JSON.stringify(args), turn)
+}
+
+function rawCall(
+  seq: number,
+  callId: string,
+  name: string,
+  argsRaw: string,
   turn = 1,
 ): ConversationEventInput {
   return at(
     seq,
     'tool/call',
-    { turn, step: 1, callId, name: 'fixture', arguments: '{}' },
-    { for: 'call', view: view ?? { card: 'generic', title: 'fixture' } },
+    { turn, step: 1, callId, name, arguments: argsRaw },
   )
 }
 
@@ -146,18 +155,6 @@ function result(seq: number, callId: string, isError = false, turn = 1): Convers
       content: [{ type: 'tool-result', content: [], isError }],
     },
   })
-}
-
-function diff(...paths: string[]): ToolResultNode['callView'] {
-  return {
-    card: 'diff', title: `Write ${paths[0] ?? ''}`,
-    diffs: paths.map(path => ({ path, oldText: null, newText: 'x' })),
-    locations: paths.map(path => ({ path })),
-  }
-}
-
-function edit(path: string): ToolResultNode['callView'] {
-  return { card: 'generic', title: `insert ${path}`, kind: 'edit', locations: [{ path }] }
 }
 
 function assembler(entries: readonly ConversationEventInput[], hasMore = false): ConversationNodeAssembler {
@@ -186,36 +183,148 @@ describe('produced-file Turn data', () => {
     expect(selectProducedFiles(tailOwner(undefined, 9, () => {}, 2))).toBeNull()
   })
 
-  it('folds successful diff and generic-edit calls while ignoring reads, failures, and missing locations', () => {
+  it('folds successful first-party mutation paths from their raw arguments', () => {
     const value = assembler([
       at(1, 'turn/start', { turn: 1 }),
-      call(2, 'write', diff('out/index.html', 'out/app.css')),
+      call(2, 'write', 'write', {
+        file_path: 'out/index.html', path: 'wrong-write.txt', content: '<html></html>',
+      }),
       result(3, 'write'),
-      call(4, 'edit', edit('notes.md')),
+      call(4, 'edit', 'edit', {
+        file_path: 'out/app.css', path: 'wrong-edit.txt', old_string: 'red', new_string: 'blue',
+        replace_all: false,
+      }),
       result(5, 'edit'),
-      call(6, 'read', { card: 'generic', title: 'Read', locations: [{ path: 'input.txt' }] }),
-      result(7, 'read'),
-      call(8, 'failed', diff('broken.txt')),
-      result(9, 'failed', true),
-      call(10, 'locationless', { card: 'diff', title: 'Write', diffs: [] }),
-      result(11, 'locationless'),
+      call(6, 'create', 'str_replace_editor', {
+        command: 'create', path: 'notes/new.md', file_path: 'wrong-create.txt', file_text: 'new',
+      }),
+      result(7, 'create'),
+      call(8, 'replace', 'str_replace_editor', {
+        command: 'str_replace', path: 'notes/existing.md', old_str: 'old', new_str: 'new',
+      }),
+      result(9, 'replace'),
+      call(10, 'delete-text', 'str_replace_editor', {
+        command: 'str_replace', path: 'notes/deleted-text.md', old_str: 'remove me',
+      }),
+      result(11, 'delete-text'),
+      call(12, 'insert', 'str_replace_editor', {
+        command: 'insert', path: 'notes/inserted.md', insert_line: 1, new_str: 'line',
+      }),
+      result(13, 'insert'),
     ])
 
     expect(producedForClosing(deliverablesOf(value))).toEqual([
-      'out/index.html', 'out/app.css', 'notes.md',
+      'out/index.html',
+      'out/app.css',
+      'notes/new.md',
+      'notes/existing.md',
+      'notes/deleted-text.md',
+      'notes/inserted.md',
     ])
   })
 
-  it('ignores calls without mutation locations, orphan results, and replacement results', () => {
-    const replacement = result(8, 'replacement')
+  it.each([
+    { caseName: 'write omits content', name: 'write', args: { file_path: 'write.txt' } },
+    { caseName: 'write has non-string content', name: 'write', args: { file_path: 'write.txt', content: 1 } },
+    {
+      caseName: 'edit omits old_string', name: 'edit',
+      args: { file_path: 'edit.txt', new_string: 'new' },
+    },
+    {
+      caseName: 'edit has an empty old_string', name: 'edit',
+      args: { file_path: 'edit.txt', old_string: '', new_string: 'new' },
+    },
+    {
+      caseName: 'edit omits new_string', name: 'edit',
+      args: { file_path: 'edit.txt', old_string: 'old' },
+    },
+    {
+      caseName: 'edit does not change the string', name: 'edit',
+      args: { file_path: 'edit.txt', old_string: 'same', new_string: 'same' },
+    },
+    {
+      caseName: 'edit has a non-boolean replace_all', name: 'edit',
+      args: { file_path: 'edit.txt', old_string: 'old', new_string: 'new', replace_all: 'yes' },
+    },
+    {
+      caseName: 'editor create omits file_text', name: 'str_replace_editor',
+      args: { command: 'create', path: 'create.txt' },
+    },
+    {
+      caseName: 'editor create has non-string file_text', name: 'str_replace_editor',
+      args: { command: 'create', path: 'create.txt', file_text: 1 },
+    },
+    {
+      caseName: 'editor replace omits old_str', name: 'str_replace_editor',
+      args: { command: 'str_replace', path: 'replace.txt', new_str: 'new' },
+    },
+    {
+      caseName: 'editor replace has an empty old_str', name: 'str_replace_editor',
+      args: { command: 'str_replace', path: 'replace.txt', old_str: '' },
+    },
+    {
+      caseName: 'editor replace has non-string new_str', name: 'str_replace_editor',
+      args: { command: 'str_replace', path: 'replace.txt', old_str: 'old', new_str: 1 },
+    },
+    {
+      caseName: 'editor insert omits insert_line', name: 'str_replace_editor',
+      args: { command: 'insert', path: 'insert.txt', new_str: 'new' },
+    },
+    {
+      caseName: 'editor insert has a fractional insert_line', name: 'str_replace_editor',
+      args: { command: 'insert', path: 'insert.txt', insert_line: 1.5, new_str: 'new' },
+    },
+    {
+      caseName: 'editor insert has a negative insert_line', name: 'str_replace_editor',
+      args: { command: 'insert', path: 'insert.txt', insert_line: -1, new_str: 'new' },
+    },
+    {
+      caseName: 'editor insert omits new_str', name: 'str_replace_editor',
+      args: { command: 'insert', path: 'insert.txt', insert_line: 1 },
+    },
+  ])('ignores a successful result when $caseName', ({ name, args }) => {
     const value = assembler([
       at(1, 'turn/start', { turn: 1 }),
-      at(2, 'tool/call', { turn: 1, step: 1, callId: 'no-view', name: 'fixture', arguments: '{}' }),
-      result(3, 'no-view'),
-      call(4, 'locationless-edit', { card: 'generic', title: 'Edit', kind: 'edit' }),
-      result(5, 'locationless-edit'),
-      result(6, 'orphan'),
-      call(7, 'replacement', diff('replaced.txt')),
+      call(2, 'malformed', name, args),
+      result(3, 'malformed'),
+    ])
+
+    expect(producedForClosing(deliverablesOf(value))).toEqual([])
+  })
+
+  it('ignores editor views, unsupported tools, failures, interruptions, malformed calls, and orphan results', () => {
+    const replacement = result(25, 'replacement')
+    const value = assembler([
+      at(1, 'turn/start', { turn: 1 }),
+      call(2, 'view', 'str_replace_editor', { command: 'view', path: 'viewed.txt' }),
+      result(3, 'view'),
+      call(4, 'read', 'read', { file_path: 'input.txt' }),
+      result(5, 'read'),
+      call(6, 'unknown', 'custom_edit', { file_path: 'custom.txt', path: 'custom.txt' }),
+      result(7, 'unknown'),
+      call(8, 'failed', 'write', { file_path: 'failed.txt', content: 'x' }),
+      result(9, 'failed', true),
+      call(10, 'interrupted', 'edit', {
+        file_path: 'interrupted.txt', old_string: 'old', new_string: 'new',
+      }),
+      rawCall(11, 'invalid-json', 'write', '{'),
+      result(12, 'invalid-json'),
+      rawCall(13, 'null-args', 'write', 'null'),
+      result(14, 'null-args'),
+      rawCall(15, 'array-args', 'edit', '[]'),
+      result(16, 'array-args'),
+      call(17, 'missing-path', 'write', { content: 'x' }),
+      result(18, 'missing-path'),
+      call(19, 'blank-path', 'edit', {
+        file_path: '   ', old_string: 'old', new_string: 'new',
+      }),
+      result(20, 'blank-path'),
+      call(21, 'missing-editor-path', 'str_replace_editor', { command: 'create', file_text: 'x' }),
+      result(22, 'missing-editor-path'),
+      result(23, 'orphan'),
+      call(24, 'replacement', 'str_replace_editor', {
+        command: 'insert', path: 'replaced.txt', insert_line: 0, new_str: 'new',
+      }),
       {
         ...replacement,
         event: {
@@ -223,7 +332,7 @@ describe('produced-file Turn data', () => {
           surfaceOp: { op: 'replace', start: 1, end: 1 },
         } as ConversationEventInput['event'],
       },
-      at(9, 'turn/end', { turn: 1, reason: { kind: 'completed' } }),
+      at(26, 'turn/end', { turn: 1, reason: { kind: 'interrupted' } }),
     ])
 
     expect(producedForClosing(deliverablesOf(value))).toEqual([])
@@ -252,7 +361,7 @@ describe('produced-file Turn data', () => {
 
   it('replays a tail page once prepend supplies its missing Turn start', () => {
     const value = assembler([
-      call(10, 'late', diff('history.txt')),
+      call(10, 'late', 'write', { file_path: 'history.txt', content: 'history' }),
       result(11, 'late'),
     ], true)
     expect(deliverablesOf(value)).toBeUndefined()
@@ -265,13 +374,15 @@ describe('produced-file Turn data', () => {
   it('extends the same Turn data incrementally on live append', () => {
     const value = assembler([
       at(1, 'turn/start', { turn: 1 }),
-      call(2, 'first', diff('first.txt')),
+      call(2, 'first', 'write', { file_path: 'first.txt', content: 'first' }),
       result(3, 'first'),
     ])
     const first = deliverablesOf(value)
     expect(producedForClosing(first)).toEqual(['first.txt'])
 
-    value.append(call(4, 'second', diff('second.txt')))
+    value.append(call(4, 'second', 'edit', {
+      file_path: 'second.txt', old_string: 'before', new_string: 'after',
+    }))
     value.append(result(5, 'second'))
     value.flush()
     expect(producedForClosing(deliverablesOf(value))).toEqual(['first.txt', 'second.txt'])
@@ -454,7 +565,7 @@ describe('plugin registration', () => {
   it('registers the tail entry and fiber disposal removes it', async () => {
     const ctx = new Context()
     await ctx.plugin(SlotRegistry).await()
-    await ctx.plugin(ConversationEventRegistry).await()
+    new UiConversation(ctx, { binding: () => undefined } as never)
     // The owning view's child declaration, stood up by a bench root entry.
     ctx.slots.register({
       name: 'root',

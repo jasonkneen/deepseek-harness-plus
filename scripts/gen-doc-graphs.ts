@@ -80,6 +80,7 @@ const GROUP_ORDER = [
   'tasks',
   'workflow',
   'web',
+  'webhook',
   'spill',
   'todo',
   'plan',
@@ -116,6 +117,15 @@ const SERVICE_ROLES: ServiceRole[] = [
     note: 'Adapters register provider implementations; the loop and compaction call the provider-neutral stream service.',
   },
   {
+    key: 'deepseekLlmApiExtensions',
+    pkg: 'deepseek-llm-api-extensions',
+    title: 'Official DeepSeek request extensions',
+    mode: 'seam',
+    implementations: ['session-log-deepseek', 'plugin-package-inventory-deepseek'],
+    consumers: ['llm-deepseek'],
+    note: 'Plugins prepare independent top-level fields; the official adapter merges them and commits their delivery state after HTTP acceptance.',
+  },
+  {
     key: 'tokenMeter',
     pkg: 'token-meter',
     title: 'Replay token measurement',
@@ -138,6 +148,21 @@ const SERVICE_ROLES: ServiceRole[] = [
     mode: 'core',
     consumers: ['agent-loop', 'agent', 'session-persistence', 'session-query', 'session-query-sqlite', 'subagent-inprocess', 'invariants', 'message-feedback'],
     note: 'Owns append-only Session instances and emits the durable session event feed.',
+  },
+  {
+    key: 'sessionController',
+    pkg: 'api-session-controller',
+    title: 'Host Session Remote controller',
+    mode: 'core',
+    consumers: ['apiproxy'],
+    note: 'Owns Session commands, cold reads, durable-event following, live control state, and Agent activation policy; apiProxy reuses its inspection and Agent-resolution operations for Session-aware domains.',
+  },
+  {
+    key: 'workspaceController',
+    pkg: 'api-workspace-controller',
+    title: 'Host Workspace Remote controller',
+    mode: 'core',
+    note: 'Owns Workspace commands and reconnect-safe Workspace state delivery through the generated Remote namespace.',
   },
   {
     key: 'invariants',
@@ -179,6 +204,14 @@ const SERVICE_ROLES: ServiceRole[] = [
     implementations: ['settings-file'],
     consumers: ['llm-deepseek', 'llm-pi-ai', 'apiproxy'],
     note: 'Plugins register namespace schemas and resolve layered values; providers store the raw document. The LLM adapters register their entry config as the composition base under the user section; the web gateway serves redacted layered descriptors and writes the user layer.',
+  },
+  {
+    key: 'subagentModelSelection',
+    pkg: 'tool-subagent',
+    title: 'Subagent model-selection preference',
+    mode: 'core',
+    consumers: ['tool-subagent'],
+    note: 'Owns the default-off settings namespace that Agent-scoped delegation tools sample when composing a new top-level Session.',
   },
   {
     key: 'credentials',
@@ -557,6 +590,14 @@ const SERVICE_ROLES: ServiceRole[] = [
     note: 'One engine per context, as in bash, with no named-provider registry; the general workflow and fixed Ralph consumers start runs whose agent() calls fan out through ctx.subagents.',
   },
   {
+    key: 'webhookRuntime',
+    pkg: 'webhook',
+    title: 'Webhook rule runtime',
+    mode: 'core',
+    consumers: ['webhook-github'],
+    note: 'Provider adapters dispatch authenticated deliveries; trusted plugins register independent process-local rules, and the runtime turns non-null results into ordinary Workspace-backed Sessions without delivery or completion state.',
+  },
+  {
     key: 'lsp',
     pkg: 'lsp',
     title: 'Language-server navigation seam',
@@ -730,47 +771,15 @@ const APP_EXAMPLES = [
     title: 'DSH Base Composition',
     label: 'packages/bundle/base/cordis.patch.yml',
     config: 'packages/bundle/base/cordis.patch.yml',
-    summary: 'The dsh-base bundle patch every profile applies first; mode bundles (dsh-web-app, dsh-headless) and the user\'s profile layer patch over it.',
-  },
-  {
-    id: 'headless',
-    rel: 'examples/headless-agent/composition.md',
-    title: 'Headless Agent Snapshot Composition',
-    label: 'examples/headless-agent',
-    config: 'examples/headless-agent/cordis.yml',
-    summary: 'The headless snapshot composition combines the real DeepSeek adapter and coding capabilities with one explicitly configured persisted top-level agent; its JSONL driver is test-only.',
-  },
-  {
-    id: 'acp',
-    rel: 'examples/acp-agent/composition.md',
-    title: 'ACP Automation App Composition',
-    label: 'examples/acp-agent',
-    config: 'examples/acp-agent/cordis.yml',
-    summary: 'The ACP demo exposes fresh baseline-prompt agent sessions to programmatic clients over JSON-RPC stdio, with no stdout logger, human UI, or pre-created agent.',
+    summary: 'The dsh-base bundle patch shared by the web, headless, sdk, and acp profiles; their mode bundles and user layers patch over it, while sdk-minimal owns a separate standalone tree.',
   },
 ]
 
 type AppExample = typeof APP_EXAMPLES[number]
 
-function renderAppExpansion(lines: string[], appNode: string, pluginName: string): void {
-  const agentCore = nodeId('bundle', 'agent_core')
-  const jsonl = nodeId('bundle', 'jsonl')
-  lines.push(`  ${appNode} --> ${agentCore}["@deepseek-ai/dsh-agent-spine-demo"]`)
-  lines.push(`  ${appNode} --> ${jsonl}["@deepseek-ai/dsh-session-persistence-jsonl"]`)
-  if (pluginName === '@deepseek-ai/dsh-acp-demo') {
-    lines.push(`  ${appNode} --> ${nodeId('entrypoint', 'acp')}["@deepseek-ai/dsh-acp<br/>automation-only JSON-RPC stdio<br/>fresh sessions created by client"]`)
-  }
-  lines.push(
-    `  ${agentCore} --> ${nodeId('spine', 'llm')}["ctx.llm"]`,
-    `  ${agentCore} --> ${nodeId('spine', 'sessions')}["ctx.sessions"]`,
-    `  ${agentCore} --> ${nodeId('spine', 'tools')}["ctx.tools + tool-bash"]`,
-    `  ${agentCore} --> ${nodeId('spine', 'loop')}["ctx.agents + ctx.agentLoop"]`,
-  )
-}
-
 function renderAppComposition(example: AppExample): string {
   const plugins = parseExampleCordis(example.config)
-  const maintenance = 'hybrid: the leaf plugin list is parsed from its `cordis.yml`; app package expansion is curated from package source'
+  const maintenance = 'hybrid: the patch row list is parsed from its `cordis.yml`; app package expansion is curated from package source'
   const lines = generatedHeader(example.title)
   lines.push(
     example.summary,
@@ -783,9 +792,6 @@ function renderAppComposition(example: AppExample): string {
     const pluginNode = nodeId(`plugin_${example.id}`, plugin.id)
     lines.push(`  ${pluginNode}["${escLabel(plugin.id)}<br/>${escLabel(plugin.name)}"]`)
     lines.push(`  cfg --> ${pluginNode}`)
-    if (plugin.name === '@deepseek-ai/dsh-acp-demo') {
-      renderAppExpansion(lines, pluginNode, plugin.name)
-    }
   }
   lines.push(
     '```',
@@ -1326,7 +1332,7 @@ function renderLifecycle(): string {
     '',
     '`dsh-compaction-basic` uses `agent/pre-step` for pressure before request derivation and `agent/request-error` only for canonical context overflow. Once either trigger qualifies, optional tool-result pruning runs before summary selection. Recovery works between the closed failed step and failed turn close, and opens a fresh retry turn only when pruning or summarization advances the surface replacement generation; otherwise the original request error remains authoritative.',
     '',
-    'The returned `agent/pre-step` decision is authoritative; listeners wrapping `next()` preserve downstream messages unless replacement is intentional. Steering and injected context pass through the same waterfall after a later claim operation takes their next-step batch.',
+    'The returned `agent/pre-step` decision is authoritative; listeners wrapping `next()` preserve downstream messages and `startsRequestSeries` unless replacement is intentional. Steering and injected context pass through the same waterfall after a later claim operation takes their next-step batch.',
     '',
     'SDK users that need replayable transcript data should consume `session/event`; `agent/*` is the live coordination API for queue/status, prompt interception, request construction, steering, continuation, and errors.',
     '',
@@ -1416,9 +1422,6 @@ function renderIndex(docs: GraphDoc[]): string {
   const labels: Record<string, string> = {
     'docs/capability-seams.md': 'capability seams and core services',
     'apps/cli/composition.md': 'dsh shared base composition',
-    'examples/headless-agent/composition.md': 'headless-agent app composition',
-    'examples/cordis-agent/composition.md': 'cordis-agent app composition',
-    'examples/acp-agent/composition.md': 'acp-agent app composition',
     'docs/event-producer-consumer.md': 'event producer/consumer matrix',
     'docs/agent-lifecycle.md': 'agent turn and step lifecycle',
     'docs/tool-execution-pipeline.md': 'tool execution pipeline',
@@ -1426,9 +1429,6 @@ function renderIndex(docs: GraphDoc[]): string {
   const modes: Record<string, string> = {
     'docs/capability-seams.md': 'hybrid generated',
     'apps/cli/composition.md': 'hybrid generated',
-    'examples/headless-agent/composition.md': 'hybrid generated',
-    'examples/cordis-agent/composition.md': 'hybrid generated',
-    'examples/acp-agent/composition.md': 'hybrid generated',
     'docs/event-producer-consumer.md': 'hybrid generated',
     'docs/agent-lifecycle.md': 'curated',
     'docs/tool-execution-pipeline.md': 'curated',

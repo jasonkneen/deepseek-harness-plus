@@ -4,15 +4,15 @@
  * which backend the worker entry mounted.
  * @module @deepseek-ai/dsh-experimental-webworker-runtime/src/storage/active
  */
-import type { MemoryVfs } from './memory.ts'
+import type { Vfs } from './types.ts'
 
-let active: MemoryVfs | undefined
+let active: Vfs | undefined
 
 /**
  * Publish the filesystem the `node:fs` proxy reads.
  * @param vfs - Filesystem mounted by the worker entry.
  */
-export function setActiveVfs(vfs: MemoryVfs): void {
+export function setActiveVfs(vfs: Vfs): void {
   active = vfs
 }
 
@@ -20,7 +20,7 @@ export function setActiveVfs(vfs: MemoryVfs): void {
  * Read the mounted filesystem.
  * @returns The active filesystem.
  */
-export function requireActiveVfs(): MemoryVfs {
+export function requireActiveVfs(): Vfs {
   if (active === undefined) {
     throw new Error('webworker vfs: no filesystem is mounted; the worker entry must call setActiveVfs before any node:fs access')
   }

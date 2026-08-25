@@ -15,8 +15,8 @@ function bench() {
     api: { settings: { describe: describeCall } },
     isLoopback: true,
   } as never)
-  new TestRemote(ctx)
-  return { ctx, describeCall, fiber: ctx.plugin({ inject: [...inject], apply }) }
+  const remote = new TestRemote(ctx)
+  return { ctx, describeCall, remote, fiber: ctx.plugin({ inject: [...inject], apply }) }
 }
 
 describe('settings domain base plugin', () => {
@@ -29,23 +29,23 @@ describe('settings domain base plugin', () => {
   })
 
   it('refreshes the mirror on document commits and connection resets, once each', async () => {
-    const { ctx, describeCall, fiber } = bench()
+    const { ctx, describeCall, remote, fiber } = bench()
     await fiber.await()
     await vi.waitFor(() => { expect(describeCall).toHaveBeenCalledTimes(1) })
-    ctx.remote.$dispatch('settings/document-updated', ['ui-test', 0])
+    remote.emit('settings/document-updated', ['ui-test', 0])
     await vi.waitFor(() => { expect(describeCall).toHaveBeenCalledTimes(2) })
     ctx.emit('connection/reset')
     await vi.waitFor(() => { expect(describeCall).toHaveBeenCalledTimes(3) })
   })
 
   it('fiber disposal retires the service and its invalidation subscriptions', async () => {
-    const { ctx, describeCall, fiber } = bench()
+    const { ctx, describeCall, remote, fiber } = bench()
     await fiber.await()
     await vi.waitFor(() => { expect(describeCall).toHaveBeenCalledTimes(1) })
     await fiber.dispose()
     expect(ctx.get('settingsScope')).toBeUndefined()
     expect(ctx.get('settingsSchema')).toBeUndefined()
-    ctx.remote.$dispatch('settings/document-updated', ['ui-test', 0])
+    remote.emit('settings/document-updated', ['ui-test', 0])
     ctx.emit('connection/reset')
     await Promise.resolve()
     expect(describeCall).toHaveBeenCalledTimes(1)

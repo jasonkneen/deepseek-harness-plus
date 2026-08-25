@@ -27,14 +27,18 @@ import z from '@deepseek-ai/schemastery'
 import { bindScopeParent, createScope, scopeOf, type Scope, type ScopeKey, type ScopeParentBinding } from '@deepseek-ai/dsh-scope'
 // Type-only: resolves the `agent/created` lifecycle event this service watches.
 import type {} from '@deepseek-ai/dsh-agent'
+import type {} from '@deepseek-ai/dsh-session-projection'
+// Type-only: resolves the registry notification emitted after scope reparenting.
+import type {} from '@deepseek-ai/dsh-tools'
 import { settingsNamespace, type SettingsScope, type default as SettingsService } from '@deepseek-ai/dsh-settings'
 import { dshHomePath } from '@deepseek-ai/dsh-home-paths'
-import { discoverPresets, USER_PRESET_DIR } from './discovery.ts'
+import { discoverPresets, SHIPPED_PRESET_ROOT, USER_PRESET_DIR } from './discovery.ts'
 import { copyComposition, deleteComposition, readComposition } from './authoring.ts'
 import { mountPreset, serviceForAgent, standingMountFor } from './mount.ts'
 import { PresetExistsError } from './authoring.ts'
 import { PresetMountError, UnknownPresetError, type AgentPreset, type Config, type PresetRoot } from './preset.ts'
-import type {} from './types.ts'
+import { agentPresetProjectionDefinition } from './session.ts'
+export type * from './types.ts'
 
 /** Settings namespace carrying the user's chosen default preset. */
 export const SETTINGS_NAMESPACE = 'agent-presets'
@@ -50,7 +54,7 @@ export const AgentPresetSettingsSchema: z<AgentPresetSettings> = z.object({
   default: z.string(),
 })
 
-export { COMPOSITION_FILE, discoverPresets, scanRoot } from './discovery.ts'
+export { COMPOSITION_FILE, discoverPresets, scanRoot, SHIPPED_PRESET_ROOT } from './discovery.ts'
 export {
   METADATA_FILE, readPresetMetadata, renderPresetMetadata, type PresetMetadata,
 } from './metadata.ts'
@@ -62,7 +66,7 @@ export {
   copyComposition, deleteComposition, InvalidPresetIdError, PresetExistsError,
   PresetNotWritableError, readComposition, writableRoot,
 } from './authoring.ts'
-export { resolveSessionPreset, type PresetBearingSession } from './session.ts'
+export { agentPresetProjectionDefinition } from './session.ts'
 export { PresetMountError, UnknownPresetError } from './preset.ts'
 export type { AgentPreset, Config, PresetRoot, PresetTrust } from './preset.ts'
 
@@ -89,18 +93,21 @@ export class AgentPresets extends Service {
       path: z.string().required(),
       trust: z.union(['system', 'user'] as const).default('user'),
     })).default([]),
+    includeShippedRoot: z.boolean().default(true),
     includeUserRoot: z.boolean().default(true),
   }) as z<Config>
 
   /**
-   * The roots discovery and authoring actually scan: every configured root in
+   * The roots discovery and authoring actually scan: the package's shipped
+   * root unless `includeShippedRoot` is false, then every configured root in
    * order, then the harness-home user root unless `includeUserRoot` is false.
    *
    * Derived once, because a root set that changed between `list()` and the
    * `copy()` acting on its answer would author into a directory the caller
-   * never saw. Appending rather than prepending keeps an earlier configured
-   * root winning a duplicate id, so a shipped preset still shadows a
-   * locally authored directory that claimed its name.
+   * never saw. The shipped root comes FIRST and the user root LAST because an
+   * earlier root wins a duplicate id: a shipped preset shadows any directory
+   * that claimed its name, and a configured root still shadows a locally
+   * authored one.
    */
   private readonly resolvedRoots: readonly PresetRoot[]
 
@@ -130,9 +137,11 @@ export class AgentPresets extends Service {
   constructor(ctx: Context, public config: Config) {
     super(ctx, 'agentPresets')
     this.selfCtx = ctx
-    this.resolvedRoots = config.includeUserRoot
-      ? [...config.roots, { path: dshHomePath(USER_PRESET_DIR), trust: 'user' }]
-      : [...config.roots]
+    this.resolvedRoots = [
+      ...config.includeShippedRoot ? [{ path: SHIPPED_PRESET_ROOT, trust: 'system' } satisfies PresetRoot] : [],
+      ...config.roots,
+      ...config.includeUserRoot ? [{ path: dshHomePath(USER_PRESET_DIR), trust: 'user' } satisfies PresetRoot] : [],
+    ]
     // Deliberately not `installSettingsSection`: that helper exists to re-judge
     // what a consumer DERIVED from the source — memoized resolutions,
     // registration-level facts — across attach, detach, and change. Nothing
@@ -151,6 +160,10 @@ export class AgentPresets extends Service {
       }, 'agentPresets.settings()')
     })
 
+    ctx.inject(['sessionProjections'], (projectionCtx) => {
+      projectionCtx.sessionProjections.register(agentPresetProjectionDefinition)
+    })
+
     // Advisory, not fatal: a synchronous `agent/created` listener that throws
     // VETOES publication, and this service must not, because composing an agent
     // outside the roster is legal — `recompose` binds exactly such a bare agent
@@ -160,9 +173,9 @@ export class AgentPresets extends Service {
     // Note](../../../../.agents/notes/implemented/architecture/2026-08-10-host-plane-ownership-after-presets.md).
     //
     // Known false positive: a session created bare and bound later by
-    // `recompose` is warned about once, before its first bind. No shipped flow
-    // does that today — the Web surface mounts in `setup` and children join
-    // through `composeFrom` before publication.
+    // `recompose` is warned about once, before its first bind. Shipped Web
+    // sessions mount in `setup`, and children join through `composeFrom`
+    // before publication.
     ctx.on('agent/created', ({ agent }) => {
       if (this.resolvedRoots.length === 0) return
       if (this.composedPreset(agent.ctx) !== undefined) return
@@ -338,10 +351,11 @@ export class AgentPresets extends Service {
   }
 
   /**
-   * The roots this roster scans, which is not `config.roots`: it is every
-   * configured root in order, then the harness-home user root unless
-   * `includeUserRoot` is false. Read this — not the config field — to answer
-   * whether a roster is composed at all, so one derivation decides it.
+   * The roots this roster scans, which is not `config.roots`: the package's
+   * shipped root unless `includeShippedRoot` is false, every configured root
+   * in order, then the harness-home user root unless `includeUserRoot` is
+   * false. Read this — not the config field — to answer whether a roster is
+   * composed at all, so one derivation decides it.
    */
   get roots(): readonly PresetRoot[] {
     return this.resolvedRoots
@@ -449,7 +463,9 @@ export class AgentPresets extends Service {
    * state to restore. The re-link runs through the binding this roster kept
    * from the agent's mount — dsh-scope's only re-link authority. An agent
    * that never composed one has nothing to re-link: the switch is then the
-   * agent's first bind, exactly a mount.
+   * agent's first bind, exactly a mount. A committed re-link emits
+   * `tools/change` because changing the parent scope changes the Agent's
+   * resolved tool set without adding or removing registry entries.
    * @param agentCtx - the agent's scope context.
    * @param id - the preset to compose the agent from instead.
    * @returns the preset now installed.
@@ -467,6 +483,14 @@ export class AgentPresets extends Service {
       this.bindings.set(agentKey, bindScopeParent(agentKey, standing.key))
     } else {
       binding.rebind(standing.key)
+    }
+    // Reparenting changes every scope-layered tool view without adding or
+    // removing a registration. Publish the registry's normal invalidation so
+    // Agent-owned overlays can reconcile with the new ancestry.
+    try {
+      this.ctx.emit('tools/change')
+    } catch (error: unknown) {
+      this.ctx.logger.warn(`agent-presets: tools/change listener failed after recomposing an Agent: ${String(error)}`)
     }
     return preset
   }

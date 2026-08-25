@@ -49,14 +49,18 @@ export const MODULE_PROXIES: Record<string, string> = {
   'node:events': './node/builtin_modules/implemented/events.ts',
   'node:timers/promises': './node/builtin_modules/implemented/timers/promises.ts',
   'node:perf_hooks': './node/builtin_modules/implemented/perf_hooks.ts',
+  'node:tty': './node/builtin_modules/implemented/tty.ts',
+  'tty': './node/builtin_modules/implemented/tty.ts',
   // Real zstd codec: session-log appends compress on every write.
   'node:zlib': './node/builtin_modules/implemented/zlib.ts',
   // The worker's own process layer: `bash -c` and the command table run against
   // the VFS, because a browser worker has no processes to fork.
   'node:child_process': './node/builtin_modules/implemented/child_process.ts',
   // Structural mocks: every symbol exists, every call throws.
+  'node:dns/promises': './node/builtin_modules/mock/dns/promises.ts',
+  'dns/promises': './node/builtin_modules/mock/dns/promises.ts',
   'node:net': './node/builtin_modules/mock/net.ts',
-  'node:stream': './node/builtin_modules/mock/stream.ts',
+  'node:stream': './node/builtin_modules/implemented/stream.ts',
   'node:vm': './node/builtin_modules/mock/vm.ts',
   'node:worker_threads': './node/builtin_modules/mock/worker_threads.ts',
   'node:sqlite': './node/builtin_modules/mock/sqlite.ts',
@@ -66,10 +70,8 @@ export const MODULE_PROXIES: Record<string, string> = {
   'node-pty': './node/external_packages/node-pty.ts',
   '@vscode/ripgrep': './node/external_packages/ripgrep.ts',
   '@earendil-works/pi-ai': './node/external_packages/pi-ai.ts',
-  '@deepseek-ai/node-addon-landlock-run': './node/external_packages/node-addon-landlock-run.ts',
   // Constructible fakes whose methods are never reached.
   'ws': './node/external_packages/ws.ts',
-  'chokidar': './node/external_packages/chokidar.ts',
 }
 
 

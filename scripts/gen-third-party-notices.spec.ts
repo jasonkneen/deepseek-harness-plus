@@ -339,7 +339,6 @@ describe('manifestPatterns', () => {
       'tools/*/package.json',
       'native/landlock-run/package.json',
       'native/landlock-run/packages/*/package.json',
-      'examples/*/package.json',
     ])
   })
 })

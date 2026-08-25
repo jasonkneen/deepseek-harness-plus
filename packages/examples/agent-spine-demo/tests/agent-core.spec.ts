@@ -709,7 +709,7 @@ describe('dsh-agent-spine-demo bundle', () => {
     await ctx.fiber.dispose()
   })
 
-  it('can omit the bundled bash tool and Harness identity for a compatibility deployment', async () => {
+  it('can omit the bundled bash tool, Harness identity, and runtime context', async () => {
     const ctx = await mount({
       includeHarnessIdentity: false,
       includeRuntimeContext: false,

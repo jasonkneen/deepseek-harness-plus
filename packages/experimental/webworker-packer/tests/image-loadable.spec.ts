@@ -20,19 +20,52 @@ import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
+import { FiberState } from '@deepseek-ai/cordis'
 import { createNodeBuiltins, REPLACED_PREFIXES } from '@deepseek-ai/dsh-experimental-webworker-runtime/src/node/builtins.ts'
-import { WorkerModuleLoader } from '@deepseek-ai/dsh-experimental-webworker-runtime/src/module-system/module-loader.ts'
+import {
+  setActiveModuleLoader, WorkerModuleLoader,
+} from '@deepseek-ai/dsh-experimental-webworker-runtime/src/module-system/module-loader.ts'
 import { inflateImage } from '@deepseek-ai/dsh-experimental-webworker-runtime/src/storage/image-gzip.ts'
 import { loadVfsImage } from '@deepseek-ai/dsh-experimental-webworker-runtime/src/storage/memory.ts'
-import { indexWorkspacePackages } from '../src/repository.ts'
-import { DEFAULT_ROOT, MANIFEST_PATH, packVfsImage } from '../src/pack.ts'
+import { setActiveVfs } from '@deepseek-ai/dsh-experimental-webworker-runtime/src/storage/active.ts'
+import { indexWorkspacePackages, previewFixtures } from '../src/repository.ts'
+import { DEFAULT_ROOT, MANIFEST_PATH, packVfsImage, packVfsOverlay } from '../src/pack.ts'
 
 const repoRoot = fileURLToPath(new URL('../../../../', import.meta.url))
 
 /** A leaf workspace package: real build output, no dependencies to drag in. */
 const SUBJECT = '@deepseek-ai/dsh-timeout'
+const LANDLOCK = '@deepseek-ai/node-addon-landlock-run'
+const PLUGIN_INVENTORY = '@deepseek-ai/dsh-plugin-package-inventory-deepseek'
+const WEB_SERVER = '@deepseek-ai/dsh-host-webserver'
 
 const workspaces = indexWorkspacePackages(repoRoot)
+
+describe('preview example overlays', () => {
+  it('packs source-looking paths and dot directories into a separate overlay', () => {
+    const fixture = previewFixtures(repoRoot)[0]
+    expect(fixture?.id).toBe('vfs-example')
+    const result = packVfsOverlay(fixture?.trees ?? [])
+    expect(new TextDecoder().decode(result.files['workspace/src/preview.ts']))
+      .toContain("previewStatus = 'ready'")
+    expect(new TextDecoder().decode(result.files['workspace/.agents/skills/preview-tour/SKILL.md']))
+      .toContain('name: preview-tour')
+    expect(Object.keys(result.files).filter(path => path.endsWith('/session.jsonl'))).toHaveLength(3)
+  })
+
+  it('fails loud when a declared seed tree is absent', () => {
+    expect(() => packVfsOverlay([
+      { mount: 'workspace', directory: join(repoRoot, 'missing-preview-seed') },
+    ])).toThrow(/tree workspace is missing/)
+  })
+
+  it('refuses overlays that could replace runtime files', () => {
+    const fixture = previewFixtures(repoRoot)[0]
+    expect(() => packVfsOverlay([
+      { mount: 'config', directory: fixture?.trees[0]?.directory ?? repoRoot },
+    ])).toThrow(/must stay under home or workspace/)
+  })
+})
 
 /**
  * The pack consumes built `lib/` output. An unbuilt checkout (the unit
@@ -50,6 +83,33 @@ const packed = (): ReturnType<typeof packVfsImage> => memo ??= packVfsImage({
   resolveFrom: repoRoot,
   // Synthetic composition: nothing boots the worker assembly, so its default
   // image entries must not be demanded of this one-package closure.
+  entries: [],
+})
+
+let landlockMemo: ReturnType<typeof packVfsImage> | undefined
+const packedLandlock = (): ReturnType<typeof packVfsImage> => landlockMemo ??= packVfsImage({
+  config: `- id: subject\n  name: '${LANDLOCK}'\n`,
+  profile: 'landlock-package-check',
+  workspaces,
+  resolveFrom: repoRoot,
+  entries: [],
+})
+
+let pluginInventoryMemo: ReturnType<typeof packVfsImage> | undefined
+const packedPluginInventory = (): ReturnType<typeof packVfsImage> => pluginInventoryMemo ??= packVfsImage({
+  config: `- id: subject\n  name: '${PLUGIN_INVENTORY}'\n`,
+  profile: 'plugin-inventory-check',
+  workspaces,
+  resolveFrom: repoRoot,
+  entries: [],
+})
+
+let webServerMemo: ReturnType<typeof packVfsImage> | undefined
+const packedWebServer = (): ReturnType<typeof packVfsImage> => webServerMemo ??= packVfsImage({
+  config: `- id: subject\n  name: '${WEB_SERVER}'\n`,
+  profile: 'webserver-dependency-check',
+  workspaces,
+  resolveFrom: repoRoot,
   entries: [],
 })
 
@@ -136,6 +196,114 @@ const archive = async (): Promise<Uint8Array> =>
     const required = loader.requireFrom(`${DEFAULT_ROOT}/workspace`)(SUBJECT) as Record<string, unknown>
     expect(typeof required.timeoutOf).toBe('function')
     expect(loader.usage().modules).toBeGreaterThan(0)
+  })
+
+  it('keeps third-party runtime JavaScript published under src', async () => {
+    const result = packedWebServer()
+    expect(result.missing).toEqual([])
+    expect(Object.hasOwn(result.files, 'node_modules/debug/src/index.js')).toBe(true)
+    expect(Object.hasOwn(result.files, 'node_modules/ms/index.js')).toBe(true)
+
+    const vfs = loadVfsImage(await inflateImage(result.image, 'the packed webserver'), DEFAULT_ROOT)
+    const loader = new WorkerModuleLoader({
+      vfs,
+      root: DEFAULT_ROOT,
+      staticModules: createNodeBuiltins(),
+      staticModulePrefixes: REPLACED_PREFIXES,
+    })
+    setActiveVfs(vfs)
+    setActiveModuleLoader(loader)
+    const webserver = loader.requireFrom(`${DEFAULT_ROOT}/workspace`)(WEB_SERVER) as { WebServer?: unknown }
+    expect(typeof webserver.WebServer).toBe('function')
+  })
+
+  it('runs the unchanged Landlock entry package over the Worker platform executable', async () => {
+    const result = packedLandlock()
+    expect(workspaces.has(LANDLOCK)).toBe(true)
+    expect(result.packages.has(LANDLOCK)).toBe(true)
+    expect(result.missing).toEqual([])
+    expect(Object.hasOwn(result.files, `node_modules/${LANDLOCK}/lib/index.js`)).toBe(true)
+    expect(createNodeBuiltins()[LANDLOCK]).toBeUndefined()
+
+    const vfs = loadVfsImage(await inflateImage(result.image, 'the packed Landlock package'), DEFAULT_ROOT)
+    const loader = new WorkerModuleLoader({
+      vfs,
+      root: DEFAULT_ROOT,
+      staticModules: createNodeBuiltins(),
+      staticModulePrefixes: REPLACED_PREFIXES,
+    })
+    setActiveVfs(vfs)
+    setActiveModuleLoader(loader)
+    const landlock = loader.requireFrom(`${DEFAULT_ROOT}/workspace`)(LANDLOCK) as {
+      LAUNCHER_BIN: string
+      LAUNCHER_FAILURE_EXIT: number
+      launcherPath(): string
+      grantArgs(grants: { readOnly?: readonly string[]; readWrite?: readonly string[] }): string[]
+      probe(): string
+    }
+
+    expect(landlock.LAUNCHER_BIN).toBe('landlock-run')
+    expect(landlock.LAUNCHER_FAILURE_EXIT).toBe(125)
+    expect(landlock.grantArgs({ readOnly: ['/'], readWrite: ['/tmp'] })).toEqual([
+      '--ro', '/', '--rw', '/tmp',
+    ])
+    expect(landlock.launcherPath()).toBe(
+      `${DEFAULT_ROOT}/node_modules/${LANDLOCK}/node_modules/${LANDLOCK}-${process.platform}-${process.arch}/bin/landlock-run`,
+    )
+    expect(landlock.probe()).toBe('full')
+  })
+
+  it('prepares the unchanged plugin-package inventory through Worker createRequire paths', async () => {
+    const result = packedPluginInventory()
+    expect(result.missing).toEqual([])
+
+    const vfs = loadVfsImage(await inflateImage(result.image, 'the packed plugin inventory'), DEFAULT_ROOT)
+    const loader = new WorkerModuleLoader({
+      vfs,
+      root: DEFAULT_ROOT,
+      staticModules: createNodeBuiltins(),
+      staticModulePrefixes: REPLACED_PREFIXES,
+    })
+    setActiveVfs(vfs)
+    setActiveModuleLoader(loader)
+    const inventory = loader.requireFrom(`${DEFAULT_ROOT}/workspace`)(PLUGIN_INVENTORY) as {
+      apply(ctx: unknown, config: unknown): void
+    }
+
+    type Prepared = { readonly value: { readonly version: number; readonly packages: readonly unknown[] } }
+    type Prepare = (request: { readonly body: object; readonly signal: AbortSignal }) => Promise<Prepared>
+    let prepare: Prepare | undefined
+    const baseUrl = `file://${DEFAULT_ROOT}/config/cordis.yml`
+    const tree: { readonly ctx: { readonly baseUrl: string }; entries(): readonly unknown[] } = {
+      ctx: { baseUrl },
+      entries: () => [entry],
+    }
+    const entry = {
+      options: { name: PLUGIN_INVENTORY },
+      disabled: false,
+      fiber: { state: FiberState.ACTIVE },
+      parent: { tree },
+    }
+    inventory.apply({
+      baseUrl,
+      loader: tree,
+      deepseekLlmApiExtensions: {
+        register: (field: string, contribution: { readonly prepare: Prepare }): void => {
+          expect(field).toBe('dsh_plugin_packages')
+          prepare = contribution.prepare
+        },
+      },
+    }, {})
+
+    if (prepare === undefined) throw new Error('packed plugin inventory did not register its request contribution')
+    const prepared = await prepare({ body: {}, signal: new AbortController().signal })
+    const manifest = JSON.parse(vfs.readFileSync(
+      `${DEFAULT_ROOT}/node_modules/${PLUGIN_INVENTORY}/package.json`, 'utf8',
+    ) as string) as { version: string }
+    expect(prepared.value).toEqual({
+      version: 1,
+      packages: [{ name: PLUGIN_INVENTORY, version: manifest.version }],
+    })
   })
 
   it('refuses a body the packer did not lower, naming the image', async () => {

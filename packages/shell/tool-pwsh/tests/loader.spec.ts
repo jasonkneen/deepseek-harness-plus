@@ -20,11 +20,11 @@ import { resolvePwshPath } from '@deepseek-ai/dsh-pwsh-local'
 const hasPwsh = spawnSync(resolvePwshPath(), ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', '$true'], { encoding: 'utf8' }).status === 0
 
 const driver = fileURLToPath(new URL(
-  '../../../../examples/acp-agent/tests/fixtures/shell/tool-pwsh/driver.ts',
+  './fixtures/loader/driver.ts',
   import.meta.url,
 ))
 const configPath = fileURLToPath(new URL(
-  '../../../../examples/acp-agent/tests/fixtures/shell/tool-pwsh/cordis.yml',
+  './fixtures/loader/cordis.yml',
   import.meta.url,
 ))
 const repoTsconfig = fileURLToPath(new URL('../../../../tsconfig.json', import.meta.url))

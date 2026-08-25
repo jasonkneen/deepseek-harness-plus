@@ -9,8 +9,8 @@
 import type {
   ConfigurableProviderView, CredentialView, IApiClient, SettingsNamespaceView,
 } from '@deepseek-ai/dsh-api-remotes/client'
-import type { SnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
-import { createSnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
+import type { SnapshotStore } from '@deepseek-ai/dsh-client-store'
+import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
 import type { SettingsDescribeFace } from '@deepseek-ai/dsh-client-ui-settings/client'
 import type { SettingsSchemaOperations } from './schema-operations.ts'
 
@@ -123,6 +123,15 @@ export class ModelsSettingsStore {
     private readonly schema: SettingsSchemaOperations,
     private readonly describeFace: SettingsDescribeFace,
   ) {}
+
+  /**
+   * Fold one successful settings write into the shared mirror before rejoining
+   * this page's rows.
+   * @param view - namespace view returned by the settings wire method.
+   */
+  acceptNamespace(view: SettingsNamespaceView): void {
+    this.describeFace.acceptView(view)
+  }
 
   /**
    * Refresh the whole page snapshot: the provider directory and the mirror's

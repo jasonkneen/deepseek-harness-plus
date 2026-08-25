@@ -10,7 +10,6 @@ import { describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import { unzipSync, strFromU8 } from 'fflate'
 import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
-import UserQuestionService from '@deepseek-ai/dsh-user-questions'
 import type { SessionHeader, SessionId } from '@deepseek-ai/dsh-session'
 import type { SessionLineageNode } from '@deepseek-ai/dsh-session-query'
 import type { SessionRawArtifact } from '@deepseek-ai/dsh-session-persistence'
@@ -77,7 +76,6 @@ async function buildApi(
   } = {},
 ) {
   const ctx = new Context()
-  await ctx.plugin(UserQuestionService)
   const query = services.query ?? true
   const persistence = services.persistence ?? true
   if (query) {
@@ -129,26 +127,13 @@ describe('session export compression config', () => {
   it('defaults to level 6 and rejects values outside the integer 0-9 range', () => {
     expect(ApiProxyService.Config({})).toEqual({
       sessionExportCompressionLevel: 6,
-      coldBlankProbeMaxBytes: 1024,
     })
     expect(ApiProxyService.Config({ sessionExportCompressionLevel: 0 }))
-      .toEqual({ sessionExportCompressionLevel: 0, coldBlankProbeMaxBytes: 1024 })
+      .toEqual({ sessionExportCompressionLevel: 0 })
     expect(ApiProxyService.Config({ sessionExportCompressionLevel: 9 }))
-      .toEqual({ sessionExportCompressionLevel: 9, coldBlankProbeMaxBytes: 1024 })
+      .toEqual({ sessionExportCompressionLevel: 9 })
     for (const value of [-1, 10, 1.5]) {
       expect(() => ApiProxyService.Config({ sessionExportCompressionLevel: value } as never)).toThrow()
-    }
-  })
-})
-
-describe('cold blank probe config', () => {
-  it('accepts a per-Session byte bound including zero and rejects invalid bounds', () => {
-    expect(ApiProxyService.Config({ coldBlankProbeMaxBytes: 0 }))
-      .toEqual({ sessionExportCompressionLevel: 6, coldBlankProbeMaxBytes: 0 })
-    expect(ApiProxyService.Config({ coldBlankProbeMaxBytes: 2048 }))
-      .toEqual({ sessionExportCompressionLevel: 6, coldBlankProbeMaxBytes: 2048 })
-    for (const value of [-1, 1.5]) {
-      expect(() => ApiProxyService.Config({ coldBlankProbeMaxBytes: value })).toThrow()
     }
   })
 })

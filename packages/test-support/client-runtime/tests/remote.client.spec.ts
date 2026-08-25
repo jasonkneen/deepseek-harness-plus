@@ -16,21 +16,21 @@ describe('TestRemote', () => {
       seen.push(ns)
     })
 
-    ctx.remote.$dispatch('settings/document-updated', ['ui-theme', 1])
+    remote.emit('settings/document-updated', ['ui-theme', 1])
     expect(seen).toEqual(['ui-theme'])
 
     off()
-    ctx.remote.$dispatch('settings/document-updated', ['ui-theme', 2])
+    remote.emit('settings/document-updated', ['ui-theme', 2])
     expect(seen).toEqual(['ui-theme'])
     await ctx.fiber.dispose()
   })
 
   it('drops a forwarded event nobody subscribed to', async () => {
     const ctx = new Context()
-    new TestRemote(ctx)
+    const remote = new TestRemote(ctx)
     // No subscriber for this name: the emit must be inert rather than throwing,
     // because the wire carries whatever the Host allowlist selected.
-    expect(() => { ctx.remote.$dispatch('credentials/reference-updated', ['DEEPSEEK_API_KEY']) }).not.toThrow()
+    expect(() => { remote.emit('credentials/reference-updated', ['DEEPSEEK_API_KEY']) }).not.toThrow()
     await ctx.fiber.dispose()
   })
 

@@ -9,7 +9,7 @@
  */
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import type { ToolResultNode } from '@deepseek-ai/dsh-client-runtime/client'
+import type { ToolResultNode } from '@deepseek-ai/dsh-client-ui-chat/client'
 import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
 import { zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/zh.ts'
 // Export discipline: packages/client/AGENTS.md.
@@ -24,11 +24,11 @@ const resultNode = (argsRaw: string, resultText: string | null, over?: Partial<T
   kind: 'tool-result', seq: 10, time: 2_000, callTime: 1_000, callId: 'c1',
   call: { name: 'ask_user_question', argsRaw },
   content: resultText === null ? [] : [{ type: 'text', text: resultText }],
-  isError: false, callView: null, resultView: null, subCalls: [], ...over,
+  isError: false, subCalls: [], ...over,
 })
 
 const runningCall = (argsRaw: string) =>
-  ({ callId: 'c1', name: 'ask_user_question', argsRaw, turn: 1, step: 1, time: 1_000, callView: null, subCalls: [] })
+  ({ callId: 'c1', name: 'ask_user_question', argsRaw, turn: 1, step: 1, time: 1_000, subCalls: [] })
 
 const t = makeTranslate(zh, commonZh)
 

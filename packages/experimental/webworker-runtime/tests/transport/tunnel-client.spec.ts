@@ -27,17 +27,52 @@ const warnings: string[] = []
 console.warn = (message: string) => { warnings.push(message) }
 ;(globalThis as { location?: unknown }).location = { origin: 'http://localhost:4173' }
 
-type Listener = (event: { data: unknown }) => void
+type StubListener = (event: { data?: unknown; message?: string }) => void
 
 /** A worker stand-in: collects what the page sent, replays what the test delivers. */
-function stubWorker(): { worker: Worker; sent: { t: string; id: number }[]; deliver: (frame: unknown) => void } {
-  const listeners: Listener[] = []
+function stubWorker(): {
+  worker: Worker
+  sent: { t: string; id: number }[]
+  deliver: (frame: unknown) => void
+  fail: (message: string) => void
+} {
+  const listeners: StubListener[] = []
+  const errorListeners: StubListener[] = []
   const sent: { t: string; id: number }[] = []
   const worker = {
-    addEventListener: (type: string, listener: Listener) => { if (type === 'message') listeners.push(listener) },
+    addEventListener: (type: string, listener: StubListener) => {
+      if (type === 'message') listeners.push(listener)
+      if (type === 'error') errorListeners.push(listener)
+    },
     postMessage: (frame: unknown) => { sent.push(frame as { t: string; id: number }) },
   } as unknown as Worker
-  return { worker, sent, deliver: (frame) => { for (const listener of listeners) listener({ data: frame }) } }
+  return {
+    worker,
+    sent,
+    deliver: (frame) => { for (const listener of listeners) listener({ data: frame }) },
+    fail: (message) => { for (const listener of errorListeners) listener({ message }) },
+  }
+}
+
+// The opening frame preserves overlay order for deterministic pre-boot mounts.
+{
+  const { worker, sent } = stubWorker()
+  const tunnel = new WorkerTunnel(worker)
+  tunnel.init('https://preview.test/base.tar.gz', [
+    'https://preview.test/first.tar.gz',
+    'https://preview.test/second.tar.gz',
+  ])
+  check('the init frame carries ordered overlays', sent[0], {
+    t: 'init',
+    image: 'https://preview.test/base.tar.gz',
+    overlays: ['https://preview.test/first.tar.gz', 'https://preview.test/second.tar.gz'],
+  })
+
+  const direct = stubWorker()
+  new WorkerTunnel(direct.worker).init('https://preview.test/base.tar.gz')
+  check('the direct init path defaults to no overlays', direct.sent[0], {
+    t: 'init', image: 'https://preview.test/base.tar.gz', overlays: [],
+  })
 }
 
 // A normal reply resolves and says nothing on the console.
@@ -128,4 +163,91 @@ function stubWorker(): { worker: Worker; sent: { t: string; id: number }[]; deli
   check('abort reaches the worker', sent.at(-1), { t: 'abort', id: 1 })
   // A late reply to an aborted request must not resurrect it.
   deliver({ t: 'res', id: 1, status: 200, headers: {}, message: 'late' })
+}
+
+// A logical Gateway stream carries decoded values and one terminal frame.
+{
+  const { worker, sent, deliver } = stubWorker()
+  const tunnel = new WorkerTunnel(worker)
+  const signal = new AbortController()
+  const stream = tunnel.open('session/follow', { args: { sessionId: 'session-1' } }, signal.signal)
+    [Symbol.asyncIterator]()
+  const first = stream.next()
+  check('a logical stream opens on the worker-local carrier', sent[0], {
+    t: 'stream-open', id: 1, endpoint: 'session/follow', payload: { args: { sessionId: 'session-1' } },
+  })
+  deliver({ t: 'stream-item', id: 1, value: { type: 'baseline' } })
+  check('a logical stream yields decoded values', await first, { value: { type: 'baseline' }, done: false })
+  const ended = stream.next()
+  deliver({ t: 'stream-end', id: 1 })
+  check('a logical stream closes normally', await ended, { done: true, value: undefined })
+  check('normal stream completion sends no cancellation', sent, [
+    { t: 'stream-open', id: 1, endpoint: 'session/follow', payload: { args: { sessionId: 'session-1' } } },
+  ])
+}
+
+// Host failures retain their code and details for the Gateway Client bundle to normalize.
+{
+  const { worker, deliver } = stubWorker()
+  const tunnel = new WorkerTunnel(worker)
+  const pending = tunnel.open('session/follow', {}, new AbortController().signal).next()
+  deliver({
+    t: 'stream-error',
+    id: 1,
+    failure: {
+      kind: 'remote',
+      code: 'session-not-found',
+      message: 'fixture Session is absent',
+      details: { sessionId: 'session-1' },
+    },
+  })
+  const failure = await pending.then(() => undefined, (error: unknown) => error as {
+    message: string
+    dshRemoteStreamFailure: unknown
+  })
+  check('a logical Host failure retains its structural marker', {
+    message: failure?.message,
+    dshRemoteStreamFailure: failure?.dshRemoteStreamFailure,
+  }, {
+    message: 'fixture Session is absent',
+    dshRemoteStreamFailure: {
+      kind: 'remote', code: 'session-not-found', details: { sessionId: 'session-1' },
+    },
+  })
+}
+
+// Caller cancellation keeps the caller's exact reason and reaches the worker once.
+{
+  const { worker, sent, deliver } = stubWorker()
+  const tunnel = new WorkerTunnel(worker)
+  const abort = new AbortController()
+  const pending = tunnel.open('workspace/follow', {}, abort.signal).next()
+  const reason = new Error('caller stopped the Workspace feed')
+  abort.abort(reason)
+  deliver({ t: 'stream-item', id: 1, value: 'late' })
+  check('logical stream cancellation preserves the caller reason', await pending.then(
+    () => 'resolved',
+    (error: unknown) => error === reason ? 'same reason' : 'different reason',
+  ), 'same reason')
+  check('logical stream cancellation reaches the worker', sent.at(-1), { t: 'abort', id: 1 })
+}
+
+// A failed worker is a carrier failure, not a fabricated Host Remote error.
+{
+  warnings.length = 0
+  const { worker, fail } = stubWorker()
+  const tunnel = new WorkerTunnel(worker)
+  const pending = tunnel.open('$events', { args: {} }, new AbortController().signal).next()
+  fail('worker crashed')
+  const failure = await pending.then(() => undefined, (error: unknown) => error as {
+    message: string
+    dshRemoteStreamFailure: unknown
+  })
+  check('worker failure carries the carrier marker', {
+    message: failure?.message,
+    dshRemoteStreamFailure: failure?.dshRemoteStreamFailure,
+  }, {
+    message: 'web-preview tunnel: worker failed: worker crashed',
+    dshRemoteStreamFailure: { kind: 'carrier' },
+  })
 }

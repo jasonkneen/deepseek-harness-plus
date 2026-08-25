@@ -1,5 +1,5 @@
 import clsx from 'clsx'
-import { MarkdownText } from './markdown/MarkdownText.tsx'
+import { MarkdownText, type MarkdownLabels } from './markdown/MarkdownText.tsx'
 import css from './WebBlock.module.css'
 
 /**
@@ -21,6 +21,8 @@ export interface WebSourceView {
 /** A `web_search` card: an optional answer over a capped citation list. */
 export interface WebSearchBlockProps {
   kind: 'search'
+  /** Localized chrome supplied by the owning render site. */
+  labels: WebBlockLabels
   /** The provider-generated answer, rendered as markdown above the sources. */
   answer?: string | undefined
   /** The cited sources, in provider order. */
@@ -34,6 +36,8 @@ export interface WebSearchBlockProps {
 /** A `web_fetch` card: the retrieval summary for one fetched URL. */
 export interface WebFetchBlockProps {
   kind: 'fetch'
+  /** Localized chrome supplied by the owning render site. */
+  labels: WebBlockLabels
   /** The final URL after allowed redirects; becomes a safe external link when http(s). */
   url: string
   /** HTTP status code of the fetched response. */
@@ -46,6 +50,15 @@ export interface WebFetchBlockProps {
 
 /** A completed web retrieval card, discriminated by `kind`. */
 export type WebBlockProps = WebSearchBlockProps | WebFetchBlockProps
+
+/** Localized chrome for {@link WebBlock}. */
+export interface WebBlockLabels {
+  noResults: string
+  sourcesTruncated: string
+  http: string
+  contentTruncated: string
+  markdown: MarkdownLabels
+}
 
 /**
  * The URL to link to, or undefined when the URL must render as plain text. Only
@@ -132,7 +145,7 @@ function SourceItem({ source, ordinal }: { source: WebSourceView; ordinal: numbe
  * @param props - see {@link WebSearchBlockProps}.
  * @returns the search card element.
  */
-function WebSearchBlock({ answer, sources, truncated, className }: WebSearchBlockProps) {
+function WebSearchBlock({ answer, sources, truncated, labels, className }: WebSearchBlockProps) {
   // A provider may legitimately return no answer and no sources; the chat WebRow
   // does not show the raw result content, so without this the user would see an
   // empty card. Mirror the backend's `No results found.` render text.
@@ -140,16 +153,16 @@ function WebSearchBlock({ answer, sources, truncated, className }: WebSearchBloc
   return (
     <div className={clsx(css.block, className)} data-web="search">
       {answer !== undefined && answer !== '' && (
-        <div className={css.answer}><MarkdownText text={answer} /></div>
+        <div className={css.answer}><MarkdownText text={answer} labels={labels.markdown} /></div>
       )}
       {empty ? (
-        <div className={css.empty}>未找到结果</div>
+        <div className={css.empty}>{labels.noResults}</div>
       ) : (
         <ol className={css.sources}>
           {sources.map((source, index) => <SourceItem key={index} source={source} ordinal={index + 1} />)}
         </ol>
       )}
-      {truncated && <div className={css.truncated}>来源列表已截断</div>}
+      {truncated && <div className={css.truncated}>{labels.sourcesTruncated}</div>}
     </div>
   )
 }
@@ -159,13 +172,13 @@ function WebSearchBlock({ answer, sources, truncated, className }: WebSearchBloc
  * @param props - see {@link WebFetchBlockProps}.
  * @returns the fetch card element.
  */
-function WebFetchBlock({ url, statusCode, truncated, className }: WebFetchBlockProps) {
+function WebFetchBlock({ url, statusCode, truncated, labels, className }: WebFetchBlockProps) {
   return (
     <div className={clsx(css.block, css.fetch, className)} data-web="fetch">
       <SafeLink url={url} label={url} className={css.fetchUrl} />
       <div className={css.fetchMeta}>
-        <span className={css.status}>HTTP {statusCode}</span>
-        {truncated && <span className={css.truncated}>内容已截断</span>}
+        <span className={css.status}>{labels.http} {statusCode}</span>
+        {truncated && <span className={css.truncated}>{labels.contentTruncated}</span>}
       </div>
     </div>
   )

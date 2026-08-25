@@ -3,7 +3,7 @@
  * projection into the row store, and HMR collapse recovery. */
 import { Context } from '@deepseek-ai/cordis'
 import { describe, expect, it, vi } from 'vitest'
-import { SlotRegistry } from '@deepseek-ai/dsh-client-runtime/client'
+import { SlotRegistry } from '@deepseek-ai/dsh-client-ui-renderer/client'
 import { LocaleRuntime } from '@deepseek-ai/dsh-client-locale/client'
 import { TestRemote } from '@deepseek-ai/dsh-client-test-runtime'
 import { apply as settingsApply, inject as settingsInject } from '@deepseek-ai/dsh-client-ui-settings/client'
@@ -55,11 +55,10 @@ async function bench(isLoopback = true) {
     })
   })
   ctx.provide('connection', { api: { settings: { describe, mutate } }, isLoopback } as never)
-  // The settings transport and the forwarded-event port the plugin injects.
-  new TestRemote(ctx)
+  const events = new TestRemote(ctx)
   await ctx.plugin({ inject: [...settingsInject], apply: settingsApply }).await()
   return {
-    ctx, slots: ctx.get('slots') as SlotRegistry, locale, describe, mutate,
+    ctx, slots: ctx.get('slots') as SlotRegistry, locale, describe, mutate, events,
     setHostPreference: (next: string) => { preference = next },
   }
 }
@@ -131,18 +130,18 @@ describe('ui-theme apply', () => {
     // The shared mirror read once at bench time; a Host-side change reaches it
     // through the document invalidation, exactly as production announces one.
     b.setHostPreference('dark')
-    b.ctx.remote.$dispatch('settings/document-updated', [THEME_SETTINGS_NAMESPACE, 0])
+    b.events.emit('settings/document-updated', [THEME_SETTINGS_NAMESPACE, 0])
     declareItems(b.slots)
     await b.ctx.plugin({ inject: [...inject], apply }).await()
     const theme = b.ctx.get('theme') as ThemeRuntime
     await vi.waitFor(() => { expect(theme.getTheme().preference).toBe('dark') })
     // The mirror refreshes on every document commit (ns-agnostic); the scope's
     // derived value only moves when its own namespace changed.
-    b.ctx.remote.$dispatch('settings/document-updated', ['unrelated', 0])
+    b.events.emit('settings/document-updated', ['unrelated', 0])
     await vi.waitFor(() => { expect(b.describe).toHaveBeenCalledTimes(3) })
     expect(theme.getTheme().preference).toBe('dark')
     b.setHostPreference('light')
-    b.ctx.remote.$dispatch('settings/document-updated', [THEME_SETTINGS_NAMESPACE, 0])
+    b.events.emit('settings/document-updated', [THEME_SETTINGS_NAMESPACE, 0])
     await vi.waitFor(() => { expect(theme.getTheme().preference).toBe('light') })
     b.setHostPreference('dark')
     b.ctx.emit('connection/reset')
@@ -166,7 +165,7 @@ describe('ui-theme apply', () => {
     b.describe.mockImplementationOnce(() => pending.promise)
     // The refresh hangs on the wire; the mirror keeps serving the last good
     // answer, so activation never blocks on the settings transport.
-    b.ctx.remote.$dispatch('settings/document-updated', [THEME_SETTINGS_NAMESPACE, 0])
+    b.events.emit('settings/document-updated', [THEME_SETTINGS_NAMESPACE, 0])
     const fiber = b.ctx.plugin({ inject: [...inject], apply })
     await fiber.await()
     const theme = b.ctx.get('theme') as ThemeRuntime
@@ -179,7 +178,7 @@ describe('ui-theme apply', () => {
   it('ignores an invalid preference crossing the settings wire', async () => {
     const b = await bench()
     b.setHostPreference('sepia')
-    b.ctx.remote.$dispatch('settings/document-updated', [THEME_SETTINGS_NAMESPACE, 0])
+    b.events.emit('settings/document-updated', [THEME_SETTINGS_NAMESPACE, 0])
     await b.ctx.plugin({ inject: [...inject], apply }).await()
     const theme = b.ctx.get('theme') as ThemeRuntime
     await vi.waitFor(() => { expect(b.describe).toHaveBeenCalledTimes(2) })

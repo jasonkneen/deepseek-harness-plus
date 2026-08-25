@@ -12,6 +12,8 @@ Documentation: [https://deepseek-harness.github.io/deepseek-harness/](https://de
 
 DeepSeek Harness is currently in _developer preview_ and is iterating rapidly. **THERE WILL BE COMPATIBILITY-BREAKING CHANGES.**
 
+Review the [safety notice](SAFETY.md) before running the project.
+
 ## Run
 
 ### Run from `npm`

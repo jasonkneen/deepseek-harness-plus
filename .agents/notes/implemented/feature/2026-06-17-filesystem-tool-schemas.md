@@ -107,6 +107,6 @@ Schema tests pin the required/optional argument set per tool, empty-`old_string`
 
 **The first schema is intentionally smaller than Claude Code's.** Dropping PDF pages, multimodal read, rich grep/list flags, and expected hash fields keeps the implementation focused, but users may ask for those quickly. They arrive as separate Agent Notes or focused follow-ups rather than overloads of the initial schema.
 
-**No explicit model-facing stale guard in v1.** The schema does not ask the model to provide an expected hash/version. That is intentional: stale checks come from backend-produced versions and the `dsh-fs-observation-policy` plugin's observed state, not from fragile model-copied tokens. Filesystem safety failures surface through structured `FsError` codes owned by `dsh-fs`, not through model-supplied version fields.
+**No explicit model-facing stale guard.** The schema does not ask the model to provide an expected hash/version. That is intentional: stale checks come from backend-produced versions and the `dsh-fs-observation-policy` plugin's observed state, not from fragile model-copied tokens. Filesystem safety failures surface through structured `FsError` codes owned by `dsh-fs`, not through model-supplied version fields.
 
 **Naming becomes public API.** Once shipped, changing `file_path` to `filePath` or `old_string` to `oldString` would churn prompts, examples, and downstream clients. This Agent Note chooses snake_case up front and treats it as the stable model-facing contract.

@@ -233,8 +233,8 @@ interface SessionLogScan {
 /**
  * Refuse a header carrying a format version this build does not read BEFORE
  * validating the current header shape or decoding any event row: a future
- * format need not satisfy today's structural checks at all, and its user must
- * see "upgrade the harness", never "corrupt session log".
+ * format need not satisfy this build's structural checks at all, and its user
+ * must see "upgrade the harness", never "corrupt session log".
  * @param parsed - the JSON-parsed first line of a session artifact.
  */
 function refuseForeignFormatVersion(parsed: unknown): void {

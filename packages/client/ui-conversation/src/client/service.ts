@@ -9,17 +9,19 @@
  */
 import { Service } from '@deepseek-ai/cordis'
 import type { Context } from '@deepseek-ai/cordis'
-import { randomUUID } from '@deepseek-ai/dsh-util-crypto'
+import { bytesToBase64, randomUUID } from '@deepseek-ai/dsh-util-crypto'
 // Type-only imports: a plugin-to-plugin value import is a bundle purity
 // error, so scope resolution goes through the sessions service (scopeOf
 // method) instead of the standalone helper.
-import type { ISessions, SessionFace, SessionId } from '@deepseek-ai/dsh-client-runtime/client'
-import type { SubmitImageAttachment, SubmitOutcome } from '@deepseek-ai/dsh-client-ui-input-trigger/client'
-import type { ImageAttachmentRef, ImageMediaType } from '@deepseek-ai/dsh-attachment'
+import type { ISessions, SessionFace } from '@deepseek-ai/dsh-api-session-controller/client'
+import type { SessionId } from '@deepseek-ai/dsh-session/types'
+import type { ImageMediaType } from '@deepseek-ai/dsh-attachment'
 import type { ComposerAttachment } from './contract/slots.ts'
 import type { QueueAction, QueueItemId } from './contract/queue.ts'
-import type { ComposerBlocks } from './input/blocks.ts'
-import type { DraftAttachmentId, SessionInputResolver } from './input/contract.ts'
+import type { ComposerBlocks } from './contract/composer-blocks.ts'
+import type {
+  DraftAttachmentId, SessionInputResolver, SubmitImageAttachment, SubmitOutcome,
+} from './contract/input.ts'
 import type { InputSubmitMode } from './contract/composer-submission.ts'
 
 /**
@@ -70,12 +72,6 @@ function browserDraftAttachment(file: File): ComposerAttachment {
   }
 }
 
-interface ImageUrlEntry {
-  readonly sessionId: SessionId
-  readonly generation: number
-  readonly pending: Promise<string>
-}
-
 /** Unsupported browser-declared image type, localized by the UI boundary. */
 export class UnsupportedImageMediaTypeError extends Error {
   /** Browser-declared MIME value, possibly empty. */
@@ -96,10 +92,6 @@ export class ConversationController extends Service implements IConversation {
   /** The per-session composer-block registry. */
   readonly blocks: ComposerBlocks
   private readonly draftAttachments = new Map<DraftAttachmentId, ComposerAttachment>()
-  private readonly imageUrls = new Map<string, ImageUrlEntry>()
-  private readonly imageGenerations = new Map<SessionId, number>()
-  private readonly createdImageUrls = new Set<string>()
-  private disposed = false
 
   /**
    * @param ctx - owning root context (the plugin apply context; the service
@@ -113,13 +105,11 @@ export class ConversationController extends Service implements IConversation {
     this.input = config.input
     this.blocks = config.blocks
     ctx.effect(() => () => {
-      this.disposed = true
-      for (const url of this.createdImageUrls) revokePreview(url)
-      this.createdImageUrls.clear()
+      for (const attachment of this.draftAttachments.values()) {
+        revokePreview(attachment.previewUrl)
+      }
       this.draftAttachments.clear()
-      this.imageUrls.clear()
-      this.imageGenerations.clear()
-    }, 'conversation attachment URL cache')
+    }, 'conversation draft attachments')
   }
 
   /**
@@ -172,7 +162,6 @@ export class ConversationController extends Service implements IConversation {
     return files.map((file) => {
       const attachment = browserDraftAttachment(file)
       this.draftAttachments.set(attachment.id, attachment)
-      this.createdImageUrls.add(attachment.previewUrl)
       return attachment
     })
   }
@@ -214,7 +203,6 @@ export class ConversationController extends Service implements IConversation {
     const attachment = this.draftAttachments.get(id)
     if (attachment === undefined) return
     this.draftAttachments.delete(id)
-    this.createdImageUrls.delete(attachment.previewUrl)
     revokePreview(attachment.previewUrl)
   }
 
@@ -224,63 +212,6 @@ export class ConversationController extends Service implements IConversation {
    */
   releaseDraftImages(attachments: readonly ComposerAttachment[]): void {
     for (const attachment of attachments) this.releaseDraftImage(attachment.id)
-  }
-
-  /**
-   * Resolve and cache one session-authorized historical image URL.
-   * @param sessionId - owning session authorization scope.
-   * @param attachment - durable image reference.
-   * @returns browser URL valid until its rendered session is released.
-   */
-  resolveImage(sessionId: SessionId, attachment: ImageAttachmentRef): Promise<string> {
-    if (this.disposed) return Promise.reject(new Error('conversation.resolveImage: service is disposed'))
-    const key = `${sessionId}:${attachment.attachmentId}`
-    const cached = this.imageUrls.get(key)
-    if (cached !== undefined) return cached.pending
-    const generation = this.imageGenerations.get(sessionId) ?? 0
-    const session = this.requireSessions().binding(sessionId)?.session
-    if (session === undefined) {
-      return Promise.reject(new Error(`conversation.resolveImage: unknown session "${sessionId}"`))
-    }
-    const pending = session.readAttachment(attachment.attachmentId)
-      .then((result) => {
-        if (!result.ok) throw new Error(`${result.error.code}: ${result.error.message}`)
-        if (this.disposed) throw new Error('conversation.resolveImage: service was disposed before loading completed')
-        if ((this.imageGenerations.get(sessionId) ?? 0) !== generation) {
-          throw new Error('historical image scope was released before loading completed')
-        }
-        if (typeof URL.createObjectURL !== 'function') {
-          return `data:${result.value.attachment.mediaType};base64,${bytesToBase64(result.value.data)}`
-        }
-        const bytes = Uint8Array.from(result.value.data)
-        const url = URL.createObjectURL(new Blob([bytes.buffer], { type: result.value.attachment.mediaType }))
-        this.createdImageUrls.add(url)
-        return url
-      })
-      .catch((error: unknown) => {
-        if (this.imageUrls.get(key)?.generation === generation) this.imageUrls.delete(key)
-        throw error
-      })
-    this.imageUrls.set(key, { sessionId, generation, pending })
-    return pending
-  }
-
-  /**
-   * Release every historical image URL owned by one rendered session.
-   * @param sessionId - rendered session scope.
-   */
-  releaseSessionImages(sessionId: SessionId): void {
-    this.imageGenerations.set(sessionId, (this.imageGenerations.get(sessionId) ?? 0) + 1)
-    for (const [key, entry] of this.imageUrls) {
-      if (entry.sessionId !== sessionId) continue
-      this.imageUrls.delete(key)
-      void entry.pending.then((url) => {
-        if (!this.createdImageUrls.delete(url)) return
-        revokePreview(url)
-      }, () => {
-        // A failed or invalidated load owns no object URL.
-      })
-    }
   }
 
   /** Apply one operation to a pending queue occurrence. */
@@ -358,15 +289,6 @@ function imageMediaType(value: string): ImageMediaType {
     default:
       throw new UnsupportedImageMediaTypeError(value)
   }
-}
-
-function bytesToBase64(data: Uint8Array): string {
-  let binary = ''
-  const chunk = 0x8000
-  for (let offset = 0; offset < data.length; offset += chunk) {
-    binary += String.fromCharCode(...data.subarray(offset, offset + chunk))
-  }
-  return btoa(binary)
 }
 
 function revokePreview(url: string): void {

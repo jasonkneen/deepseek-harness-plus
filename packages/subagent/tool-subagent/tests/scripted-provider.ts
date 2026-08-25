@@ -13,6 +13,7 @@ import type {
 } from '@deepseek-ai/dsh-subagent'
 
 const DEFAULT_CAPABILITIES: SubagentCapabilities = {
+  agentOptions: true,
   outputSchema: true,
   depthLimit: true,
   toolFilter: true,

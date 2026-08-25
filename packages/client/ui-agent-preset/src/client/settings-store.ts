@@ -8,7 +8,7 @@
  */
 
 import type { IApiClient } from '@deepseek-ai/dsh-api-remotes/client'
-import { createSnapshotStore, type SnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
+import { createSnapshotStore, type SnapshotStore } from '@deepseek-ai/dsh-client-store'
 import type { SettingsDescribeFace } from '@deepseek-ai/dsh-client-ui-settings/client'
 
 /** The agent-preset settings namespace on the host wire. */
@@ -168,7 +168,7 @@ export interface AgentPresetSettingsState {
   error: string | null
   /**
    * Whether this browser may persist the choice at all. `settings.describe` is
-   * loopback-only and reports a read-only provider as `writable: false`; the
+   * enabled Host settings path reports a read-only provider as `writable: false`; the
    * row then shows the current default and disables the control rather than
    * offering a write the gateway will refuse.
    */

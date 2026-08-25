@@ -17,8 +17,17 @@ Files land at `<root>/session-<hash>/​<random>-<safeName>`:
 | Key | Default | Meaning |
 |---|---|---|
 | `root` | private 0700 temp dir | Root directory for spill files. Set to keep them under a known location. |
+| `cleanupPeriodDays` | `30` | Age in days after which a spill file is eligible for the one-shot startup cleanup sweep. `0` disables cleanup. |
 
-`saveText` rejects on a real storage failure (permissions, ENOSPC); the spill policy treats a rejection as best-effort and keeps the inline result. See the seam README for the vocabulary and the [tool output spill Agent Note](../../../.agents/notes/implemented/architecture/2026-07-08-tool-output-spill-files.md) for the design.
+## Startup cleanup
+
+The backend never deletes a spill on the write path — a persisted, resumed, or forked session may still reference an older locator, so immediate deletion would break retrieval. Instead, one best-effort sweep runs **once after activation**: it does not delay service availability, is owned by the plugin fiber, and is awaited on disposal (no sweep I/O outlives the fiber). There is no recurring timer and no separate process, so a long-lived deployment is not swept again until its next restart.
+
+The sweep scans the configured `root` **and** any earlier default `dsh-spill-*` temp roots that prior default-root runs left under the OS temp dir. It resolves each root to its filesystem identity, so a configured alias of a discovered root remains the active, non-prunable root. Within each root, the sweep deletes regular files whose `mtime` is strictly older than `now − cleanupPeriodDays` and prunes every empty session directory; only an empty discovered prior-default root is itself removed. A write recreates a session directory if cleanup races it. The sweep never follows or deletes a symlink and skips unrelated entries.
+
+On POSIX, cleanup admits only roots owned by the current user, not writable by group or others, and protected from replacement through their ancestor path; a writable sticky temporary directory such as `/tmp` is permitted. Session directories must satisfy the same ownership and write restrictions. Unsafe paths are skipped with a warning, which prevents an untrusted local process from redirecting path-based deletion outside the spill root. Every filesystem or warning-sink failure is contained, so cleanup cannot fail activation or a concurrent spill write. Retention is deliberate: an old model-visible locator goes stale only once it ages past the cutoff.
+
+`saveText` rejects on a real storage failure (permissions, ENOSPC); the spill policy treats a rejection as best-effort and keeps the inline result. See the seam README for the vocabulary and the [tool output spill Agent Note](../../../.agents/notes/implemented/architecture/2026-07-08-tool-output-spill-files.md) for the design, and the [startup-cleanup Agent Note](../../../.agents/notes/implemented/architecture/2026-07-17-local-spill-startup-cleanup.md) for the sweep.
 
 ## Model Experience
 
@@ -30,5 +39,5 @@ No direct invalidation; the named consumer owns any request-prefix changes.
 
 ## Known Limitations and Deferred Work
 
-- **Local spill files persist until external cleanup** — the backend has no session-lifecycle deletion or age-based retention policy, because persisted, resumed, and forked sessions may still reference a path.
+- **A long-lived deployment is not swept until restart** — the one-shot sweep runs once after activation, so files that age past `cleanupPeriodDays` mid-run are reclaimed only on the next start; there is no recurring timer.
 - **Locators require a co-located filesystem consumer** — a remote or virtual deployment needs another `SpillStore` backend whose locator and retrieval hint are meaningful there.

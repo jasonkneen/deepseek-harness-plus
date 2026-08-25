@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-面向用户的 `/goal` 控制，基于 [`ctx.goals`](../goal/README.zh.md) 实现。该插件通过 [`ctx.commands`](../../interaction/commands/README.zh.md) 注册一个全局命令，因此每个已组合的命令适配器都能发现并执行它，无需模型轮次。[用户 goal 命令 Agent Note](../../../.agents/notes/implemented/feature/2026-07-19-human-goal-command.zh.md) 负责用户体验与组合决策。
+面向用户的 `/goal` 控制，基于 [`ctx.goals`](../goal/README.zh.md) 实现。该插件通过 [`ctx.commands`](../../interaction/commands/README.zh.md) 在自身挂载的 Cordis scope 中注册一个命令，因此读取该 scope 的命令适配器都能发现并执行它，无需模型轮次。[用户 goal 命令 Agent Note](../../../.agents/notes/implemented/feature/2026-07-19-human-goal-command.zh.md) 负责用户体验与组合决策。
 
 ## 命令约定
 
@@ -34,7 +34,7 @@
   name: '@deepseek-ai/dsh-command-goal'
 ```
 
-随附 `dsh` 基础配置启用持久 goal 栈和此命令；Web 客户端提供其交互适配器。ACP（Agent Client Protocol）自动化应用启用领域与模型工具，但不挂载命令适配器；`goals: false` 会移除该栈。无 UI 的 `agent-spine-demo` 必须显式配置 `goals: {}`，避免无头单次调用方在不知情时从一个物理轮次变为包含多个 Round 的操作。
+随附 `dsh` 基础配置启用持久 goal 栈和此命令。Web 组合包把 goal 服务与驱动器保留在 host 中，停用基础命令生产方，并在 `standard`、`code` 和 `cordis` agent preset 中挂载该生产方；`minimal` 会省略它。ACP（Agent Client Protocol）自动化应用启用领域与模型工具，但不挂载命令适配器；`goals: false` 会移除该栈。无 UI 的 `agent-spine-demo` 必须显式配置 `goals: {}`，避免无头单次调用方在不知情时从一个物理轮次变为包含多个 Round 的操作。
 
 ## 模型体验
 

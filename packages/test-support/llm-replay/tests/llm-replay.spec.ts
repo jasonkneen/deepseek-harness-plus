@@ -1,10 +1,11 @@
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import { CompactionId } from '@deepseek-ai/dsh-compaction'
+import DeepSeekLlmApiExtensionRegistry from '@deepseek-ai/dsh-deepseek-llm-api-extensions'
 import LlmRuntime, { CallId, createUserMessage, GenerateOptions, LlmAdapter, StreamChunk } from '@deepseek-ai/dsh-llm'
 import {
   type Config,
@@ -21,6 +22,12 @@ import {
   parseSessionLog,
   resolveScriptedEntry,
 } from '../src/index.ts'
+
+declare module '@deepseek-ai/dsh-deepseek-llm-api-extensions/types' {
+  interface DeepSeekLlmApiExtensionMap {
+    test_replay: { readonly version: 1 }
+  }
+}
 
 /**
  * Unit tests for the replay llm/stream plugin. These drive the listener through
@@ -702,6 +709,90 @@ describe('installLlmReplay (through the real LlmRuntime)', () => {
     expect(await drain(ctx.llm.stream({ provider: 'm', model: 'm', messages: [] }))).toEqual(second)
   })
 
+  it('settles official DeepSeek request extensions before replayed chunks', async () => {
+    writeLog(TEXT_CHUNKS, TEXT_CHUNKS, TEXT_CHUNKS)
+    const ctx = new Context()
+    await ctx.plugin(LlmRuntime)
+    await ctx.plugin(DeepSeekLlmApiExtensionRegistry)
+    const accepted = vi.fn()
+    ctx.deepseekLlmApiExtensions.register('test_replay', {
+      prepare: () => ({ value: { version: 1 }, accept: accepted }),
+    })
+    installLlmReplay(ctx, { file })
+
+    const sessionId = 'deepseek-replay' as NonNullable<GenerateOptions['sessionId']>
+    await drain(ctx.llm.stream({ provider: 'deepseek-official', model: 'm', messages: [], sessionId }))
+    expect(accepted).toHaveBeenCalledOnce()
+    await drain(ctx.llm.stream({
+      provider: 'deepseek-official',
+      model: 'm',
+      messages: [],
+      sessionId,
+      signal: new AbortController().signal,
+      purpose: 'compaction',
+    }))
+    expect(accepted).toHaveBeenCalledTimes(2)
+    await drain(ctx.llm.stream({ provider: 'another-provider', model: 'm', messages: [], sessionId }))
+    expect(accepted).toHaveBeenCalledTimes(2)
+  })
+
+  it('accepts anonymous official extensions and tolerates an absent optional registry', async () => {
+    writeLog(TEXT_CHUNKS)
+    const withRegistry = new Context()
+    await withRegistry.plugin(LlmRuntime)
+    await withRegistry.plugin(DeepSeekLlmApiExtensionRegistry)
+    const accepted = vi.fn()
+    withRegistry.deepseekLlmApiExtensions.register('test_replay', {
+      prepare: () => ({ value: { version: 1 }, accept: accepted }),
+    })
+    installLlmReplay(withRegistry, { file })
+    await drain(withRegistry.llm.stream({ provider: 'deepseek-official', model: 'm', messages: [] }))
+    expect(accepted).toHaveBeenCalledOnce()
+
+    const withoutRegistry = new Context()
+    await withoutRegistry.plugin(LlmRuntime)
+    installLlmReplay(withoutRegistry, { file })
+    await expect(drain(withoutRegistry.llm.stream({ provider: 'deepseek-official', model: 'm', messages: [] })))
+      .resolves.toEqual(TEXT_CHUNKS)
+  })
+
+  it('accepts only throw entries that reached the post-2xx point', async () => {
+    writeFileSync(file, sessionJsonl([]), 'utf8')
+    const overrideFile = join(dir, 'replay.override.json')
+    writeFileSync(overrideFile, JSON.stringify([
+      { kind: 'throw', chunks: [{ type: 'block-start', index: 0, blockType: 'text' }], message: 'partial', code: 'STREAM_CLOSED' },
+      { kind: 'throw', chunks: [], message: 'unauthorized', code: 'AUTH' },
+      { kind: 'throw', chunks: [], message: 'empty body', code: 'EMPTY_RESPONSE', accepted: true },
+    ]), 'utf8')
+    const ctx = new Context()
+    await ctx.plugin(LlmRuntime)
+    await ctx.plugin(DeepSeekLlmApiExtensionRegistry)
+    const accepted = vi.fn()
+    ctx.deepseekLlmApiExtensions.register('test_replay', {
+      prepare: () => ({ value: { version: 1 }, accept: accepted }),
+    })
+    installLlmReplay(ctx, { file, overrideFile })
+    const request = { provider: 'deepseek-official', model: 'm', messages: [] }
+
+    await expect(drain(ctx.llm.stream(request))).rejects.toThrow('partial')
+    expect(accepted).toHaveBeenCalledOnce()
+    await expect(drain(ctx.llm.stream(request))).rejects.toThrow('unauthorized')
+    expect(accepted).toHaveBeenCalledOnce()
+    await expect(drain(ctx.llm.stream(request))).rejects.toThrow('empty body')
+    expect(accepted).toHaveBeenCalledTimes(2)
+  })
+
+  it('rejects a non-boolean throw acceptance override', async () => {
+    writeFileSync(file, sessionJsonl([]), 'utf8')
+    const overrideFile = join(dir, 'replay.override.json')
+    writeFileSync(overrideFile, JSON.stringify([
+      { kind: 'throw', chunks: [], message: 'bad', code: 'X', accepted: 'yes' },
+    ]), 'utf8')
+    const ctx = new Context()
+    await ctx.plugin(LlmRuntime)
+    expect(() => { installLlmReplay(ctx, { file, overrideFile }) }).toThrow(/accepted must be a boolean/)
+  })
+
   it('replays a sidecar throw-entry as an LlmError with its stable code, after its prefix chunks', async () => {
     writeFileSync(file, sessionJsonl([]), 'utf8')
     const overrideFile = join(dir, 'replay.override.json')
@@ -1091,6 +1182,96 @@ describe('installLlmReplay (per-session keying)', () => {
     expect(await drain(ctx.llm.stream(live('B')))).toEqual(b2)
   })
 
+  it('materializes typed session tokens after the matching live child binds', async () => {
+    const reference: StreamChunk[] = [
+      {
+        type: 'block-end',
+        index: 0,
+        block: {
+          type: 'tool-call',
+          id: CallId('send-child'),
+          name: 'send_message',
+          arguments: '{"subagent_id":"{{session:2}}"}',
+        },
+      },
+      { type: 'finish', reason: { kind: 'stop' } },
+    ]
+    const parentFile = writeSession('session.jsonl', { id: '{{session:1}}', createdAt: 1 }, [TEXT_CHUNKS, reference])
+    const childFile = writeSession('session.1.jsonl', { id: '{{session:2}}', createdAt: 2 }, [second])
+    const ctx = new Context()
+    await ctx.plugin(LlmRuntime)
+    installLlmReplay(ctx, { file: parentFile, childFiles: [childFile] })
+
+    expect(await drain(ctx.llm.stream(live('live-parent')))).toEqual(TEXT_CHUNKS)
+    expect(await drain(ctx.llm.stream(live('live-child')))).toEqual(second)
+    expect(await drain(ctx.llm.stream(live('live-parent')))).toEqual([
+      {
+        type: 'block-end',
+        index: 0,
+        block: {
+          type: 'tool-call',
+          id: CallId('send-child'),
+          name: 'send_message',
+          arguments: '{"subagent_id":"live-child"}',
+        },
+      },
+      { type: 'finish', reason: { kind: 'stop' } },
+    ])
+  })
+
+  it('rejects a session token before that recorded child binds', async () => {
+    const reference: StreamChunk[] = [
+      { type: 'text-delta', index: 0, text: '{{session:2}}' },
+      { type: 'finish', reason: { kind: 'stop' } },
+    ]
+    const parentFile = writeSession('session.jsonl', { id: '{{session:1}}', createdAt: 1 }, [reference])
+    const childFile = writeSession('session.1.jsonl', { id: '{{session:2}}', createdAt: 2 }, [second])
+    const ctx = new Context()
+    await ctx.plugin(LlmRuntime)
+    installLlmReplay(ctx, { file: parentFile, childFiles: [childFile] })
+
+    await expect(drain(ctx.llm.stream(live('live-parent')))).rejects.toThrow(/used before.*bound/)
+  })
+
+  it('learns a background child id from its started-subagent tool result', async () => {
+    const reference: StreamChunk[] = [
+      { type: 'text-delta', index: 0, text: '{{session:2}}' },
+      { type: 'finish', reason: { kind: 'stop' } },
+    ]
+    const parentFile = writeSession('session.jsonl', { id: '{{session:1}}', createdAt: 1 }, [reference])
+    const childFile = writeSession('session.1.jsonl', { id: '{{session:2}}', createdAt: 2 }, [second])
+    const ctx = new Context()
+    await ctx.plugin(LlmRuntime)
+    installLlmReplay(ctx, { file: parentFile, childFiles: [childFile] })
+    const options: GenerateOptions = {
+      ...live('live-parent'),
+      messages: [createUserMessage({
+        content: [{ type: 'text', text: 'started subagent live-child-before-call started subagent live-child-before-call' }],
+        source: { kind: 'user' },
+      })],
+    }
+
+    expect(await drain(ctx.llm.stream(options))).toEqual([
+      { type: 'text-delta', index: 0, text: 'live-child-before-call' },
+      { type: 'finish', reason: { kind: 'stop' } },
+    ])
+  })
+
+  it('ignores started-subagent text after every recorded session has bound', async () => {
+    const parentFile = writeSession('session.jsonl', { id: '{{session:1}}', createdAt: 1 }, [TEXT_CHUNKS])
+    const ctx = new Context()
+    await ctx.plugin(LlmRuntime)
+    installLlmReplay(ctx, { file: parentFile })
+
+    expect(await drain(ctx.llm.stream({
+      ...live('live-parent'),
+      messages: [createUserMessage({
+        content: [{ type: 'text', text: 'started subagent unrecorded-child' }],
+        source: { kind: 'user' },
+      })],
+    }))).toEqual(TEXT_CHUNKS)
+  })
+
   it('treats a call with no sessionId as the single anonymous (primary) session', async () => {
     const parentFile = writeSession('session.jsonl', { id: 'p', createdAt: 1 }, [TEXT_CHUNKS])
     const ctx = new Context()
@@ -1146,6 +1327,56 @@ describe('apply (the plugin entry)', () => {
     expect(ctx.llm.listProviders()).toEqual([{ id: 'm', name: 'm' }, { id: 'empty', name: 'empty' }])
     await expect(ctx.llm.resolveModelInfo('m', 'm')).resolves.toMatchObject({ inputModalities: ['image'] })
     expect(await drain(ctx.llm.stream({ provider: 'm', model: 'm', messages: [] }))).toEqual(TEXT_CHUNKS)
+  })
+
+  it('declares flat image request pricing only for models that configure it', async () => {
+    writeFileSync(file, sessionJsonl(TEXT_CHUNKS.map((c, i) => chunkEvent(i + 1, 1, 1, c))), 'utf8')
+    const ctx = new Context()
+    await ctx.plugin(LlmRuntime)
+    installLlmReplay(ctx, {
+      file,
+      providers: [{
+        id: 'deepseek',
+        models: [
+          { id: 'vision', inputModalities: ['text', 'image'], imageRequestTokens: 384 },
+          { id: 'plain' },
+        ],
+      }],
+    })
+    const pricing = ctx.llm.imageRequestPricing('deepseek', 'vision')
+    expect(pricing).toBeDefined()
+    const ref = {
+      attachmentId: 'sha256:aaaaaaaa',
+      mediaType: 'image/png',
+      bytes: 10,
+      width: 640,
+      height: 480,
+    } as never
+    const priced = pricing?.priceImages([ref, ref])
+    expect(priced?.map(price => price.visualTokens)).toEqual([384, 384])
+    expect(priced?.every(price => price.text.includes('640x480px'))).toBe(true)
+    expect(ctx.llm.imageRequestPricing('deepseek', 'plain')).toBeUndefined()
+  })
+
+  it('rejects imageRequestTokens on a model without the image modality during load', () => {
+    const ctx = new Context()
+    const providers = [{ id: 'm', models: [{ id: 'm', imageRequestTokens: 384 }] }] as unknown as
+      NonNullable<Config['providers']>
+    expect(() => { apply(ctx, { file, providers }) }).toThrow(
+      'llm-replay: provider "m" model "m" imageRequestTokens requires inputModalities to include "image"',
+    )
+  })
+
+  it.each([
+    ['zero', 0],
+    ['a float', 1.5],
+  ])('rejects imageRequestTokens configured as %s during load', (_case, imageRequestTokens) => {
+    const ctx = new Context()
+    const providers = [{ id: 'm', models: [{ id: 'm', imageRequestTokens }] }] as unknown as
+      NonNullable<Config['providers']>
+    expect(() => { apply(ctx, { file, providers }) }).toThrow(
+      'llm-replay: provider "m" model "m" imageRequestTokens must be a positive safe integer',
+    )
   })
 
   it.each([

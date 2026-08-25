@@ -33,7 +33,7 @@ Registry contributions are Cordis effects. Removing a Definition causes a low-fr
 
 ### Overall `ConversationNodeDefinition` contract
 
-Each [`ConversationNodeDefinition`](../../../../packages/client/runtime/src/client/contract/conversation.ts) independently owns one business object's conversion from Events to State and final view Nodes. A Definition's `kind` is its unique Registry name and the namespace for its business IDs.
+Each [`ConversationNodeDefinition`](../../../../packages/client/ui-conversation/src/client/contract/conversation.ts) independently owns one business object's conversion from Events to State and final view Nodes. A Definition's `kind` is its unique Registry name and the namespace for its business IDs.
 
 One Event may be claimed by several ordinary Definitions. For example, an Assistant Event updates both the Assistant Node and Turn Tail, while a Retry Event updates Retry, Assistant, and Turn Tail. The Assembler asks the fallback only when every ordinary Definition returns `null`.
 
@@ -160,7 +160,7 @@ IDs are never reused. Completed Contexts remain in the current window, providing
 
 ### Location is a first-class engine fact
 
-[`ConversationLocationIndex`](../../../../packages/client/runtime/src/client/sessions/conversation-location-index.ts) maps Events to Locations from `turn/start`, `step/start`, explicit turn and step payloads, `step/end`, and `turn/end`.
+[`ConversationLocationIndex`](../../../../packages/client/ui-conversation/src/client/conversation/location-index.ts) maps Events to Locations from `turn/start`, `step/start`, explicit turn and step payloads, `step/end`, and `turn/end`.
 
 Location has four shapes: `session`, `turn`, `step`, and `unresolved`. Turns and Steps each carry `open`, `closed`, or `unknown` status plus any loaded start and end Events.
 
@@ -260,6 +260,7 @@ Page size, the number of history loads, and RAF coalescing affect only when evid
 | Next-turn Inbox / `inbox-next-turn` | Splice Event seq | Each `agent/inbox/spliced` targeting next-turn | None | Apply the current splice to the pending/claimed instantaneous state from `reader.previous(ownKind)` |
 | Next-step Inbox / `inbox-next-step` | Splice Event seq | Each `agent/inbox/spliced` targeting next-step | None | Build the same per-instruction instantaneous state; Message reads its claimed set |
 | Message / `input-message` | Message ID | Append-surface `user/message` | None | Use source for a context message, or read the nearest next-step Inbox to distinguish user from steering |
+| Request Prompt / `request-prompt` | Header Event seq | Each `request/header` | None | Read the preceding Request Prompt through Reader, retain the full prompt state, and classify system/tool changes |
 | Assistant / `assistant-step` | `turn:step` | `step/start` | `assistant/chunk`, final `assistant/message`, and same-step Retry | Aggregate blocks, usage, first-token time, final evidence, and retry-hidden state, then publish same-key Step data |
 | Tool / `tool-call` | Root call ID | Root `tool/call` | Root result and Code Dispatch start/result | Aggregate the root, children, and parent Map; Dispatch Events route exactly through `rootCallId` |
 | Command / `command` | Command ID | `command/run` | `command/done` and compact lifecycle/checkpoint Events carrying a source command ID | Aggregate command outcome and manual-compaction evidence |
@@ -276,6 +277,7 @@ Page size, the number of history loads, and RAF coalescing affect only when evid
 |---|---|---|---|
 | Inbox | `none` | No Node | Recompute instantaneous states along the Reader chain when prepend supplies earlier splices |
 | Message | Immediate by default | `user`, `steering`, or `context` | Window-gap repair can reclassify the same message key |
+| Request Prompt | Immediate by default | One `system-prompt` for every header carrying a non-empty system field | A step's first header anchors before its request messages; a later same-step series anchors after its surface rewrite; prepend of the preceding header can correct a partial-window anchor |
 | Assistant | RAF for chunks, immediate for final, none for pure usage/finish | Same-key `assistant-step` with running/settled/interrupted status | Matches support fallback without `step/start`; Location close produces interruption presentation |
 | Tool | Immediate by default | One recursive `tool-call` root containing all `subCalls` | A result-only history window supports fallback; running→settled retains its key |
 | Command | Immediate by default | Ordinary `command` or integrated `manual-compaction` | Checkpoint arrival may change the anchor without changing the Context key |
@@ -287,6 +289,8 @@ Page size, the number of history loads, and RAF coalescing affect only when evid
 | Fallback | Immediate by default | `unknown` JSON row | Covers only append-surface Events; an ordinary business that claimed but has not rendered an Event does not duplicate it |
 
 Inbox demonstrates that every Event can be a start-only instantaneous-state Context; not every business requires a start/update pair. Reader links each state to the prior same-kind Context instead of inventing a lifecycle ID for the entire Inbox.
+
+Request Prompt demonstrates shared pure interpretation without shared target State: Chat and Trajectory call `inspectRequestPrompt()` from their own Definitions. The function canonicalizes the full header and classifies model-visible system/tool differences; each target then chooses its own output. Chat materializes every header carrying a non-empty system field, including `series` snapshots that repeat an unchanged header for an explicitly declared series or a post-replacement request, while Trajectory retains the complete request fact and its change classification. Ordinary append-only later Turns do not write another unchanged header. The first header in a Step follows the provider envelope rather than the header Event position: step one uses the owning Turn start and later steps use their Step start, placing the system field before the request's user-role messages; a later header in the same Step stays at its own Event after the surface rewrite that began the new series. When the preceding header is outside a partial window, a non-`initial` header stays at its own Event until prepend supplies that predecessor. Every header is a full snapshot, so a first loaded `resume`, `change`, or `series` header can render its system field without fabricating a comparison to unloaded history.
 
 Retry, Assistant, and Turn Tail demonstrate independent claims on one Event. Each Definition updates only its own State and produces its own atomic Chat Node.
 
@@ -302,19 +306,19 @@ Unknown fallback demonstrates Registry ownership: it handles only append-surface
 
 ## View Builder and React identity
 
-[`ConversationViewRegistry`](../../../../packages/client/runtime/src/client/conversation/view-registry.ts) creates an independent per-Session builder for each target. The Registry stores factories and shares no Session's ordering or caches.
+[`ConversationViewRegistry`](../../../../packages/client/ui-conversation/src/client/conversation/view-registry.ts) creates an independent per-Session builder for each target. The Registry stores factories and shares no Session's ordering or caches.
 
 The Assembler calls `replace({ nodes, timeline })` on low-frequency complete replacements and `apply({ upserts, timeline })` for ordinary prepend/append flushes. Builders receive only final target Nodes already constructed by Definitions.
 
-[`ChatSnapshotBuilder`](../../../../packages/client/ui-conversation/src/client/conversation-nodes/chat-snapshot-builder.ts) maintains `order`, a keyed `nodes` store, the turn/step `locations` index, `timeline`, and the `legacy` slice used by StatsLine and mirrored into top-level public compatibility fields.
+[`ChatSnapshotBuilder`](../../../../packages/client/ui-chat/src/client/conversation-nodes/chat-snapshot-builder.ts) maintains `order`, a keyed `nodes` store, the turn/step `locations` index, `timeline`, and the `legacy` slice used by StatsLine and mirrored into top-level public compatibility fields.
 
 Only a new key or a change to `anchorSeq`, visibility, or Location identity makes a Chat update structural. An ordinary content change does not rebuild `order`; the keyed Node store replaces only that key's value.
 
 For a structural change, the Builder computes visible order from current store values and reuses unchanged index arrays by reference. Prepend may add earlier history keys, append may add a key at the tail or its business anchor, and ordering never renames existing keys.
 
-[`ChatView`](../../../../packages/client/ui-conversation/src/client/chat/ChatView.tsx) only traverses `order`. Each [`ChatNodeSeat`](../../../../packages/client/ui-conversation/src/client/chat/ChatNodeSeat.tsx) remains in the same parent list under its Context key and dispatches the `'conversation.chat.node'` keyed slot by `node.kind`.
+[`ChatView`](../../../../packages/client/ui-chat/src/client/chat/ChatView.tsx) only traverses `order`. Each [`ChatNodeSeat`](../../../../packages/client/ui-chat/src/client/chat/ChatNodeSeat.tsx) remains in the same parent list under its Context key and dispatches the `'conversation.chat.node'` keyed slot by `node.kind`.
 
-[`ChatNodeDataMap`](../../../../packages/client/ui-conversation/src/client/contract/chat-nodes.ts) is a declaration-merged renderer payload registry. Each business module registers its own Definition and keyed renderer; `registerConversationNodes()` and `registerChatNodeRenderers()` only assemble those independent contributions and do not interpret business through a closed union or central switch. Built-ins still live in `ui-conversation`, but this type and registration boundary allows a business to move into an independent package without changing the Chat dispatcher.
+[`ChatNodeDataMap`](../../../../packages/client/ui-chat/src/client/contract/chat-nodes.ts) is a declaration-merged renderer payload registry. Each business module registers its own Definition and keyed renderer; `registerConversationNodes()` and `registerChatNodeRenderers()` only assemble those independent contributions and do not interpret business through a closed union or central switch. Built-ins live in `ui-chat`, and this type and registration boundary allows a business to move into an independent package without changing the Chat dispatcher.
 
 The Chat entry in `conversation.view` registers `ChatNodeTurnDataInjected` once when it declares the `conversation.chat.node` child slot. `ChatNodeSeat` passes only the stable Node key as `hookContext`; the Slot renderer combines that key with `useSession` from the official standard props to construct `useTurnData(businessKey)`. Every keyed Chat renderer therefore reads strongly typed, read-only data from its own Node's Turn, and the Assistant renderer has no special injection authority.
 

@@ -10,23 +10,20 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import type { ChangeEvent, KeyboardEvent, MouseEvent, ReactNode } from 'react'
 import clsx from 'clsx'
 import {
-  IconPlusOutline16, IconWarningOutline16, Toast, Tooltip,
+  IconPlusOutline16, IconWarningOutline16, ReferenceIcon, Toast, Tooltip,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 // Type-only: the `plan` projection key merge (the TodoDock posture — the
 // composer reads a host-computed value; the domain owns the key).
 import type {} from '@deepseek-ai/dsh-plan-mode/client'
 // Type-only: the `goal` projection key merge (hint disambiguation).
 import type {} from '@deepseek-ai/dsh-goal/client'
-// The `imageLimits` projection key merge (intake pre-check) arrives with the
-// wire types: apiproxy's sessions contract declares it, and client-runtime's
-// api-remotes import already places it in every client program.
+// The `imageLimits` projection key merge supplies the intake pre-check.
 import type { Translate } from '@deepseek-ai/dsh-client-ui-slots'
 import type { ComposerBarProps } from '../contract/slots.ts'
-import { deriveDecorations } from '../input/decorations.ts'
-import type { DraftDecorations } from '../input/decorations.ts'
-import type { EditRange } from '../input/contract.ts'
+import { deriveDecorations } from './decorations.ts'
+import type { DraftDecorations } from './decorations.ts'
+import type { EditRange } from '../contract/input.ts'
 import { attachmentErrorText, imageSizeText } from '../image-labels.ts'
-import { ReferenceIcon } from '../reference/ReferenceIcon.tsx'
 import { ContextMeter } from './ContextMeter.tsx'
 import { PermissionSelect } from './PermissionSelect.tsx'
 import { isSafariBrowser, repairSafariTextareaLayout } from './safari.ts'
@@ -160,7 +157,7 @@ export function InputBar({
   // A continuable child without its live parent cannot accept human input,
   // but its independent Stop below stays available while it runs.
   const continuable = subagent?.address.mode === 'continuable'
-  const parentOffline = continuable && !subagent.parentAvailable
+  const parentOffline = continuable && subagent.parentAvailable !== true
   // Running input stays free; locked = session removed, the
   // inert no-workspace state, the machine faces absent (no session), or a
   // parent-offline continuable child. An owner block also disables input;
@@ -235,7 +232,7 @@ export function InputBar({
     else if (rect.top + line < box.top) scrollEl.scrollTop -= box.top - rect.top - line
   }
 
-  // Reveal the focus end of the current selection. Today's entry paths leave a
+  // Reveal the focus end of the current selection. Every shipped entry path leaves a
   // collapsed selection, but honoring direction keeps a future range-preserving
   // path from revealing its anchor instead of its focus.
   const revealSelectionFocus = (el: HTMLTextAreaElement): void => {
@@ -502,7 +499,7 @@ export function InputBar({
     keyboard.track(keyboard.snapshot.draft, caret)
   }
 
-  // Intake pre-check (DeepSeek Chat semantics): an addition that would break
+  // Intake pre-check: an addition that would break
   // a projected limit is refused as a whole batch, announced immediately, and
   // never enters the rail — no more submit-time failure rolling the rail
   // back. The host enforces the same limits at submit for callers that bypass
@@ -511,7 +508,7 @@ export function InputBar({
     if (addImages === undefined || files.length === 0) return
     const rejected = ((): string | null => {
       if (imageLimits !== undefined) {
-        // Format precedes limits (DeepSeek Chat's filter order): a batch with
+        // Format precedes limits: a batch with
         // a non-image must announce the format problem, not a count or size
         // it could never pass anyway — addImages rejects it authoritatively.
         if (files.some(file => !(imageLimits.mediaTypes as readonly string[]).includes(file.type))) {
@@ -557,10 +554,10 @@ export function InputBar({
     if (el !== null) toggleCommandMenu?.(selectionOf(el))
   }
 
-  // Ordinary sessions retain their primary Send/Stop toggle. A continuable
-  // child keeps Send as the primary action and exposes Stop independently so
-  // pointer users can queue follow-ups while its current turn is running.
-  const primaryStops = running && subagent === null
+  // An ordinary running session keeps Stop while the composer is empty or
+  // owner-blocked; an actionable draft gets the existing Queue action. A
+  // continuable child keeps Send primary and exposes Stop independently.
+  const primaryStops = running && subagent === null && (empty || blocked !== undefined)
   const interruptible = running && continuable
   const primaryLabel = primaryStops ? t('input.stop') : t('input.send')
   const onPrimary = (): void => {
@@ -785,13 +782,13 @@ export function InputBar({
             </Tooltip>
             <div className={css.modes}>
               {accessSelect}
-              {renderSlot('conversation.input.plan', { locked })}
+              {sessionId === undefined ? null : renderSlot('conversation.input.plan', { locked })}
             </div>
             {leftItems}
           </div>
           <div className={css.trailing}>
             {rightItems}
-            {renderSlot('conversation.input.model', { locked: modelSeatLocked })}
+            {sessionId === undefined ? null : renderSlot('conversation.input.model', { locked: modelSeatLocked })}
             <ContextMeter useProjection={useProjection} t={t} />
             {interruptible && (
               <Tooltip label={t('input.stop')} side="top" delayMs={500}>

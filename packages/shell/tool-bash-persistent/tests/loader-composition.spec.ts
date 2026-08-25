@@ -152,6 +152,12 @@ suite('persistent Bash through a real cordis.yml Loader composition', () => {
     ))
     expect(heredoc).toBe('alpha\nbeta')
 
+    const pipeline = text(await execute(
+      'pipeline',
+      '{ sleep 0.1; printf "delayed\\n"; } | cat',
+    ))
+    expect(pipeline).toBe('delayed')
+
     const large = text(await execute('large-output', 'seq 1 12050'))
     expect(large.startsWith('1\n2\n3\n')).toBe(true)
     expect(large).toContain('<response clipped>')

@@ -22,10 +22,10 @@ export interface SkillEntry {
 
 /**
  * Skill-domain unary methods (the map key skill.* of RpcMethodMap). Listing
- * is the domain's only RPC: invocation itself is a plain `session.prompt`
- * whose leading `/name` token the host recognizes at the pre-step boundary
- * (`dsh-tool-skill` injects the rendered body there), so every client shares
- * one deterministic path with no dedicated invocation wire.
+ * is the domain's only RPC: invocation uses Session Controller's ordinary
+ * prompt Remote. The host recognizes its leading `/name` token at the pre-step
+ * boundary (`dsh-tool-skill` injects the rendered body there), so every client
+ * shares one deterministic path with no dedicated invocation method.
  */
 export interface SkillsApi {
   /** Lists the user-invocable skill catalog for the session's project. */

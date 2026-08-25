@@ -498,19 +498,28 @@ describe('SessionPersistenceSqlite schema ownership', () => {
   })
 
   it('paces repeated busy journal-mode attempts', async () => {
-    let attempts = 0
-    const BusyDatabase = databaseWithJournalFailure(() => {
-      attempts += 1
-      return Object.assign(new Error('database is locked'), { errcode: 5 })
+    const attemptedAt: number[] = []
+    const BusyTwiceDatabase = databaseWithJournalFailure(() => {
+      attemptedAt.push(performance.now())
+      return attemptedAt.length <= 2
+        ? Object.assign(new Error('database is locked'), { errcode: 5 })
+        : undefined
     })
-    await expect(openDatabase(
-      BusyDatabase,
+    const db = await openDatabase(
+      BusyTwiceDatabase,
       await freshDbPath('dsh-sqlite-journal-paced-'),
       'wal',
-      50,
-    )).rejects.toThrow('database is locked')
-    expect(attempts).toBeGreaterThan(1)
-    expect(attempts).toBeLessThanOrEqual(6)
+      DEFAULT_BUSY_TIMEOUT_MS,
+    )
+    db.close()
+
+    expect(attemptedAt).toHaveLength(3)
+    for (let index = 1; index < attemptedAt.length; index += 1) {
+      const previous = attemptedAt[index - 1]
+      const current = attemptedAt[index]
+      if (previous === undefined || current === undefined) throw new Error('missing journal attempt timestamp')
+      expect(current - previous).toBeGreaterThanOrEqual(5)
+    }
   })
 
   it('rejects unversioned, incompatible, and foreign-application databases', async () => {
@@ -662,6 +671,20 @@ describe('SessionPersistenceSqlite schema ownership', () => {
 })
 
 describe('SessionPersistenceSqlite edge behavior', () => {
+  it('materializes an explicitly durable empty live session', async () => {
+    const path = await freshDbPath('dsh-sqlite-empty-')
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    await ctx.plugin(SessionPersistenceSqlite, { path })
+    const session = ctx.sessions.create(SessionId('empty'), { meta: { cwd: '/workspace' } })
+
+    await ctx.sessionPersistence.ensureMaterialized(session)
+
+    await expect(ctx.sessionPersistence.list()).resolves.toEqual([session.header])
+    await expect(ctx.sessionPersistence.load(session.id)).resolves.toEqual({ meta: session.header, events: [] })
+    await ctx.fiber.dispose()
+  })
+
   it('keeps a fresh database unopened until the first persistence operation', async () => {
     const path = await freshDbPath('dsh-sqlite-lazy-')
     const ctx = new Context()

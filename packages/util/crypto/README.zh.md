@@ -2,18 +2,19 @@
 
 [English](README.md) | 中文
 
-零依赖的 v4 UUID 铸造，基于 `crypto.getRandomValues`——所有发布上下文都提供的那个随机原语。`crypto.randomUUID` 是安全上下文限定的 Web API：经普通 HTTP 在局域网地址上提供的页面或 worker（浏览器预览部署）根本没有这个方法，必须在那里运行的代码不能调它。全仓 `no-restricted-properties` lint 规则把 `crypto.randomUUID` 的调用者指到这里；只跑在 Node 的代码从 `node:crypto` 导入 `randomUUID` 维持原样。
+零依赖、可在浏览器使用的 UUID 与字节编码辅助函数。UUID 铸造基于 `crypto.getRandomValues`——所有发布上下文都提供的那个随机原语。`crypto.randomUUID` 是安全上下文限定的 Web API：经普通 HTTP 在局域网地址上提供的页面或 worker（浏览器预览部署）根本没有这个方法，必须在那里运行的代码不能调它。全仓 `no-restricted-properties` lint 规则把 `crypto.randomUUID` 的调用者指到这里；只跑在 Node 的代码从 `node:crypto` 导入 `randomUUID` 维持原样。
 
 它是**库，不是服务也不是插件**：无 `ctx`、不注册任何东西、不持有状态。
 
 ## API
 
 ```ts
-import { randomUUID, type Uuid } from '@deepseek-ai/dsh-util-crypto'
+import { bytesToBase64, randomUUID, type Uuid } from '@deepseek-ai/dsh-util-crypto'
 ```
 
 | 导出 | 角色 |
 |---|---|
+| `bytesToBase64(data)` | 以有界分片把字节数组编码为标准 base64。 |
 | `randomUUID()` | 随机 RFC 9562 v4 UUID 字符串，由 `crypto.getRandomValues` 铸造。可原位替换 `crypto.randomUUID()`。 |
 | `Uuid` | 五段式 UUID 字符串类型，与 `crypto.randomUUID` 声明的返回形状一致。 |
 

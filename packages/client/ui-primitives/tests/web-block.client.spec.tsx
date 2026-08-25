@@ -2,8 +2,29 @@
 
 import { afterEach, describe, expect, it } from 'vitest'
 import { cleanup, render } from '@testing-library/react'
-import { WebBlock } from '../src/index.ts'
-import type { WebSourceView } from '../src/index.ts'
+import { WebBlock as LocalizedWebBlock } from '../src/index.ts'
+import type {
+  WebFetchBlockProps, WebSearchBlockProps, WebSourceView,
+} from '../src/index.ts'
+import { webBlockLabels } from './labels.client.ts'
+
+type WebBlockProps =
+  | Omit<WebSearchBlockProps, 'labels'>
+  | Omit<WebFetchBlockProps, 'labels'>
+
+function WebSearchBlock(props: Omit<WebSearchBlockProps, 'labels'>) {
+  return <LocalizedWebBlock {...props} labels={webBlockLabels} />
+}
+
+function WebFetchBlock(props: Omit<WebFetchBlockProps, 'labels'>) {
+  return <LocalizedWebBlock {...props} labels={webBlockLabels} />
+}
+
+function WebBlock(props: WebBlockProps) {
+  return props.kind === 'search'
+    ? <WebSearchBlock {...props} />
+    : <WebFetchBlock {...props} />
+}
 
 afterEach(cleanup)
 

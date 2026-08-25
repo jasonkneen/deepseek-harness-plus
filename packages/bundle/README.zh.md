@@ -8,8 +8,11 @@ Bundle 身份由 manifest 声明决定，而不是由本目录决定。领域包
 
 | 包 | 职责 | ctx key |
 |---|---|---|
-| [`base/`](base/README.zh.md) | 每个 profile 最先应用的共享 dsh 核心 | —（仅 patch） |
+| [`base/`](base/README.zh.md) | 基于 base 的 profile 最先应用的共享 dsh 核心 | —（仅 patch） |
+| [`acp-app/`](acp-app/README.zh.md) | 运行在 base 之上的 automation-only ACP stdio 应用 | 挂载 ACP bridge |
 | [`web-app/`](web-app/README.zh.md) | 浏览器表层：web patch 层 + 运行时粘合插件 | 挂载多条配置行 |
 | [`headless/`](headless/README.zh.md) | 直接运行在 base 之上的一次性任务模式，不含 Host 或 Web 层 | 挂载 `headless-runner` |
+| [`sdk-app/`](sdk-app/README.zh.md) | 运行在 base 之上的 SDK stdio JSON-RPC 应用 | 挂载 SDK server |
+| [`sdk-minimal/`](sdk-minimal/README.zh.md) | 不含 base 或 Web 的独立极简 SDK 应用 | 无（完整 patch 树） |
 
 内置组合包从 dsh 安装目录解析；树外（out-of-tree）组合包通过 `dsh plugin --profile <name> add <package>` 安装进 profile。

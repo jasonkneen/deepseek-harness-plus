@@ -26,7 +26,7 @@ The tool requires the workspace root from the session `header.cwd`, with no fall
 
 #### What the model sees
 
-One system-prompt section (order 112) positions LSP as a precision aid with the following text:
+One system-prompt section (first-party order 2200) positions LSP as a precision aid with the following text:
 
 ##### Verbatim guidance
 

@@ -2,8 +2,14 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
-import { CodeBlock } from '../src/markdown/CodeBlock.tsx'
+import type { ComponentProps } from 'react'
+import { CodeBlock as LocalizedCodeBlock } from '../src/markdown/CodeBlock.tsx'
 import { highlightToHtml } from '../src/markdown/highlight.ts'
+import { markdownLabels } from './labels.client.ts'
+
+function CodeBlock(props: Omit<ComponentProps<typeof LocalizedCodeBlock>, 'copyLabel' | 'copiedLabel'>) {
+  return <LocalizedCodeBlock {...props} {...markdownLabels.code} />
+}
 
 afterEach(cleanup)
 

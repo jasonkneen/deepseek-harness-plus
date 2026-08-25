@@ -6,7 +6,7 @@
 import { z } from 'zod'
 import type { RequestPayload, ResponseValue } from './rpc-map.ts'
 import type { Wire } from './rpc.schema.ts'
-import { sessionIdSchema } from './sessions.schema.ts'
+import { sessionIdSchema } from './ids.schema.ts'
 import type { AgentPresetEntry } from './agent-presets.ts'
 
 /** AgentPresetEntry row of agentPreset.list. */

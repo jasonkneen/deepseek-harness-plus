@@ -19,7 +19,7 @@ See the [subprocess subsystem page](../../../docs/subsystems/subprocess.md) and 
 
 ## Model Experience
 
-Indirectly, through Consumers (today the bash executor family behind `dsh-tool-bash`), which own all model-facing rendering of process output and lifecycle.
+Indirectly, through Consumers (the bash executor family behind `dsh-tool-bash`), which own all model-facing rendering of process output and lifecycle.
 
 #### KV Cache effect
 

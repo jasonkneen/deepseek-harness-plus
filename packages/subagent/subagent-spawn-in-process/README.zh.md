@@ -6,13 +6,13 @@ spawn 提供方会在当前进程中创建一个全新的子 `Agent`。子 agent
 
 ## 行为
 
-`start(request)` 不传入 seed，直接委托给 [`startInProcessRun`](../subagent-in-process-driver/README.zh.md)，并在子 agent 发布后才返回。子 agent 获得父 agent 的工作目录/会话谱系，并默认继承父 agent 模型（除非覆盖），但以空对话开始运行。
+`start(request)` 不传入 seed，直接委托给 [`startInProcessRun`](../subagent-in-process-driver/README.zh.md)，并在子 agent 发布后才返回。子 agent 获得父 agent 的工作目录/会话谱系；除非 `request.agentOptions` 覆盖，否则还会继承父 agent 的提供方、模型、推理强度与输出 token 上限，但以空对话开始运行。
 
 共享驱动器负责深度检查、persona 与工具过滤器设置、结构化输出、通过必需的信号执行取消、单次执行、结果读取和完全停稳后的 dispose（资源释放）。启动遭拒不会留下已发布的子 agent；启动调用兑现后卸载提供方，也不会撤销由持有方拥有的运行。
 
 ## 能力
 
-spawn 声明 `{ outputSchema: true, depthLimit: true, toolFilter: true, persona: true }`，因为它控制子 agent 的创建窗口，能够强制执行全部四项功能。
+spawn 声明 `{ agentOptions: true, outputSchema: true, depthLimit: true, toolFilter: true, persona: true }`，因为它控制子 agent 的创建窗口，能够强制执行全部五项功能。
 
 ## 配置
 
@@ -26,7 +26,7 @@ spawn 声明 `{ outputSchema: true, depthLimit: true, toolFilter: true, persona:
 
 #### 模型看到的内容
 
-全新的子 agent 逐字接收独立任务内容，默认继承父 agent 的模型和工作区，并看到带有已配置子 agent 作用域 persona 遮蔽的全局提示词。工具过滤器会为该子 agent 移除全局协议 schema、可执行工具查找和 Code Mode SDK 绑定，但保留独立注册的指导内容。它不接收任何父 agent 对话消息；过滤控制的是可见性与组合，并非从父 agent 继承的权限授予。
+全新的子 agent 逐字接收独立任务内容，默认继承父 agent 的提供方、模型、推理强度、输出 token 上限与工作区，并看到带有已配置子 agent 作用域 persona 遮蔽的全局提示词。工具过滤器会为该子 agent 移除全局协议 schema、可执行工具查找和 Code Mode SDK 绑定，但保留独立注册的指导内容。它不接收任何父 agent 对话消息；过滤控制的是可见性与组合，并非从父 agent 继承的权限授予。
 
 #### Token 影响
 
@@ -52,4 +52,4 @@ spawn 声明 `{ outputSchema: true, depthLimit: true, toolFilter: true, persona:
 
 ## 已知限制与暂缓事项
 
-- **全新表示不含父 agent transcript（文本记录）**：子 agent 会继承 cwd、谱系、模型及显式配置的 persona/工具限制，但不继承父 agent 的任何对话；需要已完成轮次上下文时，请使用 fork 提供方。
+- **全新表示不含父 agent transcript（文本记录）**：子 agent 会继承 cwd、谱系、提供方、模型、推理强度、输出 token 上限及显式配置的 persona/工具限制，但不继承父 agent 的任何对话；需要已完成轮次上下文时，请使用 fork 提供方。

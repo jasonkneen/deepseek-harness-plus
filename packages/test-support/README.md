@@ -6,7 +6,7 @@ These packages support repository development, tests, and examples rather than p
 
 | Package | Role |
 |---|---|
-| [`acp-snapshot/`](acp-snapshot/README.md) | Provides the ACP snapshot-test toolkit |
+| [`session-snapshot/`](session-snapshot/README.md) | Provides session-log snapshot support and protocol adapters |
 | [`agent-loop-testkit/`](agent-loop-testkit/README.md) | Mounts shared prerequisites for AgentLoop tests |
 | [`invariants/`](../runtime-diagnostics/invariants/README.md) | Runs development-time runtime-contract assertions |
 | [`loader-smoke/`](loader-smoke/README.md) | Launches Loader-composed applications for smoke tests |

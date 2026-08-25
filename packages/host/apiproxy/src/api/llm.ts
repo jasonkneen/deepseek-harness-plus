@@ -2,14 +2,15 @@
  * llm domain contract: host-scoped provider topology for configuration
  * surfaces. `llm.providers` merges the configurable-provider directory
  * (which providers CAN be configured, and where their settings live) with the
- * live route registry; `llm.models` is the session-independent model catalog
- * (the same groups as `session.models`, without a per-session selection).
+ * live route registry; `llm.models` is the session-independent model catalog.
  * Clients invalidate from the forwarded `llm/adapters-updated` and
  * `settings/document-updated` owner events.
  */
 
 import type { RpcRequest, RpcResponse } from './rpc.ts'
-import type { ModelCatalogFailure, ModelProviderGroup } from './sessions.ts'
+import type {
+  ModelCatalog,
+} from '@deepseek-ai/dsh-api-session-controller/types'
 
 /** Wire view of one configurable provider. */
 export interface ConfigurableProviderView {
@@ -46,7 +47,7 @@ export interface LlmApi {
    * settings surface's models view, needing no session. Per-provider listing
    * failures ride `failures` without failing the sound groups.
    */
-  models(request: RpcRequest<{}>): Promise<RpcResponse<{ groups: ModelProviderGroup[]; failures: ModelCatalogFailure[] }>>
+  models(request: RpcRequest<{}>): Promise<RpcResponse<ModelCatalog>>
 
   /**
    * Interrogate a provider endpoint the configuration surface is still

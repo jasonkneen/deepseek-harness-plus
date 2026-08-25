@@ -57,7 +57,7 @@ Exact-model metadata is a separate correctness query, not a catalog decoration o
 
 Message content is an array of typed blocks: `text`, `reasoning`, `image`, `tool-call`, `tool-result`. An `ImageBlock` carries only a durable `ImageAttachmentRef`; provider bytes and request dimensions are resolved later. The union remains merge-extensible through `ContentBlockMap`, so plugins can add further block types via declaration merging. Assistant messages use a model source carrying the provider and model that produced them plus optional adapter-private replay state. Before dispatch, `LlmRuntime` retains that state only when the historical provider route and target provider route are currently owned by the exact same adapter instance; the adapter then decides whether it can restore or convert the state across models/providers.
 
-Every dispatch uses the exact model modalities captured with its adapter generation. An image-capable adapter projects durable image references into route-specific request versions. A text-only route instead receives deterministic attachment placeholders, including nested tool-result images, without changing append-only session history. `offloadRequestImagesWithPolicy()` provides deterministic oldest-first image removal with raw or base64 accounting and count or byte quanta; adapters supply the exact derived-version byte length.
+Every dispatch uses the exact model modalities captured with its adapter generation. An image-capable adapter projects durable image references into route-specific request versions. `resolveImageAttachmentAccess()` separately combines an attachment provider's optional host object with a consumer-supplied mapping from that host path into the current tool execution world. The result never enters `RequestImageAttachment` or its `variantId`. A text-only route instead receives deterministic attachment placeholders, including nested tool-result images, without changing append-only session history. `offloadRequestImagesWithPolicy()` provides deterministic oldest-first image removal with raw or base64 accounting and count or byte quanta; adapters supply the exact derived-version byte length and the required per-image placeholder text, and the pure `offloadedImagePrefixCount()` exposes the same removal decision so route-owned request pricing reproduces it without building the projection. Adapters whose provider charges visual tokens declare per-route `imageRequestPricing`; `ctx.llm.imageRequestPricing(provider, model)` resolves it synchronously for the token meter.
 
 Streaming is a raw chunk protocol (`block-start`, `text-delta`, `reasoning-delta`, `tool-call-delta`, `block-end`, `usage`, `finish`). Every adapter outcome reaches consumers as one terminal `finish`; operational failure uses its `error` or `aborted` reason rather than throwing across the stream API. `BlockAssembler` is the single shared implementation that assembles chunks into blocks/messages. A successful `finish` may carry a `ReplayEnvelope` — opaque response-level replay metadata plus optional per-block entries aligned with the emitted block sequence. Assembly makes one keep/drop decision for content and metadata together: a `max-tokens` finish drops tool calls that may have been truncated, and the envelope loses the entry at each dropped position, so stored metadata always describes stored content.
 
@@ -91,11 +91,11 @@ Two adapters implement `LlmAdapter` on different internals: [`@deepseek-ai/dsh-l
 
 ## Model Experience
 
-None, as the service adds no model-bound text, schema, or message; it only materializes and logs an adapter-configured reasoning effort.
+None, as adapters choose when to add the shared image descriptors and per-image placeholders exported by this package, while the LLM service itself only materializes and logs adapter-configured request facts.
 
 #### KV Cache effect
 
-Pass-through; the registry preserves the assembled request prefix, while the selected adapter and provider own cache reuse and routing boundaries.
+Reasoning-effort materialization preserves the assembled request prefix. Image identity and request-preview text are deterministic, while the optional execution-world path is resolved for each request. A changed path can alter a historical descriptor and prevent reuse from that image even without offload. Crossing a request limit also replaces an older image with per-image text.
 
 ## Known Limitations and Deferred Work
 

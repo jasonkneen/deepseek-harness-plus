@@ -36,7 +36,7 @@ MCP 客户端桥接插件：连接外部 [Model Context Protocol](https://modelc
 | 字段 | 传输 | 必填 | 描述 |
 |---|---|---|---|
 | `transport` | 两者 | 是 | `"stdio"` 或 `"streamable-http"` |
-| `serverName` | 两者 | 是 | 该服务器面向模型工具名称的 namespace；`[A-Za-z0-9_-]{1,32}`，在存活实例中唯一 |
+| `serverName` | 两者 | 是 | 该服务器面向模型工具名称的 namespace；`[A-Za-z0-9_-]{1,32}`，在单个 registration scope 内唯一 |
 | `command` | stdio | 是 | 要 spawn 的可执行文件 |
 | `args` | stdio | 否 | 传给命令的参数 |
 | `env` | stdio | 否 | 合并到已清理环境中的额外环境变量 |
@@ -55,7 +55,7 @@ MCP 客户端桥接插件：连接外部 [Model Context Protocol](https://modelc
 每个 MCP 工具都有两个名称：通过 `tools/call` 在协议上传送的原始 MCP 名称，以及公开名称 `mcp__<serverName>__<rawName>`，后者注册到 `ctx.tools`。公开名称会规范化为 DeepSeek 函数名称约定（64 个字符、`[A-Za-z0-9_-]`）；如果替换或截断改变名称，就会追加 `(serverName, rawName)` 的确定性 12 位十六进制 hash，确保不同工具绝不会折叠为同一个名称。名称是 `(serverName, rawName)` 的纯函数：连接顺序、重新同步和其他服务器永远不会重命名工具。
 
 - 发布相同原始名称（例如 `search`）的两个服务器会在各自 namespace 下共存。
-- 存活实例中的重复 `serverName` 会使后加载的插件实例失败。
+- 同一个存活 registration scope 内重复的 `serverName` 会使后加载的插件实例失败。独立 Agent scope 的工具和传输彼此隔离，因此可以复用同一 namespace。
 - 服务器在工具列表中两次列出同一工具名称时，该列表会作为无效工具列表被拒绝。
 - 外部注册抢占该服务器 namespace 时，会回滚整个世代（绝不保留部分集合），并明确报错。
 

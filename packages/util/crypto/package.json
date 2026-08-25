@@ -1,6 +1,6 @@
 {
   "name": "@deepseek-ai/dsh-util-crypto",
-  "description": "Zero-dependency crypto-adjacent helpers usable in every context (browser, worker, Node) including insecure origins: v4 UUID minting over crypto.getRandomValues today, room for siblings",
+  "description": "Zero-dependency browser-safe UUID and byte-encoding helpers",
   "version": "0.1.1-rc.2",
   "publishConfig": {
     "access": "public"

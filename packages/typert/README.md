@@ -9,3 +9,5 @@ Typert separates source analysis, runtime storage, and Loader discovery.
 | [`registry/`](registry/README.md) | Stores runtime package reflection and schemas | `ctx.typert` |
 | [`loader/`](loader/README.md) | Discovers Loader entries and registers generated host artifacts | consumes `ctx.loader` and `ctx.typert` |
 | [`generator/`](generator/README.md) | Generates runtime artifacts from source types | build-time library |
+
+See [TypeRT remote calls](../../docs/subsystems/typert.md) for the generated invocation, schema, and transport contracts.

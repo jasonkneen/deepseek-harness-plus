@@ -9,3 +9,5 @@ Typert 将源代码分析、运行时存储和 Loader 发现机制分离。
 | [`registry/`](registry/README.zh.md) | 存储运行时包反射和 schema | `ctx.typert` |
 | [`loader/`](loader/README.zh.md) | 发现 Loader 条目并注册生成的宿主产物 | 使用 `ctx.loader`、`ctx.typert` |
 | [`generator/`](generator/README.zh.md) | 从源代码类型生成运行时产物 | 构建时库 |
+
+有关所生成的调用、schema 和传输三方面的约定，参见 [TypeRT 远程调用](../../docs/subsystems/typert.zh.md)。

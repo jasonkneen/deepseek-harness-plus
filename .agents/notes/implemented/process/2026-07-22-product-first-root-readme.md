@@ -16,7 +16,7 @@ A note before installation thanks internal testers, states that features and exp
 
 The user-surface section adds the ACP automation server and Python/JSON-RPC SDK beside the existing Web, TUI, and headless entries. The installed TUI remains the single `dsh` command; the Web instructions build the active checkout before running `dsh web`, and custom or reused checkout paths stay explicit. These launch paths must remain executable through a real PTY and a production build/HTTP smoke, respectively. The capability paragraph keeps its compact inventory style while adding the shipped PTY, LSP, web, goal, planning, task, sandbox, approval, settings, credentials, session-query, and telemetry families and stating that compositions select subsets. One adjacent bullet records the authoritative-session-log rule because persistence, replay, queries, telemetry, and interfaces depend on it.
 
-Detailed package and service inventories remain at their owning documentation. The English and Chinese README sides share the same technical structure, while their community sections continue to point to the primary channel for each language audience. The documentation website keeps a separate [quick-start entry route](../simplification/2026-08-11-quickstart-documentation-home.md) instead of presenting another product landing page.
+Detailed package and service inventories remain at their owning documentation. The English and Chinese README sides share the same technical structure, while their community sections continue to point to the primary channel for each language audience. The documentation website keeps a separate [quick-start entry route](../../../../docs/user/index.md) instead of presenting another product landing page.
 
 ## Alternatives considered
 

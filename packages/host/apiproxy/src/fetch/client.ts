@@ -1,46 +1,21 @@
 /**
- * Client side of the fetch carrier. AbstractApiClient holds every protocol invariant: rpcId minting,
- * four-quadrant envelope wrap/unwrap, zod parsing, in-process SSE frame decoding, and the payload-direct
+ * Client side of the fetch carrier. AbstractApiClient holds request correlation,
+ * envelope wrap/unwrap, zod parsing, and the payload-direct
  * IApiClient domain methods (business code never mints). Platform differences ride two aspects:
  * abstract doFetch (transport) + overridable onEnvelope (tap). ApiProxy (the impl face) is untouched.
  */
 
 import type { z } from 'zod'
 import { randomUUID } from '@deepseek-ai/dsh-util-crypto'
-import type { ApiProxy, HostFrame, MuxFrame } from '../api/index.ts'
 import type { RequestPayload, ResponseValue, RpcMethodMap } from '../api/rpc-map.ts'
-import type { ClientRequest, ClientResponse, RpcMessage, RpcReceipt, RpcRequest, RpcResponse, ServerRequest } from '../api/rpc.ts'
+import type { ClientRequest, RpcMessage, RpcResponse } from '../api/rpc.ts'
 import { RpcId } from '../api/rpc.ts'
 import type { Wire } from '../api/rpc.schema.ts'
-import { rpcReceiptSchema, serverRequestSchema, serverResponseSchema } from '../api/rpc.schema.ts'
-import { hostFrameSchema, muxFrameSchema } from '../api/events.schema.ts'
+import { serverResponseSchema } from '../api/rpc.schema.ts'
 import {
   hostCreateDirectoryValueSchema, hostDescribeValueSchema,
   hostListDirectoryValueSchema, hostOpenPathValueSchema, hostPickDirectoryValueSchema,
 } from '../api/host.schema.ts'
-import {
-  sessionCancelValueSchema,
-  sessionAttachmentValueSchema,
-  sessionCreateValueSchema,
-  sessionForkValueSchema,
-  sessionHistoryValueSchema,
-  sessionListValueSchema,
-  sessionModelsValueSchema,
-  sessionPromptValueSchema,
-  sessionRenameValueSchema,
-  sessionSearchValueSchema,
-  sessionSelectModelValueSchema,
-  sessionUpdateQueueValueSchema,
-} from '../api/sessions.schema.ts'
-import {
-  workspaceArchiveSessionValueSchema,
-  workspaceCreateValueSchema,
-  workspaceDeleteValueSchema,
-  workspaceInsertBeforeValueSchema,
-  workspaceInsertSessionBeforeValueSchema,
-  workspaceListValueSchema,
-  workspaceRenameValueSchema,
-} from '../api/workspace.schema.ts'
 import { skillListValueSchema } from '../api/skills.schema.ts'
 import {
   agentPresetCopyValueSchema, agentPresetListValueSchema, agentPresetOpenDocumentValueSchema,
@@ -63,7 +38,6 @@ import {
 } from '../api/credentials.schema.ts'
 import { llmDiscoverModelsValueSchema, llmModelsValueSchema, llmProvidersValueSchema } from '../api/llm.schema.ts'
 import {
-  subagentHistoryValueSchema,
   subagentInterruptValueSchema,
   subagentListValueSchema,
   subagentPromptValueSchema,
@@ -73,36 +47,17 @@ import {
  * Client consumption face of the contract (shape a): same domain tree as ApiProxy, but unary
  * methods take the business payload directly — the carrier mints the rpcId and wraps the
  * envelope. Business code needing the call's rpcId reads it from the RpcResponse echo.
- * Unary methods and respond accept an optional external AbortSignal as the last parameter.
+ * Unary methods accept an optional external AbortSignal as the last parameter.
  * Bounded calls merge it with the instance timeout via AbortSignal.any; user-paced calls
  * carry only that external signal. In both cases the signal rides beside the request, never
  * on the wire, like the stream signatures.
- * Stream methods accept an optional onOpen callback: it fires once the physical transport is
- * readable (before any frame) — the "stream established" signal
- * connection controllers need for the readiness handshake. Generators are lazy, so the
- * underlying fetch (and therefore onOpen) only happens once iteration starts.
  * Relationship: ApiProxy is the narrow-form signature contract the impl side implements;
  * IApiClient is the payload-direct view clients consume; AbstractApiClient bridges the two.
  * Derived per method key from RpcMethodMap so a map row addition updates this mechanically.
  */
 export interface IApiClient {
-  sessions: {
-    list(payload: RequestPayload<'session.list'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'session.list'>>>
-    search(payload: RequestPayload<'session.search'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'session.search'>>>
-    create(payload: RequestPayload<'session.create'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'session.create'>>>
-    history(payload: RequestPayload<'session.history'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'session.history'>>>
-    models(payload: RequestPayload<'session.models'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'session.models'>>>
-    selectModel(payload: RequestPayload<'session.selectModel'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'session.selectModel'>>>
-    rename(payload: RequestPayload<'session.rename'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'session.rename'>>>
-    fork(payload: RequestPayload<'session.fork'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'session.fork'>>>
-    prompt(payload: RequestPayload<'session.prompt'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'session.prompt'>>>
-    attachment(payload: RequestPayload<'session.attachment'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'session.attachment'>>>
-    updateQueue(payload: RequestPayload<'session.updateQueue'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'session.updateQueue'>>>
-    cancel(payload: RequestPayload<'session.cancel'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'session.cancel'>>>
-  }
   subagents: {
     list(payload: RequestPayload<'subagent.list'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'subagent.list'>>>
-    history(payload: RequestPayload<'subagent.history'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'subagent.history'>>>
     prompt(payload: RequestPayload<'subagent.prompt'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'subagent.prompt'>>>
     interrupt(payload: RequestPayload<'subagent.interrupt'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'subagent.interrupt'>>>
   }
@@ -112,15 +67,6 @@ export interface IApiClient {
     listDirectory(payload: RequestPayload<'host.listDirectory'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'host.listDirectory'>>>
     createDirectory(payload: RequestPayload<'host.createDirectory'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'host.createDirectory'>>>
     openPath(payload: RequestPayload<'host.openPath'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'host.openPath'>>>
-  }
-  workspace: {
-    list(payload: RequestPayload<'workspace.list'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'workspace.list'>>>
-    create(payload: RequestPayload<'workspace.create'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'workspace.create'>>>
-    rename(payload: RequestPayload<'workspace.rename'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'workspace.rename'>>>
-    delete(payload: RequestPayload<'workspace.delete'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'workspace.delete'>>>
-    insertBefore(payload: RequestPayload<'workspace.insertBefore'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'workspace.insertBefore'>>>
-    insertSessionBefore(payload: RequestPayload<'workspace.insertSessionBefore'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'workspace.insertSessionBefore'>>>
-    archiveSession(payload: RequestPayload<'workspace.archiveSession'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'workspace.archiveSession'>>>
   }
   skills: {
     list(payload: RequestPayload<'skill.list'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'skill.list'>>>
@@ -132,10 +78,6 @@ export interface IApiClient {
     copy(payload: RequestPayload<'agentPreset.copy'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'agentPreset.copy'>>>
     openDocument(payload: RequestPayload<'agentPreset.openDocument'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'agentPreset.openDocument'>>>
     remove(payload: RequestPayload<'agentPreset.remove'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'agentPreset.remove'>>>
-  }
-  events: {
-    mux(payload: Parameters<ApiProxy['events']['mux']>[0]['payload'], signal: AbortSignal, onOpen?: () => void): AsyncIterable<RpcRequest<MuxFrame>>
-    host(payload: Parameters<ApiProxy['events']['host']>[0]['payload'], signal: AbortSignal, onOpen?: () => void): AsyncIterable<RpcRequest<HostFrame>>
   }
   goals: {
     create(payload: RequestPayload<'goal.create'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'goal.create'>>>
@@ -162,8 +104,6 @@ export interface IApiClient {
     models(payload: RequestPayload<'llm.models'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'llm.models'>>>
     discoverModels(payload: RequestPayload<'llm.discoverModels'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'llm.discoverModels'>>>
   }
-  /** client-response passthrough (rpcId is a backfill of the server-request's id — never minted here). */
-  respond(message: ClientResponse, signal?: AbortSignal): Promise<RpcReceipt>
 }
 
 /**
@@ -171,20 +111,7 @@ export interface IApiClient {
  * mirror of the handler's request table; key coverage compiler-enforced against RpcMethodMap).
  */
 const UNARY_VALUE_SCHEMAS: { [K in keyof RpcMethodMap]: z.ZodType<Wire<ResponseValue<K>>> } = {
-  'session.list': sessionListValueSchema,
-  'session.search': sessionSearchValueSchema,
-  'session.create': sessionCreateValueSchema,
-  'session.history': sessionHistoryValueSchema,
-  'session.models': sessionModelsValueSchema,
-  'session.selectModel': sessionSelectModelValueSchema,
-  'session.rename': sessionRenameValueSchema,
-  'session.fork': sessionForkValueSchema,
-  'session.prompt': sessionPromptValueSchema,
-  'session.attachment': sessionAttachmentValueSchema,
-  'session.updateQueue': sessionUpdateQueueValueSchema,
-  'session.cancel': sessionCancelValueSchema,
   'subagent.list': subagentListValueSchema,
-  'subagent.history': subagentHistoryValueSchema,
   'subagent.prompt': subagentPromptValueSchema,
   'subagent.interrupt': subagentInterruptValueSchema,
   'host.describe': hostDescribeValueSchema,
@@ -192,13 +119,6 @@ const UNARY_VALUE_SCHEMAS: { [K in keyof RpcMethodMap]: z.ZodType<Wire<ResponseV
   'host.listDirectory': hostListDirectoryValueSchema,
   'host.createDirectory': hostCreateDirectoryValueSchema,
   'host.openPath': hostOpenPathValueSchema,
-  'workspace.list': workspaceListValueSchema,
-  'workspace.create': workspaceCreateValueSchema,
-  'workspace.rename': workspaceRenameValueSchema,
-  'workspace.delete': workspaceDeleteValueSchema,
-  'workspace.insertBefore': workspaceInsertBeforeValueSchema,
-  'workspace.insertSessionBefore': workspaceInsertSessionBeforeValueSchema,
-  'workspace.archiveSession': workspaceArchiveSessionValueSchema,
   'skill.list': skillListValueSchema,
   'agentPreset.list': agentPresetListValueSchema,
   'agentPreset.select': agentPresetSelectValueSchema,
@@ -248,7 +168,7 @@ export abstract class AbstractApiClient implements IApiClient {
   private flushScheduled = false
   private readonly envelopeListeners = new Set<(batch: readonly RpcMessage[]) => void>()
 
-  /** @param timeoutMs - timeout for bounded unary calls; user-paced calls and streams do not use it. */
+  /** @param timeoutMs - timeout for bounded unary calls; user-paced calls do not use it. */
   constructor(protected readonly timeoutMs: number = DEFAULT_TIMEOUT_MS) {}
 
   /** Transport aspect: browser fetch, injected handler.fetch, IPC bridge, ... */
@@ -303,12 +223,12 @@ export abstract class AbstractApiClient implements IApiClient {
   }
 
   /**
-   * Shared POST leg of both C→S carriers (callUnary/respond): JSON body,
+   * Shared POST leg of unary calls: JSON body,
    * optional default timeout merged with the caller's external signal, non-2xx → transport throw.
    */
   private async postJson(
     path: string,
-    body: ClientRequest | ClientResponse,
+    body: ClientRequest,
     signal: AbortSignal | undefined,
     timeoutPolicy: UnaryTimeoutPolicy = 'default',
   ): Promise<Response> {
@@ -351,84 +271,10 @@ export abstract class AbstractApiClient implements IApiClient {
     return { rpcId: full.rpcId, result: { ok: true, value } }
   }
 
-  /** Mux stream opener; virtual for the same override reason as callUnary. */
-  protected openMux(_payload: Parameters<ApiProxy['events']['mux']>[0]['payload'], signal: AbortSignal, onOpen?: () => void): AsyncIterable<RpcRequest<MuxFrame>> {
-    return this.readSse('/api/events.mux', signal, muxFrameSchema, onOpen)
-  }
-
-  /** Host stream opener; virtual. */
-  protected openHost(_payload: Parameters<ApiProxy['events']['host']>[0]['payload'], signal: AbortSignal, onOpen?: () => void): AsyncIterable<RpcRequest<HostFrame>> {
-    return this.readSse('/api/events.host', signal, hostFrameSchema, onOpen)
-  }
-
-  /**
-   * SSE protocol path: streaming fetch (not EventSource), '\n\n' framing, ServerRequest envelope +
-   * frame-schema parse, tap, narrow yield. onOpen fires once the response headers are in and the
-   * body is readable — the stream-established signal, before any frame arrives. A frame that fails
-   * either parse level is reported and skipped (one corrupt frame must not kill the stream; the
-   * client's gap detection covers whatever the frame carried).
-   */
-  protected async *readSse<F extends MuxFrame | HostFrame>(
-    path: string,
-    signal: AbortSignal,
-    frameSchema: z.ZodType<F>,
-    onOpen?: () => void,
-  ): AsyncGenerator<RpcRequest<F>> {
-    const response = await this.doFetch(new URL(path, this.resolveBase()), { signal })
-    if (!response.ok || response.body === null) throw new Error(`transport failure for ${path}: HTTP ${response.status}`)
-    onOpen?.()
-    const reader = response.body.getReader()
-    const decoder = new TextDecoder()
-    let buffer = ''
-    try {
-      while (true) {
-        const { done, value } = await reader.read()
-        if (done) return
-        buffer += decoder.decode(value, { stream: true })
-        let boundary: number
-        while ((boundary = buffer.indexOf('\n\n')) !== -1) {
-          const chunk = buffer.slice(0, boundary)
-          buffer = buffer.slice(boundary + 2)
-          const data = chunk.split('\n').filter(line => line.startsWith('data: ')).map(line => line.slice(6)).join('')
-          if (data === '') continue
-          let full: ServerRequest
-          let frame: F
-          try {
-            full = serverRequestSchema.parse(JSON.parse(data))
-            frame = frameSchema.parse(full.payload)
-          } catch (error) {
-            console.error(`[apiproxy] dropping malformed SSE frame on ${path}:`, error)
-            continue
-          }
-          this.onEnvelope(full)
-          yield { rpcId: full.rpcId, payload: frame }
-        }
-      }
-    } finally {
-      await reader.cancel().catch(() => undefined)
-    }
-  }
-
   // ---- IApiClient API (arrow properties so destructured/passed references stay bound) ----
-
-  readonly sessions: IApiClient['sessions'] = {
-    list: (payload, signal) => this.callUnary('session.list', payload, signal),
-    search: (payload, signal) => this.callUnary('session.search', payload, signal),
-    create: (payload, signal) => this.callUnary('session.create', payload, signal),
-    history: (payload, signal) => this.callUnary('session.history', payload, signal),
-    models: (payload, signal) => this.callUnary('session.models', payload, signal),
-    selectModel: (payload, signal) => this.callUnary('session.selectModel', payload, signal),
-    rename: (payload, signal) => this.callUnary('session.rename', payload, signal),
-    fork: (payload, signal) => this.callUnary('session.fork', payload, signal),
-    prompt: (payload, signal) => this.callUnary('session.prompt', payload, signal),
-    attachment: (payload, signal) => this.callUnary('session.attachment', payload, signal),
-    updateQueue: (payload, signal) => this.callUnary('session.updateQueue', payload, signal),
-    cancel: (payload, signal) => this.callUnary('session.cancel', payload, signal),
-  }
 
   readonly subagents: IApiClient['subagents'] = {
     list: (payload, signal) => this.callUnary('subagent.list', payload, signal),
-    history: (payload, signal) => this.callUnary('subagent.history', payload, signal),
     prompt: (payload, signal) => this.callUnary('subagent.prompt', payload, signal),
     interrupt: (payload, signal) => this.callUnary('subagent.interrupt', payload, signal),
   }
@@ -443,16 +289,6 @@ export abstract class AbstractApiClient implements IApiClient {
     listDirectory: (payload, signal) => this.callUnary('host.listDirectory', payload, signal),
     createDirectory: (payload, signal) => this.callUnary('host.createDirectory', payload, signal),
     openPath: (payload, signal) => this.callUnary('host.openPath', payload, signal),
-  }
-
-  readonly workspace: IApiClient['workspace'] = {
-    list: (payload, signal) => this.callUnary('workspace.list', payload, signal),
-    create: (payload, signal) => this.callUnary('workspace.create', payload, signal),
-    rename: (payload, signal) => this.callUnary('workspace.rename', payload, signal),
-    delete: (payload, signal) => this.callUnary('workspace.delete', payload, signal),
-    insertBefore: (payload, signal) => this.callUnary('workspace.insertBefore', payload, signal),
-    insertSessionBefore: (payload, signal) => this.callUnary('workspace.insertSessionBefore', payload, signal),
-    archiveSession: (payload, signal) => this.callUnary('workspace.archiveSession', payload, signal),
   }
 
   readonly skills: IApiClient['skills'] = {
@@ -502,16 +338,6 @@ export abstract class AbstractApiClient implements IApiClient {
     discoverModels: (payload, signal) => this.callUnary('llm.discoverModels', payload, signal),
   }
 
-  readonly events: IApiClient['events'] = {
-    mux: (payload, signal, onOpen) => this.openMux(payload, signal, onOpen),
-    host: (payload, signal, onOpen) => this.openHost(payload, signal, onOpen),
-  }
-
-  async respond(message: ClientResponse, signal?: AbortSignal): Promise<RpcReceipt> {
-    this.onEnvelope(message)
-    const response = await this.postJson('/api/respond', message, signal)
-    return rpcReceiptSchema.parse(await response.json())
-  }
 }
 
 /**

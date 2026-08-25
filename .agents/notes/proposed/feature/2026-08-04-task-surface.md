@@ -6,7 +6,7 @@ English | [中文](2026-08-04-task-surface.zh.md)
 
 ## Problem
 
-Some tasks are awkward to finish through alternating prose messages. Comparing several options, reordering a plan, reviewing a table, or filling a small set of related fields all work better as one structured interaction. Today an agent can describe such an interaction, but it cannot ask the Web client to render one without adding a permanent product component or generating executable Client Plugin code.
+Some tasks are awkward to finish through alternating prose messages. Comparing several options, reordering a plan, reviewing a table, or filling a small set of related fields all work better as one structured interaction. An agent can describe such an interaction, but it cannot ask the Web client to render one without adding a permanent product component or generating executable Client Plugin code.
 
 Those two workarounds put ownership in the wrong place. Product-specific components require a new trigger and release for every task shape. Generated code has far more authority and lifecycle cost than a one-turn form needs. It also makes the presentation, rather than the user's conclusion, the durable artifact.
 
@@ -274,7 +274,7 @@ The implementation depends on the existing message log, canonical tool output, t
 
 ## Risks
 
-The first component set may be either too small for useful tasks or broad enough to become a weak application framework. Usage evidence should decide additions; v1 has no expression language or network behavior.
+The first component set may be either too small for useful tasks or broad enough to become a weak application framework. Usage evidence should decide additions; the initial set has no expression language or network behavior.
 
 The Task Surface Markdown policy gives up inline images, media, and automatic link previews. Ordinary links remain useful, but only an explicit user activation may navigate or start a request.
 

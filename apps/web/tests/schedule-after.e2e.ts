@@ -28,8 +28,8 @@ import {
 import { connectFreshWorkspace, conversationContextKey, saveFailureShot } from './support.ts'
 
 const MODE = webSnapshotMode()
-const OVERLAY = fileURLToPath(new URL('../../../examples/web-schedule/cordis.yml', import.meta.url))
-const SNAPSHOT_DIR = fileURLToPath(new URL('./snapshots/schedule-after', import.meta.url))
+const OVERLAY = fileURLToPath(new URL('../../cli/config/examples/schedule/cordis.yml', import.meta.url))
+const SNAPSHOT_DIR = fileURLToPath(new URL('./expected/schedule-after', import.meta.url))
 const AFTER_EXPECTED = join(SNAPSHOT_DIR, 'conversation.expected.md')
 const AT_EXPECTED = join(SNAPSHOT_DIR, 'at-conversation.expected.md')
 const EVERY_EXPECTED = join(SNAPSHOT_DIR, 'every-conversation.expected.md')
@@ -235,7 +235,7 @@ describe.skipIf(MODE === 'record')('web e2e: conversational reminders', () => {
     })
     await page.addInitScript(() => { localStorage.setItem('dsh.locale', 'en') })
     tripwire = watchConsole(page)
-    await page.goto(scaffold.baseUrl, { waitUntil: 'load' })
+    await page.goto(scaffold.authenticatedUrl, { waitUntil: 'load' })
     await page.waitForSelector('[class*="frame"]', { timeout: 30_000 })
     await connectFreshWorkspace(page, scaffold.workspaceCwd)
     expect(await page.evaluate(() => Intl.DateTimeFormat().resolvedOptions().timeZone))

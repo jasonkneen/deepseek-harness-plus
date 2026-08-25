@@ -2,7 +2,7 @@
 
 English | [中文](README.zh.md)
 
-This group contains the protocol stack for driving a Harness runtime from another process. Callers supply the runtime executable and its `cordis.yml`; this group does not create, configure, build, or launch developer projects. The [TypeScript SDK decision](../../.agents/notes/implemented/feature/2026-07-27-typescript-sdk-and-sdk-subagent-backend.md) owns the client contract, and the [toolchain removal](../../.agents/notes/implemented/simplification/2026-08-11-remove-sdk-project-toolchain.md) owns the product boundary.
+This group contains the protocol stack for driving a Harness runtime from another process. The TypeScript and Python clients both launch `dsh` with a named profile and ordered patches; no package in this group defines a separate application. The [TypeScript SDK decision](../../.agents/notes/implemented/feature/2026-07-27-typescript-sdk-and-sdk-subagent-backend.md) owns the client contract, and the [Python profile-runtime decision](../../.agents/notes/implemented/architecture/2026-08-23-python-sdk-dsh-profile-runtime.md) owns the packaged Python launch.
 
 | Package | Role |
 |---|---|

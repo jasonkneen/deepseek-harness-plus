@@ -3,7 +3,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, waitFor } from '@testing-library/react'
 import { AttachmentId } from '@deepseek-ai/dsh-attachment'
-import type { MessageImagesProps } from '@deepseek-ai/dsh-client-ui-conversation/client'
+import { EMPTY_CHAT_SNAPSHOT, type MessageImagesProps } from '@deepseek-ai/dsh-client-ui-chat/client'
+import { EMPTY_CONVERSATION_SNAPSHOT } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import { ImageGallery, MessageImage } from '../src/MessageImage.tsx'
 import type { MessageImageLabels } from '../src/MessageImage.tsx'
 import { MessageImages } from '../src/client/MessageImages.tsx'
@@ -27,6 +28,23 @@ const attachment = {
   height: 320,
   name: 'history.png',
 }
+
+type AttentionSnapshot = Parameters<Parameters<MessageImagesProps['useSessionPendingInteraction']>[0]>[0]
+type TrajectorySnapshot = Parameters<Parameters<MessageImagesProps['useTrajectory']>[0]>[0]
+
+const noAttention: AttentionSnapshot = new Map()
+const emptyTrajectory: TrajectorySnapshot = {
+  eventNodes: [],
+  eventLocations: new Map(),
+  requests: [],
+  callSchemas: new Map(),
+  partial: null,
+  runningCalls: [],
+}
+const useSessionPendingInteraction: MessageImagesProps['useSessionPendingInteraction'] = selector => selector(noAttention)
+const useConversation: MessageImagesProps['useConversation'] = selector => selector(EMPTY_CONVERSATION_SNAPSHOT)
+const useChat: MessageImagesProps['useChat'] = selector => selector(EMPTY_CHAT_SNAPSHOT)
+const useTrajectory: MessageImagesProps['useTrajectory'] = selector => selector(emptyTrajectory)
 
 describe('MessageImage', () => {
   it('loads a session-authorized URL, bounds the thumbnail, and clicks into the original', async () => {
@@ -190,8 +208,12 @@ describe('ImageGallery', () => {
       sessionId: 'message-images-test' as MessageImagesProps['sessionId'],
       useSession,
       useSessions,
+      useSessionPendingInteraction,
       useWorkspaces,
       useProjection: () => undefined,
+      useConversation,
+      useChat,
+      useTrajectory,
       useInput,
       inputActions: {
         setDraft: vi.fn(),

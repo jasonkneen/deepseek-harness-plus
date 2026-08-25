@@ -12,7 +12,9 @@ fixture 是持久化会话日志（`<scenario>/session.jsonl`）的投影：它�
 
 因此，录制就是「运行一次真实 agent 并收集 `.jsonl`」，由快照 harness 完成；该插件本身不录制。fixture 的 `request/header` 内容可能被标记化为 `{{system}}`/`{{tools}}`（harness 会在一个场景中固定该内容，并清除其余场景中的内容）；回放不受影响，因为派生过程只读取 `assistant/chunk` 和 `compaction/summary` 事件以及第 0 行的会话 header。
 
-有两种失败模式无法仅根据 `assistant/chunk` 重建：在产生任何分片前直接抛出异常（例如 HTTP 401，此时日志只有 `turn/end {error}` 而没有分片），以及取消或挂起（差异在时序，而非分片内容）。需要这些行为的场景可提供伴随文件（`<scenario>/replay.override.json`）：它可以替换派生脚本（裸 `ReplayEntry[]`），也可以增补派生脚本（`{ patches: [{ at, entry }] }`：保留所有从 JSONL 派生的调用，只替换指定的从 0 开始计数的调用索引；当 `at` 等于派生长度时，则在注入瞬态异常后的重试位置追加一次调用）。补丁索引不得重复。文件加载时会校验覆写文档、每个补丁和条目，以及每个分片的判别标签。`hang` 条目可以指定 `readyFile`；当前缀分片到达循环后、开始等待取消前，回放会写入这个空标记，使外部驱动程序无需观察展示层更新即可确定性地取消。
+当回放在带有 `ctx.deepseekLlmApiExtensions` 的组合中提供 `deepseek-official` 时，它会在选中有效脚本条目后、产出第一个分片前准备并接受这些字段。这会复现实时适配器的 2xx 后提交点，使持久接受水位与 SDK 事件通知在录制和回放之间保持一致。回放会提供合成的 `{ messages: [] }` 基础正文：它证明的是接受副作用，而不是已准备字段的字节内容。如果某个扩展的接受操作依赖序列化后的提供方正文，该扩展需要专用 fixture 支持，此回放路径才能表示它。其他提供方路由以及未挂载该可选注册表的组合不受影响。
+
+有两种失败模式无法仅根据 `assistant/chunk` 重建：在产生任何分片前直接抛出异常（例如 HTTP 401，此时日志只有 `turn/end {error}` 而没有分片），以及取消或挂起（差异在时序，而非分片内容）。需要这些行为的场景可提供伴随文件（`<scenario>/replay.override.json`）：它可以替换派生脚本（裸 `ReplayEntry[]`），也可以增补派生脚本（`{ patches: [{ at, entry }] }`：保留所有从 JSONL 派生的调用，只替换指定的从 0 开始计数的调用索引；当 `at` 等于派生长度时，则在注入瞬态异常后的重试位置追加一次调用）。补丁索引不得重复。带前缀分片的 `throw` 条目会接受 DeepSeek 请求扩展；零分片 `throw` 默认为 2xx 前不接受，无分片的 2xx 后失败可显式设置 `accepted: true`。文件加载时会校验覆写文档、每个补丁和条目，以及每个分片的判别标签。`hang` 条目可以指定 `readyFile`；当前缀分片到达循环后、开始等待取消前，回放会写入这个空标记，使外部驱动程序无需观察展示层更新即可确定性地取消。
 
 脚本字符串可以内嵌 `{{fromRequest:<regex>}}`，用来填入静态伴随文件不可能预知的值——例如模型必须原样回填到 `update_goal` 的随机生成 goal id。回放时每个占位符针对实时请求解析：语料是请求消息的所有字符串叶子按换行拼接的结果，取该模式在语料中的最后一次匹配，用其第一个捕获组（无捕获组时用整个匹配）原位替换。模式匹配不到内容、模式非法、占位符未闭合都会明确报错。连续右花括号串的最后两个花括号才是占位符结束符，因此模式可以以花括号量词收尾（如 `[0-9a-f]{4}`），但不能在 `}}` 之后还有后续模式内容。解析作用于所有脚本条目，包括从已记录 JSONL 派生的条目——若录制文本本身合法地含有该字面量标记，需改用不含标记的伴随文件表达。
 
@@ -29,7 +31,7 @@ fixture 是持久化会话日志（`<scenario>/session.jsonl`）的投影：它�
 | `file` | string | `$DSH_SNAPSHOT_FILE` | 主（父）`session.jsonl` fixture 的路径。必需（配置或 env）。 |
 | `overrideFile` | string | `$DSH_SNAPSHOT_OVERRIDE` | 主会话的可选 `ReplayOverrideDoc` 伴随文件：裸 `ReplayEntry[]` 替换其派生脚本，`{ patches }` 则按调用索引增补该脚本。 |
 | `childFiles` | string[] | `$DSH_SNAPSHOT_CHILD_FILES`（以路径分隔符分隔） | 嵌套场景中已记录的 subagent 子会话日志；单会话场景为空。 |
-| `providers` | `ReplayProviderConfig[]` | 无 | 可选的仅回放提供方和模型目录。每个提供方可以设置 `retryPolicy`，每个模型可以发布 `contextWindow` 和仅包含 `text`、`image` 的 `inputModalities` 数组；模态配置无效时，插件加载会失败。已配置路由通过回放适配器分派，绝不执行提供方 I/O。 |
+| `providers` | `ReplayProviderConfig[]` | 无 | 可选的仅回放提供方和模型目录。每个提供方可以设置 `retryPolicy`，每个模型可以发布 `contextWindow`、仅包含 `text`、`image` 的 `inputModalities` 数组，以及正整数 `imageRequestTokens`（该路由为每张保留请求图片声明的固定视觉 token 价格，其模型必须同时声明 `image` 模态）；模态配置无效、价格非正或在纯文本模型上声明视觉定价时，插件加载会失败。已配置路由通过回放适配器分派，绝不执行提供方 I/O。 |
 | `paceMs` | number | 无（突发） | 可选的每分片延迟（单位为毫秒），使下游传输（例如真实浏览器观察到的 Web SSE（Server-Sent Events）多路复用器）看到真正的增量传递。它只是用于提高真实性的调节项，测试不得依赖它保证正确性。值必须是非负整数；pace 等待期间中止会迅速取消流。 |
 
 ```yaml

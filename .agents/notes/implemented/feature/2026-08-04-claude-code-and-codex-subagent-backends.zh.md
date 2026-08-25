@@ -12,7 +12,7 @@ Status: implemented
 
 ## 决策
 
-harness 交付两个同级的一次性提供方包，其默认注册名称分别为 `codex` 与 `claude-code`。本说明负责它们的产品协议、结果映射和进程生命周期；[命名实例决策](2026-08-18-product-subagent-named-instances.zh.md)负责 Profile 选择的提供方身份与静态工具绑定，[生产安装排除决策](../simplification/2026-08-12-production-dsh-excludes-product-subagent-providers.zh.md)负责各自独立的可选 Bundle 与 host plane（宿主平面）放置，[产品一次性后台任务决策](2026-08-12-product-subagent-one-shot-background-tasks.zh.md)负责模型可见的调度选择，[非交互权限决策](2026-08-15-product-subagent-noninteractive-permissions.zh.md)负责各产品提供方的 Profile 模式选择与安全权限决定，[结构化失败事实决策](2026-08-18-product-subagent-failure-facts.zh.md)则负责通过同一诊断公开锁定产品版本的类别、生命周期阶段与进程结果。两个包都接受多个命名实例。加载任一提供方都不会启动产品进程，而且每个工具只接受独立文本任务；产品与实例选择仍属于部署配置。
+harness 交付两个同级的一次性提供方包，其默认注册名称分别为 `codex` 与 `claude-code`。本说明负责它们的产品协议、结果映射和进程生命周期；[命名实例决策](2026-08-18-product-subagent-named-instances.zh.md)负责 Profile 选择的提供方身份、支持时的可选实例模型与静态工具绑定；[生产安装排除决策](../simplification/2026-08-12-production-dsh-excludes-product-subagent-providers.zh.md)负责各自独立的可选 Bundle 与 host plane（宿主平面）放置；[产品一次性后台任务决策](2026-08-12-product-subagent-one-shot-background-tasks.zh.md)负责模型可见的调度选择；[非交互权限决策](2026-08-15-product-subagent-noninteractive-permissions.zh.md)负责各产品提供方的 Profile 模式选择与安全权限决定；[最小诊断决策](../simplification/2026-08-21-product-subagent-minimal-diagnostics.zh.md)负责粗粒度产品行动类别，而[结构化失败事实决策](2026-08-18-product-subagent-failure-facts.zh.md)继续描述 Codex 当前的详细类别。两个包都接受多个命名实例。加载任一提供方都不会启动产品进程，而且每个工具只接受独立文本任务；产品与实例选择仍属于部署配置。
 
 这两个提供方都报告 `inheritsParentContext: false`，不声明任何可选的启动能力，并传递父会话 cwd，但不会复制父级对话。文档所示的工具使用 `backgroundMode: 'one-shot'` 与 `maxDepth: 'provider-managed'`：消费方默认在前台收集结果，也可把同一次运行放入通用 Job 运行时，而递归策略仍由进程外产品负责。每次调用都会创建一个全新的产品进程和一次不可续接的产品对话。`ctx.subagents` 负责具名请求解析与成对生命周期事件；`dsh-tool-subagent` 负责模型可见的调度以及前台与 Job 适配；`ctx.jobs` 和 `dsh-tool-jobs` 负责 Job id、状态、输出、控制、通知与父级 owner 取消；各产品提供方负责原生结果映射，`dsh-subprocess` 则负责凭证清洗、进程树终止以及整棵进程树的退出观测。
 
@@ -48,11 +48,11 @@ Codex 0.147.0 使用 Responses 协议，而 DeepSeek 的公开 OpenAI 兼容端�
 
 ## Claude Code 提供方
 
-`@deepseek-ai/dsh-subagent-claude-code` 注册由 Profile 选择、默认值为 `claude-code` 的提供方名称，并调用 `@anthropic-ai/claude-agent-sdk@0.3.220`。提供方会省略 `pathToClaudeCodeExecutable`，因此 SDK 会从自己的 optional dependency 闭包中，按操作系统、CPU 与 Linux libc 选择携带 Claude Code 2.1.220 的匹配平台包。提供方既不会解析也不会回退宿主 `claude`；省略 optional dependency、不受支持的平台，以及缺失或损坏的平台载荷，都会在第一次委派的 SDK 启动边界失败。提供方使用官方 `query()` 入口点，并把 SDK 的 `spawnClaudeCodeProcess` 给出的原生 `claude` 或 `claude.exe` 命令、参数、cwd、环境和转发的信号交给 `dsh-subprocess`；其私有 `SpawnedProcess` 适配器只公开 SDK 所需的流、事件、终止和退出事实。
+`@deepseek-ai/dsh-subagent-claude-code` 注册由 Profile 选择、默认值为 `claude-code` 的提供方名称，并调用 `@anthropic-ai/claude-agent-sdk@0.3.241`。提供方会省略 `pathToClaudeCodeExecutable`，因此 SDK 会从自己的 optional dependency 闭包中，按操作系统、CPU 与 Linux libc 选择携带 Claude Code 2.1.241 的匹配平台包。提供方既不会解析也不会回退宿主 `claude`；省略 optional dependency、不受支持的平台，以及缺失或损坏的平台载荷，都会在第一次委派的 SDK 启动边界失败。提供方使用官方 `query()` 入口点，并把 SDK 的 `spawnClaudeCodeProcess` 给出的原生 `claude` 或 `claude.exe` 命令、参数、cwd、环境和转发的信号交给 `dsh-subprocess`；其私有 `SpawnedProcess` 适配器只公开 SDK 所需的流、事件、终止和退出事实。
 
-公开配置包含非空的 `providerName`、显式的 `env` 覆盖项、须为正有限值且不得大于仓库共享 `MAX_TIMER_DELAY_MS` 的 `disposeGraceMs`，以及默认使用 `dontAsk` 的五值原生 `permissionMode`。每个命名实例会为自己的运行保留这些已解析值。每次运行都会创建自己的 `AbortController`，设置 `persistSession: false`、禁用 `AskUserQuestion`，并把已解析模式传给 SDK；只有 `bypassPermissions` 会取得 SDK 的显式危险确认。提供方故意省略 `settingSources`，因此 SDK 会相对于父会话 cwd 读取宿主机常规的用户、项目和本地 Claude 设置。它既不复制也不过滤这些设置，也不会创建或修改登录状态。其余权限提示会被拒绝，MCP elicitation 会被拒绝，阻塞对话会快速失败，而不会等待本提供方不负责的用户界面。
+公开配置包含非空的 `providerName`、可选的非空 `model`、显式的 `env` 覆盖项、须为正有限值且不得大于仓库共享 `MAX_TIMER_DELAY_MS` 的 `disposeGraceMs`，以及默认使用 `dontAsk` 的五值原生 `permissionMode`。每个命名实例会为自己的运行保留这些已解析值。显式模型会原样传入 `Options.model`；省略时不设置该字段，由原生设置选择模型。每次运行都会创建自己的 `AbortController`，设置 `persistSession: false`、禁用 `AskUserQuestion`，并把已解析模式传给 SDK；只有 `bypassPermissions` 会取得 SDK 的显式危险确认。提供方故意省略 `settingSources`，因此 SDK 会相对于父会话 cwd 读取宿主机常规的用户、项目和本地 Claude 设置。它既不复制也不过滤这些设置，也不会创建或修改登录状态。其余权限提示会被拒绝，MCP elicitation 会被拒绝，阻塞对话会快速失败，而不会等待本提供方不负责的用户界面。
 
-只有在 SDK `Query` 与受管的活动 CLI 句柄都已存在后，提供方才会发布运行。它会消费完整的 SDK 流；只有 `result` 消息具有 `subtype: "success"`、`is_error: false` 和非空白 `result`，且迭代器随后正常结束时，运行才会完成。[结构化失败事实决策](2026-08-18-product-subagent-failure-facts.zh.md)负责所有非成功类别、阶段、进程结果，以及它们与参与失败的权限决定之间的顺序。本地取消会胜出并成为 `aborted`，且不附带这两类诊断事实。
+只有在 SDK `Query` 与受管的活动 CLI 句柄都已存在后，提供方才会发布运行。它会消费完整的 SDK 流；只有 `result` 消息具有 `subtype: "success"`、`is_error: false` 和非空白 `result`，且迭代器随后正常结束时，运行才会完成。[最小诊断决策](../simplification/2026-08-21-product-subagent-minimal-diagnostics.zh.md)负责所有非成功行动类别、阶段、进程结果，以及它们与参与失败的权限决定之间的顺序。本地取消会胜出并成为 `aborted`，且不附带这两类诊断事实。
 
 启动回滚和已发布运行的资源释放都会关闭 SDK query、中止该次运行的控制器、调用共享的进程树终止机制，并等待整棵进程树退出。`Query.close()` 表达优雅的协议关闭意图，但不能取代子进程责任方的退出证明。未发布失败只公开固定的 `query-start` 事实；已发布进程失败可以分别公开退出码与信号；独立清理拒绝则公开 `teardown`。原始 SDK、Host 与清理错误只保留在内部 cause 链和日志中，不进入诊断。
 
@@ -66,7 +66,7 @@ Codex 证据会锁定 `@openai/codex@0.147.0`、`codex-cli 0.147.0` 与六个平
 
 带密钥 Codex e2e 会注册生产提供方，启动同样的真实 app-server，并通过上述测试专用桥接层请求一个随机数。该测试固定外部端点与模型，不存储任何凭据或请求载荷，要求上游恰好完成一次响应，将去除首尾空白后的产品答案与该随机数逐字节比较，并等待所有受管句柄退出。
 
-Claude Code 证据会锁定 Agent SDK 0.3.220、Claude Code 2.1.220 与八个 SDK 平台包。真实产品测试会让 SDK 选择已安装载荷，断言共享子进程 argv 以该包的原生 CLI 开头，并观测确切的 `x-api-key`、原始任务、逐字节完全一致的最终回答、原生权限模式、测试拥有范围内的拒绝写入与 bypass 写入，以及整棵进程树退出。包测试还会证明生产运行从不解析宿主 `PATH`、省略可执行文件覆盖，并直接转发 SDK 所选的 Windows `claude.exe` 而不经过 batch shim。这项证据证明锁定的官方 SDK/CLI 集成，而不证明与独立安装的 Claude 版本兼容；[结构化失败事实决策](2026-08-18-product-subagent-failure-facts.zh.md)负责失败与进程结果证据。Loader 覆盖会通过各自的可选 Bundle patch 解析两个产品，且不会启动任一产品。
+Claude Code 证据会锁定 Agent SDK 0.3.241、Claude Code 2.1.241 与八个 SDK 平台包。真实产品测试会让 SDK 选择已安装载荷，断言共享子进程 argv 以该包的原生 CLI 开头，并观测省略模型继承、两个显式实例模型、确切的 `x-api-key`、原始任务、逐字节完全一致的最终回答、原生权限模式、测试拥有范围内的拒绝写入与 bypass 写入，以及整棵进程树退出。包测试还会证明生产运行从不解析宿主 `PATH`、省略可执行文件覆盖，并直接转发 SDK 所选的 Windows `claude.exe` 而不经过 batch shim。这项证据证明锁定的官方 SDK/CLI 集成，而不证明与独立安装的 Claude 版本兼容；[最小诊断决策](../simplification/2026-08-21-product-subagent-minimal-diagnostics.zh.md)负责失败与进程结果证据。Loader 覆盖会通过各自的可选 Bundle patch 解析两个产品，且不会启动任一产品。
 
 带密钥 Claude Code e2e 仅在提供方的内存环境中映射密钥与固定的官方端点，把模型变量设为文档所示的 `deepseek-v4-pro[1m]` 与 `deepseek-v4-flash`，并实际经过生产提供方、官方 SDK 与真实 CLI。它将去除首尾空白后的结果与一个随机数比较，并证明整棵进程树退出，且测试不会直接调用 Messages API。
 
@@ -82,7 +82,7 @@ Claude Code 证据会锁定 Agent SDK 0.3.220、Claude Code 2.1.220 与八个 SD
 
 **以产品替身作为强制证据。** 替身可以穷尽覆盖私有协议分支，但无法证明包导出、官方发行版、身份验证或真实进程行为。强制证据会驱动每个官方产品连接回环模型 fixture。
 
-**由插件管理登录、产品主目录、模型、设置、沙箱规则或细粒度权限策略。** 这些选择会在每个产品的原生配置之外建立另一套权威来源，并将一次性提供方扩张为账户管理功能。两个产品除环境和清理配置外都只公开一个原生非交互模式选择；任一提供方都不会镜像产品规则或增加人工交互通道。
+**由插件管理登录、产品主目录、模型发现或 fallback、设置、沙箱规则或细粒度权限策略。** 这些选择会在每个产品的原生配置之外建立另一套权威来源，并将一次性提供方扩张为账户管理功能。官方产品支持时，提供方可以传入一个不透明的 Profile 模型覆盖，但不会发现、校验、解释别名或在模型间 fallback。任一提供方都不会镜像产品规则或增加人工交互通道。
 
 **续接、进度、产品原生后台状态和共享父级上下文。** 提供方载荷仍是一项自包含任务的一个最终回答。通用 Job 层可以额外提供 id、状态、通知、收集与取消结果，但产品会话、恢复、后续交互、中间消息、父级 transcript（文本记录）传递、结构化输出和提供方专属后台状态都需要独立的用户约定，当前实现不会预先构建这些功能。
 
@@ -90,6 +90,6 @@ Claude Code 证据会锁定 Agent SDK 0.3.220、Claude Code 2.1.220 与八个 SD
 
 用户通过由 Profile 配置、并由官方产品集成支持的一次性工具进行委派。显式 Profile 安装与 host plane 提供方放置由[生产安装排除决策](../simplification/2026-08-12-production-dsh-excludes-product-subagent-providers.zh.md)负责；命名实例身份与工具绑定由[命名实例决策](2026-08-18-product-subagent-named-instances.zh.md)负责；按 Preset 暴露工具以及默认前台且可选通用 Job 的调度方式由[产品一次性后台任务决策](2026-08-12-product-subagent-one-shot-background-tasks.zh.md)负责。本说明规定的提供方生命周期会保留原生设置与行为，而共享服务继续独占作业结算与进程树完全停稳的责任。
 
-每次委派都要承担新建产品进程和独立模型上下文的开销。成功的产品载荷仍只有最终 assistant 文本；失败的产品运行可以另行公开共享安全诊断，其中包含由提供方拥有的权限事实，或锁定版本产品提供的结构化失败事实。后台调度还会额外公开通用 Job id、状态、完成通知以及收集或取消结果。两个产品都使用 Bundle 锁定的平台 CLI，并保留原生账户与工作区设置以及所选提供方权限模式。带密钥 e2e 运行还会消耗外部 API 配额，并依赖 DeepSeek 官方端点；对协议、失败、取消与审批的确定性覆盖仍由无密钥层级承担。提供方不会恢复会话、以流式方式传送进度、接受新的人工交互、回滚工具或文件副作用，也不会施加按实际经过时间触发的超时。
+每次委派都要承担新建产品进程和独立模型上下文的开销。成功的产品载荷仍只有最终 assistant 文本；失败的产品运行可以另行公开共享安全诊断，其中包含由提供方拥有的权限事实与安全产品失败类别。后台调度还会额外公开通用 Job id、状态、完成通知以及收集或取消结果。两个产品都使用 Bundle 锁定的平台 CLI，并保留原生账户与工作区设置以及所选提供方权限模式；受支持的可选实例模型只覆盖该次运行的原生模型选择。带密钥 e2e 运行还会消耗外部 API 配额，并依赖 DeepSeek 官方端点；对协议、失败、取消与审批的确定性覆盖仍由无密钥层级承担。提供方不会恢复会话、以流式方式传送进度、接受新的人工交互、回滚工具或文件副作用，也不会施加按实际经过时间触发的超时。
 
 兼容性由包级单元测试覆盖率、无密钥真实产品回环测试、带密钥 DeepSeek 随机数测试、公开 Loader 组合、已构建包与 NodeNext 消费方检查、生成的文档与声明以及仓库 CI 矩阵共同锁定。更改受支持的产品基线或 DeepSeek 端点／模型基线时必须刷新这些事实；生产环境不会另行执行运行时版本探测。

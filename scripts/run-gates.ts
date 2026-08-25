@@ -241,6 +241,7 @@ export function gatesForMode(selected: Mode): Gate[] {
         pnpmScript('issue-management', 'test:issue-management', { label: 'Issue management policy' }),
         pnpmScript('duplication', 'duplication'),
         snapshotGate(),
+        expectedOutputGate(),
         pnpmScript('build', 'build'),
         pnpmScript('build:web', 'build:web'),
         ...hygieneLeafGates({ artifactNeeds: ['build'] }),
@@ -266,6 +267,7 @@ export function gatesForMode(selected: Mode): Gate[] {
 function ciSharedStaticGates(): Gate[] {
   return [
     pnpmScript('runtime-closure', 'verify-runtime-closure', { label: 'runtime closure' }),
+    pnpmScript('application-entrypoints', 'verify-application-entrypoints', { label: 'application entrypoints' }),
     pnpmScript('constraints', 'constraints'),
     pnpmScript('dsh-package-licenses', 'verify-dsh-package-licenses', { label: 'DSH package licenses' }),
     pnpmScript('package-invariants', 'verify-package-invariants', { label: 'package invariants' }),
@@ -274,6 +276,7 @@ function ciSharedStaticGates(): Gate[] {
       label: 'optional dependency imports',
     }),
     pnpmScript('client-packages', 'verify-client-packages', { label: 'client packages' }),
+    pnpmScript('client-ui-i18n', 'verify-client-ui-i18n', { label: 'client UI i18n' }),
     pnpmScript('issue-management', 'test:issue-management', { label: 'Issue management policy' }),
   ]
 }
@@ -425,6 +428,7 @@ function ciConsumerGates(): Gate[] {
       needs: validatedBuild,
     }),
     snapshotGate(validatedBuild),
+    expectedOutputGate(validatedBuild),
     webSnapshotGate(validatedBuild),
     pnpmScript('doc-typecheck', 'doc-typecheck:contracts-ready', {
       needs: validatedBuild,
@@ -469,9 +473,10 @@ function ciWindowsBlockingGates(): Gate[] {
 }
 
 function ciWindowsCompleteGates(): Gate[] {
-  const coverage = coverageGates().map(gate => gate.id === 'coverage-exempt-heavy'
-    ? { ...gate, needs: [...new Set(['build', ...(gate.needs ?? [])])] }
-    : gate)
+  const coverage = coverageGates().map(gate => ({
+    ...gate,
+    needs: [...new Set(['build', ...(gate.needs ?? [])])],
+  }))
   const coverageAfter = coverage.map(gate => gate.id)
   const observational = ciWindowsObservationalGates()
     // The required production site replaces the observational MPA build; both
@@ -583,11 +588,19 @@ function coverageGates(): Gate[] {
   ]
 }
 
-// Example and package snapshots boot their bins in `lib` mode (built artifacts under plain Node,
-// plugins via real exports); script snapshots execute their real source entry path.
-// Callers wait either on `build` or on a validation gate that transitively owns that build.
+// Recorded-session adapters boot process scenarios in `lib` mode. Callers wait
+// either on `build` or on a validation gate that transitively owns that build.
 function snapshotGate(needs: string[] = ['build']): Gate {
   return pnpmScript('snapshot', 'test:snapshot', {
+    env: { DSH_EXAMPLE_MODE: 'lib' },
+    needs,
+  })
+}
+
+// Owner-local process expectations consume built package exports without entering
+// the recorded-session corpus or the credentialed provider lane.
+function expectedOutputGate(needs: string[] = ['build']): Gate {
+  return pnpmScript('expected-output', 'test:expected', {
     env: { DSH_EXAMPLE_MODE: 'lib' },
     needs,
   })
@@ -624,6 +637,7 @@ function hygieneLeafGates(options: { artifactNeeds?: string[] } = {}): Gate[] {
     pnpmScript('knip', 'knip'),
     pnpmScript('publint', 'publint', artifactOptions),
     pnpmScript('constraints', 'constraints'),
+    pnpmScript('application-entrypoints', 'verify-application-entrypoints', { label: 'application entrypoints' }),
     pnpmScript('dsh-package-licenses', 'verify-dsh-package-licenses', { label: 'DSH package licenses' }),
     pnpmScript('package-invariants', 'verify-package-invariants', { label: 'package invariants' }),
     builtPackageInvariantsGate(options.artifactNeeds),
@@ -635,6 +649,7 @@ function hygieneLeafGates(options: { artifactNeeds?: string[] } = {}): Gate[] {
       label: 'optional dependency imports',
     }),
     pnpmScript('client-packages', 'verify-client-packages', { label: 'client packages' }),
+    pnpmScript('client-ui-i18n', 'verify-client-ui-i18n', { label: 'client UI i18n' }),
   ]
 }
 
@@ -658,6 +673,7 @@ function docSyncLeafGates(options: {
     pnpmScript('markdown-links', 'verify-md-links', { label: 'markdown links' }),
     pnpmScript('type-equivalence', 'verify-type-equiv', { label: 'type equivalence' }),
     pnpmScript('cordis-catalog', 'verify-cordis-catalog', { label: 'cordis catalog' }),
+    pnpmScript('cordis-inspect-catalog', 'verify-cordis-inspect-catalog', { label: 'Cordis inspect catalog' }),
     pnpmScript('mermaid', 'verify-mermaid'),
     pnpmScript('scoped-events', 'verify-scoped-events', { label: 'scoped events' }),
     pnpmScript('translation-pairing', 'verify-translation-pairing', { label: 'translation pairing' }),
@@ -669,6 +685,7 @@ function docSyncLeafGates(options: {
     pnpmScript('persistence-catalog', 'verify-persistence-catalog', { label: 'persistence catalog' }),
     pnpmScript('public-repository-links', 'verify-public-repository-links', { label: 'public repository links' }),
     pnpmScript('doc-refs', 'verify-doc-refs', { label: 'doc refs' }),
+    pnpmScript('subsystem-pages', 'verify-subsystem-pages', { label: 'subsystem pages' }),
     pnpmScript('package-paths', 'verify-package-paths', { label: 'package paths' }),
     pnpmScript('config-source-ownership', 'verify-config-source-ownership', { label: 'config source ownership' }),
     pnpmScript('package-readme-model-experience', 'verify-package-readme-model-experience', { label: 'package README model experience' }),
@@ -691,9 +708,8 @@ function builtBinSmokeGate(needs: string[] = ['build']): Gate {
     'run',
     '--config',
     'vitest.e2e.config.ts',
-    'examples/headless-agent/tests/keyless-smoke.e2e.ts',
+    'apps/cli/tests/profiles/headless/tests/keyless-smoke.e2e.ts',
     'apps/cli/tests/built-bin.e2e.ts',
-    'packages/examples/acp-demo/tests/built-bin.e2e.ts',
     'packages/host/directory-picker-native/tests/built-worker.e2e.ts',
     'packages/sdk/server/tests/built-scope-carrier.e2e.ts',
     'packages/subprocess/subprocess-local/tests/spawn-runner-built.e2e.ts',

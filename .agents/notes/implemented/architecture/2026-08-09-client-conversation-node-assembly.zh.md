@@ -33,7 +33,7 @@ Registry 注册是 Cordis effect，Definition 卸载会触发现有 Session 的�
 
 ### `ConversationNodeDefinition` 总体契约
 
-每个 [`ConversationNodeDefinition`](../../../../packages/client/runtime/src/client/contract/conversation.ts) 独立拥有一种业务对象从 Event 到 State 和最终 view Node 的转换。Definition 的 `kind` 是 Registry 内唯一名称，也是业务 ID 的命名空间。
+每个 [`ConversationNodeDefinition`](../../../../packages/client/ui-conversation/src/client/contract/conversation.ts) 独立拥有一种业务对象从 Event 到 State 和最终 view Node 的转换。Definition 的 `kind` 是 Registry 内唯一名称，也是业务 ID 的命名空间。
 
 同一个 Event 可以被多个普通 Definition 认领。例如一条 Assistant Event 同时更新 Assistant Node 和 Turn Tail；一条 Retry Event 同时更新 Retry、Assistant 和 Turn Tail。Assembler 只有在全部普通 Definition 都返回 `null` 时才询问 fallback。
 
@@ -160,7 +160,7 @@ ID 不复用，完成的 Context 继续存在于当前窗口，既提供稳定�
 
 ### Location 是一级引擎事实
 
-[`ConversationLocationIndex`](../../../../packages/client/runtime/src/client/sessions/conversation-location-index.ts) 根据 `turn/start`、`step/start`、显式 turn/step payload、`step/end` 和 `turn/end` 建立 Event 到 Location 的映射。
+[`ConversationLocationIndex`](../../../../packages/client/ui-conversation/src/client/conversation/location-index.ts) 根据 `turn/start`、`step/start`、显式 turn/step payload、`step/end` 和 `turn/end` 建立 Event 到 Location 的映射。
 
 Location 有 `session`、`turn`、`step` 和 `unresolved` 四种形状。Turn/Step 各自带 `open`、`closed` 或 `unknown` 状态，以及已加载的 start/end Event。
 
@@ -260,6 +260,7 @@ Chat `order` 的结构性变化仍可能重排当前可见 key；纯 data 更新
 | Next-turn Inbox / `inbox-next-turn` | splice Event seq | 每条目标为 next-turn 的 `agent/inbox/spliced` | 无 | 从 `reader.previous(ownKind)` 的 pending/claimed 瞬间态应用当前 splice |
 | Next-step Inbox / `inbox-next-step` | splice Event seq | 每条目标为 next-step 的 `agent/inbox/spliced` | 无 | 同样形成逐指令瞬间态，claimed 集合供 Message 读取 |
 | Message / `input-message` | message ID | append-surface `user/message` | 无 | 根据 source 生成 context message，或读取最近 next-step Inbox 判断 user/steering |
+| Request Prompt / `request-prompt` | header Event seq | 每条 `request/header` | 无 | 通过 Reader 读取前一条 Request Prompt，保留完整 prompt 状态，并判定 system/tool 变化 |
 | Assistant / `assistant-step` | `turn:step` | `step/start` | `assistant/chunk`、final `assistant/message`、同 step Retry | 聚合 blocks、usage、首 token 时间、final 和 retry 隐藏状态，并发布同 key Step data |
 | Tool / `tool-call` | root call ID | root `tool/call` | root result、Code Dispatch start/result | 聚合 root、children 和 parent Map；Dispatch Event 用 `rootCallId` 精确路由 |
 | Command / `command` | command ID | `command/run` | `command/done`、带 source command ID 的 compact lifecycle/checkpoint | 聚合 command outcome 和手动压缩证据 |
@@ -276,6 +277,7 @@ Chat `order` 的结构性变化仍可能重排当前可见 key；纯 data 更新
 |---|---|---|---|
 | Inbox | `none` | 不生成 Node | prepend 补前序 splice 时沿 Reader 链重算瞬间态 |
 | Message | 默认 immediate | `user`、`steering` 或 `context` | window gap 修复可让同一 message key 重新分类 |
+| Request Prompt | 默认 immediate | 每条带非空 system 字段的 header 都生成一个 `system-prompt` | Step 首条 header 锚定在请求消息之前；同 step 后续序列锚定在表层改写之后；prepend 补入前序 header 后可纠正部分窗口的锚点 |
 | Assistant | chunk 为 RAF，final immediate，纯 usage/finish 为 none | 同 key `assistant-step`，状态为 running/settled/interrupted | 缺 `step/start` 可先用 Matches fallback；Location close 生成中断表现 |
 | Tool | 默认 immediate | 一个递归 `tool-call` root，包含全部 `subCalls` | result-only 历史窗口可 fallback；running→settled 保持 key |
 | Command | 默认 immediate | 普通 `command` 或集成 `manual-compaction` | checkpoint 到达可改变 anchor，但不改变 Context key |
@@ -287,6 +289,8 @@ Chat `order` 的结构性变化仍可能重排当前可见 key；纯 data 更新
 | Fallback | 默认 immediate | `unknown` JSON row | 只兜底 append surface，普通业务已认领但暂不可见时不会重复生成 |
 
 Inbox 展示了“每条 Event 都是一个 start-only 瞬间态 Context”，不是所有业务都需要 start/update 配对。它通过 Reader 与前一个同 kind Context 形成连续 fold，而非给整个 Inbox 人工制造生命周期 ID。
+
+Request Prompt 展示了如何在不共享 target State 的前提下共用纯解释逻辑：Chat 与 Trajectory 各自在自己的 Definition 中调用 `inspectRequestPrompt()`。该函数规范化完整 header，并判定面向模型的 system/tool 差异；随后每个 target 自行选择产物。Chat 会物化每条带非空 system 字段的 header，包括为显式声明的序列或表层替换后的请求重复未变 header 的 `series` 快照；Trajectory 则保留完整请求事实及其变化分类。普通的仅追加后续 Turn 不会再次写入未变 header。一个 Step 中的首条 header 遵循提供方信封，而不是 header Event 位置：step one 使用所属 Turn start，后续 step 使用各自的 Step start，把 system 字段放到该请求的 user-role 消息之前；同一 Step 的后续 header 保留在开启新序列的表层改写之后。部分窗口未包含前序 header 时，非 `initial` header 会保留在自身 Event，直到 prepend 补入该前序 header。每条 header 都是完整快照，因此已加载窗口中的首条 `resume`、`change` 或 `series` header 无需凭空构造与未加载历史的比较，也能渲染其 system 字段。
 
 Retry、Assistant 和 Turn Tail 展示了同一 Event 被多个 Definition 独立认领。每个 Definition 只更新自己的 State，最终分别生成原子 Chat Node。
 
@@ -302,19 +306,19 @@ Unknown fallback 展示了 Registry ownership：fallback 只处理没有任何�
 
 ## View Builder 与 React identity
 
-[`ConversationViewRegistry`](../../../../packages/client/runtime/src/client/conversation/view-registry.ts) 为每个 target 创建独立的 per-Session builder。Registry 保存 factory，不共享某个 Session 的排序或缓存。
+[`ConversationViewRegistry`](../../../../packages/client/ui-conversation/src/client/conversation/view-registry.ts) 为每个 target 创建独立的 per-Session builder。Registry 保存 factory，不共享某个 Session 的排序或缓存。
 
 Assembler 低频完整替换时调用 `replace({ nodes, timeline })`；普通 prepend/append flush 调用 `apply({ upserts, timeline })`。Builder 只接收 Definition 已构造完成的 target Nodes。
 
-[`ChatSnapshotBuilder`](../../../../packages/client/ui-conversation/src/client/conversation-nodes/chat-snapshot-builder.ts) 维护 `order`、keyed `nodes` store、turn/step `locations` index、`timeline`，以及由 StatsLine 使用并镜像到顶层公共兼容字段的 `legacy` slice。
+[`ChatSnapshotBuilder`](../../../../packages/client/ui-chat/src/client/conversation-nodes/chat-snapshot-builder.ts) 维护 `order`、keyed `nodes` store、turn/step `locations` index、`timeline`，以及由 StatsLine 使用并镜像到顶层公共兼容字段的 `legacy` slice。
 
 Chat 结构变化只由新 key、`anchorSeq`、visibility 或 Location identity 变化触发。普通内容变化不重建 `order`；keyed Node store 只替换该 key 的 value。
 
 Builder 遇到结构变化时从 store 的当前 values 计算 visible order，并按未变化引用复用索引数组。Prepend 可以增加前部历史 key，append 可以增加尾部或按业务 anchor 落位，既有 key 不因排序变化而重命名。
 
-[`ChatView`](../../../../packages/client/ui-conversation/src/client/chat/ChatView.tsx) 只遍历 `order`。每个 [`ChatNodeSeat`](../../../../packages/client/ui-conversation/src/client/chat/ChatNodeSeat.tsx) 以 Context key 固定在同一个父列表中，并按 `node.kind` 分发 `'conversation.chat.node'` keyed slot。
+[`ChatView`](../../../../packages/client/ui-chat/src/client/chat/ChatView.tsx) 只遍历 `order`。每个 [`ChatNodeSeat`](../../../../packages/client/ui-chat/src/client/chat/ChatNodeSeat.tsx) 以 Context key 固定在同一个父列表中，并按 `node.kind` 分发 `'conversation.chat.node'` keyed slot。
 
-[`ChatNodeDataMap`](../../../../packages/client/ui-conversation/src/client/contract/chat-nodes.ts) 是 declaration-merged 的 renderer payload registry。每个业务模块分别注册自己的 Definition 和 keyed renderer；`registerConversationNodes()` 与 `registerChatNodeRenderers()` 只负责装配这些独立贡献，不通过 closed union 或中心 switch 解释业务。内建实现仍位于 `ui-conversation`，但该类型和注册边界允许业务迁入独立 package 而不修改 Chat dispatcher。
+[`ChatNodeDataMap`](../../../../packages/client/ui-chat/src/client/contract/chat-nodes.ts) 是 declaration-merged 的 renderer payload registry。每个业务模块分别注册自己的 Definition 和 keyed renderer；`registerConversationNodes()` 与 `registerChatNodeRenderers()` 只负责装配这些独立贡献，不通过 closed union 或中心 switch 解释业务。内建实现位于 `ui-chat`，且该类型和注册边界允许业务迁入独立 package 而不修改 Chat dispatcher。
 
 `conversation.view` 的 Chat entry 在声明 `conversation.chat.node` child slot 时统一注册 `ChatNodeTurnDataInjected`。`ChatNodeSeat` 只把稳定 Node key 作为 `hookContext` 传给 slot；Slot renderer 用官方 standard props 中的 `useSession` 和该 key 构造 `useTurnData(businessKey)`，因此每个 keyed Chat renderer 都能读取自己 Node 所属 Turn 的强类型只读 data，Assistant renderer 不拥有特殊注入权限。
 

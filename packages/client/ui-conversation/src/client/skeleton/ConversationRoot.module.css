@@ -7,8 +7,8 @@
 
   /* Shared width axis for the whole column: one content width W
      (--dsh-chat-content-width) for the transcript, the dock cards
-     (todo/goal/queue: card minus four insets, 4 x 8 = 32), and the takeover
-     cards (question/approval/plan review); the input card alone is W + 32px.
+     (todo/goal/queue: card minus four insets, 4 x 8 = 32), and business-owned
+     takeover cards; the input card alone is W + 32px.
      The relation also holds when a narrow viewport shrinks everything: the
      chat scroller and the takeover frames pad clearance + 16px per side while
      the input card clears the bare clearance, so the input card stays exactly

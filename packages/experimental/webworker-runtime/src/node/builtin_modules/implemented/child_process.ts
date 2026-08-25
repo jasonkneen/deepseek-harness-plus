@@ -5,9 +5,10 @@
  * `spawn` starts the argv as a shell process (`src/shell/process/`) — its own
  * Web Worker, off this thread — and reports it through the `ChildProcess`
  * surface the subprocess service consumes: pipes, `exit`/`close`, pid, and
- * signals, with `SIGKILL` terminating the worker for real. The command table
- * is the only `/bin` that exists, so a name it does not hold fails with
- * `ENOENT`, exactly as a missing binary does on a real host.
+ * signals, with `SIGKILL` terminating the worker for real. Worker-owned
+ * executable wrappers resolve before the shell's command table; anything in
+ * neither set fails with `ENOENT`, exactly as a missing binary does on a real
+ * host.
  *
  * What stays impossible is what needs a real process: synchronous execution
  * (`execSync`, and `spawnSync` for a known program) and `fork`.
@@ -19,7 +20,11 @@ import { EventEmitter } from './events.ts'
 import { notImplementedFail } from '../../notImplementedFail.ts'
 import { registerProcess, releaseProcess, signalProcess } from '../../process-table.ts'
 import { startProcess } from '../../../shell/process/host.ts'
+import { hostFileSystem } from '../../../shell/fs-access.ts'
+import { virtualExecutable } from '../../../shell/process/virtual-executables.ts'
+import type { VirtualExecutableExit } from '../../../shell/process/virtual-executables.ts'
 import { standardPrograms } from '../../../shell/programs/index.ts'
+import type { ShellFileSystem } from '../../../shell/types.ts'
 import { DSH_ROOT } from '../../../storage/paths.ts'
 
 const MODULE = 'node:child_process'
@@ -219,9 +224,6 @@ export function spawn(
   const entry = registerProcess()
   const child = new WorkerChildProcess(entry.pid, stdio)
 
-  const script = shellScriptOf(argv)
-  const known = script !== undefined || standardPrograms().has(program)
-
   const emit = (stream: 'stdout' | 'stderr', text: string): void => {
     if (text === '') return
     const pipe = stream === 'stdout' ? child.stdout : child.stderr
@@ -236,7 +238,10 @@ export function spawn(
     }
   }
 
+  let settled = false
   const settle = (exitCode: number): void => {
+    if (settled) return
+    settled = true
     releaseProcess(entry.pid)
     // A signalled command reports no exit code, which is what makes the
     // subprocess service classify it as killed rather than finished.
@@ -248,31 +253,68 @@ export function spawn(
     child.emit('exit', child.exitCode, signal)
     child.emit('close', child.exitCode, signal)
   }
+  const failSpawn = (error: Error): void => {
+    if (settled) return
+    settled = true
+    releaseProcess(entry.pid)
+    child.emit('error', error)
+  }
 
   // The command starts on a microtask, so a caller that attaches listeners and
   // writes standard input right after `spawn()` — the subprocess service does
   // exactly that — is never racing the first output.
   queueMicrotask(() => {
-    if (!known) {
-      releaseProcess(entry.pid)
-      child.emit('error', spawnEnoent(program))
-      return
-    }
-    entry.process = startProcess({
-      script,
-      argv,
-      cwd: options.cwd ?? DSH_ROOT,
-      env: environmentOf(options.env),
-      stdin: child.stdin?.contents() ?? '',
-      onOutput: emit,
-      onExit: settle,
+    void (async () => {
+      const cwd = options.cwd ?? DSH_ROOT
+      let commandArgv: readonly string[] = argv
+      let filesystem: ShellFileSystem | undefined
+      let missingExecutable: VirtualExecutableExit | undefined
+      const executable = virtualExecutable(program)
+      if (executable !== undefined) {
+        const prepared = await executable.prepare(args, { cwd, filesystem: hostFileSystem() })
+        if (prepared.kind === 'exit') {
+          emit('stdout', prepared.stdout)
+          emit('stderr', prepared.stderr)
+          settle(prepared.exitCode)
+          return
+        }
+        commandArgv = prepared.argv
+        filesystem = prepared.filesystem
+        missingExecutable = prepared.missingExecutable
+      }
+
+      const command = commandArgv[0] as string
+      const script = shellScriptOf(commandArgv)
+      const known = script !== undefined || standardPrograms().has(command)
+      if (!known) {
+        if (missingExecutable !== undefined) {
+          emit('stdout', missingExecutable.stdout)
+          emit('stderr', missingExecutable.stderr)
+          settle(missingExecutable.exitCode)
+        } else {
+          failSpawn(spawnEnoent(program))
+        }
+        return
+      }
+      entry.process = startProcess({
+        script,
+        argv: commandArgv,
+        cwd,
+        env: environmentOf(options.env),
+        stdin: child.stdin?.contents() ?? '',
+        onOutput: emit,
+        onExit: settle,
+        ...filesystem === undefined ? {} : { fs: filesystem },
+      })
+      // A signal that arrived while the process was still starting has to reach
+      // it now; the table recorded it but had nothing to deliver it to.
+      if (entry.signal !== undefined) {
+        if (entry.signal === 'SIGKILL') entry.process.destroy()
+        else entry.process.interrupt()
+      }
+    })().catch((error: unknown) => {
+      failSpawn(error instanceof Error ? error : new Error(String(error)))
     })
-    // A signal that arrived while the process was still starting has to reach
-    // it now; the table recorded it but had nothing to deliver it to.
-    if (entry.signal !== undefined) {
-      if (entry.signal === 'SIGKILL') entry.process.destroy()
-      else entry.process.interrupt()
-    }
   })
 
   return child
@@ -298,10 +340,22 @@ export interface WorkerSpawnSyncResult {
  * answers in the same shape: absent programs report `ENOENT`, and a program
  * this shell *does* have reports that only the asynchronous path can run it.
  * @param program - the program name.
+ * @param args - arguments passed to the virtual launcher probe.
  * @returns the Node-shaped synchronous result carrying the failure.
  */
-export function spawnSync(program: string): WorkerSpawnSyncResult {
+export function spawnSync(program: string, args: readonly string[] = []): WorkerSpawnSyncResult {
   const empty = Buffer.alloc(0)
+  const executable = virtualExecutable(program)
+  if (executable !== undefined) {
+    const result = executable.runSync(args)
+    if (result.kind === 'asynchronous') {
+      const error = new Error(`${MODULE}.spawnSync cannot run ${program} in the worker host: commands run asynchronously`)
+      return { pid: -1, status: null, signal: null, stdout: empty, stderr: empty, output: [null, empty, empty], error }
+    }
+    const stdout = Buffer.from(result.stdout)
+    const stderr = Buffer.from(result.stderr)
+    return { pid: -1, status: result.exitCode, signal: null, stdout, stderr, output: [null, stdout, stderr] }
+  }
   const error = standardPrograms().has(program)
     ? new Error(`${MODULE}.spawnSync cannot run ${program} in the worker host: commands run asynchronously`)
     : spawnEnoent(program)

@@ -3,7 +3,7 @@
 import { randomUUID } from '@deepseek-ai/dsh-util-crypto'
 import { MessageId, type CallId } from './brand.ts'
 import { deepFreeze } from './call-config.ts'
-import type { ContentBlock, StreamChunk, ToolResultBlock } from './types.ts'
+import type { ContentBlock, ToolResultBlock } from './types.ts'
 
 /** Provider/model identity and adapter-private replay data for an assistant message. */
 export interface AssistantProvenance {
@@ -239,24 +239,4 @@ export function createToolResultMessage(input: ToolResultMessageInput): ToolResu
       isError: input.isError,
     }],
   })
-}
-
-/**
- * Whether a stream chunk carries visible model output (the first-token
- * boundary shared by client step timing and the whole-log sessionStats
- * projection). Empty deltas (heartbeats, empty tool-call frames) do not count
- * as a first token.
- * @param chunk - the stream chunk to test.
- * @returns true when the chunk contains a non-empty text/reasoning/tool delta.
- */
-export function isTokenDelta(chunk: StreamChunk): boolean {
-  switch (chunk.type) {
-    case 'text-delta':
-    case 'reasoning-delta':
-      return chunk.text !== ''
-    case 'tool-call-delta':
-      return chunk.argumentsDelta !== '' || chunk.name !== undefined
-    default:
-      return false
-  }
 }

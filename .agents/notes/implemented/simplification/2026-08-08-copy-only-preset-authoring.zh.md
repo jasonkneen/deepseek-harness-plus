@@ -14,7 +14,7 @@ agent-preset 设置页带着一个网页 YAML 编辑器：`agentPreset.write` �
 
 ## 后果
 
-- 创作两个方向都不再有组装文本或路径跨越浏览器传输层；`entryListSchema`/`!!js` 的顾虑随 `assertComposition` 本身（已删除）一并消解。特权集现为 `read`/`copy`/`openDocument`/`remove`——没有一个接收文件系统目标。
+- 创作两个方向都没有组装文本或路径跨越浏览器传输层；`entryListSchema`/`!!js` 的顾虑随 `assertComposition` 本身（已删除）一并消解。创作操作是 `read`/`copy`/`openDocument`/`remove`——没有一个接收文件系统目标，且 Connection 用完整 Host API 的同一会话认证它们。
 - 编辑器移除后，手改 `agent.cordis.yml` 成为唯一的组装编辑方式，因此常驻挂载层增加了以 stamp 为键的代际：`ensureStanding` 比对文件的 mtime+大小，为后续会话开启下一代际（[常驻挂载 note](../architecture/2026-08-08-per-preset-standing-mounts.zh.md)，已就地更新）。没有它，改过的文件要等进程重启才生效。
 - 副本是完整快照，会随随附来源升级而漂移——接受；preset 层没有 patch 语义（那是 bundle 层 `cordis.patch.yml` 的能力），随附集合自己也为「一个文件读完整份组装」付了同样的代价（`cordis`/`code` 就是 `standard` 的完整副本）。
 - `read` 去掉了 `writable`（没有编辑器可门控），内置目录绝不被打开（`openDocument` 与 `remove` 一样拒绝非 `user` 信任）：安装目录会被升级覆盖，把编辑器指向它等于招揽会被升级悄悄丢弃的编辑。
@@ -22,7 +22,7 @@ agent-preset 设置页带着一个网页 YAML 编辑器：`agentPreset.write` �
 ## 关键实现细节
 
 - **复制目标的拒绝刻意分两道检查。** roster 检查拒绝任一根目录提供的 id——与随附 preset 同名的用户目录会被遮蔽，「创建」只会落下一个永远不被列出的文件；磁盘检查（`cp` 之前的 `PresetExistsError`，`errorOnExist` 作竞态兜底）拒绝占着名字却不是 preset 的目录，那是 discovery 看不见的。
-- **展示的路径是响应方向的披露，且钉在环回。**「没有任何浏览器载荷能选中任意文件系统目标」这条不变量说的是请求方向；把解析出的目录展示给环回用户正是方案要求的降级。它绝不搭乘非特权的 `list`。
+- **展示的路径是响应方向的披露，且经过浏览器认证。**「没有任何浏览器载荷能选中任意文件系统目标」这条不变量说的是请求方向；把解析出的目录展示给已认证浏览器正是方案要求的降级。它绝不搭乘 `list`。
 - **e2e lane 钉死 `nativeOpen: false`**（`agent-preset-authoring.overlay.yml`）——既让 golden 在 macOS 开发机与无头 Linux CI 上渲染同一分支，也让测试运行永不弹出真实文件管理器。揭示的目录由 lane 自己 token 化为 `{{presetRoot}}`，因为 `normalizeAria` 只认识 workspace cwd。
 
 ## 考虑过的替代方案

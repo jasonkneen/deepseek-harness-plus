@@ -4,12 +4,9 @@
  * product.
  *
  * pnpm creates a workspace package's bin link only when the link target exists
- * at install time. Pointing the bin straight at `lib/bin.js` — a build product —
- * left the link uncreated on every clean checkout, so the command was missing
- * from `node_modules/.bin` even after a build produced the file, and only an
- * install that happened to follow a build brought it back. This file is
- * committed, so the link is always created; the build product is resolved when
- * the command actually runs.
+ * at install time. `lib/bin.js` is a build product and is absent on a clean
+ * checkout, so this committed file is the link target; it forwards to the build
+ * product when the command runs.
  * @module @deepseek-ai/dsh-experimental-webworker-packer/bin
  */
 import { existsSync } from 'node:fs'

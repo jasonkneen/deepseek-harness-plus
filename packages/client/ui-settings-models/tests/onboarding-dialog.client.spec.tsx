@@ -41,6 +41,10 @@ const DeepSeekConfig = Schema.object({
   })),
 })
 
+type AttentionSnapshot = Parameters<Parameters<DeepSeekOnboardingDialogProps['useSessionPendingInteraction']>[0]>[0]
+const noAttention: AttentionSnapshot = new Map()
+const useSessionPendingInteraction: DeepSeekOnboardingDialogProps['useSessionPendingInteraction'] = selector => selector(noAttention)
+
 function deepSeekNamespace(apiKeyEnv: string | null): SettingsNamespaceView {
   const value = apiKeyEnv === null ? {} : { apiKeyEnv }
   return {
@@ -135,6 +139,7 @@ function harness(options: {
     complete,
     openSection,
     useSessions: unusedHook,
+    useSessionPendingInteraction,
     useWorkspaces: unusedHook,
     controller,
     useModels: bindSnapshotSelector(controller.store),

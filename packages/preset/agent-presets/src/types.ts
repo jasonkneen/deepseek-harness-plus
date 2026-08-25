@@ -1,6 +1,16 @@
 /** Client-safe event declarations owned by the agent-preset domain. */
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 
+declare module '@deepseek-ai/dsh-session-projection/types' {
+  interface SessionProjectionStateMap {
+    agentPreset: string | null
+  }
+  interface SessionProjectionMap {
+    /** Preset the Session runs, or null when the deployment composes none. */
+    agentPreset: string | null
+  }
+}
+
 declare module '@deepseek-ai/cordis' {
   interface Events {
     /**

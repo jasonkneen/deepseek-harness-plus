@@ -21,8 +21,8 @@ import {
 } from './scaffold.ts'
 import { newEnglishPage, saveFailureShot } from './support.ts'
 
-const SNAPSHOT_DIR = fileURLToPath(new URL('./snapshots/navigation-panes', import.meta.url))
-const SEED = join(SNAPSHOT_DIR, 'seed.jsonl')
+const SNAPSHOT_DIR = fileURLToPath(new URL('../../../snapshots/web/navigation-panes', import.meta.url))
+const SEED = join(SNAPSHOT_DIR, 'session.jsonl')
 const TRAJECTORY_EXPECTED = join(SNAPSHOT_DIR, 'trajectory.expected.md')
 const SEARCH_EXPECTED = join(SNAPSHOT_DIR, 'search-results.expected.md')
 const TERMINAL_EXPECTED = join(SNAPSHOT_DIR, 'terminal-card.expected.md')
@@ -37,11 +37,10 @@ const PROMPT_TURN2 = 'Reply in markdown with: a level-2 heading "Navigation Summ
 
 async function baselineResponse(
   page: Page,
-  method: 'session.list' | 'workspace.list',
 ): Promise<Response> {
   return page.waitForResponse(response => (
     response.request().method() === 'POST'
-    && new URL(response.url()).pathname === `/api/${method}`
+    && new URL(response.url()).pathname === '/api/session/list'
   ), { timeout: 30_000 })
 }
 
@@ -111,19 +110,14 @@ describe('web e2e: navigation & panes over a rich seeded session', () => {
         slotErrors.push(message.text())
       }
     })
-    // Initial navigation and list ownership settle only after both independent
-    // RPC baselines succeed; arm before navigation so neither response is missed.
-    const sessionBaseline = baselineResponse(page, 'session.list')
-    const workspaceBaseline = baselineResponse(page, 'workspace.list')
-    const [, sessionResponse, workspaceResponse] = await Promise.all([
-      page.goto(scaffold.baseUrl, { waitUntil: 'load' }),
+    // Arm before navigation so the Session response cannot be missed. The
+    // Workspace stream settles through the user-visible Ungrouped barrier.
+    const sessionBaseline = baselineResponse(page)
+    const [, sessionResponse] = await Promise.all([
+      page.goto(scaffold.authenticatedUrl, { waitUntil: 'load' }),
       sessionBaseline,
-      workspaceBaseline,
     ])
-    await Promise.all([
-      assertBaselineSucceeded(sessionResponse, 'session.list'),
-      assertBaselineSucceeded(workspaceResponse, 'workspace.list'),
-    ])
+    await assertBaselineSucceeded(sessionResponse, 'session.list')
     await page.waitForSelector('[class*="frame"]', { timeout: 30_000 })
     // The frame mounts before the asynchronous session-list baseline lands.
     // Search must target the settled seeded row, not the startup input that
@@ -331,17 +325,12 @@ describe('web e2e: navigation & panes over a rich seeded session', () => {
         observerSlotErrors.push(message.text())
       }
     })
-    const observerSessionBaseline = baselineResponse(observer, 'session.list')
-    const observerWorkspaceBaseline = baselineResponse(observer, 'workspace.list')
-    const [, observerSessionResponse, observerWorkspaceResponse] = await Promise.all([
-      observer.goto(scaffold.baseUrl, { waitUntil: 'load' }),
+    const observerSessionBaseline = baselineResponse(observer)
+    const [, observerSessionResponse] = await Promise.all([
+      observer.goto(scaffold.authenticatedUrl, { waitUntil: 'load' }),
       observerSessionBaseline,
-      observerWorkspaceBaseline,
     ])
-    await Promise.all([
-      assertBaselineSucceeded(observerSessionResponse, 'observer session.list'),
-      assertBaselineSucceeded(observerWorkspaceResponse, 'observer workspace.list'),
-    ])
+    await assertBaselineSucceeded(observerSessionResponse, 'observer session.list')
     await observer.getByText('Ungrouped', { exact: true }).waitFor({ timeout: 30_000 })
     await ensureSeedOpen(observer)
 
@@ -515,7 +504,7 @@ describe('web e2e: navigation & panes over a rich seeded session', () => {
 
   it.skipIf(MODE === 'record')('keeps the recorded fixture inventory exact', async () => {
     await assertFixtureInventory(SNAPSHOT_DIR, [
-      'seed.jsonl', 'search-results.expected.md', 'trajectory.expected.md',
+      'session.jsonl', 'search-results.expected.md', 'trajectory.expected.md',
       'terminal-card.expected.md',
     ])
   })

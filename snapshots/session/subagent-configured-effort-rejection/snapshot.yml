@@ -1,0 +1,12 @@
+version: 1
+scenario: subagent-configured-effort-rejection
+profile: headless
+composition: subagent-configured-effort
+recording: authored
+header:
+  class: subagent-configured-effort
+  pin: true
+  systemPromptSource: text-turn
+  toolSchemasSource: text-turn
+replay:
+  override: true

@@ -2,18 +2,19 @@
 
 English | [中文](README.zh.md)
 
-Zero-dependency v4 UUID minting over `crypto.getRandomValues` — the one random primitive every shipped context provides. `crypto.randomUUID` is a secure-context Web API: a page or worker served over plain HTTP on a LAN address (the browser preview deployment) has no such method, so code that must run there cannot call it. The repository-wide `no-restricted-properties` lint rule points `crypto.randomUUID` callers here; Node-only code importing `randomUUID` from `node:crypto` stays as it is.
+Zero-dependency browser-safe UUID and byte-encoding helpers. UUID minting uses `crypto.getRandomValues`, the one random primitive every shipped context provides. `crypto.randomUUID` is a secure-context Web API: a page or worker served over plain HTTP on a LAN address (the browser preview deployment) has no such method, so code that must run there cannot call it. The repository-wide `no-restricted-properties` lint rule points `crypto.randomUUID` callers here; Node-only code importing `randomUUID` from `node:crypto` stays as it is.
 
 It is a **library, not a service or plugin**: no `ctx`, registers nothing, holds no state.
 
 ## API
 
 ```ts
-import { randomUUID, type Uuid } from '@deepseek-ai/dsh-util-crypto'
+import { bytesToBase64, randomUUID, type Uuid } from '@deepseek-ai/dsh-util-crypto'
 ```
 
 | Export | Role |
 |---|---|
+| `bytesToBase64(data)` | Canonical base64 for a byte array, encoded in bounded chunks. |
 | `randomUUID()` | Random RFC 9562 v4 UUID string, minted from `crypto.getRandomValues`. Drop-in for `crypto.randomUUID()`. |
 | `Uuid` | The five-group UUID string type, matching `crypto.randomUUID`'s declared return shape. |
 

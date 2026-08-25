@@ -22,11 +22,12 @@ import {
 } from './scaffold.ts'
 import { connectFreshWorkspace, newEnglishPage, saveFailureShot } from './support.ts'
 
-const SNAPSHOT_DIR = fileURLToPath(new URL('./snapshots/turn-tail-actions', import.meta.url))
+const SNAPSHOT_DIR = fileURLToPath(new URL('../../../snapshots/web/turn-tail-actions', import.meta.url))
 const FIXTURE = join(SNAPSHOT_DIR, 'session.jsonl')
 // Two goldens for the same message: parked mid-turn, then settled.
 const RUNNING_EXPECTED = join(SNAPSHOT_DIR, 'running.expected.md')
 const SETTLED_EXPECTED = join(SNAPSHOT_DIR, 'settled.expected.md')
+const USAGE_EXPANDED_EXPECTED = join(SNAPSHOT_DIR, 'usage-expanded.expected.md')
 const MODE = webSnapshotMode()
 
 // The recording must carry text in the SAME assistant message as the tool
@@ -70,13 +71,17 @@ describe('web e2e: assistant IconActions wait for the turn to end', () => {
     scaffold = await launchWebScaffold(
       MODE === 'record'
         ? {}
-        : { replayFixture: FIXTURE, ...(overridePath === undefined ? {} : { replayOverride: overridePath }) },
+        : {
+          replayFixture: FIXTURE,
+          ...(overridePath === undefined ? {} : { replayOverride: overridePath }),
+          compareReplaySession: overridePath === undefined,
+        },
     )
     scaffold.ctx.on('session/event', (_session, event: SessionEvent) => { sessionEvents.push(event) })
     browser = await chromium.launch()
     page = await newEnglishPage(browser)
     tripwire = watchConsole(page)
-    await page.goto(scaffold.baseUrl, { waitUntil: 'load' })
+    await page.goto(scaffold.authenticatedUrl, { waitUntil: 'load' })
     await page.waitForSelector('[class*="frame"]', { timeout: 30_000 })
     await connectFreshWorkspace(page, scaffold.workspaceCwd)
   }
@@ -98,6 +103,12 @@ describe('web e2e: assistant IconActions wait for the turn to end', () => {
     const sessionId = await settled
     await recordFixture(scaffold!, sessionId, FIXTURE)
   }, 200_000)
+
+  it.skipIf(MODE === 'record')('matches the canonical persisted session', async () => {
+    await launch()
+    const { settled } = await sendPrompt(30_000)
+    await settled
+  })
 
   it.skipIf(MODE === 'record')('withholds the footer while the turn runs and grants it at turn/end', async () => {
     expect(fixtureUserPrompts(await readFile(FIXTURE, 'utf8'))).toEqual([PROMPT])
@@ -146,7 +157,34 @@ describe('web e2e: assistant IconActions wait for the turn to end', () => {
     expect(tripwire.warnings).toEqual([])
   }, 120_000)
 
+  it.skipIf(MODE === 'record')('shows exact completed-Turn usage and expands its available facts', async () => {
+    await launch()
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-turn-usage-expanded'))
+    const { settled } = await sendPrompt(120_000)
+    await settled
+
+    const disclosure = page.getByRole('button', { name: /Turn usage/ })
+    await expect.poll(() => disclosure.count(), { timeout: 10_000 }).toBe(1)
+    expect(await disclosure.getAttribute('aria-expanded')).toBe('false')
+    expect(await page.getByText('15.8K tok · Cache hit 49.7%', { exact: true }).count()).toBe(1)
+
+    await disclosure.click()
+    expect(await disclosure.getAttribute('aria-expanded')).toBe('true')
+    expect(await page.getByText('deepseek-official/deepseek-v4-flash', { exact: true }).count()).toBe(1)
+    expect(await page.getByText('7,891 tok', { exact: true }).count()).toBe(1)
+    expect(await page.getByText('7,808 tok', { exact: true }).count()).toBe(1)
+    expect(await page.getByText('112 tok (42 tok reasoning)', { exact: true }).count()).toBe(1)
+    expect(await page.getByText('15,811 tok', { exact: true }).count()).toBe(1)
+
+    const expanded = await captureStableAria(page, '[class*="centerCol"]', scaffold!.workspaceCwd)
+    await compareOrRefreshGolden(USAGE_EXPANDED_EXPECTED, expanded, MODE)
+    expect(tripwire.pageErrors).toEqual([])
+    expect(tripwire.warnings).toEqual([])
+  }, 120_000)
+
   it.skipIf(MODE === 'record')('keeps a closed fixture inventory', async () => {
-    await assertFixtureInventory(SNAPSHOT_DIR, ['running.expected.md', 'session.jsonl', 'settled.expected.md'])
+    await assertFixtureInventory(SNAPSHOT_DIR, [
+      'running.expected.md', 'session.jsonl', 'settled.expected.md', 'usage-expanded.expected.md',
+    ])
   })
 })

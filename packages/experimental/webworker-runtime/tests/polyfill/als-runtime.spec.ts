@@ -16,8 +16,7 @@
  *   - both completion paths do this, which is why the token always fulfills.
  *
  * The shim-backed end of the same contract (does a real AsyncLocalStorage
- * actually fold, do the hooks cover timers) is `als-shim.spec.ts`, and the
- * cross-session behavioural proof is the browser concurrency probe. This file is
+ * actually fold, do the hooks cover timers) is `als-shim.spec.ts`. This file is
  * the middle layer: the protocol, in isolation.
  */
 import { expect, test } from 'vitest'
@@ -121,8 +120,8 @@ function recordingCausality(): {
 }
 
 {
-  // The rejection path restores too, and only then rethrows: a catch clause must
-  // observe the caller's store, which is the case the browser probe pinned.
+  // The rejection path restores too, and only then rethrows: a catch clause
+  // must observe the caller's store.
   const state = recordingCausality()
   const als = createAlsRuntime(state.causality)
   state.current = 'session-C'
@@ -310,9 +309,9 @@ function recordingCausality(): {
 }
 
 // ---------------------------------------------------------------------------
-// 6. The inert runtime. `?als=inert` is the browser probe's control arm: the
-//    rewrite still runs and still hops a microtask, but no state moves. That
-//    control must be genuinely inert, or the probe loses its discriminating power.
+// 6. The inert runtime. Without a causality face, the rewrite still runs and
+//    still hops a microtask, but no state moves. A comparison arm built on this
+//    mode must be genuinely inert, or the comparison proves nothing.
 // ---------------------------------------------------------------------------
 
 {

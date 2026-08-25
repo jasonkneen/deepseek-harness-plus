@@ -11,6 +11,7 @@ import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type { CodeBindingFunction, CodeRunResult, CodeRuntime } from '@deepseek-ai/dsh-code-runtime'
 import { snapshotJsonValue } from '@deepseek-ai/dsh-session'
 import type { JsonValue } from '@deepseek-ai/dsh-session'
+import { FIRST_PARTY_SECTION_ORDER } from '@deepseek-ai/dsh-system-prompt'
 import { defineTool, parameterSchemaSpecToJsonSchema } from './schema.ts'
 import { TOOL_RUNTIME_SCHEDULER } from './index.ts'
 import type { CodeDispatchLog, ToolDefinition, ToolExecutionResult, ToolRuntime, ToolRunContext } from './index.ts'
@@ -19,8 +20,8 @@ import type {} from './types.ts'
 /** The model-facing name of the Code Mode tool. */
 export const RUN_CODE_NAME = 'run_code'
 
-/** The `tools:sdk` section order: inside the 100–199 tool-guidance band, after per-tool guidance sections. */
-export const SDK_SECTION_ORDER = 150
+/** The `tools:sdk` section order, after per-tool guidance sections. */
+export const SDK_SECTION_ORDER = FIRST_PARTY_SECTION_ORDER.TOOLS_SDK
 
 /**
  * The language-specific `run_code` schema text: the tool `description` and its

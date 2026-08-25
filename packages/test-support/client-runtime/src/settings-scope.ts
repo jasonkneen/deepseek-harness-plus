@@ -1,6 +1,8 @@
 /** Test double for the client settings-scope seam. */
 import { vi } from 'vitest'
-import type { SettingsScope, SettingsScopeSnapshot } from '@deepseek-ai/dsh-client-runtime/client'
+import type {
+  SettingsScope, SettingsScopeSnapshot,
+} from '@deepseek-ai/dsh-client-ui-settings/client'
 
 /** Handle over one stubbed scope: the scope, its write spy, and publication controls. */
 export interface StubSettingsScope<T> {

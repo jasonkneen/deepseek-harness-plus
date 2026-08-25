@@ -4,7 +4,7 @@
 
 产出文件与可点击文件引用功能的属主。Node 侧向系统提示词 registry 注册最终回复指引；浏览器侧把已完成轮次末尾的产出文件行注册到 chat 视图的 `conversation.chat.turnTail` slot，并将收尾正文中匹配的行内代码引用转换为链接。正式提供的组合中只有 Web patch 加载本包；从 cordis.yml 中删去这一项会同时移除提示词、文件行与正文链接。
 
-`deliverablesDefinition` 把每个轮次中成功的修改调用折叠进引擎发布的 `DeliverablesTurnData`；`producedForClosing` 结合收尾 Assistant 的 seq 读取这份数据。依据的是修改工具自身附带的 `locations`，而不是收尾正文：无论模型是否记得点名，产出文件都会被列出。修改操作按渲染意图而非工具名识别：diff 卡片，或 `kind` 为 `edit` 的通用卡片（即 `str_replace_editor` 的 insert 操作所呈现的形态）；因此新的修改工具只需声明自身行为即可加入。读取、删除和失败的调用不贡献任何条目；同一路径在一个轮次内按首见顺序只出现一次。Conversation Location 索引负责维护轮次归属关系，因此一个轮次即使先修改文件、随后没有正文内容就结束，也不会溢进下一个轮次的行里。
+`deliverablesDefinition` 把每个轮次中成功的第一方修改调用折叠进引擎发布的 `DeliverablesTurnData`；`producedForClosing` 结合收尾 Assistant 的 seq 读取这份数据。依据的是 `write`、`edit` 和 `str_replace_editor` 修改命令（`create`、`str_replace`、`insert`）经过校验的原始参数，而不是展示数据或收尾正文：无论模型是否记得点名，产出文件都会被列出。读取、删除、不受支持的工具、格式错误的调用和失败结果不贡献任何条目；同一路径在一个轮次内按首见顺序只出现一次。新的修改工具必须先增加显式 Client contribution，才能加入该列表。Conversation Location 索引负责维护轮次归属关系，因此一个轮次即使先修改文件、随后没有正文内容就结束，也不会溢进下一个轮次的行里。
 
 `ProducedFiles` 在收尾消息正文与其 IconActions 之间渲染该行：一个低调的标签和一条经过测量的单行文件 lane。它展示能够放下的最大前缀（至多六个标签项；文本为文件名，完整路径作为 `title`），并为本地化后的精确 `+ N 个文件` 宽度预留空间，因此剩余计数始终可见，既不换行也不横向滚动。每个标签项经由属主提供的 `openFile` 打开——与工具行相同的 Host 打开器，chat 视图会把相对路径按会话 cwd 解析。存在隐藏文件时，第二行的**在文件夹中显示**也经由同一属主路径打开会话 workspace；它只在页面使用 loopback 且当前 Host 握手报告 `canOpenPath` 时出现，直接远程 Web 与 headless／容器 Linux Host 默认均省略该操作。设计原理：[workspace 文件链接 Agent Note](../../../.agents/notes/implemented/feature/2026-07-31-web-workspace-file-links.zh.md)。
 
@@ -26,7 +26,7 @@ Node 侧注册静态系统提示词段落 `ui:deliverable-file-references`。它
 
 #### KV Cache 影响
 
-该段落在本包加载期间始终以顺序 190 保持静态，因此留在可复用的提示词前缀中，不会随 Turn 改变。
+该段落在本包加载期间始终以 first-party 顺序 9000 保持静态，因此留在可复用的提示词前缀中，不会随 Turn 改变。
 
 ## 已知限制与暂缓事项
 

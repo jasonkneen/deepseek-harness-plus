@@ -1,17 +1,23 @@
 #!/usr/bin/env node
 /**
- * Pack a VFS image from this repository: compose the profile, materialize the
- * closure, lower every module body, write the gzip-compressed tar.
+ * Pack a Preview deployment from this repository: compose and lower the base
+ * image, then write each named fixture overlay and their manifest.
  *
  * Usage: dsh-pack-vfs-image --out <file> [--profile web] [--root /dsh]
  *        node --import tsx/esm src/bin.ts --out ../../apps/web/dist/preview/vfs-image.tar.gz
  * @module @deepseek-ai/dsh-experimental-webworker-packer/src/bin
  */
 import { mkdirSync, writeFileSync } from 'node:fs'
-import { dirname, isAbsolute, resolve } from 'node:path'
+import { dirname, isAbsolute, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { packVfsImage } from './pack.ts'
-import { composeProfile, configTrees, describePack, indexWorkspacePackages } from './repository.ts'
+import {
+  PREVIEW_FIXTURE_MANIFEST_FILE, PREVIEW_FIXTURE_MANIFEST_VERSION,
+  type PreviewFixtureManifest,
+} from '@deepseek-ai/dsh-experimental-webworker-runtime'
+import { packVfsImage, packVfsOverlay } from './pack.ts'
+import {
+  composeProfile, configTrees, describePack, indexWorkspacePackages, previewFixtures,
+} from './repository.ts'
 
 /**
  * Read one `--flag value` pair.
@@ -54,4 +60,30 @@ if (result.missing.length > 0) {
 
 mkdirSync(dirname(outputFile), { recursive: true })
 writeFileSync(outputFile, result.image)
-process.stdout.write(describePack(result, repoRoot, outputFile).join('\n'))
+
+const fixtureDefinitions = previewFixtures(repoRoot)
+const fixtureDirectory = join(dirname(outputFile), 'fixtures')
+mkdirSync(fixtureDirectory, { recursive: true })
+const fixtureLines: string[] = []
+const fixtures = fixtureDefinitions.map((fixture) => {
+  const packed = packVfsOverlay(fixture.trees)
+  const file = `fixtures/${fixture.id}.tar.gz`
+  writeFileSync(join(dirname(outputFile), file), packed.image)
+  fixtureLines.push(`  fixture overlay     ${fixture.id} (${String(packed.image.byteLength)} B compressed)`)
+  return {
+    id: fixture.id,
+    label: fixture.label,
+    description: fixture.description,
+    overlays: [file],
+  }
+})
+const manifest: PreviewFixtureManifest = {
+  version: PREVIEW_FIXTURE_MANIFEST_VERSION,
+  defaultFixture: fixtures[0]?.id ?? null,
+  fixtures,
+}
+writeFileSync(
+  join(dirname(outputFile), PREVIEW_FIXTURE_MANIFEST_FILE),
+  `${JSON.stringify(manifest, null, 2)}\n`,
+)
+process.stdout.write([...describePack(result, repoRoot, outputFile), ...fixtureLines, ''].join('\n'))

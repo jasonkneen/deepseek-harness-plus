@@ -57,6 +57,17 @@ const windowsUnsupportedTests = process.platform === 'win32'
     ]
   : []
 
+// These suites compare against or assemble the Worker's fixed Linux platform.
+// Host-native Windows and macOS behavior is not their oracle.
+const nonLinuxWebWorkerTests = process.platform === 'linux'
+  ? []
+  : [
+      'packages/experimental/webworker-runtime/tests/node/fs-watch-stream.spec.ts',
+      'packages/experimental/webworker-runtime/tests/node/sandbox-stack.spec.ts',
+    ]
+
+const platformUnsupportedTests = [...windowsUnsupportedTests, ...nonLinuxWebWorkerTests]
+
 const windowsUnsupportedCoveragePackages = process.platform === 'win32'
   ? [...windowsUnsupportedPackages, 'packages/subprocess/*']
   : []
@@ -101,7 +112,6 @@ const pwshCoverageExclusions = spawnSync(resolvePwshPath(), ['-NoLogo', '-NoProf
 const testIncludes = [
   'packages/*/*/tests/**/*.spec.{ts,tsx}',
   'apps/*/tests/**/*.spec.ts',
-  'examples/*/tests/**/*.spec.ts',
   'scripts/**/*.spec.ts',
 ]
 
@@ -142,7 +152,7 @@ export default defineConfig({
     setupFiles: ['./scripts/test-invariants.ts'],
     // .tsx: client component specs (jsdom via per-file @vitest-environment pragma).
     include: testIncludes,
-    exclude: windowsUnsupportedTests,
+    exclude: platformUnsupportedTests,
     // One coverage invocation aggregates both projects. Every suite forks for
     // Node stability; process-bound suites stay separate for inventory control.
     projects: [
@@ -158,7 +168,7 @@ export default defineConfig({
           setupFiles: ['./scripts/test-invariants.ts'],
           include: testIncludes,
           exclude: [
-            ...windowsUnsupportedTests,
+            ...platformUnsupportedTests,
             ...processBoundTests,
             ...coverageExemptExcludes,
           ],
@@ -173,7 +183,7 @@ export default defineConfig({
           setupFiles: ['./scripts/test-invariants.ts'],
           include: processBoundTests,
           exclude: [
-            ...windowsUnsupportedTests,
+            ...platformUnsupportedTests,
             ...coverageExemptExcludes,
           ],
         },
@@ -182,8 +192,7 @@ export default defineConfig({
     coverage: {
       provider: 'v8',
       // Coverage measures OUR runtime source. Types-only files carry no
-      // executable code; vendor/ and examples/ are out of scope (examples are
-      // exercised by the demo smoke test instead).
+      // executable code; vendor/ and application/config fixtures are out of scope.
       // .tsx: client components are gated like everything else (jsdom lane).
       include: ['packages/*/*/src/**/*.{ts,tsx}'],
       // Types-only files have no runtime coverage. Importing self-executing bins/workers would boot
@@ -208,14 +217,26 @@ export default defineConfig({
         'packages/client/ui-primitives/src/RiskConfirmation.tsx',
         'packages/client/ui-workspace/src/client/WorkspaceBrowser.tsx',
         'packages/client/ui-workspace/src/client/WorkspacePicker.tsx',
+        'packages/client/ui-workspace/src/client/rows/WorkspaceBrowser.tsx',
         'packages/client/ui-renderer/src/client/*',
-        // This isolated settings-scope lifecycle has complete unit coverage;
-        // keep it out of the broader client-runtime GUI debt exemption.
-        'packages/client/runtime/src/**/!(settings-scope).ts',
+        // Session object internals retain the runtime GUI debt exemption; the
+        // new Controller entry, transport, Agent scope, and adapters stay gated.
+        'packages/api/session-controller/src/client/sessions/*',
+        'packages/api/session-controller/src/client/ordered-baseline.ts',
+        'packages/api/session-controller/src/client/time-zone.ts',
         // Keep the browser conversation tree under its existing GUI debt
         // exemption while gating the newly stateful Host half and vocabulary.
         'packages/client/ui-conversation/src/client/*',
         'packages/client/ui-conversation/src/invariant.ts',
+        // Chat presentation and assembly retain the same GUI debt exemption;
+        // package wiring and the new approval-detail adapter remain gated.
+        'packages/client/ui-chat/src/client/chat/!(ApprovalCommand).{ts,tsx}',
+        'packages/client/ui-chat/src/client/conversation-nodes/*',
+        'packages/client/ui-chat/src/client/details/*',
+        'packages/client/ui-chat/src/client/model/*',
+        'packages/client/ui-chat/src/client/contract/context-provenance.ts',
+        'packages/client/ui-chat/src/client/contract/snapshot.ts',
+        'packages/client/ui-chat/src/client/historical-images.ts',
         'packages/client/ui-primitives/src/DisclosureRow.tsx',
         'packages/client/ui-tool/src/*',
         'packages/client/ui-slots/src/*',

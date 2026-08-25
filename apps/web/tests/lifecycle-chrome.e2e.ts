@@ -23,7 +23,7 @@ import {
 } from './scaffold.ts'
 import { connectFreshWorkspace, newEnglishPage, saveFailureShot } from './support.ts'
 
-const SNAPSHOT_DIR = fileURLToPath(new URL('./snapshots/lifecycle-chrome', import.meta.url))
+const SNAPSHOT_DIR = fileURLToPath(new URL('../../../snapshots/web/lifecycle-chrome', import.meta.url))
 const FIXTURE = join(SNAPSHOT_DIR, 'session.jsonl')
 const REPLAY_OVERRIDE = join(SNAPSHOT_DIR, 'replay.override.json')
 const HERO_EXPECTED = join(SNAPSHOT_DIR, 'hero.expected.md')
@@ -53,7 +53,7 @@ describe('web e2e: lifecycle & chrome (workspace flow / reload / dark mode)', ()
     browser = await chromium.launch()
     page = await newEnglishPage(browser)
     tripwire = watchConsole(page)
-    await page.goto(scaffold.baseUrl, { waitUntil: 'load' })
+    await page.goto(scaffold.authenticatedUrl, { waitUntil: 'load' })
     await page.waitForSelector('[class*="frame"]', { timeout: 30_000 })
     // Fresh world: connect a Workspace so the composer scenarios start live.
     await connectFreshWorkspace(page, scaffold.workspaceCwd)
@@ -103,7 +103,7 @@ describe('web e2e: lifecycle & chrome (workspace flow / reload / dark mode)', ()
     const activePage = await newEnglishPage(browser)
     const activeTripwire = watchConsole(activePage)
     try {
-      await activePage.goto(activeScaffold.baseUrl, { waitUntil: 'load' })
+      await activePage.goto(activeScaffold.authenticatedUrl, { waitUntil: 'load' })
       await activePage.waitForSelector('[class*="frame"]', { timeout: 30_000 })
       await connectFreshWorkspace(activePage, activeScaffold.workspaceCwd)
       const input = activePage.locator('textarea').first()
@@ -167,6 +167,8 @@ describe('web e2e: lifecycle & chrome (workspace flow / reload / dark mode)', ()
     const input = page.locator('textarea').first()
     await input.waitFor({ timeout: 10_000 })
     if (MODE !== 'record') {
+      await page.getByText('Into the Unknown', { exact: false }).hover()
+      await expect.poll(() => page.getByRole('tooltip').count()).toBe(0)
       // Golden of the hero's stable waiting state (captured before any send;
       // the conversation-region goldens belong to the other scenarios).
       const snapshot = await captureStableAria(page, '[class*="frame"]', scaffold.workspaceCwd)
@@ -228,7 +230,7 @@ describe('web e2e: lifecycle & chrome (workspace flow / reload / dark mode)', ()
     await page.waitForSelector('[class*="frame"]', { timeout: 30_000 })
     acknowledgeReloadConnectionLoss(tripwire, warningStart)
     // Selection persisted (dsh.sessions.current) and history replayed: the
-    // recorded turn re-renders from session.history with zero model calls —
+    // recorded turn re-renders from a Session Controller page with zero model calls —
     // the replay cursor was fully consumed before the reload, so any stray
     // request would fail the scenario loudly at close().
     await expect.poll(() => page.getByText('LIGHTHOUSE', { exact: true }).count(), { timeout: 15_000 }).toBeGreaterThanOrEqual(1)

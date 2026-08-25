@@ -423,7 +423,7 @@ describe('dsh-tool-workflow', () => {
       await ctx.plugin(SubagentRuntime)
       ctx.subagents.registerProvider({
         name: 'spawn',
-        capabilities: { outputSchema: true, depthLimit: true, toolFilter: true, persona: true },
+        capabilities: { agentOptions: true, outputSchema: true, depthLimit: true, toolFilter: true, persona: true },
         inheritsParentContext: false,
         start: () => Promise.reject(new Error('the parked-script fixture must not start a child')),
       })

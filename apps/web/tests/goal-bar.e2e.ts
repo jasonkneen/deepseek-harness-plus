@@ -14,7 +14,7 @@ import {
 } from './scaffold.ts'
 import { newEnglishPage, saveFailureShot } from './support.ts'
 
-const SNAPSHOT_DIR = fileURLToPath(new URL('./snapshots/goal-bar', import.meta.url))
+const SNAPSHOT_DIR = fileURLToPath(new URL('./expected/goal-bar', import.meta.url))
 const ACTIVE_EXPECTED = join(SNAPSHOT_DIR, 'active.expected.md')
 const OVERLAY = fileURLToPath(new URL('./goal-bar.overlay.yml', import.meta.url))
 const MODE = webSnapshotMode()
@@ -30,6 +30,8 @@ describe('web e2e: goal bar clear convergence', () => {
     browser = await chromium.launch()
     page = await newEnglishPage(browser)
     tripwire = watchConsole(page)
+    const login = await page.context().request.get(scaffold.authenticatedUrl, { maxRedirects: 0 })
+    expect(login.status()).toBe(303)
     await page.goto(`${scaffold.baseUrl}?fixture`, { waitUntil: 'load' })
     await page.waitForSelector('[class*="frame"]', { timeout: 30_000 })
   }, 120_000)

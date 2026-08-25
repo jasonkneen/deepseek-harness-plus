@@ -49,8 +49,12 @@ function ok<T>(value: T) {
 
 const dictionary: Record<string, string> = en
 const t: PermissionRowProps['t'] = key => dictionary[key] ?? key
+type AttentionSnapshot = Parameters<Parameters<PermissionRowProps['useSessionPendingInteraction']>[0]>[0]
+const noAttention: AttentionSnapshot = new Map()
+const useSessionPendingInteraction: PermissionRowProps['useSessionPendingInteraction'] = selector => selector(noAttention)
 const runtime = {
   useSessions: (() => { throw new Error('unused') }) as never,
+  useSessionPendingInteraction,
   useWorkspaces: (() => { throw new Error('unused') }) as never,
 }
 

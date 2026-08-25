@@ -32,7 +32,9 @@
   ],
   "license": "MIT",
   "dependencies": {
-    "js-yaml": "^4.2.0"
+    "@deepseek-ai/dsh-atomic-write": "workspace:^",
+    "js-yaml": "^4.2.0",
+    "resolve.exports": "^2.0.3"
   },
   "peerDependencies": {
     "@deepseek-ai/cordis-plugin-group": "workspace:^",

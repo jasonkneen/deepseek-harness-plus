@@ -4,6 +4,8 @@
 
 Web 壳的 SPA dist 服务器：一个函数插件（配置为 `{distIndex}`），占据 [webserver](../webserver/README.zh.md) 的唯一回退席位，并通过显式 index 入口服务已构建的前端目录。`distIndex` 可读时，dist 根目录和配置的 index 路径以 HTTP 200 渲染 `index.html`；其他现有文件直接提供。dist 根目录内缺失或不是文件的目标——包括缺失的配置 index——返回空的 404；越出 dist 根目录的遍历返回 403，未知扩展名按 `application/octet-stream` 提供，GET／HEAD 之外的方法在没有匹配的具名路由时返回 405。每个成功的 index 响应都经 webserver 的 `renderIndex` 渲染——先结构化注入行、后原始 index 转换器——启动 manifest（元数据清单）就是经这条路径送达页面的。`distIndex` 是组合应用的组装事实：[`dsh-web-app`](../../bundle/web-app/README.zh.md) 通过前端包的 exports 解析它并挂载本插件；部署绝不硬编码它。
 
+根路径与配置 index 响应在读取 HTML 字节前必须通过 `ctx.connection.authorizeIndex`。有效进程令牌得到带持久浏览器 cookie 的 303 重定向；既有有效 cookie 允许提供 index；其他 index 请求都得到 Connection 持有的 401 响应。非 index 文件保持公开静态资源。令牌、cookie、有效期和签名记录的全部语义归 Connection；本包只把这项判定放在 HTML 读取之前。
+
 回退席位只有单一所有者（第二次占据会抛错），并受 effect 作用域约束：dispose（资源释放）插件的 fiber 会释放席位，此后无人占据的 webserver 回答 404。
 
 ## 模型体验

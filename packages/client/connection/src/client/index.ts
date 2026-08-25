@@ -1,30 +1,43 @@
 /**
  * Browser wire client. The plugin selects fixture or HTTP transport, provides
- * the shared API client, and lets the runtime object layer start the stream
- * controller with its sinks.
+ * the shared API client, and lets API Gateway own the connection loop.
  */
 import type { Context } from '@deepseek-ai/cordis'
 import type { HostDescription, IApiClient } from './api.ts'
-import { ConnectionController, type ConnectionConfig, type ConnectionSinks, type ConnectionState } from './connection.ts'
+import {
+  ConnectionController,
+  type ConnectionConfig,
+  type ConnectionGenerationSource,
+  type ConnectionSinks,
+  type ConnectionState,
+} from './connection.ts'
 import { FixtureApiClient } from './fixture.ts'
 import { WebApiClient } from './web-api-client.ts'
-import { createWebConnectionRpc, type RpcFetch } from './rpc.ts'
+import { createWebConnectionRpc, type RpcFetch, type RpcStreamOpen } from './rpc.ts'
 import { isLoopbackHostname } from '../loopback-hostname.ts'
 import type { ClientConnectionRpc } from '../rpc.ts'
 
+declare module '@deepseek-ai/cordis' {
+  interface Events {
+    /**
+     * A connection generation was established. Wire-derived caches must
+     * repull; long-lived streams own their own resume and baseline lifecycle.
+     * @mode emit
+     */
+    'connection/reset'(): void
+  }
+}
+
 // ---- Contract re-exports (browser-safe apiproxy channels + core types) ----
 export type {
-  ApiProxy, SessionsApi, SessionSearchItem, SessionSummary, PromptContentPart, HostApi, EventsApi, MuxFrame, HostFrame,
-  ApprovalResponsePayload, QuestionResponsePayload, HistoryEntry, ToolEventView,
+  ApiProxy, HostApi,
   DirectoryEntry, DirectoryListing,
-  ToolCallView, ToolResultView, WorkspaceApi, WorkspaceId, WorkspaceView,
   SkillsApi, SkillEntry,
-  ModelCatalogFailure, ModelCatalogModel, ModelProviderGroup, ModelReasoning,
-  MessageId, ModelReasoningEffort, ModelSelection, QueueAction, QueuedInboxItem, SessionModels,
+  ModelCatalog, ModelCatalogFailure, ModelCatalogModel, ModelProviderGroup, ModelReasoning,
+  MessageId, ModelReasoningEffort, ModelSelection,
   SubagentsApi, SubagentAddress, SubagentCatalog, SubagentListEntry, SubagentPromptReceipt,
-  JobView,
   RpcRequest, RpcResponse, RpcResult, RpcError, RpcErrorCode,
-  ClientRequest, ServerResponse, ServerRequest, ClientResponse, RpcMessage, RpcReceipt,
+  ClientRequest, ServerResponse, RpcMessage,
   HostDescription, IApiClient, SessionId, SessionEvent, ContentBlock, StreamChunk,
   GoalsApi, GoalRef,
   SettingsApi, SettingsNamespaceView, SettingsPathOpView, SettingsSecretView,
@@ -38,8 +51,10 @@ export {
 
 // Connection loop types are public through ConnectionHandle.start; the
 // controller remains package-internal.
-export type { ConnectionConfig, ConnectionSinks, ConnectionState }
-export type { ClientConnectionRpc } from '../rpc.ts'
+export type { ConnectionConfig, ConnectionGenerationSource, ConnectionSinks, ConnectionState }
+export type {
+  ClientConnectionRpc, ConnectionRpcFailure, ConnectionRpcResult,
+} from '../rpc.ts'
 export type { RpcFetch } from './rpc.ts'
 
 /** Observable Host description published by each completed connection handshake. */
@@ -64,6 +79,8 @@ export interface ClientTransportHooks {
   createApiClient(): IApiClient
   /** Transport for generic unary RPC channels (the Typert gateway). */
   fetch: RpcFetch
+  /** Worker-local Gateway stream carrier; absent when the page uses the Gateway WebSocket. */
+  openStream?: RpcStreamOpen
   /**
    * Bundle transport for the module system, present when the carrier also owns
    * bundle bytes (the worker tunnel). Absent in the served web app, whose
@@ -87,9 +104,9 @@ interface ClientTransportGlobal {
 }
 
 /**
- * The ctx.connection service API: the API client plus a one-shot
- * controller starter (the runtime plugin supplies sinks when its object layer
- * is ready — connection stays consumer-agnostic).
+ * The ctx.connection service API: the API client plus a one-shot controller
+ * starter. API Gateway supplies generation readiness and reset callbacks;
+ * Connection stays independent of downstream domain state.
  */
 export interface ConnectionHandle {
   /** Shared api client (fixture or real, decided at boot from the page URL). */
@@ -105,14 +122,26 @@ export interface ConnectionHandle {
   /** Generic logical RPC channels over the same Connection transport. */
   readonly rpc: ClientConnectionRpc
   /**
-   * Start the connect/pump/reconnect loop with the consumer's frame sinks.
-   * One consumer owns the streams (the runtime object layer); a second call
-   * throws.
-   * @param sinks - frame/state callbacks.
+   * Register the sole source defining Host generations. The source reports
+   * ready only after its incremental listeners are attached.
+   * @param source - long-lived generation source owned by the push carrier.
+   * @returns disposer withdrawing the source and stopping an active loop.
+   */
+  registerGenerationSource(source: ConnectionGenerationSource): () => void
+  /**
+   * Start the connect/reconnect loop with the consumer's state callbacks.
+   * API Gateway owns the loop; a second call throws.
+   * @param sinks - connection-state callbacks.
    * @param config - reconnect/backoff tunables.
    * @returns stop handle for the loop.
    */
   start(sinks: ConnectionSinks, config?: ConnectionConfig): { stop(): void }
+}
+
+interface ConnectionOwner {
+  readonly token: object
+  readonly source: ConnectionGenerationSource
+  readonly controller: ConnectionController
 }
 
 /**
@@ -125,8 +154,9 @@ export function apply(ctx: Context): void {
   const fixtureClient = fixture ? new FixtureApiClient() : undefined
   const transport = (globalThis as ClientTransportGlobal).__DSH_TRANSPORT__
   const api: IApiClient = fixtureClient ?? transport?.createApiClient() ?? new WebApiClient()
-  const rpc = fixtureClient?.rpc ?? createWebConnectionRpc(transport?.fetch)
-  let started = false
+  const rpc = fixtureClient?.rpc ?? createWebConnectionRpc(transport?.fetch, transport?.openStream)
+  let generationSource: ConnectionGenerationSource | undefined
+  let owner: ConnectionOwner | undefined
   let description: HostDescription | undefined
   const descriptionListeners = new Set<() => void>()
   const publishDescription = (next: HostDescription | undefined): void => {
@@ -136,9 +166,15 @@ export function apply(ctx: Context): void {
       try {
         listener()
       } catch (error) {
-        console.error('[web-runtime] host-description listener threw:', error)
+        console.error('[connection] host-description listener threw:', error)
       }
     }
+  }
+  const releaseOwner = (current: ConnectionOwner): void => {
+    if (owner !== current) return
+    owner = undefined
+    current.controller.stop()
+    publishDescription(undefined)
   }
   const handle: ConnectionHandle = {
     api,
@@ -151,10 +187,25 @@ export function apply(ctx: Context): void {
       },
     },
     rpc,
+    registerGenerationSource(source) {
+      if (generationSource !== undefined) {
+        throw new Error('connection: a generation source is already registered')
+      }
+      generationSource = source
+      return () => {
+        if (generationSource !== source) return
+        generationSource = undefined
+        const current = owner
+        if (current?.source === source) releaseOwner(current)
+      }
+    },
     start(sinks, config) {
-      if (started) throw new Error('connection: the stream loop is already owned by another consumer')
-      started = true
-      const controller = new ConnectionController(api, {
+      if (owner !== undefined) throw new Error('connection: the stream loop is already owned by another consumer')
+      const source = generationSource
+      if (source === undefined) throw new Error('connection: no generation source is registered')
+      const token = {}
+      const ownsGeneration = (): boolean => owner?.token === token
+      const controller = new ConnectionController(api, source, {
         ...sinks,
         onConnected: (next) => {
           publishDescription(next)
@@ -162,20 +213,20 @@ export function apply(ctx: Context): void {
           // case publishDescription(undefined) has already retracted this
           // generation, so do not leak its stale connected notification to
           // the consumer sink afterward.
-          if (!Object.is(description, next)) return
+          if (!ownsGeneration() || !Object.is(description, next)) return
           sinks.onConnected?.(next)
         },
         onStateChange: (state) => {
           if (state === 'reconnecting') publishDescription(undefined)
+          if (!ownsGeneration()) return
           sinks.onStateChange?.(state)
         },
       }, config ?? {})
+      const current = { token, source, controller }
+      owner = current
       controller.start()
       return {
-        stop: () => {
-          controller.stop()
-          publishDescription(undefined)
-        },
+        stop: () => { releaseOwner(current) },
       }
     },
   }

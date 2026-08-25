@@ -1,17 +1,13 @@
-# examples/ — ready-to-run demo bundles
+# examples/ — reusable composition bundles
 
 English | [中文](README.zh.md)
 
-Pre-composed plugin bundles a thin leaf `cordis.yml` loads instead of assembling the spine and an entry point by hand. These are **demo / reference** packages — the `-demo` npm suffix marks each one as non-product surface, readable straight off the package name. The runnable leaves under the repo-root [`examples/`](../../examples/AGENTS.md) and the [Python SDK runtime](../../python/sdk-runtime/README.md) are the consumers; each is just its swappable backends plus one bundle entry.
+Pre-composed plugin bundles for tests and custom deployments that need the concrete Agent spine without assembling it by hand. The `-demo` npm suffix marks each package as support infrastructure rather than a product interface.
 
 | Package | npm name | Role |
 |---|---|---|
 | [`agent-spine-demo/`](agent-spine-demo/README.md) | `@deepseek-ai/dsh-agent-spine-demo` | Reusable agent-spine bundle |
-| [`acp-demo/`](acp-demo/README.md) | `@deepseek-ai/dsh-acp-demo` | ACP automation application bundle |
-| [`jsonrpc-demo/`](jsonrpc-demo/README.md) | `@deepseek-ai/dsh-sdk-jsonrpc-demo` | External-config JSON-RPC runtime |
 
-`agent-spine-demo` is the shared bundle; `acp-demo` adds its automation entry point, while `jsonrpc-demo` boots a deployment-owned plugin tree. Product one-shot execution belongs to `dsh --profile headless`; no package in this directory provides it.
+`agent-spine-demo` is the shared bundle. Product SDK, ACP, and one-shot execution belong to `dsh --profile sdk` / `dsh --profile sdk-minimal`, `dsh --profile acp`, and `dsh --profile headless`; no package in this directory provides an application entry.
 
-These packages are not product API. Product seams and entry points remain in their owning groups; demo bundles select concrete compositions.
-
-Do not confuse this group with the repo-root [`examples/`](../../examples/AGENTS.md): that directory holds the runnable `cordis.yml` **leaves**; this group holds the **bundles** those leaves load.
+These packages are not product API. Product seams and entry points remain in their owning groups; support bundles select concrete compositions for focused consumers.

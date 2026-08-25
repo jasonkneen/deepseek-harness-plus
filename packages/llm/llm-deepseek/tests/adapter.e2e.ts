@@ -5,6 +5,8 @@ import { join } from 'node:path'
 import { randomBytes } from 'node:crypto'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
+import Loader from '@deepseek-ai/cordis-plugin-loader'
+import AgentRegistry from '@deepseek-ai/dsh-agent'
 import LlmRuntime, { createUserMessage, CallId, ReasoningEffortId, createMessage } from '@deepseek-ai/dsh-llm'
 import type { Message, ToolSchema } from '@deepseek-ai/dsh-llm'
 import AttachmentStore, { AttachmentId, ImageVariantId } from '@deepseek-ai/dsh-attachment'
@@ -17,6 +19,10 @@ import type {
   StoredImageAttachment,
 } from '@deepseek-ai/dsh-attachment'
 import { LocalCredentialProvider } from '@deepseek-ai/dsh-credentials-local'
+import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
+import DeepSeekLlmApiExtensionRegistry from '@deepseek-ai/dsh-deepseek-llm-api-extensions'
+import * as PluginPackageInventoryDeepSeek from '@deepseek-ai/dsh-plugin-package-inventory-deepseek'
+import * as SessionLogDeepSeek from '@deepseek-ai/dsh-session-log-deepseek'
 import * as LlmDeepSeek from '@deepseek-ai/dsh-llm-deepseek'
 import type { Config } from '@deepseek-ai/dsh-llm-deepseek'
 import { assemble, type AssembledResult } from './assemble.ts'
@@ -178,6 +184,31 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('llm-deepseek e2e (real API)', ()
     } finally {
       if (uploadedFile !== undefined) await files.delete(uploadedFile)
     }
+  })
+
+  it('accepts the session-log and plugin-package request extension fields', async () => {
+    const ctx = new Context()
+    contexts.push(ctx)
+    await ctx.plugin(Loader)
+    await ctx.plugin(AgentRegistry)
+    await ctx.plugin(LlmRuntime)
+    await ctx.plugin(SessionStore)
+    await ctx.plugin(DeepSeekLlmApiExtensionRegistry)
+    await ctx.plugin(SessionLogDeepSeek, { enabled: true })
+    await ctx.plugin(PluginPackageInventoryDeepSeek)
+    await ctx.plugin(LlmDeepSeek, { thinking: 'disabled' })
+    const session = ctx.sessions.create(SessionId('real-extension-fields'))
+    session.append('turn/start', { turn: 1 })
+
+    const result = await assemble(ctx, {
+      model: FLASH,
+      messages: ask('Reply with exactly the word: pong'),
+      maxTokens: 50,
+      sessionId: session.id,
+    })
+    expect(result.finish.kind).toBe('stop')
+    expect(textOf(result).toLowerCase()).toContain('pong')
+    expect(SessionLogDeepSeek.acceptedThrough(session)).toBe(0)
   })
 
   it('serves a real request with the key held only by a credentials-local document', async () => {

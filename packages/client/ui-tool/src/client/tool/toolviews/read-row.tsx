@@ -21,7 +21,7 @@ export function ReadRow({ toolName, block, cwd, home, openFile, inspect, t }: Re
       variant={model.variant}
       toolName={toolName}
       icon={<IconBrowseOutline16 size={14} />}
-      title={model.title}
+      title={t(model.titleKey)}
       summary={model.summary}
       body={null}
       output={model.output}

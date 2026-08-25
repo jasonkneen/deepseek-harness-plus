@@ -4,8 +4,8 @@
  * request listener; the tunnel feeds that listener these pairs, so the real
  * route table, its trust fences, and every handler run unchanged.
  *
- * Synthesized members are exactly the ones the route handlers read (research
- * transport.md §5.1/§5.2); anything else is absent on purpose so a new consumer
+ * Synthesized members are exactly the ones the route handlers read; anything
+ * else is absent on purpose so a new consumer
  * fails loud instead of silently reading a stub.
  * @module @deepseek-ai/dsh-experimental-webworker-runtime/src/transport/synthetic-http
  */

@@ -100,15 +100,8 @@ export class AppWebEntry {
     await mounted
   }
 
-  /** Prefetch stage-one bundles; their import path owns any eventual failure. */
+  /** Prefetch stage-one bundles and their dynamic requests before concurrent plugin imports. */
   private async prefetchImmediateTier(): Promise<void> {
-    // A transport carrying loadBundle owns the bundle bytes; HTTP prefetch
-    // against its static deployment answers nothing. A transport without
-    // loadBundle leaves bundles on HTTP, prefetch included.
-    const transport = (globalThis as {
-      __DSH_TRANSPORT__?: { loadBundle?: unknown }
-    }).__DSH_TRANSPORT__
-    if (transport?.loadBundle !== undefined) return
     await Promise.all(this.manifest.plugins
       .filter(row => row.immediately)
       .map(row => this.modules.prefetch(row.id).catch((_prefetchError: unknown) => {

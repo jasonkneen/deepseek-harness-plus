@@ -27,7 +27,7 @@ Apply the standard's authoring order to every human-facing document in scope. Do
 
 Then check constraints that make placement expensive or wrong:
 
-- Paired docs (`pnpm run verify-translation-pairing --list`) cost a zh counterpart update and a `--write` re-record on every edit — prefer an unpaired home for content that will churn.
+- Paired docs (`pnpm run verify-translation-pairing --list`) cost a zh counterpart update and a `--write` re-record on every edit — prefer an unpaired home for content that will churn. Verbatim code blocks are byte-exact across the pair: copy a corrected fence into both files instead of translating its comments independently.
 - Generated catalogs are never hand-edited; if the fact belongs there, change the generator's source.
 - Before renaming or moving any doc, grep for inbound references: `verify-md-links` catches Markdown link targets AND `#fragment` anchors onto Markdown files (heading slugs and explicit `<a id>`), and `verify-doc-refs` catches `docs/*.md` citations in TypeScript comments; anchors cited from TypeScript strings still need a manual grep when their output never reaches gate-scanned Markdown.
 - A move is atomic: remove from the old home, add to the new home, and fix every inbound link in the same change.

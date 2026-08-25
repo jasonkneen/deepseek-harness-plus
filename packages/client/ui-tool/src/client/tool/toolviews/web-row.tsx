@@ -9,10 +9,10 @@ import { CONVERSATION_NS as NS } from '../../locale.ts'
 
 type WebRowProps = ToolCallViewProps & PropsLocale<'conversation'>
 
-const WEB_TITLES: Record<string, string> = {
-  web_search: 'Search',
-  web_fetch: 'Fetch',
-}
+const WEB_TITLE_KEYS = {
+  web_search: 'tool.title.webSearch',
+  web_fetch: 'tool.title.webFetch',
+} as const
 
 /** Lets users expand a completed web search or fetch result. */
 export function WebRow({ toolName, block, inspect, t }: WebRowProps) {
@@ -25,7 +25,9 @@ export function WebRow({ toolName, block, inspect, t }: WebRowProps) {
       variant={model.variant}
       toolName={toolName}
       icon={icon}
-      title={WEB_TITLES[toolName] ?? model.title}
+      title={t(toolName === 'web_search'
+        ? WEB_TITLE_KEYS.web_search
+        : toolName === 'web_fetch' ? WEB_TITLE_KEYS.web_fetch : model.titleKey)}
       summary={model.summary}
       body={null}
       output={model.output}

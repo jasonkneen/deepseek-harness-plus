@@ -10,7 +10,7 @@ Status: implemented
 
 ## 决策
 
-共享 dsh 基础组合包（`packages/bundle/base/cordis.patch.yml`）挂载带有内置生产 endpoint 的 `session-telemetry-otel` 配置行，使每个 profile 都具有一致的遥测能力。[默认关闭决策](2026-08-10-telemetry-default-off.zh.md)让该配置行保持 `DISABLED` 模式，除非部署方显式选择 `FULL` 或 `FEEDBACK_ONLY`；仅配置 endpoint 不构成上报授权。Web 与 headless 在 SIGINT/SIGTERM 时使用[有界、可升级的进程关闭控制器](../bug-fix/2026-08-03-cli-signal-shutdown-escalation.zh.md)，在启动器 5 秒上限到期前，先给已启用的后端 3 秒关闭截止时间完成排空。
+共享 dsh 基础组合包（`packages/bundle/base/cordis.patch.yml`）挂载带有内置生产 endpoint 的 `session-telemetry-otel` 配置行，使每个基于 base 的 profile 都具有一致的遥测能力。独立的 [`sdk-minimal` profile](../architecture/2026-08-24-standalone-sdk-minimal-profile.zh.md)刻意省略该配置项。[默认关闭决策](2026-08-10-telemetry-default-off.zh.md)让已挂载配置项保持 `DISABLED` 模式，除非部署方显式选择 `FULL` 或 `FEEDBACK_ONLY`；仅配置 endpoint 不构成上报授权。Web 与 headless 在 SIGINT/SIGTERM 时使用[有界、可升级的进程关闭控制器](../bug-fix/2026-08-03-cli-signal-shutdown-escalation.zh.md)，在启动器 5 秒上限到期前，先给已启用的后端 3 秒关闭截止时间完成排空。
 
 | 决策项 | 取值 | 理由 |
 |---|---|---|
@@ -28,7 +28,7 @@ Status: implemented
 
 ## 考虑过的替代方案
 
-**默认不挂载，部署方自行添加配置行。** 不采用：挂载的 `DISABLED` 模式会保留本地反馈警告，并为所有 profile 提供同一个 patch 目标，同时不授权任何上传。
+**默认不挂载，部署方自行添加配置行。** 不采用：挂载的 `DISABLED` 模式会保留本地反馈警告，并为每个基于 base 的 profile 提供同一个 patch 目标，同时不授权任何上传。
 
 **开关做成 config 字段而非 env patch。** 不可行：cordis 行没有 config 层的 disable 语义，且 `exporter.url` 校验在插件构造期 fail-loud，开关必须在 Loader 之前生效——AppCLIEntry patch 层是唯一落点。
 

@@ -6,12 +6,11 @@
  * `node:path/posix`", so Node itself is the oracle and every case is compared
  * rather than asserted against a hand-written expectation. The corpus is the
  * shapes a VFS path actually takes (absolute image paths, `node_modules`
- * specifiers, `.bin` entries) plus the edge forms that historically diverge
+ * specifiers, `.bin` entries) plus edge forms that stress lexical handling
  * (repeated slashes, trailing dots, `..` past the root).
  *
- * Migrated from apps/web-preview/scripts/checks/path-diff.ts. Imports go through
- * the package name so the harness and the shim resolve to one module instance
- * (see `../polyfill/als-shim.spec.ts` for why that matters).
+ * Imports go through the package name so the harness and the shim resolve to one
+ * module instance (see `../polyfill/als-shim.spec.ts` for why that matters).
  */
 import { expect, test } from 'vitest'
 import { posix as nodePosix } from 'node:path'

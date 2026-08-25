@@ -21,7 +21,7 @@ export function FileMutationRow({ toolName, block, cwd, home, openFile, inspect,
       variant={model.variant}
       toolName={toolName}
       icon={<IconEditOutline16 size={14} />}
-      title={model.title}
+      title={t(model.titleKey)}
       summary={model.summary}
       body={null}
       output={model.output}

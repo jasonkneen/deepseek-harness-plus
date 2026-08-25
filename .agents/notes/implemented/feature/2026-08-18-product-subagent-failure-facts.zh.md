@@ -12,7 +12,7 @@ Status: implemented
 
 ## Decision
 
-每个产品提供方分别拥有从锁定版本官方错误联合、当前操作和受管进程结果到一行固定安全诊断的映射。`SubagentResult` 保持不变：消费方仍接收现有的有界 `diagnostic` 字符串，而且不解析其中由产品私有的字段。
+每个产品提供方分别拥有从锁定版本官方结构化失败、当前操作和受管进程结果到一行固定安全诊断的映射。`SubagentResult` 保持不变：消费方仍接收现有的有界 `diagnostic` 字符串，而且不解析其中由产品私有的字段。[最小诊断决策](../simplification/2026-08-21-product-subagent-minimal-diagnostics.zh.md)已经取代本说明对 Claude Code 完整 subtype 的镜像；在 Codex 采用同一简化前，本说明继续负责其当前详细类别。
 
 ### 安全诊断
 
@@ -28,14 +28,7 @@ Product subagent failure (product: <product>; stage: <stage>; category: <categor
 
 ### Claude Code 事实
 
-Agent SDK 0.3.220 定义四种错误子类型：`error_during_execution`、`error_max_turns`、`error_max_budget_usd` 和 `error_max_structured_output_retries`。Claude Code 提供方会把每种准确子类型保留为类别，同时维持共享终止原因 `error`。标记为错误或内容空白的成功消息使用 `invalid-success`，缺失结果使用 `missing-result`，SDK 给出终态结果前发生的进程退出使用 `process-exit`，无法识别的值或异常使用 `unknown`，且不会复制原值。
-
-| 阶段 | 归属操作 | 可观察失败 |
-| --- | --- | --- |
-| `query-start` | SDK query 构造、原生平台载荷启动与未发布回滚 | `start()` 以固定安全事实和回滚前已观测到的进程结果拒绝 |
-| `query-run` | 已发布 SDK 消息迭代与严格终态结果校验 | 运行以 `error` 兑现，并携带准确已知子类型或固定结果类别 |
-| `process` | SDK 提供终态结果之前受管 CLI 已退出 | 运行以 `error` 兑现，并携带 `process-exit` 以及可用的退出码和信号 |
-| `teardown` | Query 关闭与受管进程树释放 | `dispose()` 独立拒绝并携带固定安全事实，同时清理仍会完成最终退出等待 |
+[最小诊断决策](../simplification/2026-08-21-product-subagent-minimal-diagnostics.zh.md)独占负责 Agent SDK 0.3.241 与 Claude Code 2.1.241 的 Claude Code 类别、阶段、进程事实、权限顺序与验证。本说明不再承载独立的 Claude 类别约定。
 
 ### Codex 事实
 
@@ -56,7 +49,7 @@ Codex app-server 0.147.0 定义十一种字符串类别与五种对象 variant�
 
 | 事实或资源 | Owner | 消费方行为 |
 | --- | --- | --- |
-| 产品错误类别 | 锁定版本的官方 SDK 或 app-server | 提供方只映射已声明的结构化联合，并对联合外值使用 `unknown` |
+| Codex 错误类别 | Codex 提供方及其锁定的官方 app-server | 提供方保留当前结构化类别，并在已识别集合之外使用 `unknown` |
 | 当前失败阶段 | 产品提供方操作 | 只在失败点派生；绝不持久化，也不作为恢复状态 |
 | 退出码与信号 | `dsh-subprocess` 进程句柄 | 提供方展示已观测值，不推测缺失值 |
 | 诊断字节与送达 | `dsh-subagent`、前台工具与 Job 运行时 | 两种调度模式都把同一份有界文本与 assistant 输出分开呈现 |
@@ -64,7 +57,7 @@ Codex app-server 0.147.0 定义十一种字符串类别与五种对象 variant�
 
 ## Verification
 
-Claude Code 包测试固定四种 SDK 子类型、无效成功、缺失结果、未知值与异常、四个阶段、相互独立的退出码与信号字段、权限事实顺序、脱敏、成功结果与取消时省略诊断、并发运行隔离和清理完成。Codex 包测试固定全部十六种 error-info variant、HTTP status 存在与缺失、六个阶段、unknown 回退、终止原因保持不变、权限顺序、脱敏、取消、并发与清理聚合。真实 SDK/CLI fixture 会产生真实的 Claude `error_max_turns`，真实 app-server fixture 会产生真实的 Codex `internalServerError`；两个 fixture 都覆盖进程／协议失败与整棵进程树完全停稳。无密钥 ACP snapshot 会在前台错误输出、后台完成通知和 `job_output` 中记录两个产品各自的准确诊断。
+Claude Code 验证由[最小诊断决策](../simplification/2026-08-21-product-subagent-minimal-diagnostics.zh.md)负责。Codex 包测试固定当前全部十六种 error-info variant、HTTP status 存在与缺失、六个阶段、unknown 回退、终止原因保持不变、权限顺序、脱敏、取消、并发与清理聚合。真实 app-server fixture 会产生实际 Codex `internalServerError`，并覆盖进程／协议失败与整棵进程树完全停稳。无密钥 ACP snapshot 会在前台错误输出、后台完成通知和 `job_output` 中记录 Codex 诊断。
 
 ## Alternatives considered
 
@@ -80,8 +73,8 @@ Claude Code 包测试固定四种 SDK 子类型、无效成功、缺失结果、
 
 ## Consequences
 
-父 agent 可以区分重要的 Claude Code 限制，以及 Codex 预算、用量、服务、策略、请求、连接、stream、回滚、sandbox 和 active-turn 失败，而不会收到原始产品文本。前台与后台调度会保留同一事实，因为二者都消费同一个 `SubagentResult`。
+父 agent 可以区分当前 Codex 的预算、用量、服务、策略、请求、连接、stream、回滚、sandbox 与 active-turn 类别，而不会收到原始产品文本。[最小诊断决策](../simplification/2026-08-21-product-subagent-minimal-diagnostics.zh.md)负责对应的 Claude 结果。前台与后台调度会保留同一事实，因为二者都消费同一个 `SubagentResult`。
 
-诊断只是展示文本，不是新的公开协议。调用方可以呈现它，但不得根据其标点或产品私有类别名称进行分支。锁定产品版本升级并改变官方错误联合时，必须同步更新提供方映射与证据。
+诊断只是展示文本，不是新的公开协议。调用方可以呈现它，但不得根据其标点或产品私有类别名称进行分支。锁定产品版本升级时必须重新验证提供方映射与证据，但不要求每个官方错误成员都继续模型可见。
 
 本决策不增加产品会话持久化、重试策略、恢复状态、stderr 分类器、身份验证或配置分类体系、进度流或人工交互路径。

@@ -4,8 +4,9 @@
  * entry points. A readable index renders at the dist root and configured index
  * path; missing paths return 404, traversal outside the dist root is 403,
  * unknown extensions ship as octet-stream, and non-GET/HEAD is 405. Every
- * index response runs through the webserver's index render (structured
- * injection rows, then raw taps). The dist location is workspace knowledge of
+ * index response first passes Connection's browser authentication, then the
+ * webserver's index render (structured injection rows, then raw taps).
+ * Non-index assets stay public. The dist location is workspace knowledge of
  * the composing application, so `distIndex` is typically supplied through a
  * `!!js` expression, never hardcoded by a deployment.
  * @module @deepseek-ai/dsh-host-frontend-static
@@ -16,13 +17,14 @@ import { readFile } from 'node:fs/promises'
 import { dirname, extname, join, normalize, resolve, sep } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
+import type {} from '@deepseek-ai/dsh-client-connection'
 import type {} from '@deepseek-ai/dsh-host-webserver'
 
 /** Stable Cordis plugin name. */
 export const name = 'frontend-static'
 
-/** Service required before the fallback seat can be claimed. */
-export const inject = ['webServer']
+/** Services required before the authenticated fallback seat can be claimed. */
+export const inject = ['webServer', 'connection']
 
 /** Plugin config: the dist anchor. */
 export interface Config {
@@ -62,11 +64,13 @@ const STATIC_MISS_CODES: ReadonlySet<string | undefined> = new Set([
  * @param res - the node:http response to write.
  * @param distRoot - absolute dist root directory (resolved by the caller).
  * @param distIndex - absolute path of index.html inside distRoot.
+ * @param authorizeIndex - authenticates an index response before its bytes are read.
  * @param renderIndex - produces the index.html body (structured injection
  * rendering) for the dist root and configured index path.
  */
 export async function serveStatic(
   pathname: string, res: ServerResponse, distRoot: string, distIndex: string,
+  authorizeIndex: () => boolean,
   renderIndex: () => Promise<string>,
 ): Promise<void> {
   const target = resolve(normalize(join(distRoot, pathname)))
@@ -82,6 +86,7 @@ export async function serveStatic(
   let type: string
   try {
     if (target === distRoot || target === distIndex) {
+      if (!authorizeIndex()) return
       body = await renderIndex()
       type = HTML_MIME
     } else {
@@ -126,6 +131,13 @@ export function apply(ctx: Context, config: Config): void {
     }
     /* v8 ignore next -- node:http always sets url on server requests */
     const rawPath = new URL(req.url ?? '/', 'http://x').pathname
-    await serveStatic(decodeURIComponent(rawPath), res, distRoot, distIndex, renderIndex)
+    await serveStatic(
+      decodeURIComponent(rawPath),
+      res,
+      distRoot,
+      distIndex,
+      () => ctx.connection.authorizeIndex(req, res),
+      renderIndex,
+    )
   }), 'frontend-static: fallback seat')
 }

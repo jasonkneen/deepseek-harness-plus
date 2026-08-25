@@ -63,7 +63,11 @@ function attachmentStore(readImageRequest: (
   policy: ImageRequestPolicy,
   signal?: AbortSignal,
 ) => Promise<RequestImageAttachment>): AttachmentStore {
-  return { readImageRequest } as unknown as AttachmentStore
+  return { readImageRequest, imageHostPath: () => undefined } as unknown as AttachmentStore
+}
+
+function imageContext(attachments: AttachmentStore) {
+  return { attachments, resolveImageAccess: () => undefined }
 }
 
 describe('toPiContext', () => {
@@ -109,7 +113,7 @@ describe('toPiContext', () => {
         content: [{ type: 'text', text: 'describe' }, { type: 'image', attachment }],
         source: { kind: 'plugin', plugin: 'test' },
       })],
-    }, attachmentStore(readImageRequest))
+    }, imageContext(attachmentStore(readImageRequest)))
 
     expect(readImageRequest).toHaveBeenCalledWith(
       attachment,
@@ -161,7 +165,7 @@ describe('toPiContext', () => {
         }],
         source: { kind: 'plugin', plugin: 'test' },
       })],
-    }, attachmentStore(readImageRequest))
+    }, imageContext(attachmentStore(readImageRequest)))
 
     expect(context.messages).toEqual([{
       role: 'toolResult',
@@ -639,7 +643,7 @@ describe('toStreamChunks', () => {
       { type: 'block-start', index: 0, blockType: 'text' },
       { type: 'text-delta', index: 0, text: 'hi' },
       { type: 'block-end', index: 0, block: { type: 'text', text: 'hi' } },
-      { type: 'usage', usage: { inputTokens: 3, outputTokens: 2 } },
+      { type: 'usage', usage: { inputTokens: 3, outputTokens: 2, totalTokens: 5 } },
       {
         type: 'finish',
         reason: { kind: 'stop' },
@@ -690,7 +694,7 @@ describe('toStreamChunks', () => {
       { type: 'tool-call-delta', index: 0, id: 'call-1', name: 'f', argumentsDelta: '{"a"' },
       { type: 'tool-call-delta', index: 0, id: 'call-1', name: 'f', argumentsDelta: ':1}' },
       { type: 'block-end', index: 0, block: { type: 'tool-call', id: 'call-1', name: 'f', arguments: '{"a":1}' } },
-      { type: 'usage', usage: { inputTokens: 0, outputTokens: 0 } },
+      { type: 'usage', usage: { inputTokens: 0, outputTokens: 0, totalTokens: 0 } },
       {
         type: 'finish',
         reason: { kind: 'tool-calls' },
@@ -724,7 +728,7 @@ describe('toStreamChunks', () => {
       { type: 'error', reason: 'error', error },
     )))
     expect(chunks).toEqual([
-      { type: 'usage', usage: { inputTokens: 1, outputTokens: 0 } },
+      { type: 'usage', usage: { inputTokens: 1, outputTokens: 0, totalTokens: 1 } },
       { type: 'finish', reason: { kind: 'error', failure: { message: 'boom', code: 'PI_AI_ERROR' } } },
     ])
   })
@@ -758,6 +762,14 @@ describe('mapStopReason / mapUsage', () => {
     ['stop', { kind: 'stop' }],
     ['length', { kind: 'max-tokens' }],
     ['toolUse', { kind: 'tool-calls' }],
+    ['pending', {
+      kind: 'error',
+      failure: { message: 'pi-ai stream for model "deepseek-v4-flash" ended pending', code: 'PI_AI_ERROR' },
+    }],
+    ['deferred', {
+      kind: 'error',
+      failure: { message: 'pi-ai deferred response for model "deepseek-v4-flash" is not supported', code: 'PI_AI_ERROR' },
+    }],
     ['aborted', { kind: 'aborted', failure: { message: 'pi-ai stream aborted', code: 'ABORTED' } }],
   ] as const)('maps %s', (stopReason, expected) => {
     expect(mapStopReason(assistant({ stopReason, content: [{ type: 'text', text: 'ok' }] }))).toEqual(expected)
@@ -878,10 +890,11 @@ describe('mapStopReason / mapUsage', () => {
     expect(mapUsage(usage(10, 5, 8, 2))).toEqual({
       inputTokens: 10,
       outputTokens: 5,
+      totalTokens: 25,
       cacheReadTokens: 8,
       cacheWriteTokens: 2,
     })
-    expect(mapUsage(usage(10, 5))).toEqual({ inputTokens: 10, outputTokens: 5 })
+    expect(mapUsage(usage(10, 5))).toEqual({ inputTokens: 10, outputTokens: 5, totalTokens: 15 })
   })
 })
 

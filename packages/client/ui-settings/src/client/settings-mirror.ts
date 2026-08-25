@@ -10,7 +10,7 @@
  */
 
 import type { IApiClient, SettingsNamespaceView } from '@deepseek-ai/dsh-api-remotes/client'
-import { createSnapshotStore, type SnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
+import { createSnapshotStore, type SnapshotStore } from '@deepseek-ai/dsh-client-store'
 
 type SettingsFace = Pick<IApiClient, 'settings'>
 
@@ -79,7 +79,7 @@ export class SettingsDescribeMirror implements SettingsDescribeFace {
 
   /**
    * @param api - settings wire face.
-   * @param persistence - remote browsers stay process-local because settings RPCs are loopback-only.
+   * @param persistence - client-selected Host persistence; non-loopback pages may remain process-local.
    */
   constructor(
     private readonly api: SettingsFace,

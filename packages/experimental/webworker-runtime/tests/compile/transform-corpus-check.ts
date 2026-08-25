@@ -9,30 +9,10 @@
  * emits, so a rolldown upgrade that starts emitting an unseen module form shows
  * up here first.
  *
- * Consolidated from `.artifacts/w0-lexer-probe.ts` (part 2). Two deliberate
- * changes for the terminal form:
- *
- *  1. **No `es-module-lexer`.** The lexer was retired as a runtime dependency
- *     when the single acorn pass replaced the two-pass pipeline, so the
- *     statistics it used to contribute are counted from the acorn AST instead.
- *     The probe's part 1 (lexer field semantics over 20 sample forms) is dropped
- *     entirely: it documented the behaviour of a component that no longer runs.
- *     The forms themselves are covered as emitted-code assertions in
- *     `transform-check.ts`.
- *  2. **The baseline exemptions are a pinned list, not a count.** Four files
- *     cannot be imported by Node in this repository for reasons unrelated to the
- *     transform; the probe merely counted them, so a fifth would have gone
- *     unnoticed. Here they are named, and an unexpected member fails the run.
- *
- * Not consolidated: `.artifacts/v3-oracle.ts`, the byte-for-byte comparison
- * against the retired lexer pipeline. It was a **retirement gate** and it has
- * been through (`files=228 residualDifferences=0 lineDrift=0`). Keeping it as a
- * standing check would mean keeping two abandoned implementations alive
- * (`.artifacts/oracle-esm-to-cjs.ts`, `.artifacts/oracle-rewrite-await.ts`)
- * forever to compare against. The one real defect it caught that no other signal
- * could — `new.target` is also a `MetaProperty` — is preserved as a direct
- * assertion (`transform-check.ts`, trap 8), which is where that knowledge
- * belongs now.
+ * Module-syntax statistics are counted from the acorn AST, so the check has no
+ * separate lexer dependency. Baseline exemptions are a pinned list, not a count:
+ * four files cannot be imported by Node in this repository for reasons unrelated
+ * to the transform, and an unexpected member fails the run.
  *
  * Cost: this walks the whole build output and imports every bundle, so it takes
  * tens of seconds and needs `pnpm run build:lib:host` to have run. It is a
@@ -64,7 +44,7 @@ const repositoryRoot = fileURLToPath(new URL('../../../../../', import.meta.url)
 const BASELINE_EXEMPT: ReadonlyMap<string, string> = new Map([
   ['packages/client/ui-primitives/lib/index.js', 'imports .css, which bare Node cannot load'],
   ['packages/client/web/lib/index.js', 'imports .css, which bare Node cannot load'],
-  ['packages/sandbox/sandbox-windows-acl/lib/index.js', 'koffi type-name collision on a second load'],
+  ['packages/subprocess/win32-process/lib/index.js', 'koffi type-name collision on a second load'],
   ['packages/test-support/client-runtime/lib/index.js', "needs vitest's internal state"],
 ])
 
@@ -275,7 +255,7 @@ async function runTransformed(code: string, path: string): Promise<Record<string
   return exports
 }
 
-/** Module-syntax counts read from the AST, replacing what the retired lexer reported. */
+/** Module-syntax counts read from the AST. */
 interface Counts {
   staticImports: number
   dynamicImports: number
@@ -369,7 +349,7 @@ if (files.length === 0) {
 
     // The debugging contract, over the whole corpus: a transformed body has the
     // same line count as its source, so a stack frame still points at the right
-    // line. This is the property the retired oracle measured as "line drift".
+    // line.
     const sourceLines = source.split('\n').length
     const codeLines = code.split('\n').length
     if (sourceLines !== codeLines) {

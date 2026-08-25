@@ -20,11 +20,11 @@ Status: implemented
 
 优先级即列表顺序，逐配置项后写者胜：base，然后是 surface overlay，接着是 `--config` overlay 或个人 `~/.dsh/config.yaml`，最后是启动器自身的 flag 与 profile patch。
 
-`--config <path>` 现在应用一个 overlay 来**取代**个人 overlay，因此 demo 或测试用的树绝不会继承用户的提供方与 model。`--config-replace <path>` 则把某个文件作为整棵树启动，同时绕过 base、surface overlay 与个人 overlay；这正是旧 `--config` 的行为，所以像 `examples/web-cordis` 这样的树改用了新 flag。两个 flag 都会在 `/resume` 的 execve 交接中保留，否则恢复时会静默更换 agent（智能体）。
+`--config <path>` 应用一个 overlay 来**取代**个人 overlay，因此测试树绝不会继承用户的提供方与 model。`--config-replace <path>` 则把某个文件作为整棵树启动，同时绕过 base、surface overlay 与个人 overlay。两个 flag 都会在 `/resume` 的 execve 交接中保留，否则恢复时会静默更换 agent（智能体）。
 
 patch 会整体替换目标配置项的 `config` 而不合并。因此，取值因 surface 而异的配置项住在 overlay 中，绝不住在 base 里，从而没有任何配置项会被三层同时 patch。会话身份根本不能经由配置键传递——它迁移到了 `dsh-agent-loop` 的 `CONFIGURED_AGENT_IDENTITIES_KEY`，正如启动器持有身份的记录所述。
 
-`examples/tui-agent`、`examples/cordis-agent`、`examples/code-mode` 与 `packages/examples/tui-demo` 均被删除。TUI 测试迁往 `apps/cli/tests/`，cordis 工具集的 e2e 迁入 `packages/extensions/tool-cordis/tests/`，受支持的 Code Mode demo 则保留为 `examples/acp-agent/code-mode.cordis.yml` 中的 ACP（Agent Client Protocol）overlay。
+TUI 测试位于 `apps/cli/tests/`，Cordis 工具集 e2e 位于 `packages/extensions/tool-cordis/tests/`，受支持的 Code Mode demo 则以 `DSH_TOOLS_MODE=code` 运行 `dsh --profile headless`。
 
 ## 备选方案
 

@@ -141,7 +141,7 @@ export function SkillRow({ block, inspect, t }: SkillRowProps) {
       >
         <span className={css.leading}>{leading}</span>
         {status !== null ? <span className={css.visuallyHidden}>{status}</span> : null}
-        <span className={css.title}>Skill</span>
+        <span className={css.title}>{t('row.title')}</span>
         <span className={css.separator} aria-hidden />
         <span className={model.errorSummary === null ? css.summary : `${css.summary} ${css.errorSummary}`}>
           {summary}
@@ -156,7 +156,7 @@ export function SkillRow({ block, inspect, t }: SkillRowProps) {
           {inspect !== undefined ? (
             <button type="button" className={css.inspectButton} onClick={inspect}>
               <IconInspectOutline12 />
-              Inspect
+              {t('row.inspect')}
             </button>
           ) : null}
         </div>

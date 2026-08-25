@@ -141,7 +141,6 @@ describe('session-log invariants', () => {
     const enclosed = (await setup()).ctx.sessions.create()
     enclosed.append('turn/start', { turn: 1 })
     enclosed.append('step/start', { turn: 1, step: 1 })
-    expect(() => enclosed.append('todo/write', { todos: [] })).not.toThrow()
     expect(() => enclosed.append('request/header', {
       header: { config: { provider: 'mock', model: 'mock' } },
       reason: 'initial',

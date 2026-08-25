@@ -12,9 +12,9 @@ import {
 } from './scaffold.ts'
 import { newEnglishPage, saveFailureShot } from './support.ts'
 
-const FIXTURE = fileURLToPath(new URL('../../../examples/acp-agent/tests/snapshots/skill-load/session.jsonl', import.meta.url))
-const SNAPSHOT_DIR = fileURLToPath(new URL('./snapshots/skill-tool-row', import.meta.url))
-const UI_EXPECTED = fileURLToPath(new URL('./snapshots/skill-tool-row/ui.expected.md', import.meta.url))
+const FIXTURE = fileURLToPath(new URL('../../../snapshots/session/skill-load/session.jsonl', import.meta.url))
+const SNAPSHOT_DIR = fileURLToPath(new URL('../../../snapshots/web/skill-tool-row', import.meta.url))
+const UI_EXPECTED = fileURLToPath(new URL('../../../snapshots/web/skill-tool-row/ui.expected.md', import.meta.url))
 const MODE = webSnapshotMode()
 const SEED_ID = 'skill-tool-row-web-e2e'
 const PROMPT = 'Load the editing-cordis-compositions skill with the skill tool, then reply DONE.'
@@ -33,7 +33,7 @@ describe.skipIf(MODE === 'record')('web e2e: dedicated Skill tool row', () => {
     browser = await chromium.launch()
     page = await newEnglishPage(browser)
     tripwire = watchConsole(page)
-    await page.goto(scaffold.baseUrl, { waitUntil: 'load' })
+    await page.goto(scaffold.authenticatedUrl, { waitUntil: 'load' })
     await page.waitForSelector('[class*="frame"]', { timeout: 30_000 })
 
     const groupRow = page.locator('[role="treeitem"]').first()
@@ -68,6 +68,7 @@ describe.skipIf(MODE === 'record')('web e2e: dedicated Skill tool row', () => {
 
     const snapshot = (await captureStableAria(page, '[class*="centerCol"]', scaffold.workspaceCwd))
       .replace(/\b\d{1,2}\/\d{1,2}(?= \{\{clock\}\})/g, '{{date}}')
+      .replace(/\{\{date\}\} (?=\{\{clock\}\} Ran for)/g, '')
       .split(SEED_ID).join('{{seededId}}')
     await compareOrRefreshGolden(UI_EXPECTED, snapshot, MODE)
     expect(tripwire.pageErrors).toEqual([])

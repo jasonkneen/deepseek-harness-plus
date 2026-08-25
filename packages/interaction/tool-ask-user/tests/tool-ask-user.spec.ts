@@ -4,10 +4,21 @@ import { CallId } from '@deepseek-ai/dsh-llm'
 import AgentRegistry, { type Agent } from '@deepseek-ai/dsh-agent'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
-import UserQuestionService, { type AskUserQuestionRequest } from '@deepseek-ai/dsh-user-questions'
+import UserQuestionService, {
+  type AskUserQuestionAnswer,
+  type AskUserQuestionRequest,
+} from '@deepseek-ai/dsh-user-questions'
 import * as toolAskUser from '@deepseek-ai/dsh-tool-ask-user'
 
 const testToolSignal = new AbortController().signal
+
+interface QuestionAnswerer {
+  ask(request: AskUserQuestionRequest): Promise<AskUserQuestionAnswer>
+}
+
+function registerQuestionAnswerer(ctx: Context, answerer: QuestionAnswerer): () => void {
+  return ctx.on('user-questions/request', request => answerer.ask(request))
+}
 
 interface OptionSchemaShape {
   properties: {
@@ -78,7 +89,7 @@ describe('ask_user_question tool', () => {
   it('asks the registered user-questions provider and projects structured answers to text', async () => {
     const ctx = await setup()
     const seen: AskUserQuestionRequest[] = []
-    ctx.userQuestions.registerProvider({
+    registerQuestionAnswerer(ctx, {
       async ask(request) {
         seen.push(request)
         return { answers: [{ id: 'pkg', selected: ['pnpm'] }] }
@@ -114,7 +125,7 @@ describe('ask_user_question tool', () => {
   it('passes recommended option labels through without adding schema fields', async () => {
     const ctx = await setup()
     const seen: AskUserQuestionRequest[] = []
-    ctx.userQuestions.registerProvider({
+    registerQuestionAnswerer(ctx, {
       async ask(request) {
         seen.push(request)
         return { answers: [{ id: 'pkg', selected: ['pnpm (Recommended)'] }] }
@@ -145,7 +156,7 @@ describe('ask_user_question tool', () => {
 
   it('projects custom answers and multi-select choices', async () => {
     const ctx = await setup()
-    ctx.userQuestions.registerProvider({
+    registerQuestionAnswerer(ctx, {
       async ask() {
         return {
           answers: [
@@ -198,7 +209,7 @@ describe('ask_user_question tool', () => {
   it('passes the tool abort signal to the user-questions request', async () => {
     const ctx = await setup()
     const seen: AskUserQuestionRequest[] = []
-    ctx.userQuestions.registerProvider({
+    registerQuestionAnswerer(ctx, {
       async ask(request) {
         seen.push(request)
         return { answers: [{ id: 'continue', selected: ['ok'] }] }
@@ -219,7 +230,7 @@ describe('ask_user_question tool', () => {
   it('passes optional header and a resumed runtime root through to the user-questions request', async () => {
     const ctx = await setup()
     const seen: AskUserQuestionRequest[] = []
-    ctx.userQuestions.registerProvider({
+    registerQuestionAnswerer(ctx, {
       async ask(request) {
         seen.push(request)
         return { answers: [{ id: 'continue', selected: ['ok'] }] }
@@ -259,7 +270,7 @@ describe('ask_user_question tool', () => {
   it('rejects a live runtime-owned agent with a structured DELEGATED_CALLER error', async () => {
     const ctx = await setup()
     const seen: AskUserQuestionRequest[] = []
-    ctx.userQuestions.registerProvider({
+    registerQuestionAnswerer(ctx, {
       async ask(request) {
         seen.push(request)
         return { answers: [{ id: 'continue', selected: ['ok'] }] }

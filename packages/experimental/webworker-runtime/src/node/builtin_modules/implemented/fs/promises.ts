@@ -9,7 +9,7 @@ import { Dirent, promises } from '../fs.ts'
 /** The promise members of the VFS bridge, as `node:fs/promises` names them. */
 export const {
   readFile, writeFile, appendFile, mkdir, mkdtemp, readdir, stat, lstat, realpath, rm, unlink,
-  rename, access, chmod, cp, link, open, opendir, truncate, constants,
+  rename, access, chmod, cp, link, open, opendir, truncate, watch, constants,
 } = promises
 
 export { Dirent }

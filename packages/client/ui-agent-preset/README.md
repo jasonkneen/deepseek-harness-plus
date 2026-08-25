@@ -38,7 +38,7 @@ The browser edits no composition text. Editing YAML in a web textarea was a weak
 
 A preset publishes its own description, of any length, and the grid sizes every card row alike — so an unbounded description would set the height of the whole roster. Cards clamp it to four lines and offer the rest in a tooltip, attached only while the text is actually cut off. The clamp is CSS, so the whole description stays in the accessibility tree whatever the card shows.
 
-A shipped preset opens in the read-only viewer. It is the known-good composition a copy starts from, so reading it is the point; it offers no location and no delete — its install is overwritten by upgrades and is not the user's to manage. The intro carries the guidance a create button used to imply: duplicate an existing preset and make it yours, or let the agent draft one in Creator mode.
+A shipped preset opens in the read-only viewer. It is the known-good composition a copy starts from, so reading it is the point; it offers no location and no delete — its install is overwritten by upgrades and is not the user's to manage. The intro tells users to duplicate an existing preset and make it theirs, or let the agent draft one in Creator mode.
 
 Beside copying sits the conversational entry: when the roster carries the self-referential `cordis` preset, a dashed add-card (the Models page's affordance) stages it and starts a new session — the section closes the settings panel through the shell's owner-prop `close` and the new-session chip's own applier composes the blank session the workspace flow produces. The seat keeps a late roster load from regressing the display: staged pick first, then the composition the current session already carries, then the deployment default.
 
@@ -50,7 +50,7 @@ A roster row carrying `broken` (the host's shape check found the composition mis
 
 Setting the default writes the `agent-presets` settings namespace, which the host exposes to configuration clients ([`dsh-apiproxy`](../../host/apiproxy/README.md) keeps an explicit allowlist — a namespace outside it makes a picker move and then silently forget).
 
-`agentPreset.read`, `copy`, `openDocument`, and `remove` are loopback-pinned ([`dsh-client-connection`](../connection/README.md)): a composition names the plugins a session runs, so reading one is reconnaissance, and the rest manage the roster and drive the host desktop. `agentPreset.list` is not — it carries ids, trust, and the two path-free capability flags, and a LAN client's picker needs it.
+[`dsh-client-connection`](../connection/README.md) authenticates `agentPreset.read`, `copy`, `openDocument`, `remove`, `list`, and every other Host API method with the same browser session. A composition still names the plugins a session runs, so reading one is reconnaissance, while copy/remove/openDocument manage the roster and drive the host desktop.
 
 ## When the surfaces are absent
 

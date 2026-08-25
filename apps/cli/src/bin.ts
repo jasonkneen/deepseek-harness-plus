@@ -11,6 +11,8 @@ import { fileURLToPath } from 'node:url'
 import { loadLayeredEnv } from '@deepseek-ai/dsh-app-boot'
 import { parseDshArgs } from './args.ts'
 
+const PACKAGED_RUNNER_ARG = '--dsh-internal-subprocess-runner'
+
 // Both the source tree (apps/cli/src) and the bundled bin (apps/cli/lib) sit
 // one directory under apps/cli, so the checked-in manifest resolves with the
 // same relative hop from either artifact.
@@ -21,30 +23,35 @@ function readVersion(): string {
   return typeof manifest.version === 'string' ? manifest.version : '0.0.0'
 }
 
-const invocation = parseDshArgs(process.argv.slice(2), readVersion())
+if (process.argv[2] === PACKAGED_RUNNER_ARG) {
+  process.argv.splice(2, 1)
+  await import('@deepseek-ai/dsh-subprocess-local/spawn-runner')
+} else {
+  const invocation = parseDshArgs(process.argv.slice(2), readVersion())
 
-switch (invocation.mode) {
-  case 'profile': {
-    const { runProfile } = await import('./profile-boot.ts')
-    await runProfile({
-      environment: loadLayeredEnv('dsh'),
-      profile: invocation.profile,
-      patchFiles: invocation.patches,
-      args: invocation.args,
-    })
-    break
+  switch (invocation.mode) {
+    case 'profile': {
+      const { runProfile } = await import('./profile-boot.ts')
+      await runProfile({
+        environment: loadLayeredEnv('dsh'),
+        profile: invocation.profile,
+        patchFiles: invocation.patches,
+        args: invocation.args,
+      })
+      break
+    }
+    case 'plugin': {
+      const { runPlugin } = await import('./plugin.ts')
+      process.exit(runPlugin(invocation.profile, invocation.args))
+      break
+    }
+    case 'dump-config': {
+      const { runDumpConfig } = await import('./dump-config.ts')
+      runDumpConfig(invocation.profile, invocation.defaultOnly, invocation.patches)
+      break
+    }
+    default:
+      invocation satisfies never
+      throw new Error(`dsh: unhandled invocation mode ${JSON.stringify(invocation)}`)
   }
-  case 'plugin': {
-    const { runPlugin } = await import('./plugin.ts')
-    process.exit(runPlugin(invocation.profile, invocation.args))
-    break
-  }
-  case 'dump-config': {
-    const { runDumpConfig } = await import('./dump-config.ts')
-    runDumpConfig(invocation.profile, invocation.defaultOnly, invocation.patches)
-    break
-  }
-  default:
-    invocation satisfies never
-    throw new Error(`dsh: unhandled invocation mode ${JSON.stringify(invocation)}`)
 }

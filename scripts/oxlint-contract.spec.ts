@@ -56,7 +56,7 @@ describe('Oxlint executable contract', () => {
       // A test under packages/client states its face in the filename, so the
       // probe carries the Client suffix to reach the Client aggregate.
       ['client package test', 'packages/client/ui-trajectory/tests', 'tsconfig.client.json', '.client.ts'],
-      ['example', 'examples/headless-agent/tests', 'tsconfig.host.json'],
+      ['CLI profile test', 'apps/cli/tests/profiles/headless/tests', 'tsconfig.host.json'],
       ['website', 'website', 'tsconfig.host.json'],
     ] as const
     const source = `export function probePromise(): Promise<void> {

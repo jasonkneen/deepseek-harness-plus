@@ -2,13 +2,13 @@
 
 English | [中文](README.zh.md)
 
-The SDK provider runs each subagent as a complete DeepSeek Harness runtime in a fresh subprocess, driven over stdio JSON-RPC through the [TypeScript SDK client](../../sdk/client/README.md). It is the second out-of-process backend beside [`subagent-acp`](../subagent-acp/README.md), differing in the wire and the child contract: the ACP backend drives any Agent Client Protocol agent; this backend drives specifically a harness SDK runtime (`dsh-jsonrpc-agent` bin or packaged executable), so the child is a full peer harness — own `cordis.yml`-decided composition, session persistence, model route, and tools.
+The SDK provider runs each subagent as a complete DeepSeek Harness runtime in a fresh subprocess, driven over stdio JSON-RPC through the [TypeScript SDK client](../../sdk/client/README.md). It is the second out-of-process backend beside [`subagent-acp`](../subagent-acp/README.md), differing in the wire and child application: the ACP backend drives any Agent Client Protocol agent; this backend launches the same-version `dsh --profile sdk` application, so the child has its own profile-and-patch composition, session persistence, model route, and tools.
 
 ## Start and ownership
 
-`start(request)` resolves the child's working directory, spawns the runtime through `DeepSeekHarness`, and completes the `initialize` handshake (with the configured `provider`/`model` route and optional `maxTokens` output cap) before it fulfills. Fulfillment therefore means the child runtime is ready and ownership has transferred to the caller. A spawn, handshake, or pre-publication cancellation failure rejects only after the subprocess has been reaped; a working-directory resolution failure rejects before anything is spawned.
+`start(request)` resolves the child's working directory and one process-wide SDK route before spawning. Each declared `request.agentOptions` field (`provider`, `model`, `reasoningEffort`, or `maxTokens`) overrides the matching provider-instance default; omission preserves the configured provider/model and optional cap, while reasoning effort remains omitted unless the request supplies it. The provider then spawns through `DeepSeekHarness` and completes the child runtime's `initialize` handshake, including exact-model and effort validation, before it fulfills. Fulfillment therefore means the child runtime is ready and ownership has transferred to the caller. A route, spawn, handshake, or pre-publication cancellation failure rejects only after the subprocess has been reaped; a working-directory resolution failure rejects before anything is spawned.
 
-The working directory resolves exactly like the ACP backend, through the seam's shared out-of-process helpers ([`dsh-subagent`](../subagent/README.md)): the configured `cwd` override when set (validated once at load), else the delegating parent session's cwd — never the server process's own cwd. The resolved path becomes the child process cwd and the workspace cwd of its SDK session.
+The working directory resolves exactly like the ACP backend, through the seam's shared out-of-process helpers ([`dsh-subagent`](../subagent/README.md)): the configured `cwd` override when set (validated once at load), else the delegating parent session's cwd — never the server process's own cwd. The resolved path becomes the child process cwd and the workspace cwd of its SDK session. `dshHome` is separately required as an absolute path so a nested runtime cannot accidentally share its parent's profiles, plugin installation, or session storage.
 
 The returned run id is minted in the parent namespace; the child runtime's session id exists only inside the child process. After publication the provider owns one SDK activity and reads the child's answer from its session events: the last complete non-empty `assistant/message` (an empty-content message that records usage is skipped), or the accumulated `text-delta` stream when no such message exists. Partial output remains available after cancellation or an error.
 
@@ -20,31 +20,36 @@ The SDK client returns an owned child activity rather than a prompt result. The 
 
 ## Capabilities and context
 
-The provider advertises no start-time capabilities (`outputSchema`/`depthLimit`/`toolFilter`/`persona` all false) and `inheritsParentContext: false`: the child is a fresh runtime in another process, and the only parent-derived input is the workspace cwd. `dsh-tool-subagent` deployments over this provider set `maxDepth: 'provider-managed'` — the child harness owns its own recursion budget.
+The provider advertises `agentOptions: true`, with `outputSchema`/`depthLimit`/`toolFilter`/`persona` false, and `inheritsParentContext: false`. Its immutable `agentRouteDefaults` publish the configured provider/model baseline to `dsh-tool-subagent` before model overrides and exact-route preflight; `start()` independently applies the same Config defaults for direct callers and maxTokens. Agent route values cross the SDK wire as an explicit whitelist; the child remains a fresh runtime in another process, and the only value derived from the parent Agent itself is the workspace cwd. `dsh-tool-subagent` deployments over this provider set `maxDepth: 'provider-managed'` — the child harness owns its own recursion budget.
 
 ## Configuration
 
 | Key | Default | Meaning |
 |---|---|---|
 | `providerName` | `dsh-sdk` | Registry name on `ctx.subagents`. |
-| `command` | required | Executable spawned per run (the child runtime bin or packaged exe). |
-| `args` | `[]` | Command arguments (typically the child's `cordis.yml` path). |
+| `dshBin` | same-version SDK dependency | Explicit dsh CLI module override. A relative path resolves at plugin load and must name an existing file. Ordinary deployments omit it. |
+| `profile` | `sdk` | Named dsh profile launched for each child. The profile must include the SDK app. |
+| `patches` | `[]` | Ordered per-launch profile patch files. Relative paths resolve at plugin load, and every path must name an existing file. |
+| `dshHome` | required | Absolute isolated dsh home for the nested runtime's profiles, installed plugins, and session data. |
 | `cwd` | parent session cwd | Working-directory override; same validation as [`subagent-acp`](../subagent-acp/README.md). |
 | `provider` | `deepseek-official` | Provider route sent in the child's `initialize`. |
 | `model` | `deepseek-v4-flash` | Model sent in the child's `initialize`. |
 | `maxTokens` | adapter/provider route default | Per-request output-token cap sent in the child's `initialize`; it applies to the child root agent and its in-process descendants. |
-| `env` | `{}` | Explicit child environment layered over a credential-scrubbed parent environment (e.g. the child's own `DEEPSEEK_API_KEY`, or `DSH_CORDIS_CONFIG`). |
+| `env` | `{}` | Explicit child environment layered over a credential-scrubbed parent environment, such as the child's own `DEEPSEEK_API_KEY`. |
 | `shutdownTimeoutMs` | `1000` | Bound on the protocol `shutdown` exchange during dispose. |
 | `disposeEofGraceMs` | `6000` | Grace after stdin EOF before platform termination. |
 | `disposeGraceMs` | `3000` | Exit-confirmation grace after termination; POSIX also waits this long after SIGTERM before SIGKILL. |
+
+Request `agentOptions` override `provider`, `model`, and `maxTokens` independently. `reasoningEffort` has no provider-instance default: an omitted request leaves it absent so the selected child model resolves its own default. The model-facing subagent tool can select provider/model/reasoning per call; `maxTokens` remains deployment-controlled through tool config or this provider's default.
 
 ```yaml
 - id: subagent-dsh-sdk
   name: '@deepseek-ai/dsh-subagent-dsh-sdk'
   config:
     providerName: dsh-sdk
-    command: node
-    args: ['./packages/examples/jsonrpc-demo/lib/bin.js', './examples/jsonrpc-agent/cordis.yml']
+    profile: sdk
+    patches: ['./profiles/research-child.cordis.yml']
+    dshHome: !!js dshHomePath('children')
     maxTokens: 49152
     env:
       DEEPSEEK_API_KEY: !!js process.env.DEEPSEEK_API_KEY
@@ -65,7 +70,7 @@ The package has no default export. Cordis loader unwrapping would otherwise hide
 
 #### What the model sees
 
-The child runtime's model receives the standalone task as its user message plus that runtime's own configured system prompt, tools, and fresh session. It receives no parent conversation. This provider advertises no optional start-time capabilities, so the local service rejects requests for persona, tool filtering, depth enforcement, or structured output instead of silently omitting them.
+The child runtime's model receives the standalone task as its user message plus that runtime's own configured system prompt, tools, and fresh session. It receives no parent conversation. A parent tool call may choose the child provider, model, and reasoning effort for this run; the selected route and any deployment-owned output cap are fixed for the new child process. Persona, tool filtering, depth enforcement, and structured output remain unsupported and are rejected instead of silently omitted.
 
 #### Token effect
 
@@ -92,6 +97,6 @@ Append-only; newly visible content follows the reusable request prefix and does 
 ## Known Limitations and Deferred Work
 
 - **A fresh runtime process per run** — no pooling; a harness runtime boots a full plugin tree, so per-run spawn cost is higher than the ACP backend's typical child.
-- **No optional start-time capabilities** — the parent cannot enforce `outputSchema`, depth, tool filters, or persona inside the child process; configure the child's own `cordis.yml` instead.
+- **No non-route start-time capabilities** — the parent can select the child Agent route but cannot enforce `outputSchema`, depth, tool filters, or persona inside the child process; configure the selected child profile and its ordered patches instead.
 - **The child's transcript stays in the child's own session root** — the parent log records only the delegation tool call/result (the seam's child-isolation rule); the streamed `session.event` channel is consumed for output extraction, not bridged into the parent log.
 - **Local child processes only** — the resolved cwd is a local path; a remote runtime would need its own backend.
