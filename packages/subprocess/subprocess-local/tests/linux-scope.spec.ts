@@ -1,7 +1,9 @@
 import { spawn, spawnSync } from 'node:child_process'
+import { existsSync } from 'node:fs'
+import { dirname } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import type { SubprocessSpawnSpec } from '@deepseek-ai/dsh-subprocess'
-import { launchLinuxScope, probeLinuxScope } from '../src/linux-scope.ts'
+import { launchLinuxScope, prepareLinuxTerminalScope, probeLinuxScope } from '../src/linux-scope.ts'
 import { spawnRunnerInvocation } from '../src/runner-launch.ts'
 
 function spec(argv: string[]): SubprocessSpawnSpec {
@@ -46,23 +48,59 @@ describe.skipIf(process.platform === 'win32')('Linux systemd scope adapter', () 
         systemctl: 'systemctl',
         runnerInvocation,
       })).toBe(true)
-      expect(calls[1]).toContain('--expand-environment=no')
-      expect(calls[1]).not.toContain('--pipe')
-      expect(calls[1]).not.toContain('--wait')
-      const separator = calls[1]?.indexOf('--') ?? -1
-      expect(calls[1]?.slice(separator + 1)).toEqual([...runnerInvocation, '--mode', 'probe-node'])
+      expect(calls[1]).toEqual([...runnerInvocation, '--mode', 'probe-node'])
+      expect(calls[2]).toContain('--expand-environment=no')
+      expect(calls[2]).not.toContain('--pipe')
+      expect(calls[2]).not.toContain('--wait')
+      const unitArg = calls[2]?.find(arg => arg.startsWith('--unit='))
+      if (unitArg === undefined) throw new Error('scope probe did not publish its unit')
+      const separator = calls[2]?.indexOf('--') ?? -1
+      expect(calls[2]?.slice(separator + 1)).toEqual([
+        'systemctl',
+        '--user',
+        'show',
+        `${unitArg.slice('--unit='.length)}.scope`,
+        '--property=ActiveState',
+        '--value',
+      ])
       expect(environments[0]?.LC_ALL).toBe('C')
-      expect(environments[0]).not.toHaveProperty(secretName)
+      for (const environment of environments) expect(environment).not.toHaveProperty(secretName)
     } finally {
       if (previousSecret === undefined) Reflect.deleteProperty(process.env, secretName)
       else process.env[secretName] = previousSecret
     }
 
     const oldSystemd = vi.fn((command: string) => ({
-      status: command === 'systemctl' ? 0 : 1,
+      status: command === 'systemd-run' ? 1 : 0,
       error: undefined,
     })) as unknown as typeof spawnSync
     expect(probeLinuxScope({ spawnSync: oldSystemd })).toBe(false)
+
+    const failedRunner = vi.fn((command: string) => ({
+      status: command === 'node-runtime' ? 1 : 0,
+      error: undefined,
+    })) as unknown as typeof spawnSync
+    expect(probeLinuxScope({
+      spawnSync: failedRunner,
+      runnerInvocation: ['node-runtime', 'runner-entry.js'],
+    })).toBe(false)
+    expect(failedRunner).toHaveBeenCalledTimes(2)
+
+    let unreadableProbeCalls = 0
+    const unreadableScope = vi.fn(() => ({
+      status: ++unreadableProbeCalls === 3 ? 1 : 0,
+      error: undefined,
+    })) as unknown as typeof spawnSync
+    expect(probeLinuxScope({ spawnSync: unreadableScope })).toBe(false)
+
+    let erroredProbeCalls = 0
+    const erroredScope = vi.fn(() => {
+      erroredProbeCalls += 1
+      return erroredProbeCalls === 3
+        ? { status: null, error: new Error('scope read failed') }
+        : { status: 0, error: undefined }
+    }) as unknown as typeof spawnSync
+    expect(probeLinuxScope({ spawnSync: erroredScope })).toBe(false)
 
     const managerError = new Error('missing user manager')
     expect(probeLinuxScope({
@@ -72,6 +110,78 @@ describe.skipIf(process.platform === 'win32')('Linux systemd scope adapter', () 
       spawnSync: vi.fn(() => ({ status: 1, error: undefined })) as unknown as typeof spawnSync,
     })).toBe(false)
 
+  })
+
+  it('removes private runner files when systemd-run throws synchronously', () => {
+    const failure = new Error('systemd-run threw')
+    let requestPath: string | undefined
+    const run = vi.fn((_command: string, args: readonly string[]) => {
+      const requestIndex = args.indexOf('--request')
+      requestPath = args[requestIndex + 1]
+      throw failure
+    }) as unknown as typeof spawn
+
+    expect(() => launchLinuxScope(spec([process.execPath, '-e', '']), {
+      spawn: run,
+      runnerInvocation: spawnRunnerInvocation(),
+    })).toThrow(failure)
+    expect(requestPath).toBeDefined()
+    expect(existsSync(dirname(requestPath as string))).toBe(false)
+  })
+
+  it('wraps terminal argv literally and binds signalling and observation to the same scope', async () => {
+    const signalCalls: Array<[string, readonly string[]]> = []
+    const queryCalls: Array<[string, readonly string[]]> = []
+    const runSync = vi.fn((command: string, args: readonly string[]) => {
+      signalCalls.push([command, args])
+      return { status: 0, stdout: '', stderr: '', error: undefined }
+    }) as unknown as typeof spawnSync
+    const query = vi.fn(async (command: string, args: readonly string[]) => {
+      queryCalls.push([command, args])
+      return { status: 0, stdout: 'inactive\n', stderr: '' }
+    })
+    const argv = ['/bin/bash', '-c', 'printf "%s" "$HOME"']
+    const launch = prepareLinuxTerminalScope(argv, {
+      spawnSync: runSync,
+      systemdRun: '/usr/bin/systemd-run',
+      systemctl: '/usr/bin/systemctl',
+      systemctlQuery: query,
+    })
+    const unitArg = launch.args.find(arg => arg.startsWith('--unit='))
+    if (unitArg === undefined) throw new Error('terminal scope did not publish its unit')
+    const unit = `${unitArg.slice('--unit='.length)}.scope`
+
+    expect(launch.command).toBe('/usr/bin/systemd-run')
+    expect(launch.args.slice(0, -argv.length)).toEqual([
+      '--user',
+      '--scope',
+      '--quiet',
+      '--collect',
+      '--expand-environment=no',
+      unitArg,
+      '--',
+    ])
+    expect(launch.args.slice(-argv.length)).toEqual(argv)
+
+    const owner = launch.bindOwner(() => false)
+    owner.signal('SIGTERM')
+    owner.signal('SIGKILL')
+    await owner.waitForExit()
+
+    expect(signalCalls).toEqual([
+      [
+        '/usr/bin/systemctl',
+        ['--user', 'kill', '--kill-whom=all', '--signal=SIGTERM', unit],
+      ],
+      [
+        '/usr/bin/systemctl',
+        ['--user', 'kill', '--kill-whom=all', '--signal=SIGKILL', unit],
+      ],
+    ])
+    expect(queryCalls).toEqual([[
+      '/usr/bin/systemctl',
+      ['--user', 'show', unit, '--property=ActiveState', '--value'],
+    ]])
   })
 
   it('keeps user argv out of systemd-run and reports the direct target outcome', async () => {
@@ -267,7 +377,7 @@ describe.skipIf(process.platform === 'win32')('Linux systemd scope adapter', () 
       }),
       runnerInvocation: spawnRunnerInvocation(),
     })
-    expect(launch.pid).toBe(-1)
+    expect(launch.pid).toBeUndefined()
     await expect(launch.direct).rejects.toThrow('runner failed to start')
     await expect(launch.owner.waitForExit()).resolves.toBeUndefined()
   })
@@ -391,6 +501,9 @@ describe.skipIf(process.platform === 'win32')('Linux systemd scope adapter', () 
     try {
       const defaults = await import('../src/linux-scope.ts')
       expect(defaults.probeLinuxScope()).toBe(true)
+      const terminalLaunch = defaults.prepareLinuxTerminalScope(['shell', 'literal $HOME'])
+      expect(terminalLaunch.command).toBe('systemd-run')
+      expect(terminalLaunch.args.slice(-3)).toEqual(['--', 'shell', 'literal $HOME'])
       const launch = defaults.launchLinuxScope(spec([process.execPath, '-e', 'process.exit(0)']))
       await expect(launch.direct).resolves.toEqual({ exitCode: 0, signal: null })
       await expect(launch.owner.waitForExit()).resolves.toBeUndefined()

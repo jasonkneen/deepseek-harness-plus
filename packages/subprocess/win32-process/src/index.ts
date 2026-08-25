@@ -24,14 +24,14 @@ export {
   openNamedPipeForStdio,
   pollProcessExit,
   spawnInheritedJobProcess,
-  spawnOrdinaryJobProcess,
+  spawnCurrentTokenJobProcess,
   spawnPipedProcess,
   terminateJob,
   waitForProcessExit,
 } from './process.ts'
 export type {
   ChildStdioHandles,
-  OrdinaryProcessSpawnOptions,
+  CurrentTokenProcessSpawnOptions,
   SpawnedJobProcess,
   SpawnedPipedProcess,
 } from './process.ts'

@@ -37,7 +37,7 @@ export function spawnRunnerInvocation(): RunnerInvocation {
     return [process.execPath, builtEntry]
   }
   /* v8 ignore stop */
-  const sourceEntry = fileURLToPath(import.meta.resolve('@deepseek-ai/dsh-subprocess-local/src/spawn-runner.ts'))
+  const sourceEntry = fileURLToPath(import.meta.resolve('@deepseek-ai/dsh-subprocess-local/src/bin.ts'))
   return [process.execPath, '--import', 'tsx/esm', sourceEntry]
 }
 
@@ -68,9 +68,23 @@ export function runnerFiles(spec: SubprocessSpawnSpec): RunnerFiles {
 }
 
 interface RunnerHandshake {
-  pid: number
+  pid: number | undefined
   events: RunnerEvent[]
   failureReported: boolean
+}
+
+function directTerminalResult(
+  events: readonly RunnerEvent[],
+): { outcome: SubprocessOutcome } | { error: Error } | undefined {
+  for (const event of events) {
+    if (event.type === 'exit') {
+      return { outcome: { exitCode: event.exitCode, signal: event.signal } }
+    }
+    if (event.type === 'spawn-error' || event.type === 'runner-error') {
+      return { error: deserializeSpawnError(event.error) }
+    }
+  }
+  return undefined
 }
 
 /** Observe wrapper death without waiting for Node's blocked event loop to emit close. */
@@ -105,7 +119,7 @@ function waitForRunnerHandshake(child: ChildProcess, files: RunnerFiles): Runner
     const terminal = events.find(event => event.type === 'started' || event.type === 'spawn-error' || event.type === 'runner-error')
     if (terminal?.type === 'started') return { pid: terminal.pid, events, failureReported: false }
     if (terminal?.type === 'spawn-error' || terminal?.type === 'runner-error') {
-      return { pid: -1, events, failureReported: true }
+      return { pid: undefined, events, failureReported: true }
     }
     if (child.pid === undefined) throw new Error('native subprocess runner failed to start')
     if (runnerExited(child, child.pid)) throw new Error('native subprocess runner exited before reporting target start')
@@ -119,7 +133,7 @@ async function waitForDirectResult(
   initial: RunnerEvent[],
   exited: Promise<void>,
 ): Promise<SubprocessOutcome> {
-  let seen = 0
+  let seen = initial.length
   const wrapperState = { exited: false }
   void exited.then(() => { wrapperState.exited = true })
   for (;;) {
@@ -128,11 +142,12 @@ async function waitForDirectResult(
     // event was written before the runner exited.
     const exitedBeforeRead = wrapperState.exited
     const events = await readRunnerEventsAsync(files.eventsPath)
-    for (const event of events.slice(seen)) {
-      if (event.type === 'exit') return { exitCode: event.exitCode, signal: event.signal }
-      if (event.type === 'spawn-error' || event.type === 'runner-error') throw deserializeSpawnError(event.error)
+    const terminal = directTerminalResult(events.slice(seen))
+    if (terminal !== undefined) {
+      if ('error' in terminal) throw terminal.error
+      return terminal.outcome
     }
-    seen = Math.max(seen, events.length, initial.length)
+    seen = Math.max(seen, events.length)
     if (exitedBeforeRead) {
       throw new DirectResultUnavailableError('native subprocess runner exited without a direct-command result')
     }
@@ -152,7 +167,7 @@ export function runnerDirectResult(
   files: RunnerFiles,
   exited: Promise<void>,
 ): {
-  pid: number
+  pid: number | undefined
   direct: Promise<SubprocessOutcome>
   failureReported: boolean
 } {
@@ -161,11 +176,16 @@ export function runnerDirectResult(
     handshake = waitForRunnerHandshake(child, files)
   } catch (error) {
     cleanupRunnerFiles(files)
-    return { pid: -1, direct: Promise.resolve().then(() => { throw error }), failureReported: false }
+    return { pid: undefined, direct: Promise.resolve().then(() => { throw error }), failureReported: false }
   }
+  const terminal = directTerminalResult(handshake.events)
   return {
     pid: handshake.pid,
-    direct: waitForDirectResult(files, handshake.events, exited),
+    direct: terminal === undefined
+      ? waitForDirectResult(files, handshake.events, exited)
+      : 'error' in terminal
+        ? Promise.reject(terminal.error)
+        : Promise.resolve(terminal.outcome),
     failureReported: handshake.failureReported,
   }
 }

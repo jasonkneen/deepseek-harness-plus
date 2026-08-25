@@ -380,6 +380,91 @@ describe('LocalSubprocessRuntime', () => {
     }
   })
 
+  it('wraps Linux terminals in the selected scope and binds owner liveness', async () => {
+    let exitListener: ((event: { exitCode: number; signal?: number }) => void) | undefined
+    let launcherRunning: (() => boolean) | undefined
+    const terminal = {
+      pid: 123,
+      onData: () => ({ dispose: () => {} }),
+      onExit: (listener: (event: { exitCode: number; signal?: number }) => void) => {
+        exitListener = listener
+        return { dispose: () => {} }
+      },
+      write: () => {},
+      kill: () => {},
+    }
+    const nodePtySpawn = vi.fn(() => terminal)
+    const owner = {
+      signal: vi.fn(),
+      waitForExit: vi.fn(async () => {}),
+    }
+    const launcherStates: boolean[] = []
+    const bindOwner = vi.fn((running: () => boolean) => {
+      launcherRunning = running
+      launcherStates.push(running())
+      return owner
+    })
+    const prepareLinuxTerminalScope = vi.fn((argv: readonly string[]) => ({
+      command: '/usr/bin/systemd-run',
+      args: ['--user', '--scope', '--', ...argv],
+      bindOwner,
+    }))
+    const probeLinuxScope = vi.fn(() => true)
+    const inspector = {
+      foregroundPgid: () => undefined,
+      isStdinWaiting: () => false,
+      processTree: () => [{ pid: 123, started: 'shell' }],
+      processSession: () => [],
+      isAlive: () => false,
+      signalGroup: () => {},
+      signalProcess: () => {},
+    }
+
+    vi.resetModules()
+    vi.doMock('node-pty', () => ({ spawn: nodePtySpawn }))
+    vi.doMock('../src/linux-scope.ts', () => ({
+      launchLinuxScope: vi.fn(),
+      prepareLinuxTerminalScope,
+      probeLinuxScope,
+    }))
+    let fiber: { dispose(): Promise<void> } | undefined
+    try {
+      const { default: IsolatedLocalSubprocessRuntime } = await import('../src/index.ts')
+      const ctx = new Context()
+      fiber = await ctx.plugin(IsolatedLocalSubprocessRuntime)
+      const runtime = ctx.subprocess as InstanceType<typeof IsolatedLocalSubprocessRuntime>
+      runtime.internals = { platform: 'linux' }
+      runtime.terminalInspector = inspector
+
+      const handle = await runtime.spawnTerminal({
+        argv: ['shell', '--literal'], cwd: process.cwd(), rows: 24, cols: 80, graceMs: 10,
+      })
+
+      expect(probeLinuxScope).toHaveBeenCalledOnce()
+      expect(prepareLinuxTerminalScope).toHaveBeenCalledExactlyOnceWith(['shell', '--literal'])
+      expect(nodePtySpawn).toHaveBeenCalledWith(
+        '/usr/bin/systemd-run',
+        ['--user', '--scope', '--', 'shell', '--literal'],
+        expect.objectContaining({ rows: 24, cols: 80 }),
+      )
+      expect(bindOwner).toHaveBeenCalledOnce()
+      expect(launcherStates).toEqual([true])
+      expect(launcherRunning?.()).toBe(true)
+
+      exitListener?.({ exitCode: 0 })
+      expect(launcherRunning?.()).toBe(false)
+      await handle.done
+      await new Promise(resolve => setImmediate(resolve))
+      expect(owner.signal).toHaveBeenCalledExactlyOnceWith('SIGTERM')
+      expect(owner.waitForExit).toHaveBeenCalledOnce()
+    } finally {
+      await fiber?.dispose()
+      vi.doUnmock('node-pty')
+      vi.doUnmock('../src/linux-scope.ts')
+      vi.resetModules()
+    }
+  })
+
   it('retains a terminal whose automatic cleanup fails', async () => {
     let exitListener: ((event: { exitCode: number; signal?: number }) => void) | undefined
     const terminal = {
@@ -456,31 +541,32 @@ describe('LocalSubprocessRuntime', () => {
   })
 
   it('reports the platform-specific reason for every fallback mode', async () => {
-    const ctx = new Context()
-    const warning = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => {})
-    const fiber = await ctx.plugin(LocalSubprocessRuntime)
-    const runtime = ctx.subprocess as unknown as {
-      warnFallback(platform: NodeJS.Platform): void
-    }
-    try {
-      for (const [platform, reason] of [
-        ['darwin', 'macOS has no supported persistent process-range owner'],
-        ['linux', 'a modern readable user-systemd scope is unavailable'],
-        ['win32', 'the Win32 Job runner is unavailable'],
-        ['freebsd', 'platform freebsd has no native managed range'],
-      ] as const) {
-        runtime.warnFallback(platform)
+    for (const [platform, kind, reason] of [
+      ['darwin', 'ordinary', 'macOS has no supported persistent process-range owner'],
+      ['linux', 'terminal', 'a modern readable user-systemd scope is unavailable'],
+      ['win32', 'ordinary', 'the Win32 Job runner is unavailable'],
+      ['win32', 'terminal', 'Windows ConPTY remains outside Job containment'],
+      ['freebsd', 'ordinary', 'platform freebsd has no native managed range'],
+    ] as const) {
+      const ctx = new Context()
+      const warning = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => {})
+      const fiber = await ctx.plugin(LocalSubprocessRuntime)
+      const runtime = ctx.subprocess as unknown as {
+        warnFallback(platform: NodeJS.Platform, kind: 'ordinary' | 'terminal'): void
+      }
+      try {
+        runtime.warnFallback(platform, kind)
         expect(warning).toHaveBeenLastCalledWith(
           expect.stringContaining(reason),
         )
+      } finally {
+        warning.mockRestore()
+        await fiber.dispose()
       }
-    } finally {
-      warning.mockRestore()
-      await fiber.dispose()
     }
   })
 
-  it('selects each available native owner once and contains release-observer failures', async () => {
+  it('selects an available native owner for every eligible spawn and contains release-observer failures', async () => {
     const linuxLaunch = { kind: 'linux' }
     const windowsLaunch = { kind: 'windows' }
     const launchLinuxScope = vi.fn(() => linuxLaunch)
@@ -536,7 +622,7 @@ describe('LocalSubprocessRuntime', () => {
       await new Promise(resolve => setImmediate(resolve))
       await linuxRuntime.spawn(spec('true')).done
       await new Promise(resolve => setImmediate(resolve))
-      expect(probeLinuxScope).toHaveBeenCalledOnce()
+      expect(probeLinuxScope).toHaveBeenCalledTimes(3)
       expect(launchLinuxScope).toHaveBeenCalledTimes(2)
 
       const windowsContext = new Context()

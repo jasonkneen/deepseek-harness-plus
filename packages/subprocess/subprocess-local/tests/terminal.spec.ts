@@ -5,6 +5,7 @@ import type {
   ProcessIdentity,
   ProcessInspector,
 } from '@deepseek-ai/dsh-subprocess-local/src/process-inspector.ts'
+import type { BoundProcessOwner } from '@deepseek-ai/dsh-subprocess-local/src/managed-owner.ts'
 import type { SubprocessTerminalSignal } from '@deepseek-ai/dsh-subprocess'
 
 class FakePty {
@@ -91,6 +92,113 @@ function makeHandle(pty: FakePty, inspector: ProcessInspector, graceMs: number):
 }
 
 describe('LocalTerminalHandle', () => {
+  it('terminates a managed range with TERM when it stops within the grace period', async () => {
+    const pty = new FakePty()
+    const inspector = new FakeInspector()
+    const stopped = Promise.withResolvers<undefined>()
+    const signals: Array<'SIGTERM' | 'SIGKILL'> = []
+    const owner: BoundProcessOwner = {
+      signal(signal) {
+        signals.push(signal)
+        if (signal === 'SIGTERM') {
+          pty.emitExit(0, 15)
+          stopped.resolve(undefined)
+        }
+      },
+      waitForExit: () => stopped.promise,
+    }
+    const handle = new LocalTerminalHandle(pty.asPty(), inspector, 10, 'linux', owner)
+
+    await handle.terminate()
+
+    expect(signals).toEqual(['SIGTERM'])
+    await expect(handle.done).resolves.toEqual({ exitCode: null, signal: 'SIGTERM' })
+  })
+
+  it('escalates a managed range to KILL after the TERM grace expires', async () => {
+    vi.useFakeTimers()
+    const pty = new FakePty()
+    const inspector = new FakeInspector()
+    const stopped = Promise.withResolvers<undefined>()
+    const signals: Array<'SIGTERM' | 'SIGKILL'> = []
+    const owner: BoundProcessOwner = {
+      signal(signal) {
+        signals.push(signal)
+        if (signal === 'SIGKILL') {
+          pty.emitExit(0, 9)
+          stopped.resolve(undefined)
+        }
+      },
+      waitForExit: () => stopped.promise,
+    }
+    const handle = new LocalTerminalHandle(pty.asPty(), inspector, 10, 'linux', owner)
+
+    const terminating = handle.terminate()
+    await vi.advanceTimersByTimeAsync(10)
+    await terminating
+
+    expect(signals).toEqual(['SIGTERM', 'SIGKILL'])
+  })
+
+  it('force-kills a managed range when observation rejects and preserves that failure', async () => {
+    const pty = new FakePty()
+    const failure = new Error('scope became unreadable')
+    const signals: Array<'SIGTERM' | 'SIGKILL'> = []
+    const owner: BoundProcessOwner = {
+      signal: (signal) => { signals.push(signal) },
+      waitForExit: async () => { throw failure },
+    }
+    const handle = new LocalTerminalHandle(pty.asPty(), new FakeInspector(), 10, 'linux', owner)
+
+    await expect(handle.terminate()).rejects.toBe(failure)
+    expect(signals).toEqual(['SIGTERM', 'SIGKILL'])
+  })
+
+  it('routes managed terminal host exit directly to KILL', () => {
+    const pty = new FakePty()
+    const inspector = new FakeInspector()
+    const signal = vi.fn()
+    const owner: BoundProcessOwner = { signal, waitForExit: async () => {} }
+    const handle = new LocalTerminalHandle(pty.asPty(), inspector, 10, 'linux', owner)
+
+    handle.terminateForHostExit()
+
+    expect(signal).toHaveBeenCalledExactlyOnceWith('SIGKILL')
+    expect(inspector.processes).toEqual([])
+    expect(pty.kills).toEqual([])
+  })
+
+  it('waits for the node-pty exit event after the managed range becomes empty', async () => {
+    const pty = new FakePty()
+    const owner: BoundProcessOwner = { signal: vi.fn(), waitForExit: async () => {} }
+    const handle = new LocalTerminalHandle(pty.asPty(), new FakeInspector(), 100, 'linux', owner)
+    let settled = false
+
+    const terminating = handle.terminate().then(() => { settled = true })
+    await new Promise(resolve => setImmediate(resolve))
+    expect(settled).toBe(false)
+
+    pty.emitExit()
+    await terminating
+  })
+
+  it('rejects when a managed range stops but node-pty never publishes exit', async () => {
+    vi.useFakeTimers()
+    const pty = new FakePty()
+    const signals: Array<'SIGTERM' | 'SIGKILL'> = []
+    const owner: BoundProcessOwner = {
+      signal: (signal) => { signals.push(signal) },
+      waitForExit: async () => {},
+    }
+    const handle = new LocalTerminalHandle(pty.asPty(), new FakeInspector(), 10, 'linux', owner)
+
+    const terminating = handle.terminate()
+    const rejected = expect(terminating).rejects.toThrow('terminal cleanup failed; surviving pid: 123')
+    await vi.advanceTimersByTimeAsync(10)
+    await rejected
+    expect(signals).toEqual(['SIGTERM'])
+  })
+
   it('force-kills descendants around the shell during synchronous host exit', () => {
     const pty = new FakePty()
     const inspector = new FakeInspector()

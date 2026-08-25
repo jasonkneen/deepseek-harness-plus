@@ -1,12 +1,14 @@
 import { spawn, spawnSync } from 'node:child_process'
 import type { ChildProcess } from 'node:child_process'
 import { EventEmitter } from 'node:events'
-import { existsSync, mkdirSync, mkdtempSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it, vi } from 'vitest'
-import type { SubprocessSpawnSpec } from '@deepseek-ai/dsh-subprocess'
+import type { SubprocessOutcome, SubprocessSpawnSpec } from '@deepseek-ai/dsh-subprocess'
+import { Win32Error } from '@deepseek-ai/dsh-win32-process'
+import type { NativePtr, Win32ProcessBindings } from '@deepseek-ai/dsh-win32-process'
 import {
   cleanupAfterRunner,
   runnerDirectResult,
@@ -25,12 +27,13 @@ import {
   readRunnerEventsAsync,
   serializeSpawnError,
 } from '../src/runner-protocol.ts'
+import { reportSpawnRunnerFailure, runSpawnRunner } from '../src/spawn-runner.ts'
 
 const sourceInvocation = [
   process.execPath,
   '--import',
   'tsx/esm',
-  fileURLToPath(import.meta.resolve('@deepseek-ai/dsh-subprocess-local/src/spawn-runner.ts')),
+  fileURLToPath(import.meta.resolve('@deepseek-ai/dsh-subprocess-local/src/bin.ts')),
 ]
 function spec(overrides: Partial<SubprocessSpawnSpec> = {}): SubprocessSpawnSpec {
   return {
@@ -44,6 +47,60 @@ function spec(overrides: Partial<SubprocessSpawnSpec> = {}): SubprocessSpawnSpec
 
 function fakeChild(pid: number | undefined): ChildProcess {
   return { pid } as ChildProcess
+}
+
+class FakeRunnerHost extends EventEmitter {
+  env: NodeJS.ProcessEnv = {}
+  exitCode: number | undefined
+  connected = false
+  directory = process.cwd()
+  readonly disconnect = vi.fn(() => { this.connected = false })
+
+  cwd(): string { return this.directory }
+  chdir(directory: string): void { this.directory = directory }
+}
+
+function asRunnerHost(host: FakeRunnerHost): Parameters<typeof runSpawnRunner>[1] {
+  return host as unknown as Parameters<typeof runSpawnRunner>[1]
+}
+
+type RunnerInternals = NonNullable<Parameters<typeof runSpawnRunner>[2]>
+
+const fakeWin32Api = {} as Win32ProcessBindings
+const fakeProcessHandle = 60n as NativePtr
+const fakeJobHandle = 50n as NativePtr
+
+function fakeRunnerInternals(overrides: Partial<RunnerInternals> = {}): RunnerInternals {
+  let nextPipeHandle = 70n
+  return {
+    spawn,
+    loadWin32ProcessBindings: vi.fn(() => fakeWin32Api),
+    openNamedPipeForStdio: vi.fn(() => nextPipeHandle++),
+    spawnCurrentTokenJobProcess: vi.fn(() => ({
+      pid: 1234,
+      process: fakeProcessHandle,
+      job: fakeJobHandle,
+    })),
+    pollProcessExit: vi.fn(() => 0),
+    isJobEmpty: vi.fn(() => true),
+    terminateJob: vi.fn(),
+    waitForProcessExit: vi.fn(() => 0),
+    closeHandleChecked: vi.fn(),
+    ...overrides,
+  } as RunnerInternals
+}
+
+function win32RunnerArgs(
+  requestPath: string,
+  eventsPath: string,
+  pipes: string[] = [],
+): string[] {
+  return [
+    '--mode', 'win32',
+    '--request', requestPath,
+    '--events', eventsPath,
+    ...pipes,
+  ]
 }
 
 function runRunner(invocation: string[], requestPath: string, eventsPath: string) {
@@ -62,6 +119,14 @@ function runRunner(invocation: string[], requestPath: string, eventsPath: string
 describe('spawn runner transport', () => {
   it('selects the source runner from source-plane execution', () => {
     expect(spawnRunnerInvocation()).toEqual(sourceInvocation)
+    const manifest = JSON.parse(readFileSync(
+      fileURLToPath(new URL('../package.json', import.meta.url)),
+      'utf8',
+    )) as { exports: Record<string, { types: string; default: string }> }
+    expect(manifest.exports['./spawn-runner']).toEqual({
+      types: './lib/types/bin.d.ts',
+      default: './lib/spawn-runner.js',
+    })
   })
 
   it('does not require SharedArrayBuffer until a native handshake runs', async () => {
@@ -98,6 +163,629 @@ describe('spawn runner transport', () => {
     ], { encoding: 'utf8', timeout: 10_000 })
     expect(result.error).toBeUndefined()
     expect(result.status).toBe(0)
+  })
+
+  it('runs the Node target lifecycle in-process through the coverable runner logic', async () => {
+    const files = createRunnerFiles({
+      argv: [process.execPath, '-e', 'process.exit(12)'],
+      cwd: process.cwd(),
+      env: {},
+    })
+    const host = new FakeRunnerHost()
+    try {
+      await runSpawnRunner([
+        '--mode', 'node',
+        '--request', files.requestPath,
+        '--events', files.eventsPath,
+      ], asRunnerHost(host))
+      expect(host.exitCode).toBe(12)
+      expect(readRunnerEvents(files.eventsPath)).toEqual([
+        expect.objectContaining({ type: 'started' }),
+        { type: 'exit', exitCode: 12, signal: null },
+      ])
+    } finally {
+      cleanupRunnerFiles(files)
+    }
+  })
+
+  it('reports an in-process Node target spawn failure', async () => {
+    const files = createRunnerFiles({
+      argv: [`missing-dsh-runner-target-${String(process.pid)}-${String(Date.now())}`],
+      cwd: process.cwd(),
+      env: {},
+    })
+    const host = new FakeRunnerHost()
+    try {
+      await runSpawnRunner([
+        '--mode', 'node',
+        '--request', files.requestPath,
+        '--events', files.eventsPath,
+      ], asRunnerHost(host))
+      expect(host.exitCode).toBe(127)
+      const [event] = readRunnerEvents(files.eventsPath)
+      expect(event?.type).toBe('spawn-error')
+      if (event?.type !== 'spawn-error') throw new Error('expected spawn error')
+      expect(event.error.code).toBe('ENOENT')
+    } finally {
+      cleanupRunnerFiles(files)
+    }
+  })
+
+  it('contains a post-start Node runner error and ignores scope signals', async () => {
+    const files = createRunnerFiles({ argv: ['node'], cwd: process.cwd(), env: {} })
+    const host = new FakeRunnerHost()
+    const child = Object.assign(new EventEmitter(), { pid: 4321 }) as ChildProcess
+    const injectedSpawn = vi.fn(() => {
+      queueMicrotask(() => {
+        host.emit('SIGTERM')
+        child.emit('spawn')
+        child.emit('error', new Error('post-start node failure'))
+        child.emit('exit', 0, null)
+      })
+      return child
+    }) as unknown as typeof spawn
+    try {
+      await runSpawnRunner([
+        '--mode', 'node',
+        '--request', files.requestPath,
+        '--events', files.eventsPath,
+      ], asRunnerHost(host), fakeRunnerInternals({ spawn: injectedSpawn }))
+      expect(host.exitCode).toBe(127)
+      expect(readRunnerEvents(files.eventsPath)).toEqual([
+        { type: 'started', pid: 4321 },
+        { type: 'runner-error', error: { name: 'Error', message: 'post-start node failure' } },
+      ])
+      expect(host.listenerCount('SIGTERM')).toBe(0)
+    } finally {
+      cleanupRunnerFiles(files)
+    }
+  })
+
+  it('maps a signal-only Node exit to the runner failure exit code', async () => {
+    const files = createRunnerFiles({ argv: ['node'], cwd: process.cwd(), env: {} })
+    const host = new FakeRunnerHost()
+    const child = Object.assign(new EventEmitter(), { pid: 4321 }) as ChildProcess
+    const injectedSpawn = vi.fn(() => {
+      queueMicrotask(() => {
+        child.emit('spawn')
+        child.emit('exit', null, 'SIGTERM')
+      })
+      return child
+    }) as unknown as typeof spawn
+    try {
+      await runSpawnRunner([
+        '--mode', 'node',
+        '--request', files.requestPath,
+        '--events', files.eventsPath,
+      ], asRunnerHost(host), fakeRunnerInternals({ spawn: injectedSpawn }))
+      expect(host.exitCode).toBe(1)
+      expect(readRunnerEvents(files.eventsPath)).toEqual([
+        { type: 'started', pid: 4321 },
+        { type: 'exit', exitCode: null, signal: 'SIGTERM' },
+      ])
+    } finally {
+      cleanupRunnerFiles(files)
+    }
+  })
+
+  it('runs the in-process capability probes and always closes the probe Job', async () => {
+    const nodeHost = new FakeRunnerHost()
+    await expect(runSpawnRunner(
+      ['--mode', 'probe-node'],
+      asRunnerHost(nodeHost),
+      fakeRunnerInternals(),
+    )).resolves.toBeUndefined()
+
+    const host = new FakeRunnerHost()
+    host.env.ComSpec = 'C:\\Windows\\System32\\cmd.exe'
+    host.directory = 'C:\\runner'
+    const internals = fakeRunnerInternals()
+    await expect(runSpawnRunner(
+      ['--mode', 'probe-win32'],
+      asRunnerHost(host),
+      internals,
+    )).resolves.toBeUndefined()
+    expect(internals.spawnCurrentTokenJobProcess).toHaveBeenCalledWith(fakeWin32Api, {
+      command: 'C:\\Windows\\System32\\cmd.exe',
+      args: ['/d', '/s', '/c', 'exit 0'],
+      cwd: 'C:\\runner',
+    })
+    expect(internals.waitForProcessExit).toHaveBeenCalledWith(fakeWin32Api, fakeProcessHandle)
+    expect(internals.closeHandleChecked).toHaveBeenCalledWith(
+      fakeWin32Api,
+      fakeJobHandle,
+      'subprocess Windows Job probe',
+    )
+
+    const legacyHost = new FakeRunnerHost()
+    legacyHost.env.COMSPEC = 'legacy-cmd.exe'
+    const failing = fakeRunnerInternals({ waitForProcessExit: vi.fn(() => 9) })
+    await expect(runSpawnRunner(
+      ['--mode', 'probe-win32'],
+      asRunnerHost(legacyHost),
+      failing,
+    )).rejects.toThrow('probe exited with code 9')
+    expect(failing.closeHandleChecked).toHaveBeenCalledWith(
+      fakeWin32Api,
+      fakeJobHandle,
+      'subprocess Windows Job probe',
+    )
+
+    await expect(runSpawnRunner(
+      ['--mode', 'probe-win32'],
+      asRunnerHost(new FakeRunnerHost()),
+      fakeRunnerInternals(),
+    )).rejects.toThrow('without ComSpec')
+  })
+
+  it('runs the Win32 target, forwards every pipe, and waits for an empty Job', async () => {
+    vi.useFakeTimers()
+    const files = createRunnerFiles({
+      argv: ['tool.exe', 'literal $HOME'],
+      cwd: 'C:\\target',
+      env: { ONLY: 'kept' },
+    })
+    const host = new FakeRunnerHost()
+    host.env.STALE = 'removed'
+    host.directory = 'C:\\runner'
+    host.connected = true
+    const pollProcessExit = vi.fn()
+      .mockReturnValueOnce(undefined)
+      .mockReturnValueOnce(42)
+    const isJobEmpty = vi.fn()
+      .mockReturnValueOnce(false)
+      .mockReturnValueOnce(true)
+    const internals = fakeRunnerInternals({ pollProcessExit, isJobEmpty })
+    try {
+      const running = runSpawnRunner(win32RunnerArgs(files.requestPath, files.eventsPath, [
+        '--stdin-pipe', '\\\\.\\pipe\\stdin',
+        '--stdout-pipe', '\\\\.\\pipe\\stdout',
+        '--stderr-pipe', '\\\\.\\pipe\\stderr',
+      ]), asRunnerHost(host), internals)
+      await vi.advanceTimersByTimeAsync(30)
+      await running
+
+      expect(host.env).toEqual({ ONLY: 'kept' })
+      expect(host.directory).toBe('C:\\runner')
+      expect(host.disconnect).toHaveBeenCalledOnce()
+      expect(internals.openNamedPipeForStdio).toHaveBeenNthCalledWith(
+        1,
+        fakeWin32Api,
+        '\\\\.\\pipe\\stdin',
+        'read',
+      )
+      expect(internals.openNamedPipeForStdio).toHaveBeenNthCalledWith(
+        2,
+        fakeWin32Api,
+        '\\\\.\\pipe\\stdout',
+        'write',
+      )
+      expect(internals.openNamedPipeForStdio).toHaveBeenNthCalledWith(
+        3,
+        fakeWin32Api,
+        '\\\\.\\pipe\\stderr',
+        'write',
+      )
+      expect(internals.spawnCurrentTokenJobProcess).toHaveBeenCalledWith(
+        fakeWin32Api,
+        { command: 'tool.exe', args: ['literal $HOME'], cwd: 'C:\\target' },
+        {
+          stdin: 70n,
+          stdout: 71n,
+          stderr: 72n,
+        },
+      )
+      expect(pollProcessExit).toHaveBeenCalledTimes(2)
+      expect(isJobEmpty).toHaveBeenCalledTimes(2)
+      expect(readRunnerEvents(files.eventsPath)).toEqual([
+        { type: 'started', pid: 1234 },
+        { type: 'exit', exitCode: 42, signal: null },
+      ])
+      expect(internals.closeHandleChecked).toHaveBeenCalledWith(
+        fakeWin32Api,
+        fakeProcessHandle,
+        'ordinary direct process',
+      )
+      expect(internals.closeHandleChecked).toHaveBeenCalledWith(
+        fakeWin32Api,
+        fakeJobHandle,
+        'ordinary process Job',
+      )
+    } finally {
+      vi.useRealTimers()
+      cleanupRunnerFiles(files)
+    }
+  })
+
+  it('accepts only the Win32 terminate IPC message and coalesces disconnect', async () => {
+    vi.useFakeTimers()
+    const files = createRunnerFiles({ argv: ['tool.exe'], cwd: 'C:\\target', env: {} })
+    const host = new FakeRunnerHost()
+    const internals = fakeRunnerInternals()
+    try {
+      const running = runSpawnRunner(
+        win32RunnerArgs(files.requestPath, files.eventsPath),
+        asRunnerHost(host),
+        internals,
+      )
+      host.emit('message', null)
+      host.emit('message', 'terminate')
+      host.emit('message', { type: 'other' })
+      host.emit('message', { type: 'terminate' })
+      host.emit('message', { type: 'terminate' })
+      host.emit('disconnect')
+      await vi.advanceTimersByTimeAsync(10)
+      await running
+
+      expect(internals.terminateJob).toHaveBeenCalledOnce()
+      expect(internals.terminateJob).toHaveBeenCalledWith(fakeWin32Api, fakeJobHandle, 1)
+      expect(host.disconnect).not.toHaveBeenCalled()
+      expect(readRunnerEvents(files.eventsPath)).toEqual([
+        { type: 'started', pid: 1234 },
+        { type: 'exit', exitCode: 0, signal: null },
+      ])
+    } finally {
+      vi.useRealTimers()
+      cleanupRunnerFiles(files)
+    }
+  })
+
+  it('reports a non-Error Win32 termination failure and closes both live handles', async () => {
+    const files = createRunnerFiles({ argv: ['tool.exe'], cwd: 'C:\\target', env: {} })
+    const host = new FakeRunnerHost()
+    host.connected = true
+    const terminateJob = vi.fn(() => { throw 'raw termination failure' })
+    const internals = fakeRunnerInternals({ terminateJob })
+    try {
+      const running = runSpawnRunner(
+        win32RunnerArgs(files.requestPath, files.eventsPath),
+        asRunnerHost(host),
+        internals,
+      )
+      host.emit('disconnect')
+      await running
+
+      expect(host.exitCode).toBe(127)
+      expect(host.disconnect).toHaveBeenCalledOnce()
+      expect(readRunnerEvents(files.eventsPath)).toEqual([
+        { type: 'started', pid: 1234 },
+        { type: 'runner-error', error: { name: 'Error', message: 'raw termination failure' } },
+      ])
+      expect(internals.closeHandleChecked).toHaveBeenCalledWith(
+        fakeWin32Api,
+        fakeProcessHandle,
+        'ordinary direct process cleanup',
+      )
+      expect(internals.closeHandleChecked).toHaveBeenCalledWith(
+        fakeWin32Api,
+        fakeJobHandle,
+        'ordinary process Job cleanup',
+      )
+    } finally {
+      cleanupRunnerFiles(files)
+    }
+  })
+
+  it.each([
+    [2, 'ENOENT'],
+    [3, 'ENOENT'],
+    [267, 'ENOENT'],
+    [5, 'EACCES'],
+    [193, 'EFTYPE'],
+    [999, 'UNKNOWN'],
+  ] as const)('maps Win32 CreateProcess error %i to %s', async (win32Code, code) => {
+    const files = createRunnerFiles({
+      argv: ['missing.exe', 'literal argument'],
+      cwd: 'C:\\target',
+      env: {},
+    })
+    const host = new FakeRunnerHost()
+    const internals = fakeRunnerInternals({
+      spawnCurrentTokenJobProcess: vi.fn(() => {
+        throw new Win32Error('CreateProcessW', win32Code)
+      }),
+    })
+    try {
+      await runSpawnRunner(
+        win32RunnerArgs(files.requestPath, files.eventsPath),
+        asRunnerHost(host),
+        internals,
+      )
+      expect(host.exitCode).toBeUndefined()
+      const [event] = readRunnerEvents(files.eventsPath)
+      expect(event?.type).toBe('spawn-error')
+      if (event?.type !== 'spawn-error') throw new Error('expected spawn error')
+      expect(event.error).toMatchObject({
+        code,
+        syscall: 'spawn missing.exe',
+        path: 'missing.exe',
+        spawnargs: ['literal argument'],
+      })
+    } finally {
+      cleanupRunnerFiles(files)
+    }
+  })
+
+  it.each([
+    [undefined, false],
+    ['ENOENT', true],
+  ] as const)('maps a target chdir failure with code %s', async (code, hasSpawnShape) => {
+    const files = createRunnerFiles({ argv: ['tool.exe', 'arg'], cwd: 'C:\\missing', env: {} })
+    const host = new FakeRunnerHost()
+    const error = Object.assign(new Error('target cwd failed'), {
+      syscall: 'chdir',
+      ...code === undefined ? {} : { code },
+    })
+    host.chdir = vi.fn(() => { throw error })
+    try {
+      await runSpawnRunner(
+        win32RunnerArgs(files.requestPath, files.eventsPath),
+        asRunnerHost(host),
+        fakeRunnerInternals(),
+      )
+      expect(host.exitCode).toBeUndefined()
+      const [event] = readRunnerEvents(files.eventsPath)
+      expect(event?.type).toBe('spawn-error')
+      if (event?.type !== 'spawn-error') throw new Error('expected spawn error')
+      expect(typeof event.error.message).toBe('string')
+      expect('path' in event.error).toBe(hasSpawnShape)
+      if (hasSpawnShape) {
+        expect(event.error).toMatchObject({
+          code: 'ENOENT',
+          syscall: 'spawn tool.exe',
+          path: 'tool.exe',
+          spawnargs: ['arg'],
+        })
+      } else {
+        expect(event.error).toMatchObject({ message: 'target cwd failed', syscall: 'chdir' })
+      }
+    } finally {
+      cleanupRunnerFiles(files)
+    }
+  })
+
+  it.each([
+    ['a non-CreateProcess Win32 error', new Win32Error('CreateFileW', 5), 'Win32Error'],
+    ['a non-Error setup failure', 'raw pipe setup failure', 'Error'],
+  ])('reports %s as runner infrastructure failure', async (_label, failure, name) => {
+    const files = createRunnerFiles({ argv: ['tool.exe'], cwd: 'C:\\target', env: {} })
+    const host = new FakeRunnerHost()
+    const internals = fakeRunnerInternals({
+      openNamedPipeForStdio: vi.fn(() => { throw failure }),
+    })
+    try {
+      await runSpawnRunner(win32RunnerArgs(files.requestPath, files.eventsPath, [
+        '--stdin-pipe', '\\\\.\\pipe\\stdin',
+      ]), asRunnerHost(host), internals)
+      expect(host.exitCode).toBe(127)
+      const [event] = readRunnerEvents(files.eventsPath)
+      expect(event?.type).toBe('runner-error')
+      if (event?.type !== 'runner-error') throw new Error('expected runner error')
+      expect(event.error.name).toBe(name)
+    } finally {
+      cleanupRunnerFiles(files)
+    }
+  })
+
+  it.each([
+    ['an Error', new Error('stdio close failed')],
+    ['a non-Error value', 'raw stdio close failure'],
+  ])('reports %s from the initial stdio close and retries cleanup', async (_label, failure) => {
+    const files = createRunnerFiles({ argv: ['tool.exe'], cwd: 'C:\\target', env: {} })
+    let failedOnce = false
+    const closeHandleChecked = vi.fn((_api, _handle, label: string) => {
+      if (!failedOnce && label.includes('pipe')) {
+        failedOnce = true
+        throw failure
+      }
+    })
+    const internals = fakeRunnerInternals({ closeHandleChecked })
+    try {
+      await runSpawnRunner(win32RunnerArgs(files.requestPath, files.eventsPath, [
+        '--stdin-pipe', '\\\\.\\pipe\\stdin',
+      ]), asRunnerHost(new FakeRunnerHost()), internals)
+      expect(readRunnerEvents(files.eventsPath)).toEqual([
+        { type: 'started', pid: 1234 },
+        {
+          type: 'runner-error',
+          error: { name: 'Error', message: failure instanceof Error ? failure.message : failure },
+        },
+      ])
+      expect(closeHandleChecked).toHaveBeenCalledWith(
+        fakeWin32Api,
+        70n,
+        'ordinary target stdin pipe',
+      )
+      expect(closeHandleChecked).toHaveBeenCalledWith(
+        fakeWin32Api,
+        70n,
+        'ordinary target stdin pipe',
+      )
+    } finally {
+      cleanupRunnerFiles(files)
+    }
+  })
+
+  it('preserves the first stdio close failure while retaining every failed handle', async () => {
+    const files = createRunnerFiles({ argv: ['tool.exe'], cwd: 'C:\\target', env: {} })
+    let remainingFailures = 2
+    const closeHandleChecked = vi.fn((_api, _handle, label: string) => {
+      if (remainingFailures > 0 && label.includes('pipe')) {
+        remainingFailures -= 1
+        throw remainingFailures === 1 ? new Error('first close failure') : 'second close failure'
+      }
+    })
+    const internals = fakeRunnerInternals({ closeHandleChecked })
+    try {
+      await runSpawnRunner(win32RunnerArgs(files.requestPath, files.eventsPath, [
+        '--stdin-pipe', '\\\\.\\pipe\\stdin',
+        '--stdout-pipe', '\\\\.\\pipe\\stdout',
+      ]), asRunnerHost(new FakeRunnerHost()), internals)
+      expect(readRunnerEvents(files.eventsPath)).toContainEqual({
+        type: 'runner-error',
+        error: { name: 'Error', message: 'first close failure' },
+      })
+      expect(closeHandleChecked).toHaveBeenCalledTimes(6)
+    } finally {
+      cleanupRunnerFiles(files)
+    }
+  })
+
+  it.each([
+    ['poll', 'poll failed'],
+    ['direct close', 'direct close failed'],
+    ['Job query', 'Job query failed'],
+    ['Job close', 'Job close failed'],
+  ] as const)('reports a Win32 %s failure and cleans remaining handles', async (stage, message) => {
+    vi.useFakeTimers()
+    const files = createRunnerFiles({ argv: ['tool.exe'], cwd: 'C:\\target', env: {} })
+    const pollProcessExit = vi.fn(() => {
+      if (stage === 'poll') throw new Error(message)
+      return 0
+    })
+    const isJobEmpty = vi.fn(() => {
+      if (stage === 'Job query') throw new Error(message)
+      return true
+    })
+    const closeHandleChecked = vi.fn((_api, _handle, label: string) => {
+      if (stage === 'direct close' && label === 'ordinary direct process') {
+        throw new Error(message)
+      }
+      if (stage === 'Job close' && label === 'ordinary process Job') {
+        throw new Error(message)
+      }
+      if (label.endsWith('cleanup')) throw new Error('ignored cleanup failure')
+    })
+    const internals = fakeRunnerInternals({ pollProcessExit, isJobEmpty, closeHandleChecked })
+    try {
+      const running = runSpawnRunner(
+        win32RunnerArgs(files.requestPath, files.eventsPath),
+        asRunnerHost(new FakeRunnerHost()),
+        internals,
+      )
+      await vi.advanceTimersByTimeAsync(10)
+      await running
+
+      expect(readRunnerEvents(files.eventsPath)).toEqual([
+        { type: 'started', pid: 1234 },
+        ...stage === 'poll' ? [] : [{ type: 'exit' as const, exitCode: 0, signal: null }],
+        { type: 'runner-error', error: { name: 'Error', message } },
+      ])
+      expect(closeHandleChecked).toHaveBeenCalledWith(
+        fakeWin32Api,
+        fakeJobHandle,
+        expect.stringContaining('Job'),
+      )
+    } finally {
+      vi.useRealTimers()
+      cleanupRunnerFiles(files)
+    }
+  })
+
+  it('preserves the first failure when termination settles reentrantly during polling', async () => {
+    vi.useFakeTimers()
+    const files = createRunnerFiles({ argv: ['tool.exe'], cwd: 'C:\\target', env: {} })
+    const host = new FakeRunnerHost()
+    const terminateJob = vi.fn(() => { throw new Error('reentrant termination failed') })
+    const pollProcessExit = vi.fn(() => {
+      host.emit('disconnect')
+      return 0
+    })
+    const internals = fakeRunnerInternals({ terminateJob, pollProcessExit })
+    try {
+      const running = runSpawnRunner(
+        win32RunnerArgs(files.requestPath, files.eventsPath),
+        asRunnerHost(host),
+        internals,
+      )
+      await vi.advanceTimersByTimeAsync(10)
+      await running
+
+      expect(readRunnerEvents(files.eventsPath)).toEqual([
+        { type: 'started', pid: 1234 },
+        { type: 'exit', exitCode: 0, signal: null },
+        {
+          type: 'runner-error',
+          error: { name: 'Error', message: 'reentrant termination failed' },
+        },
+      ])
+    } finally {
+      vi.useRealTimers()
+      cleanupRunnerFiles(files)
+    }
+  })
+
+  it('reports failure while restoring cwd after a successful Win32 spawn', async () => {
+    const files = createRunnerFiles({ argv: ['tool.exe'], cwd: 'C:\\target', env: {} })
+    const host = new FakeRunnerHost()
+    host.directory = 'C:\\runner'
+    const chdir = vi.fn((directory: string) => {
+      if (directory === 'C:\\runner') throw new Error('cwd restore failed')
+      host.directory = directory
+    })
+    host.chdir = chdir
+    try {
+      await runSpawnRunner(
+        win32RunnerArgs(files.requestPath, files.eventsPath),
+        asRunnerHost(host),
+        fakeRunnerInternals(),
+      )
+      expect(chdir).toHaveBeenCalledTimes(2)
+      expect(host.exitCode).toBe(127)
+      expect(readRunnerEvents(files.eventsPath)).toEqual([
+        { type: 'started', pid: 1234 },
+        { type: 'runner-error', error: { name: 'Error', message: 'cwd restore failed' } },
+      ])
+    } finally {
+      cleanupRunnerFiles(files)
+    }
+  })
+
+  it('disconnects after an uncaught Win32 binding setup failure', async () => {
+    const files = createRunnerFiles({ argv: ['tool.exe'], cwd: 'C:\\target', env: {} })
+    const host = new FakeRunnerHost()
+    host.connected = true
+    const internals = fakeRunnerInternals({
+      loadWin32ProcessBindings: vi.fn(() => { throw new Error('binding setup failed') }),
+    })
+    try {
+      await expect(runSpawnRunner(
+        win32RunnerArgs(files.requestPath, files.eventsPath),
+        asRunnerHost(host),
+        internals,
+      )).rejects.toThrow('binding setup failed')
+      expect(host.disconnect).toHaveBeenCalledOnce()
+      expect(readRunnerEvents(files.eventsPath)).toEqual([])
+    } finally {
+      cleanupRunnerFiles(files)
+    }
+  })
+
+  it.each([
+    [['--mode'], 'missing value'],
+    [['--unknown', 'value'], 'unknown argument'],
+    [['--mode', 'unknown'], 'unknown mode'],
+    [['--mode', 'node'], 'requires request and event paths'],
+  ] as const)('rejects invalid runner arguments: %s', async (argv, message) => {
+    await expect(runSpawnRunner([...argv], asRunnerHost(new FakeRunnerHost()))).rejects.toThrow(message)
+  })
+
+  it('reports only failures whose arguments identify an event transport', () => {
+    const files = createRunnerFiles({ argv: ['node'], cwd: '.', env: {} })
+    try {
+      reportSpawnRunnerFailure([
+        '--mode', 'node',
+        '--request', files.requestPath,
+        '--events', files.eventsPath,
+      ], new Error('runner main failed'))
+      reportSpawnRunnerFailure(['--mode', 'probe-node'], new Error('ignored probe failure'))
+      reportSpawnRunnerFailure(['--mode'], new Error('unparseable failure'))
+      expect(readRunnerEvents(files.eventsPath)).toEqual([
+        { type: 'runner-error', error: { name: 'Error', message: 'runner main failed' } },
+      ])
+    } finally {
+      cleanupRunnerFiles(files)
+    }
   })
 
   it('maps every target stdio disposition', () => {
@@ -299,7 +987,7 @@ describe('spawn runner transport', () => {
         error: { name: 'Error', message: 'runner setup failed', code: 'EIO' },
       })
       const result = runnerDirectResult(fakeChild(123), runnerFailure, new Promise<void>(() => {}))
-      expect(result.pid).toBe(-1)
+      expect(result.pid).toBeUndefined()
       expect(result.failureReported).toBe(true)
       await expect(result.direct).rejects.toMatchObject({ message: 'runner setup failed', code: 'EIO' })
     } finally {
@@ -309,11 +997,11 @@ describe('spawn runner transport', () => {
     const afterStartFailure = createRunnerFiles({ argv: ['node'], cwd: '.', env: {} })
     try {
       appendRunnerEvent(afterStartFailure.eventsPath, { type: 'started', pid: 456 })
+      const result = runnerDirectResult(fakeChild(123), afterStartFailure, new Promise<void>(() => {}))
       appendRunnerEvent(afterStartFailure.eventsPath, {
         type: 'runner-error',
         error: { name: 'Error', message: 'post-start runner failed', code: 'EIO' },
       })
-      const result = runnerDirectResult(fakeChild(123), afterStartFailure, new Promise<void>(() => {}))
       expect(result.pid).toBe(456)
       expect(result.failureReported).toBe(false)
       await expect(result.direct).rejects.toMatchObject({ message: 'post-start runner failed', code: 'EIO' })
@@ -332,6 +1020,38 @@ describe('spawn runner transport', () => {
       cleanupRunnerFiles(missing)
     }
 
+  })
+
+  it('publishes terminal events already present in the handshake snapshot', async () => {
+    const failed = createRunnerFiles({ argv: ['node'], cwd: '.', env: {} })
+    try {
+      appendRunnerEvent(failed.eventsPath, {
+        type: 'spawn-error',
+        error: { name: 'Error', message: 'target missing', code: 'ENOENT' },
+      })
+      const result = runnerDirectResult(fakeChild(123), failed, new Promise<void>(() => {}))
+      let observed: Error | undefined
+      void result.direct.catch((error: unknown) => {
+        observed = error instanceof Error ? error : new Error(String(error))
+      })
+      await Promise.resolve()
+      expect(observed).toMatchObject({ message: 'target missing', code: 'ENOENT' })
+    } finally {
+      cleanupRunnerFiles(failed)
+    }
+
+    const exited = createRunnerFiles({ argv: ['node'], cwd: '.', env: {} })
+    try {
+      appendRunnerEvent(exited.eventsPath, { type: 'started', pid: 456 })
+      appendRunnerEvent(exited.eventsPath, { type: 'exit', exitCode: 23, signal: null })
+      const result = runnerDirectResult(fakeChild(123), exited, new Promise<void>(() => {}))
+      let observed: SubprocessOutcome | undefined
+      void result.direct.then((outcome) => { observed = outcome })
+      await Promise.resolve()
+      expect(observed).toEqual({ exitCode: 23, signal: null })
+    } finally {
+      cleanupRunnerFiles(exited)
+    }
   })
 
   it('requires an event snapshot started after wrapper exit before reporting a missing result', async () => {
@@ -395,7 +1115,7 @@ describe('spawn runner transport', () => {
       })
       const lifecycle = observeChildLifecycle(child)
       const result = runnerDirectResult(child, files, lifecycle.exited)
-      expect(result.pid).toBe(-1)
+      expect(result.pid).toBeUndefined()
       expect(result.failureReported).toBe(false)
       await expect(result.direct).rejects.toThrow('runner failed to start')
       await expect(lifecycle.closed).resolves.toBeUndefined()
@@ -407,14 +1127,14 @@ describe('spawn runner transport', () => {
   it('reports runner startup failure and handshake timeout without leaking request files', async () => {
     const missingChild = createRunnerFiles({ argv: ['node'], cwd: '.', env: {} })
     const missingResult = runnerDirectResult(fakeChild(undefined), missingChild, new Promise<void>(() => {}))
-    expect(missingResult.pid).toBe(-1)
+    expect(missingResult.pid).toBeUndefined()
     expect(missingResult.failureReported).toBe(false)
     await expect(missingResult.direct).rejects.toThrow('runner failed to start')
     expect(existsSync(missingChild.directory)).toBe(false)
 
     const exitedChild = createRunnerFiles({ argv: ['node'], cwd: '.', env: {} })
     const exitedResult = runnerDirectResult(fakeChild(2_147_483_647), exitedChild, new Promise<void>(() => {}))
-    expect(exitedResult.pid).toBe(-1)
+    expect(exitedResult.pid).toBeUndefined()
     expect(exitedResult.failureReported).toBe(false)
     await expect(exitedResult.direct).rejects.toThrow('exited before reporting target start')
     expect(existsSync(exitedChild.directory)).toBe(false)
@@ -423,7 +1143,7 @@ describe('spawn runner transport', () => {
     const now = vi.spyOn(Date, 'now').mockReturnValueOnce(0).mockReturnValue(10_001)
     try {
       const timedOutResult = runnerDirectResult(fakeChild(process.pid), timedOut, new Promise<void>(() => {}))
-      expect(timedOutResult.pid).toBe(-1)
+      expect(timedOutResult.pid).toBeUndefined()
       expect(timedOutResult.failureReported).toBe(false)
       await expect(timedOutResult.direct).rejects.toThrow('did not report target start')
       expect(existsSync(timedOut.directory)).toBe(false)

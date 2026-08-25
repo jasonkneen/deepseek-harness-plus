@@ -282,7 +282,7 @@ export async function disposeClaudeCodeChild(
   } catch (error: unknown) {
     failures.push(thrown(error))
   }
-  const outcome = await child.done
+  const outcome = await child.done.catch(() => undefined)
 
   const firstFailure = failures[0]
   if (firstFailure !== undefined) {
@@ -400,6 +400,7 @@ export async function startClaudeCodeRun(
   }
 
   let child: SubprocessHandle | undefined
+  let childFailure: Error | undefined
   let query: Query | undefined
   let managedProcess: ManagedClaudeCodeProcess | undefined
   let diagnostic: string | undefined
@@ -418,6 +419,7 @@ export async function startClaudeCodeRun(
   ): void => {
     child = captured
     managedProcess = process
+    void captured.done.catch((error: unknown) => { childFailure = thrown(error) })
   }
   try {
     query = officialQuery({
@@ -429,11 +431,16 @@ export async function startClaudeCodeRun(
         capturePermissionDiagnostic,
       ),
     })
-    if (child === undefined || child.pid <= 0) {
+    if (child === undefined) {
       throw new Error(
         'subagent-claude-code: official SDK did not publish a controllable Claude Code process',
       )
     }
+    // A provider may publish no PID and reject `done` through several already-
+    // queued promise reactions. PID absence is not failure; give that complete
+    // synchronous rejection chain one event-loop turn before publication.
+    await new Promise<void>((resolve) => { setImmediate(resolve) })
+    if (childFailure !== undefined) throw childFailure
     if (controller.signal.aborted) {
       throw new Error('subagent-claude-code: request was aborted before SDK startup')
     }
@@ -448,46 +455,11 @@ export async function startClaudeCodeRun(
       category: 'unknown',
       outcome: startupOutcome,
     } as const
-    const startupFailure = (cause: unknown = error): ClaudeCodeFailure => new ClaudeCodeFailure(
+    const startupFailure = (cause: unknown = childFailure ?? error): ClaudeCodeFailure => new ClaudeCodeFailure(
       startupFacts,
       thrown(cause),
     )
     requestCancel()
-    if (child !== undefined && child.pid <= 0) {
-      let closeError: Error | undefined
-      try {
-        query?.close()
-      } catch (disposeError: unknown) {
-        closeError = thrown(disposeError)
-      }
-
-      let spawnError = thrown(error)
-      try {
-        await child.done
-      } catch (childError: unknown) {
-        spawnError = thrown(childError)
-      }
-
-      if (closeError !== undefined) {
-        const failure = startupFailure(spawnError)
-        const cleanupFailure = new ClaudeCodeFailure({
-          stage: 'teardown',
-          category: 'unknown',
-        }, closeError)
-        const aggregate = new AggregateError(
-          [failure, cleanupFailure],
-          `${failure.message}; ${cleanupFailure.message}`,
-        )
-        reportFailure(aggregate)
-        throw aggregate
-      }
-      if (cancelledBeforeCleanup || isAborted(request.signal)) {
-        throw new Error('subagent-claude-code: request was aborted before SDK startup')
-      }
-      const failure = startupFailure(spawnError)
-      reportFailure(failure)
-      throw failure
-    }
     if (child !== undefined) {
       try {
         await disposeClaudeCodeChild(query, child)
@@ -501,6 +473,12 @@ export async function startClaudeCodeRun(
         reportFailure(aggregate)
         throw aggregate
       }
+      if (cancelledBeforeCleanup || isAborted(request.signal)) {
+        throw new Error('subagent-claude-code: request was aborted before SDK startup')
+      }
+      const failure = startupFailure()
+      reportFailure(failure)
+      throw failure
     } else if (query !== undefined) {
       try {
         query.close()

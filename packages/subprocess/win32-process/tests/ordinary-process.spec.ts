@@ -5,7 +5,7 @@ import {
   isJobEmpty,
   openNamedPipeForStdio,
   pollProcessExit,
-  spawnOrdinaryJobProcess,
+  spawnCurrentTokenJobProcess,
   terminateJob,
   Win32Error,
 } from '../src/index.ts'
@@ -83,7 +83,7 @@ describe('ordinary Job process operations', () => {
       resumeThread: vi.fn(() => { events.push('resume'); return 0 }),
       closeHandle: vi.fn((handle: NativePtr) => { events.push(`close:${handle}`); return 1 }),
     })
-    expect(spawnOrdinaryJobProcess(bindings, {
+    expect(spawnCurrentTokenJobProcess(bindings, {
       command: 'probe.exe',
       args: ['literal $VALUE', 'a b'],
       cwd: 'C:\\work',
@@ -109,7 +109,7 @@ describe('ordinary Job process operations', () => {
     const bindings = api({ createProcessW: vi.fn(() => 0) })
     let caught: unknown
     try {
-      spawnOrdinaryJobProcess(bindings, { command: 'missing.exe', args: [], cwd: 'C:\\work' })
+      spawnCurrentTokenJobProcess(bindings, { command: 'missing.exe', args: [], cwd: 'C:\\work' })
     } catch (error) {
       caught = error
     }
@@ -132,7 +132,7 @@ describe('ordinary Job process operations', () => {
         return 1
       }),
     })
-    expect(spawnOrdinaryJobProcess(bindings, {
+    expect(spawnCurrentTokenJobProcess(bindings, {
       command: 'probe.exe',
       args: [],
       cwd: 'C:\\work',

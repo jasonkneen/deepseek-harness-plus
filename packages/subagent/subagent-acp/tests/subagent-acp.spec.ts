@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest'
+import { PassThrough } from 'node:stream'
+import { describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
 import { chmodSync, existsSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
@@ -8,7 +9,7 @@ import { fileURLToPath } from 'node:url'
 import SubagentRuntime from '@deepseek-ai/dsh-subagent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
-import type { SubprocessOutcome } from '@deepseek-ai/dsh-subprocess'
+import type { SubprocessHandle, SubprocessOutcome } from '@deepseek-ai/dsh-subprocess'
 import * as acp from '../src/index.ts'
 import { acpStopReason, acpContentText, DEFAULT_DISPOSE_EOF_GRACE_MS, DEFAULT_DISPOSE_GRACE_MS, disposeAcpChild, startAcpRun, toAcpPrompt, type AcpRunSpec } from '../src/run.ts'
 import LocalSubprocessRuntime from '@deepseek-ai/dsh-subprocess-local'
@@ -195,6 +196,95 @@ describe('disposeAcpChild (the backend-owned teardown ladder over seam verbs)', 
     })
     await expect(disposeAcpChild(child, 1_000)).resolves.toBeUndefined()
     await expect(child.done).rejects.toThrow()
+  })
+
+  it('still terminates and performs the final wait when the EOF wait rejects', async () => {
+    const initialFailure = new Error('initial range observation failed')
+    const waitForExit = vi.fn()
+      .mockRejectedValueOnce(initialFailure)
+      .mockResolvedValueOnce(true)
+    const terminate = vi.fn()
+    const child: SubprocessHandle = {
+      pid: undefined,
+      stdin: new PassThrough(),
+      stdout: undefined,
+      stderr: undefined,
+      collected: {},
+      done: new Promise(() => {}),
+      terminate,
+      waitForExit,
+    }
+
+    await expect(disposeAcpChild(child, 1_000)).rejects.toBe(initialFailure)
+    expect(terminate).toHaveBeenCalledOnce()
+    expect(waitForExit).toHaveBeenCalledTimes(2)
+  })
+
+  it('preserves both wait failures in observation order', async () => {
+    const initialFailure = new Error('initial range observation failed')
+    const finalFailure = new Error('final range observation failed')
+    const waitForExit = vi.fn()
+      .mockRejectedValueOnce(initialFailure)
+      .mockRejectedValueOnce(finalFailure)
+    const child: SubprocessHandle = {
+      pid: undefined,
+      stdin: new PassThrough(),
+      stdout: undefined,
+      stderr: undefined,
+      collected: {},
+      done: new Promise(() => {}),
+      terminate: vi.fn(),
+      waitForExit,
+    }
+
+    let failure: unknown
+    try {
+      await disposeAcpChild(child, 1_000)
+    } catch (error: unknown) {
+      failure = error
+    }
+    expect(failure).toBeInstanceOf(AggregateError)
+    expect((failure as AggregateError).errors).toEqual([initialFailure, finalFailure])
+  })
+
+  it('keeps a startup failure before its rollback failure', async () => {
+    const startupFailure = new Error('target startup failed')
+    const cleanupFailure = new Error('range cleanup failed')
+    const direct = Promise.withResolvers<SubprocessOutcome>()
+    const stdin = new PassThrough()
+    const stdout = new PassThrough()
+    const child: SubprocessHandle = {
+      pid: undefined,
+      stdin,
+      stdout,
+      stderr: undefined,
+      collected: {},
+      done: direct.promise,
+      terminate: vi.fn(),
+      waitForExit: vi.fn()
+        .mockResolvedValueOnce(false)
+        .mockRejectedValueOnce(cleanupFailure),
+    }
+    const starting = startAcpRun(request(), {
+      command: 'fake-acp',
+      args: [],
+      cwd: process.cwd(),
+      permission: 'reject',
+      env: {},
+      disposeEofGraceMs: 1_000,
+      disposeGraceMs: 1_000,
+      spawn: () => child,
+    })
+    direct.reject(startupFailure)
+
+    let failure: unknown
+    try {
+      await starting
+    } catch (error: unknown) {
+      failure = error
+    }
+    expect(failure).toBeInstanceOf(AggregateError)
+    expect((failure as AggregateError).errors).toEqual([startupFailure, cleanupFailure])
   })
 })
 

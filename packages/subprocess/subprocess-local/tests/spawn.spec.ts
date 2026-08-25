@@ -252,12 +252,14 @@ describe('spawnSubprocess', () => {
       ...spec('unused', { graceMs }),
       argv: [process.execPath, '-e', childScript],
     })
+    const rootPid = running.pid
+    if (rootPid === undefined) throw new Error('test child did not publish a pid')
     const helper = await waitForPidFile(pidFile)
     const realKill: typeof process.kill = process.kill.bind(process)
     let termAt = 0
     let forceSignals = 0
     const killSpy = vi.spyOn(process, 'kill').mockImplementation((target, signal) => {
-      if (target !== -running.pid) return realKill(target, signal)
+      if (target !== -rootPid) return realKill(target, signal)
       if (signal === 'SIGTERM') {
         termAt = Date.now()
         return realKill(target, signal)
@@ -582,9 +584,8 @@ describe('OutputCollector', () => {
 })
 
 describe('killGroup', () => {
-  it('ignores non-positive pids', () => {
-    expect(() => { killGroup(-1, 'SIGTERM') }).not.toThrow()
-    expect(() => { killGroup(0, 'SIGTERM') }).not.toThrow()
+  it('ignores an unpublished pid', () => {
+    expect(() => { killGroup(undefined, 'SIGTERM') }).not.toThrow()
   })
 
   it('swallows ESRCH for vanished groups', async () => {
@@ -774,9 +775,8 @@ describe.skipIf(process.platform === 'win32')('tree-survivor escalation (termina
 })
 
 describe('coverage seams', () => {
-  it('taskkillProcessTree ignores non-positive pids and contains a missing binary', () => {
-    expect(() => { taskkillProcessTree(-1) }).not.toThrow()
-    expect(() => { taskkillProcessTree(0) }).not.toThrow()
+  it('taskkillProcessTree ignores an unpublished pid and contains a missing binary', () => {
+    expect(() => { taskkillProcessTree(undefined) }).not.toThrow()
     // On POSIX there is no taskkill; spawnSync reports the failure in its
     // result and the function stays silent — the same containment Windows
     // relies on for an already-absent tree.
@@ -792,11 +792,13 @@ describe('coverage seams', () => {
       platform: 'linux',
       linuxProcessGroupHasLiveMembers: () => false,
     })
+    const rootPid = running.pid
+    if (rootPid === undefined) throw new Error('test child did not publish a pid')
     const realKill = process.kill.bind(process)
     const killSpy = vi.spyOn(process, 'kill').mockImplementation((target, signal) => {
       if (typeof target === 'number' && target < 0) {
         if (signal === 0) return true
-        if (signal === 'SIGKILL') realKill(running.pid, 'SIGKILL')
+        if (signal === 'SIGKILL') realKill(rootPid, 'SIGKILL')
         return true
       }
       return realKill(target, signal)
@@ -812,6 +814,8 @@ describe('coverage seams', () => {
 
   it('treats a vanished group probe as quiescent without signalling', async () => {
     const running = spawnSubprocess(spec('sleep 60'), { platform: 'linux' })
+    const rootPid = running.pid
+    if (rootPid === undefined) throw new Error('test child did not publish a pid')
     const realKill = process.kill.bind(process)
     const killSpy = vi.spyOn(process, 'kill').mockImplementation((target, signal) => {
       if (typeof target === 'number' && target < 0) {
@@ -822,7 +826,7 @@ describe('coverage seams', () => {
     try {
       running.terminate()
       await new Promise(resolve => setTimeout(resolve, 20))
-      realKill(running.pid, 'SIGKILL')
+      realKill(rootPid, 'SIGKILL')
       await running.done
       await expect(running.waitForExit()).resolves.toBe(true)
     } finally {
@@ -832,6 +836,8 @@ describe('coverage seams', () => {
 
   it('treats an EPERM group probe as still alive', async () => {
     const running = spawnSubprocess(spec('sleep 60'), { platform: 'linux' })
+    const rootPid = running.pid
+    if (rootPid === undefined) throw new Error('test child did not publish a pid')
     const realKill = process.kill.bind(process)
     const killSpy = vi.spyOn(process, 'kill').mockImplementation((target, signal) => {
       if (typeof target === 'number' && target < 0 && signal === 0) {
@@ -843,7 +849,7 @@ describe('coverage seams', () => {
       await expect(running.waitForExit(AbortSignal.timeout(20))).resolves.toBe(false)
     } finally {
       killSpy.mockRestore()
-      realKill(-running.pid, 'SIGKILL')
+      realKill(-rootPid, 'SIGKILL')
       await running.done
     }
   })
@@ -1001,6 +1007,8 @@ describe('coverage seams 2', () => {
     // An inert taskkill simulates a tree that never reports exit: terminate()
     // delivers nothing, so a bounded consumer wait must come back false.
     const running = spawnSubprocess(spec('sleep 60'), { spillDir, platform: 'win32', taskkill: () => {} })
+    const rootPid = running.pid
+    if (rootPid === undefined) throw new Error('test child did not publish a pid')
     running.terminate()
     const bound = new AbortController()
     const timer = setTimeout(() => { bound.abort() }, 60)
@@ -1008,7 +1016,7 @@ describe('coverage seams 2', () => {
     clearTimeout(timer)
     // Real cleanup: the injected platform spawned without detachment, so the
     // child is a plain (group-less) POSIX process — kill it directly.
-    process.kill(running.pid, 'SIGKILL')
+    process.kill(rootPid, 'SIGKILL')
     await running.done
   })
 

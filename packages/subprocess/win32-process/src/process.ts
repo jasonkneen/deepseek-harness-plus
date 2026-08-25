@@ -54,7 +54,7 @@ export function buildCommandLine(program: string, args: readonly string[]): stri
 }
 
 /** Ordinary process creation inputs used by the local Win32 runner. */
-export interface OrdinaryProcessSpawnOptions {
+export interface CurrentTokenProcessSpawnOptions {
   /** Executable argv entry passed through CreateProcess. */
   command: string
   /** Arguments excluding the executable. */
@@ -71,7 +71,7 @@ export interface ChildStdioHandles {
 }
 
 /** Restricted-token process creation inputs owned by the Windows ACL sandbox. */
-export interface RestrictedProcessSpawnOptions extends OrdinaryProcessSpawnOptions {
+export interface RestrictedProcessSpawnOptions extends CurrentTokenProcessSpawnOptions {
   /** Restricted primary token supplied by sandbox policy. */
   token: NativePtr
 }
@@ -357,7 +357,7 @@ export function openNamedPipeForStdio(
 /** Shared suspended-create, Job-assignment, and resume lifecycle. */
 function spawnJobProcess(
   api: Win32ProcessBindings,
-  options: OrdinaryProcessSpawnOptions,
+  options: CurrentTokenProcessSpawnOptions,
   stdio: ChildStdioHandles,
   createName: 'CreateProcessAsUserW' | 'CreateProcessW',
   create: (startupInfo: NativePtr, processInfo: NativePtr) => number,
@@ -486,9 +486,9 @@ export function spawnInheritedJobProcess(
  * @param stdio - optional explicit handles opened for this target.
  * @returns caller-owned process and Job handles after successful resume.
  */
-export function spawnOrdinaryJobProcess(
+export function spawnCurrentTokenJobProcess(
   api: Win32ProcessBindings,
-  options: OrdinaryProcessSpawnOptions,
+  options: CurrentTokenProcessSpawnOptions,
   stdio: ChildStdioHandles = {},
 ): SpawnedJobProcess {
   const commandLine = buildCommandLine(options.command, options.args)

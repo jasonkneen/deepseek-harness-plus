@@ -267,12 +267,12 @@ export class OutputCollector {
 /**
  * Send `sig` to a detached POSIX process group. Never throws: delivery races
  * process exit and may run in a timer callback, so failures are contained and
- * a non-positive pid is a no-op.
- * @param pid - the group leader's pid; non-positive means the spawn failed and the call is a no-op.
+ * a missing pid is a no-op.
+ * @param pid - the group leader's pid, when the spawn published one.
  * @param sig - the signal to deliver to the whole group.
  */
-export function killGroup(pid: number, sig: NodeJS.Signals): void {
-  if (pid <= 0) return
+export function killGroup(pid: number | undefined, sig: NodeJS.Signals): void {
+  if (pid === undefined) return
   try {
     process.kill(-pid, sig)
   } catch {
@@ -285,10 +285,10 @@ export function killGroup(pid: number, sig: NodeJS.Signals): void {
  * POSIX group signalling — delivery races tree exit, so an absent tree, a
  * nonzero status, or a missing taskkill binary must not break idempotent
  * teardown.
- * @param pid - root process id; non-positive is a no-op.
+ * @param pid - root process id, when the spawn published one.
  */
-export function taskkillProcessTree(pid: number): void {
-  if (pid <= 0) return
+export function taskkillProcessTree(pid: number | undefined): void {
+  if (pid === undefined) return
   // Outcome deliberately unchecked: an already-absent tree (status 128), exit
   // races, and a missing taskkill binary (spawnSync reports, never throws) are
   // as tolerable here as ESRCH is for a POSIX group signal.
@@ -303,17 +303,17 @@ export function taskkillProcessTree(pid: number): void {
  */
 function signalTree(
   platform: NodeJS.Platform,
-  pid: number,
+  pid: number | undefined,
   sig: NodeJS.Signals,
   child: ChildProcess,
   taskkill: (pid: number) => void,
 ): void {
+  /* v8 ignore next -- kill/terminate gate on treeAlive(), which is false without a pid; this guard protects direct callers only. */
+  if (pid === undefined) return
   if (platform === 'win32') {
     taskkill(pid)
     return
   }
-  /* v8 ignore next -- kill/terminate gate on treeAlive(), which is false for pid -1; this guard protects direct callers only. */
-  if (pid <= 0) return
   try {
     process.kill(-pid, sig)
   } catch {
@@ -367,7 +367,7 @@ function directChildResult(child: ChildProcess): Promise<SubprocessOutcome> {
 
 function fallbackOwner(
   platform: NodeJS.Platform,
-  pid: number,
+  pid: number | undefined,
   child: ChildProcess,
   taskkill: (pid: number) => void,
   linuxGroupHasLiveMembers: (processGroupId: number) => boolean | undefined,
@@ -382,7 +382,7 @@ function fallbackOwner(
   )
 
   const alive = (): boolean => {
-    if (stopped || pid <= 0) return false
+    if (stopped || pid === undefined) return false
     if (platform === 'win32') return child.exitCode === null && child.signalCode === null
     try {
       process.kill(-pid, 0)
@@ -601,7 +601,7 @@ export function spawnSubprocess(spec: SubprocessSpawnSpec, internals: SpawnInter
     detached: platform !== 'win32',
   })
   const direct = directChildResult(child)
-  const pid = child.pid ?? -1
+  const pid = child.pid
   const owner = fallbackOwner(
     platform,
     pid,

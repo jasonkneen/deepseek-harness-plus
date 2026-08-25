@@ -144,8 +144,8 @@ spawn 会同步返回活动句柄；provider 可以稍后发布其进程标识�
  * observe.
  */
 interface SubprocessHandle {
-  /** Provider-published process identifier; -1 while unavailable or after startup fails. */
-  readonly pid: number
+  /** Provider-published target process identifier, or undefined until it is available. */
+  readonly pid: number | undefined
   /** The child's stdin, present iff spawned with `stdin: 'pipe'`. */
   readonly stdin: Writable | undefined
   /** The child's raw stdout, present iff spawned with `stdout: 'pipe'`. */

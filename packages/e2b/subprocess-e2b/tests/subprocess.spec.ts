@@ -402,7 +402,7 @@ describe('E2BSubprocessHandle', () => {
         KEEP: undefined,
       },
     }), '/workspace/.dsh-e2b/processes/one')
-    expect(handle.pid).toBe(-1)
+    expect(handle.pid).toBeUndefined()
     handle.stdin!.write('hello')
     handle.stdin!.end()
     fake.releaseStart()
@@ -1166,7 +1166,7 @@ describe('E2BSubprocessHandle', () => {
     fake.backgroundError = new Error('start failed')
     const handle = testHandle(runtime(fake), spec(), '/runtime/fail')
     await expect(handle.done).rejects.toThrow('start failed')
-    expect(handle.pid).toBe(-1)
+    expect(handle.pid).toBeUndefined()
     expect(fake.removed).toContain('/runtime/fail/environment')
     expect(fake.removed).toContain('/runtime/fail')
     await expect(handle.waitForExit()).resolves.toBe(true)

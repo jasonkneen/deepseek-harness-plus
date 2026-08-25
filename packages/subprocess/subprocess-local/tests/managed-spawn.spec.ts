@@ -16,6 +16,21 @@ function spec(graceMs = 30): SubprocessSpawnSpec {
 }
 
 describe('managed process binding', () => {
+  it('does not miss an abort between the initial check and listener registration', async () => {
+    let aborted = false
+    const addEventListener = vi.fn(() => { aborted = true })
+    const removeEventListener = vi.fn()
+    const signal = {
+      get aborted() { return aborted },
+      addEventListener,
+      removeEventListener,
+    } as unknown as AbortSignal
+
+    await expect(waitWithAbort(new Promise<void>(() => {}), signal)).resolves.toBe(false)
+    expect(addEventListener).toHaveBeenCalledOnce()
+    expect(removeEventListener).toHaveBeenCalledOnce()
+  })
+
   it('contains owner failure after an already-aborted wait returns false', async () => {
     const controller = new AbortController()
     const ownerFailure = Promise.withResolvers<undefined>()
@@ -129,7 +144,7 @@ describe('managed process binding', () => {
       stdin: wrapper.stdin,
       stdout: wrapper.stdout,
       stderr: wrapper.stderr,
-      pid: wrapper.pid as number,
+      pid: wrapper.pid,
       direct: direct.promise,
       owner: { signal: vi.fn(), waitForExit: async () => {} },
     })
@@ -154,7 +169,7 @@ describe('managed process binding', () => {
       stdin: wrapper.stdin,
       stdout: wrapper.stdout,
       stderr: wrapper.stderr,
-      pid: wrapper.pid as number,
+      pid: wrapper.pid,
       direct: new Promise(() => {}),
       owner: { signal: vi.fn(), waitForExit: async () => { throw failure } },
     })
@@ -178,7 +193,7 @@ describe('managed process binding', () => {
       stdin: wrapper.stdin,
       stdout: wrapper.stdout,
       stderr: wrapper.stderr,
-      pid: wrapper.pid as number,
+      pid: wrapper.pid,
       direct,
       owner: { signal, waitForExit: async () => {} },
     })
@@ -208,7 +223,7 @@ describe('managed process binding', () => {
       stdin: wrapper.stdin,
       stdout: wrapper.stdout,
       stderr: wrapper.stderr,
-      pid: wrapper.pid as number,
+      pid: wrapper.pid,
       direct: direct.promise,
       owner: {
         signal,

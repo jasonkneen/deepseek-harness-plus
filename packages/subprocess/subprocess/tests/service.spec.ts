@@ -26,7 +26,7 @@ class StubSubprocessRuntime extends SubprocessRuntime {
       ? { stdout: { readFrom: () => read } }
       : {}
     return {
-      pid: spec.argv.length,
+      pid: spec.argv[0] === 'pending' ? undefined : spec.argv.length,
       stdin: undefined,
       stdout: undefined,
       stderr: undefined,
@@ -66,6 +66,21 @@ describe('SubprocessRuntime seam', () => {
     await expect(handle.waitForExit()).resolves.toBe(true)
     const outcome = await handle.done
     expect(outcome.exitCode).toBe(0)
+  })
+
+  it('preserves an unavailable provider pid without treating it as failure', async () => {
+    const ctx = new Context()
+    await ctx.plugin(StubSubprocessRuntime)
+    const handle = ctx.subprocess.spawn({
+      argv: ['pending'],
+      cwd: '/stub',
+      stdio: { stdin: 'ignore', stdout: 'inherit', stderr: 'inherit' },
+      graceMs: 1,
+    })
+
+    expect(handle.pid).toBeUndefined()
+    await expect(handle.done).resolves.toEqual({ exitCode: 0, signal: null })
+    await expect(handle.waitForExit()).resolves.toBe(true)
   })
 
   it('loading a second implementation throws (one subprocess service per context — cordis standard)', async () => {

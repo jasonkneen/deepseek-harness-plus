@@ -2,7 +2,6 @@
 
 import { randomBytes } from 'node:crypto'
 import { execFile, spawn, spawnSync } from 'node:child_process'
-import type { ChildProcess } from 'node:child_process'
 import { setTimeout as sleepMs } from 'node:timers/promises'
 import type { SubprocessOutcome, SubprocessSpawnSpec } from '@deepseek-ai/dsh-subprocess'
 import type { BoundProcessOwner, ManagedProcessLaunch } from './managed-owner.ts'
@@ -16,6 +15,7 @@ import {
   runnerStdio,
   spawnRunnerInvocation,
 } from './runner-launch.ts'
+import { cleanupRunnerFiles } from './runner-protocol.ts'
 
 /** Test seams for systemd command execution. */
 export interface LinuxScopeInternals {
@@ -83,18 +83,27 @@ export function probeLinuxScope(internals: LinuxScopeInternals = {}): boolean {
     timeout,
   })
   if (manager.error !== undefined || manager.status !== 0) return false
+  const runner = runSync(runnerCommand, [...runnerPrefix, '--mode', 'probe-node'], {
+    env: childEnv(),
+    stdio: 'ignore',
+    timeout,
+  })
+  if (runner.error !== undefined || runner.status !== 0) return false
+  const unitBase = unitStem('dsh-subprocess-probe')
   const probe = runSync(systemdRun, [
     '--user',
     '--scope',
     '--quiet',
     '--collect',
     '--expand-environment=no',
-    `--unit=${unitStem('dsh-subprocess-probe')}`,
+    `--unit=${unitBase}`,
     '--',
-    runnerCommand,
-    ...runnerPrefix,
-    '--mode',
-    'probe-node',
+    systemctl,
+    '--user',
+    'show',
+    `${unitBase}.scope`,
+    '--property=ActiveState',
+    '--value',
   ], {
     env: childEnv(),
     stdio: 'ignore',
@@ -113,7 +122,7 @@ class SystemdScopeOwner implements BoundProcessOwner {
     private readonly systemctl: string,
     private readonly runSync: typeof spawnSync,
     private readonly query: (command: string, args: readonly string[]) => Promise<SystemctlResult>,
-    private readonly runner: ChildProcess,
+    private readonly launcherRunning: () => boolean,
     private readonly onForceKillAttempt: () => void,
   ) {}
 
@@ -149,7 +158,7 @@ class SystemdScopeOwner implements BoundProcessOwner {
     const output = `${result.stdout}\n${result.stderr}`
     if (result.status !== 0) {
       if (MISSING_UNIT.test(output)) {
-        if (this.runner.pid === undefined || this.runner.exitCode !== null || this.runner.signalCode !== null) return false
+        if (!this.launcherRunning()) return false
       } else {
         if (result.error !== undefined) throw result.error
         throw new Error(`systemctl could not read ${this.unit}: ${output.trim() || `exit ${String(result.status)}`}`)
@@ -175,6 +184,51 @@ class SystemdScopeOwner implements BoundProcessOwner {
   }
 }
 
+/** Prepared node-pty argv plus the owner for the exact transient scope it enters. */
+export interface LinuxTerminalScopeLaunch {
+  command: string
+  args: string[]
+  bindOwner(launcherRunning: () => boolean): BoundProcessOwner
+}
+
+/**
+ * Wrap one terminal argv directly in a transient user-systemd scope.
+ * @param argv - original terminal command and arguments.
+ * @param internals - injected systemd commands used by tests.
+ * @returns the node-pty command, literal arguments, and owner binding for the same unit.
+ */
+export function prepareLinuxTerminalScope(
+  argv: readonly string[],
+  internals: LinuxScopeInternals = {},
+): LinuxTerminalScopeLaunch {
+  const runSync = internals.spawnSync ?? spawnSync
+  const query = internals.systemctlQuery ?? querySystemctl
+  const systemdRun = internals.systemdRun ?? 'systemd-run'
+  const systemctl = internals.systemctl ?? 'systemctl'
+  const unitBase = unitStem('dsh-terminal')
+  return {
+    command: systemdRun,
+    args: [
+      '--user',
+      '--scope',
+      '--quiet',
+      '--collect',
+      '--expand-environment=no',
+      `--unit=${unitBase}`,
+      '--',
+      ...argv,
+    ],
+    bindOwner: launcherRunning => new SystemdScopeOwner(
+      `${unitBase}.scope`,
+      systemctl,
+      runSync,
+      query,
+      launcherRunning,
+      () => {},
+    ),
+  }
+}
+
 /**
  * Launch one direct command inside a transient user scope.
  * @param spec - exact target argv, cwd, stdio, environment, and lifecycle settings.
@@ -193,25 +247,31 @@ export function launchLinuxScope(
   const invocation = internals.runnerInvocation ?? spawnRunnerInvocation()
   const files = runnerFiles(spec)
   const unitBase = unitStem('dsh-subprocess')
-  const child = run(systemdRun, [
-    '--user',
-    '--scope',
-    '--quiet',
-    '--collect',
-    '--expand-environment=no',
-    `--unit=${unitBase}`,
-    '--',
-    ...invocation,
-    '--mode',
-    'node',
-    '--request',
-    files.requestPath,
-    '--events',
-    files.eventsPath,
-  ], {
-    env: childEnv(),
-    stdio: runnerStdio(spec),
-  })
+  let child: ReturnType<typeof spawn>
+  try {
+    child = run(systemdRun, [
+      '--user',
+      '--scope',
+      '--quiet',
+      '--collect',
+      '--expand-environment=no',
+      `--unit=${unitBase}`,
+      '--',
+      ...invocation,
+      '--mode',
+      'node',
+      '--request',
+      files.requestPath,
+      '--events',
+      files.eventsPath,
+    ], {
+      env: childEnv(),
+      stdio: runnerStdio(spec),
+    })
+  } catch (error) {
+    cleanupRunnerFiles(files)
+    throw error
+  }
   const lifecycle = observeChildLifecycle(child)
   let forceKillAttempted = false
   const owner = new SystemdScopeOwner(
@@ -219,7 +279,7 @@ export function launchLinuxScope(
     systemctl,
     runSync,
     query,
-    child,
+    () => child.pid !== undefined && child.exitCode === null && child.signalCode === null,
     () => { forceKillAttempted = true },
   )
   const result = runnerDirectResult(child, files, lifecycle.exited)

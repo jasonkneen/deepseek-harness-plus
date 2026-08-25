@@ -84,13 +84,6 @@ const windowsRunnerCoverageExclusions = process.platform === 'win32'
   ? ['packages/sandbox/sandbox-windows-acl/src/runner.ts']
   : []
 
-// The ordinary subprocess runner is a source/built child-process entry on
-// every platform. Its real-entry smoke tests execute it out of process, where
-// the parent Vitest coverage provider cannot instrument the module.
-const subprocessRunnerCoverageExclusions = [
-  'packages/subprocess/subprocess-local/src/spawn-runner.ts',
-]
-
 // pwsh-local's run/start/lifecycle suites self-skip without a real pwsh
 // (executor.spec.ts hasPwsh), leaving this file
 // far below per-file 100% on pwsh-less hosts; the exemption keeps those hosts
@@ -199,7 +192,6 @@ export default defineConfig({
         'packages/*/*/src/types.ts',
         'packages/*/*/src/bin.ts',
         'packages/*/*/src/worker.ts',
-        ...subprocessRunnerCoverageExclusions,
         // Dynamic Host/Client composition is covered by its focused lifecycle
         // tests and assembled application checks rather than per-file coverage.
         'packages/self-modification/*/src/**/*.{ts,tsx}',

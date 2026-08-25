@@ -140,7 +140,7 @@ class ProtocolPeer {
 }
 
 interface FakeChildOptions {
-  readonly pid?: number
+  readonly pid?: number | undefined
   readonly exitOnTerminate?: boolean
   readonly doneError?: Error
   readonly waitForExitError?: Error
@@ -212,7 +212,7 @@ function fakeChild(options: FakeChildOptions = {}): FakeChild {
     })
   })
   const handle: SubprocessHandle = {
-    pid: options.pid ?? 1234,
+    pid: Object.hasOwn(options, 'pid') ? options.pid : 1234,
     stdin: toChild,
     stdout: fromChild,
     stderr,
@@ -1912,7 +1912,7 @@ describe('run lifecycle and quiescence', () => {
     await expect(spawnFailure).rejects.not.toThrow('SECRET_TOKEN')
 
     const asyncSpawnFailureChild = fakeChild({
-      pid: -1,
+      pid: undefined,
       doneError: new Error('SECRET_TOKEN async spawn failure'),
     })
     const asyncSpawnFailure = startCodexRun(
@@ -1922,7 +1922,8 @@ describe('run lifecycle and quiescence', () => {
     await expect(asyncSpawnFailure)
       .rejects.toThrow(expectedFailureDiagnostic('initialize', 'unknown'))
     await expect(asyncSpawnFailure).rejects.not.toThrow('SECRET_TOKEN')
-    expect(asyncSpawnFailureChild.terminate).not.toHaveBeenCalled()
+    expect(asyncSpawnFailureChild.terminate).toHaveBeenCalledOnce()
+    expect(asyncSpawnFailureChild.waitForExit).toHaveBeenCalledOnce()
 
     const child = fakeChild()
     const starting = startCodexRun(request(), runSpec(child))
@@ -2295,16 +2296,16 @@ describe('disposeCodexChild', () => {
       .resolves.toBeUndefined()
   })
 
-  it('handles a spawn-level failure with no process tree', async () => {
+  it('still runs idempotent cleanup when the target pid was never published', async () => {
     const child = fakeChild({
-      pid: -1,
+      pid: undefined,
       doneError: new Error('spawn failed'),
     })
     const wire = defaultWire(child)
     await expect(disposeCodexChild(wire, child.handle))
       .resolves.toBeUndefined()
-    expect(child.terminate).not.toHaveBeenCalled()
-    expect(child.waitForExit).not.toHaveBeenCalled()
+    expect(child.terminate).toHaveBeenCalledOnce()
+    expect(child.waitForExit).toHaveBeenCalledOnce()
   })
 
   it('reports tree-wait failure with safe teardown facts', async () => {

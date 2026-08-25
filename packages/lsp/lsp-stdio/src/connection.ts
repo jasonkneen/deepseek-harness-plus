@@ -131,8 +131,8 @@ export class LspConnection {
     this.handle.stdout.on('data', (chunk: Buffer) => { this.onStdout(chunk) })
   }
 
-  /** The child's pid, or `-1` when the spawn produced no pid (so signalling is a no-op). */
-  get pid(): number {
+  /** The child's published pid, or undefined while the provider has none available. */
+  get pid(): number | undefined {
     return this.handle.pid
   }
 

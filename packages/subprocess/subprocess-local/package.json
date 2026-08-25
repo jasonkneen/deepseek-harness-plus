@@ -19,7 +19,7 @@
       "default": "./lib/index.js"
     },
     "./spawn-runner": {
-      "types": "./lib/types/spawn-runner.d.ts",
+      "types": "./lib/types/bin.d.ts",
       "default": "./lib/spawn-runner.js"
     },
     "./invariant": {

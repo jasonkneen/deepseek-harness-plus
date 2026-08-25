@@ -22,7 +22,7 @@ export interface ManagedProcessLaunch {
   stdin: Writable | null
   stdout: Readable | null
   stderr: Readable | null
-  pid: number
+  pid: number | undefined
   direct: Promise<SubprocessOutcome>
   owner: BoundProcessOwner
 }
@@ -70,6 +70,7 @@ export async function waitWithAbort(pending: Promise<void>, signal?: AbortSignal
   const aborted = Promise.withResolvers<boolean>()
   const onAbort = (): void => { aborted.resolve(false) }
   signal.addEventListener('abort', onAbort, { once: true })
+  if (signal.aborted) onAbort()
   try {
     return await Promise.race([pending.then(() => true), aborted.promise])
   } finally {

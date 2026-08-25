@@ -112,18 +112,25 @@ async function treeExitsWithin(child: SubprocessHandle, ms: number): Promise<boo
  * @param eofGraceMs - tier-1 window after stdin EOF.
  */
 export async function disposeAcpChild(child: SubprocessHandle, eofGraceMs: number): Promise<void> {
-  // A spawn failure has no process to tear down; observe the rejection so
-  // disposal in a finally block cannot surface it as unhandled.
-  if (child.pid <= 0) {
-    await child.done.catch(() => {})
-    return
-  }
+  const failures: Error[] = []
   child.stdin?.end()
-  if (await treeExitsWithin(child, eofGraceMs)) return
+  let exited = false
+  try {
+    exited = await treeExitsWithin(child, eofGraceMs)
+  } catch (error: unknown) {
+    failures.push(toError(error))
+  }
+  if (exited) return
   // terminate() owns the bounded SIGTERM→SIGKILL timer. Its unbounded wait is
   // the process owner's exit proof, not a second derived grace that can overflow.
   child.terminate()
-  await child.waitForExit()
+  try {
+    await child.waitForExit()
+  } catch (error: unknown) {
+    failures.push(toError(error))
+  }
+  if (failures.length === 1) throw failures[0] as Error
+  if (failures.length > 1) throw new AggregateError(failures, 'ACP subprocess teardown failed')
 }
 
 /**
@@ -311,9 +318,18 @@ export async function startAcpRun(request: SubagentStartRequest, spec: AcpRunSpe
     ])
   } catch (error: unknown) {
     request.signal.removeEventListener('abort', onAbort)
-    await disposeProcess()
-    if (flags.cancelled) throw new Error('subagent request was aborted before the ACP child started')
-    throw toError(error)
+    const startupFailure = flags.cancelled
+      ? new Error('subagent request was aborted before the ACP child started')
+      : toError(error)
+    try {
+      await disposeProcess()
+    } catch (cleanupError: unknown) {
+      throw new AggregateError(
+        [startupFailure, toError(cleanupError)],
+        'ACP startup failed and subprocess rollback did not reach quiescence',
+      )
+    }
+    throw startupFailure
   }
   // The startup transaction validates the returned id before it can fulfill.
   // This assertion carries that cross-closure invariant into TypeScript.

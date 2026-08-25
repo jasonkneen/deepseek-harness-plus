@@ -188,32 +188,27 @@ export async function disposeCodexChild(
 ): Promise<void> {
   wire.close()
 
-  if (child.pid > 0) {
-    let outcome: SubprocessOutcome | undefined
-    void child.done.then(
-      (value) => { outcome = value },
-      /* v8 ignore next -- a positive pid excludes spawn-level done rejection. */
-      () => {},
-    )
-    try {
-      child.stdin?.end()
-    } catch {
-      // A concurrently closed stdin does not change tree ownership below.
-    }
-    child.terminate()
-    try {
-      await child.waitForExit()
-    } catch (error: unknown) {
-      throw new CodexRunFailure({
-        stage: 'teardown',
-        category: 'unknown',
-        outcome,
-      }, thrown(error))
-    }
-    await child.done
-  } else {
-    await child.done.catch(() => {})
+  let outcome: SubprocessOutcome | undefined
+  void child.done.then(
+    (value) => { outcome = value },
+    () => {},
+  )
+  try {
+    child.stdin?.end()
+  } catch {
+    // A concurrently closed stdin does not change tree ownership below.
   }
+  child.terminate()
+  try {
+    await child.waitForExit()
+  } catch (error: unknown) {
+    throw new CodexRunFailure({
+      stage: 'teardown',
+      category: 'unknown',
+      outcome,
+    }, thrown(error))
+  }
+  await child.done.catch(() => {})
 }
 
 /**

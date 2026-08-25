@@ -100,7 +100,7 @@ function errorCause(value: unknown): Error | undefined {
 }
 
 interface FakeChildOptions {
-  readonly pid?: number
+  readonly pid?: number | undefined
   readonly exitOnTerminate?: boolean
   readonly waitForExitError?: Error
   readonly doneError?: Error
@@ -169,7 +169,7 @@ function fakeChild(options: FakeChildOptions = {}): FakeChild {
     })
   })
   const handle: SubprocessHandle = {
-    pid: options.pid ?? 1234,
+    pid: Object.hasOwn(options, 'pid') ? options.pid : 1234,
     stdin,
     stdout,
     stderr: undefined,
@@ -802,7 +802,7 @@ describe('official spawn projection', () => {
   })
 
   it('emits spawn errors', async () => {
-    const child = fakeChild({ pid: -1 })
+    const child = fakeChild({ pid: undefined })
     const process = new ManagedClaudeCodeProcess(child.handle)
     const errorListener = vi.fn()
     const removed = vi.fn()
@@ -1299,6 +1299,16 @@ describe('run publication, cancellation, and settlement', () => {
     )).rejects.toThrow('aborted before SDK startup')
     expect(unused.options).toEqual([])
 
+    const thrownAbort = new AbortController()
+    queryMock.mockImplementationOnce(() => {
+      thrownAbort.abort(new Error('startup cancelled before resource publication'))
+      throw new Error('query failed before resource publication')
+    })
+    await expect(startClaudeCodeRun(
+      request(undefined, thrownAbort.signal),
+      unused.spec,
+    )).rejects.toThrow('aborted before SDK startup')
+
     const noChildClose = vi.fn()
     queryMock.mockImplementationOnce(
       () => queryFrom([], undefined, noChildClose),
@@ -1439,7 +1449,7 @@ describe('run publication, cancellation, and settlement', () => {
       { code: 'EACCES', path: '/sdk/claude' },
     )
     const failedSpawn = fakeChild({
-      pid: -1,
+      pid: undefined,
       doneError: spawnError,
     })
     const failed = fakeRun([], undefined, failedSpawn)
@@ -1449,12 +1459,12 @@ describe('run publication, cancellation, and settlement', () => {
     await expect(failedStartup).rejects.not.toThrow('spawn /sdk/claude EACCES')
     await expect(failedStartup).rejects.toMatchObject({ cause: spawnError })
     expect(failed.close).toHaveBeenCalledOnce()
-    expect(failedSpawn.terminate).not.toHaveBeenCalled()
-    expect(failedSpawn.waitForExit).not.toHaveBeenCalled()
+    expect(failedSpawn.terminate).toHaveBeenCalledOnce()
+    expect(failedSpawn.waitForExit).toHaveBeenCalledOnce()
 
     const failedSpawnAbort = new AbortController()
     const cancelledFailedSpawn = fakeChild({
-      pid: -1,
+      pid: undefined,
       doneError: spawnError,
     })
     const cancelledFailedClose = vi.fn()
@@ -1474,7 +1484,7 @@ describe('run publication, cancellation, and settlement', () => {
       throw cancelledFailedSpawnCloseError
     })
     const cancelledFailedSpawnWithCloseFailure = fakeChild({
-      pid: -1,
+      pid: undefined,
       doneError: spawnError,
     })
     const failedSpawnAbortWithCloseFailure = new AbortController()
@@ -1507,7 +1517,7 @@ describe('run publication, cancellation, and settlement', () => {
     const failedSpawnCloseError = new Error('query close failed')
     const failedSpawnClose = vi.fn(() => { throw failedSpawnCloseError })
     const failedSpawnWithCloseFailure = fakeChild({
-      pid: -1,
+      pid: undefined,
       doneError: spawnError,
     })
     queryMock.mockImplementationOnce(({ options }) => {
@@ -1554,6 +1564,32 @@ describe('run publication, cancellation, and settlement', () => {
       .rejects.not.toThrow('query construction failed with a live child')
     await expect(liveCleanupFailure)
       .rejects.not.toThrow('live child cleanup failed')
+  })
+
+  it('waits one event-loop turn for a queued provider startup rejection', async () => {
+    const spawnError = Object.assign(
+      new Error('spawn /sdk/claude ENOENT'),
+      { code: 'ENOENT', path: '/sdk/claude' },
+    )
+    const child = fakeChild({ pid: undefined })
+    const close = vi.fn()
+    queryMock.mockImplementationOnce(({ options }) => {
+      options.spawnClaudeCodeProcess!(sdkSpawnOptions())
+      queueMicrotask(() => { child.fail(spawnError) })
+      return queryFrom([], undefined, close)
+    })
+
+    const startup = startClaudeCodeRun(request(), {
+      cwd: '/workspace',
+      permissionMode: DEFAULT_CLAUDE_CODE_PERMISSION_MODE,
+      env: {},
+      disposeGraceMs: 5,
+      spawn: () => child.handle,
+    })
+    await expect(startup).rejects.toMatchObject({ cause: spawnError })
+    expect(close).toHaveBeenCalledOnce()
+    expect(child.terminate).toHaveBeenCalledOnce()
+    expect(child.waitForExit).toHaveBeenCalledOnce()
   })
 })
 
