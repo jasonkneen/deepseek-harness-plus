@@ -179,8 +179,9 @@ describe.skipIf(!windowsNative)('Windows Job native containment', () => {
       if (command === undefined) throw new Error('expected ComSpec for the Windows runner test')
       const request = spec([command, '/d', '/s', '/c', 'exit 0'])
       const launch = launchWindowsJob(request)
-      expect(launch.pid).toBeGreaterThan(0)
+      expect(launch.pid).toBeUndefined()
       const failure = await launch.direct.catch((error: unknown) => error)
+      expect(launch.pid).toBeGreaterThan(0)
       expect(failure).toMatchObject({
         message: 'injected runner cwd restoration failure',
         code: 'ENOENT',

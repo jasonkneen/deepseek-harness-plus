@@ -155,7 +155,7 @@ function waitWithSignal<T>(promise: Promise<T>, signal: AbortSignal | undefined)
   })
 }
 
-/** E2B-backed subprocess handle with deferred remote PID acquisition. */
+/** E2B-backed subprocess handle with private remote process-group tracking. */
 export class E2BSubprocessHandle implements SubprocessHandle {
   readonly stdin: Writable | undefined
   readonly stdout: PassThrough | undefined
