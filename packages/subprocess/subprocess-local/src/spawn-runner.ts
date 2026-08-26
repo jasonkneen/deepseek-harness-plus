@@ -216,13 +216,19 @@ async function runWin32(
     // Match Node's cwd-relative executable lookup and spawn-error attribution.
     const runnerCwd = host.cwd()
     host.chdir(request.cwd)
+    const [command, ...args] = request.argv
+    let spawned: ReturnType<RunnerInternals['spawnCurrentTokenJobProcess']>
     try {
-      const [command, ...args] = request.argv
-      const spawned = internals.spawnCurrentTokenJobProcess(
+      spawned = internals.spawnCurrentTokenJobProcess(
         api,
         { command: command as string, args, cwd: host.cwd() },
         stdio,
       )
+    } catch (error) {
+      try { host.chdir(runnerCwd) } catch { /* Preserve the target startup failure. */ }
+      throw error
+    }
+    try {
       processHandle = spawned.process
       jobHandle = spawned.job
       appendRunnerEvent(eventsPath, { type: 'started', pid: spawned.pid })

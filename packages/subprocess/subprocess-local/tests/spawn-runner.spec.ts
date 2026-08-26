@@ -519,6 +519,47 @@ describe('spawn runner transport', () => {
     }
   })
 
+  it('preserves a Win32 target spawn failure when restoring the runner cwd also fails', async () => {
+    const files = createRunnerFiles({
+      argv: ['missing.exe', 'literal argument'],
+      cwd: 'C:\\target',
+      env: {},
+    })
+    const host = new FakeRunnerHost()
+    host.directory = 'C:\\runner'
+    const chdir = vi.fn((directory: string) => {
+      if (directory === 'C:\\runner') throw new Error('cwd restore failed')
+      host.directory = directory
+    })
+    host.chdir = chdir
+    const internals = fakeRunnerInternals({
+      spawnCurrentTokenJobProcess: vi.fn(() => {
+        throw new Win32Error('CreateProcessW', 2)
+      }),
+    })
+    try {
+      await runSpawnRunner(
+        win32RunnerArgs(files.requestPath, files.eventsPath),
+        asRunnerHost(host),
+        internals,
+      )
+      expect(chdir).toHaveBeenCalledTimes(2)
+      expect(host.exitCode).toBeUndefined()
+      const [event] = readRunnerEvents(files.eventsPath)
+      expect(event?.type).toBe('spawn-error')
+      if (event?.type !== 'spawn-error') throw new Error('expected spawn error')
+      expect(event.error).toMatchObject({
+        code: 'ENOENT',
+        syscall: 'spawn missing.exe',
+        path: 'missing.exe',
+        spawnargs: ['literal argument'],
+      })
+      expect(event.error.message).not.toContain('cwd restore failed')
+    } finally {
+      cleanupRunnerFiles(files)
+    }
+  })
+
   it.each([
     [undefined, false],
     ['ENOENT', true],
