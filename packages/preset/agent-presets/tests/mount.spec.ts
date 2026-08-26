@@ -5,6 +5,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 import { Context } from '@deepseek-ai/cordis'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
 import Include from '@deepseek-ai/cordis-plugin-include'
+import Group from '@deepseek-ai/cordis-plugin-group'
 import LlmRuntime from '@deepseek-ai/dsh-llm'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
@@ -43,6 +44,10 @@ async function harness(roster: Config = { default: 'standard', roots: ROOTS, inc
   ctx.baseUrl = pathToFileURL(FIXTURES).href + '/'
   await ctx.plugin(Loader)
   ctx.loader.builtins.include = Include
+  // A preset outside this workspace cannot resolve `cordis-plugin-group` by
+  // name, so the app registers it as a builtin; the fixtures compose the same
+  // way real presets do, which needs it here too.
+  ctx.loader.builtins.group = Group
   await ctx.plugin(LlmRuntime)
   await ctx.plugin(SessionStore)
   await ctx.plugin(SystemPrompt, { persona: '' })
@@ -244,7 +249,16 @@ describe('rejecting a composition that cannot be used', () => {
     // message names none of them; unflattened, the operator is told only that
     // "loader entries failed to apply" and has nothing to act on.
     await expect(agentOn(ctx, 'sess-two-broken', 'two-broken'))
-      .rejects.toThrow(/first-missing[\s\S]*second-missing/)
+      .rejects.toThrow(/first-refuses[\s\S]*second-refuses/)
+  })
+
+  it('names the rows inside a failed group, not the group alone', async () => {
+    // The Loader's per-row wrapper keeps only `cause.message`, so a group's
+    // own AggregateError arrives with its `errors` reachable through `cause`
+    // alone. Reading the message stops at "loader entries failed to apply"
+    // and names neither row that actually refused.
+    await expect(agentOn(ctx, 'sess-nested-broken', 'nested-broken'))
+      .rejects.toThrow(/outer[\s\S]*inner-first[\s\S]*inner-second/)
   })
 
   it('names the unresolved service when a row never activates', async () => {
@@ -330,7 +344,7 @@ describe('the preset roster', () => {
 
     // `not-a-preset` is the fixture ghost: no composition file, listed broken.
     expect(listed.map(preset => preset.id).sort())
-      .toEqual(['broken', 'isolated', 'late', 'leaky', 'minimal', 'not-a-preset', 'pending', 'standard', 'two-broken'])
+      .toEqual(['broken', 'isolated', 'late', 'leaky', 'minimal', 'nested-broken', 'not-a-preset', 'pending', 'standard', 'two-broken'])
     expect(listed.find(preset => preset.id === 'standard')?.trust).toBe('system')
     expect(listed.find(preset => preset.id === 'not-a-preset')?.broken).toMatch(/is missing/)
   })
@@ -378,11 +392,27 @@ describe('composing from a broken preset', () => {
 describe('a roster with nothing in it', () => {
   it('says so instead of naming an empty list of candidates', async () => {
     const bare = new Context()
+    bare.baseUrl = pathToFileURL(FIXTURES).href + '/'
     await bare.plugin(Loader)
     await bare.plugin(AgentPresets, { default: 'standard', roots: [], includeShippedRoot: false, includeUserRoot: false })
 
     await expect(bare.agentPresets.resolve())
       .rejects.toThrow(/preset "standard" not found \(available: none\)/)
+  })
+})
+
+describe('a roster with no base to resolve from', () => {
+  it('refuses at load rather than calling every preset broken', async () => {
+    // Health answers "can this row be imported?", and the same package name
+    // fails from a preset's own directory while resolving from the installed
+    // harness. Without the base there is no answer, and the silent one is
+    // exactly the failure the check exists to report.
+    const baseless = new Context()
+    await baseless.plugin(Loader)
+
+    await expect(baseless.plugin(AgentPresets, {
+      default: 'standard', roots: ROOTS, includeShippedRoot: false, includeUserRoot: false,
+    })).rejects.toThrow(/needs `ctx\.baseUrl`/)
   })
 })
 
@@ -411,6 +441,7 @@ describe('the preset file is an input, never a persistence target', () => {
     scoped.baseUrl = pathToFileURL(FIXTURES).href + '/'
     await scoped.plugin(Loader)
     scoped.loader.builtins.include = Include
+    scoped.loader.builtins.group = Group
     await scoped.plugin(LlmRuntime)
     await scoped.plugin(SessionStore)
     await scoped.plugin(SystemPrompt, { persona: '' })
@@ -588,7 +619,7 @@ describe('replacing a composition', () => {
     // A preset root this test owns, so removing the composition mid-flight
     // cannot disturb the shipped fixtures.
     const root = await mkdtemp(join(tmpdir(), 'dsh-preset-restore-'))
-    const seeded: [string, string][] = [['first', `- id: only\n  name: ${join(FIXTURES, 'plugins', 'contribute.js')}\n  config:\n    tool: only\n`], ['broken', '- id: nope\n  name: ./does-not-exist.js\n']]
+    const seeded: [string, string][] = [['first', `- id: only\n  name: ${join(FIXTURES, 'plugins', 'contribute.js')}\n  config:\n    tool: only\n`], ['broken', `- id: nope\n  name: ${join(FIXTURES, 'plugins', 'throws.js')}\n  config:\n    message: refuses\n`]]
     for (const [id, body] of seeded) {
       await mkdir(join(root, id))
       await writeFile(join(root, id, COMPOSITION_FILE), body)
@@ -597,6 +628,7 @@ describe('replacing a composition', () => {
     scoped.baseUrl = pathToFileURL(FIXTURES).href + '/'
     await scoped.plugin(Loader)
     scoped.loader.builtins.include = Include
+    scoped.loader.builtins.group = Group
     await scoped.plugin(LlmRuntime)
     await scoped.plugin(SessionStore)
     await scoped.plugin(SystemPrompt, { persona: '' })

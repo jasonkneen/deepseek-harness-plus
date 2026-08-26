@@ -2,9 +2,7 @@
 // dispatch entry + list state, constructed and held by ClientSessions (one per browser client).
 // List data never enters zustand; React connects via subscribe/getListSnapshot.
 
-import type {
-  IApiClient, SubagentAddress, SubagentCatalog,
-} from '@deepseek-ai/dsh-client-connection/client'
+import type { SubagentAddress, SubagentCatalog } from '@deepseek-ai/dsh-subagent/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { WorkspaceId } from '@deepseek-ai/dsh-workspace/types'
 import type {
@@ -145,11 +143,10 @@ export class SessionManager {
   })
 
   /**
-   * @param api - shared wire client.
+   * @param remote - generated Remote namespaces the Session cluster calls.
    * @param restoredSelection - persisted real-Session selection candidate.
    */
   constructor(
-    private readonly api: IApiClient,
     private readonly remote: SessionRemotes,
     restoredSelection?: SessionId,
     restoredAddress?: SubagentAddress,
@@ -321,7 +318,7 @@ export class SessionManager {
     const parentAvailable = address === undefined
       ? undefined
       : this.catalogs.get(address.parentSessionId)?.parentAvailable
-    return new Session(sessionId, this.api, this.remote, {
+    return new Session(sessionId, this.remote, {
       ...(address === undefined ? {} : {
         address,
         ...catalogAvailability(parentAvailable),
@@ -369,7 +366,7 @@ export class SessionManager {
     this.notifier.markDirty()
     const operation = (async () => {
       try {
-        const { result } = await this.api.subagents.list({ parentSessionId })
+        const result = toSessionResult(await this.remote.subagents.list(parentSessionId))
         if (result.ok) {
           const parentAvailable = this.catalogInflight.get(parentSessionId)?.parentAvailableOverride
             ?? result.value.parentAvailable

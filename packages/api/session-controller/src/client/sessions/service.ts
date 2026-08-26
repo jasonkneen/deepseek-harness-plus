@@ -15,9 +15,7 @@
  * survives frozen (read-only view) until the stage moves on.
  */
 import type { Context, Fiber } from '@deepseek-ai/cordis'
-import type {
-  IApiClient, SubagentAddress,
-} from '@deepseek-ai/dsh-client-connection/client'
+import type { SubagentAddress } from '@deepseek-ai/dsh-subagent/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import { workspaceTitleOf } from '@deepseek-ai/dsh-util-workspace-path'
 import type { WorkspaceId } from '@deepseek-ai/dsh-workspace/types'
@@ -218,12 +216,10 @@ export class ClientSessions implements ISessions {
 
   /**
    * @param ctx - client root context (scope fibers mount under it).
-   * @param api - wire client shared with every Session.
    * @param remote - generated Remote namespaces shared with every Session.
    */
   constructor(
     private readonly rootCtx: Context,
-    api: IApiClient,
     remote: SessionRemotes,
   ) {
     this.selection = createSnapshotStore<SessionSelection>(
@@ -231,7 +227,6 @@ export class ClientSessions implements ISessions {
       { persist: { name: 'dsh.sessions.current' } })
     const restored = this.selection.getSnapshot()
     this.manager = new SessionManager(
-      api,
       remote,
       restored.sessionId,
       restored.subagentAddress,

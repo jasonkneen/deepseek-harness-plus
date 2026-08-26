@@ -81,6 +81,8 @@ This section explains how the service is built and where the observable behavior
 | [`src/descriptor.ts`](src/descriptor.ts) | Versioned `subagent/descriptor` session-event vocabulary |
 | [`src/child-agent.ts`](src/child-agent.ts) | Child composition, delegated policy, depth helpers |
 | [`src/list-children.ts`](src/list-children.ts) | Discovery over the live session store and optional persistence |
+| [`src/control.ts`](src/control.ts) | Browser control assembly: catalog activity sampling, browser-zone validation, failure codes |
+| [`src/control-types.ts`](src/control-types.ts) | Client-safe catalog row, control requests, receipts, and failures |
 
 ### One-shot flow
 

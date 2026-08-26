@@ -300,6 +300,7 @@ describe('SessionPersistenceSqlite physical packing', () => {
 
     const db = new DatabaseSync(path)
     expect(db.prepare(testSql('select-user-version')).get()).toEqual({ user_version: SCHEMA_VERSION })
+    expect(db.prepare(testSql('select-page-size')).get()).toEqual({ page_size: 65_536 })
     expect(db.prepare(testSql('count-events')).get()).toEqual({ count: 7 })
     expect(db.prepare(testSql('count-packed-events')).get())
       .toEqual({ count: 1 })
@@ -379,6 +380,22 @@ describe('SessionPersistenceSqlite physical packing', () => {
       .rejects.toThrow(/schema version 17.*incompatible/)
   })
 
+  it('keeps the page size of an established schema 19 database', async () => {
+    const path = await freshDbPath('dsh-sqlite-page-size-')
+    const seed = await openDatabase(DatabaseSync, path, 'delete', DEFAULT_BUSY_TIMEOUT_MS)
+    seed.close()
+
+    const resize = new DatabaseSync(path)
+    resize.exec(testSql('set-page-size-4096'))
+    resize.exec(testSql('vacuum'))
+    expect(resize.prepare(testSql('select-page-size')).get()).toEqual({ page_size: 4_096 })
+    resize.close()
+
+    const reopened = await openDatabase(DatabaseSync, path, 'wal', DEFAULT_BUSY_TIMEOUT_MS)
+    expect(reopened.prepare(testSql('select-page-size')).get()).toEqual({ page_size: 4_096 })
+    reopened.close()
+  })
+
   it('rejects a stale physical append without replacing the winning tail', async () => {
     const path = await freshDbPath('dsh-sqlite-stale-')
     const first = new SqliteStore({ path, journalMode: 'wal', busyTimeoutMs: DEFAULT_BUSY_TIMEOUT_MS })
@@ -390,6 +407,21 @@ describe('SessionPersistenceSqlite physical packing', () => {
     expect((await first.loadStored(header.id))?.events).toEqual([chunk(0), chunk(1)])
     await first.close()
     await second.close()
+  })
+
+  it('rolls back lazy integer-key materialization after a rejected append', async () => {
+    const store = new SqliteStore({
+      path: await freshDbPath('dsh-sqlite-key-rollback-'),
+      journalMode: 'wal',
+      busyTimeoutMs: DEFAULT_BUSY_TIMEOUT_MS,
+    })
+    const header = meta(SessionId('key-rollback'))
+
+    await expect(store.appendBatch(header, [chunk(1)], false)).rejects.toThrow(/stored next seq is 0/)
+    await expect(store.appendBatch(header, [chunk(0)], true)).rejects.toThrow(/metadata row is missing/)
+    await expect(store.appendBatch(header, [chunk(0)], false)).resolves.toBeUndefined()
+    expect((await store.loadStored(header.id))?.events).toEqual([chunk(0)])
+    await store.close()
   })
 
   it('rejects a stale repair without deleting a newer winning tail', async () => {
@@ -537,7 +569,7 @@ describe('SessionPersistenceSqlite schema ownership', () => {
 
     const foreignPath = await freshDbPath('dsh-sqlite-foreign-')
     const foreign = new DatabaseSync(foreignPath)
-    foreign.exec(testSql('set-user-version-18'))
+    foreign.exec(testSql('set-user-version-19'))
     foreign.exec(testSql('set-application-id-12345'))
     foreign.close()
     await expect(openDatabase(DatabaseSync, foreignPath, 'wal', DEFAULT_BUSY_TIMEOUT_MS)).rejects.toThrow(/has application id 12345/)

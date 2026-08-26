@@ -31,19 +31,7 @@ interface FakeHostOptions {
 
 function artifactBaseline(path: string): ClientArtifactBaseline {
   const bundle = statSync(path)
-  try {
-    const sourceMap = statSync(`${path}.map`)
-    return {
-      path,
-      mtimeMs: bundle.mtimeMs,
-      size: bundle.size,
-      mapMtimeMs: sourceMap.mtimeMs,
-      mapSize: sourceMap.size,
-    }
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
-    return { path, mtimeMs: bundle.mtimeMs, size: bundle.size, mapMtimeMs: null, mapSize: null }
-  }
+  return { path, mtimeMs: bundle.mtimeMs, size: bundle.size }
 }
 
 function fakeClientModuleHost(rows: Map<string, string>, options: FakeHostOptions = {}): FakeHost {
@@ -111,7 +99,7 @@ async function mount(clientModuleHost: FakeHost, webServer: WebServer) {
 }
 
 describe('hmr node half', () => {
-  it('watches graph bundles, reports stat changes, and unwatches on dispose', async () => {
+  it('watches graph bundles, ignores map-only changes, and unwatches on dispose', async () => {
     const bundle = join(dir, 'a.js')
     writeFileSync(bundle, 'v1')
     const clientModuleHost = fakeClientModuleHost(new Map([['pkg-a', bundle]]))
@@ -130,13 +118,17 @@ describe('hmr node half', () => {
     clientModuleHost.rebuiltCalls.length = 0
     await new Promise(resolve => setTimeout(resolve, POLL_MS * 2))
     writeFileSync(`${bundle}.map`, '{"version":3}')
+    await new Promise(resolve => setTimeout(resolve, POLL_MS * 3))
+    expect(clientModuleHost.rebuiltCalls).toEqual([])
+
+    writeFileSync(bundle, 'v3-even-longer')
     await vi.waitFor(() => { expect(clientModuleHost.rebuiltCalls).toContain('pkg-a') }, { timeout: 3_000 })
 
     await fiber.dispose()
     expect(routes).toHaveLength(0)
     // Watcher gone: further file changes report nothing.
     clientModuleHost.rebuiltCalls.length = 0
-    writeFileSync(bundle, 'v3-even-longer')
+    writeFileSync(bundle, 'v4-after-dispose')
     await new Promise(resolve => setTimeout(resolve, POLL_MS * 4))
     expect(clientModuleHost.rebuiltCalls).toHaveLength(0)
   })

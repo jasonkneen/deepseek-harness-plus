@@ -10,7 +10,7 @@ worker 逐字节运行 web profile 的 Cordis 配置——没有 worker 专属�
 
 ## 决定
 
-**Builtin。** 代理表只替换 Node builtin 与外部 npm 包，绝不替换 workspace 或 vendored 模块。`./implemented/<module>.ts` 在 worker 数据源之上承载真语义；`./mock/<module>.ts` 静默挂载、在调用真正抵达时报告缺失的能力。装载器的表按 specifier 各持一个 memoized thunk——求值发生在首次 `require` 而非装配期——且每个垫片的导出面对 Node 自身的模块类型作类型检查，仅在结构身份（真实类）确不可满足处留最窄的、有说明的例外。它的 `createRequire` 面在镜像 package 根之上同时提供 `resolve()` 与 `resolve.paths()`，使未修改的包无需加载目标即可发现 manifest。`process` 全局由 worker 自装，装配期填入表中。
+**Builtin。** 代理表只替换 Node builtin 与外部 npm 包，绝不替换 workspace 或 vendored 模块。`./implemented/<module>.ts` 在 worker 数据源之上承载真语义；`./mock/<module>.ts` 静默挂载、在调用真正抵达时报告缺失的能力。装载器的表按 specifier 各持一个 memoized thunk——求值发生在首次 `require` 而非装配期——且每个垫片的导出面对 Node 自身的模块类型作类型检查，仅在结构身份（真实类）确不可满足处留最窄的、有说明的例外。它的 `createRequire` 面在镜像 package 根之上同时提供 `resolve()` 与 `resolve.paths()`，使未修改的包无需加载目标即可发现 manifest。`process` 全局由 worker 自装，装配期填入表中。Shim 包含 `process.title`：`@xterm/headless` 等包通过该属性是否存在来选择 Node 路径；缺少它会让 dedicated Worker 被误判为浏览器 Window，进而访问仅适用于 DOM 的全局对象。
 
 **VFS。** 内存为真相。`statSync(path, { bigint: true })` 返回 Node 的 BigInt 形状，其中两个字段承载真实信息，因为 `dsh-fs-local` 的 stale-write guard 依赖它们：`ino` 是按路径的身份（单调计数器分配，路径重建即新身份），`mtimeMs` 按条目严格递增（`max(now, previous + 1)`）——内存写例行落在同一毫秒内，相等的时间戳会放过陈旧覆写。已提交的 mutation 还会驱动 [Node 兼容 watcher 与 confinement 实现](2026-08-23-webworker-vfs-watch-and-landlock.zh.md)。Cordis 日志器的详细度数值向上计数，因此 `startWorkerHost` 会在任何 entry 挂载前安装 `levels: { default: 2 }` 的 console exporter，避免未声明等级的 exporter 丢掉所有 warning。
 
@@ -31,4 +31,5 @@ worker 逐字节运行 web profile 的 Cordis 配置——没有 worker 专属�
 - `read-only` 与 `workspace-write` 解释 native Landlock launcher 协议，并在 VFS 帧闸口执行逐进程授权；`danger-full-access` 保持直接进程路径。[Watcher 与 confinement 决策](2026-08-23-webworker-vfs-watch-and-landlock.zh.md)拥有该执行世界中 `full` 的更窄含义。
 - Node 宿主的阶梯测试（`tests/node/child-process.spec.ts`）登记为 windows 不支持：阶梯的 win32 kill 梯级是按真 pid 的 taskkill，对进程表 pid 不可投递，而 worker 自身恒报 `linux`。
 - 输出增量但不流式：程序写入的 sink 以 `data` 事件转发，一个管道阶段完成后下一阶段才开始。
+- `tests/node/process-shim.spec.ts` 独立于测试运行器自带的 Node process，钉住 Node 环境识别字段。
 - 运行时的测试镜像 `src/`（`tests/node/`、`tests/shell/`、`tests/storage/`……），每个垫片族在 oracle-diff 套件旁拥有自己的行为用例。

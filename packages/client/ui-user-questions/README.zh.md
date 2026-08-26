@@ -9,7 +9,7 @@ kind: "package-reference"
 
 ## 概述
 
-`dsh-client-ui-user-questions` 是 Web 提问功能插件：其浏览器侧把 `question` 条目注册到会话拥有的 `conversation.composer` 键控 slot 中，因此当 agent 向用户提问时，编辑器会被提问 UI 接管。组件每次渲染一个问题，提供进度导航、单选与多选选项、推荐徽标与自定义答案，并为整个请求提交一批结构化答案。若某个请求的唯一问题声明了呈现意图，则改为渲染该意图自己的界面——最典型的是 `plan-review` 等待审批卡片，带 `Chat about it` / `Refuse` / `Approve`。其主机侧刻意为空：在那里挂载 `dsh-tool-ask-user` 会把工具放进注册表的全局层，并把它并入每一个 agent，无论它由哪个 preset 组装。
+`dsh-client-ui-user-questions` 是 Web 提问功能插件：其浏览器侧把 `question` 条目注册到会话拥有的 `conversation.composer` chain 中，因此当 agent 向用户提问时，编辑器会被提问 UI 接管。组件每次渲染一个问题，提供进度导航、单选与多选选项、推荐徽标与自定义答案，并为整个请求提交一批结构化答案。若某个请求的唯一问题声明了呈现意图，则改为渲染该意图自己的界面——最典型的是 `plan-review` 等待审批卡片，带 `Chat about it` / `Refuse` / `Approve`。其主机侧刻意为空：在那里挂载 `dsh-tool-ask-user` 会把工具放进注册表的全局层，并把它并入每一个 agent，无论它由哪个 preset 组装。
 
 ## 目录
 
@@ -29,15 +29,15 @@ kind: "package-reference"
 
 ### 作答
 
-用户打开或编辑自定义答案时，多选题草稿会保留已选中的标签，因此提交项可以同时携带 `selected` 与 `custom`；单选题的自定义答案仍保持互斥。问题详情复用助手输出的 `MarkdownText` 原语，包括其 GFM 渲染与不受信任内容策略。限高卡片保持标题、导航与提交动作固定，超长的详情与选项共享内部滚动区。「跳过此问题」会保留其他草稿，并为该项发出既有的空 `{ selected: [] }` 形状；关闭则以 `ASK_CANCELLED` 拒绝整个等待。
+用户打开或编辑自定义答案时，多选题草稿会保留已选中的标签，因此提交项可以同时携带 `selected` 与 `custom`；单选题的自定义答案仍保持互斥。问题详情复用助手输出的 `MarkdownText` 原语，包括其 GFM 渲染与不受信任内容策略。限高卡片保持标题、导航与提交动作固定，超长的详情与选项共享内部滚动区。「跳过此问题」会保留其他草稿，并为该项发出既有的空 `{ selected: [] }` 结果；关闭则以 `ASK_CANCELLED` 拒绝整个等待。
 
 ### plan-review 卡片
 
-`plan-review` 意图——由 `dsh-plan-mode` 在 `exit_plan_mode` 审阅上设置——渲染等待审批卡片的形状：一条 `Plan review` 条带、计划作为可滚动的 markdown 主体，以及一行 `Chat about it` / `Refuse` / `Approve` 的决定操作。Approve 与 Refuse 用提问方自己的选项标签回答；`Chat about it` 以 `ASK_CANCELLED` 拒绝该等待，让编辑器归位，用户可以直接说出他想说的话。
+`plan-review` 意图——由 `dsh-plan-mode` 在 `exit_plan_mode` 审阅上设置——渲染等待审批卡片的布局：一条 `Plan review` 条带、计划作为可滚动的 markdown 主体，以及一行 `Chat about it` / `Refuse` / `Approve` 的决定操作。Approve 与 Refuse 用提问方自己的选项标签回答；`Chat about it` 以 `ASK_CANCELLED` 拒绝该等待，让编辑器归位，用户可以直接说出他想说的话。
 
 ### 失败与恢复
 
-选择状态只存在于以请求 rpcId 为 key 的组件本地：使用相同 id 回放时，只要组件仍挂载，就会保留草稿；主机发出的 `question/resolved` 则会移除编辑器。主机仍具有最终决定权：HTTP 交付成功不会在本地移除待处理状态。
+通用提问流程把当前题号、已选标签、自定义文本和显式跳过状态保存在非持久化 Slot store 中；该 store 归属对应 Session，并以待处理请求的本地渲染标识为 key。从 Session A 切换到 B 会重新挂载严格 Session 级编辑器条目，但返回 A 时会复用 A 的 store 并恢复未完成草稿。不同的请求标识读取空草稿，并在首次编辑时替换旧值；成功回答或取消会清除相符的值。请求是否仍在等待由主机保持权威。
 
 -----
 
@@ -76,7 +76,7 @@ kind: "package-reference"
 <a id="model-experience"></a>
 ## 模型体验
 
-间接影响模型体验：通过 `dsh-tool-ask-user` 实现，本包挂载该工具，而该工具拥有模型可见的 schema 与答案渲染。
+间接影响模型体验：本包在 Web 客户端呈现 `dsh-tool-ask-user` 所拥有的模型可见 schema 与答案渲染。
 
 #### KV Cache 影响
 
@@ -89,7 +89,7 @@ kind: "package-reference"
 
 这些限制定义草稿持久性与编辑器归属；它们是当前包约束。
 
-- **未提交的草稿不持久**：重新连接再同步或完整刷新页面时，会恢复主机拥有且 rpcId 相同的待处理请求，但编辑器卸载会重置本地选项和自定义文本草稿。
+- **未提交草稿的生命周期限于当前页面与 Session**：只要该 Session scope 仍留在页面内，Session 导航就会保留草稿；完整刷新页面、Session 被裁剪，或待处理请求以新的本地标识重新交付时，则从空草稿开始。store 从不把草稿写入主机、`localStorage` 或磁盘。
 - **每次只有一个请求拥有编辑器**：后续待处理请求仍留在会话快照中，并在较早请求落定后显示。
 
 <a id="dev-note"></a>

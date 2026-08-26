@@ -85,6 +85,7 @@ async function mount(initialHost?: HostDescription): Promise<Bench> {
   })
   ctx.reflect.provide('remote.commands', remote.commands)
   ctx.reflect.provide('remote.session', remote.session)
+  ctx.reflect.provide('remote.subagents', remote.subagents)
   const fiber = ctx.plugin(SessionClient)
   await fiber
   const sessions = ctx.sessions as ClientSessions

@@ -1,10 +1,11 @@
-/** Client operation results spanning Session Remote calls and the legacy subagent carrier. */
+/** Client operation results spanning the Session and subagent Remote calls. */
 
 import type { RpcError } from '@deepseek-ai/dsh-client-connection/client'
+import type { SubagentControlError } from '@deepseek-ai/dsh-subagent/client'
 import type { SessionError } from '../../types.ts'
 
 /** Failure surfaced by the Client Session object layer. */
-export type ClientFailure = RpcError | SessionError
+export type ClientFailure = RpcError | SessionError | SubagentControlError
 
 /** Success or failure returned by a Client Session operation. */
 export type ClientResult<T> =
@@ -13,7 +14,7 @@ export type ClientResult<T> =
 
 /**
  * Fold a rejected carrier operation into the Client Session failure vocabulary.
- * @param error - rejection from a legacy subagent or local carrier call.
+ * @param error - rejection from a Remote or local carrier call.
  * @returns the failure branch of a Client Session result.
  */
 export function transportResult<T>(error: unknown): ClientResult<T> {

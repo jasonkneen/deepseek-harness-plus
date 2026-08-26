@@ -30,6 +30,9 @@
       "path": "../locale"
     },
     {
+      "path": "../store"
+    },
+    {
       "path": "../ui-conversation"
     },
     {

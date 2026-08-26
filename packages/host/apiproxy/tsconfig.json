@@ -54,9 +54,6 @@
       "path": "../../session-query/session-query"
     },
     {
-      "path": "../../subagent/subagent"
-    },
-    {
       "path": "../../skill/skill"
     },
     {

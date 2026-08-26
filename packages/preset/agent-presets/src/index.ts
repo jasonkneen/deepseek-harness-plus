@@ -181,6 +181,18 @@ export class AgentPresets extends TypertRemoteService {
   private readonly resolvedRoots: readonly PresetRoot[]
 
   /**
+   * Where a row's package name resolves from: the base URL of the composition
+   * this roster was loaded by, which is inside the installed harness.
+   *
+   * Discovery needs it because a preset's own directory is the wrong base for
+   * a package name — a locally authored preset lives under the user's home,
+   * where Node's upward `node_modules` walk never reaches the harness's
+   * dependencies. The mount already resolves rows this way; holding the same
+   * base here is what lets health answer the question before a session does.
+   */
+  private readonly harnessBase: string
+
+  /**
    * The user layer over `config.default`, present only while a settings
    * provider is composed. Held rather than snapshotted so a hot-reloaded
    * document takes effect without a restart.
@@ -206,6 +218,18 @@ export class AgentPresets extends TypertRemoteService {
   constructor(ctx: Context, public config: Config) {
     super(ctx, 'agentPresets')
     this.selfCtx = ctx
+    const { baseUrl } = ctx
+    if (baseUrl === undefined) {
+      // Self-contained misconfiguration, so it fails at load: without a base
+      // the roster can neither resolve a row nor tell a healthy preset from
+      // one naming a package that is gone, and the silent alternative is the
+      // exact failure this check exists to report.
+      throw new Error(
+        'agent-presets: the roster needs `ctx.baseUrl` to resolve the plugins a composition names; '
+        + 'compose it under a Loader, or set the base on the context this plugin is applied to',
+      )
+    }
+    this.harnessBase = baseUrl
     this.resolvedRoots = [
       ...config.includeShippedRoot ? [{ path: SHIPPED_PRESET_ROOT, trust: 'system' } satisfies PresetRoot] : [],
       ...config.roots,
@@ -279,7 +303,7 @@ export class AgentPresets extends TypertRemoteService {
    * @returns the presets, first-root-wins per id.
    */
   async list(): Promise<AgentPreset[]> {
-    return await discoverPresets(this.resolvedRoots)
+    return await discoverPresets(this.resolvedRoots, this.harnessBase)
   }
 
   /**

@@ -1,6 +1,6 @@
 /**
  * Opt-in SQLite persistence provider. Logical sessions remain unchanged;
- * the physical backend packs eligible chunk runs into schema-18 rows.
+ * the physical backend packs eligible chunk runs into schema-19 rows.
  * @module @deepseek-ai/dsh-session-persistence-sqlite
  */
 

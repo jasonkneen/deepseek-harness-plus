@@ -9,7 +9,7 @@ kind: "package-reference"
 
 ## 概述
 
-web GUI 宿主的每个客户端都通过 `dsh-host-apiproxy` 调用同一套类型化 API——会话与历史、子代理、工作区、目录选择、模型选择、agent preset、skill、目标、设置、凭据、LLM 目录、事件与会话导出——由 fetch 载体经由 HTTP 或进程内搬运。约定层零 Node 依赖、可从浏览器导入，因此一套类型化 API 同时服务 Web 服务器、Electron 与任何未来的客户端形态。随发行版交付的 Web 组合在 [`dsh-web-app`](../../bundle/web-app/README.zh.md) 中组装网关。选择载体、调用领域 API 与配置网关在前；协议内部细节放在下方可折叠的开发者章节中。
+web GUI 宿主的每个客户端都通过 `dsh-host-apiproxy` 调用同一套类型化 API——会话与历史、工作区、目录选择、模型选择、agent preset、skill、目标、设置、凭据、LLM 目录、事件与会话导出——由 fetch 载体经由 HTTP 或进程内搬运。约定层零 Node 依赖、可从浏览器导入，因此一套类型化 API 同时服务 Web 服务器、Electron 与任何未来的客户端形态。随发行版交付的 Web 组合在 [`dsh-web-app`](../../bundle/web-app/README.zh.md) 中组装网关。选择载体、调用领域 API 与配置网关在前；协议内部细节放在下方可折叠的开发者章节中。
 
 ## 目录
 
@@ -40,7 +40,7 @@ HTTP 载体在分发前以 415 拒绝非 JSON 的 POST 请求体，因此跨站�
 
 ### 网关暴露什么
 
-API 按领域分组：`sessions`（list、create、history、prompt、cancel、queue、models、selectModel、rename、fork、search、attachment）、`subagents`、`workspace`、`host`（describe、pickDirectory、listDirectory、createDirectory、openPath）、`skills`、`agentPresets`、`goals`、`settings`、`credentials`、`llm`、`events` 与 `downloads`。sessions、workspace 与 events 契约分别归 Session Controller、Workspace Controller 与 API Remotes 包所有；其余领域契约与 `RpcMethodMap` 位于 `src/api/`。
+API 按领域分组：`sessions`（list、create、history、prompt、cancel、queue、models、selectModel、rename、fork、search、attachment）、`workspace`、`host`（describe、pickDirectory、listDirectory、createDirectory、openPath）、`skills`、`agentPresets`、`goals`、`settings`、`credentials`、`llm`、`events` 与 `downloads`。sessions、workspace 与 events 契约分别归 Session Controller、Workspace Controller 与 API Remotes 包所有；其余领域契约与 `RpcMethodMap` 位于 `src/api/`。
 
 ### 会话与历史
 
@@ -92,7 +92,7 @@ API 按领域分组：`sessions`（list、create、history、prompt、cancel、q
 
 ### 网关服务
 
-`ApiProxyService` 提供 `ctx.apiProxy`，并基于所组合的宿主上下文实现约定——会话、子代理、工作区注册表、目录选择器、agent preset、设置、凭据、LLM、事件与下载。Host cwd 是默认项目目录。网关只在 `host.describe` 报告的部署元数据中消费 `ctx.agentDefaultModel`；保存已接受的切换由 Session Controller 的 `session.selectModel` 通过共享的 agent-default-model settings 分节完成。产品的 `dsh --profile headless` 是直连 core 的入口，不挂载本包。
+`ApiProxyService` 提供 `ctx.apiProxy`，并基于所组合的宿主上下文实现约定——会话、工作区注册表、目录选择器、agent preset、设置、凭据、LLM、事件与下载。Host cwd 是默认项目目录。网关只在 `host.describe` 报告的部署元数据中消费 `ctx.agentDefaultModel`；保存已接受的切换由 Session Controller 的 `session.selectModel` 通过共享的 agent-default-model settings 分节完成。产品的 `dsh --profile headless` 是直连 core 的入口，不挂载本包。
 
 ### 请求流
 

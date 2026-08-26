@@ -9,6 +9,7 @@ import fileReferencesRemote from '@deepseek-ai/dsh-file-reference/remote'
 import pluginInventoryRemote from '@deepseek-ai/dsh-host-plugin-inventory/remote'
 import messageFeedbackRemote from '@deepseek-ai/dsh-message-feedback/remote'
 import sessionReferencesRemote from '@deepseek-ai/dsh-session-reference/remote'
+import subagentsRemote from '@deepseek-ai/dsh-subagent/remote'
 import sessionRemote from '@deepseek-ai/dsh-api-session-controller/remote'
 import workspaceRemote from '@deepseek-ai/dsh-api-workspace-controller/remote'
 import type { ClientRemote } from '@deepseek-ai/dsh-api-gateway/client'
@@ -22,6 +23,8 @@ export type {} from '@deepseek-ai/dsh-goal/remote'
 export type {} from '@deepseek-ai/dsh-host-plugin-inventory/remote'
 export type {} from '@deepseek-ai/dsh-message-feedback/remote'
 export type {} from '@deepseek-ai/dsh-session-reference/remote'
+export type {} from '@deepseek-ai/dsh-subagent/remote'
+export type * from '@deepseek-ai/dsh-subagent/client'
 export type {} from '@deepseek-ai/dsh-api-session-controller/remote'
 export type * from '@deepseek-ai/dsh-api-session-controller/types'
 export type {} from '@deepseek-ai/dsh-api-workspace-controller/remote'
@@ -54,7 +57,6 @@ export type {
   MessageId, ModelCatalog, ModelCatalogFailure, ModelProviderGroup, ModelReasoningEffort, ModelSelection,
   RpcError, RpcId, RpcRequest, RpcResponse, RpcResult, SessionId,
   SettingsNamespaceView, SettingsPathOpView, SkillEntry, StreamChunk,
-  SubagentAddress, SubagentCatalog,
 } from '@deepseek-ai/dsh-client-connection/client'
 export type {} from '@deepseek-ai/dsh-api-gateway/client'
 export type {} from '@deepseek-ai/dsh-cordis-host-runner/remote'
@@ -110,6 +112,7 @@ export type ClientFailure =
   | import('@deepseek-ai/dsh-client-connection/client').RpcError
   | import('@deepseek-ai/dsh-agent-presets/types').AgentPresetError
   | import('@deepseek-ai/dsh-api-session-controller/types').SessionError
+  | import('@deepseek-ai/dsh-subagent/client').SubagentControlError
   | import('@deepseek-ai/dsh-api-workspace-controller/types').WorkspaceError
 
 /** Success or failure returned by Client operations spanning both API families. */
@@ -138,7 +141,7 @@ export async function apply(ctx: Context): Promise<() => Promise<void>> {
     for (const contribution of [
       agentPresetsRemote, commandsRemote, goalsRemote, dynamicRemote, fileReferencesRemote,
       pluginInventoryRemote, messageFeedbackRemote, sessionReferencesRemote,
-      sessionRemote, workspaceRemote,
+      subagentsRemote, sessionRemote, workspaceRemote,
     ]) {
       disposers.push(await ctx.remote.$mount(contribution))
     }

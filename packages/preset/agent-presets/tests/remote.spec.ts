@@ -28,7 +28,10 @@ const ROOTS = [
   { path: join(FIXTURES, 'system'), trust: 'system' as const },
   { path: join(FIXTURES, 'user'), trust: 'user' as const },
 ]
-const VALID = '- id: tool-alpha\n  name: ../../plugins/contribute.js\n  config:\n    tool: alpha\n'
+// A row naming a package, the way an authored preset's rows do. Health
+// resolves every row it can prove will start, so a path reaching outside the
+// temp preset directory these tests seed would report the composition broken.
+const VALID = '- id: prompt\n  name: \'@deepseek-ai/dsh-system-prompt\'\n'
 
 afterEach(() => vi.restoreAllMocks())
 

@@ -649,6 +649,53 @@ listChildren(parentSessionId: SessionId, signal?: AbortSignal): Promise<Subagent
 listDescendants(rootSessionId: SessionId, signal?: AbortSignal): Promise<SubagentDescendantListEntry[]>
 
 /**
+ * Remote face of {@link listChildren} for one browser: the durable listing
+ * plus live Agent activity and the delivery-time parent availability hint.
+ * Parent availability is a hint; {@link prompt} performs the authoritative
+ * check. Named apart from the provider-name {@link list}, which owns the
+ * member.
+ * @param parentSessionId - parent session whose direct children are listed.
+ * @param signal - carrier cancellation forwarded to Session queries.
+ * @returns the catalog view for that parent.
+ * @throws {TypertRemoteFailure} `bad-request` for an empty parent id,
+ *   `cancelled` for an aborted read, `subagent-projections-unavailable` when
+ *   the deployment has no projection registry, otherwise `internal`.
+ */
+@Remote('list') async remoteExportList(parentSessionId: SessionId, signal: AbortSignal): Promise<SubagentCatalog>
+
+/**
+ * Deliver one browser-authored message to a continuable child through the
+ * exact live direct parent, retaining the caller-minted request identity and
+ * validated browser zone on the accepted message. Success identifies the
+ * message the child's FIFO inbox accepted; later execution is independent of
+ * this call.
+ * @param request - durable address, minted identity, content, and optional browser zone.
+ * @param signal - carrier cancellation, owning the call until inbox acceptance.
+ * @returns the accepted message's inbox identity.
+ * @throws {TypertRemoteFailure} `bad-request`, `invalid-time-zone`,
+ *   `subagent-parent-unavailable`, `subagent-not-resumable`,
+ *   `subagent-unauthorized`, `subagent-delivery-unavailable`, `cancelled`, or
+ *   `internal`.
+ */
+@Remote('prompt') async prompt(request: SubagentPromptRequest, signal: AbortSignal): Promise<SubagentPromptReceipt>
+
+/**
+ * Remote face of {@link interrupt} under one durable parent address. No
+ * catalog, history, persistence, or parent Agent lookup runs: the core
+ * primitive alone authorizes the address against the live Activation, which
+ * is what keeps a live child interruptible while its parent Agent is offline.
+ * Absent, idle, and already-completed targets are accepted no-ops there.
+ * @param childSessionId - durable child session id to interrupt.
+ * @param parentSessionId - durable direct parent whose authority is claimed.
+ * @param mode - required continuable-address discriminator.
+ * @returns acknowledgement that the cancel signal was admitted, not that the target is quiescent.
+ * @throws {TypertRemoteFailure} `bad-request` for an empty id,
+ *   `subagent-unauthorized` when the address does not own the live target,
+ *   otherwise `internal`.
+ */
+@Remote('interruptByParent') interruptByParent( childSessionId: SessionId, parentSessionId: SessionId, mode: 'continuable', ): SubagentInterruptReceipt
+
+/**
  * Register a provider under its name. Registration is effect-scoped and HMR
  * safe; removing a provider blocks new starts but does not revoke runs that
  * were already returned to their holders.

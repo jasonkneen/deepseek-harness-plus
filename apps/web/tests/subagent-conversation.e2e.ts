@@ -267,7 +267,7 @@ describe('web e2e: persisted subagent conversation and human continuation', () =
 
   it('keeps known descendants reachable across a stale empty catalog response', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-subagent-stale-catalog'))
-    const pattern = '**/api/subagent.list'
+    const pattern = '**/api/subagents/list'
     let firstClaimed = false
     let emptyDelivered = false
     let trailingRequested = false
@@ -373,7 +373,7 @@ describe('web e2e: persisted subagent conversation and human continuation', () =
 
   it('keeps a restored child neutral until its parent availability arrives', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-subagent-restore'))
-    const pattern = '**/api/subagent.list'
+    const pattern = '**/api/subagents/list'
     let requested = false
     let releaseCatalog = (): void => {}
     const catalogHeld = new Promise<void>((resolve) => { releaseCatalog = resolve })
@@ -546,7 +546,7 @@ describe('web e2e: persisted subagent conversation and human continuation', () =
     const input = page.locator('[data-composer-input][contenteditable="true"]').first()
     await input.waitFor()
     const promptResponse = page.waitForResponse(response =>
-      new URL(response.url()).pathname === '/api/subagent.prompt')
+      new URL(response.url()).pathname === '/api/subagents/prompt')
     await input.fill(POST_FORK_FOLLOWUP)
     await input.press('Enter')
     const promptReceipt = await (await promptResponse).json() as {

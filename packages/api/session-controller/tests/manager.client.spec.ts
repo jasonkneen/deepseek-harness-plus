@@ -8,7 +8,7 @@ import type { SessionId } from '@deepseek-ai/dsh-api-remotes/client'
 import type { SessionControlFrame } from '@deepseek-ai/dsh-api-session-controller/types'
 import type {} from '@deepseek-ai/dsh-session-title/client'
 import { SessionManager } from '../src/client/sessions/manager.ts'
-import { FakeApiClient, deferred, err, fakeRemote, ok } from './fake-api.client.ts'
+import { FakeApiClient, deferred, err, fakeRemote, ok, remoteErr, remoteOk } from './fake-api.client.ts'
 import { entries, plainTurn } from './event-script.client.ts'
 
 const S1 = 'fk-m1' as SessionId
@@ -29,14 +29,14 @@ function summary(sessionId: SessionId, over: SummaryOver = {}) {
 
 function makeManager(): SessionManager {
   const api = new FakeApiClient()
-  return new SessionManager(api, fakeRemote(api))
+  return new SessionManager(fakeRemote(api))
 }
 
 describe('SessionManager instances', () => {
   it('lazily builds one resident instance per id and syncs the running bit from the list', async () => {
     const api = new FakeApiClient()
     api.onList = () => Promise.resolve(ok({ items: [summary(S1, { running: true })] as never[] }))
-    const manager = new SessionManager(api, fakeRemote(api))
+    const manager = new SessionManager(fakeRemote(api))
     await manager.refreshList()
     const session = manager.get(S1)
     expect(manager.get(S1)).toBe(session) // resident: same instance forever
@@ -50,7 +50,7 @@ describe('list lifecycle', () => {
     const api = new FakeApiClient()
     const gate = deferred<Awaited<ReturnType<FakeApiClient['onList']>>>()
     api.onList = () => gate.promise
-    const manager = new SessionManager(api, fakeRemote(api))
+    const manager = new SessionManager(fakeRemote(api))
     const first = manager.refreshList()
     const second = manager.refreshList()
     expect(manager.getListSnapshot().state).toBe('loading')
@@ -66,7 +66,7 @@ describe('list lifecycle', () => {
     const api = new FakeApiClient()
     const first = deferred<Awaited<ReturnType<FakeApiClient['onList']>>>()
     api.onList = () => first.promise
-    const manager = new SessionManager(api, fakeRemote(api))
+    const manager = new SessionManager(fakeRemote(api))
     const hydration = manager.refreshList()
     manager.handleSessionAdded(summary(S2, { blank: true }))
     first.resolve(ok({ items: [summary(S1)] as never[] }))
@@ -83,7 +83,7 @@ describe('list lifecycle', () => {
   it('advances list activity from the filtered Host notification', async () => {
     const api = new FakeApiClient()
     api.onList = () => Promise.resolve(ok({ items: [summary(S1)] as never[] }))
-    const manager = new SessionManager(api, fakeRemote(api))
+    const manager = new SessionManager(fakeRemote(api))
     await manager.refreshList()
 
     manager.handleSessionActivity(S1, 500)
@@ -93,7 +93,7 @@ describe('list lifecycle', () => {
   it('keeps the error in the list snapshot on failure', async () => {
     const api = new FakeApiClient()
     api.onList = () => Promise.resolve(err({ code: 'internal', message: 'boom', details: {} }))
-    const manager = new SessionManager(api, fakeRemote(api))
+    const manager = new SessionManager(fakeRemote(api))
     await manager.refreshList()
     expect(manager.getListSnapshot()).toMatchObject({ state: 'error', error: { code: 'internal' } })
     // A failed pull does not step the arrival phase: still pending.
@@ -102,7 +102,7 @@ describe('list lifecycle', () => {
 
   it('phase steps pending → ready on the first successful pull and never returns', async () => {
     const api = new FakeApiClient()
-    const manager = new SessionManager(api, fakeRemote(api))
+    const manager = new SessionManager(fakeRemote(api))
     expect(manager.getListSnapshot().phase).toBe('pending')
     await manager.refreshList()
     expect(manager.getListSnapshot().phase).toBe('ready')
@@ -121,7 +121,7 @@ describe('list lifecycle', () => {
   it('merges create into the list immediately without waiting for a refresh', async () => {
     const api = new FakeApiClient()
     api.onCreate = () => Promise.resolve(ok({ sessionId: S2 }))
-    const manager = new SessionManager(api, fakeRemote(api))
+    const manager = new SessionManager(fakeRemote(api))
     const result = await manager.create()
     expect(result).toMatchObject({ ok: true, value: { sessionId: S2 } })
     expect(manager.getListSnapshot().items.map(i => i.sessionId)).toEqual([S2])
@@ -129,7 +129,7 @@ describe('list lifecycle', () => {
 
   it('retains title projections before list arrival, keeps last-wins by seq, and clears them on removal', async () => {
     const api = new FakeApiClient()
-    const manager = new SessionManager(api, fakeRemote(api))
+    const manager = new SessionManager(fakeRemote(api))
     const titleFrame = (title: string, seq: number) => {
       manager.handleControlFrame({ type: 'projection', sessionId: S1, key: 'title', value: title, seq })
     }
@@ -153,7 +153,7 @@ describe('list lifecycle', () => {
 
   it('seeds cold titles from the list rows\' projections block under higher-seq-wins', async () => {
     const api = new FakeApiClient()
-    const manager = new SessionManager(api, fakeRemote(api))
+    const manager = new SessionManager(fakeRemote(api))
     // A push frame landed before the list (S2's title is newer than the block's cut).
     manager.handleControlFrame({
       type: 'projection', sessionId: S2, key: 'title', value: 'Pushed', seq: 9,
@@ -175,7 +175,7 @@ describe('list lifecycle', () => {
   it('drops a projection row beyond the subscription baseline before accepting its durable replay', async () => {
     const api = new FakeApiClient()
     api.onList = () => Promise.resolve(ok({ items: [summary(S1)] as never[] }))
-    const manager = new SessionManager(api, fakeRemote(api))
+    const manager = new SessionManager(fakeRemote(api))
     await manager.refreshList()
     const frame = (payload: SessionControlFrame) => { manager.handleControlFrame(payload) }
     frame({ type: 'projection', sessionId: S1, key: 'title', value: 'Unflushed', seq: 4 })
@@ -213,7 +213,7 @@ describe('search', () => {
       items: [{ sessionId: S1, snippet: 'matching excerpt' }],
       hasMore: true,
     }))
-    const manager = new SessionManager(api, fakeRemote(api))
+    const manager = new SessionManager(fakeRemote(api))
     const signal = new AbortController().signal
 
     await expect(manager.search('exact phrase', signal)).resolves.toEqual({
@@ -229,7 +229,7 @@ describe('search', () => {
 
   it('preserves business errors and folds transport failures', async () => {
     const api = new FakeApiClient()
-    const manager = new SessionManager(api, fakeRemote(api))
+    const manager = new SessionManager(fakeRemote(api))
     api.onSearch = () => Promise.resolve(err({
       code: 'internal',
       message: 'index unavailable',
@@ -252,7 +252,7 @@ describe('search', () => {
 describe('Host Remote event routing', () => {
   it('adds/removes/flips sessions and keeps removed instances resident', async () => {
     const api = new FakeApiClient()
-    const manager = new SessionManager(api, fakeRemote(api))
+    const manager = new SessionManager(fakeRemote(api))
     manager.handleSessionAdded(summary(S1, { blank: true }))
     manager.handleSessionAdded(summary(S1, { blank: true })) // dup: ignored
     expect(manager.getListSnapshot().items).toHaveLength(1)
@@ -279,14 +279,14 @@ describe('subagent catalogs', () => {
       summary(S1),
       summary(S2, { parentSessionId: S1, origin: 'subagent' }),
     ] as never[] }))
-    api.onSubagentList = () => Promise.resolve(ok({
+    api.onSubagentList = () => Promise.resolve(remoteOk({
       entries: [{
         kind: 'child', id: S2, mode: 'continuable', label: 'worker',
         activity: 'running', hasChildren: false,
       }] as never[],
       parentAvailable: true,
     }))
-    const manager = new SessionManager(api, fakeRemote(api))
+    const manager = new SessionManager(fakeRemote(api))
     await manager.refreshList()
     await manager.refreshSubagents(S1)
     manager.selectSubagent({ parentSessionId: S1, childSessionId: S2, mode: 'continuable' })
@@ -319,21 +319,23 @@ describe('subagent catalogs', () => {
       },
     ])
     expect(api.callsOf('subagent.history')).toEqual([])
-    expect(api.callsOf('subagent.prompt')).toEqual([
+    expect(api.callsOf('subagents.prompt')).toEqual([
       {
-        parentSessionId: S1, childSessionId: S2, mode: 'continuable',
+        requestId: expect.any(String) as unknown as string,
+        parentSessionId: S1, childSessionId: S2,
+        mode: 'continuable',
         content: [{ type: 'text', text: 'continue' }],
         clientTimeZone: new Intl.DateTimeFormat().resolvedOptions().timeZone,
       },
     ])
     expect(api.callsOf('session.history')).toEqual([])
     expect(api.callsOf('session.prompt')).toEqual([])
-    const listCalls = api.callsOf('subagent.list').length
+    const listCalls = api.callsOf('subagents.list').length
     manager.handleSessionStatus(S2, false)
     expect(manager.getListSnapshot().subagentsByParent[S1]?.entries[0]).toMatchObject({
       kind: 'child', id: S2, activity: 'inactive',
     })
-    expect(api.callsOf('subagent.list')).toHaveLength(listCalls)
+    expect(api.callsOf('subagents.list')).toHaveLength(listCalls)
 
     manager.handleSessionRemoved(S2)
     expect(manager.getListSnapshot().items.find(item => item.sessionId === S2)).toMatchObject({
@@ -351,20 +353,20 @@ describe('subagent catalogs', () => {
     vi.useFakeTimers()
     try {
       const api = new FakeApiClient()
-      const manager = new SessionManager(api, fakeRemote(api))
+      const manager = new SessionManager(fakeRemote(api))
       await manager.refreshSubagents(S1)
       manager.setSubagentCatalogOpen(S1, true)
       await Promise.resolve()
-      const baseline = api.callsOf('subagent.list').length
+      const baseline = api.callsOf('subagents.list').length
       manager.handleSessionAdded(summary(S2, { parentSessionId: S1 }))
       manager.handleSessionAdded(summary('fk-m3' as SessionId, { parentSessionId: S1 }))
       await vi.advanceTimersByTimeAsync(50)
-      expect(api.callsOf('subagent.list')).toHaveLength(baseline + 1)
+      expect(api.callsOf('subagents.list')).toHaveLength(baseline + 1)
 
       manager.setSubagentCatalogOpen(S1, false)
       manager.handleSessionAdded(summary('fk-m4' as SessionId, { parentSessionId: S1 }))
       await vi.advanceTimersByTimeAsync(50)
-      expect(api.callsOf('subagent.list')).toHaveLength(baseline + 1)
+      expect(api.callsOf('subagents.list')).toHaveLength(baseline + 1)
     } finally {
       vi.useRealTimers()
     }
@@ -373,7 +375,7 @@ describe('subagent catalogs', () => {
   it('marks a loaded parent row expandable only for a direct subagent publication', async () => {
     const api = new FakeApiClient()
     const root = 'fk-root' as SessionId
-    api.onSubagentList = () => Promise.resolve(ok({
+    api.onSubagentList = () => Promise.resolve(remoteOk({
       entries: [
         {
           kind: 'child', id: S1, mode: 'continuable', label: 'parent',
@@ -386,7 +388,7 @@ describe('subagent catalogs', () => {
       ] as never[],
       parentAvailable: true,
     }))
-    const manager = new SessionManager(api, fakeRemote(api))
+    const manager = new SessionManager(fakeRemote(api))
     await manager.refreshSubagents(root)
 
     manager.handleSessionAdded(summary('fk-grandchild' as SessionId, {
@@ -405,13 +407,13 @@ describe('subagent catalogs', () => {
     const root = 'fk-root' as SessionId
     const response = deferred<Awaited<ReturnType<FakeApiClient['onSubagentList']>>>()
     api.onSubagentList = () => response.promise
-    const manager = new SessionManager(api, fakeRemote(api))
+    const manager = new SessionManager(fakeRemote(api))
     const refresh = manager.refreshSubagents(root)
 
     manager.handleSessionAdded(summary('fk-grandchild' as SessionId, {
       parentSessionId: S1, origin: 'subagent',
     }))
-    response.resolve(ok({
+    response.resolve(remoteOk({
       entries: [{
         kind: 'child', id: S1, mode: 'continuable', label: 'parent',
         activity: 'inactive', hasChildren: false,
@@ -424,7 +426,7 @@ describe('subagent catalogs', () => {
       { kind: 'child', id: S1, hasChildren: true },
     ])
 
-    api.onSubagentList = () => Promise.resolve(ok({
+    api.onSubagentList = () => Promise.resolve(remoteOk({
       entries: [{
         kind: 'child', id: S1, mode: 'continuable', label: 'parent',
         activity: 'inactive', hasChildren: false,
@@ -442,12 +444,12 @@ describe('subagent catalogs', () => {
     const root = 'fk-root' as SessionId
     const response = deferred<Awaited<ReturnType<FakeApiClient['onSubagentList']>>>()
     api.onSubagentList = () => response.promise
-    const manager = new SessionManager(api, fakeRemote(api))
+    const manager = new SessionManager(fakeRemote(api))
     const refresh = manager.refreshSubagents(root)
 
     manager.handleSessionStatus(S1, false)
     manager.handleSessionStatus(S2, true)
-    response.resolve(ok({
+    response.resolve(remoteOk({
       entries: [
         {
           kind: 'child', id: S1, mode: 'continuable', label: 'stopped',
@@ -470,14 +472,14 @@ describe('subagent catalogs', () => {
 
   it('marks a detached catalog child inactive without requiring a selected address', async () => {
     const api = new FakeApiClient()
-    api.onSubagentList = () => Promise.resolve(ok({
+    api.onSubagentList = () => Promise.resolve(remoteOk({
       entries: [{
         kind: 'child', id: S2, mode: 'continuable', label: 'worker',
         activity: 'running', hasChildren: false,
       }] as never[],
       parentAvailable: true,
     }))
-    const manager = new SessionManager(api, fakeRemote(api))
+    const manager = new SessionManager(fakeRemote(api))
     await manager.refreshSubagents(S1)
 
     manager.handleSessionRemoved(S2)
@@ -492,15 +494,15 @@ describe('subagent catalogs', () => {
     const root = 'fk-root' as SessionId
     const first = deferred<Awaited<ReturnType<FakeApiClient['onSubagentList']>>>()
     api.onSubagentList = () => first.promise
-    const manager = new SessionManager(api, fakeRemote(api))
+    const manager = new SessionManager(fakeRemote(api))
 
     const refresh = manager.refreshSubagents(root)
     expect(manager.refreshSubagents(root)).toBe(refresh)
-    api.onSubagentList = () => Promise.resolve(ok({ entries: [], parentAvailable: true }))
-    first.resolve(ok({ entries: [], parentAvailable: true }))
+    api.onSubagentList = () => Promise.resolve(remoteOk({ entries: [], parentAvailable: true }))
+    first.resolve(remoteOk({ entries: [], parentAvailable: true }))
     await refresh
 
-    expect(api.callsOf('subagent.list')).toHaveLength(1)
+    expect(api.callsOf('subagents.list')).toHaveLength(1)
   })
 
   it('runs one trailing catalog refresh for a membership change coalesced into an in-flight pull', async () => {
@@ -511,7 +513,7 @@ describe('subagent catalogs', () => {
       const first = deferred<Awaited<ReturnType<FakeApiClient['onSubagentList']>>>()
       const second = deferred<Awaited<ReturnType<FakeApiClient['onSubagentList']>>>()
       api.onSubagentList = () => first.promise
-      const manager = new SessionManager(api, fakeRemote(api), root)
+      const manager = new SessionManager(fakeRemote(api), root)
       const refresh = manager.refreshSubagents(root)
       manager.setSubagentCatalogOpen(root, true)
 
@@ -522,7 +524,7 @@ describe('subagent catalogs', () => {
       manager.handleSessionAdded(summary(S2, { parentSessionId: root }))
       await vi.advanceTimersByTimeAsync(50)
       api.onSubagentList = () => second.promise
-      first.resolve(ok({
+      first.resolve(remoteOk({
         entries: [{
           kind: 'child', id: S1, mode: 'continuable', label: 'older',
           activity: 'inactive', hasChildren: false,
@@ -531,7 +533,7 @@ describe('subagent catalogs', () => {
       }))
       await refresh
       // The trailing pull is already in flight (kicked synchronously in finally).
-      second.resolve(ok({
+      second.resolve(remoteOk({
         entries: [
           {
             kind: 'child', id: S1, mode: 'continuable', label: 'older',
@@ -545,8 +547,10 @@ describe('subagent catalogs', () => {
         parentAvailable: true,
       }))
       await second.promise
+      // The Remote face resolves one microtask after the response settles.
+      await vi.advanceTimersByTimeAsync(0)
 
-      expect(api.callsOf('subagent.list')).toHaveLength(2)
+      expect(api.callsOf('subagents.list')).toHaveLength(2)
       expect(manager.getListSnapshot().subagentsByParent[root]?.entries).toMatchObject([
         { kind: 'child', id: S1, label: 'older' },
         { kind: 'child', id: S2, label: 'new child' },
@@ -565,9 +569,9 @@ describe('subagent catalogs', () => {
     })
     const first = deferred<Awaited<ReturnType<FakeApiClient['onSubagentList']>>>()
     api.onSubagentList = () => first.promise
-    const manager = new SessionManager(api, fakeRemote(api))
+    const manager = new SessionManager(fakeRemote(api))
     const refresh = manager.refreshSubagents(root)
-    first.resolve(ok({ entries: [child()] as never[], parentAvailable: true }))
+    first.resolve(remoteOk({ entries: [child()] as never[], parentAvailable: true }))
     await refresh
     manager.selectSubagent({ parentSessionId: root, childSessionId: S2, mode: 'continuable' })
 
@@ -579,12 +583,12 @@ describe('subagent catalogs', () => {
     manager.handleSessionRemoved(root)
     const trailing = deferred<Awaited<ReturnType<FakeApiClient['onSubagentList']>>>()
     api.onSubagentList = () => trailing.promise
-    mid.resolve(ok({ entries: [child()] as never[], parentAvailable: true }))
+    mid.resolve(remoteOk({ entries: [child()] as never[], parentAvailable: true }))
     await midRefresh
     expect(manager.getListSnapshot().subagentsByParent[root]?.parentAvailable).toBe(false)
     expect(manager.get(S2).getSnapshot().subagent).toMatchObject({ parentAvailable: false })
 
-    trailing.resolve(err({ code: 'internal', message: 'trailing pull failed', details: {} }))
+    trailing.resolve(remoteErr({ code: 'internal', message: 'trailing pull failed', details: {} }))
     await vi.waitFor(() => {
       expect(manager.getListSnapshot().subagentsByParent[root]).toMatchObject({
         state: 'error',
@@ -592,8 +596,7 @@ describe('subagent catalogs', () => {
       })
     })
 
-    const rootCalls = api.callsOf('subagent.list')
-      .filter(call => (call as { parentSessionId: SessionId }).parentSessionId === root)
+    const rootCalls = api.callsOf('subagents.list').filter(call => call === root)
     expect(rootCalls).toHaveLength(3)
     expect(manager.getListSnapshot().subagentsByParent[root]?.parentAvailable).toBe(false)
     expect(manager.get(S2).getSnapshot().subagent).toMatchObject({ parentAvailable: false })
@@ -602,14 +605,14 @@ describe('subagent catalogs', () => {
   it('invalidates catalog availability when the owning parent is removed', async () => {
     const api = new FakeApiClient()
     const root = 'fk-root' as SessionId
-    api.onSubagentList = () => Promise.resolve(ok({
+    api.onSubagentList = () => Promise.resolve(remoteOk({
       entries: [{
         kind: 'child', id: S2, mode: 'continuable', label: 'worker',
         activity: 'inactive', hasChildren: false,
       }] as never[],
       parentAvailable: true,
     }))
-    const manager = new SessionManager(api, fakeRemote(api))
+    const manager = new SessionManager(fakeRemote(api))
     await manager.refreshSubagents(root)
     manager.selectSubagent({ parentSessionId: root, childSessionId: S2, mode: 'continuable' })
     expect(manager.get(S2).getSnapshot().subagent).toMatchObject({ parentAvailable: true })
@@ -625,14 +628,14 @@ describe('remaining branches', () => {
   it('refreshList folds a transport throw into the error state', async () => {
     const api = new FakeApiClient()
     api.onList = () => Promise.reject(new Error('list wire down'))
-    const manager = new SessionManager(api, fakeRemote(api))
+    const manager = new SessionManager(fakeRemote(api))
     await manager.refreshList()
     expect(manager.getListSnapshot()).toMatchObject({ state: 'error', error: { code: 'internal', message: 'list wire down' } })
   })
 
   it('refreshList pushes running bits down to already-instantiated sessions', async () => {
     const api = new FakeApiClient()
-    const manager = new SessionManager(api, fakeRemote(api))
+    const manager = new SessionManager(fakeRemote(api))
     const session = manager.get(S1)
     api.onList = () => Promise.resolve(ok({ items: [summary(S1, { running: true })] as never[] }))
     await manager.refreshList()
@@ -642,7 +645,7 @@ describe('remaining branches', () => {
   it('create passes cwd and a preallocated id, folds transport throws, and deduplicates the echo', async () => {
     const api = new FakeApiClient()
     api.onCreate = () => Promise.resolve(ok({ sessionId: S1 }))
-    const manager = new SessionManager(api, fakeRemote(api))
+    const manager = new SessionManager(fakeRemote(api))
     await manager.create({ cwd: '/tmp/w', sessionId: S1 })
     expect(api.callsOf('session.create')).toEqual([{ cwd: '/tmp/w', sessionId: S1 }])
     expect(manager.getListSnapshot().items[0]).toMatchObject({ sessionId: S1, cwd: '/tmp/w' })
@@ -662,7 +665,7 @@ describe('remaining branches', () => {
       message: 'published but unattached',
       details: { sessionId: S1, workspaceId: 'w1' },
     } as never))
-    const manager = new SessionManager(api, fakeRemote(api))
+    const manager = new SessionManager(fakeRemote(api))
     const result = await manager.create({ workspaceId: 'w1' as never, sessionId: S1 })
     expect(result).toMatchObject({ ok: false, error: { code: 'workspace-attach-failed' } })
     expect(manager.getListSnapshot().items).toEqual([expect.objectContaining({ sessionId: S1 })])
@@ -676,7 +679,7 @@ describe('remaining branches', () => {
       message: 'forked but unattached',
       details: { sessionId: S2, workspaceId: 'w1' },
     } as never))
-    const manager = new SessionManager(api, fakeRemote(api))
+    const manager = new SessionManager(fakeRemote(api))
     const result = await manager.fork({ sessionId: S1 })
     expect(result).toMatchObject({ ok: false, error: { code: 'workspace-attach-failed' } })
     expect(manager.getListSnapshot().items).toEqual([expect.objectContaining({
@@ -689,7 +692,7 @@ describe('remaining branches', () => {
   it('reconciles a preallocated id after an ordinary transport failure', async () => {
     const api = new FakeApiClient()
     api.onCreate = () => Promise.reject(new Error('response lost'))
-    const manager = new SessionManager(api, fakeRemote(api))
+    const manager = new SessionManager(fakeRemote(api))
     const failed = await manager.create({ workspaceId: 'w1' as never, sessionId: S1 })
     expect(failed).toMatchObject({ ok: false, error: { message: 'response lost' } })
     expect(manager.getListSnapshot().items).toEqual([])
@@ -704,7 +707,7 @@ describe('remaining branches', () => {
 
   it('subscribe notifies on list changes and stops after unsubscribe', async () => {
     const api = new FakeApiClient()
-    const manager = new SessionManager(api, fakeRemote(api))
+    const manager = new SessionManager(fakeRemote(api))
     let notified = 0
     const unsubscribe = manager.subscribe(() => { notified++ })
     await manager.refreshList()
@@ -719,7 +722,7 @@ describe('remaining branches', () => {
 
   it('ignores Host status and error events for sessions without an instance', () => {
     const api = new FakeApiClient()
-    const manager = new SessionManager(api, fakeRemote(api))
+    const manager = new SessionManager(fakeRemote(api))
     manager.handleSessionStatus(S2, true)
     manager.handleSessionError(S2, '无实例')
   })
@@ -727,7 +730,7 @@ describe('remaining branches', () => {
   it('keeps list-entry identity for unchanged rows across an unrelated list change', async () => {
     const api = new FakeApiClient()
     api.onList = () => Promise.resolve(ok({ items: [summary(S1), summary(S2, { updatedAt: 200 })] as never[] }))
-    const manager = new SessionManager(api, fakeRemote(api))
+    const manager = new SessionManager(fakeRemote(api))
     await manager.refreshList()
     const before = manager.getListSnapshot()
     manager.handleSessionStatus(S2, true)
@@ -743,7 +746,7 @@ describe('remaining branches', () => {
 
   it('carries parentSessionId from the added event into the lineage row', () => {
     const api = new FakeApiClient()
-    const manager = new SessionManager(api, fakeRemote(api))
+    const manager = new SessionManager(fakeRemote(api))
     manager.handleSessionAdded(summary(S1, { blank: true }))
     manager.handleSessionAdded(summary(S2, {
       blank: true, parentSessionId: S1, origin: 'subagent',
@@ -763,7 +766,7 @@ describe('connected generation', () => {
       hasMore: false,
       modelSelection: { provider: 'deepseek-official', model: 'deepseek-chat' },
     }))
-    const manager = new SessionManager(api, fakeRemote(api))
+    const manager = new SessionManager(fakeRemote(api))
     const openedSession = manager.get(S1)
     await openedSession.open()
     manager.get(S2) // instantiated but never opened
@@ -782,26 +785,19 @@ describe('connected generation', () => {
     }
     const parent = deferred<Awaited<ReturnType<FakeApiClient['onSubagentList']>>>()
     const child = deferred<Awaited<ReturnType<FakeApiClient['onSubagentList']>>>()
-    api.onSubagentList = payload => (
-      (payload as { parentSessionId: SessionId }).parentSessionId === S1
-        ? parent.promise
-        : child.promise
-    )
-    const manager = new SessionManager(api, fakeRemote(api), S2, address)
+    api.onSubagentList = payload => (payload === S1 ? parent.promise : child.promise)
+    const manager = new SessionManager(fakeRemote(api), S2, address)
 
     manager.handleConnected()
     expect(manager.get(S2).getSnapshot().subagent).toEqual({ address })
-    parent.resolve(ok({ entries: [], parentAvailable: true }))
-    child.resolve(ok({ entries: [], parentAvailable: true }))
+    parent.resolve(remoteOk({ entries: [], parentAvailable: true }))
+    child.resolve(remoteOk({ entries: [], parentAvailable: true }))
 
     await vi.waitFor(() => {
       expect(api.callsOf('session.list')).toHaveLength(1)
     })
     await vi.waitFor(() => {
-      expect(api.callsOf('subagent.list')).toEqual([
-        { parentSessionId: S1 },
-        { parentSessionId: S2 },
-      ])
+      expect(api.callsOf('subagents.list')).toEqual([S1, S2])
     })
     expect(manager.get(S2).getSnapshot().subagent).toEqual({
       address,
@@ -882,7 +878,7 @@ describe('completed reminder', () => {
   it('a list refresh carrying the running→idle transition arms the reminder', async () => {
     const api = new FakeApiClient()
     api.onList = () => Promise.resolve(ok({ items: [summary(S1), summary(S2, { updatedAt: 200, running: true })] as never[] }))
-    const manager = new SessionManager(api, fakeRemote(api))
+    const manager = new SessionManager(fakeRemote(api))
     await manager.refreshList()
     manager.select(S1)
     expect(entry(manager, S2)?.completed).toBe(false)
@@ -894,7 +890,7 @@ describe('completed reminder', () => {
   it('never arms for sessions already idle at first observation', async () => {
     const api = new FakeApiClient()
     api.onList = () => Promise.resolve(ok({ items: [summary(S1), summary(S2, { updatedAt: 200 })] as never[] }))
-    const manager = new SessionManager(api, fakeRemote(api))
+    const manager = new SessionManager(fakeRemote(api))
     await manager.refreshList()
     manager.select(S1)
     expect(entry(manager, S2)?.completed).toBe(false)
@@ -907,7 +903,7 @@ describe('completed reminder', () => {
     const api = new FakeApiClient()
     const gate = deferred<Awaited<ReturnType<FakeApiClient['onList']>>>()
     api.onList = () => gate.promise
-    const manager = new SessionManager(api, fakeRemote(api))
+    const manager = new SessionManager(fakeRemote(api))
     const refresh = manager.refreshList()
     // The session finishes while the first pull is still in flight; the pull
     // response recorded it as running at pull time.
@@ -921,7 +917,7 @@ describe('completed reminder', () => {
     const api = new FakeApiClient()
     const gate = deferred<Awaited<ReturnType<FakeApiClient['onList']>>>()
     api.onList = () => gate.promise
-    const manager = new SessionManager(api, fakeRemote(api))
+    const manager = new SessionManager(fakeRemote(api))
     const refresh = manager.refreshList()
     // The unknown session starts and finishes while the first pull is in
     // flight; the pull-time baseline recorded it idle, so the running→idle

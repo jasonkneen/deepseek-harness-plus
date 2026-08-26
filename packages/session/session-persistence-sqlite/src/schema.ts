@@ -15,7 +15,7 @@ import {
 import { sql } from './sql.ts'
 
 /** Current physical-record schema with packed and compressed event rows. */
-export const SCHEMA_VERSION = 18
+export const SCHEMA_VERSION = 19
 /** Application id reserved for DeepSeek Harness SQLite session databases. */
 export const SESSION_PERSISTENCE_SQLITE_APPLICATION_ID = 0x44534850
 
@@ -109,6 +109,7 @@ function configureDatabase(
   db: DatabaseSync,
   path: string,
 ): void {
+  db.exec(sql('page-size'))
   db.exec(sql('foreign-keys-on'))
   let began = false
   try {
@@ -206,7 +207,7 @@ function initializeDatabase(db: DatabaseSync): void {
   db.exec(sql('schema'))
   db.prepare(sql('insert-persistence-state')).run(randomUUID())
   db.exec(sql('set-application-id'))
-  db.exec(sql('set-user-version-18'))
+  db.exec(sql('set-user-version-19'))
 }
 
 let canonicalSchema: readonly SchemaObjectRow[] | undefined

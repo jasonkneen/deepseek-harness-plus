@@ -507,7 +507,10 @@ function ciWindowsCompleteGates(): Gate[] {
     .map(gate => ({
       ...gate,
       allowFailure: true,
-      after: [...new Set([...coverageAfter, ...(gate.after ?? [])])],
+      after: [...new Set([
+        ...coverageAfter,
+        ...(gate.after ?? []).map(id => id === 'docs-site-build' ? 'windows-site' : id),
+      ])],
     }))
   return [
     ciBuildGate(),
@@ -518,7 +521,7 @@ function ciWindowsCompleteGates(): Gate[] {
 }
 
 function ciWindowsObservationalGates(): Gate[] {
-  return [
+  const predecessors = [
     ...ciStaticGates({ ownsBuild: true }),
     // Linux owns required lint and snapshots; Windows omits those duplicates.
     pnpmScript('duplication', 'duplication'),
@@ -528,7 +531,15 @@ function ciWindowsObservationalGates(): Gate[] {
       needs: ['build'],
     }),
     builtPackageInvariantsGate(['build']),
-    builtBinSmokeGate(),
+  ]
+  return [
+    ...predecessors,
+    {
+      ...builtBinSmokeGate(),
+      // This smoke starts real application children with bounded startup
+      // deadlines. Let other Windows processes settle before measuring startup.
+      after: predecessors.map(gate => gate.id),
+    },
   ]
 }
 

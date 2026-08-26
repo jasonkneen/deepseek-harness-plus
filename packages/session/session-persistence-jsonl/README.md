@@ -54,7 +54,7 @@ The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-a
 
 ### On-disk layout
 
-Each session gets a session-owned directory under a readable project directory; the first logical line of the log is the immutable `SessionHeader`, followed by one storage record per logical event (or one packed chunk row per eligible run):
+Each session gets a session-owned directory under a readable project directory; the first logical line of the log is the immutable `SessionHeader`, followed by one storage record per logical event (or one packed chunk row per eligible run). Storage records use the lossless provenance representation described below:
 
 ```text
 <root>/
@@ -90,7 +90,7 @@ The backend is a thin storage layer over the shared [PersistenceCoordinator](../
 
 ### Physical encoding
 
-The default artifact is a standard concatenation of independent [Zstandard frames](../../../.agents/notes/implemented/architecture/2026-07-19-zstandard-jsonl-session-logs.md): one checksummed frame containing only the header line, then one checksummed frame per durable append batch, using Node's built-in Zstandard API at its default compression level (no level knob). Listing reads and validates only the header frame. A root belongs to one encoding: startup discovery and targeted lookup reject the opposite suffix, and there is no format or compression migration, mixed-root fallback, or dual write. When `packChunks` is enabled, an eligible run of ≥3 consecutive same-block `assistant/chunk` delta events becomes one packed row (`text-chunks`/`reasoning-chunks`/`tool-call-chunks`) whose `seq0`/`time0` and per-member `dt` gaps reconstruct every member exactly; the lossless codec lives in `dsh-session` and reading is layout-blind, so packed, unpacked, and mixed files load identically.
+The default artifact is a standard concatenation of independent [Zstandard frames](../../../.agents/notes/implemented/architecture/2026-07-19-zstandard-jsonl-session-logs.md): one checksummed frame containing only the header line, then one checksummed frame per durable append batch, using Node's built-in Zstandard API at its default compression level (no level knob). `sourceEventSeqs` uses a lossless storage representation: consecutive runs of at least three sequence numbers become `[start, end]` pairs, any other list stays verbatim, and reading expands the exact in-memory array. Listing reads and validates only the header frame. `compression: 'none'` keeps the same storage-form logical lines without frame compression. A root belongs to one encoding: startup discovery and targeted lookup reject the opposite suffix, and there is no format or compression migration, mixed-root fallback, or dual write. When `packChunks` is enabled, an eligible run of ≥3 consecutive same-block `assistant/chunk` delta events becomes one packed row (`text-chunks`/`reasoning-chunks`/`tool-call-chunks`) whose `seq0`/`time0` and per-member `dt` gaps reconstruct every member exactly; the lossless codec lives in `dsh-session` and reading is layout-blind, so packed, unpacked, and mixed files load identically.
 
 ### Source map
 

@@ -196,13 +196,16 @@ describe('SessionProjectionCache write policy', () => {
   })
 
   it('flushes on the configured interval when the count threshold is not reached', async () => {
-    const { ctx, root } = await harness({ config: { writeEveryEvents: 100, writeIntervalMs: 20 } })
+    const { ctx, cache } = await harness({ config: { writeEveryEvents: 100, writeIntervalMs: 20 } })
+    const write = vi.spyOn(cache, 'write').mockResolvedValue()
+    vi.useFakeTimers()
     const session = ctx.sessions.create(SessionId('interval'))
+    write.mockClear()
     mark(session, ['slow'])
-    await new Promise(resolve => setTimeout(resolve, 10)) // before the interval
-    expect((await storedRows(root, session.id))?.['cache-test/marks']?.seq).toBe(-1) // still the creation cut
-    await settle() // past the interval; the fire-and-forget write lands
-    expect((await storedRows(root, session.id))?.['cache-test/marks']?.val).toEqual({ marks: ['slow'] })
+    await vi.advanceTimersByTimeAsync(19)
+    expect(write).not.toHaveBeenCalled()
+    await vi.advanceTimersByTimeAsync(1)
+    expect(write).toHaveBeenCalledExactlyOnceWith(session)
   })
 
   it('write() on a never-dirty session checkpoints directly and rejects a non-JSON unit state', async () => {

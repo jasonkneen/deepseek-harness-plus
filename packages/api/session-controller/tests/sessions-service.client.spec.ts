@@ -18,6 +18,7 @@ import {
   err,
   fakeRemote,
   ok,
+  remoteOk,
   type RuntimeRemotes,
 } from './fake-api.client.ts'
 
@@ -33,7 +34,7 @@ function bench(configureRemote?: (remote: RuntimeRemotes) => RuntimeRemotes): Be
   const ctx = new Context()
   const api = new FakeApiClient()
   const remote = fakeRemote(api)
-  const svc = new ClientSessions(ctx, api, configureRemote?.(remote) ?? remote)
+  const svc = new ClientSessions(ctx, configureRemote?.(remote) ?? remote)
   return { ctx, api, svc }
 }
 
@@ -522,9 +523,9 @@ describe('catalog-addressed navigation', () => {
   it('uses catalog labels for a listed addressed route', async () => {
     const b = bench()
     b.api.onSubagentList = (payload) => {
-      const { parentSessionId } = payload as { parentSessionId: SessionId }
+      const parentSessionId = payload as SessionId
       if (parentSessionId === sid('root')) {
-        return Promise.resolve(ok({
+        return Promise.resolve(remoteOk({
           entries: [{
             kind: 'child', id: sid('child'), mode: 'continuable', label: 'Child',
             activity: 'inactive', hasChildren: true,
@@ -533,7 +534,7 @@ describe('catalog-addressed navigation', () => {
         }))
       }
       if (parentSessionId === sid('child')) {
-        return Promise.resolve(ok({
+        return Promise.resolve(remoteOk({
           entries: [{
             kind: 'child', id: sid('grandchild'), mode: 'continuable', label: 'Grandchild',
             activity: 'inactive', hasChildren: false,
@@ -541,7 +542,7 @@ describe('catalog-addressed navigation', () => {
           parentAvailable: false,
         }))
       }
-      return Promise.resolve(ok({ entries: [], parentAvailable: false }))
+      return Promise.resolve(remoteOk({ entries: [], parentAvailable: false }))
     }
     await feedList(b, [
       { id: 'root' },
@@ -561,9 +562,9 @@ describe('catalog-addressed navigation', () => {
   it('projects a directly opened descendant route without retaining ancestor scopes or addresses', async () => {
     const b = bench()
     b.api.onSubagentList = (payload) => {
-      const { parentSessionId } = payload as { parentSessionId: SessionId }
+      const parentSessionId = payload as SessionId
       if (parentSessionId === sid('root')) {
-        return Promise.resolve(ok({
+        return Promise.resolve(remoteOk({
           entries: [{
             kind: 'child', id: sid('child'), mode: 'continuable', label: 'Child',
             activity: 'inactive', hasChildren: true,
@@ -572,7 +573,7 @@ describe('catalog-addressed navigation', () => {
         }))
       }
       if (parentSessionId === sid('child')) {
-        return Promise.resolve(ok({
+        return Promise.resolve(remoteOk({
           entries: [{
             kind: 'child', id: sid('grandchild'), mode: 'continuable', label: 'Grandchild',
             activity: 'inactive', hasChildren: false,
@@ -580,7 +581,7 @@ describe('catalog-addressed navigation', () => {
           parentAvailable: false,
         }))
       }
-      return Promise.resolve(ok({ entries: [], parentAvailable: false }))
+      return Promise.resolve(remoteOk({ entries: [], parentAvailable: false }))
     }
     await feedList(b, [{ id: 'root' }])
     await b.svc.refreshSubagents(sid('root'))

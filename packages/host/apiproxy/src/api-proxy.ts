@@ -9,7 +9,6 @@ import type { Context } from '@deepseek-ai/cordis'
 import type { ModelSelection } from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-agent-presets/types'
 import type { SessionId } from '@deepseek-ai/dsh-session'
-import { SubagentError } from '@deepseek-ai/dsh-subagent'
 import { isUserInvocable } from '@deepseek-ai/dsh-skill'
 import {
   InvalidPresetIdError, PresetExistsError,
@@ -19,7 +18,6 @@ import type {
   ApiProxy, ConfigurableProviderView, CredentialView,
   SettingsNamespaceView,
 } from './api/index.ts'
-import type { SessionRequestId } from '@deepseek-ai/dsh-api-session-controller/types'
 import { buildModelCatalog } from '@deepseek-ai/dsh-api-session-controller'
 import { SessionQueryError } from '@deepseek-ai/dsh-session-query'
 import {
@@ -45,25 +43,6 @@ import type { ScopeKey } from '@deepseek-ai/dsh-scope'
 import type { RpcError, RpcRequest, RpcResponse } from './api/rpc.ts'
 import { DirectoryPickerError } from '@deepseek-ai/dsh-host-directory-picker'
 import { canOpenNativePath, openNativePath, openNativeTextFile } from './native-path-opener.ts'
-
-/** Strict browser-zone profile: UTC or an IANA Area/Location-style identifier. */
-const IANA_TIME_ZONE = /^[A-Za-z][A-Za-z0-9_+.-]*(?:\/[A-Za-z0-9_+.-]+)+$/
-
-/** Validate and canonicalize one browser-supplied IANA zone at the wire boundary. */
-function canonicalClientTimeZone(value: string): string | undefined {
-  if (value.length === 0 || value.trim() !== value
-    || (value !== 'UTC' && !IANA_TIME_ZONE.test(value))) return undefined
-  try {
-    const canonical = new Intl.DateTimeFormat('en-US', { timeZone: value })
-      .resolvedOptions().timeZone
-    /* v8 ignore next -- Intl returns UTC or a canonical IANA Area/Location for accepted input. */
-    if (canonical !== 'UTC' && !IANA_TIME_ZONE.test(canonical)) return undefined
-    return canonical
-  } catch {
-    // Intl rejects unsupported zone names; the RPC maps that parser rejection below.
-    return undefined
-  }
-}
 
 /** Read live abort state across awaits without treating it as synchronously immutable. */
 function isAborted(signal: AbortSignal): boolean {
@@ -108,55 +87,6 @@ export interface ApiProxyDefaults {
    * falls back to platform detection ({@link canOpenNativePath}).
    */
   canOpenPath?: () => boolean
-}
-
-/** Map continuation admission failures without exposing provider details. */
-function subagentPromptError(
-  request: RpcRequest<{ childSessionId: SessionId }>,
-  error: unknown,
-  signal: AbortSignal,
-): RpcResponse<never> {
-  const childSessionId = request.payload.childSessionId
-  if (signal.aborted) {
-    return err(request, { code: 'cancelled', message: 'subagent prompt was cancelled', details: {} })
-  }
-  if (error instanceof SubagentError) {
-    switch (error.code) {
-      case 'NOT_RESUMABLE':
-        return err(request, {
-          code: 'subagent-not-resumable',
-          message: 'subagent cannot be resumed',
-          details: { childSessionId },
-        })
-      case 'UNAUTHORIZED':
-        return err(request, {
-          code: 'subagent-unauthorized',
-          message: 'subagent does not belong to this parent',
-          details: { childSessionId },
-        })
-      case 'DRAINING':
-      case 'ACTIVATION_CLOSING':
-      case 'CONTINUATION_UNAVAILABLE':
-      case 'PERSISTENCE_UNAVAILABLE':
-        return err(request, {
-          code: 'subagent-delivery-unavailable',
-          message: 'subagent follow-up is temporarily unavailable',
-          details: { childSessionId },
-        })
-      default:
-        break
-    }
-  }
-  return err(request, { code: 'internal', message: 'subagent prompt failed', details: {} })
-}
-
-/** Stable RPC face of the missing projections capability, shared by every catalog read path. */
-function projectionsUnavailableError(): RpcError {
-  return {
-    code: 'internal',
-    message: 'subagent catalog is unavailable: this deployment does not mount the sessionProjections registry (load @deepseek-ai/dsh-session-projection)',
-    details: {},
-  }
 }
 
 /** The roster is absent: this deployment composes no agent presets at all. */
@@ -341,99 +271,6 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
   }
 
   return {
-    subagents: {
-      async list(request, signal) {
-        try {
-          const entries = await ctx.subagents.listChildren(request.payload.parentSessionId, signal)
-          return ok(request, {
-            entries: entries.map(entry => entry.kind === 'child'
-              ? {
-                ...entry,
-                activity: ctx.agents.get(entry.id)?.status === 'running' ? 'running' : 'inactive',
-              }
-              : entry),
-            parentAvailable: ctx.agents.get(request.payload.parentSessionId) !== undefined,
-          })
-        } catch (error: unknown) {
-          if (signal?.aborted || (error instanceof SubagentError && error.code === 'CANCELLED')) {
-            return err(request, {
-              code: 'cancelled',
-              message: 'subagent catalog read was cancelled',
-              details: {},
-            })
-          }
-          if (error instanceof SubagentError && error.code === 'SUBAGENT_CONTROL_PROJECTIONS_UNAVAILABLE') {
-            return err(request, projectionsUnavailableError())
-          }
-          return err(request, {
-            code: 'internal',
-            message: 'subagent catalog read failed',
-            details: {},
-          })
-        }
-      },
-
-      async prompt(request, signal) {
-        const { parentSessionId, childSessionId, content, clientTimeZone } = request.payload
-        const canonicalTimeZone = clientTimeZone === undefined
-          ? undefined
-          : canonicalClientTimeZone(clientTimeZone)
-        if (clientTimeZone !== undefined && canonicalTimeZone === undefined) {
-          return err(request, {
-            code: 'invalid-time-zone',
-            message: 'clientTimeZone must be UTC or a valid IANA Area/Location name',
-            details: { value: clientTimeZone },
-          })
-        }
-        const parent = ctx.agents.get(parentSessionId)
-        if (parent === undefined) {
-          return err(request, {
-            code: 'subagent-parent-unavailable',
-            message: `parent session "${parentSessionId}" is not live`,
-            details: { parentSessionId },
-          })
-        }
-        try {
-          const messageId = await ctx.subagents.followup(parent, childSessionId, content, {
-            source: {
-              kind: 'user',
-              rpcId: request.rpcId as unknown as SessionRequestId,
-              ...(canonicalTimeZone === undefined ? {} : { clientTimeZone: canonicalTimeZone }),
-            },
-            signal,
-          })
-          return ok(request, { messageId })
-        } catch (error: unknown) {
-          return subagentPromptError(request, error, signal)
-        }
-      },
-
-      // Deliberately no catalog, history, persistence, or parent Agent lookup:
-      // the core primitive alone authorizes the durable address against the
-      // live Activation, which is what keeps a live child interruptible while
-      // its parent Agent is offline. Absent targets are accepted no-ops there.
-      interrupt(request) {
-        const { parentSessionId, childSessionId } = request.payload
-        try {
-          ctx.subagents.interrupt(childSessionId, { kind: 'user', parentSessionId })
-        } catch (error: unknown) {
-          if (error instanceof SubagentError && error.code === 'UNAUTHORIZED') {
-            return Promise.resolve(err(request, {
-              code: 'subagent-unauthorized',
-              message: 'subagent does not belong to this parent',
-              details: { childSessionId },
-            }))
-          }
-          return Promise.resolve(err(request, {
-            code: 'internal',
-            message: 'subagent interrupt failed',
-            details: {},
-          }))
-        }
-        return Promise.resolve(ok(request, { accepted: true as const }))
-      },
-    },
-
     host: {
       describe(request) {
         // TODO(apiproxy-version): read the version from apps/cli/package.json.

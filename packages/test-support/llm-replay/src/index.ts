@@ -12,7 +12,7 @@ import { delimiter as pathDelimiter } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-compaction'
 import type {} from '@deepseek-ai/dsh-deepseek-llm-api-extensions'
-import { decodeStorageRecord, type SessionEvent } from '@deepseek-ai/dsh-session'
+import { decodeSeqRanges, decodeStorageRecord, type SessionEvent } from '@deepseek-ai/dsh-session'
 import type {
   ContentBlock,
   GenerateOptions,
@@ -170,9 +170,10 @@ export interface SessionScript {
 /**
  * Parse a session `.jsonl` buffer into its event list. Line 0 is the session
  * header (a `{type:'session',…}` record), every subsequent non-empty line is a
- * {@link SessionEvent} or a packed chunk row (expanded back into its events, so
- * a fixture recorded with `packChunks` on derives the same script). The header
- * is skipped; malformed lines fail loud.
+ * {@link SessionEvent} or a packed chunk row. Packed rows expand back into
+ * events, and JSONL storage-form provenance ranges expand back into
+ * `number[]`, so physical fixture encodings derive the same script. The
+ * header is skipped; malformed lines fail loud.
  * @param text - the raw `.jsonl` file contents.
  * @returns every event after the header, in log order.
  */
@@ -206,6 +207,9 @@ export function parseSessionLog(text: string): SessionEvent[] {
     if (!Object.hasOwn(record, timeKey)) record[timeKey] = 0
     let decoded: SessionEvent[]
     try {
+      if (Object.hasOwn(record, 'sourceEventSeqs')) {
+        record.sourceEventSeqs = decodeSeqRanges(record.sourceEventSeqs)
+      }
       decoded = decodeStorageRecord(record)
     } catch (error) {
       /* v8 ignore next -- decodeStorageRecord only throws Error instances; the String arm satisfies unknown narrowing. */

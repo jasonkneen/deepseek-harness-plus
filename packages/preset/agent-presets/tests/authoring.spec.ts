@@ -303,6 +303,11 @@ describe('a ghost directory under the user root', () => {
     await ctx.agentPresets.remove('ghost')
     expect(existsSync(join(userRoot, 'ghost'))).toBe(false)
     await ctx.agentPresets.copy('standard', 'ghost')
-    expect((await ctx.agentPresets.list()).find(preset => preset.id === 'ghost')?.broken).toBeUndefined()
+    expect((await ctx.agentPresets.list()).map(preset => preset.id)).toContain('ghost')
+    // A copy carries the whole preset directory, so a preset's own files
+    // travel with it. This fixture's rows reach OUTSIDE that directory, which
+    // no real preset does and which no copy can carry — so the claim here is
+    // the reclaimed id and the restored composition, not the rows' targets.
+    expect(existsSync(join(userRoot, 'ghost', COMPOSITION_FILE))).toBe(true)
   })
 })

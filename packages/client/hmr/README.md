@@ -59,7 +59,7 @@ This section explains how the reload chain is built; observable behavior is cove
 
 ### Design concept
 
-The chain is two halves with one contract: the node half owns bundle detection and notification, the browser half owns the swap. The node half runs one interval that stat-polls each graph bundle and optional source map from the module host's pre-read baseline. An unchanged startup row starts watching without a content read or hash; a changed row, or a dirty row whose artifact reappears, enters `rebuilt()`, and only real revision changes are broadcast. It also serves `/plugins/events`, an SSE channel broadcasting `graph` and `rebuilt` frames.
+The chain is two halves with one contract: the node half owns bundle detection and notification, the browser half owns the swap. The node half runs one interval that stat-polls each graph bundle from the module host's pre-read baseline. An unchanged startup row starts watching without a content read or hash; a changed row, or a dirty row whose artifact reappears, enters `rebuilt()`, and only real revision changes are broadcast. `rebuilt()` reads the current source map together with the changed bundle; a map-only write does not reload executable code. The node half also serves `/plugins/events`, an SSE channel broadcasting `graph` and `rebuilt` frames.
 
 ### The browser swap
 

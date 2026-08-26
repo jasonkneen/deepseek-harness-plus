@@ -194,6 +194,20 @@ describe('gate graph validation', () => {
     }
   })
 
+  it('runs the Windows built-bin smoke after other observational gates settle', () => {
+    const observational = withPnpmEntrypoint(() => gatesForMode('ci-windows-observational'))
+    const builtBin = observational.find(gate => gate.id === 'built-bin-smoke')
+
+    expect(builtBin?.after).toEqual(
+      observational.filter(gate => gate.id !== 'built-bin-smoke').map(gate => gate.id),
+    )
+
+    const completeBuiltBin = withPnpmEntrypoint(() => gatesForMode('ci-windows-complete'))
+      .find(gate => gate.id === 'built-bin-smoke')
+    expect(completeBuiltBin?.after).toContain('windows-site')
+    expect(completeBuiltBin?.after).not.toContain('docs-site-build')
+  })
+
   it('applies one configured test and polling timeout to both coverage gates', () => {
     const gates = withEnv('DSH_COVERAGE_TEST_TIMEOUT_MS', '15000', () =>
       withPnpmEntrypoint(() => gatesForMode('ci-windows-complete')))

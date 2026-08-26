@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-Every client of the web GUI host calls one typed API through `dsh-host-apiproxy` — sessions and history, subagents, workspaces, directory picking, model selection, agent presets, skills, goals, settings, credentials, LLM catalogs, events, and session export — moved over HTTP or in-process by fetch carriers. The contract layer has zero Node dependencies and imports from the browser, so one typed API serves the Web server, Electron, and any future client shape. The shipped Web composition assembles the gateway in [`dsh-web-app`](../../bundle/web-app/README.md). Choosing a carrier, calling the domain APIs, and configuring the gateway come first; the wire protocol internals live in a collapsible developer section below.
+Every client of the web GUI host calls one typed API through `dsh-host-apiproxy` — sessions and history, workspaces, directory picking, model selection, agent presets, skills, goals, settings, credentials, LLM catalogs, events, and session export — moved over HTTP or in-process by fetch carriers. The contract layer has zero Node dependencies and imports from the browser, so one typed API serves the Web server, Electron, and any future client shape. The shipped Web composition assembles the gateway in [`dsh-web-app`](../../bundle/web-app/README.md). Choosing a carrier, calling the domain APIs, and configuring the gateway come first; the wire protocol internals live in a collapsible developer section below.
 
 ## Table of Contents
 
@@ -40,7 +40,7 @@ The HTTP carrier refuses non-JSON POST bodies with 415 before dispatch, so cross
 
 ### What the gateway exposes
 
-The API is grouped into domains: `sessions` (list, create, history, prompt, cancel, queue, models, selectModel, rename, fork, search, attachment), `subagents`, `workspace`, `host` (describe, pickDirectory, listDirectory, createDirectory, openPath), `skills`, `agentPresets`, `goals`, `settings`, `credentials`, `llm`, `events`, and `downloads`. The sessions, workspace, and events contracts are owned by the Session Controller, Workspace Controller, and API Remotes packages respectively; the remaining domain contracts and the `RpcMethodMap` live in `src/api/`.
+The API is grouped into domains: `sessions` (list, create, history, prompt, cancel, queue, models, selectModel, rename, fork, search, attachment), `workspace`, `host` (describe, pickDirectory, listDirectory, createDirectory, openPath), `skills`, `agentPresets`, `goals`, `settings`, `credentials`, `llm`, `events`, and `downloads`. The sessions, workspace, and events contracts are owned by the Session Controller, Workspace Controller, and API Remotes packages respectively; the remaining domain contracts and the `RpcMethodMap` live in `src/api/`.
 
 ### Sessions and history
 
@@ -92,7 +92,7 @@ The package is built on one separation: the API contract is channel-independent,
 
 ### The gateway service
 
-`ApiProxyService` provides `ctx.apiProxy` and implements the contract over the composed host context — sessions, subagents, workspace registry, directory picker, agent presets, settings, credentials, LLM, events, and downloads. The Host cwd is the default project directory. The gateway consumes `ctx.agentDefaultModel` only for the deployment metadata `host.describe` reports; `session.selectModel` (Session Controller) saves an accepted switch as the deployment default through the shared agent-default-model settings section. Product `dsh --profile headless` is a direct core entry point and does not mount this package.
+`ApiProxyService` provides `ctx.apiProxy` and implements the contract over the composed host context — sessions, workspace registry, directory picker, agent presets, settings, credentials, LLM, events, and downloads. The Host cwd is the default project directory. The gateway consumes `ctx.agentDefaultModel` only for the deployment metadata `host.describe` reports; `session.selectModel` (Session Controller) saves an accepted switch as the deployment default through the shared agent-default-model settings section. Product `dsh --profile headless` is a direct core entry point and does not mount this package.
 
 ### Request flow
 

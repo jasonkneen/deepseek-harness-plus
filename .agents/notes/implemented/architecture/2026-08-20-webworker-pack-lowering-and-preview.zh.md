@@ -10,7 +10,7 @@
 
 ## 决定
 
-**Lowering 只发生在 pack 期。** `@deepseek-ai/dsh-experimental-webworker-packer` 组合 profile、物化闭包、lower 每个 JavaScript 模块体；`LOWERING_VERSION` 与 `WRAPPER_PARAMS` 是 pack↔worker 的契约，与镜像布局的其余部分一起放在 `src/image-layout.ts`。装载器完全按镜像持有的形态包装模块体：仍带模块语法的模块体是一次点名镜像的拒绝，且 `startWorkerHost` 在挂载任何模块之前要求 manifest 的 `lowered` 等于本构建的契约。`lowerModuleSource` 是转换器唯一的面、packer 是它唯一的调用方；worker 图内部的 import 一律指向拥有该值的模块——绝不指向包 barrel，那正是把解析器偷运进来的那条边。源码目录排除只用于运行期使用已构建 `lib/` 的 workspace 与 vendored 包；已安装第三方包会保留 `src/` 和 `dist/` 下的 JavaScript，因为其发布入口可能解析到这些位置。
+**Lowering 只发生在 pack 期。** `@deepseek-ai/dsh-experimental-webworker-packer` 组合 profile、物化闭包、lower 每个 JavaScript 模块体；`LOWERING_VERSION` 与 `WRAPPER_PARAMS` 是 pack↔worker 的契约，与镜像布局的其余部分一起放在 `src/image-layout.ts`。装载器完全按镜像持有的形态包装模块体：仍带模块语法的模块体是一次点名镜像的拒绝，且 `startWorkerHost` 在挂载任何模块之前要求 manifest 的 `lowered` 等于本构建的契约。`lowerModuleSource` 是转换器唯一的面、packer 是它唯一的调用方；同一次解析会把具名静态 import、re-export 与动态 import、经 `require` 发起的调用，以及通过 `node:module` 或 `module` 具名导入在模块作用域直接发起的 `createRequire(import.meta.url)('pkg')` 调用送入可达性遍历。保存下来的结果、经 CommonJS 获取的 `createRequire`、计算得到的请求名称与其他基准只在运行时解析；只能通过这些形式触达的目标需要镜像入口种子。worker 图内部的 import 一律指向拥有该值的模块——绝不指向包 barrel，那正是把解析器偷运进来的那条边。源码目录排除只用于运行期使用已构建 `lib/` 的 workspace 与 vendored 包；已安装第三方包会保留 `src/` 和 `dist/` 下的 JavaScript，因为其发布入口可能解析到这些位置。
 
 **preview 就是服务页面加一个标签。** 一次 Vite 构建产出共享全部 chunk 的 `dist/index.html` 与 `dist/preview.html`；唯一差异是前插的一个引导入口，其模块负责连接 worker host。启动随之汇于一个协议：应用注入表的一方 settle `__DSH_BOOT_READY__` deferred——served 渲染器在渲染完的行之后用尾部脚本 resolve，worker 引导段在首个 await 之前安装、末行生效后 settle——client 入口在读取任何注入状态前 await 它，因此从标准入口起的链路逐字就是 served 链路。插件 combo 脚本与 map 都通过 tunnel；页面侧 loader 会在执行脚本 Blob 前，把每个仅 tunnel 可达的 map 内嵌为 Base64 data URL，从而不依赖另一条 object URL 的生命周期，并在 DevTools 中保留 indexed map 的组件名称。构建使用相对 base，产物可挂载于任意静态目录；served 形态在 serve 期渲染 `<base href="/">` 锚定深层 SPA fallback 路径，磁盘上的两个页面保持字节共享。
 
@@ -37,7 +37,7 @@
 ## 后果
 
 - `lib/worker.js` 不含解析器（当刀落时为 423.5 kB → 246.3 kB，早于 shell 进程层落地）。
-- `diff dist/index.html dist/preview.html` 恰为一个 script 标签；`packages/experimental/webworker-packer/tests/image-loadable.spec.ts` 钉住装载器契约的两半，`apps/web/tests/preview-boot.e2e.ts` 在 web 浏览器车道钉住 preview 可用性（boot 到可交互页面），替代已撤编的 `apps/web/scripts/preview/` 探针脚本。
+- `diff dist/index.html dist/preview.html` 恰为一个 script 标签；`packages/experimental/webworker-packer/tests/image-loadable.spec.ts` 钉住装载器契约的两半，transform 语义套件钉住 `createRequire` 请求发现，`apps/web/tests/preview-boot.e2e.ts` 则在 web 浏览器车道钉住 preview 可用性（boot 到可交互页面），替代已撤编的 `apps/web/scripts/preview/` 探针脚本。
 - 转换 corpus 会先通过 Node 导入每个已构建 bundle，再比较 lowered export。固定豁免会点名真正不可导入的 bundle，并在其恢复可导入时失败：`win32-process` 是 Koffi 类型 owner 并承担重复类型豁免；`sandbox-windows-acl` 可正常导入，不承担该豁免。
 - served 的 `<base href="/">` 锚存在的原因是：相对资产 URL 在 SPA fallback 深路径下会解析进请求目录；只有与相对构建 base 一起才可移除它。
 - 镜像以确定性 gzip 压缩的 tar 交付（`vfs-image.tar.gz`；MTIME 0、OS 字节 0xff）：静态托管不压缩二进制 content-type（类型白名单、CDN 尺寸帽），压缩必须随制品走；worker 用浏览器原生 `DecompressionStream` 在下载的同时解压 fetch body。

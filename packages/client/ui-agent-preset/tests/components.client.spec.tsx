@@ -55,17 +55,24 @@ function renderRow(state: Partial<AgentPresetSettingsState> = {}) {
   return actions
 }
 
-function renderSeat(state: Partial<AgentPresetSeatState> = {}) {
+/** The runtime's own `{name}` substitution, so a test reads the shown text. */
+function translate(key: keyof typeof en, params?: Record<string, unknown>): string {
+  const template = en[key]
+  return params === undefined
+    ? template
+    : template.replace(/\{(\w+)\}/g, (match, name: string) => name in params ? String(params[name]) : match)
+}
+
+function renderSeat(
+  state: Partial<AgentPresetSeatState> = {},
+  select: () => Promise<string | undefined> = () => Promise.resolve(undefined),
+) {
   const store = createSnapshotStore<AgentPresetSeatState>({ ...SEAT_READY, ...state })
-  const actions = {
-    load: vi.fn(() => Promise.resolve()),
-    select: vi.fn(() => Promise.resolve()),
-    introduced: vi.fn(),
-  }
+  const actions = { load: vi.fn(() => Promise.resolve()), select: vi.fn(select), introduced: vi.fn() }
   render(<AgentPresetSeat {...({
     ...actions,
     useAgentPresetSeat: bindSnapshotSelector(store),
-    t: (key: keyof typeof en) => en[key],
+    t: translate,
   } as unknown as AgentPresetSeatProps)} />)
   return actions
 }
@@ -274,6 +281,45 @@ describe('the new-session chip', () => {
     fireEvent.keyDown(document, { key: 'Escape' })
 
     expect(screen.getByRole('button').getAttribute('aria-expanded')).toBe('false')
+  })
+})
+
+describe('a refused switch', () => {
+  it('announces the reason instead of letting the label snap back in silence', async () => {
+    // The banner's own timer has to be a fake one from the start, or the
+    // lifetime assertion below would wait out its real nine seconds.
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    try {
+      const reason = 'failed to import loader entry live-on-mac (@deepseek-ai/dsh-also-gone)'
+      renderSeat({}, () => Promise.resolve(reason))
+
+      fireEvent.click(screen.getByRole('button'))
+      fireEvent.click(screen.getByRole('menuitem', { name: /mine/ }))
+
+      // The host refuses a mount discovery reported healthy, so this banner is
+      // the only place the cause appears — the chip has already reverted and
+      // the settings row shows the preset as fine.
+      const banner = await screen.findByRole('alert')
+      expect(banner.textContent).toContain(reason)
+      expect(banner.textContent).toContain('mine')
+
+      // Transient by design: it holds long enough to read a cause that names
+      // packages, then leaves rather than sitting over the screen.
+      act(() => { vi.advanceTimersByTime(9001) })
+      expect(screen.queryByRole('alert')).toBeNull()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('says nothing when the switch lands', async () => {
+    const actions = renderSeat()
+
+    fireEvent.click(screen.getByRole('button'))
+    fireEvent.click(screen.getByRole('menuitem', { name: /mine/ }))
+
+    await waitFor(() => { expect(actions.select).toHaveBeenCalledWith('mine') })
+    expect(screen.queryByRole('alert')).toBeNull()
   })
 })
 

@@ -3260,13 +3260,6 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
   }
 
   const api: ApiProxy = {
-    subagents: {
-      list: request => ok(request, { entries: [], parentAvailable: true }),
-      prompt: request => Promise.resolve(ok(request, {
-        messageId: `fixture-message-${request.payload.childSessionId}` as never,
-      })),
-      interrupt: request => Promise.resolve(ok(request, { accepted: true as const })),
-    },
     host: {
       describe: request => ok(request, {
         version: '0.0.0-fixture', cwd: '/tmp/fixture', attachedSessions, home: FIXTURE_HOME, canOpenPath: true,
@@ -3469,6 +3462,17 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
         case 'agentPresets/read': return Promise.resolve(presetRemotes.read(args.agentPreset as string))
         case 'agentPresets/copy': return Promise.resolve(presetRemotes.copy(args.from as string, args.id as string))
         case 'agentPresets/deletePreset': return Promise.resolve(presetRemotes.deletePreset(args.id as string))
+        case 'subagents/list': return Promise.resolve({
+          ok: true,
+          value: { entries: [], parentAvailable: true },
+        })
+        case 'subagents/prompt': return Promise.resolve({
+          ok: true,
+          value: {
+            messageId: `fixture-message-${(request as { childSessionId: SessionId }).childSessionId}`,
+          },
+        })
+        case 'subagents/interruptByParent': return Promise.resolve({ ok: true, value: { accepted: true } })
         case 'session/list': return sessionApi.list(
           args._request as Parameters<FixtureSessionApi['list']>[0],
         )
@@ -3591,9 +3595,6 @@ export class FixtureApiClient extends AbstractApiClient {
     signal: AbortSignal,
   ): Promise<RpcResponse<unknown>> {
     switch (method) {
-      case 'subagent.list': return this.api.subagents.list(request)
-      case 'subagent.prompt': return this.api.subagents.prompt(request, signal)
-      case 'subagent.interrupt': return this.api.subagents.interrupt(request)
       case 'host.describe': return this.api.host.describe(request)
       case 'host.pickDirectory': return this.api.host.pickDirectory(request, new AbortController().signal)
       case 'host.listDirectory': return this.api.host.listDirectory(request, new AbortController().signal)

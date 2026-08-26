@@ -14,7 +14,6 @@ export type {
   ModelReasoningEffort, ModelSelection,
   SettingsApi, SettingsNamespaceView, SettingsPathOpView, SettingsSecretView,
   CredentialsApi, CredentialView, ConfigurableProviderView, DiscoveredModelView, LlmApi,
-  SubagentsApi, SubagentAddress, SubagentCatalog, SubagentListEntry, SubagentPromptReceipt,
 } from '@deepseek-ai/dsh-host-apiproxy/api'
 export type {
   RpcRequest, RpcResponse, RpcResult, RpcError, RpcErrorCode,

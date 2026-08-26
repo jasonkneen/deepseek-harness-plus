@@ -144,6 +144,35 @@ check(
   check('lowered mirrors code !== source', cjsAwait.lowered, cjsAwait.code !== 'module.exports = async () => { await 1 }\n')
 }
 
+{
+  const direct = lowerModuleSource({
+    filename: 'node_modules/p/direct.js',
+    source: "import { createRequire } from 'node:module'\ncreateRequire(import.meta.url)('external-package')\n",
+  })
+  check('literal createRequire call is a module request', direct.moduleRequests, ['node:module', 'external-package'])
+
+  const aliased = lowerModuleSource({
+    filename: 'node_modules/p/aliased.js',
+    source: "makeRequire(import.meta.url)('aliased-package')\nimport { createRequire as makeRequire } from 'node:module'\n",
+  })
+  check('aliased createRequire import is indexed before traversal', aliased.moduleRequests, ['aliased-package', 'node:module'])
+
+  const runtimeOnly = lowerModuleSource({
+    filename: 'node_modules/p/runtime-only.js',
+    source: [
+      "import { createRequire } from 'node:module'",
+      'const localRequire = createRequire(import.meta.url)',
+      "localRequire('stored')",
+      "createRequire(new URL('./other.js', import.meta.url))('rebased')",
+      "{ const createRequire = () => () => undefined; createRequire(import.meta.url)('block-shadowed') }",
+      "function load(createRequire) { createRequire(import.meta.url)('parameter-shadowed') }",
+      "for (const createRequire of []) createRequire(import.meta.url)('for-of-shadowed')",
+      "switch (0) { case 0: const createRequire = () => () => undefined; createRequire(import.meta.url)('switch-shadowed') }",
+    ].join('\n'),
+  })
+  check('stored, rebased, and shadowed createRequire calls stay runtime-only', runtimeOnly.moduleRequests, ['node:module'])
+}
+
 // ---------------------------------------------------------------------------
 // 3. Import forms.
 // ---------------------------------------------------------------------------

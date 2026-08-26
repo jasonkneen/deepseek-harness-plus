@@ -102,7 +102,7 @@ This section explains the design of the kit; the observable behavior is fully co
 
 ### Design
 
-The shared core owns manifests, workspace setup/comparison, typed identity mapping, normalizers, and fixture invariants. The ACP adapter adds four composable layers: launcher, scenario harness, normalizers, and suite factory. `launchAcpTestAgent` boots a source profile under tsx or a built `lib` profile under plain Node, connects the SDK client over a raw-byte stdout tee, collects session updates and stderr, fails closed on unhandled permission requests, and owns shutdown. `runScenario` drives ACP JSON-RPC stdio and harvests every persisted raw JSONL session log. The pure normalizers replace cwd paths and typed identities with stable tokens, zero times, and scrub request-header bulk. `defineAcpSnapshotSuite` registers comparisons, fixture write-back, and the live uniformity guard.
+The shared core owns manifests, workspace setup/comparison, typed identity mapping, normalizers, and fixture invariants. The ACP adapter adds four composable layers: launcher, scenario harness, normalizers, and suite factory. `launchAcpTestAgent` boots a source profile under tsx or a built `lib` profile under plain Node, connects the SDK client over a raw-byte stdout tee, collects session updates and stderr, fails closed on unhandled permission requests, and owns shutdown. `runScenario` drives ACP JSON-RPC stdio and harvests every persisted raw JSONL session log. The pure normalizers replace cwd paths and typed identities with stable tokens, zero times, expand physical provenance ranges, and scrub request-header bulk. `defineAcpSnapshotSuite` registers comparisons, fixture write-back, and the live uniformity guard.
 
 ### Source map
 

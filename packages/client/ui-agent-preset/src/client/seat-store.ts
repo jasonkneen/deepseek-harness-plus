@@ -94,13 +94,20 @@ export class AgentPresetSeatController {
   /**
    * Stage one preset for the next session, applying it immediately when a
    * blank session is already current.
+   *
+   * The refusal is returned as well as stored, because the two readers need
+   * different things from it: the chip's own label carries the standing state,
+   * while the caller that made this pick is the one that has to say why the
+   * label came back — and only it knows the pick was a person's, not the
+   * applier catching up with a session that just became current.
    * @param id - the preset to stage.
-   * @returns once the stage settled, and the apply too when one happened.
+   * @returns the refusal text, or undefined once the pick settled.
    */
-  async select(id: string): Promise<void> {
-    if (this.store.getSnapshot().busy) return
+  async select(id: string): Promise<string | undefined> {
+    if (this.store.getSnapshot().busy) return undefined
     this.stage(id)
     await this.apply()
+    return this.store.getSnapshot().error ?? undefined
   }
 
   /**
@@ -152,9 +159,17 @@ export class AgentPresetSeatController {
       const result = await this.remote.agentPresets.select(session.id, staged)
       this.staged = undefined
       if (!result.ok) {
+        const { error } = result
         this.set({
           busy: false,
-          error: result.error.message,
+          // A refusal carries its cause twice: `message` wraps it in the
+          // roster's own frame, which names the preset the surface reporting
+          // this already names, and a `reason` detail holds the same cause
+          // without it. Read by the detail rather than by the code, because
+          // every refusal that has a cause to give names it the same way.
+          error: 'reason' in error.details && typeof error.details.reason === 'string'
+            ? error.details.reason
+            : error.message,
           current: presetOf(session) ?? '',
         })
         return

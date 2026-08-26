@@ -9,7 +9,6 @@ import type { SkillsApi } from './skills.ts'
 import type { SettingsApi } from './settings.ts'
 import type { CredentialsApi } from './credentials.ts'
 import type { LlmApi } from './llm.ts'
-import type { SubagentsApi } from './subagents.ts'
 import type { RpcResponse } from './rpc.ts'
 
 /**
@@ -18,9 +17,6 @@ import type { RpcResponse } from './rpc.ts'
  * request; the carrier passes its request signal, never a wire field.
  */
 export interface RpcMethodMap {
-  'subagent.list': SubagentsApi['list']
-  'subagent.prompt': SubagentsApi['prompt']
-  'subagent.interrupt': SubagentsApi['interrupt']
   'host.describe': HostApi['describe']
   'host.pickDirectory': HostApi['pickDirectory']
   'host.listDirectory': HostApi['listDirectory']

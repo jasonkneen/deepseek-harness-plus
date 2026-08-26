@@ -452,7 +452,7 @@ jobs:
     timeout-minutes: 120
     env:
       DSH_COVERAGE_MAX_WORKERS: '6'
-      DSH_COVERAGE_PARTITIONS: '6'
+      DSH_COVERAGE_PARTITIONS: '4'
       DSH_COVERAGE_TEST_TIMEOUT_MS: '30000'
       DSH_GATE_CONCURRENCY: '3'
     steps:

@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-`dsh-client-ui-user-questions` is the web question feature plugin: its browser half registers the `question` entry in the conversation-owned `conversation.composer` keyed slot, so when the agent asks the user a question the composer is taken over by the question UI. The component renders one question at a time with progress navigation, single- and multi-select choices, recommendation badges, and custom answers, and submits one structured answer batch for the whole request. A request whose single question declares a presentation intent renders as that intent's own surface instead — notably the `plan-review` waiting-approval card with `Chat about it` / `Refuse` / `Approve`. Its host half is empty on purpose: mounting `dsh-tool-ask-user` there would put the tool in the registry's global layer and merge it into every agent regardless of the preset that composed it.
+`dsh-client-ui-user-questions` is the web question feature plugin: its browser half registers the `question` entry in the conversation-owned `conversation.composer` chain, so when the agent asks the user a question the composer is taken over by the question UI. The component renders one question at a time with progress navigation, single- and multi-select choices, recommendation badges, and custom answers, and submits one structured answer batch for the whole request. A request whose single question declares a presentation intent renders as that intent's own surface instead — notably the `plan-review` waiting-approval card with `Chat about it` / `Refuse` / `Approve`. Its host half is empty on purpose: mounting `dsh-tool-ask-user` there would put the tool in the registry's global layer and merge it into every agent regardless of the preset that composed it.
 
 ## Table of Contents
 
@@ -29,15 +29,15 @@ When the agent asks a question, the composer becomes the question surface: answe
 
 ### Answering
 
-A multi-select draft keeps its selected labels while the user opens or edits the custom answer, so its submitted item may carry both `selected` and `custom`; a single-select custom answer remains exclusive. Question detail reuses the assistant-output `MarkdownText` primitive, including its GFM rendering and untrusted-content policy. The capped card keeps its title, navigation, and submission actions fixed while long detail and choices share an internal scroll region. "Skip this question" retains other drafts and emits the existing blank `{ selected: [] }` shape for that item, while close rejects the whole wait as `ASK_CANCELLED`.
+A multi-select draft keeps its selected labels while the user opens or edits the custom answer, so its submitted item may carry both `selected` and `custom`; a single-select custom answer remains exclusive. Question detail reuses the assistant-output `MarkdownText` primitive, including its GFM rendering and untrusted-content policy. The capped card keeps its title, navigation, and submission actions fixed while long detail and choices share an internal scroll region. "Skip this question" retains other drafts and emits the existing blank `{ selected: [] }` result for that item, while close rejects the whole wait as `ASK_CANCELLED`.
 
 ### The plan-review card
 
-A `plan-review` intent — set by `dsh-plan-mode` on the `exit_plan_mode` review — renders the waiting-approval card shape: a `Plan review` strip, the plan as the scrolling markdown body, and one decision row of `Chat about it` / `Refuse` / `Approve`. Approve and Refuse answer with the asker's own option labels; `Chat about it` rejects the wait as `ASK_CANCELLED`, returning the composer so the user can say what they want instead.
+A `plan-review` intent — set by `dsh-plan-mode` on the `exit_plan_mode` review — renders the waiting-approval card layout: a `Plan review` strip, the plan as the scrolling markdown body, and one decision row of `Chat about it` / `Refuse` / `Approve`. Approve and Refuse answer with the asker's own option labels; `Chat about it` rejects the wait as `ASK_CANCELLED`, returning the composer so the user can say what they want instead.
 
 ### Failure and recovery
 
-Selection state is local to a component keyed by the request rpcId: a replay with the same id preserves a still-mounted draft, while `question/resolved` from the host removes the composer. The host remains authoritative: successful HTTP delivery does not remove pending state locally.
+The generic question flow keeps its current page, selected labels, custom text, and explicit skips in a non-persisted Slot store scoped to the owning Session and keyed by the pending request's local render identity. Switching from Session A to B remounts the strict composer entry, but returning to A reuses A's store and restores the unfinished draft. A different request identity reads an empty draft and replaces the previous value on its first edit; a successful answer or cancellation clears the matching value. The host remains authoritative for whether the request is pending.
 
 -----
 
@@ -76,7 +76,7 @@ These pages cover the composer host, the tool seam, and the plan-mode consumer.
 <a id="model-experience"></a>
 ## Model Experience
 
-Indirectly, through dsh-tool-ask-user, which the package mounts and which owns the model-visible schema and answer rendering.
+Indirectly, through `dsh-tool-ask-user`, whose model-visible schema and answer rendering this package presents in the Web client.
 
 #### KV Cache effect
 
@@ -89,7 +89,7 @@ No direct invalidation; `dsh-tool-ask-user` owns the model-visible tool call and
 
 These limits define draft durability and composer ownership; they are current package constraints.
 
-- **Unsubmitted drafts are not durable** — reconnect resync or a full page reload restores the host-owned pending request with the same rpcId, but a composer unmount resets local option and custom-text drafts.
+- **Unsubmitted drafts have page-and-Session lifetime** — Session navigation preserves them while that Session scope remains in the page, but a full page reload, Session pruning, or a newly delivered pending-request identity starts with an empty draft. The store never writes them to the Host, `localStorage`, or disk.
 - **One request owns the composer at a time** — later pending requests remain in the session snapshot and become visible after the earlier request resolves.
 
 <a id="dev-note"></a>

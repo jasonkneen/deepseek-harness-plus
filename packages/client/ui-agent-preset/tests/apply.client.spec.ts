@@ -623,4 +623,25 @@ describe('AgentPresetSeatController reconciliation', () => {
       busy: false, current: '', error: message,
     })
   })
+
+  it('keeps the bare cause of a mount failure, not the frame that names the preset again', async () => {
+    const reason = 'failed to import loader entry ctx (@deepseek-ai/dsh-gone): Cannot find package'
+    const controller = new AgentPresetSeatController({
+      agentPresets: {
+        select: () => Promise.resolve({
+          ok: false as const,
+          error: {
+            code: 'agent-preset-invalid',
+            message: `agent-presets: preset "broken" failed to mount: ${reason}`,
+            details: { agentPreset: 'broken', reason },
+          },
+        }),
+      },
+    } as never, () => ({ id: SessionId('uncomposed'), blank: true }))
+
+    // The surface reporting this names the preset itself, so carrying the
+    // roster's own "preset X failed to mount" frame would say it twice.
+    expect(await controller.select('broken')).toBe(reason)
+    expect(controller.store.getSnapshot().error).toBe(reason)
+  })
 })

@@ -103,6 +103,28 @@ describe('parseSessionLog', () => {
     expect(parseSessionLog(`${header}\n\n${JSON.stringify(ev)}\n\n`)).toEqual([ev])
   })
 
+  it('expands range-encoded source provenance', () => {
+    const header = JSON.stringify({ type: 'session', version: 0, id: 's1', createdAt: 0 })
+    const event = {
+      ...chunkEvent(4, 1, 1, TEXT_CHUNKS[0] as StreamChunk),
+      sourceEventSeqs: [[1, 3], 5],
+    }
+    expect(parseSessionLog(`${header}\n${JSON.stringify(event)}\n`)).toEqual([{
+      ...event,
+      sourceEventSeqs: [1, 2, 3, 5],
+    }])
+  })
+
+  it('reports malformed range provenance with its source line', () => {
+    const header = JSON.stringify({ type: 'session', version: 0, id: 's1', createdAt: 0 })
+    const event = {
+      ...chunkEvent(4, 1, 1, TEXT_CHUNKS[0] as StreamChunk),
+      sourceEventSeqs: [[3, 1]],
+    }
+    expect(() => parseSessionLog(`${header}\n${JSON.stringify(event)}\n`))
+      .toThrow('session snapshot line 2: sourceEventSeqs ranges require start <= end')
+  })
+
   it('rejects non-object body rows with their source line', () => {
     const header = JSON.stringify({ type: 'session', version: 0, id: 's1', createdAt: 0 })
     expect(() => parseSessionLog(`${header}\nnull\n`))

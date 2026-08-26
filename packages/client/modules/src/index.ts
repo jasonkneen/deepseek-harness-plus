@@ -23,7 +23,7 @@
  */
 
 import { createHash, randomBytes } from 'node:crypto'
-import { readFileSync, statSync, type Stats } from 'node:fs'
+import { readFileSync, statSync } from 'node:fs'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { createRequire } from 'node:module'
 import { dirname, join } from 'node:path'
@@ -78,10 +78,6 @@ export interface ClientArtifactBaseline {
   readonly mtimeMs: number
   /** Bundle size in bytes. */
   readonly size: number
-  /** Source-map modification time, or null when no map was observable. */
-  readonly mapMtimeMs: number | null
-  /** Source-map size in bytes, or null when no map was observable. */
-  readonly mapSize: number | null
 }
 
 /** Resolved package metadata for one `dsh.client` package (cached per name, never expires). */
@@ -756,22 +752,13 @@ export class ClientModuleRegistry extends Service {
     return meta
   }
 
-  /** Capture the bundle and optional-map stats before reading their bytes. */
+  /** Capture the bundle stats before reading its bytes. */
   private captureArtifactBaseline(clientPath: string): ClientArtifactBaseline {
     const bundle = statSync(clientPath)
-    let sourceMap: Stats | undefined
-    try {
-      sourceMap = statSync(`${clientPath}.map`)
-    } catch {
-      // Optional map metadata only seeds HMR; the following map read reports
-      // malformed or inaccessible bytes and a later stat change self-heals.
-    }
     return {
       path: clientPath,
       mtimeMs: bundle.mtimeMs,
       size: bundle.size,
-      mapMtimeMs: sourceMap?.mtimeMs ?? null,
-      mapSize: sourceMap?.size ?? null,
     }
   }
 

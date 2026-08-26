@@ -59,7 +59,7 @@ kind: "package-reference"
 
 ### 设计理念
 
-链路分为两半，共用一份约定：node 半侧负责 bundle 检测与通知，浏览器半侧负责替换。node 半侧运行一个 interval，从 module host 读取文件前的基线开始 stat 轮询每个图 bundle 及其可选 source map。未变化的启动 row 无需读取内容或求 hash 即可开始监视；发生变化的 row，或产物恢复后的 dirty row，会进入 `rebuilt()`，且只广播真实 revision 变更。它还提供 `/plugins/events`，一个广播 `graph` 与 `rebuilt` 帧的 SSE 通道。
+链路分为两半，共用一份约定：node 半侧负责 bundle 检测与通知，浏览器半侧负责替换。node 半侧运行一个 interval，从 module host 读取文件前的基线开始 stat 轮询每个图 bundle。未变化的启动 row 无需读取内容或求 hash 即可开始监视；发生变化的 row，或产物恢复后的 dirty row，会进入 `rebuilt()`，且只广播真实 revision 变更。`rebuilt()` 会把当前 source map 与已变化的 bundle 一起读取；仅写入 map 不会重载可执行代码。node 半侧还提供 `/plugins/events`，一个广播 `graph` 与 `rebuilt` 帧的 SSE 通道。
 
 ### 浏览器侧替换
 

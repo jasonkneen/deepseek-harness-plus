@@ -33,9 +33,7 @@ Choose this backend when a local deployment benefits from one queryable database
 
 ### Disk footprint and performance
 
-The packed layout trades disk space for speed and structure. The available benchmark measures schema 17, the packed predecessor with the same chunk codec but the former row discriminator; schema 18 has not been remeasured. On its corpus — 105 sessions, about 2.5 million events — the SQLite database used 75 MB against 31 MB for the default compressed JSONL logs: roughly 2.5× the on-disk size.
-
-The same measurements show writes finishing about 3× faster, 50-event suffix reads about 40× faster, full-session reads comparable or slightly faster, and about 2.5 million physical rows shrinking to roughly 66 thousand. Expect 2–3× the compressed JSONL footprint depending on session content; the full numbers and method live in the [SQLite physical chunk-row decision](../../../.agents/notes/implemented/architecture/2026-08-18-sqlite-physical-chunk-row-compression.md).
+The packed layout exchanges some SQLite-local latency for a smaller queryable database. On the 501-session comparison corpus, the schema-19 layout used 233.18 MB against the SQLite comparison baseline's 438.31 MB and compressed JSONL's 148.15 MB. Full writes were about 2.3× faster than JSONL and suffix reads remained much faster; complete reads and forks were slightly slower than JSONL. The [persistence latency and page-size decision](../../../.agents/notes/implemented/architecture/2026-08-25-persistence-latency-and-page-size.md) owns the method, complete metrics, and accepted trade-offs.
 
 The disk cost buys a structured, queryable view of session history: external tooling can analyze `sessions` and `events` with SQL, decoding physical rows the way this provider does — the groundwork for features such as built-in full-text search.
 
@@ -77,7 +75,7 @@ await ctx.sessionPersistence.append(id, events)
 
 ### Startup and safe operation
 
-A fresh database initializes directly at schema version 18. Databases with any other version, a foreign application identity, an unversioned non-pristine schema, or unexpected schema objects are rejected before any data is exposed or changed — this pre-release provider ships no migration. Every statement and fixed pragma comes from packaged `.sql` resources in `resources/sql/`, and runtime values are bound as SQLite parameters, so package code never assembles query text.
+A fresh database initializes directly at schema version 19 with 64 KiB pages. Existing files are never retuned: databases with any other version, a foreign application identity, an unversioned non-pristine schema, or unexpected schema objects are rejected before any data is exposed or changed. This pre-release provider ships no migration. Every statement and fixed pragma comes from packaged `.sql` resources in `resources/sql/`, and runtime values are bound as SQLite parameters, so package code never assembles query text.
 
 Each connection disables SQLite trusted schemas and memory-mapped I/O, verifies the requested journal mode, and pins `synchronous=FULL` so a resolved append remains durable across an OS crash or power loss. On POSIX, the database parent directory and file must belong to the current user, the parent must not be group/world-writable, and the file must grant no group or world permissions; Windows additionally rejects symbolic links and non-regular files, while ACL restriction stays the deployment's job. Path and ownership failures reject plugin initialization; Node's SQLite driver loads lazily on the first persistence operation. Ordinary `create` stays lazy until the first append, while `ensureMaterialized` writes a session metadata row with no event rows.
 
@@ -96,11 +94,11 @@ This section explains the design decisions behind the provider and points at the
 The provider is built on one separation and three commitments:
 
 - **Logical contract, physical format.** Callers always read and write ordinary `SessionEvent[]`; how rows are packed, stored, and compressed is private to this package.
-- **The schema owns the format.** Schema 18 is a frozen physical contract: a database at another version, with a foreign identity, or with unexpected schema objects is rejected, never migrated. Changing the physical rules requires a new schema.
+- **The schema owns the format.** Schema 19 is a frozen physical contract: a database at another version, with a foreign identity, or with unexpected schema objects is rejected, never migrated. Changing the schema, row codec, page size, or dictionary bytes requires a new schema version.
 - **Durability is the default.** Appends run in immediate transactions with `synchronous=FULL`, and a resolved `append()` means the batch is durable. Normal appends are insert-only: earlier event rows are never rewritten.
 - **Efficiency within strict bounds.** Packing and compression keep the database small, but every limit is a hard format bound — at most 1,024 events and 1 MiB of payload per packed row.
 
-The decision history — alternatives considered, measurements, and consequences — lives in the [SQLite physical chunk-row decision](../../../.agents/notes/implemented/architecture/2026-08-18-sqlite-physical-chunk-row-compression.md).
+The packed-row foundation lives in the [SQLite physical chunk-row decision](../../../.agents/notes/implemented/architecture/2026-08-18-sqlite-physical-chunk-row-compression.md); the current compression, key, and page-size choices live in the [persistence latency and page-size decision](../../../.agents/notes/implemented/architecture/2026-08-25-persistence-latency-and-page-size.md).
 
 ### Source map
 
@@ -110,7 +108,7 @@ The decision history — alternatives considered, measurements, and consequences
 | [`src/store.ts`](src/store.ts) | Storage primitives: transactional append, reads, repair, path and ownership validation |
 | [`src/schema.ts`](src/schema.ts) | Schema ownership: version gate, connection hardening, row decoding |
 | [`src/codec.ts`](src/codec.ts) | Packing: which `assistant/chunk` runs become packed rows, size bounds |
-| [`src/compression.ts`](src/compression.ts) | Physical encoding: compression threshold, sequence lists, row scan and decode |
+| [`src/compression.ts`](src/compression.ts) | Physical encoding: dictionary compression, sequence lists, row scan and decode |
 | [`src/sql.ts`](src/sql.ts) + [`resources/sql/`](resources/sql/) | Every SQL statement as a packaged, closed-name resource |
 | [`src/invariant.ts`](src/invariant.ts) | Invariant companion (no runtime invariant; packing is observable only by database round-trip) |
 
@@ -124,7 +122,7 @@ A fresh database contains three strict tables, defined in [`resources/sql/schema
 | `sessions` | One row per session: header fields plus a monotonic revision |
 | `events` | Physical event rows: one logical event, or one packed run |
 
-The exact columns live in [`resources/sql/schema.sql`](resources/sql/schema.sql). `events.data` holds text or a blob: small payloads stay text, larger ones are stored compressed when that is smaller. `events.is_packed` is `0` for a scalar logical event and `1` for a packed chunk run, so a scalar event whose type matches a physical chunk tag remains unambiguous. Packed rows reuse the `seq` of their first logical event, so under the composite `(session_id, seq)` primary key physical order is logical order.
+The exact columns live in [`resources/sql/schema.sql`](resources/sql/schema.sql). `sessions.id` is an internal integer key while `sessions.session_key` retains the public session id. `events.data` holds text or an independently decodable Zstandard blob; compression uses the schema-owned shared dictionary only when the result is smaller. `events.source_event_seqs` uses tagged delta or run encoding. `events.is_packed` is `0` for a scalar logical event and `1` for a packed chunk run, so a scalar event whose type matches a physical chunk tag remains unambiguous. Packed rows reuse the `seq` of their first logical event, so under the composite `(session_id, seq)` primary key physical order is logical order.
 
 ### Write path
 
@@ -147,6 +145,7 @@ Read these pages when the package-level contract is not enough. They move from t
 - [Session package map](../README.md) — adjacent persistence, projection, title, and telemetry packages.
 - [Generated configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-session-persistence-sqlite) — every accepted config field and its source declaration.
 - [SQLite physical chunk-row decision](../../../.agents/notes/implemented/architecture/2026-08-18-sqlite-physical-chunk-row-compression.md) — rationale, alternatives, and measurements behind the packed layout.
+- [Persistence latency and page-size decision](../../../.agents/notes/implemented/architecture/2026-08-25-persistence-latency-and-page-size.md) — the 501-session benchmark and schema-19 storage trade-offs.
 
 -----
 
@@ -174,9 +173,9 @@ Physical packing does not mutate request prefixes. Provider cache reuse depends 
 
 These limits define when the provider is a poor fit or needs special operational care. They are current package constraints, not a general SQLite comparison or a task backlog.
 
-- **Pre-release design with no migration** — schema 18 is an interim SQLite-only design; the deferred unified multi-backend relational design with configurable schemas exists as a working external prototype in [morlay/session-persistence-rdb](https://github.com/morlay/session-persistence-rdb) (Drizzle-based, SQLite and PostgreSQL), and neither schema stability nor migration support is guaranteed.
+- **Pre-release design with no migration** — schema 19 is an interim SQLite-only design; neither schema stability nor migration support is guaranteed.
 - **Packing depends on batch boundaries** — a compatible run split by the write-behind window or an explicit flush stays split across physical rows; this avoids rewriting prior rows at the cost of a timing-dependent packing ratio.
-- **Synchronous SQLite and compression** — Node's SQLite driver and Zstandard calls block the JavaScript thread; the 4 KiB compression threshold bounds per-frame work for small records.
+- **Synchronous SQLite and compression** — Node's SQLite driver and Zstandard calls block the JavaScript thread.
 - **Busy waits block the event loop** — SQLite waits inside synchronous calls; a competing writer can stall the thread for up to the configured `busyTimeoutMs`.
 - **External SQL readers must decode physical rows** — a packed `events.type` (`text-chunks`, `reasoning-chunks`, `tool-call-chunks`) is not a logical event type; supported consumers read through this provider.
 - **No deletion or historical compaction** — normal appends are insert-only and nothing removes old rows.
@@ -187,37 +186,6 @@ These limits define when the provider is a poor fit or needs special operational
 <details>
 <summary>Working context for maintainers — click to expand</summary>
 
-This Dev Note is working context for maintainers: measured artifacts, open design questions, and directions that are not decided. It is explicitly non-authoritative — shipped behavior, limits, and accepted rationale live in the sections above, the package code, and the linked Agent Notes, and conclusions migrate there once they stabilize.
-
-#### Benchmark artifact
-
-The numbers below are the frozen schema-17 benchmark. Schema 18 changes the row discriminator and has not been remeasured; the [SQLite physical chunk-row decision](../../../.agents/notes/implemented/architecture/2026-08-18-sqlite-physical-chunk-row-compression.md) is the authoritative record, and this table is an annotated digest.
-
-| Metric | **JSONL (zstd)** | **SQLite (legacy)** | **SQLite (new)** |
-|---|---|---|---|
-| On-disk size | **30.65 MB** | 709.57 MB | 75.01 MB |
-| Write time, 105 sessions | 28.21 s | 10.64 s | **8.58 s** |
-| Complete-session read p50 / p95 | 4.49 / 23.36 ms | 9.02 / 69.16 ms | **3.95 / 21.58 ms** |
-| 50-event tail read p50 / p95 | 10.58 / 80.90 ms | **0.189 / 0.293 ms** | 0.253 / 0.378 ms |
-| Event rows | 2,507,860 (logical) | 2,507,860 | **65,810** |
-| Fork of all sessions | 14.48 s | 19.30 s | **13.10 s** |
-
-The corpus was 105 sessions with 2,507,860 logical events appended in 512-event durable batches, so the ratios depend on session content, stream density, and batch boundaries. `SQLite (legacy)` is the scalar layout — one physical row per logical event, no packing — whose 709.57 MB footprint motivated the packed rows. In the measured schema-17 layout, SQLite uses ≈2.5× the JSONL disk space but writes ≈3.3× faster, reads complete sessions faster at both percentiles, and reads 50-event tails ≈40× faster; against the scalar layout it is ≈89% smaller, faster to write, and shrinks 2,507,860 rows to 65,810, while scalar tail reads remain marginally faster (0.189 vs 0.253 ms p50). Re-run or extend this benchmark whenever the write path or the schema changes.
-
-#### Future: multi-backend RDB persistence (Drizzle)
-
-A unified multi-backend relational design stays deferred. A Drizzle-backed rework would need to resolve: schema ownership — the per-version freeze and exact-object validation exist so any composition can read any same-version database, so a customizable schema must remain versioned and validated the same way; backend hardening — `synchronous=FULL`, busy timeout, and ownership checks are SQLite-specific, and Postgres or MySQL backends need their own durability and permission story; and codec portability — the packed-row codec is shaped around SQLite columns, so either a shared codec across dialects or per-backend codecs fixed by schema version must keep the logical contract identical.
-
-#### Future: persistence-to-persistence transfer and version migration
-
-The README documents a manual `load` → `create`/`append` transfer, but the seam has no import/export API, and SQLite rejects other schema versions outright. Automating transfer needs: an export format that preserves header lineage (`seedLength`, `parentSession`, `agentPreset`) and revision semantics; an upgrader chain for format and schema versions, the deferred chain from the [fail-closed event-vocabulary note](../../../.agents/notes/implemented/simplification/2026-08-25-fail-closed-session-event-vocabulary.md); and a source-side guarantee that the log is readable and balanced before export — `load` already commits cold repair.
-
-#### Future: in-database full-text search and indexing
-
-The sibling [session-query-sqlite](../../session-query/session-query-sqlite/README.md) package already maintains a dedicated SQLite FTS5 search index over session content in a separate derived-index database. Putting FTS inside the persistence database would duplicate that surface; open questions are where the index belongs, how to keep it transactional with append, and whether packed rows should be expanded into index documents or the index should read the logical stream. The persistence schema currently indexes only `(session_id, seq)`; further indexes (for example on `sessions.created_at` for cold-cutoff scans) are easy but add write cost.
-
-#### Future: cold-data offloading to cascaded database files
-
-The provider has no deletion or background compaction: everything stays in one database forever. One direction is offloading cold sessions (for example, older than 30 days) into separate archive database files arranged as a cascade, with more aggressive compression — a higher Zstandard level is cheap for cold data. That needs: a routing rule that knows which file holds which session, cross-file fan-out for `list`/`readFrom`/`load`, consistent revisions and store identity across the cascade, and a decision on whether offloading replaces the no-deletion limit or supplements it.
+The 501-session corpus contains private session data and is not committed. Its aggregate method, complete results, and rejected candidates are recorded in the [persistence latency and page-size decision](../../../.agents/notes/implemented/architecture/2026-08-25-persistence-latency-and-page-size.md); the packaged dictionary's hash-pinned resource is the schema-19 source of truth.
 
 </details>

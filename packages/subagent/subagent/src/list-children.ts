@@ -21,8 +21,11 @@ import type { Session, SessionHeader, SessionId } from '@deepseek-ai/dsh-session
 import type { SessionProjectionRegistry } from '@deepseek-ai/dsh-session-projection'
 import type { SessionProjectionCache } from '@deepseek-ai/dsh-session-projection-cache'
 import type { SessionObservation, SessionQueryEngine } from '@deepseek-ai/dsh-session-query'
+import type { SubagentListEntry } from './control-types.ts'
 import { SubagentError } from './error.ts'
 import type { SubagentIdentityProjection } from './projection-types.ts'
+
+export type { SubagentListEntry } from './control-types.ts'
 
 /**
  * Concurrent cold observations per explicit catalog listing. Current Session
@@ -30,61 +33,6 @@ import type { SubagentIdentityProjection } from './projection-types.ts'
  * a validated deployment setting.
  */
 const COLD_READ_CONCURRENCY = 4
-
-/**
- * One entry of a {@link listChildren} result, ordered by header `createdAt`
- * with ties broken on id. Only a candidate whose durable header has
- * `origin: 'subagent'` is interpreted. A served `subagent` projection value
- * produces a `child`; a settled candidate whose fold served no identity
- * produces a `diagnostic`; a running candidate without one is omitted — its
- * descriptor may not be appended yet (the creation window). Diagnostics
- * relay the projection fold's outcome or a failed read, never a per-child
- * event scan, and never expose model-hidden descriptor content.
- */
-export type SubagentListEntry =
-  | {
-    readonly kind: 'child'
-    /** The durable child session id, stable across Activations. */
-    readonly id: SessionId
-    /**
-     * Store snapshot activity: `running` means the logical record is live in
-     * `ctx.sessions`; `inactive` means it exists only in persistence. Neither
-     * encodes a durable outcome, and a continuable child may still reject
-     * delivery as an ownership conflict.
-     */
-    readonly activity: 'running' | 'inactive'
-    /** Whether a direct descendant has durable `origin: 'subagent'`. */
-    readonly hasChildren: boolean
-  } & (
-    | {
-      /** A terminal one-shot child. */
-      readonly mode: 'one-shot'
-      /** Optional durable creation label from the child's descriptor. */
-      readonly label?: string
-    }
-    | {
-      /** A resumable conversation. */
-      readonly mode: 'continuable'
-      /** Durable creation label from the child's descriptor. */
-      readonly label: string
-    }
-  )
-  | {
-    readonly kind: 'diagnostic'
-    /** The candidate's session id. */
-    readonly id: SessionId
-    /**
-     * Why the candidate has no `child` row: `corrupt` for a settled candidate
-     * whose projection fold served no identity (a missing, malformed, or
-     * unrecognized-version descriptor — deliberately undistinguished), and
-     * for any candidate whose log makes a registered unit's fold or schema
-     * throw (deterministic data damage, contained per child); `unavailable`
-     * when the candidate's Session observation was absent or transiently
-     * unreadable (retried on the next listing). `unsupported` is never produced; it remains in the
-     * union for consumers that route on it.
-     */
-    readonly reason: 'corrupt' | 'unsupported' | 'unavailable'
-  }
 
 /**
  * One entry of a descendant listing: the interpreted subagent facts plus its

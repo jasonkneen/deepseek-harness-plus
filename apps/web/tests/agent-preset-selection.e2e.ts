@@ -9,7 +9,8 @@
 //
 // Zero model calls: no replay fixture mounts, so a stray stream fails loud.
 import { fileURLToPath } from 'node:url'
-import { mkdir, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, realpath, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { Browser, Page } from 'playwright'
 import { chromium } from 'playwright'
@@ -22,7 +23,9 @@ import {
   captureStableAria, compareOrRefreshGolden, launchWebScaffold, seedSession, watchConsole,
   webSnapshotMode, type WebScaffold,
 } from './scaffold.ts'
-import { connectFreshWorkspace, newEnglishPage, saveFailureShot } from './support.ts'
+import {
+  connectFreshWorkspace, newEnglishPage, saveFailureShot, writeComposerDraft,
+} from './support.ts'
 
 const SNAPSHOT_DIR = fileURLToPath(new URL('./expected/agent-preset-selection', import.meta.url))
 const HERO_EXPECTED = join(SNAPSHOT_DIR, 'hero.expected.md')
@@ -32,6 +35,26 @@ const MODE = webSnapshotMode()
 const SEED_ID = 'agent-preset-selection-web-e2e'
 /** A project skill only a preset that mounts `skill-filesystem` can discover. */
 const SKILL_NAME = 'preset-catalog-demo'
+/** The preset whose rows resolve and then refuse to start. */
+const REFUSING_ID = 'zz-refusing'
+
+/**
+ * Seed a preset discovery reports healthy and the mount refuses.
+ *
+ * Every row resolves — the module is right there beside the composition — so
+ * health has nothing to report and the chip offers the preset like any other.
+ * Only starting it finds out, which is the case the chip's banner exists for.
+ * @param root - the lane's writable preset root.
+ */
+async function seedRefusingPreset(root: string): Promise<void> {
+  const directory = join(root, REFUSING_ID)
+  await mkdir(directory, { recursive: true })
+  await writeFile(join(directory, 'refuses.mjs'),
+    'export const name = \'refuses\'\nexport function apply() { throw new Error(\'this row refuses to start\') }\n')
+  await writeFile(join(directory, 'agent.cordis.yml'), '- id: refuses\n  name: ./refuses.mjs\n')
+  await writeFile(join(directory, 'preset.yml'),
+    'name: Refusing mode\ndescription: Resolves, then refuses to start.\n')
+}
 
 /**
  * Seed one project skill under the connected workspace.
@@ -176,11 +199,16 @@ describe('web e2e: agent-preset selection', () => {
   let browser: Browser
   let page: Page
   let tripwire: ReturnType<typeof watchConsole>
+  let presetRoot: string
 
   beforeAll(async () => {
-    // The scaffold's default roster pin is exactly this scenario's shape: the
-    // plugin's shipped presets, default `standard`.
-    scaffold = await launchWebScaffold({})
+    // The shipped presets, plus one lane-owned preset that mounts and refuses:
+    // the chip's own failure path needs a preset the roster offers.
+    presetRoot = await realpath(await mkdtemp(join(tmpdir(), 'dsh-web-e2e-refusing-')))
+    await seedRefusingPreset(presetRoot)
+    scaffold = await launchWebScaffold({
+      agentPresets: { roots: [{ path: presetRoot, trust: 'user' }], default: 'standard' },
+    })
     // A resumed session runs what it was created with; seeding one that
     // records `minimal` is what makes the header label a claim about the
     // session rather than an echo of the current default.
@@ -237,8 +265,23 @@ describe('web e2e: agent-preset selection', () => {
     await expect.poll(() => livePreset(scaffold), { timeout: 15_000 }).toBe('minimal')
   })
 
+  it('says why a switch was refused instead of letting the chip revert in silence', async () => {
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-agent-preset-refused'))
+    await page.getByRole('button', { name: 'Minimal mode' }).click()
+    await page.getByRole('menuitem', { name: /Refusing mode/ }).click()
+
+    // Health cleared every row, so nothing on the settings page says this
+    // preset is unusable — the banner is where the host's reason lands, and
+    // without it the chip just snaps back to the preset it already ran.
+    const banner = page.getByRole('alert').filter({ hasText: 'Refusing mode' })
+    await banner.waitFor({ timeout: 15_000 })
+    expect(await banner.textContent()).toContain('this row refuses to start')
+    await expect.poll(() => livePreset(scaffold), { timeout: 15_000 }).toBe('minimal')
+    await page.getByRole('button', { name: 'Minimal mode' }).waitFor({ timeout: 10_000 })
+  }, 60_000)
+
   it('re-reads the slash catalog through the composition the switch installed', async () => {
-    // Continues the previous case: the chip has already applied `minimal` to
+    // Continues 'applies the staged pick': the chip has already applied `minimal` to
     // the blank session, and this one reads the menu that switch left behind.
     onTestFailed(() => saveFailureShot(page, 'web-e2e-agent-preset-slash-catalog'))
     const composer = page.locator('[data-composer-input][contenteditable="true"]').last()
@@ -246,7 +289,7 @@ describe('web e2e: agent-preset selection', () => {
     // `minimal` mounts neither the compaction group nor plan mode nor local
     // skill discovery, so the catalog the composer warmed under the
     // deployment default must not survive the switch.
-    await composer.fill('/')
+    await writeComposerDraft(page, composer, '/')
     await expect.poll(() => menuOptions(page), { timeout: 15_000 })
       .not.toEqual(expect.arrayContaining([expect.stringContaining(SKILL_NAME)]))
     const onMinimal = await menuOptions(page)
@@ -256,7 +299,7 @@ describe('web e2e: agent-preset selection', () => {
     // remains outside every preset.
     expect(onMinimal.some(option => option.startsWith('goal'))).toBe(false)
     expect(onMinimal.some(option => option.startsWith('model'))).toBe(true)
-    await composer.fill('')
+    await writeComposerDraft(page, composer, '')
 
     // Switching back up reaches the host at all — the chip compares the pick
     // against its list row, so a row that never reprojected the first switch
@@ -266,14 +309,14 @@ describe('web e2e: agent-preset selection', () => {
     await page.getByRole('menuitem', { name: /^Standard mode/ }).first().click()
     await expect.poll(() => livePreset(scaffold), { timeout: 15_000 }).toBe('standard')
 
-    await composer.fill('/')
+    await writeComposerDraft(page, composer, '/')
     await expect.poll(() => menuOptions(page), { timeout: 15_000 })
       .toEqual(expect.arrayContaining([expect.stringContaining(SKILL_NAME)]))
     const onStandard = await menuOptions(page)
     expect(onStandard.some(option => option.startsWith('compact'))).toBe(true)
     expect(onStandard.some(option => option.startsWith('goal'))).toBe(true)
     expect(onStandard.some(option => option.startsWith('plan'))).toBe(true)
-    await composer.fill('')
+    await writeComposerDraft(page, composer, '')
   }, 90_000)
 
   it('labels a resumed session with the preset it was created under', async () => {

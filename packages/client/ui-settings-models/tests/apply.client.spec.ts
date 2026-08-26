@@ -61,6 +61,9 @@ describe('ui-settings-models apply', () => {
     const entry = before.slots.entries('settings.section')[0]!
     expect(entry.component).toBe(ModelsSection)
     expect(entry.options).toMatchObject({ id: 'models', order: 10 })
+    // The section claims its two extension seats in the same registration.
+    expect(before.slots.spec('settings.models.provider-card')).toMatchObject({ kind: 'keyed', scope: 'root' })
+    expect(before.slots.spec('settings.models.footer')).toMatchObject({ kind: 'list', scope: 'root' })
     // The nav label is a locale-following thunk; owners resolve at read time.
     expect(resolveSlotLabel(entry.options.label)).toBe('模型')
     const injected = (entry.inject as unknown as () => import('../src/client/ModelsSection.tsx').ModelsSectionInjected)()
@@ -135,6 +138,28 @@ describe('ui-settings-models apply', () => {
     b.locale.setLocale('en')
     expect(resolveSlotLabel(b.slots.entries('settings.section')[0]!.options.label)).toBe('Models')
     b.locale.setLocale('zh')
+  })
+
+  it('accepts extension entries under the declared seats and cascades them with the declarer', async () => {
+    const b = await bench()
+    declare(b.slots)
+    const fiber = b.ctx.plugin({ inject: [...inject], apply })
+    await fiber.await()
+    // A keyed card extension and a footer entry register through the ordinary
+    // ledger once the section's registration declared the seats.
+    const disposeCard = b.slots.register(
+      { name: 'settings.models.provider-card', key: 'llm-pi-ai' } as never,
+      () => null,
+    )
+    b.slots.register({ name: 'settings.models.footer', id: 'extra', order: 0 } as never, () => null)
+    expect(b.slots.entries('settings.models.provider-card')).toHaveLength(1)
+    expect(b.slots.entries('settings.models.footer')).toHaveLength(1)
+    // Extension-side HMR safety: its own disposer removes the entry.
+    disposeCard()
+    expect(b.slots.entries('settings.models.provider-card')).toHaveLength(0)
+    // Declarer unload cascades whatever extension entries remain.
+    await fiber.dispose()
+    expect(b.slots.entries('settings.models.footer')).toHaveLength(0)
   })
 
   it('registers the zh/en nav dictionaries and disposes everything with the fiber', async () => {

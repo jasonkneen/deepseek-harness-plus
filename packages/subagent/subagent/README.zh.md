@@ -81,6 +81,8 @@ kind: "package-reference"
 | [`src/descriptor.ts`](src/descriptor.ts) | 版本化的 `subagent/descriptor` 会话事件词汇 |
 | [`src/child-agent.ts`](src/child-agent.ts) | 子级组装、委派策略、深度辅助函数 |
 | [`src/list-children.ts`](src/list-children.ts) | 基于在线会话存储与可选持久化的发现 |
+| [`src/control.ts`](src/control.ts) | 浏览器控制面组装：目录活性采样、浏览器时区校验、失败分码 |
+| [`src/control-types.ts`](src/control-types.ts) | client-safe 的目录行、控制面请求、回执与失败 |
 
 ### 一次性流程
 

@@ -55,6 +55,9 @@
       "path": "../../settings/settings"
     },
     {
+      "path": "../../subagent/subagent"
+    },
+    {
       "path": "../../interaction/user-approval"
     },
     {

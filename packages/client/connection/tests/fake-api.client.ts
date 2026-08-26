@@ -69,19 +69,6 @@ export class FakeApiClient implements IApiClient {
 
   private readonly generationConns: StreamConn[] = []
 
-  readonly subagents: IApiClient['subagents'] = {
-    list: (payload: unknown) => this.record('subagent.list', payload, Promise.resolve(ok({
-      entries: [],
-      parentAvailable: true,
-    }))),
-    prompt: (payload: unknown) => this.record('subagent.prompt', payload, Promise.resolve(ok({
-      messageId: 'fake-message' as never,
-    }))),
-    interrupt: (payload: unknown) => this.record('subagent.interrupt', payload, Promise.resolve(ok({
-      accepted: true as const,
-    }))),
-  }
-
   readonly host: IApiClient['host'] = {
     describe: payload => this.record('host.describe', payload, this.onDescribe(payload)),
     pickDirectory: payload => this.record('host.pickDirectory', payload, this.onPickDirectory(payload)),

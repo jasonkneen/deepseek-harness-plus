@@ -6,6 +6,7 @@ import { LocaleRuntime } from '@deepseek-ai/dsh-client-locale/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import { QuestionComposer } from '../src/client/QuestionComposer.tsx'
 import { PendingQuestion } from '../src/client/contract/slots.ts'
+import { createQuestionDraftStore } from '../src/client/draft-store.ts'
 import { apply, inject } from '../src/client/index.ts'
 
 const SESSION_ID = 'session-question' as SessionId
@@ -122,6 +123,10 @@ describe('apply', () => {
     expect(entry.component).toBe(QuestionComposer)
     expect(entry.inject).toBeUndefined()
     expect(entry.locale).toBe('question')
+    const store = entry.store as ReturnType<typeof createQuestionDraftStore>
+    expect(store.create(SESSION_ID).getSnapshot()).toEqual({
+      progress: { index: 0, drafts: [] },
+    })
     const pending = b.pending.getSnapshot()[0]!
     const select = entry.select as (
       owner: { pendingInteraction: PendingQuestion | undefined },

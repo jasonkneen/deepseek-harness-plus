@@ -193,6 +193,8 @@ const randomWorkload = fc.record({
   batchSizes,
 }))
 
+const randomizedDifferentialTimeoutMs = process.platform === 'win32' ? 120_000 : 60_000
+
 describe('SQLite cross-backend differential behavior', () => {
   it('matches JSONL/Zstandard for every packed kind, scalar fallback, suffix, partition, and reopen', async () => {
     const events = packingMatrixLog()
@@ -232,6 +234,6 @@ describe('SQLite cross-backend differential behavior', () => {
         await verifyBackend(name, join(directory, name), events, batchSizes)
       }
     }), { numRuns: 100, seed: 0x5A17E })
-  }, 60_000)
+  }, randomizedDifferentialTimeoutMs)
 
 })

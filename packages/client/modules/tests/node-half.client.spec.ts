@@ -378,8 +378,6 @@ describe('client bundle activation', () => {
       path: firstPath,
       mtimeMs: firstStat.mtimeMs,
       size: firstStat.size,
-      mapMtimeMs: null,
-      mapSize: null,
     })
     expect(service.artifactBaseline('@fixture/unknown')).toBeUndefined()
   })
