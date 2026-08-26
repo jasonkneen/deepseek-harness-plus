@@ -69,6 +69,38 @@ describe('Session control queue projection', () => {
     await iterator.next()
   })
 
+  it('derives queue replacements from the completed projection regardless of registration order', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    await ctx.plugin(AgentRegistry)
+    const control = new SessionControlController(ctx)
+    await ctx.plugin(SessionProjectionRegistry)
+    const session = ctx.sessions.create(SessionId('late-projection-queue'))
+    const agent = { id: session.id, session, inbox: undefined as never, status: 'running', ctx } as unknown as Agent
+    Object.assign(agent, { inbox: new Inbox(ctx, agent.session, agentEvents(ctx, agent)) })
+    ctx.agents.register(agent)
+    const abort = new AbortController()
+    const iterator = control.control(abort.signal)[Symbol.asyncIterator]()
+    await iterator.next()
+    const pending = message('late projection')
+
+    agent.inbox.append('next-turn', pending)
+
+    await expect(iterator.next()).resolves.toMatchObject({
+      value: {
+        type: 'projection',
+        key: 'inbox',
+        value: { 'next-turn': [{ id: pending.id }], 'next-step': [] },
+      },
+    })
+    await expect(nextQueueFrame(iterator)).resolves.toMatchObject({
+      items: [{ id: pending.id, placement: 'queued' }],
+    })
+
+    abort.abort()
+    await iterator.next()
+  })
+
   it('ignores inbox events without the exact live Agent session', async () => {
     const { ctx, control, agent, inbox } = await harness()
     const abort = new AbortController()
