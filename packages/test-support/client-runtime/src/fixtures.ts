@@ -1,8 +1,7 @@
 /** Controller and UI-domain fixture shapes for the client test runtime. */
 import type {
-  ISession, SessionSnapshot, SessionSummary,
+  ISession, SessionEventLikeEntry, SessionSnapshot, SessionSummary,
 } from '@deepseek-ai/dsh-api-session-controller/client'
-import type { SessionEventEntry } from '@deepseek-ai/dsh-api-session-controller/types'
 import type { WorkspaceSnapshot } from '@deepseek-ai/dsh-api-workspace-controller/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import {
@@ -53,7 +52,7 @@ export interface SessionFixture {
   /** Session behavior face: exactly the methods the feature under test calls (ISession subset + extras). */
   session?: SessionBehaviorOverrides
   /** Initial contiguous event window consumed by Conversation assembly. */
-  events?: readonly SessionEventEntry[]
+  events?: readonly SessionEventLikeEntry[]
   /** Whether the initial event window has an older page. */
   hasMore?: boolean
 }

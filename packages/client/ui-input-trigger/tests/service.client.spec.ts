@@ -713,6 +713,28 @@ describe('arbitrate', () => {
     expect(controller.menu.getSnapshot().open).toBe(false)
   })
 
+  it('tab drills into a drillable highlight and passes on plain rows', async () => {
+    const drillable = readySource('/', 'command', [{ name: 'src', drill: true }, { name: 'plan' }], () => undefined)
+    const { controller } = controllerBench([drillable.source])
+    controller.track('/s', 2, { tier: 'plain' }, 1)
+    await tick()
+    expect(controller.arbitrate('tab', false)).toBe('consumed')
+    expect(drillable.picks[0]!.action).toBe('drill')
+    expect(drillable.picks[0]!.candidate.name).toBe('src')
+    // Plain row (no drill flag): the key passes so native focus stays intact.
+    controller.track('/s', 2, { tier: 'plain' }, 2)
+    await tick()
+    controller.arbitrate('down', false)
+    expect(controller.arbitrate('tab', false)).toBe('pass')
+    expect(drillable.picks).toHaveLength(1)
+  })
+
+  it('a settling pick reports the pick action', async () => {
+    const { controller, cmd } = await menuBench()
+    controller.arbitrate('enter', false)
+    expect(cmd.picks[0]!.action).toBe('pick')
+  })
+
   it('IME composition passes every key untouched', async () => {
     const { controller } = await menuBench()
     for (const key of ['up', 'down', 'enter', 'escape'] as const) {

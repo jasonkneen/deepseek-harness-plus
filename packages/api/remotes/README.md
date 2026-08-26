@@ -1,15 +1,39 @@
+---
+description: "Application Remote assembly: selects typed Host capabilities and forwarded events for Client consumers."
+kind: "package-reference"
+---
+
 # @deepseek-ai/dsh-api-remotes
 
 English | [中文](README.zh.md)
 
+## Summary
+
 Two-sided BFF for Host Remote capabilities selected by this application. The Host entry owns the forwarded-event selection and registers its application event source with API Gateway; the Client entry imports generated `/remote` artifacts as runtime values, mounts each contribution through `ctx.remote.$mount()`, and re-exports their declaration merges. Client business packages depend on this facade rather than the Gateway implementation or individual Remote runtime entries.
+
+## Table of Contents
+
+- [Use this package](#use-this-package)
+- [Forwarded Host events](#forwarded-host-events)
+- [Build boundary](#build-boundary)
+- [Model Experience](#model-experience)
+- [Known Limitations and Deferred Work](#known-limitations-and-deferred-work)
+- [Dev Note](#dev-note)
+
+-----
+
+<a id="use-this-package"></a>
+## Use this package
 
 [`@deepseek-ai/dsh-api-session-controller`](../session-controller/README.md) owns Agent and Session identity policy, including the Typert lookup resolvers used by other namespaces. This package only selects and mounts that generated Session contribution; it does not duplicate activation policy.
 
-The current Client assembly mounts Commands, Goal, dynamic Cordis, file and Session references, read-only Host plugin inventory, message feedback, Session Controller, and Workspace Controller contributions. Cordis effect ownership withdraws every contribution when this assembly unloads, while `@deepseek-ai/dsh-api-gateway/client` owns descriptor validation, traced namespace Services, direct and scoped methods, invocation, streams, and cancellation. The Client entry consumes the shared `TypertClientRemote` interface through Cordis and does not import the concrete Gateway. It re-exports the Gateway Client face's declaration merges type-only, so a consumer reaching the forwarded-event vocabulary through this facade gains no runtime edge to the Gateway implementation.
+The Client assembly mounts Commands, Goal, dynamic Cordis, file and Session references, read-only Host plugin inventory, message feedback, Session Controller, and Workspace Controller contributions. Cordis effect ownership withdraws every contribution when this assembly unloads, while `@deepseek-ai/dsh-api-gateway/client` owns descriptor validation, traced namespace Services, direct and scoped methods, invocation, streams, and cancellation. The Client entry consumes the shared `TypertClientRemote` interface through Cordis and does not import the concrete Gateway. It re-exports the Gateway Client face's declaration merges type-only, so a consumer reaching the forwarded-event vocabulary through this facade gains no runtime edge to the Gateway implementation.
 
 This package owns no physical transport or Host service discovery. It projects the application selection into generated Remote contributions and an independent Host event source per Client; API Gateway owns endpoints, carriers, cancellation, and reconnection. Its Client face can be reused by Web or a future TUI that provides the same React-free `ctx.remote` contract.
 
+-----
+
+<a id="forwarded-host-events"></a>
 ## Forwarded Host events
 
 `src/remote-events.ts` holds `API_REMOTE_FORWARDED_EVENTS`, the allowlist of Host Cordis events this application forwards without renaming, and therefore the legal key set of `ctx.remote.$on`; each entry also selects ordinary emission or Agent-scoped waterfall delivery. The type-only `src/types.ts` derives its selection face. Forwarding one more event requires one entry in that array: the type projection, consumer key face, and Host forwarding loop all derive from it.
@@ -18,6 +42,7 @@ The listener signature is not restated here. Each allowlisted event's Cordis `Ev
 
 The Host entry registers an independent allowlist listener set and queue for each Client stream. It rejects non-JSON ordinary-event arguments before enqueueing. For a waterfall, it projects only the top-level Agent identity and JSON request fields; a Client result must also be lossless JSON, while `next()` delegates to the following Host listener. The source attaches all listeners synchronously before `ctx.typertGateway.registerRemoteEvents()` exposes Gateway's internal `$events` logical stream, so its first `ready` item proves that incremental delivery is active. Withdrawing the registration aborts active streams; API Proxy does not participate in event forwarding or Connection generation.
 
+<a id="build-boundary"></a>
 ## Build boundary
 
 An ordinary repository package belongs to one TypeScript face: Host packages are registered in the root `tsconfig.host.json`, and Client packages in the root `tsconfig.client.json`. `api-remotes` is the only deliberate exception because its Host entry must participate in the Host Typert graph, while `src/client/index.ts` cannot compile until Host tsdown has generated the business packages' `/remote` declarations.
@@ -28,6 +53,7 @@ That exception is not just a `files` entry. The root `tsconfig.base.json` maps `
 
 The package-local `clientBundle(..., { hostPhase: true })` makes Host tsdown bundle the Host entry and the later Client tsdown bundle only the browser entry. Ordinary Client plugins remain single Client projects and produce both their Node loader entry and browser bundle during Client tsdown; do not copy this package's split merely because a package has both `src/index.ts` and `src/client/index.ts`.
 
+<a id="model-experience"></a>
 ## Model Experience
 
 None, as this BFF selects Remote application methods and forwarded events but registers nothing model-facing.
@@ -38,6 +64,19 @@ No direct effect; mounted Host capabilities own any model-visible behavior they 
 
 ## Known Limitations and Deferred Work
 
+<a id="known-limitations-and-deferred-work"></a>
+
 - The capability set is fixed by explicit build-time value imports; the Client does not discover the Host's active Services or Remote definitions at runtime.
 - Additional capabilities require an explicit `/remote` value import and mount in this assembly.
 - Ordinary forwarded events are not replayed; state that requires reliable recovery needs an owner-provided query, cursor, or opening baseline.
+
+
+<a id="dev-note"></a>
+### Dev Note
+
+<details>
+<summary>Working context for maintainers — click to expand</summary>
+
+None.
+
+</details>

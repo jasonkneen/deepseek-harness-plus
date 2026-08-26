@@ -7,7 +7,7 @@ import type {
   IApiClient, SubagentAddress,
 } from '@deepseek-ai/dsh-client-connection/client'
 import type { MessageId } from '@deepseek-ai/dsh-llm/brand'
-import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session/types'
+import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import {
   SessionEventStream,
   sessionStreamFailure,
@@ -18,7 +18,6 @@ import type {
   QueueAction,
   SessionAddress,
   SessionControlFrame,
-  SessionEventEntry,
   SessionQueuedItem,
   SessionRequestId,
   SessionError,
@@ -30,6 +29,9 @@ import type {
   OpenState, PromptError, SessionSnapshot,
 } from '../contract/snapshot.ts'
 import { MutableSessionEventSource } from '../contract/events.ts'
+import type {
+  SessionEventLikeEntry, SessionLiveEventEntry,
+} from '../contract/events.ts'
 import { Notifier } from './notifier.ts'
 import type { RemoteResult } from '@deepseek-ai/dsh-typert-protocol'
 import type { SessionRemotes } from './remotes.ts'
@@ -72,7 +74,6 @@ export interface SessionOptions {
  */
 export class Session implements SessionFace {
   // ---- Window and derived state (all private; the snapshot is the only read API) ----
-  private eventWindow: SessionEvent[] = []
   private baseSeq = 0
   private hasMore = false
   private openState: OpenState = 'cold'
@@ -400,7 +401,6 @@ export class Session implements SessionFace {
     this.openPromise = null
     this.openState = 'cold'
     this.openError = null
-    this.eventWindow = []
     this.baseSeq = 0
     this.notifier.markDirty()
     await this.open()
@@ -575,28 +575,25 @@ export class Session implements SessionFace {
   }
 
   /** Replace the complete contiguous window and apply page-owned projection metadata. */
-  private installWindow(entries: readonly SessionEventEntry[], hasMore: boolean, projections?: ProjectionsBaseline): void {
-    this.eventWindow = entries.map(entry => entry.event as SessionEvent)
-    this.baseSeq = this.eventWindow[0]?.seq ?? 0
+  private installWindow(entries: readonly SessionEventLikeEntry[], hasMore: boolean, projections?: ProjectionsBaseline): void {
+    this.baseSeq = entries[0]?.event.seq ?? 0
     this.hasMore = hasMore
-    if (this.eventWindow.some(event => event.type === 'turn/start')) this.firstPromptPendingTurn = false
+    if (entries.some(entry => entry.event.type === 'turn/start')) this.firstPromptPendingTurn = false
     if (projections !== undefined) this.projections.seed(projections)
     this.eventSource.replace(entries, hasMore)
     this.notifier.markDirty()
   }
 
   /** Prepend one stream-validated history page. */
-  private prependWindow(entries: readonly SessionEventEntry[], hasMore: boolean): void {
-    this.eventWindow = [...entries.map(entry => entry.event as SessionEvent), ...this.eventWindow]
-    this.baseSeq = this.eventWindow[0]?.seq ?? 0
+  private prependWindow(entries: readonly SessionEventLikeEntry[], hasMore: boolean): void {
+    this.baseSeq = entries[0]?.event.seq ?? this.baseSeq
     this.hasMore = hasMore
     this.eventSource.prepend(entries, hasMore)
   }
 
   /** Append one stream-validated live event. */
-  private appendLive(entry: SessionEventEntry): boolean {
-    const event = entry.event as SessionEvent
-    this.eventWindow.push(event)
+  private appendLive(entry: SessionLiveEventEntry): boolean {
+    const event = entry.event
     const awaitingFirstTurn = this.firstPromptPendingTurn
     if (event.type === 'turn/start') this.firstPromptPendingTurn = false
     const queueChanged = this.queueMirror.acceptDurable(event)

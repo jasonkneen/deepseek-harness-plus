@@ -11,7 +11,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
-import { createUserMessage, CallId } from '@deepseek-ai/dsh-llm'
+import { createUserMessage, ToolCallId } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
@@ -58,7 +58,7 @@ function textTool(name: string, text: string) {
 function exec(name: string, session = 's1'): ToolExecution {
   // Only agent.session.header.id is read by the policy; a structural stub suffices.
   const agent = { session: { header: { id: SessionId(session) } } }
-  return { callId: CallId(`call-${name}`), name, arguments: {}, agent, signal: testToolSignal } as unknown as ToolExecution
+  return { callId: ToolCallId(`call-${name}`), name, arguments: {}, agent, signal: testToolSignal } as unknown as ToolExecution
 }
 
 /**
@@ -204,7 +204,7 @@ describe('outer Code Mode failure capture', () => {
 
     const result = await ctx.tools.execute({
       signal: testToolSignal,
-      callId: CallId('code-output-limit'),
+      callId: ToolCallId('code-output-limit'),
       name: 'run_code',
       arguments: {
         code: 'console.log("HEAD-" + "x".repeat(300)); console.log("TAIL-" + "y".repeat(300)); return "unreachable";',
@@ -255,7 +255,7 @@ describe('the durable dispatch-log arm', () => {
     for (const tool of extraTools) ctx.tools.register(tool)
     const result = await ctx.tools.execute({
       signal: testToolSignal,
-      callId: CallId('parent-1'),
+      callId: ToolCallId('parent-1'),
       name: 'run_code',
       arguments: { code: program, description: 'Drive dispatch-log spilling' },
       agent: agent as never,
@@ -338,7 +338,7 @@ describe('the durable dispatch-log arm', () => {
     let smallAfterHuge = false
     const runPromise = ctx.tools.execute({
       signal: testToolSignal,
-      callId: CallId('parent-3'),
+      callId: ToolCallId('parent-3'),
       name: 'run_code',
       arguments: {
         // The program takes BOTH values while the spill backend hangs: the
@@ -396,7 +396,7 @@ describe('the durable dispatch-log arm', () => {
       && (event.data as { subCallId: string }).subCallId.endsWith(`:code:${n}`))
     const runPromise = ctx.tools.execute({
       signal: testToolSignal,
-      callId: CallId('parent-bound'),
+      callId: ToolCallId('parent-bound'),
       name: 'run_code',
       arguments: {
         code: 'await tools.huge_read({}); await tools.huge_read({}); await tools.huge_read({}); return "done"',
@@ -446,7 +446,7 @@ describe('the durable dispatch-log arm', () => {
     ctx.tools.register(textTool('huge_read', 'H'.repeat(2_000)))
     const result = await ctx.tools.execute({
       signal: testToolSignal,
-      callId: CallId('parent-2'),
+      callId: ToolCallId('parent-2'),
       name: 'run_code',
       arguments: { code: 'return (await tools.huge_read({}))[0].text.length', description: 'Fail the spill backend' },
       agent: agent as never,
@@ -498,7 +498,7 @@ describe('best-effort fallback', () => {
     const { ctx, spill } = await setup({ maxInlineBytes: 10 })
     const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => {})
     ctx.tools.register(textTool('big', 'x'.repeat(1000)))
-    const result = await ctx.tools.execute({ signal: testToolSignal, callId: CallId('c'), name: 'big', arguments: {} })
+    const result = await ctx.tools.execute({ signal: testToolSignal, callId: ToolCallId('c'), name: 'big', arguments: {} })
     expect(textOf(result.content)).toBe('x'.repeat(1000))
     expect(spill?.saves).toHaveLength(0)
     expect(warn).toHaveBeenCalled()

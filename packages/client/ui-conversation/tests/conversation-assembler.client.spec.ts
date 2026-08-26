@@ -1,8 +1,13 @@
 import { describe, expect, it, vi } from 'vitest'
+import type {
+  SessionEventLike, SessionEventLikeEntry, SessionLiveEventEntry,
+} from '@deepseek-ai/dsh-api-session-controller/client'
+import type { ChunkRowEvent } from '@deepseek-ai/dsh-api-session-controller/types'
+import type { ChunkRow } from '@deepseek-ai/dsh-session/chunk-rows'
 import type { SessionEvent } from '@deepseek-ai/dsh-session/types'
 import { ConversationNodeAssembler } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type {
-  ConversationEventInput, ConversationMatch, ConversationNodeContext,
+  ConversationMatch, ConversationNodeContext,
   ConversationNodeDefinition, ConversationViewDefinition, ConversationViewNode,
 } from '@deepseek-ai/dsh-client-ui-conversation/client'
 
@@ -91,8 +96,18 @@ function at(seq: number, type: string, data: unknown): SessionEvent {
   return { seq, time: 1_700_000_000_000 + seq, type, data } as SessionEvent
 }
 
-function input(event: SessionEvent): ConversationEventInput {
-  return { event }
+function input(event: SessionEvent): SessionLiveEventEntry {
+  return { type: 'event', event }
+}
+
+function chunkInput(row: ChunkRow): SessionEventLikeEntry {
+  const event = {
+    type: `chunkrow/${row.type}`,
+    seq: row.seq0,
+    time: row.time0,
+    data: row.data,
+  } as ChunkRowEvent
+  return { type: 'chunks', event }
 }
 
 function testSnapshot(assembler: ConversationNodeAssembler): TestSnapshot | undefined {
@@ -213,6 +228,215 @@ describe('ConversationNodeAssembler', () => {
     expect(updates).toHaveBeenCalledTimes(1_000)
     expect(matchCollections.size).toBe(1)
     expect([...testSnapshot(assembler)?.nodes.values() ?? []][0]?.data).toBe(1_000)
+  })
+
+  it('keeps one packed Match through replace, Location replay, and Registry rebuild', () => {
+    interface State {
+      readonly updates: readonly string[]
+      readonly packedStatus: string | undefined
+    }
+
+    const matches = vi.fn((event: SessionEventLike) => {
+      if (event.type === 'step/start') return { id: '2:3', role: 'start' as const }
+      if ((event.type as string) === 'probe/update'
+        || event.type === 'chunkrow/text-chunks') {
+        return { id: '2:3', role: 'update' as const }
+      }
+      return null
+    })
+    const passiveMatches = vi.fn(() => null)
+    const updates = vi.fn((
+      context: ConversationNodeContext<State> & { readonly state: State },
+      match: ConversationMatch,
+    ): State => {
+      if (match.event.type === 'chunkrow/text-chunks') {
+        return {
+          ...context.state,
+          updates: [
+            ...context.state.updates,
+            `packed:${String(match.event.seq)}-${String(match.event.seq + match.event.data.texts.length - 1)}`,
+          ],
+          packedStatus: match.location.kind === 'step'
+            ? match.location.step.status
+            : match.location.kind,
+        }
+      }
+      return {
+        ...context.state,
+        updates: [...context.state.updates, `event:${String(match.event.seq)}`],
+      }
+    })
+    const definition: ConversationNodeDefinition<State> = {
+      kind: 'packed-probe',
+      match: matches,
+      start: () => ({ updates: [], packedStatus: undefined }),
+      update: updates,
+      target: 'test',
+      buildViewNode: context => context.state === undefined
+        ? null
+        : node(context, {
+          ...context.state,
+          matches: context.matches.map(match => ({
+            type: match.event.type,
+            seq: match.event.seq,
+          })),
+        }),
+    }
+    const passive: ConversationNodeDefinition<null> = {
+      kind: 'packed-passive',
+      match: passiveMatches,
+      start: () => null,
+      update: context => context.state,
+    }
+    const run = chunkInput({
+      type: 'text-chunks',
+      seq0: 12,
+      time0: 1_700_000_000_012,
+      data: { turn: 2, step: 3, index: 0, dt: [1, 1], texts: ['a', 'b', 'c'] },
+    })
+    const inputs: SessionEventLikeEntry[] = [
+      input(at(10, 'step/start', { turn: 2, step: 3 })),
+      input(at(11, 'probe/update', { turn: 2, step: 3 })),
+      run,
+      input(at(15, 'probe/update', { turn: 2, step: 3 })),
+    ]
+    const assembler = new ConversationNodeAssembler(
+      new TestEventDefinitions([definition, passive]),
+      new TestViewDefinitions([testView()]),
+    )
+
+    assembler.replaceWindow(inputs, false)
+    assembler.flush()
+
+    expect(matches).toHaveBeenCalledTimes(4)
+    expect(passiveMatches).toHaveBeenCalledTimes(4)
+    expect(updates).toHaveBeenCalledTimes(3)
+    expect(updates.mock.calls.filter(([, match]) => (
+      match.event.type === 'chunkrow/text-chunks'
+    ))).toHaveLength(1)
+    expect([...testSnapshot(assembler)?.nodes.values() ?? []][0]?.data).toEqual({
+      updates: ['event:11', 'packed:12-14', 'event:15'],
+      packedStatus: 'open',
+      matches: [
+        { type: 'step/start', seq: 10 },
+        { type: 'probe/update', seq: 11 },
+        { type: 'chunkrow/text-chunks', seq: 12 },
+        { type: 'probe/update', seq: 15 },
+      ],
+    })
+
+    assembler.append(input(at(16, 'step/end', { turn: 2, step: 3 })))
+    assembler.flush()
+
+    expect(updates.mock.calls.filter(([, match]) => (
+      match.event.type === 'chunkrow/text-chunks'
+    ))).toHaveLength(2)
+    expect([...testSnapshot(assembler)?.nodes.values() ?? []][0]?.data).toMatchObject({
+      updates: ['event:11', 'packed:12-14', 'event:15'],
+      packedStatus: 'closed',
+    })
+
+    matches.mockClear()
+    passiveMatches.mockClear()
+    updates.mockClear()
+    assembler.rebuildRegistry()
+    assembler.flush()
+
+    expect(matches).toHaveBeenCalledTimes(5)
+    expect(passiveMatches).toHaveBeenCalledTimes(5)
+    expect(updates).toHaveBeenCalledTimes(3)
+    expect(updates.mock.calls.filter(([, match]) => (
+      match.event.type === 'chunkrow/text-chunks'
+    ))).toHaveLength(1)
+  })
+
+  it('replays one pending packed Match after prepend supplies its scalar start', () => {
+    const starts = vi.fn(() => ({ batches: 0, status: 'unresolved' }))
+    const updates = vi.fn((
+      context: ConversationNodeContext<{ batches: number; status: string }> & {
+        readonly state: { batches: number; status: string }
+      },
+      match: ConversationMatch,
+    ) => ({
+      batches: context.state.batches + 1,
+      status: match.location.kind === 'step' ? match.location.step.status : match.location.kind,
+    }))
+    const definition: ConversationNodeDefinition<{ batches: number; status: string }> = {
+      kind: 'packed-pending',
+      match: (event) => {
+        if (event.type === 'step/start') {
+          return { id: `${String(event.data.turn)}:${String(event.data.step)}`, role: 'start' }
+        }
+        if (event.type === 'chunkrow/reasoning-chunks') {
+          return { id: `${String(event.data.turn)}:${String(event.data.step)}`, role: 'update' }
+        }
+        return null
+      },
+      start: starts,
+      update: updates,
+      target: 'test',
+      buildViewNode: context => context.state === undefined
+        ? null
+        : node(context, {
+          ...context.state,
+          matches: context.matches.map(match => [match.event.type, match.event.seq]),
+        }),
+    }
+    const assembler = new ConversationNodeAssembler(
+      new TestEventDefinitions([definition]),
+      new TestViewDefinitions([testView()]),
+    )
+    const run = chunkInput({
+      type: 'reasoning-chunks',
+      seq0: 21,
+      time0: 1_700_000_000_021,
+      data: { turn: 4, step: 5, index: 0, dt: [0, -1], texts: ['', ' ', 'x'] },
+    })
+
+    assembler.replaceWindow([run], true)
+    assembler.flush()
+
+    expect(starts).not.toHaveBeenCalled()
+    expect(updates).not.toHaveBeenCalled()
+    expect(testSnapshot(assembler)?.order).toEqual([])
+
+    assembler.prepend([
+      input(at(20, 'step/start', { turn: 4, step: 5 })),
+    ], false)
+    assembler.flush()
+
+    expect(starts).toHaveBeenCalledOnce()
+    expect(updates).toHaveBeenCalledOnce()
+    expect([...testSnapshot(assembler)?.nodes.values() ?? []][0]?.data).toEqual({
+      batches: 1,
+      status: 'open',
+      matches: [['step/start', 20], ['chunkrow/reasoning-chunks', 21]],
+    })
+  })
+
+  it('rejects a packed event classified as a Context start', () => {
+    const definition: ConversationNodeDefinition<null> = {
+      kind: 'invalid-packed-start',
+      match: event => event.type === 'chunkrow/text-chunks'
+        ? { id: 'one', role: 'start' }
+        : null,
+      start: () => null,
+      update: context => context.state,
+    }
+    const assembler = new ConversationNodeAssembler(
+      new TestEventDefinitions([definition]),
+      new TestViewDefinitions([testView()]),
+    )
+    const run = chunkInput({
+      type: 'text-chunks',
+      seq0: 1,
+      time0: 1_700_000_000_001,
+      data: { turn: 1, step: 1, index: 0, dt: [1, 1], texts: ['a', 'b', 'c'] },
+    })
+
+    expect(() => assembler.replaceWindow([run], false)).toThrow(
+      'conversation Context 20:invalid-packed-startone received a packed start Match',
+    )
   })
 
   it('merges an older page and replays its affected Context once', () => {

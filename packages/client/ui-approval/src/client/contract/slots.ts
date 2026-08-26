@@ -1,5 +1,5 @@
 /** Approval composer and optional correlated-detail contracts. */
-import type { CallId } from '@deepseek-ai/dsh-llm'
+import type { ToolCallId } from '@deepseek-ai/dsh-llm'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type {
   PropsLocale, PropsRenderSlots, PropsRuntime,
@@ -45,7 +45,7 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
 /** Stable identity handed to an optional approval-detail renderer. */
 export interface ApprovalDetailOwnerProps {
   /** Tool call correlated with the request. */
-  callId: CallId
+  callId: ToolCallId
 }
 
 /** Client-visible fields of an approval request projected through Remote Events. */
@@ -53,7 +53,7 @@ export interface ApprovalPresentationRequest {
   /** Tool requesting the decision. */
   readonly toolName: string
   /** Tool call correlated with the request. */
-  readonly callId?: CallId
+  readonly callId?: ToolCallId
   /** Human-readable reason supplied by the requester. */
   readonly reason?: string
   /** Cancellation projected from the Host waterfall. */
@@ -74,7 +74,7 @@ export class PendingApproval {
   /** Tool requesting the decision. */
   readonly toolName: string
   /** Correlated Tool call, when supplied by the asker. */
-  readonly callId: CallId | undefined
+  readonly callId: ToolCallId | undefined
   /** Human-readable reason supplied by the asker. */
   readonly reason: string | undefined
   /** Result returned by the Remote Event listener to the Host waterfall. */

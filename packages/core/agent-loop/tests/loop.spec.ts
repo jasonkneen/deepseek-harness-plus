@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
-import LlmRuntime, { createUserMessage, CallId, LlmError, ReasoningEffortId, StreamChunk } from '@deepseek-ai/dsh-llm'
+import LlmRuntime, { createUserMessage, ToolCallId, LlmError, ReasoningEffortId, StreamChunk } from '@deepseek-ai/dsh-llm'
 import SessionStore, { SessionId, TurnEndReason } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime, { defineContentToolFixture } from '@deepseek-ai/dsh-tools'
@@ -1081,7 +1081,7 @@ describe('agent loop', () => {
   })
 
   it('does not dispatch tool calls from a max-tokens-truncated step', async () => {
-    const callId = CallId('c1')
+    const callId = ToolCallId('c1')
     const adapter = new MockAdapter([[
       { type: 'block-start', index: 0, blockType: 'tool-call' },
       { type: 'tool-call-delta', index: 0, id: callId, name: 'echo', argumentsDelta: '{"text":"x"}' },
@@ -1136,7 +1136,7 @@ describe('agent loop', () => {
   it('appends an empty completion anchor for a max-tokens step with no usage', async () => {
     // The truncated tool call is dropped from durable content, while the
     // successful provider call still needs an exact replay anchor.
-    const callId = CallId('c1')
+    const callId = ToolCallId('c1')
     const adapter = new MockAdapter([[
       { type: 'block-start', index: 0, blockType: 'tool-call' },
       { type: 'tool-call-delta', index: 0, id: callId, name: 'echo', argumentsDelta: '{"text":"x"}' },
@@ -1214,7 +1214,7 @@ describe('agent loop', () => {
   })
 
   it('keeps safe max-tokens assistant content while dropping truncated tool calls', async () => {
-    const callId = CallId('c1')
+    const callId = ToolCallId('c1')
     const adapter = new MockAdapter([[
       { type: 'block-start', index: 0, blockType: 'text' },
       { type: 'text-delta', index: 0, text: 'partial text' },

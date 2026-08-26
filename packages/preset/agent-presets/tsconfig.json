@@ -37,6 +37,9 @@
       "path": "../../core/tools"
     },
     {
+      "path": "../../typert/protocol"
+    },
+    {
       "path": "../../settings/settings"
     },
     {

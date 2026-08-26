@@ -88,7 +88,7 @@ describe('web e2e: assistant IconActions wait for the turn to end', () => {
 
   /** Send the recorded prompt with the settled barrier pre-armed (returned wrapped so the caller can act mid-turn). */
   async function sendPrompt(timeoutMs?: number): Promise<{ settled: ReturnType<WebScaffold['whenTurnSettled']> }> {
-    const input = page.locator('textarea').first()
+    const input = page.locator('[data-composer-input]').first()
     await input.waitFor({ timeout: 10_000 })
     const settled = scaffold!.whenTurnSettled(timeoutMs)
     await input.fill(PROMPT)

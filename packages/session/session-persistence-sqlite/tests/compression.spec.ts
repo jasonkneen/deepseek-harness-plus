@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { zstdCompressSync } from 'node:zlib'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
-import { CallId, type StreamChunk } from '@deepseek-ai/dsh-llm'
+import { ToolCallId, type StreamChunk } from '@deepseek-ai/dsh-llm'
 import {
   decodeStorageRecord,
   MAX_PACKED_DATA_BYTES,
@@ -43,7 +43,7 @@ function row(record: StorageRecord): EventRow {
     data: bound.data,
     source_event_seqs: bound.sourceEventSeqs,
     surface_op: bound.surfaceOp,
-    ignorable: bound.ignorable,
+    is_packed: bound.isPacked,
   }
 }
 
@@ -85,10 +85,10 @@ describe('SQLite compression', () => {
     const events = [
       ...[0, 1, 2].map(seq => event(seq, seq, { type: 'reasoning-delta', index: 1, text: `${seq}` })),
       ...[3, 4, 5].map(seq => event(seq, seq, {
-        type: 'tool-call-delta', index: 2, id: CallId('named'), name: 'write', argumentsDelta: `${seq}`,
+        type: 'tool-call-delta', index: 2, id: ToolCallId('named'), name: 'write', argumentsDelta: `${seq}`,
       })),
       ...[6, 7, 8].map(seq => event(seq, seq, {
-        type: 'tool-call-delta', index: 3, id: CallId('unnamed'), argumentsDelta: `${seq}`,
+        type: 'tool-call-delta', index: 3, id: ToolCallId('unnamed'), argumentsDelta: `${seq}`,
       })),
     ]
     const records = packChunkRuns(events)
@@ -128,7 +128,7 @@ describe('SQLite compression', () => {
       event(2, Number.MAX_SAFE_INTEGER, { type: 'text-delta', index: 0, text: 'c' }),
     ]
     const toolName = [0, 1, 2].map(seq => event(seq, seq, {
-      type: 'tool-call-delta', index: 0, id: CallId('id'),
+      type: 'tool-call-delta', index: 0, id: ToolCallId('id'),
       ...seq === 2 ? {} : { name: 'write' }, argumentsDelta: 'x',
     }))
     for (const events of [gap, step, block, unsafeTime, toolName]) {
@@ -160,7 +160,7 @@ describe('SQLite compression', () => {
     expect(() => decodeStorageRecord(record)).toThrow(/malformed .* storage row/)
   })
 
-  it('decodes the schema-17 row vocabulary without another package codec', () => {
+  it('decodes the schema-18 row vocabulary without another package codec', () => {
     const fixture: EventRow = {
       seq: 7,
       type: 'text-chunks',
@@ -168,7 +168,7 @@ describe('SQLite compression', () => {
       data: JSON.stringify({ turn: 2, step: 3, index: 1, dt: [2, -1], texts: ['a', 'b', 'c'] }),
       source_event_seqs: null,
       surface_op: null,
-      ignorable: 0,
+      is_packed: 1,
     }
     expect(decodeRow(fixture)).toEqual([
       { ...chunk(7, 'a'), time: 90, data: { turn: 2, step: 3, chunk: { type: 'text-delta', index: 1, text: 'a' } } },
@@ -192,22 +192,21 @@ describe('SQLite compression', () => {
 
   it('rejects the packed discriminator on a scalar event type', () => {
     const scalar = row({ type: 'turn/start', seq: 0, time: 1, data: { turn: 1 } })
-    expect(() => decodeRow({ ...scalar, ignorable: 0 }))
+    expect(() => decodeRow({ ...scalar, is_packed: 1 }))
       .toThrow(/packed discriminator requires a chunk tag/)
   })
 
   it.each(['text-chunks', 'reasoning-chunks', 'tool-call-chunks'])(
-    'preserves an ignorable logical event named %s as a scalar row',
+    'preserves a logical event named %s as a scalar row',
     (type) => {
       const logical = {
         type,
         seq: 0,
         time: 1,
         data: { future: true },
-        ignorable: true,
       } as unknown as SessionEvent
       const physical = row(logical)
-      expect(physical.ignorable).toBe(1)
+      expect(physical.is_packed).toBe(0)
       expect(decodeRow(physical)).toEqual([logical])
     },
   )
@@ -288,7 +287,7 @@ describe('SQLite compression', () => {
       data: ' '.repeat(MAX_PACKED_DATA_BYTES + 1),
       source_event_seqs: null,
       surface_op: null,
-      ignorable: 0,
+      is_packed: 1,
     }
     expect(() => decodeRow(oversized)).toThrow(/data exceeds/)
   })
@@ -308,7 +307,7 @@ describe('SQLite compression', () => {
       data: zstdCompressSync(serialized),
       source_event_seqs: null,
       surface_op: null,
-      ignorable: 0,
+      is_packed: 1,
     }
     expect(() => decodeRow(oversized)).toThrow(/Buffer larger than/)
   })
@@ -350,7 +349,7 @@ describe('SQLite compression', () => {
       data: JSON.stringify({ turn: 1, step: 1, index: 0, dt: [], texts: ['a', 'b'] }),
       source_event_seqs: null,
       surface_op: null,
-      ignorable: 0,
+      is_packed: 1,
     }
     expect(scanRows([malformed])).toEqual({ preserved: [], tornFrom: 0 })
   })

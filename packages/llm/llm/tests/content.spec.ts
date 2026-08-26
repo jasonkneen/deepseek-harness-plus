@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { AttachmentId, ImageVariantId } from '@deepseek-ai/dsh-attachment'
 import type { AttachmentStore, ImageMediaType } from '@deepseek-ai/dsh-attachment'
 import {
-  CallId,
+  ToolCallId,
   createUserMessage,
   offloadedImageText,
   offloadedImagePrefixCount,
@@ -75,7 +75,7 @@ describe('base64 request-image offload', () => {
       createUserMessage({
         content: [{
           type: 'tool-result',
-          toolCallId: CallId('shot'),
+          toolCallId: ToolCallId('shot'),
           content: [shared],
         }],
         source,
@@ -87,7 +87,7 @@ describe('base64 request-image offload', () => {
     expect(fitted).not.toBe(messages)
     expect(fitted[0]?.content).toEqual([{
       type: 'tool-result',
-      toolCallId: CallId('shot'),
+      toolCallId: ToolCallId('shot'),
       content: [{ type: 'text', text: OMITTED }],
     }])
     expect(fitted[1]?.content).toEqual([shared, image(3)])
@@ -103,7 +103,7 @@ describe('base64 request-image offload', () => {
   it('keeps unchanged nested content while replacing a later image', () => {
     const nested = {
       type: 'tool-result' as const,
-      toolCallId: CallId('text-only'),
+      toolCallId: ToolCallId('text-only'),
       content: [{ type: 'text' as const, text: 'kept' }],
     }
     const messages = [createUserMessage({ content: [nested, image(3)], source })]
@@ -330,12 +330,12 @@ describe('projectImagesForTextModel', () => {
     const plain = createUserMessage({ content: [{ type: 'text', text: 'plain' }], source })
     const nested = {
       type: 'tool-result' as const,
-      toolCallId: CallId('nested-image'),
+      toolCallId: ToolCallId('nested-image'),
       content: [{ type: 'text' as const, text: 'before' }, image(3), { type: 'text' as const, text: 'after' }],
     }
     const unchangedNested = {
       type: 'tool-result' as const,
-      toolCallId: CallId('text-only'),
+      toolCallId: ToolCallId('text-only'),
       content: [{ type: 'text' as const, text: 'unchanged' }],
     }
     const visual = createUserMessage({

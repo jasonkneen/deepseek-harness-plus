@@ -8,7 +8,6 @@ import type { HostApi } from './host.ts'
 import type { AgentPresetsApi } from './agent-presets.ts'
 import type { SkillsApi } from './skills.ts'
 import type { SubagentsApi } from './subagents.ts'
-import type { GoalsApi } from './goals.ts'
 import type { SettingsApi } from './settings.ts'
 import type { CredentialsApi } from './credentials.ts'
 import type { LlmApi } from './llm.ts'
@@ -20,7 +19,6 @@ export interface ApiProxy {
   host: HostApi
   skills: SkillsApi
   agentPresets: AgentPresetsApi
-  goals: GoalsApi
   settings: SettingsApi
   credentials: CredentialsApi
   llm: LlmApi
@@ -39,8 +37,7 @@ export type {
   SubagentPromptReceipt, SubagentsApi,
 } from './subagents.ts'
 export type { SkillsApi, SkillEntry } from './skills.ts'
-export type { AgentPresetsApi, AgentPresetEntry } from './agent-presets.ts'
-export type { GoalsApi, GoalId, GoalRef } from './goals.ts'
+export type { AgentPresetsApi } from './agent-presets.ts'
 export type { SettingsApi, SettingsNamespaceView, SettingsPathOpView, SettingsSecretView } from './settings.ts'
 export type { CredentialsApi, CredentialView } from './credentials.ts'
 export type { ConfigurableProviderView, DiscoveredModelView, LlmApi } from './llm.ts'

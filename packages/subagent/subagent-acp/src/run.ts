@@ -124,6 +124,7 @@ function failureDiagnostic(facts: AcpFailureFacts): string {
   if (facts.outcome?.exitCode !== null && facts.outcome?.exitCode !== undefined) {
     fields.push(`exit code: ${facts.outcome.exitCode}`)
   }
+  /* v8 ignore next -- Windows does not report POSIX child signals in SubprocessOutcome. */
   if (facts.outcome?.signal !== null && facts.outcome?.signal !== undefined) {
     fields.push(`signal: ${facts.outcome.signal}`)
   }
@@ -291,6 +292,7 @@ function startupFailure(
     return new AcpRunFailure({ stage: 'process', category: 'process-start' }, error)
   }
   return new AcpRunFailure(
+    /* v8 ignore next -- Windows anonymous pipes cannot expose a live-child protocol close during startup. */
     outcome === undefined
       ? { stage, category: 'transport' }
       : { stage, category: 'process-exit', outcome },
@@ -385,6 +387,7 @@ export async function startAcpRun(request: SubagentStartRequest, spec: AcpRunSpe
     const timeout = AbortSignal.timeout(Math.ceil(spec.disposeGraceMs))
     const bound = signal === undefined ? timeout : AbortSignal.any([signal, timeout])
     const aborted = Promise.withResolvers<undefined>()
+    /* v8 ignore next -- Windows cannot expose the live-child protocol close needed to await this abort. */
     const onObservationAbort = (): void => { aborted.resolve(undefined) }
     bound.addEventListener('abort', onObservationAbort, { once: true })
     /* v8 ignore next -- closes the event-loop race between listener registration and the preceding derived-signal check. */
@@ -569,6 +572,7 @@ export async function startAcpRun(request: SubagentStartRequest, spec: AcpRunSpe
       } catch (error: unknown) {
         if (!flags.cancelled) {
           const outcome = await observeProcessOutcome(request.signal)
+          /* v8 ignore next -- Windows anonymous pipes cannot expose a live-child prompt transport failure. */
           const facts = outcome === undefined
             ? { stage: 'prompt', category: 'transport' } as const
             : { stage: 'process', category: 'process-exit', outcome } as const

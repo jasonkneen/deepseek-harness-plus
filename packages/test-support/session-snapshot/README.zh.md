@@ -1,25 +1,35 @@
-# `@deepseek-ai/dsh-session-snapshot`
+---
+description: "面向无密钥 profile 测试的 session-log 快照支持：manifest、身份脱敏、规范化、workspace 检查与协议适配器。"
+kind: "package-library"
+---
+
+# @deepseek-ai/dsh-session-snapshot
 
 [English](README.md) | 中文
 
-无密钥快照层（`pnpm run test:snapshot`，见[测试策略](../../../docs/testing.zh.md)）的会话日志快照支持。与传输无关的 manifest、带类型身份脱敏、规范化、回写和 fixture（测试前置数据）不变量由 headless、SDK、ACP（Agent Client Protocol）和 Web 适配器共享。对应测试启动或组装随附的 `dsh` profile 表层；本支持包不提供另一个应用入口。
+## 概述
 
-每个录制会话目录都包含一个封闭的 `snapshot.yml` manifest。`scenario` 重复目录名以便诊断移动，`profile` 指名随附的 `dsh` 控制器，`composition` 把场景归入同一组 profile patch 与请求头 pin，`recording` 区分可通过真实模型录制的会话和特意手写的脚本，`header` 记录 pin 与 sidecar 的所有权。`replay`、`platform`、`permission`、`environment`、`workspace` 和 `input` 只保存已完成会话无法重建的事实；内联附件字节是标准的例外输入。除非 `session.source` 指向另一个场景的只读规范录制，否则目录拥有本地 `session.jsonl`。收集期间会拒绝未知字段、JavaScript YAML tag、格式错误的名称和索引、绝对路径及平台专用分隔符。
+`dsh-session-snapshot` 提供无密钥已记录会话测试（`pnpm run test:snapshot`）背后的共享支持：封闭 manifest、类型化身份脱敏、规范化、workspace 比较、fixture 保护，以及 headless、SDK、ACP 与 Web owner 使用的协议适配器。ACP 适配器以真实子进程启动被测 profile，驱动确定性输入脚本，并注册完整的录制、回放与刷新套件。每个场景都提交足够证据来证明模型可见输出与文件系统效果，不依赖 agent 自述。包入口会导入 vitest，因此只能在 vitest 运行中使用。
 
-`workspace/` 保存场景本地的初始文件。会改变 cwd 的场景设置 `workspace.final: true`，并在 `workspace.expected/` 下提交完整的用户可见结果；结果为空时使用被忽略的 `.empty` 标记，使 Git 保留该目录。受控接口结束后，回放会比较文件、二进制字节、符号链接和空目录。record 与 refresh 绝不改写这份独立预期，因此只在 transcript 中声称完成变更的场景仍会失败。
+## 目录
 
-提交的会话使用 `{{session:1}}`、`{{message:4}}` 和 `{{approval:1}}` 等按首次出现编号的带类型 token。主会话及其所有子会话共用一张映射，因此父级链接、中继消息和重复消息身份仍然可测试。任意用户或工具正文保持不变，除非其中包含已由带类型字段识别的同一值。请求系统提示词和工具 schema 绝不保留在会话 JSONL 中；每个组合与请求头类别有一个结构 pin，而字节相同的提示词或 schema 引用同一个可读 sidecar 所有者。
+- [使用本包](#use-this-package)
+- [理解实现](#understand-the-implementation)
+- [进一步探索](#further-exploration)
+- [模型体验](#model-experience)
+- [已知限制与延期工作](#known-limitations-and-deferred-work)
+- [开发备注](#dev-note)
 
-当前 ACP 适配器包含四个可单独导入的层：
+-----
 
-- **`launchAcpTestAgent`（启动器）**：从指定 cwd 在 tsx 下启动源码入口，或在普通 Node 下启动已构建 `lib` 入口；通过原始字节 stdout tee 连接 SDK 客户端，收集会话更新和 stderr，在启动阶段报告异步 spawn 失败，默认拒绝未处理的权限请求，并负责优雅或带信号关闭。产品套件指定一个 `dsh` profile：启动器通过 `--patch` 传入基础 patch 与所选场景 patch，在 replay 时选择场景同级的 `*cordis.snapshot.yml`，并把相对插件模块改写成绝对 file URL 后物化为临时副本。测试专用 fake bin 可以省略 profile 并保留自己的配置语法。关闭会等待进程退出、继承 stdio 关闭和 ACP parser 耗尽，然后才完成关闭或传播子级错误，使捕获内容完整，且调用方可在任一结果后移除自有路径。
-- **`runScenario`（harness）**：通过启动器从确定性 `input.json` 脚本驱动 ACP JSON-RPC stdio，将原始 stdout tee 给预期输出和纯度检查，并在优雅 stdin EOF 后收集每个持久化原始 JSONL 会话日志（父会话和 subagent 子会话，主会话优先）。`AgentUnderTest` 提供绝对 `binScript`、可选 `libBinScript`、`configPath` 和 `tsconfigPath` 路径，因为子进程 cwd 位于仓库外。当生成子级 cwd 的授权本身是测试对象时，`workspaceParent` 可以将它从平台临时目录移出。启动失败会在拒绝诊断中保留已捕获 agent stderr。
-- **规范化器**：将已捕获内容转换为稳定文本或可移植 fixture 的纯函数：`normalizeStdout`（JSON-RPC id → 首次出现序列；UUID 以及生成 cwd 的每种原生／JavaScript 文件系统写法 → token，按最长优先；根据 cwd 的分隔符选择规范 `/` 或宿主原生形式；同时作为 stdout 纯度检查）、`normalizeSessionLog`（保留序号 envelope、将时间归零，并使用同一 cwd 路径策略）、`normalizeSessionSnapshot`（依次执行会话日志规范化、request header 清理和正文 envelope 投影）、`tokenizeSessionFixtureCwd`（生成的 workspace 及其文件系统别名，包括已进行 token 化的 macOS `/private` 别名 → 单一规范 `{{cwd}}`；手工编写的临时路径保持不变）、`scrubSystemPrompts`（提示词文本 → `{{system}}`）、`scrubToolSchemas`（schema bulk → `{{tools}}`）、`scrubRequestHeaders`（每个 pin 之外的所有 header bulk → `{{system}}`/`{{tools}}`/`{{messagePrefix}}`，保留结构；见[header 固定 Agent Note](../../../.agents/notes/archived/testing/2026-07-06-pin-request-header-content-in-one-scenario.md)）和 `stabilizeFixtureMessageIds`（针对任意录制器已准备写入 fixture 的父级/子级日志，通过结构化方式仅改写 surface 和持久 inbox 中完整消息的 ID 字段，将已提交 UUID 带入未变化且双向唯一匹配的消息）。
-- **`defineAcpSnapshotSuite`（工厂）**：为场景表注册完整 describe/it 树：每场景预期输出与重新持久化日志比较、录制/刷新 fixture 回写、拒绝结构化 `UNKNOWN_TOOL` 结果、每个 header 类别一个 token 化 pin（由可独立共享的 `system-prompt.expected.md` 和 `tool-schemas.expected.json` 伴随文件组合而成），以及实时一致性保护。其 fixture 保护会拒绝遗留场景目录、缺失文件、一个类别包含多个 pin、重复的伴随文件内容、带非规范 macOS 前缀的 cwd token、未擦除的 JSONL header，以及格式错误的 pin header。在录制或刷新模式写入 fixture 前，仅当一条未变化完整消息的 ID 及其去除身份后的指纹在场景可写入 fixture 的父级/子级日志中均唯一时，该消息才会保留已提交的 UUID；会话包的权威 surface 类型谓词负责选择 surface 载体，与其关联的 `agent/inbox/spliced` 副本也纳入同一映射，且仅改写这些载体中通过验证的 `id` 字段。新增、发生变化、格式错误以及图关系存在歧义的消息保留本次生成的 UUID。刷新会使用收集所得本次运行的 id、cwd 及全部 cwd 别名评估本次生成的叶值；只有完整逻辑记录布局对齐且易变字符串替换形成双射时，才会复用归一化后等价的叶值；surface 或 inbox 载体中的完整消息 ID 不参与此路径，因为后续结构化处理负责这些 ID；有歧义的日志保留本次生成的字符串，而本次生成的语义值仍为权威数据。它还会在对齐事件时间前展开打包时序 envelope，因此切换打包/非打包布局无法移动后续记录。新插入的 `session/title` 使用前一个事件的时间，因此功能驱动的插入不会扰动 fixture 余下部分。每个场景目录的 `session.jsonl` 和连续 `session.<n>.jsonl` 同级文件构成有序的主会话／子会话清单；场景表不重复其数量。必须在 vitest 收集时调用。
+<a id="use-this-package"></a>
+## 使用本包
 
-签入仓库的会话 fixture 保留完整会话 header 和事件 payload，但省略普通行的 `seq`/`time` 与打包行的 `seq0`/`time0` envelope。回放只在内存中合成这些 envelope；运行时持久化不变。fixture 同时使用规范打包行；[临时仓库迁移器](../../../scripts/migrate-packed-session-fixtures.ts)（`pnpm run migrate:packed-session-fixtures`）会改写较旧的 fixture 布局，由其[移除提案](../../../.agents/notes/proposed/process/2026-07-26-remove-packed-session-fixture-migrator.zh.md)负责删除该迁移器。
+本包把随附 profile 场景变成无密钥快照套件：写一张场景表和一个 fixture 目录，调用一次匹配的适配器，工具包就负责启动或组合 profile、驱动场景、比较规范化输出并守护已提交的 fixture。
 
-消费方 `*.snapshot.ts` 就是场景表加一次工厂调用：
+### 编写快照套件
+
+消费方 `*.snapshot.ts` 就是场景表加一次工厂调用。`AgentUnderTest` 提供绝对 `binScript`、可选 `libBinScript`、`configPath` 与 `tsconfigPath` 路径，因为子进程 cwd 位于仓库之外：
 
 ```ts
 import { dirname, join } from 'node:path'
@@ -58,28 +68,102 @@ defineAcpSnapshotSuite({
 })
 ```
 
-启动不同 profile 组合的场景会设置自己的 `configPath` patch（其 basename 仍以 `cordis.yml` 结尾，使启动器可找到同级 `*cordis.snapshot.yml`）；当该组合改变请求 header 时，还会设置自己的 `headerClass` 和 pin 场景，顶层各 profile 语料包含当前模板。默认生成的 workspace 在会话 fixture 中存储为 `{{cwd}}`，使平台临时根目录和随机 basename 不影响录制结果；当临时目录授权自身待测时，`workspaceParent` 将生成 cwd 移出平台临时区域，在 fixture 中保留该显式路径，并仍归父级所有，而 harness 只移除生成的子级。场景签入的 `workspace/` 会先复制到该子级，随后 `prepareWorkspace` 在 agent 启动前针对生成 cwd 运行。此 hook 仅用于 Git 无法跨平台表示的 fixture；普通种子应留在 `workspace/` 中，而生成路径在 Windows 上无效时还必须搭配 `posixOnly`。
+每个已记录会话目录携带封闭的 `snapshot.yml` manifest，以及自身的 `session.jsonl` 与连续的 `session.<n>.jsonl` 子会话日志。manifest 指名场景、随附 profile、组合／header 类别、录制来源，以及已完成会话无法重建的 replay、平台、权限、环境、workspace 或输入事实。适配器注册预期输出、会话日志与可选 `workspace.expected/` 比较；保护会拒绝遗留目录、缺失文件、绝对路径、畸形 manifest 与平台专用分隔符。
 
-每个 pin 默认拥有其生成的 `system-prompt.expected.md` 或 `tool-schemas.expected.json`；当完整的对应序列相同时，`systemPromptSource` 和 `toolSchemasSource` 指定另一个 pin 作为来源，因此每个不同版本只提交一次。该 pin 的 `session.jsonl` 存储 `"system":"{{system}}","tools":"{{tools}}"`，同时保留配置、原因和任何模型可见前缀。具有合法运行中 header 变更的 pin 声明 `expectedHeaderChanges`；共享来源必须声明相同的 header 变更数量，录制/刷新会拒绝生成不同字节的共享引用方。
+`normalizeSessionSnapshot` 在规范化路径并清理 request header 后，会保留完整会话 header 与事件 payload，但从已提交 fixture 中省略普通行的 `seq`/`time` 和打包行的 `seq0`/`time0` envelope。回放只在内存中合成这些 envelope，而运行时持久化仍写入完整日志。fixture 使用规范打包行；[临时仓库迁移器](../../../scripts/migrate-packed-session-fixtures.ts)（`pnpm run migrate:packed-session-fixtures`）会改写较旧的布局，由其[移除提案](../../../.agents/notes/proposed/process/2026-07-26-remove-packed-session-fixture-migrator.zh.md)负责删除该迁移器。
 
-自身作用域组合出不同请求的 child 会话按 fixture 索引单独声明：`pinsChildToolSchemas` 把该 child 的工具序列移入 `tool-schemas.<n>.expected.json`，`pinsChildSystemPrompts` 把其提示词移入 `system-prompt.<n>.expected.md`。两者都指名自己描述的 `session.<n>.jsonl` fixture，其余请求 header 字段仍归类别 pin 所有，并要求 sidecar 恰好在声明时存在。child 提示词 sidecar 还必须与其类别 pin 不同，因此冗余副本会直接失败，而不会悄悄漂移。携带作用域局部 `report` 工具及其指引 section 的可继续 child 是两者的随附用例。
+### 录制、回放与刷新
 
-每个场景都比较 `stdout.expected.jsonl`，其中以 cwd 为根的分隔符规范化为 `/`。在 Windows 上，`pinsNativeWindowsStdout` 还会在共享预期输出之后比较完整 `stdout.expected.windows.jsonl`，并且仅在启用时要求存在该伴随文件。需要非 Windows 主机的场景声明 `posixOnly`，在 Windows 上跳过运行测试，但 fixture 保护仍在所有平台覆盖其已提交文件；示例包括 POSIX 进程语义（例如取消正在运行的 bash 调用会终止一个已脱离的进程组）和 Windows 无法表示的生成路径。组合需要可用 `pwsh` 的场景声明 `pwshOnly`；调用方提供的 `hasPwsh` 探测（随附的 acp-agent 套件遵循执行器自身的解析，因此 Program Files 安装也计入）在解析不到可用 `pwsh` 时跳过运行测试，而 fixture 保护仍处处覆盖其已提交文件。
+`pnpm run test:snapshot:record` 调用在线 LLM（大语言模型），并重写已录制的模型 fixture；`pnpm run test:snapshot:refresh` 保持无密钥，运行回放 overlay，并从已提交模型脚本重写 stdout、可比较会话日志预期输出，以及各 pin 自有的提示词与工具 schema 伴随文件。每个组合 owner 把 replay patch 放在 live patch 旁；顶层 `snapshots/` 拥有会话驱动场景，其他预期输出留在其包 owner 旁。[`dsh-llm-replay`](../llm-replay/README.zh.md) 提供通过 `DSH_SNAPSHOT_*` 环境值选择的已记录流。
 
-每个组合所有者都在 live patch 旁提供 `cordis.snapshot.yml` replay patch。`DSH_SNAPSHOT=replay` 下，启动器应用 live 基础 patch 和所选场景的 replay 同级文件（见[单源回放配置 Agent Note](../../../.agents/notes/archived/testing/2026-07-04-single-source-acp-replay-config.md)）；[`dsh-llm-replay`](../llm-replay/README.zh.md) 提供由 `DSH_SNAPSHOT_*` 环境值指向的 fixture。`pnpm run test:snapshot:record` 调用在线 LLM（大语言模型），并重写已记录场景的模型 fixture；`pnpm run test:snapshot:refresh` 保持无密钥，运行回放 overlay，并从已提交模型脚本重写 stdout、可比较会话日志预期输出，以及各 pin 自有的提示词与工具 schema 伴随文件。Fixture 角色、录制/回放/刷新语义和场景表字段记录在 `Scenario` 以及[快照 Agent Note](../../../.agents/notes/implemented/testing/2026-06-19-acp-snapshot-tests.zh.md) 中。
+### 固定请求 header
 
-约束：`suite.ts` 与 `harness.ts` 导入 vitest（harness 通过 `vi.waitFor` 轮询其持久边界等待），因此包入口只能在 vitest 运行中导入（启动器和规范化器没有此依赖，但从同一入口发布）。启动器和套件工厂按设计专用于 ACP，启动器使用 SDK 的 `ClientSideConnection`；规范化器是与传输无关的会话日志/文本辅助工具，还由 JSON-RPC 和 Web 快照录制器消费。输入脚本覆盖初始化、新建会话、文本提示简写、精确结构化 ACP 提示词块、取消、预期 RPC 失败和持久轮次边界等待。权限往返是选项类别选择（`allow_once`、`reject_once` 等）的 FIFO 队列，映射到 agent 发出的 `optionId`；缺少或耗尽的队列回答 `cancelled`，未提供类别会拒绝运行。
+每个 pin 默认拥有其生成的 `system-prompt.expected.md` 或 `tool-schemas.expected.json` 伴随文件；当完整的对应序列相同时，`systemPromptSource` 与 `toolSchemasSource` 指定另一个 pin 作为来源，因此每个不同版本只提交一次。该 pin 的 `session.jsonl` 存储 `"system":"{{system}}","tools":"{{tools}}"`，同时保留配置、原因与任何模型可见前缀。自身作用域组合出不同请求的子会话按 fixture 索引以 `pinsChildToolSchemas` 与 `pinsChildSystemPrompts` 单独声明。运行中改变请求 header 的场景声明 `expectedHeaderChanges`。
 
+### 平台与组合变体
+
+需要非 Windows 主机的场景声明 `posixOnly`，在 Windows 上跳过运行测试，但 fixture 保护仍在所有平台覆盖其已提交文件；组合需要可用 `pwsh` 的场景声明 `pwshOnly`。当临时目录授权自身待测时，`workspaceParent` 将生成子级 cwd 移出平台临时区域；场景签入的 `workspace/` 会先复制到该子级，随后 `prepareWorkspace` 在 agent 启动前针对生成 cwd 运行。默认生成的 workspace 在会话 fixture 中存储为 `{{cwd}}`，使平台临时根目录与随机 basename 不影响录制。
+
+### 可能出什么问题
+
+- **fixture 保护拒绝已提交文件**——遗留场景目录、缺失文件、一个 header 类别包含多个 pin、重复的伴随文件内容、未擦除的 JSONL header 与格式错误的 pin header 都会在比较运行前使套件失败。
+- **会话收集需要原始 JSONL mode**——快照配置使用 JSONL 后端的 `compression: 'none'`；压缩 JSONL 与 SQLite 组合没有快照收集路径。
+- **构建 mode 需要当前产物**——选择 `DSH_EXAMPLE_MODE=lib` 前先运行 `pnpm run build`；源 mode 仍是零构建路径。
+
+-----
+
+<a id="understand-the-implementation"></a>
+## 理解实现
+
+<details>
+<summary>实现细节——点击展开</summary>
+
+本节解释工具包的设计；可观察行为已在[使用本包](#use-this-package)中完整说明。
+
+### 设计
+
+共享核心拥有 manifest、workspace 设置／比较、类型化身份映射、规范化器与 fixture 不变式。ACP 适配器增加四个可组合层：启动器、场景 harness、规范化器与套件工厂。`launchAcpTestAgent` 在 tsx 下启动源码 profile，或在普通 Node 下启动已构建 `lib` profile，通过原始字节 stdout tee 连接 SDK 客户端，收集会话更新与 stderr，默认拒绝未处理的权限请求，并负责关闭。`runScenario` 驱动 ACP JSON-RPC stdio，并收集每个持久化原始 JSONL 会话日志。纯规范化器把 cwd 路径与类型化身份变为稳定 token，将时间归零，并擦除请求 header bulk。`defineAcpSnapshotSuite` 注册比较、fixture 回写与实时一致性保护。
+
+### 源码地图
+
+| 文件 | 职责 |
+|---|---|
+| [`src/launcher.ts`](src/launcher.ts) | 子进程/客户端启动器与关闭所有权 |
+| [`src/harness.ts`](src/harness.ts) | 脚本化场景驱动与会话日志收集 |
+| [`src/manifest.ts`](src/manifest.ts) | 封闭 `snapshot.yml` schema、收集与归属规则 |
+| [`src/identity.ts`](src/identity.ts) | 跨父子日志的类型化首次出现身份 token 化 |
+| [`src/normalize.ts`](src/normalize.ts) | 纯规范化器与擦除辅助 |
+| [`src/workspace.ts`](src/workspace.ts) | 场景 workspace 设置与完整预期状态比较 |
+| [`src/suite.ts`](src/suite.ts) | 场景表套件工厂、fixture 保护、录制/刷新回写 |
+| [`src/index.ts`](src/index.ts) | 再导出四个层的包入口 |
+| [`src/invariant.ts`](src/invariant.ts) | 不变式伴生插件（无运行时不变式；消费它的测试套件会检验该工具包） |
+
+### 数据流
+
+场景在启动器下运行 agent，通过 harness 向它喂入输入脚本，并捕获 stdout 与持久化日志。规范化器把捕获内容规范化——id 转为首次出现序列、生成 cwd 转为 `{{cwd}}`、header bulk 转为 `{{system}}`/`{{tools}}`——使已录制与本次运行可以结构化比较。随后工厂把规范化 stdout 与重新持久化日志同已提交 fixture 比较，或在录制/刷新模式下回写它们；其保护在任何比较结果被采信之前就拒绝畸形或漂移的 fixture。
+
+</details>
+
+-----
+
+<a id="further-exploration"></a>
+## 进一步探索
+
+当包级约定不够用时阅读以下页面。它们从快照工具包逐步进入模型 fixture 来源、启动机制与要求该层级存在的策略。
+
+- [llm-replay](../llm-replay/README.zh.md)——回放模式消费的无密钥模型 fixture 来源。
+- [loader-smoke](../loader-smoke/README.zh.md)——启动器所依赖的模式感知子进程启动机制。
+- [测试策略](../../../docs/testing.zh.md)——无密钥快照层、其适用时机与 fixture 归属规则。
+- [test-support 组地图](../README.zh.md)——兄弟 harness 与支持包。
+
+-----
+
+<a id="model-experience"></a>
 ## 模型体验
 
-无。该测试专用支持记录、规范化并比较 profile 会话，不会改变 agent 组装的模型请求。
+无。该测试专用支持会记录、规范化并比较 profile 会话，不会改变 agent 组装的模型请求。
 
 #### KV Cache 影响
 
-无；该包既不组装也不发送提供方请求。
+无；本包既不组装也不发送提供方请求。
 
-## 已知限制与暂缓事项
+## 已知限制与延期工作
 
-- **会话收集需要原始 JSONL mode**：`runScenario` 收集持久化 `.jsonl` 日志，因此快照配置使用 `persistenceCompression: 'none'`；压缩 JSONL 和 SQLite 组合没有快照收集路径。
-- **构建 mode 需要当前产物**：先运行 `pnpm run build`，再选择 `DSH_EXAMPLE_MODE=lib`；源 mode 仍是零构建路径。
-- **ACP 仅保留协议行为**：取消和权限往返等由 ACP 客户端触发的行为继续使用该适配器；组装后的一次性行为和持久控制行为分别使用 headless 与 SDK。
+<a id="known-limitations-and-deferred-work"></a>
+
+
+这些限制说明何时需要对该工具包特别小心。它们是当前包约束，不是任务积压。
+
+- **会话收集需要原始 JSONL mode**——`runScenario` 收集持久化 `.jsonl` 日志，因此快照配置使用 JSONL 后端的 `compression: 'none'`；压缩 JSONL 与 SQLite 组合没有快照收集路径。
+- **构建 mode 需要当前产物**——选择 `DSH_EXAMPLE_MODE=lib` 前先运行 `pnpm run build`；源 mode 仍是零构建路径。
+- **ACP 继续覆盖协议行为**——刺激来自 ACP 客户端的取消与权限往返留在该适配器；组装式一次性行为与持久控制行为使用 headless 与 SDK 适配器。
+
+<a id="dev-note"></a>
+### 开发备注
+
+<details>
+<summary>维护者的工作上下文——点击展开</summary>
+
+无。
+
+</details>

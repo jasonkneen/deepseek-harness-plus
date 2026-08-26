@@ -6,22 +6,22 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  height: 28px;
+  height: calc(28px + var(--dsh-content-font-delta, 0px));
 }
 
 /* Clock before icons (user figma 388:20051) / after (assistant 43:32997). */
 .timeStart {
   padding-right: 12px;
-  font-size: 14px;
-  line-height: 24px;
+  font-size: var(--dsh-content-font-size, 14px);
+  line-height: calc(24px + var(--dsh-content-font-delta, 0px));
   color: var(--dsw-alias-label-tertiary);
   white-space: nowrap;
 }
 
 .timeEnd {
   padding-left: 12px;
-  font-size: 14px;
-  line-height: 24px;
+  font-size: var(--dsh-content-font-size, 14px);
+  line-height: calc(24px + var(--dsh-content-font-delta, 0px));
   color: var(--dsw-alias-label-tertiary);
   white-space: nowrap;
 }
@@ -50,14 +50,21 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 28px;
-  height: 28px;
+  width: calc(28px + var(--dsh-content-font-delta, 0px));
+  height: calc(28px + var(--dsh-content-font-delta, 0px));
   padding: 6px;
   border: none;
   border-radius: 28px;
   background: transparent;
   color: var(--dsw-alias-label-tertiary);
   cursor: pointer;
+}
+
+/* The 16px action glyphs follow the same px delta as the text they serve;
+   the CSS edge overrides each svg's own width/height attributes. */
+.action svg {
+  width: calc(16px + var(--dsh-content-font-delta, 0px));
+  height: calc(16px + var(--dsh-content-font-delta, 0px));
 }
 
 .action:hover {

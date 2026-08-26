@@ -2,7 +2,7 @@
 
 [English](session-projection.md) | 中文
 
-会话投影 seam 是一项[能力 seam](../capability-seams.zh.md)：领域 host 插件经由它向客户端载体供给按会话的日志派生状态的当前全量值；三方分别是 Service Definition 与注册表（[dsh-session-projection](../../packages/session/session-projection)，`ctx.sessionProjections`）、领域贡献方（每个领域注册一个纯单元）与载体（[dsh-host-apiproxy](../../packages/host/apiproxy) 的历史尾页与 `session/projection` 推送帧）。它是一项可选能力，不属于 agent loop（智能体循环）主干。框架负责驱动，领域负责计算：注册表只订阅一次 `session/event`，并把每个已提交事件折叠进每个单元；领域不持有任何订阅，客户端也从不折叠领域事件——它们收到的是成品值。设计权威：[session-projection RFC](../../.agents/notes/proposed/architecture/2026-07-27-session-projection-and-command-log.zh.md)；驱动、缓存与变更流约定：[包 README](../../packages/session/session-projection/README.zh.md)。
+会话投影 seam 是一项[能力 seam](../capability-seams.zh.md)：领域 host 插件经由它向客户端载体供给按会话的日志派生状态的当前全量值；三方分别是 Service Definition 与注册表（[dsh-session-projection](../../packages/session/session-projection)，`ctx.sessionProjections`）、领域贡献方（每个领域注册一个纯单元）与载体（[dsh-session-controller](../../packages/api/session-controller) 的历史尾页与 `session/projection` 推送帧）。它是一项可选能力，不属于 agent loop（智能体循环）主干。框架负责驱动，领域负责计算：注册表只订阅一次 `session/event`，并把每个已提交事件折叠进每个单元；领域不持有任何订阅，客户端也从不折叠领域事件——它们收到的是成品值。设计权威：[session-projection RFC](../../.agents/notes/proposed/architecture/2026-07-27-session-projection-and-command-log.zh.md)；驱动、缓存与变更流约定：[包 README](../../packages/session/session-projection/README.zh.md)。
 
 源码：[`packages/session/session-projection/src/index.ts`](../../packages/session/session-projection/src/index.ts)
 
@@ -99,7 +99,7 @@ type ProjectionChangeListener = (
 
 ## 注册表：`ctx.sessionProjections`
 
-`SessionProjectionRegistry`（[签名](#ctxsessionprojections--sessionprojectionregistry)）拥有驱动权：一份 `session/event` 订阅、对每个已注册单元即时调用 `apply`，以及每会话每单元的水位线（watermark）cell。cell 惰性构建：在事件流过之后才注册的单元，或比注册表更早的会话，都在首次触达（事件或读取）时从 `init` 出发在内存日志上折叠。注册是一个 effect，其 disposer 随调用方 fiber 走：领域插件卸载后，其 key（连同缓存的 cell）从后续驱动与快照中消失，客户端将其读作能力缺失；key 重复直接 throw。领域插件在 `ctx.inject(['sessionProjections'], …)` 下注册，因此不带注册表的 headless 组装完全不受影响。
+`SessionProjectionRegistry`（[签名](#ctxsessionprojections--sessionprojectionregistry)）拥有驱动权：一份 `session/event` 订阅、对每个已注册单元即时调用 `apply`，以及每会话每单元的水位线（watermark）cell。cell 惰性构建：在事件流过之后才注册的单元，或比注册表更早的会话，都在首次触达（事件或读取）时从 `init` 出发在内存日志上折叠。注册是一个 effect，其 disposer 随调用方 fiber 走：领域插件卸载后，其 key（连同缓存的 cell）从后续驱动与快照中消失，客户端将其读作能力缺失；key 以不同 `stateVersion` 重复时直接 throw，同版本注册方则共享一个单元并被计数。领域插件在 `ctx.inject(['sessionProjections'], …)` 下注册，因此不带注册表的 headless 组装完全不受影响。
 
 <!-- BEGIN GENERATED cordis-surface (gen-cordis-catalog.ts) — do not edit between markers -->
 
@@ -113,17 +113,17 @@ Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnp
 
 ### `ctx.sessionProjectionCache` — `SessionProjectionCache`
 
-The persisted projection cache service. Opens the `session_projcache` domain at init, checkpoints live sessions on a throttled write-behind (count/interval triggers from Config) plus two mandatory points — `turn/end` and session disposal (the live-to-cold moment) — and serves the cold-read ladder: cached row, persistence `readFrom` tail, registry `restore`, durable write-back. Every durable write is fail-soft: failures log a warning and the cache self-heals on the next write or cold read.
+The persisted projection cache service. Opens the `session_projcache` domain at init, checkpoints live sessions on a throttled write-behind (count/interval triggers from Config) plus three mandatory points — session creation, `turn/end`, and session disposal (the live-to-cold moment) — and serves the cached rows for a session header. Every durable write is fail-soft: failures log a warning and the cache self-heals on the next write.
 
 ```ts cordis-catalog
 /**
  * The zero-I/O listing read: whole values viewed straight from the stored
- * rows (version-matching keys only), each cut carried with its watermark
- * so a client value store can seed under its higher-seq-wins rule — as
- * stale as the last durable checkpoint but never wrong, and never from an
+ * rows (version-matching keys only), each cut carried with its watermark so
+ * a client value store can seed under its higher-seq-wins rule — as stale
+ * as the last durable checkpoint but never wrong, and never from an
  * unrelated log (the caller's header is the identity witness). Fresher
- * paths (the history tail baseline, {@link coldSnapshot}) supersede these
- * values whenever a session is actually opened.
+ * paths (the history tail baseline) supersede these values whenever a
+ * session is actually opened.
  * @param meta - the listed session's header (identity witness; no log read).
  * @param keys - optional projection keys required by the caller's audience.
  * @returns the cut (`asOfSeq` = lowest served-row watermark), or
@@ -144,31 +144,32 @@ cachedSnapshot( meta: SessionHeader, keys?: readonly Extract<keyof SessionProjec
 hydratePrepared( session: Session, meta: SessionHeader, events: readonly SessionEvent[], ): ProjectionSnapshot
 
 /**
- * Durably checkpoint one live session NOW (both mandatory points call
+ * Durably checkpoint one live session NOW (all mandatory points call
  * this; tests and carriers may too). The registry cut is snapshotted at
- * this boundary (states are live references), then the whole record is
- * replaced. NOT fail-soft — callers on the fail-soft paths contain it.
+ * this boundary (states are live references), then the session's record is
+ * replaced on the domain's write chain. NOT fail-soft — callers on the
+ * fail-soft paths contain it.
  * @param session - the live session to checkpoint.
  * @returns resolution after durability and event emission.
  */
 async write(session: Session): Promise<void>
 
 /**
- * Cold-read one persisted session's projections with zero full-log load:
- * cached rows + a persistence `readFrom` tail from the registry's restore
- * floor, refolded by the registry and written back (fail-soft) so the next
- * cold read starts closer. A cache row invalidated by a shrunk log
- * (crash-repair truncation) triggers one full re-read from seq 0 — the
- * ladder's slow rung, still no crash. Rejects when the session has no
- * persisted log (`not found` from the persistence seam).
- * @param id - the persisted session to read.
- * @param signal - optional cancellation for the persistence reads.
- * @returns the snapshot cut at the stored log end.
+ * Cold-read one session's projections from its complete log. Each unit is
+ * seeded from the identity-checked cached rows — the registry skips `apply`
+ * for the already-folded prefix (events at or below the row's `seq`) — and
+ * the refreshed checkpoint is written back (fail-soft, fire-and-forget), so
+ * the first cold read creates the cache row and later ones seed from it.
+ * The caller supplies the complete log in seq order: this service never
+ * consults the persistence layer.
+ * @param meta - the stored session header (identity witness).
+ * @param events - the session's complete log, in seq order.
+ * @returns the projection cut at the log end.
  */
-async coldSnapshot(id: SessionId, signal?: AbortSignal): Promise<ProjectionSnapshot>
+coldSnapshot(meta: SessionHeader, events: readonly SessionEvent[]): ProjectionSnapshot
 ```
 
-Types: [Session](session.zh.md) · [SessionEvent](session.zh.md) · [SessionHeader](persistence.zh.md) · [SessionId](core.zh.md)
+Types: [Session](session.zh.md) · [SessionEvent](session.zh.md) · [SessionHeader](persistence.zh.md)
 
 Source: [`packages/session/session-projection-cache/src/index.ts`](../../packages/session/session-projection-cache/src/index.ts)
 

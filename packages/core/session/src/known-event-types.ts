@@ -8,10 +8,9 @@
 /**
  * Every `SessionEventMap` member declared in this repository — the event
  * vocabulary this build understands. The persistence read path refuses to
- * interpret a log containing a type outside this set unless the event
- * carries the envelope's `ignorable` marker (see `SessionEvent.ignorable`
- * in `./types.ts`): such a log was likely written by a newer harness, and
- * silently skipping a required event would reconstruct a wrong session.
+ * interpret a log containing a type outside this set: such a log was likely
+ * written by a newer harness, and silently skipping the event could
+ * reconstruct a wrong session.
  * Downstream (out-of-repo) plugin events are outside this list by
  * construction; a registration surface for them is deferred until such a
  * consumer exists.

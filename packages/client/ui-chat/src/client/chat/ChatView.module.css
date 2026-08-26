@@ -71,8 +71,15 @@
   flex: none;
   display: inline-flex;
   align-items: center;
-  height: 26px;
+  height: calc(26px + var(--dsh-content-font-delta, 0px));
   font: var(--dsw-font-s-strong-14);
+  /* The status line reads at the body size: the fixed 14 token supplies the
+     family/weight, the axis supplies the size. At default that is 14px text
+     on a 22px line inside a 26px row; both box heights shift by the same
+     delta, preserving the 8px (22 − 14) leading and the 4px (26 − 22) row
+     padding at every size. */
+  font-size: var(--dsh-content-font-size, 14px);
+  line-height: calc(22px + var(--dsh-content-font-delta, 0px));
   white-space: nowrap;
   background: linear-gradient(
     90deg,
@@ -94,6 +101,8 @@
 .turnStatusClock {
   margin-left: 8px;
   font: var(--dsw-font-xs-13);
+  font-size: calc(13px + var(--dsh-content-font-delta, 0px));
+  line-height: calc(20px + var(--dsh-content-font-delta, 0px));
   font-weight: 400;
   font-variant-numeric: tabular-nums;
   color: var(--dsw-alias-label-caption);
@@ -116,14 +125,14 @@
 
 .hint {
   color: var(--dsw-alias-label-tertiary);
-  font-size: 12px;
-  line-height: 18px;
+  font-size: calc(12px + var(--dsh-content-font-delta, 0px));
+  line-height: calc(18px + var(--dsh-content-font-delta, 0px));
 }
 
 .openError {
   color: var(--dsw-alias-state-error-primary);
-  font-size: 12px;
-  line-height: 18px;
+  font-size: calc(12px + var(--dsh-content-font-delta, 0px));
+  line-height: calc(18px + var(--dsh-content-font-delta, 0px));
 }
 
 .older {

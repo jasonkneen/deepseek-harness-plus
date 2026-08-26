@@ -1,7 +1,7 @@
 // Web e2e scenario: the shipped composition discovers local files and cold
 // sessions through the real Host, groups both domains in the shared @ menu,
 // and projects each pick as a complete inline range without issuing a model call.
-import { writeFile } from 'node:fs/promises'
+import { mkdir, writeFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import { join } from 'node:path'
 import type { Browser, Page } from 'playwright'
@@ -25,12 +25,11 @@ import {
   webSnapshotMode,
   type WebScaffold,
 } from './scaffold.ts'
-import { connectFreshWorkspace, newEnglishPage, saveFailureShot } from './support.ts'
+import { connectFreshWorkspace, newEnglishPage, saveFailureShot, writeComposerDraft } from './support.ts'
 
 const SNAPSHOT_DIR = fileURLToPath(new URL('./expected/reference-composer', import.meta.url))
 const MENU_EXPECTED = join(SNAPSHOT_DIR, 'menu.expected.md')
 const ORDER_EXPECTED = join(SNAPSHOT_DIR, 'order.expected.md')
-const CARET_EXPECTED = join(SNAPSHOT_DIR, 'caret-edits.expected.md')
 const MODE = webSnapshotMode()
 const SOURCE_SESSION_ID = 'reference-source-session'
 const TARGET_SESSION_ID = 'reference-order-target-session'
@@ -111,29 +110,6 @@ function targetSessionFixture(): string {
   ].join('\n')
 }
 
-/**
- * Project the composer backdrop into one stable block: the draft it paints and
- * each segment in draft order, with the decoration a segment carries.
- * @param page - the assembled app page.
- * @returns the golden text for the composer's decoration layer.
- */
-async function composerSegments(page: Page): Promise<string> {
-  return page.evaluate(() => {
-    const backdrop = document.querySelector('[data-input-backdrop]')
-    const textarea = document.querySelector('textarea')
-    if (backdrop === null || textarea === null) return 'composer absent'
-    const rows = [...backdrop.childNodes].map((node) => {
-      if (!(node instanceof HTMLElement)) return `plain    ${JSON.stringify(node.textContent ?? '')}`
-      const decoration = node.dataset['decoration'] ?? 'unknown'
-      const appearance = node.dataset['referenceAppearance']
-      const icons = node.querySelectorAll('svg').length
-      return `${decoration.padEnd(8)} ${JSON.stringify(node.textContent ?? '')}`
-        + `${appearance === undefined ? '' : ` appearance=${appearance}`} icons=${icons}`
-    })
-    return [`draft ${JSON.stringify(textarea.value)}`, ...rows].join('\n')
-  })
-}
-
 describe.skipIf(MODE === 'record')('web e2e: file and session references through the real host', () => {
   let scaffold: WebScaffold
   let browser: Browser
@@ -147,10 +123,16 @@ describe.skipIf(MODE === 'record')('web e2e: file and session references through
     browser = await chromium.launch()
     page = await newEnglishPage(browser)
     tripwire = watchConsole(page)
+    // Fixture files land before the workspace connects so the Host's file
+    // index never races their creation (the connect helper mkdirs the same
+    // directory and tolerates it existing).
+    await mkdir(join(scaffold.workspaceCwd, 'workspace'), { recursive: true })
+    await writeFile(join(scaffold.workspaceCwd, 'workspace', 'reference.txt'), 'reference fixture\n')
+    await mkdir(join(scaffold.workspaceCwd, 'workspace', 'folderx'), { recursive: true })
+    await writeFile(join(scaffold.workspaceCwd, 'workspace', 'folderx', 'child.txt'), 'child fixture\n')
     await page.goto(scaffold.authenticatedUrl, { waitUntil: 'load' })
     await page.waitForSelector('[class*="frame"]', { timeout: 30_000 })
     await connectFreshWorkspace(page, scaffold.workspaceCwd)
-    await writeFile(join(scaffold.workspaceCwd, 'workspace', 'reference.txt'), 'reference fixture\n')
   }, 120_000)
 
   afterAll(async () => {
@@ -160,7 +142,7 @@ describe.skipIf(MODE === 'record')('web e2e: file and session references through
 
   it('groups both sources and projects files and sessions as structured inline icon labels', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-reference-composer'))
-    const input = page.locator('textarea').first()
+    const input = page.locator('[data-composer-input]').first()
     const menu = page.getByRole('listbox', { name: 'Trigger suggestions' })
 
     await input.fill('@')
@@ -176,53 +158,121 @@ describe.skipIf(MODE === 'record')('web e2e: file and session references through
 
     await input.fill('@reference')
     await menu.getByRole('option', { name: /File \u00b7 reference\.txt/ }).click()
-    const fileReference = page.locator('[data-reference-appearance="file"]')
-    await expect.poll(() => fileReference.textContent()).toBe('@reference.txt')
+    // The pick lands an atomic chip: a real DOM capsule carrying the domain
+    // icon and the label (the canonical reference text lives on the node and
+    // expands on submit; the surface text is the label plus the separator).
+    const fileReference = page.locator('[data-composer-chip]').last()
+    await expect.poll(() => fileReference.textContent()).toBe('reference.txt')
     await expect.poll(() => fileReference.locator('svg').count()).toBe(1)
-    await expect.poll(() => input.inputValue()).toBe('@reference.txt ')
+    await expect.poll(() => input.textContent()).toBe('reference.txt ')
 
     await input.fill('@Research')
     await menu.getByRole('option', { name: /Session \u00b7 Research notes/ }).click()
-    const sessionReference = page.locator('[data-reference-appearance="session"]')
-    await expect.poll(() => sessionReference.textContent()).toBe('@Research notes')
+    const sessionReference = page.locator('[data-composer-chip]').last()
+    await expect.poll(() => sessionReference.textContent()).toBe('Research notes')
     await expect.poll(() => sessionReference.locator('svg').count()).toBe(1)
-    await expect.poll(() => input.inputValue()).toBe('@Research notes ')
+    await expect.poll(() => input.textContent()).toBe('Research notes ')
 
     expect(tripwire.pageErrors).toEqual([])
     expect(tripwire.warnings).toEqual([])
   })
 
-  it('keeps a structured reference across caret edits in front of it', async () => {
-    onTestFailed(() => saveFailureShot(page, 'web-e2e-reference-caret-edits'))
-    const input = page.locator('textarea').first()
+  it('typing a trigger directly ahead of a chip inserts without disturbing it', async () => {
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-reference-type-ahead'))
+    const input = page.locator('[data-composer-input]').first()
     const menu = page.getByRole('listbox', { name: 'Trigger suggestions' })
-    const sessionReference = page.locator('[data-reference-appearance="session"]')
 
-    await input.fill('@Research')
-    await menu.getByRole('option', { name: /Session \u00b7 Research notes/ }).click()
-    await expect.poll(() => input.inputValue()).toBe('@Research notes ')
+    await input.fill('@reference')
+    await menu.getByRole('option', { name: /File · reference\.txt/ }).click()
+    await expect.poll(() => input.locator('[data-composer-chip]').count()).toBe(1)
 
-    // Only the caret is placed programmatically; both edits below are real key
-    // presses, which is the whole point — the range a textarea reports for them
-    // is what the composer has to read, and no synthetic event can stand in.
-    await input.evaluate((el: HTMLTextAreaElement) => { el.focus(); el.setSelectionRange(0, 0) })
-    await input.press('@')
-    await expect.poll(() => input.inputValue()).toBe('@@Research notes ')
-    await expect.poll(() => sessionReference.count()).toBe(1)
-    await expect.poll(() => sessionReference.textContent()).toBe('@Research notes')
-    await expect.poll(() => sessionReference.locator('svg').count()).toBe(1)
+    // The #2813 gesture: collapse the caret to the document start, directly
+    // ahead of the chip, and open the trigger menu there.
+    await input.click()
+    await page.keyboard.press('ControlOrMeta+A')
+    await page.keyboard.press('ArrowLeft')
+    await page.keyboard.type('@Research')
+    await menu.getByRole('option', { name: /Session · Research notes/ }).click()
 
-    // The decoration layer is aria-hidden, so the accessibility tree cannot see
-    // the chip; the golden projects the backdrop's own segments instead, which
-    // is where the surviving reference is observable at all.
-    await compareOrRefreshGolden(CARET_EXPECTED, await composerSegments(page), MODE)
+    // Both chips survive the boundary insert: the session chip lands ahead of
+    // the intact file chip.
+    const chips = input.locator('[data-composer-chip]')
+    await expect.poll(() => chips.count()).toBe(2)
+    await expect.poll(() => chips.first().textContent()).toBe('Research notes')
+    await expect.poll(() => chips.last().textContent()).toBe('reference.txt')
+    await expect.poll(() => input.textContent()).toBe('Research notes reference.txt ')
 
-    // The caret sits after the typed trigger; this Backspace removes it with a
-    // collapsed selection, the gesture the reported range cannot describe alone.
-    await input.press('Backspace')
-    await expect.poll(() => input.inputValue()).toBe('@Research notes ')
-    await expect.poll(() => sessionReference.count()).toBe(1)
-    await expect.poll(() => sessionReference.textContent()).toBe('@Research notes')
+    expect(tripwire.pageErrors).toEqual([])
+    expect(tripwire.warnings).toEqual([])
+  })
+
+  it('arrows step across a chip in one move and Backspace removes it whole', async () => {
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-reference-keyboard'))
+    const input = page.locator('[data-composer-input]').first()
+    const menu = page.getByRole('listbox', { name: 'Trigger suggestions' })
+
+    await input.fill('@reference')
+    await menu.getByRole('option', { name: /File · reference\.txt/ }).click()
+    await expect.poll(() => input.locator('[data-composer-chip]').count()).toBe(1)
+
+    // First ArrowLeft crosses the trailing space; the second steps across the
+    // chip in one move — no keyboard-selected intermediate state — and typing
+    // continues normally on the far side.
+    await page.keyboard.press('ArrowLeft')
+    await page.keyboard.press('ArrowLeft')
+    await page.keyboard.type('pre')
+    await expect.poll(() => input.textContent()).toBe('prereference.txt ')
+    await expect.poll(() => input.locator('[data-composer-chip]').count()).toBe(1)
+
+    // A collapsed Backspace directly ahead of the chip removes the typed
+    // character only; the chip's identity is untouched (#2814's gesture).
+    await page.keyboard.press('Backspace')
+    await expect.poll(() => input.textContent()).toBe('prreference.txt ')
+    await expect.poll(() => input.locator('[data-composer-chip]').count()).toBe(1)
+
+    // ArrowRight steps back across the chip; Backspace directly behind it
+    // removes the whole chip in one keystroke.
+    await page.keyboard.press('ArrowRight')
+    await page.keyboard.press('Backspace')
+    await expect.poll(() => input.locator('[data-composer-chip]').count()).toBe(0)
+    await expect.poll(() => input.textContent()).toBe('pr ')
+
+    expect(tripwire.pageErrors).toEqual([])
+    expect(tripwire.warnings).toEqual([])
+  })
+
+  it('settles a folder as an atomic chip; Tab and the chevron drill instead', async () => {
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-reference-folder'))
+    const input = page.locator('[data-composer-input]').first()
+    const menu = page.getByRole('listbox', { name: 'Trigger suggestions' })
+
+    // Settle: Enter on the highlighted folder row resolves the folder itself
+    // as an atomic chip — folder glyph, no trigger character, one unit.
+    await writeComposerDraft(page, input, '@folderx')
+    // First folder query on this page: allow the Host index a cold start.
+    await menu.getByRole('option', { name: /Folder · folderx\// }).waitFor({ timeout: 60_000 })
+    await page.keyboard.press('Enter')
+    const chip = input.locator('[data-composer-chip]').last()
+    await expect.poll(() => chip.textContent()).toBe('folderx/')
+    await expect.poll(() => chip.locator('svg').count()).toBe(1)
+    await expect.poll(() => input.textContent()).toBe('folderx/ ')
+
+    // Tab drills: the literal descent text stays editable and the open menu
+    // lists the folder's children.
+    await writeComposerDraft(page, input, '@folderx')
+    await menu.getByRole('option', { name: /Folder · folderx\// }).waitFor()
+    await page.keyboard.press('Tab')
+    await expect.poll(() => input.textContent()).toBe('@folderx/')
+    await menu.getByRole('option', { name: /File · child\.txt/ }).waitFor()
+
+    // The row chevron drills the same way by pointer.
+    await writeComposerDraft(page, input, '@folderx')
+    const row = menu.getByRole('option', { name: /Folder · folderx\// })
+    await row.waitFor()
+    await row.getByRole('button', { name: 'Browse folder' }).click()
+    await expect.poll(() => input.textContent()).toBe('@folderx/')
+    await menu.getByRole('option', { name: /File · child\.txt/ }).waitFor()
+    await page.keyboard.press('Escape')
 
     expect(tripwire.pageErrors).toEqual([])
     expect(tripwire.warnings).toEqual([])
@@ -244,6 +294,6 @@ describe.skipIf(MODE === 'record')('web e2e: file and session references through
     expect(snapshot.indexOf('Research notes what changed?')).toBeLessThan(snapshot.indexOf('Session recall Research notes'))
     expect(tripwire.pageErrors).toEqual([])
     expect(tripwire.warnings).toEqual([])
-    await assertFixtureInventory(SNAPSHOT_DIR, ['caret-edits.expected.md', 'menu.expected.md', 'order.expected.md'])
+    await assertFixtureInventory(SNAPSHOT_DIR, ['menu.expected.md', 'order.expected.md'])
   })
 })

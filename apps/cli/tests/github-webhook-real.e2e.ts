@@ -11,6 +11,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
+import { decodeStorageRecord } from '@deepseek-ai/dsh-session/chunk-rows'
 import { describe, expect, it } from 'vitest'
 import WebSocket from 'ws'
 
@@ -59,13 +60,21 @@ interface WorkspaceBaseline {
 }
 
 interface HistoryPage {
-  events: Array<{
-    event: {
-      type: string
-      data: unknown
-    }
-  }>
+  records: Array<
+    | { type: 'event'; event: HistoryEvent }
+    | { type: 'chunks'; event: HistoryChunkEvent }
+  >
   hasMore: boolean
+}
+
+interface HistoryEvent {
+  type: string
+  data: unknown
+}
+
+interface HistoryChunkEvent extends HistoryEvent {
+  seq: number
+  time: number
 }
 
 interface ProcessObservation {
@@ -255,10 +264,10 @@ async function history(baseUrl: string, sessionId: string): Promise<HistoryPage>
     { request: { address: { kind: 'session', sessionId }, maxMessages: 100 } },
     value => isRecord(value)
       && value.type === 'snapshot'
-      && Array.isArray(value.events)
+      && Array.isArray(value.records)
       && typeof value.hasMore === 'boolean',
   )
-  return { events: frame.events as HistoryPage['events'], hasMore: frame.hasMore as boolean }
+  return { records: frame.records as HistoryPage['records'], hasMore: frame.hasMore as boolean }
 }
 
 /** Poll a public observation until it satisfies the test's behavior predicate. */
@@ -294,7 +303,7 @@ async function eventually<T>(
 /** Return every text block from durable assistant messages. */
 function assistantText(page: HistoryPage): string {
   const text: string[] = []
-  for (const { event } of page.events) {
+  for (const event of historyEvents(page)) {
     if (event.type !== 'assistant/message' || !isRecord(event.data) || !isRecord(event.data.message)) continue
     const content = event.data.message.content
     if (!Array.isArray(content)) continue
@@ -303,6 +312,18 @@ function assistantText(page: HistoryPage): string {
     }
   }
   return text.join('\n')
+}
+
+/** Expand lossless history records for assertions over the public event stream. */
+function historyEvents(page: HistoryPage): HistoryEvent[] {
+  return page.records.flatMap(record => record.type === 'event'
+    ? [record.event]
+    : decodeStorageRecord({
+      type: record.event.type.replace(/^chunkrow\//u, ''),
+      seq0: record.event.seq,
+      time0: record.event.time,
+      data: record.event.data,
+    }))
 }
 
 /** Stop the spawned CLI through its normal signal path, escalating only on a stuck teardown. */
@@ -410,7 +431,7 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('GitHub webhook through the real 
         'webhook provenance, title, and permission events',
         async () => await history(baseUrl, sessionId),
         (page) => {
-          const events = page.events.map(item => item.event)
+          const events = historyEvents(page)
           const title = events.find(event => event.type === 'session/title')
           const permission = events.find(event =>
             event.type === 'permission/preset'
@@ -429,7 +450,7 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('GitHub webhook through the real 
         },
         30_000,
       )
-      const webhookMessage = admitted.events.map(item => item.event)
+      const webhookMessage = historyEvents(admitted)
         .find(event => event.type === 'user/message'
           && isRecord(event.data)
           && isRecord(event.data.source)

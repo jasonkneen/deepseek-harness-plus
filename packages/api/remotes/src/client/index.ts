@@ -1,6 +1,7 @@
 /** Platform-neutral assembly of generated Host Remote contributions. */
 
 import type { Context } from '@deepseek-ai/cordis'
+import agentPresetsRemote from '@deepseek-ai/dsh-agent-presets/remote'
 import commandsRemote from '@deepseek-ai/dsh-commands/remote'
 import goalsRemote from '@deepseek-ai/dsh-goal/remote'
 import dynamicRemote from '@deepseek-ai/dsh-cordis-host-runner/remote'
@@ -14,6 +15,7 @@ import type { ClientRemote } from '@deepseek-ai/dsh-api-gateway/client'
 
 export type { ClientRemote } from '@deepseek-ai/dsh-api-gateway/client'
 export type { PluginInventorySnapshot } from '@deepseek-ai/dsh-host-plugin-inventory/types'
+export type {} from '@deepseek-ai/dsh-agent-presets/remote'
 export type {} from '@deepseek-ai/dsh-commands/remote'
 export type {} from '@deepseek-ai/dsh-file-reference/remote'
 export type {} from '@deepseek-ai/dsh-goal/remote'
@@ -106,6 +108,7 @@ export type { SessionReferenceMentionCandidate } from '@deepseek-ai/dsh-session-
 /** Failure vocabulary exposed by the assembled Client data layer. */
 export type ClientFailure =
   | import('@deepseek-ai/dsh-client-connection/client').RpcError
+  | import('@deepseek-ai/dsh-agent-presets/types').AgentPresetError
   | import('@deepseek-ai/dsh-api-session-controller/types').SessionError
   | import('@deepseek-ai/dsh-api-workspace-controller/types').WorkspaceError
 
@@ -133,7 +136,7 @@ export async function apply(ctx: Context): Promise<() => Promise<void>> {
   const disposers: Array<() => Promise<void>> = []
   try {
     for (const contribution of [
-      commandsRemote, goalsRemote, dynamicRemote, fileReferencesRemote,
+      agentPresetsRemote, commandsRemote, goalsRemote, dynamicRemote, fileReferencesRemote,
       pluginInventoryRemote, messageFeedbackRemote, sessionReferencesRemote,
       sessionRemote, workspaceRemote,
     ]) {

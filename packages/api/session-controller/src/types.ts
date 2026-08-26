@@ -6,6 +6,7 @@ import type {
 import type { Branded } from '@deepseek-ai/dsh-brand'
 import type { MessageId } from '@deepseek-ai/dsh-llm/brand'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm/types'
+import type { ChunkRow } from '@deepseek-ai/dsh-session/chunk-rows'
 import type { JsonValue, SessionHeader, SessionId, SurfaceOp } from '@deepseek-ai/dsh-session/types'
 import type { SessionProjectionMap } from '@deepseek-ai/dsh-session-projection/types'
 import type { JobId } from '@deepseek-ai/dsh-jobs/brand'
@@ -361,8 +362,28 @@ export type SessionAddress =
 
 /** One raw Session event in the Remote journal. */
 export interface SessionEventEntry {
+  readonly type: 'event'
   readonly event: SessionWireEvent
 }
+
+/** Event-shaped wire representation of one packed chunk row. */
+export type ChunkRowEvent = {
+  [Kind in ChunkRow['type']]: {
+    readonly type: `chunkrow/${Kind}`
+    readonly seq: number
+    readonly time: number
+    readonly data: Extract<ChunkRow, { readonly type: Kind }>['data']
+  }
+}[ChunkRow['type']]
+
+/** One lossless run of consecutive Assistant delta events in a history page. */
+export interface SessionChunkRun {
+  readonly type: 'chunks'
+  readonly event: ChunkRowEvent
+}
+
+/** One history-page record: a raw event or a packed Assistant delta run. */
+export type SessionHistoryRecord = SessionEventEntry | SessionChunkRun
 
 /** Session event wire form; durable readers own recognition of merge-extensible event names. */
 export interface SessionWireEvent {
@@ -370,7 +391,6 @@ export interface SessionWireEvent {
   readonly seq: number
   readonly time: number
   readonly data: JsonValue
-  readonly ignorable?: true
   readonly sourceEventSeqs?: number[]
   readonly surfaceOp?: SurfaceOp
 }
@@ -392,7 +412,7 @@ export interface SessionFollowRequest {
 
 /** One contiguous backwards page of a Session log. */
 export interface SessionPage {
-  readonly events: readonly SessionEventEntry[]
+  readonly records: readonly SessionHistoryRecord[]
   readonly hasMore: boolean
 }
 
@@ -402,11 +422,11 @@ export type SessionFollowFrame =
     readonly type: 'snapshot'
     readonly header: SessionHeader
     readonly cursor: number
-    readonly events: readonly SessionEventEntry[]
+    readonly records: readonly SessionHistoryRecord[]
     readonly hasMore: boolean
     readonly projections: SessionProjectionBaseline
   }
-  | ({ readonly type: 'event' } & SessionEventEntry)
+  | SessionEventEntry
 
 /** One pending inbox occurrence in the authoritative queue snapshot. */
 export interface SessionQueuedItem {

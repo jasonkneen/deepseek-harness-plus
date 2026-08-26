@@ -48,10 +48,10 @@ describe('web e2e: /goal human transcript presentation', () => {
     await expect.poll(() => page.getByText('Into the Unknown', { exact: false }).count(), {
       timeout: 15_000,
     }).toBe(1)
-    const input = page.locator('textarea').first()
+    const input = page.locator('[data-composer-input]').first()
     await input.fill('/goal')
     await input.press('Enter')
-    await expect.poll(() => input.inputValue()).toBe('/goal ')
+    await expect.poll(() => input.textContent()).toBe('/goal ')
     await input.press('Enter')
 
     const commandInput = page.locator('[data-command-input]')

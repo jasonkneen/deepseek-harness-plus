@@ -11,7 +11,7 @@ Create `greet-tool.ts` in `tmp/cordis-tutorial`:
 ```ts
 import type { Context } from '@deepseek-ai/cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
-import { CallId } from '@deepseek-ai/dsh-llm'
+import { ToolCallId } from '@deepseek-ai/dsh-llm'
 
 export const name = 'greet-tool'
 export const inject = ['tools']
@@ -33,10 +33,10 @@ export function apply(ctx: Context) {
   }))
 
   // Drive one call through the real execution pipeline, standing in for
-  // the model. CallId brands the correlation id a provider would issue.
+  // the model. ToolCallId brands the correlation id a provider would issue.
   void (async () => {
     const result = await ctx.tools.execute({
-      callId: CallId('demo-1'),
+      callId: ToolCallId('demo-1'),
       name: 'greet',
       arguments: { name: 'Cordis' },
       signal: new AbortController().signal,

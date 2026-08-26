@@ -114,6 +114,12 @@ const user = (seq: number, text: string): UserMessageNode => ({
   content: [{ type: 'text', text }] as never,
   source: null,
 })
+const userInTurn = (seq: number, text: string, turn: number): ConversationNode => ({
+  ...user(seq, text),
+  // The production Location index owns this association. The legacy fixture
+  // accepts the extra coordinate so component tests can build the same view.
+  turn,
+} as unknown as ConversationNode)
 const assistant = (seq: number, text: string, turn = 1): AssistantMessageNode => ({
   kind: 'assistant', seq, time: seq * 1_000, turn, step: 1, blocks: [{ kind: 'text', text }],
 })
@@ -406,6 +412,68 @@ describe('Chat node rendering', () => {
 })
 
 describe('ChatView', () => {
+  it('projects loaded turns into prompt and response navigation previews', () => {
+    const snapshot = chatSnapshotFixture({
+      nodes: [
+        userInTurn(1, 'first prompt', 1),
+        assistant(2, 'first response', 1),
+        userInTurn(4, 'second prompt', 2),
+        assistant(5, 'second response', 2),
+      ],
+      turnEnds: new Map([[1, 3], [2, 6]]),
+    })
+    expect(snapshot.navigation.items()).toEqual([
+      { turn: 1, anchorKey: 'fixture:user:1', prompt: 'first prompt', response: 'first response' },
+      { turn: 2, anchorKey: 'fixture:user:4', prompt: 'second prompt', response: 'second response' },
+    ])
+    const h = makeHarness({}, {}, snapshot)
+    const view = render(<h.ChatView {...h.props} />)
+    const navigation = view.getByRole('navigation', { name: '轮次导航' })
+    expect(navigation.style.getPropertyValue('--turn-natural-height')).toBe('22px')
+    const first = view.getByRole('button', { name: '跳转到第 1 轮' })
+    const second = view.getByRole('button', { name: '跳转到第 2 轮' })
+    expect(first.parentElement?.style.getPropertyValue('--turn-natural-position')).toBe('0px')
+    expect(second.parentElement?.style.getPropertyValue('--turn-natural-position')).toBe('10px')
+    expect(second.getAttribute('aria-current')).toBe('true')
+    fireEvent.focus(first)
+    const preview = view.getByRole('tooltip')
+    expect(preview.textContent).toContain('first prompt')
+    expect(preview.textContent).toContain('first response')
+  })
+
+  it('jumps to a turn anchor and reflows stable marks after an older page arrives', () => {
+    const later = [
+      userInTurn(4, 'second prompt', 2), assistant(5, 'second response', 2),
+      userInTurn(7, 'third prompt', 3), assistant(8, 'third response', 3),
+    ]
+    const h = makeHarness({ nodes: later }, { hasMore: true })
+    const view = render(<h.ChatView {...h.props} />)
+    const second = view.getByRole('button', { name: '跳转到第 2 轮' })
+    const secondPosition = second.parentElement as HTMLElement
+    expect(secondPosition.style.getPropertyValue('--turn-position')).toBe('0%')
+
+    const scroller = view.container.querySelector('[class*="scroll"]') as HTMLDivElement
+    const metrics = installScrollMetrics(scroller, 1_000, 300)
+    metrics.setLayout(1_000, 700)
+    vi.spyOn(scroller, 'getBoundingClientRect').mockReturnValue({ top: 0, bottom: 300 } as DOMRect)
+    const secondRow = view.container.querySelector('[data-chat-flow-key="fixture:user:4"]') as HTMLElement
+    vi.spyOn(secondRow, 'getBoundingClientRect').mockReturnValue({ top: -500, bottom: -440 } as DOMRect)
+    fireEvent.click(second)
+    expect(scroller.scrollTop).toBe(176)
+    expect(second.getAttribute('aria-current')).toBe('true')
+
+    act(() => {
+      h.setChat({
+        nodes: [userInTurn(1, 'first prompt', 1), assistant(2, 'first response', 1), ...later],
+        turnTimings: new Map([[1, { startTime: 1_000 }], [2, { startTime: 4_000 }], [3, { startTime: 7_000 }]]),
+      })
+    })
+    const movedSecond = view.getByRole('button', { name: '跳转到第 2 轮' })
+    expect(movedSecond.parentElement).toBe(secondPosition)
+    expect(secondPosition.style.getPropertyValue('--turn-natural-position')).toBe('10px')
+    expect(secondPosition.style.getPropertyValue('--turn-position')).toBe('50%')
+  })
+
   it('hands a windowless tool result to the Tool seat with an empty tool name', () => {
     const h = makeHarness({
       nodes: [{ ...toolResult(3, 'w1'), call: null }],
@@ -913,7 +981,7 @@ describe('ChatView', () => {
     const view = render(<h.ChatView {...h.props} />)
     expect(view.container.querySelectorAll('h1')).toHaveLength(1)
     const literal = view.getByText((_content, element) => (
-      element?.tagName === 'DIV' && element.childElementCount === 0 && element.textContent === markdown
+      element?.tagName === 'SPAN' && element.childElementCount === 0 && element.textContent === markdown
     ))
     expect(literal.querySelector('h1')).toBeNull()
 

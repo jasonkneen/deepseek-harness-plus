@@ -1,9 +1,17 @@
 import type { Context } from '@deepseek-ai/cordis'
 import { describe, expect, it } from 'vitest'
 import type {
-  ConversationEventInput, ConversationNodeDefinition, ConversationViewDefinition,
+  SessionEventLikeEntry, SessionLiveEventEntry,
+} from '@deepseek-ai/dsh-api-session-controller/client'
+import type {
+  ChunkRowEvent,
+} from '@deepseek-ai/dsh-api-session-controller/types'
+import type {
+  ConversationNodeDefinition, ConversationViewDefinition,
 } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import { ConversationNodeAssembler, inspectRequestPrompt } from '@deepseek-ai/dsh-client-ui-conversation/client'
+import { isChunkRow, packChunkRuns, type ChunkRow } from '@deepseek-ai/dsh-session/chunk-rows'
+import type { SessionEvent } from '@deepseek-ai/dsh-session/types'
 import { registerTrajectoryAssistantDefinition } from '../src/client/trajectory-assistant-definition.ts'
 import { registerTrajectoryCompactionDefinitions } from '../src/client/trajectory-compaction-definition.ts'
 import type { TrajectorySnapshot } from '../src/client/trajectory-contract.ts'
@@ -52,19 +60,38 @@ function at(
   type: string,
   data: unknown,
   extra: Record<string, unknown> = {},
-): ConversationEventInput {
+): SessionLiveEventEntry {
   return {
+    type: 'event',
     event: {
       seq,
       time: 1_700_000_000_000 + seq,
       type,
       data,
       ...extra,
-    } as unknown as ConversationEventInput['event'],
+    } as unknown as SessionEvent,
   }
 }
 
-function assembler(events: readonly ConversationEventInput[]): ConversationNodeAssembler {
+function chunkEntry(row: ChunkRow): SessionEventLikeEntry {
+  return {
+    type: 'chunks',
+    event: {
+      type: `chunkrow/${row.type}`,
+      seq: row.seq0,
+      time: row.time0,
+      data: row.data,
+    } as ChunkRowEvent,
+  }
+}
+
+function packedInputs(entries: readonly SessionLiveEventEntry[]): SessionEventLikeEntry[] {
+  return packChunkRuns(entries.map(entry => entry.event)).map((record) => {
+    return isChunkRow(record) ? chunkEntry(record) : { type: 'event', event: record }
+  })
+}
+
+function assembler(events: readonly SessionEventLikeEntry[]): ConversationNodeAssembler {
   const value = new ConversationNodeAssembler(
     new TestEventDefinitions(),
     new TestViewDefinitions(),
@@ -151,6 +178,139 @@ describe('Trajectory conversation Definitions', () => {
       retryDelayMs: 25,
       usage: { inputTokens: 10, outputTokens: 3 },
     }])
+  })
+
+  it('folds packed Assistant runs to the same Trajectory state as scalar deltas', () => {
+    const runningHistory = [
+      at(1, 'turn/start', { turn: 1 }),
+      at(2, 'step/start', { turn: 1, step: 1 }),
+      at(3, 'assistant/chunk', {
+        turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: '' },
+      }),
+      at(4, 'assistant/chunk', {
+        turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: '  ' },
+      }),
+      at(5, 'assistant/chunk', {
+        turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: 'answer' },
+      }),
+      at(6, 'assistant/chunk', {
+        turn: 1, step: 1, chunk: { type: 'reasoning-delta', index: 1, text: '' },
+      }),
+      at(7, 'assistant/chunk', {
+        turn: 1, step: 1, chunk: { type: 'reasoning-delta', index: 1, text: 'think' },
+      }),
+      at(8, 'assistant/chunk', {
+        turn: 1, step: 1, chunk: { type: 'reasoning-delta', index: 1, text: 'ing' },
+      }),
+      at(9, 'assistant/chunk', {
+        turn: 1, step: 1,
+        chunk: { type: 'tool-call-delta', index: 2, id: 'call-1', argumentsDelta: '' },
+      }),
+      at(10, 'assistant/chunk', {
+        turn: 1, step: 1,
+        chunk: { type: 'tool-call-delta', index: 2, id: 'call-1', argumentsDelta: '{"x":' },
+      }),
+      at(11, 'assistant/chunk', {
+        turn: 1, step: 1,
+        chunk: { type: 'tool-call-delta', index: 2, id: 'call-1', argumentsDelta: '1}' },
+      }),
+    ]
+    const runningScalar = snapshot(assembler(runningHistory))
+    const packedHistory = packedInputs(runningHistory)
+    expect(packedHistory.filter(input => input.event.type.startsWith('chunkrow/'))).toHaveLength(3)
+    const runningPacked = snapshot(assembler(packedHistory))
+    expect(runningPacked).toEqual(runningScalar)
+    expect(runningPacked.partial?.blocks).toEqual([
+      { kind: 'text', text: '  answer' },
+      { kind: 'reasoning', text: 'thinking' },
+      { kind: 'tool-call', callId: 'call-1', name: '', argsRaw: '{"x":1}' },
+    ])
+
+    const partialHistory = [
+      ...runningHistory.slice(2),
+      at(12, 'step/end', { turn: 1, step: 1 }),
+    ]
+    const partialScalar = snapshot(assembler(partialHistory))
+    const partialPacked = snapshot(assembler(packedInputs(partialHistory)))
+    expect(partialPacked).toEqual(partialScalar)
+    expect(partialPacked.eventNodes).toMatchObject([{
+      kind: 'assistant',
+      interrupted: true,
+      blocks: [
+        { kind: 'text', text: '  answer' },
+        { kind: 'reasoning', text: 'thinking' },
+        { kind: 'tool-call', callId: 'call-1', name: '', argsRaw: '{"x":1}' },
+      ],
+    }])
+
+    const finalizedHistory = [
+      at(20, 'turn/start', { turn: 2 }),
+      at(21, 'step/start', { turn: 2, step: 1 }),
+      at(22, 'assistant/chunk', {
+        turn: 2, step: 1, chunk: { type: 'text-delta', index: 0, text: '' },
+      }, { time: 3_000 }),
+      at(23, 'assistant/chunk', {
+        turn: 2, step: 1, chunk: { type: 'text-delta', index: 0, text: ' ' },
+      }, { time: 3_000 }),
+      at(24, 'assistant/chunk', {
+        turn: 2, step: 1, chunk: { type: 'text-delta', index: 0, text: 'first' },
+      }, { time: 2_998 }),
+      at(25, 'assistant/chunk', {
+        turn: 2, step: 1, chunk: { type: 'usage', usage: { inputTokens: 10, outputTokens: 3 } },
+      }),
+      at(26, 'llm/retry', {
+        retryId: 'packed-retry', turn: 2, step: 1, provider: 'test', mode: 'normal',
+        policyKey: 'test-normal', retry: 1, maxRetries: 2, delayMs: 25,
+        failure: { code: 'TRANSPORT', message: 'temporary failure' },
+      }),
+      at(27, 'assistant/chunk', {
+        turn: 2, step: 1, chunk: { type: 'text-delta', index: 0, text: '' },
+      }),
+      at(28, 'assistant/chunk', {
+        turn: 2, step: 1, chunk: { type: 'text-delta', index: 0, text: 'second' },
+      }),
+      at(29, 'assistant/chunk', {
+        turn: 2, step: 1, chunk: { type: 'text-delta', index: 0, text: ' attempt' },
+      }),
+      at(30, 'assistant/message', {
+        turn: 2, step: 1, message: assistantMessage('packed-final', 'done'),
+      }),
+      at(31, 'step/end', { turn: 2, step: 1 }),
+    ]
+    const finalizedScalar = snapshot(assembler(finalizedHistory))
+    const finalizedPacked = snapshot(assembler(packedInputs(finalizedHistory)))
+    expect(finalizedPacked).toEqual(finalizedScalar)
+    expect(finalizedPacked.eventNodes.find(node => node.kind === 'assistant')).toMatchObject({
+      timing: { firstTokenTime: 3_000 },
+    })
+    expect(finalizedPacked.requests).toMatchObject([{
+      purpose: 'assistant',
+      usage: { inputTokens: 10, outputTokens: 3 },
+      retry: 1,
+    }])
+
+    const namedToolHistory = [
+      at(40, 'turn/start', { turn: 3 }),
+      at(41, 'step/start', { turn: 3, step: 1 }),
+      ...[42, 43, 44].map(seq => at(seq, 'assistant/chunk', {
+        turn: 3, step: 1,
+        chunk: { type: 'tool-call-delta', index: 0, id: 'call-2', name: 'read', argumentsDelta: '' },
+      }, { time: 4_000 + seq - 42 })),
+      at(45, 'assistant/message', {
+        turn: 3,
+        step: 1,
+        message: {
+          ...assistantMessage('named-tool-final', ''),
+          content: [{ type: 'tool-call', id: 'call-2', name: 'read', arguments: '' }],
+        },
+      }),
+    ]
+    const namedToolScalar = snapshot(assembler(namedToolHistory))
+    const namedToolPacked = snapshot(assembler(packedInputs(namedToolHistory)))
+    expect(namedToolPacked).toEqual(namedToolScalar)
+    expect(namedToolPacked.eventNodes.find(node => node.kind === 'assistant')).toMatchObject({
+      timing: { firstTokenTime: 4_000 },
+    })
   })
 
   it('classifies a cancellation-finalized prefix as an interrupted request result', () => {

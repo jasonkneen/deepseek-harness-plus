@@ -26,7 +26,20 @@ Claude Code 会把 Agent SDK 结果映射为五种类别：
 
 诊断还会保留派生的 `query-start`、`query-run`、`process` 或 `teardown` 阶段，以及分别观测到的退出码与信号。参与失败的权限决定会跟在失败行之后。成功完成与本地取消不公开失败诊断，原始 SDK 文本只留在内部 cause 链和 Host 观测中。
 
-Codex 当前仍保留[结构化失败事实决策](../feature/2026-08-18-product-subagent-failure-facts.zh.md)记录的锁定版本类别。两个提供方可以分别采用最小映射，因为它们既不共享公共错误枚举，也不要求消费方根据类别文本分支。
+Codex 会把 app-server 失败映射为八种类别：
+
+| 类别 | 安全输入 |
+| --- | --- |
+| `limit` | 上下文、会话预算或用量限制 |
+| `access-policy` | 身份验证、网络安全策略、产品策略或 sandbox 失败 |
+| `service` | 过载或内部服务失败 |
+| `transport` | HTTP 与响应 stream 连接失败或尝试耗尽 |
+| `product-error` | 无效请求、回滚、活动轮次或其他产品失败 |
+| `invalid-result` | 已完成轮次没有非空白最终答案 |
+| `process` | 受管 app-server 在其他终态结果前退出 |
+| `unknown` | 启动、清理、格式错误的协议值，或没有更具体安全事实的失败 |
+
+Codex 诊断会保留 `initialize`、`thread-start`、`turn-start`、`turn`、`process` 或 `teardown`，以及适用的数值 HTTP status 和分别观测到的退出码与信号。`contextWindowExceeded` 仍把共享终止原因映射为 `max-tokens`；其他所有类别仍使用 `error`。只有结构化协议事实会贡献权限说明。产品 stderr 只供 Host 观测，既不会被分类，也不会复制进结果。
 
 ### 所有权与生命周期
 
@@ -40,7 +53,7 @@ Codex 当前仍保留[结构化失败事实决策](../feature/2026-08-18-product
 
 ## Verification
 
-Claude Code 包测试覆盖全部粗粒度类别、四个阶段、未知结构化值、权限顺序、原始文本排除、成功与取消时省略、并发运行隔离，以及彼此独立的退出码与信号字段。真实 Agent SDK 0.3.241 与 Claude Code 2.1.241 fixture 会产生实际 max-turns 限制、进程失败、权限拒绝、严格最终答案、取消与整棵进程树完全停稳。Loader 与无密钥产品组合继续公开静态工具，不增加诊断解析器或模型可见类别输入。
+Claude Code 包测试覆盖全部粗粒度类别、四个阶段、未知结构化值、权限顺序、原始文本排除、成功与取消时省略、并发运行隔离，以及彼此独立的退出码与信号字段。真实 Agent SDK 0.3.241 与 Claude Code 2.1.241 fixture 会产生实际 max-turns 限制、进程失败、权限拒绝、严格最终答案、取消与整棵进程树完全停稳。Codex 包测试覆盖全部粗粒度类别、六个阶段、适用 HTTP status、结构化权限顺序、stderr 排除、成功与取消时省略、并发及清理聚合。真实 0.149.1 app-server fixture 会产生服务、产品错误、进程、最终答案、模型隔离、取消与完全停稳证据。Loader 与无密钥产品组合继续公开静态工具，不增加诊断解析器或模型可见类别输入。
 
 ## Alternatives considered
 
@@ -54,6 +67,6 @@ Claude Code 包测试覆盖全部粗粒度类别、四个阶段、未知结构�
 
 ## Consequences
 
-Claude Code 升级不再要求为每个 SDK 错误 subtype 提供模型可见承诺。父级仍可区分限制、一般产品失败、无效结果、受管进程退出与未知失败，并保留阶段、权限与进程事实。
+产品运行时升级不再要求为每个 SDK 或 app-server 错误成员提供模型可见承诺。父级仍可区分限制、访问与策略限制、服务与传输失败、一般产品失败、无效结果、受管进程退出与未知失败，并保留适用的阶段、权限、HTTP 与进程事实。
 
 诊断仍是安全展示文本，而不是恢复协议。本改动不增加原始错误转发、fallback 模型、自动重试、产品会话持久化、公共结构化结果字段或动态提供方与模型选择。

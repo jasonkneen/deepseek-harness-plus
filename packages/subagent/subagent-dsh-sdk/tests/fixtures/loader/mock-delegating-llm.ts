@@ -1,7 +1,7 @@
 import type { Context } from '@deepseek-ai/cordis'
 import { appendFileSync } from 'node:fs'
 import type { GenerateOptions, LlmResolvedModelInfo, StreamChunk } from '@deepseek-ai/dsh-llm'
-import { CallId, LlmAdapter, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
+import { ToolCallId, LlmAdapter, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 
 /**
  * Test adapter for the `mock-delegate` model: the first request calls the
@@ -42,8 +42,8 @@ class MockDelegatingAdapter extends LlmAdapter {
         ...selectedRoute,
       })
       yield { type: 'block-start', index: 0, blockType: 'tool-call' }
-      yield { type: 'tool-call-delta', index: 0, id: CallId('call-delegate'), name: 'subagent', argumentsDelta: args }
-      yield { type: 'block-end', index: 0, block: { type: 'tool-call', id: CallId('call-delegate'), name: 'subagent', arguments: args } }
+      yield { type: 'tool-call-delta', index: 0, id: ToolCallId('call-delegate'), name: 'subagent', argumentsDelta: args }
+      yield { type: 'block-end', index: 0, block: { type: 'tool-call', id: ToolCallId('call-delegate'), name: 'subagent', arguments: args } }
       yield { type: 'usage', usage: { inputTokens: 10, outputTokens: 5 } }
       yield { type: 'finish', reason: { kind: 'tool-calls' } }
       return

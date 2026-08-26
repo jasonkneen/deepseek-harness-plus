@@ -39,7 +39,12 @@
   - button "System" [pressed]:
     - img
     - text: System
-  - text: Enter behavior while busy Busy only; Cmd/Ctrl+Enter uses the other behavior
+  - text: Font size Only affects conversation content 14
+  - button "Increase font size":
+    - img
+  - button "Decrease font size":
+    - img
+  - text: px Enter behavior while busy Busy only; Cmd/Ctrl+Enter uses the other behavior
   - button "Queue":
     - text: Queue
     - img

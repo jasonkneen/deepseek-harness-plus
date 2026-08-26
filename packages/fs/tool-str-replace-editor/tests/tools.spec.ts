@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import { FsVersion } from '@deepseek-ai/dsh-fs'
-import { CallId } from '@deepseek-ai/dsh-llm'
+import { ToolCallId } from '@deepseek-ai/dsh-llm'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
 import AgentRegistry, { Inbox } from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
@@ -55,7 +55,7 @@ function text(result: { content: { type: string; text?: string }[] }): string {
 function call(ctx: Context, owner: Agent | undefined, args: unknown) {
   return ctx.tools.execute({
     signal: new AbortController().signal,
-    callId: CallId(`str-replace-editor-${++callNumber}`),
+    callId: ToolCallId(`str-replace-editor-${++callNumber}`),
     name: 'str_replace_editor',
     arguments: args,
     ...owner === undefined ? {} : { agent: owner },

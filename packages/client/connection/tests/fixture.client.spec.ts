@@ -9,6 +9,8 @@ import type {
   SessionId,
 } from '../src/client/api.ts'
 import { RpcId } from '../src/client/api.ts'
+import { decodeStorageRecord } from '@deepseek-ai/dsh-session/chunk-rows'
+import type { ChunkRow } from '@deepseek-ai/dsh-session/chunk-rows'
 import {
   FixtureApiClient,
   createFixtureFaces,
@@ -35,26 +37,60 @@ interface FixtureSessionSummary {
 }
 
 interface FixtureHistoryEntry {
+  readonly type: 'event'
   readonly event: SessionEvent
 }
 
+type FixtureChunkRowEvent = {
+  [Kind in ChunkRow['type']]: {
+    readonly type: `chunkrow/${Kind}`
+    readonly seq: number
+    readonly time: number
+    readonly data: Extract<ChunkRow, { readonly type: Kind }>['data']
+  }
+}[ChunkRow['type']]
+
+interface FixtureHistoryChunkRun {
+  readonly type: 'chunks'
+  readonly event: FixtureChunkRowEvent
+}
+
+type FixtureHistoryRecord = FixtureHistoryEntry | FixtureHistoryChunkRun
+
 interface FixturePage {
-  readonly events: readonly FixtureHistoryEntry[]
+  readonly records: readonly FixtureHistoryRecord[]
   readonly hasMore: boolean
+}
+
+function historyEvents(records: readonly FixtureHistoryRecord[]): SessionEvent[] {
+  return records.flatMap(record => record.type === 'event'
+    ? [record.event]
+    : decodeStorageRecord(chunkRow(record.event)))
+}
+
+function chunkRow(event: FixtureChunkRowEvent): ChunkRow {
+  switch (event.type) {
+    case 'chunkrow/text-chunks':
+      return { type: 'text-chunks', seq0: event.seq, time0: event.time, data: event.data }
+    case 'chunkrow/reasoning-chunks':
+      return { type: 'reasoning-chunks', seq0: event.seq, time0: event.time, data: event.data }
+    case 'chunkrow/tool-call-chunks':
+      return { type: 'tool-call-chunks', seq0: event.seq, time0: event.time, data: event.data }
+  }
 }
 
 type FixtureFollowFrame =
   | {
     readonly type: 'snapshot'
     readonly cursor: number
-    readonly events: readonly FixtureHistoryEntry[]
+    readonly records: readonly FixtureHistoryRecord[]
     readonly hasMore: boolean
     readonly projections: {
       readonly asOfSeq: number
       readonly values: Readonly<Record<string, unknown>>
     }
   }
-  | ({ readonly type: 'event' } & FixtureHistoryEntry)
+  | FixtureHistoryEntry
 
 type FixtureControlFrame =
   | {
@@ -580,21 +616,22 @@ describe('createFixtureApi', () => {
     if (!tail.result.ok) throw new Error('history failed')
     const tailPage = tail.result.value
     expect(tailPage.hasMore).toBe(true)
-    expect(tailPage.events[0]?.event.type).toBe('turn/start') // cut lands on a turn boundary
-    const boundary = tailPage.events[0]?.event.seq ?? 0
+    const tailEvents = historyEvents(tailPage.records)
+    expect(tailEvents[0]?.type).toBe('turn/start') // cut lands on a turn boundary
+    const boundary = tailEvents[0]?.seq ?? 0
     expect(boundary).toBeGreaterThan(0)
     const older = await api.sessions.history(req({ sessionId: sid('fx-alpha'), beforeSeq: boundary, maxMessages: 10 }))
     if (!older.result.ok) throw new Error('older failed')
-    const olderTail = older.result.value.events.at(-1)?.event
+    const olderTail = historyEvents(older.result.value.records).at(-1)
     expect((olderTail?.seq ?? -1) + 1).toBe(boundary) // pages stitch with no hole/overlap
     // Out-of-range beforeSeq clamps instead of exploding.
     const clamped = await api.sessions.history(req({ sessionId: sid('fx-alpha'), beforeSeq: -5, maxMessages: 10 }))
     if (!clamped.result.ok) throw new Error('clamped failed')
-    expect(clamped.result.value.events).toEqual([])
+    expect(clamped.result.value.records).toEqual([])
     // Unknown session: empty page, not an error (history of a bare id).
     const empty = await api.sessions.history(req({ sessionId: sid('no-such'), maxMessages: 10 }))
     if (!empty.result.ok) throw new Error('empty failed')
-    expect(empty.result.value).toEqual({ events: [], hasMore: false })
+    expect(empty.result.value).toEqual({ records: [], hasMore: false })
   })
 
   it('serves raw history entries with replayable tool-result metadata', async () => {
@@ -602,10 +639,8 @@ describe('createFixtureApi', () => {
     const response = await api.sessions.history(req({ sessionId: sid('fx-alpha'), maxMessages: 200 }))
     if (!response.result.ok) throw new Error('history failed')
 
-    const entries = response.result.value.events
-    expect(entries.every(entry => !Object.hasOwn(entry, 'view'))).toBe(true)
-    const results = entries
-      .map(entry => entry.event)
+    const records = response.result.value.records
+    const results = historyEvents(records)
       .filter(event => event.type === 'tool/result')
 
     expect(results.find(event => event.data.turn === 64)).toMatchObject({
@@ -668,7 +703,7 @@ describe('createFixtureApi', () => {
     await new Promise(resolve => setTimeout(resolve, 600))
     const after = await api.sessions.history(req({ sessionId }))
     if (!after.result.ok) throw new Error('history failed')
-    expect(JSON.stringify(after.result.value.events)).toContain('openai/gpt-5')
+    expect(JSON.stringify(after.result.value.records)).toContain('openai/gpt-5')
   })
 
   it('serves configured DeepSeek readiness and keeps credential values write-only', async () => {
@@ -705,7 +740,7 @@ describe('createFixtureApi', () => {
     const api = createFixtureApi()
     const tail = await api.sessions.history(req({ sessionId: sid('fx-alpha'), maxMessages: 10 }))
     if (!tail.result.ok) throw new Error('history failed')
-    const events = tail.result.value.events.map(e => e.event)
+    const events = historyEvents(tail.result.value.records)
     const todoAt = events.findIndex(e => e.type === 'todo/write')
     expect(todoAt).toBeGreaterThan(0)
     // Production ordering (the tool appends mid-execution): call → snapshot → result.
@@ -1134,8 +1169,8 @@ describe('createFixtureApi', () => {
     // so the event is located by seq and its payload checked structurally).
     const history = await api.sessions.history(req({ sessionId: sid('fx-alpha'), maxMessages: 100 }))
     if (!history.result.ok) throw new Error('history failed')
-    const appended = history.result.value.events.find(entry => entry.event.seq === acceptedSeq)
-    expect(appended?.event).toMatchObject({
+    const appended = historyEvents(history.result.value.records).find(event => event.seq === acceptedSeq)
+    expect(appended).toMatchObject({
       type: 'session/title',
       data: { title: '重命名', messageSeqs: [], source: { kind: 'user' } },
     })
@@ -1433,8 +1468,9 @@ describe('createFixtureApi', () => {
     await new Promise(resolve => setTimeout(resolve, 10))
     await vi.waitFor(() => {
       const snapshot = followed.find(frame => frame.type === 'snapshot')
-      expect(snapshot?.events.some(entry => JSON.stringify(entry.event.data).includes('静默丢帧'))).toBe(true)
-      expect(snapshot?.events.some(entry => JSON.stringify(entry.event.data).includes('正常直播'))).toBe(true)
+      const events = snapshot === undefined ? [] : historyEvents(snapshot.records)
+      expect(events.some(event => JSON.stringify(event.data).includes('静默丢帧'))).toBe(true)
+      expect(events.some(event => JSON.stringify(event.data).includes('正常直播'))).toBe(true)
     })
     hooks.appendTitle('fx-alpha', 'Fixture 修订标题')
     hooks.beginModelRetry('fx-alpha')
@@ -1456,7 +1492,7 @@ describe('createFixtureApi', () => {
     // Paging and resumed follow agree on the recovered durable event.
     const repull = await api.sessions.history(req({ sessionId: sid('fx-alpha'), maxMessages: 5 }))
     if (!repull.result.ok) throw new Error('repull failed')
-    expect(JSON.stringify(repull.result.value.events)).toContain('静默丢帧')
+    expect(JSON.stringify(repull.result.value.records)).toContain('静默丢帧')
     // breakStreams force-ends follow and control without client aborts.
     await new Promise(resolve => setTimeout(resolve, 10))
     hooks.breakStreams()
@@ -1567,33 +1603,37 @@ describe('FixtureApiClient (protocol-level fake carrier)', () => {
     const moved = await workspaces.insertSessionBefore({ workspaceId: wsid, sessionId: attached.result.value.sessionId })
     if (!moved.result.ok) throw new Error('workspace move failed')
     expect(moved.result.value.workspace.sessionIds).toEqual([attached.result.value.sessionId])
-    // Goal lifecycle over the fixture fold: create → edit → pause → resume → complete → clear;
-    // every mutation acknowledges with the NEW CAS ref (state rides the projection frames).
-    const goalCreated = await client.goals.create({ sessionId: id, objective: 'ship it' })
-    if (!goalCreated.result.ok) throw new Error('goal create failed')
-    let ref = goalCreated.result.value.ref
-    expect(ref.revision).toBe(1)
-    const edited = await client.goals.edit({ sessionId: id, ref, objective: 'ship it v2' })
-    if (!edited.result.ok) throw new Error('goal edit failed')
-    ref = edited.result.value.ref
-    const paused = await client.goals.pause({ sessionId: id, ref })
-    if (!paused.result.ok) throw new Error('goal pause failed')
-    ref = paused.result.value.ref
-    const resumed = await client.goals.resume({ sessionId: id, ref })
-    if (!resumed.result.ok) throw new Error('goal resume failed')
-    ref = resumed.result.value.ref
+  })
+
+  it('folds the goal lifecycle over the Goal Remotes', async () => {
+    const client = new FixtureApiClient()
+    const sessions = createSessionClient(client.rpc)
+    const created = await sessions.create({})
+    if (!created.result.ok) throw new Error('create failed')
+    const id = created.result.value.sessionId
+    const goal = (endpoint: string, args: Record<string, unknown>) =>
+      client.rpc.call('/api', endpoint, { args: { agentId: id, ...args } })
+
+    // create → edit → pause → resume → complete → clear; each mutation advances the CAS
+    // revision by one (state rides the projection frames).
+    const goalCreated = await goal('goals/create', { request: { objective: 'ship it' } })
+    if (!goalCreated.ok) throw new Error('goal create failed')
+    const { id: goalId, revision } = (goalCreated.value as { ref: { id: string; revision: number } }).ref
+    expect(revision).toBe(1)
+    const ref = (at: number) => ({ id: goalId, revision: at })
+    expect((await goal('goals/edit', { ref: ref(1), request: { objective: 'ship it v2' } })).ok).toBe(true)
+    expect((await goal('goals/pause', { ref: ref(2) })).ok).toBe(true)
+    expect((await goal('goals/resume', { ref: ref(3) })).ok).toBe(true)
     // A stale ref loses the CAS check.
-    expect((await client.goals.pause({ sessionId: id, ref: { ...ref, revision: 1 } })).result.ok).toBe(false)
-    const completed = await client.goals.complete({ sessionId: id, ref })
-    if (!completed.result.ok) throw new Error('goal complete failed')
-    ref = completed.result.value.ref
+    expect((await goal('goals/pause', { ref: ref(1) })).ok).toBe(false)
+    expect((await goal('goals/complete', { ref: ref(4) })).ok).toBe(true)
     // complete → complete is an invalid transition.
-    expect((await client.goals.complete({ sessionId: id, ref })).result.ok).toBe(false)
-    expect((await client.goals.clear({ sessionId: id, ref })).result).toEqual({ ok: true, value: { cleared: true } })
+    expect((await goal('goals/complete', { ref: ref(5) })).ok).toBe(false)
+    expect(await goal('goals/clear', { ref: ref(5) })).toEqual({ ok: true, value: ref(6) })
 
     const goalHistory = await sessions.history({ sessionId: id })
     if (!goalHistory.result.ok) throw new Error('goal history failed')
-    const goalEvents = goalHistory.result.value.events.map(entry => entry.event as unknown as {
+    const goalEvents = historyEvents(goalHistory.result.value.records).map(event => event as unknown as {
       type: string
       data: {
         operation?: string

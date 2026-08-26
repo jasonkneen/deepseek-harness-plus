@@ -36,7 +36,12 @@ function state(overrides: Partial<ModelDirectoryState> = {}): ModelDirectoryStat
     groups: [{
       id: 'deepseek-official',
       name: 'DeepSeek',
-      models: [{ id: 'deepseek-v4-flash', name: 'DeepSeek-V4-Flash', reasoning }],
+      models: [{
+        id: 'deepseek-v4-flash',
+        name: 'DeepSeek-V4-Flash',
+        description: 'Fast catalog description',
+        reasoning,
+      }],
     }],
     failures: [],
     status: 'ready',
@@ -48,7 +53,7 @@ function state(overrides: Partial<ModelDirectoryState> = {}): ModelDirectoryStat
 afterEach(cleanup)
 
 describe('ModelSelect reasoning effort', () => {
-  it('renders adapter metadata and submits the effort as part of the session selection', async () => {
+  it('renders effort names without descriptions and submits the effort as part of the session selection', async () => {
     const directory = createSnapshotStore<ModelDirectoryState>(state())
     const select = vi.fn(async (selection: ModelSelection) => {
       directory.set(state({ current: selection }))
@@ -69,7 +74,8 @@ describe('ModelSelect reasoning effort', () => {
     fireEvent.click(trigger)
     fireEvent.click(screen.getByRole('menuitem', { name: /推理等级/ }))
     expect(screen.getAllByRole('menuitemradio').map(item => item.textContent))
-      .toEqual(['Off', 'High', 'MaxLargest budget'])
+      .toEqual(['Off', 'High', 'Max'])
+    expect(screen.queryByText('Largest budget')).toBeNull()
 
     fireEvent.click(screen.getByRole('menuitemradio', { name: /Max/ }))
     await waitFor(() => {
@@ -133,6 +139,7 @@ describe('ModelSelect reasoning effort', () => {
     fireEvent.click(screen.getByRole('menuitem', { name: /模型/ }))
     expect(screen.queryByRole('menuitemradio', { name: 'removed-model' })).toBeNull()
     expect(screen.getByRole('menuitemradio', { name: 'DeepSeek-V4-Flash' })).toBeTruthy()
+    expect(screen.queryByText('Fast catalog description')).toBeNull()
   })
 
   it('shows loading until the catalog and Session projection are both ready', async () => {

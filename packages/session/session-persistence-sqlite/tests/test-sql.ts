@@ -5,7 +5,6 @@ import { readFileSync } from 'node:fs'
 export type TestSqlName =
   | 'add-unexpected-column'
   | 'count-events'
-  | 'count-ignorable-events'
   | 'count-packed-events'
   | 'count-physical-types'
   | 'create-loose-schema'
@@ -24,6 +23,7 @@ export type TestSqlName =
   | 'set-user-version-15'
   | 'set-user-version-16'
   | 'set-user-version-17'
+  | 'set-user-version-18'
   | 'update-invalid-session-metadata'
 
 /** Load one fixed test SQL resource. */

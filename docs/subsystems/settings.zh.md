@@ -51,7 +51,7 @@ interface SettingsRegisterOptions<T> {
 
 `validate` 在 schema 接纳该值之后运行，因此它看到的默认值和组合 base 与 owner 实际看到的完全一致。`dsh-llm-pi-ai` 用它在写入处拒绝自己无法服务的提供方 profile，而不是先存下来、再让该 namespace 下每条路由失效。
 
-`applies` 是 UI 提示而非机制：`restart` 的 owner 只是从不 watch，其值在构造期读取一次，配置界面可为待生效变更加标。
+`applies` 是 UI 提示而非机制：`restart` 的 owner 从不 watch，其值在构造期读取一次，配置界面可为待生效变更加标。
 
 ```ts type-equiv
 /** When a namespace's changes take effect for its owner. */

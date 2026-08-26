@@ -69,8 +69,9 @@ describe('preview example overlays', () => {
 
 /**
  * The pack consumes built `lib/` output. An unbuilt checkout (the unit
- * coverage lane runs before any build) self-skips; the built lanes and every
- * preview build exercise this same path against real artifacts.
+ * coverage lane runs before any build) self-skips. Native Windows routes this
+ * suite through its post-build uninstrumented gate, and preview builds exercise
+ * the same path against complete real artifacts.
  */
 const subjectBuilt = existsSync(join(repoRoot, 'packages/util/timeout/lib/index.js'))
 

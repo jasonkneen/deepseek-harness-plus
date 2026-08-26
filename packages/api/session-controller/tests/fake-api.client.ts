@@ -28,6 +28,7 @@ import {
 } from '@deepseek-ai/dsh-api-gateway/client'
 import { RpcId } from '@deepseek-ai/dsh-client-connection/client'
 import type { SessionRemotes } from '../src/client/sessions/remotes.ts'
+import { historyRecordLastSeq } from '../src/client/sessions/history-records.ts'
 
 const AVAILABLE_STREAM_CONNECTION = {
   hostDescription: {
@@ -137,7 +138,7 @@ export class FakeApiClient implements IApiClient {
   onFork: (payload: unknown) => Promise<RpcResponse<{ sessionId: SessionId }>> = () => Promise.resolve(ok({ sessionId: 'fk-fork' as SessionId }))
   onHistory: (payload: { sessionId: SessionId; throughSeq?: number; beforeSeq?: number; maxMessages?: number })
   => Promise<RpcResponse<SessionPage & { readonly projections?: SessionProjectionBaseline }>> =
-    () => Promise.resolve(ok({ events: [], hasMore: false }))
+    () => Promise.resolve(ok({ records: [], hasMore: false }))
 
   onPrompt: (payload: unknown) => Promise<RpcResponse<{ accepted: true }>> = () => Promise.resolve(ok({ accepted: true as const }))
   onAttachment: (payload: unknown) => Promise<RpcResponse<{ attachment: { attachmentId: never; mediaType: 'image/png'; bytes: number; width: number; height: number }; data: string }>> =
@@ -236,32 +237,12 @@ export class FakeApiClient implements IApiClient {
 
 
   readonly agentPresets: IApiClient['agentPresets'] = {
-    list: (payload: unknown) => this.record('agentPreset.list', payload, Promise.resolve(ok({ presets: [], authorable: false, hasDocument: false }))),
-    select: (payload: { agentPreset: string }) =>
-      this.record('agentPreset.select', payload, Promise.resolve(ok({ agentPreset: payload.agentPreset }))),
-    read: (payload: { agentPreset: string }) =>
-      this.record('agentPreset.read', payload, Promise.resolve(ok({
-        agentPreset: payload.agentPreset, trust: 'user' as const, content: '',
-      }))),
-    copy: (payload: { agentPreset: string }) =>
-      this.record('agentPreset.copy', payload, Promise.resolve(ok({ agentPreset: payload.agentPreset }))),
     openDocument: (payload: { agentPreset: string }) =>
       this.record('agentPreset.openDocument', payload, Promise.resolve(ok({ opened: true as const }))),
-    remove: (payload: { agentPreset: string }) =>
-      this.record('agentPreset.remove', payload, Promise.resolve(ok({}))),
   }
 
   readonly skills: IApiClient['skills'] = {
     list: (payload: unknown) => this.record('skill.list', payload, this.onSkillList(payload)),
-  }
-
-  readonly goals: IApiClient['goals'] = {
-    create: payload => this.record('goal.create', payload, Promise.resolve(ok({ ref: { id: 'fake-goal' as never, revision: 1 } }))),
-    edit: payload => this.record('goal.edit', payload, Promise.resolve(ok({ ref: { id: 'fake-goal' as never, revision: 1 } }))),
-    pause: payload => this.record('goal.pause', payload, Promise.resolve(ok({ ref: { id: 'fake-goal' as never, revision: 1 } }))),
-    resume: payload => this.record('goal.resume', payload, Promise.resolve(ok({ ref: { id: 'fake-goal' as never, revision: 1 } }))),
-    complete: payload => this.record('goal.complete', payload, Promise.resolve(ok({ ref: { id: 'fake-goal' as never, revision: 1 } }))),
-    clear: payload => this.record('goal.clear', payload, Promise.resolve(ok({ cleared: true as const }))),
   }
 
   readonly settings: IApiClient['settings'] = {
@@ -439,7 +420,8 @@ export class FakeApiClient implements IApiClient {
       ok: true,
       value: {
         ...result.value,
-        events: result.value.events.filter(entry => entry.event.seq <= request.throughSeq),
+        records: result.value.records
+          .filter(record => historyRecordLastSeq(record) <= request.throughSeq),
       },
     }
   }
@@ -467,7 +449,8 @@ export class FakeApiClient implements IApiClient {
         )
       }
       const page = response.result.value
-      const cursor = this.followCursor ?? page.events.at(-1)?.event.seq ?? -1
+      const tail = page.records.at(-1)
+      const cursor = this.followCursor ?? (tail === undefined ? -1 : historyRecordLastSeq(tail))
       yield {
         type: 'snapshot',
         header: {
@@ -479,7 +462,7 @@ export class FakeApiClient implements IApiClient {
             : {}),
         },
         cursor,
-        events: page.events.filter(entry => entry.event.seq <= cursor),
+        records: page.records.filter(record => historyRecordLastSeq(record) <= cursor),
         hasMore: page.hasMore,
         projections: page.projections ?? { asOfSeq: cursor, values: {} },
       }

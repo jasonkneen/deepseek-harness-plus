@@ -2,12 +2,19 @@ import { describe, expect, it } from 'vitest'
 import type {
   ChatConversationViewNode, ChatSnapshot,
 } from '@deepseek-ai/dsh-client-ui-chat/client'
+import type {
+  SessionEventLikeEntry, SessionLiveEventEntry,
+} from '@deepseek-ai/dsh-api-session-controller/client'
+import type {
+  ChunkRowEvent,
+} from '@deepseek-ai/dsh-api-session-controller/types'
 import {
   ConversationNodeAssembler,
-  type ConversationEventInput,
   type ConversationNodeDefinition,
   type ConversationViewDefinition,
 } from '@deepseek-ai/dsh-client-ui-conversation/client'
+import { isChunkRow, packChunkRuns, type ChunkRow } from '@deepseek-ai/dsh-session/chunk-rows'
+import type { SessionEvent } from '@deepseek-ai/dsh-session/types'
 import { assistantDefinition } from '../src/client/conversation-nodes/assistant.ts'
 import { chatViewDefinition } from '../src/client/conversation-nodes/chat-snapshot-builder.ts'
 import { commandDefinition } from '../src/client/conversation-nodes/command.ts'
@@ -62,19 +69,38 @@ function at(
   type: string,
   data: unknown,
   extra: Record<string, unknown> = {},
-): ConversationEventInput {
+): SessionLiveEventEntry {
   return {
+    type: 'event',
     event: {
       seq,
       time: 1_700_000_000_000 + seq,
       type,
       data,
       ...extra,
-    } as unknown as ConversationEventInput['event'],
+    } as unknown as SessionEvent,
   }
 }
 
-function assembler(entries: readonly ConversationEventInput[] = [], hasMore = false): ConversationNodeAssembler {
+function chunkEntry(row: ChunkRow): SessionEventLikeEntry {
+  return {
+    type: 'chunks',
+    event: {
+      type: `chunkrow/${row.type}`,
+      seq: row.seq0,
+      time: row.time0,
+      data: row.data,
+    } as ChunkRowEvent,
+  }
+}
+
+function packedInputs(entries: readonly SessionLiveEventEntry[]): SessionEventLikeEntry[] {
+  return packChunkRuns(entries.map(entry => entry.event)).map((record) => {
+    return isChunkRow(record) ? chunkEntry(record) : { type: 'event', event: record }
+  })
+}
+
+function assembler(entries: readonly SessionEventLikeEntry[] = [], hasMore = false): ConversationNodeAssembler {
   const value = new ConversationNodeAssembler(new TestEventDefinitions(), new TestViewDefinitions())
   value.replaceWindow(entries, hasMore)
   value.flush()
@@ -153,6 +179,46 @@ describe('built-in conversation node Definitions', () => {
     expect(current.order).toHaveLength(1)
     expect(current.nodes.get(current.order[0] ?? '')?.kind).toBe('command')
     expect(chatViewDefinition.isActive?.(current)).toBe(false)
+  })
+
+  it('keeps the Turn rail projection current when a chunk updates one node in place', () => {
+    const value = assembler([
+      at(1, 'turn/start', { turn: 1 }),
+      at(2, 'user/message', textMessage('user-1', 'navigate here'), { surfaceOp: 'append' }),
+      at(3, 'step/start', { turn: 1, step: 1 }),
+      at(4, 'assistant/chunk', {
+        turn: 1,
+        step: 1,
+        chunk: { type: 'text-delta', index: 0, text: 'first' },
+      }),
+    ])
+    const opening = snapshot(value).navigation.items()
+    expect(opening).toHaveLength(1)
+    expect(opening[0]?.turn).toBe(1)
+    expect(opening[0]?.prompt).toBe('navigate here')
+    expect(opening[0]?.response).toBe('first')
+
+    // Content-only upsert: the node keeps its key, so the rail's preview has to
+    // follow the in-place update rather than the last structural publication.
+    value.append(at(5, 'assistant/chunk', {
+      turn: 1,
+      step: 1,
+      chunk: { type: 'text-delta', index: 0, text: ' and more' },
+    }))
+    value.flush()
+    const streamed = snapshot(value).navigation.items()
+    expect(streamed[0]?.response).toBe('first and more')
+    expect(streamed).not.toBe(opening)
+  })
+
+  it('bounds each rail preview instead of copying the whole transcript', () => {
+    const long = 'x'.repeat(400)
+    const value = assembler([
+      at(1, 'turn/start', { turn: 1 }),
+      at(2, 'user/message', textMessage('user-1', long), { surfaceOp: 'append' }),
+    ])
+    const items = snapshot(value).navigation.items()
+    expect(items[0]?.prompt.length).toBe(160)
   })
 
   it('keeps one keyed Assistant node while streaming settles and materializes interruption from Location', () => {
@@ -309,6 +375,139 @@ describe('built-in conversation node Definitions', () => {
       status: 'interrupted',
       blocks: [{ kind: 'text', text: 'loaded partial' }],
     })
+  })
+
+  it('folds packed Assistant runs to the same Chat and Turn Tail state as scalar deltas', () => {
+    const runningHistory = [
+      at(1, 'turn/start', { turn: 1 }),
+      at(2, 'step/start', { turn: 1, step: 1 }),
+      at(3, 'assistant/chunk', {
+        turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: '' },
+      }, { time: 1_000 }),
+      at(4, 'assistant/chunk', {
+        turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: '   ' },
+      }, { time: 1_000 }),
+      at(5, 'assistant/chunk', {
+        turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: '\t' },
+      }, { time: 995 }),
+      at(6, 'assistant/chunk', {
+        turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: 'answer' },
+      }, { time: 1_004 }),
+      at(7, 'assistant/chunk', {
+        turn: 1, step: 1, chunk: { type: 'reasoning-delta', index: 1, text: '' },
+      }),
+      at(8, 'assistant/chunk', {
+        turn: 1, step: 1, chunk: { type: 'reasoning-delta', index: 1, text: 'think' },
+      }),
+      at(9, 'assistant/chunk', {
+        turn: 1, step: 1, chunk: { type: 'reasoning-delta', index: 1, text: 'ing' },
+      }),
+      at(10, 'assistant/chunk', {
+        turn: 1, step: 1,
+        chunk: { type: 'tool-call-delta', index: 2, id: 'call-1', argumentsDelta: '' },
+      }),
+      at(11, 'assistant/chunk', {
+        turn: 1, step: 1,
+        chunk: { type: 'tool-call-delta', index: 2, id: 'call-1', argumentsDelta: '{"x":' },
+      }),
+      at(12, 'assistant/chunk', {
+        turn: 1, step: 1,
+        chunk: { type: 'tool-call-delta', index: 2, id: 'call-1', argumentsDelta: '1}' },
+      }),
+    ]
+    const scalar = assembler(runningHistory)
+    const packedHistory = packedInputs(runningHistory)
+    expect(packedHistory.filter(input => input.event.type.startsWith('chunkrow/'))).toHaveLength(3)
+    const packed = assembler(packedHistory)
+
+    expect(snapshot(packed)).toEqual(snapshot(scalar))
+    const running = node(snapshot(packed), 'assistant-step')
+    expect(running).toMatchObject({ anchorSeq: 6 })
+    expect(running?.data).toMatchObject({
+      time: 1_004,
+      blocks: [
+        { kind: 'text', text: '   \tanswer' },
+        { kind: 'reasoning', text: 'thinking' },
+        { kind: 'tool-call', callId: 'call-1', name: '', argsRaw: '{"x":1}' },
+      ],
+    })
+
+    for (const value of [scalar, packed]) {
+      value.append(at(13, 'step/end', { turn: 1, step: 1 }))
+      value.append(at(14, 'turn/end', { turn: 1, reason: { kind: 'completed' } }))
+      value.flush()
+    }
+    expect(snapshot(packed)).toEqual(snapshot(scalar))
+    expect(node(snapshot(packed), 'turn-tail')?.anchorSeq).toBe(12.2)
+
+    const partialHistory = [
+      ...runningHistory.slice(2),
+      at(13, 'step/end', { turn: 1, step: 1 }),
+      at(14, 'turn/end', { turn: 1, reason: { kind: 'completed' } }),
+    ]
+    const partialScalar = snapshot(assembler(partialHistory, true))
+    const partialPacked = snapshot(assembler(packedInputs(partialHistory), true))
+    expect(partialPacked).toEqual(partialScalar)
+    expect(node(partialPacked, 'assistant-step')?.data).toMatchObject({ status: 'interrupted' })
+    expect(node(partialPacked, 'turn-tail')?.anchorSeq).toBe(12.2)
+
+    const finalizedHistory = [
+      at(20, 'turn/start', { turn: 2 }),
+      at(21, 'step/start', { turn: 2, step: 1 }),
+      at(22, 'assistant/chunk', {
+        turn: 2, step: 1, chunk: { type: 'text-delta', index: 0, text: '' },
+      }, { time: 2_000 }),
+      at(23, 'assistant/chunk', {
+        turn: 2, step: 1, chunk: { type: 'text-delta', index: 0, text: ' ' },
+      }, { time: 1_999 }),
+      at(24, 'assistant/chunk', {
+        turn: 2, step: 1, chunk: { type: 'text-delta', index: 0, text: 'first' },
+      }, { time: 2_000 }),
+      at(25, 'llm/retry', {
+        retryId: 'packed-retry', turn: 2, step: 1, provider: 'fake', mode: 'normal',
+        policyKey: 'fake-normal', retry: 1, maxRetries: 2, delayMs: 10,
+        failure: { code: 'TRANSPORT', message: 'temporary' },
+      }),
+      at(26, 'assistant/chunk', {
+        turn: 2, step: 1, chunk: { type: 'text-delta', index: 0, text: '' },
+      }),
+      at(27, 'assistant/chunk', {
+        turn: 2, step: 1, chunk: { type: 'text-delta', index: 0, text: 'second' },
+      }),
+      at(28, 'assistant/chunk', {
+        turn: 2, step: 1, chunk: { type: 'text-delta', index: 0, text: ' attempt' },
+      }),
+      at(29, 'assistant/message', {
+        turn: 2, step: 1, message: assistantMessage('packed-final', 'done'),
+      }, { surfaceOp: 'append' }),
+    ]
+    const finalizedScalar = snapshot(assembler(finalizedHistory))
+    const finalizedPacked = snapshot(assembler(packedInputs(finalizedHistory)))
+    expect(finalizedPacked).toEqual(finalizedScalar)
+    const finalNode = (node(finalizedPacked, 'assistant-step')?.data as AssistantChatData).finalNode
+    expect(finalNode?.timing?.firstTokenTime).toBe(1_999)
+
+    const namedToolHistory = [
+      at(40, 'turn/start', { turn: 3 }),
+      at(41, 'step/start', { turn: 3, step: 1 }),
+      ...[42, 43, 44].map(seq => at(seq, 'assistant/chunk', {
+        turn: 3, step: 1,
+        chunk: { type: 'tool-call-delta', index: 0, id: 'call-2', name: 'read', argumentsDelta: '' },
+      }, { time: 4_000 + seq - 42 })),
+      at(45, 'assistant/message', {
+        turn: 3,
+        step: 1,
+        message: {
+          ...assistantMessage('named-tool-final', ''),
+          content: [{ type: 'tool-call', id: 'call-2', name: 'read', arguments: '' }],
+        },
+      }, { surfaceOp: 'append' }),
+    ]
+    const namedToolScalar = snapshot(assembler(namedToolHistory))
+    const namedToolPacked = snapshot(assembler(packedInputs(namedToolHistory)))
+    expect(namedToolPacked).toEqual(namedToolScalar)
+    const namedTool = (node(namedToolPacked, 'assistant-step')?.data as AssistantChatData).finalNode
+    expect(namedTool?.timing?.firstTokenTime).toBe(4_000)
   })
 
   it('keeps one keyed Tool node from running through settlement and replays nested dispatch after prepend', () => {

@@ -8,12 +8,13 @@
 import { Context } from '@deepseek-ai/cordis'
 import { act, cleanup, fireEvent, render, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import type { SessionLiveEventEntry } from '@deepseek-ai/dsh-api-session-controller/client'
 import {
   ConversationNodeAssembler, UiConversation,
 } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type {
-  ConversationEventInput, ConversationLocationDataStore, ConversationMatch, ConversationNodeDefinition,
-  ConversationTimelineSnapshot, ConversationTurnDataMap, ConversationViewDefinition,
+  ConversationLocationDataStore, ConversationMatch, ConversationNodeDefinition,
+  ConversationStartMatch, ConversationTimelineSnapshot, ConversationTurnDataMap, ConversationViewDefinition,
   ConversationViewNode, TurnLocation,
 } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import { SlotRegistry } from '@deepseek-ai/dsh-client-ui-renderer/client'
@@ -30,6 +31,7 @@ import {
 import { apply, inject } from '../src/client/index.ts'
 import { apply as applyInvariant } from '../src/invariant.ts'
 import { en, zh } from '../src/client/locales.ts'
+import type { SessionEvent } from '@deepseek-ai/dsh-session/types'
 
 const originalClientWidth = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'clientWidth')
 
@@ -109,17 +111,20 @@ function at(
   seq: number,
   type: string,
   data: unknown,
-): ConversationEventInput {
+): SessionLiveEventEntry {
   return {
+    type: 'event',
     event: {
       seq, time: seq * 1_000, type, data,
       ...(type === 'tool/result' ? { surfaceOp: 'append' } : {}),
-    } as ConversationEventInput['event'],
+    } as SessionEvent,
   }
 }
 
-function matched(input: ConversationEventInput, role: ConversationMatch['role']): ConversationMatch {
-  return { ...input, role, location: { kind: 'unresolved' } }
+function matched(input: SessionLiveEventEntry, role: 'start'): ConversationStartMatch
+function matched(input: SessionLiveEventEntry, role: 'update'): ConversationMatch
+function matched(input: SessionLiveEventEntry, role: ConversationMatch['role']): ConversationMatch {
+  return { event: input.event, role, location: { kind: 'unresolved' } }
 }
 
 function call(
@@ -128,7 +133,7 @@ function call(
   name: string,
   args: Readonly<Record<string, unknown>>,
   turn = 1,
-): ConversationEventInput {
+): SessionLiveEventEntry {
   return rawCall(seq, callId, name, JSON.stringify(args), turn)
 }
 
@@ -138,7 +143,7 @@ function rawCall(
   name: string,
   argsRaw: string,
   turn = 1,
-): ConversationEventInput {
+): SessionLiveEventEntry {
   return at(
     seq,
     'tool/call',
@@ -146,7 +151,7 @@ function rawCall(
   )
 }
 
-function result(seq: number, callId: string, isError = false, turn = 1): ConversationEventInput {
+function result(seq: number, callId: string, isError = false, turn = 1): SessionLiveEventEntry {
   return at(seq, 'tool/result', {
     turn,
     step: 1,
@@ -157,7 +162,7 @@ function result(seq: number, callId: string, isError = false, turn = 1): Convers
   })
 }
 
-function assembler(entries: readonly ConversationEventInput[], hasMore = false): ConversationNodeAssembler {
+function assembler(entries: readonly SessionLiveEventEntry[], hasMore = false): ConversationNodeAssembler {
   const value = new ConversationNodeAssembler(new TestEventDefinitions(), new TestViewDefinitions())
   value.replaceWindow(entries, hasMore)
   value.flush()
@@ -330,7 +335,7 @@ describe('produced-file Turn data', () => {
         event: {
           ...replacement.event,
           surfaceOp: { op: 'replace', start: 1, end: 1 },
-        } as ConversationEventInput['event'],
+        } as SessionEvent,
       },
       at(26, 'turn/end', { turn: 1, reason: { kind: 'interrupted' } }),
     ])
@@ -354,7 +359,11 @@ describe('produced-file Turn data', () => {
     const unrelated = matched(at(2, 'turn/end', { turn: 1, reason: { kind: 'completed' } }), 'update')
     const context: Parameters<typeof deliverablesDefinition.update>[0] = { ...emptyContext, state }
 
-    expect(() => deliverablesDefinition.start(emptyContext, unrelated, reader))
+    expect(() => deliverablesDefinition.start(
+      emptyContext,
+      unrelated as ConversationStartMatch,
+      reader,
+    ))
       .toThrow('deliverables start requires turn/start')
     expect(deliverablesDefinition.update(context, unrelated)).toBe(state)
   })

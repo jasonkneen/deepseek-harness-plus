@@ -70,6 +70,9 @@ minimumReleaseAgeExclude:
   - '@anthropic-ai/claude-agent-sdk-win32-arm64@0.3.241'
   - '@anthropic-ai/claude-agent-sdk-win32-x64@0.3.241'
   - '@anthropic-ai/claude-agent-sdk@0.3.241'
+  # All platform aliases resolve to the @openai/codex package name, so their
+  # reviewed exact versions must share one version-union policy entry.
+  - '@openai/codex@0.149.1||0.149.1-darwin-arm64||0.149.1-darwin-x64||0.149.1-linux-arm64||0.149.1-linux-x64||0.149.1-win32-arm64||0.149.1-win32-x64'
 
 patchedDependencies:
   node-pty@1.2.0-beta.15: patches/node-pty@1.2.0-beta.15.patch

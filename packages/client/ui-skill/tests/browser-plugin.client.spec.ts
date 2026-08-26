@@ -355,6 +355,7 @@ describe('pick lands plain text', () => {
       session: proj('s1'),
       position: 'leading',
       via: 'menu',
+      action: 'pick',
       span: { start: 0, end: 4, draftRev: 7 },
     })
     expect(outcome).toEqual({ text: '/commit-helper ' })

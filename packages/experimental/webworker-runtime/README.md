@@ -1,8 +1,27 @@
+---
+description: "Browser-worker harness hosting for maintainers building or debugging the experimental Web preview runtime."
+kind: "package-library"
+---
+
 # `@deepseek-ai/dsh-experimental-webworker-runtime`
 
 English | [中文](README.zh.md)
 
-The browser worker host: the whole harness plugin tree runs inside one dedicated Web Worker, for preview deployments and packaging regressions ([experimental stance](../../../.agents/notes/implemented/architecture/2026-08-20-webworker-pack-lowering-and-preview.md)). The worker inflates a packed VFS image off its download and mounts it in memory, loads its modules through a CommonJS wrapper loader, and serves the page over a postMessage tunnel that speaks plain HTTP.
+## Summary
+
+The browser worker host: the whole harness plugin tree runs inside one dedicated Web Worker, for preview deployments and packaging regressions ([experimental stance](../../../.agents/notes/implemented/architecture/2026-08-20-webworker-pack-lowering-and-preview.md)). The worker inflates a packed VFS image off its download and mounts it in memory, loads its modules through a CommonJS wrapper loader, and serves the page over a postMessage tunnel that speaks plain HTTP. Use it when a preview must run the packaged harness without a Node host.
+
+## Table of Contents
+
+- [Use this package](#use-this-package)
+- [Model Experience](#model-experience)
+- [Known Limitations and Deferred Work](#known-limitations-and-deferred-work)
+- [Dev Note](#dev-note)
+
+-----
+
+<a id="use-this-package"></a>
+## Use this package
 
 Three artifacts from one tsdown pipeline:
 
@@ -13,6 +32,9 @@ Three artifacts from one tsdown pipeline:
 
 Acceptance lives in `apps/web/tests/preview-boot.e2e.ts`, which serves the real built pages and drives the pre-boot chooser plus Worker activation in headless Chromium. The empty selection exercises first-run startup. The `vfs-example` overlay supplies ordinary workspace files and plaintext persistence artifacts for cold Workspace/Session discovery, tool presentation, subagent navigation, and history paging without a model request. The chooser reserves WebFS as a separate user-authorized source; that provider does not read the built-in fixture.
 
+-----
+
+<a id="model-experience"></a>
 ## Model Experience
 
 None, as this package only hosts the tree in a browser worker and answers its `node:*` calls; every model-facing registration belongs to the plugins it boots.
@@ -23,6 +45,8 @@ None; this package neither assembles nor sends a provider request.
 
 ## Known Limitations and Deferred Work
 
+<a id="known-limitations-and-deferred-work"></a>
+
 - **The worker composition writes plaintext session logs** (`compression: 'none'` boot patch): it carries no Zstandard codec, so exported logs are `.jsonl`, never `.jsonl.zstd`.
 - **`node:dns/promises`, `node:vm`, `node:net`, `node:sqlite`, `node:worker_threads` are structural stubs**: every call reports its refusal on the console and throws. Rows needing native DNS, a real process, or realm isolation cannot run here.
 - **Filesystem watchers observe only the mounted VFS**: image seeding is silent and the VFS has no symlinks or external writers. `persistent`, `ref()`, and `unref()` preserve the Node API but cannot control a dedicated Worker's lifetime because browsers expose no ref-counted event loop.
@@ -31,3 +55,14 @@ None; this package neither assembles nor sends a provider request.
 - **The shell is not bash**: no loops, functions, `case`, job control, or process substitution — the grammar stops at pipelines, `&&`/`||`, subshells, groups, redirections, and expansion. `&` runs its command to completion in place, `sed` accepts only substitution scripts, patterns are JavaScript regular expressions, and the command table holds coreutils only (no `git`, no network tools).
 - **A shell process has no synchronous filesystem**: it reads and writes the host's VFS by message, because blocking on a reply would need `SharedArrayBuffer`, which requires a cross-origin isolation GitHub Pages cannot grant. Directory-walking commands therefore cost one round trip per entry, and two concurrent commands can interleave their writes.
 - **Transport, worker-host, and page-half coverage needs a browser-grade harness** — the per-file coverage gate is unmet for those modules; unit specs cover storage, ALS, the transform, and the stub contracts.
+
+
+<a id="dev-note"></a>
+### Dev Note
+
+<details>
+<summary>Working context for maintainers — click to expand</summary>
+
+None.
+
+</details>

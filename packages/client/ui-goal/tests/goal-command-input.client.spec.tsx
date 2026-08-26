@@ -1,8 +1,9 @@
 // @vitest-environment jsdom
 import { cleanup, render, within } from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vitest'
+import type { SessionLiveEventEntry } from '@deepseek-ai/dsh-api-session-controller/client'
 import type {
-  ConversationEventInput, ConversationNodeDefinition, ConversationViewDefinition,
+  ConversationNodeDefinition, ConversationViewDefinition,
 } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import { ConversationNodeAssembler } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type {
@@ -37,13 +38,14 @@ class TestViewDefinitions {
   }
 }
 
-function entry(seq: number, type: string, data: unknown): ConversationEventInput {
+function entry(seq: number, type: string, data: unknown): SessionLiveEventEntry {
   return {
-    event: { seq, time: 1_700_000_000_000 + seq, type, data } as ConversationEventInput['event'],
+    type: 'event',
+    event: { seq, time: 1_700_000_000_000 + seq, type, data } as SessionEvent,
   }
 }
 
-function snapshot(entries: readonly ConversationEventInput[], hasMore = false): ChatSnapshot {
+function snapshot(entries: readonly SessionLiveEventEntry[], hasMore = false): ChatSnapshot {
   const assembler = new ConversationNodeAssembler(new TestEventDefinitions(), new TestViewDefinitions())
   assembler.replaceWindow(entries, hasMore)
   assembler.flush()

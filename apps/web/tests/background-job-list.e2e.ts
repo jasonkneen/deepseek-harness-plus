@@ -7,7 +7,7 @@ import type { Browser, Page } from 'playwright'
 import { chromium } from 'playwright'
 import { afterAll, beforeAll, describe, expect, it, onTestFailed } from 'vitest'
 import type { Agent } from '@deepseek-ai/dsh-agent'
-import { CallId } from '@deepseek-ai/dsh-llm'
+import { ToolCallId } from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import { JobId } from '@deepseek-ai/dsh-jobs'
 import {
@@ -85,7 +85,7 @@ describe.skipIf(MODE === 'record')('web e2e: background job list', () => {
 
     const started = await scaffold.ctx.tools.execute({
       signal: new AbortController().signal,
-      callId: CallId('background-job-list-e2e'),
+      callId: ToolCallId('background-job-list-e2e'),
       name: 'bash',
       arguments: { command: COMMAND, description: 'Hold a background slot open', run_in_background: true },
       agent,

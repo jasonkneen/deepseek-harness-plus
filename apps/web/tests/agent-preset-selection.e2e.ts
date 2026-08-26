@@ -15,7 +15,7 @@ import type { Browser, Page } from 'playwright'
 import { chromium } from 'playwright'
 import { afterAll, beforeAll, describe, expect, it, onTestFailed } from 'vitest'
 import {
-  SESSION_FORMAT_VERSION, SessionId as sessionId, type SessionEvent, type SessionId,
+  SESSION_FORMAT_VERSION, SessionId as sessionId, type SessionEvent, type SessionHeader, type SessionId,
 } from '@deepseek-ai/dsh-session'
 import { snapshotSubagentDescriptor } from '@deepseek-ai/dsh-subagent'
 import {
@@ -87,7 +87,7 @@ function seedLog(): string {
 async function seedSubagent(scaffold: WebScaffold, parentId: SessionId): Promise<void> {
   const childId = sessionId('agent-preset-selection-child')
   const createdAt = 1784974100100
-  await scaffold.ctx.sessionPersistence.create({
+  const header: SessionHeader = {
     version: SESSION_FORMAT_VERSION,
     id: childId,
     createdAt,
@@ -96,7 +96,8 @@ async function seedSubagent(scaffold: WebScaffold, parentId: SessionId): Promise
     origin: 'subagent',
     delegationDepth: 1,
     agentPreset: 'minimal',
-  })
+  }
+  await scaffold.ctx.sessionPersistence.create(header)
   await scaffold.ctx.sessionPersistence.append(childId, [
     {
       type: 'turn/start',
@@ -129,7 +130,6 @@ async function seedSubagent(scaffold: WebScaffold, parentId: SessionId): Promise
       data: { turn: 1, reason: { kind: 'completed' } },
     },
   ] as SessionEvent[])
-  await scaffold.ctx.sessionProjectionCache.coldSnapshot(childId)
 }
 
 /**
@@ -241,7 +241,7 @@ describe('web e2e: agent-preset selection', () => {
     // Continues the previous case: the chip has already applied `minimal` to
     // the blank session, and this one reads the menu that switch left behind.
     onTestFailed(() => saveFailureShot(page, 'web-e2e-agent-preset-slash-catalog'))
-    const composer = page.locator('textarea:enabled').last()
+    const composer = page.locator('[data-composer-input][contenteditable="true"]').last()
 
     // `minimal` mounts neither the compaction group nor plan mode nor local
     // skill discovery, so the catalog the composer warmed under the

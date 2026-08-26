@@ -176,7 +176,7 @@ describe('connection node half', () => {
     const methods = [
       'host.pickDirectory', 'host.openPath',
       'settings.describe', 'settings.update', 'credentials.describe', 'credentials.set',
-      'llm.discoverModels', 'llm.models', 'agentPreset.read', 'agentPreset.list',
+      'llm.discoverModels', 'llm.models', 'agentPreset.openDocument',
     ]
     for (const method of methods) {
       const denied = fakeResponse()
@@ -505,8 +505,8 @@ describe('connection node half over a real HTTP server', () => {
         'credentials.describe', 'credentials.set', 'credentials.unset',
         'host.pickDirectory', 'host.openPath',
         'llm.discoverModels',
-        'agentPreset.read', 'agentPreset.copy', 'agentPreset.openDocument', 'agentPreset.remove',
-        'llm.providers', 'llm.models', 'agentPreset.list', 'agentPreset.select',
+        'agentPreset.openDocument',
+        'llm.providers', 'llm.models',
       ]
       for (const method of methods) {
         expect([method, await call(port, method, 'localhost')]).toEqual([method, 401])

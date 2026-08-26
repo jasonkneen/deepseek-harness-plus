@@ -8,7 +8,7 @@
 import type { Branded } from '@deepseek-ai/dsh-brand'
 import type { Scoped } from '@deepseek-ai/dsh-scope'
 import type { Agent } from '@deepseek-ai/dsh-agent/types'
-import type { CallId } from '@deepseek-ai/dsh-llm/brand'
+import type { ToolCallId } from '@deepseek-ai/dsh-llm/brand'
 
 /**
  * Pairs one `approval/asked` audit event with its `approval/decided`.
@@ -44,7 +44,7 @@ declare module '@deepseek-ai/dsh-session/types' {
     'approval/asked': {
       id: ApprovalRequestId
       toolName: string
-      callId?: CallId
+      callId?: ToolCallId
       reason?: string
     }
     /**
@@ -66,7 +66,7 @@ export interface ApprovalRequestEvent {
   /** Tool whose operation requires a decision. */
   readonly toolName: string
   /** Exact tool call being decided, when available. */
-  readonly callId?: CallId
+  readonly callId?: ToolCallId
   /** Human-readable reason supplied by the asker. */
   readonly reason?: string
   /** Cancellation lifetime of the pending request. */

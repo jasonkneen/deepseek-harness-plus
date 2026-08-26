@@ -1,6 +1,6 @@
 import type { Context } from '@deepseek-ai/cordis'
 import {
-  CallId,
+  ToolCallId,
   LlmAdapter,
   ReasoningEffortId,
   type GenerateOptions,
@@ -41,8 +41,8 @@ class CliMockAdapter extends LlmAdapter {
       yield { type: 'reasoning-delta', index: 0, text: reasoning }
       yield { type: 'block-end', index: 0, block: { type: 'reasoning', text: reasoning } }
       yield { type: 'block-start', index: 1, blockType: 'tool-call' }
-      yield { type: 'tool-call-delta', index: 1, id: CallId('cli-smoke-call'), name: 'bash', argumentsDelta: args }
-      yield { type: 'block-end', index: 1, block: { type: 'tool-call', id: CallId('cli-smoke-call'), name: 'bash', arguments: args } }
+      yield { type: 'tool-call-delta', index: 1, id: ToolCallId('cli-smoke-call'), name: 'bash', argumentsDelta: args }
+      yield { type: 'block-end', index: 1, block: { type: 'tool-call', id: ToolCallId('cli-smoke-call'), name: 'bash', arguments: args } }
       yield { type: 'usage', usage: { inputTokens: 11, outputTokens: 3, cacheReadTokens: 2 } }
       yield { type: 'finish', reason: { kind: 'tool-calls' } }
       return

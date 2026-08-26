@@ -1,12 +1,15 @@
 import type {
   AssistantMessageNode, ChatConversationViewNode, ChatSnapshot, ConversationNode,
   ChatLocationNodeIndex, ChatNodeStore, CompactionSummaryNode, LegacyConversationSlice,
-  PartialAssistant, RunningToolCall, ToolCallBlock,
+  PartialAssistant, RunningToolCall, ToolCallBlock, TurnNavigationItem,
 } from '@deepseek-ai/dsh-client-ui-chat/client'
 import type {
   ConversationLocationDataStore, ConversationTurnDataMap, TurnLocation,
 } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import { deriveTurnMetrics } from '../src/client/contract/turn-metrics.ts'
+import {
+  sameTurnNavigationItem, turnNavigationItem,
+} from '../src/client/conversation-nodes/turn-navigation.ts'
 
 const EMPTY: readonly never[] = []
 
@@ -290,10 +293,19 @@ export function chatSnapshotFixture(input: {
     && previous.legacy.turnEnds === legacy.turnEnds
     ? previous.timeline
     : { turnOrder: [...turns.keys()], turns }
+  const derived = timeline.turnOrder
+    .map(turn => turnNavigationItem(turn, locations, store))
+    .filter((item): item is TurnNavigationItem => item !== undefined)
+  const kept = previous?.navigation.items() ?? []
+  const items = kept.length === derived.length
+    && derived.every((item, index) => sameTurnNavigationItem(kept[index], item))
+    ? kept
+    : derived
   return {
     order,
     nodes: store,
     locations,
+    navigation: { items: () => items },
     timeline,
     legacy,
   }

@@ -57,54 +57,13 @@ function fakeApi(overrides: Partial<{ crashOn: string }> = {}): ApiProxy {
       },
     },
     agentPresets: {
-      list(request: RpcRequest<{}>) {
-        return Promise.resolve({
-          rpcId: request.rpcId,
-          result: { ok: true as const, value: { presets: [], authorable: false, hasDocument: false } },
-        })
-      },
-      select(request: RpcRequest<{ agentPreset: string }>) {
-        const value = { agentPreset: request.payload.agentPreset }
-        return Promise.resolve({ rpcId: request.rpcId, result: { ok: true as const, value } })
-      },
-      read(request: RpcRequest<{ agentPreset: string }>) {
-        const value = { agentPreset: request.payload.agentPreset, trust: 'user' as const, content: '' }
-        return Promise.resolve({ rpcId: request.rpcId, result: { ok: true as const, value } })
-      },
-      copy(request: RpcRequest<{ from: string; agentPreset: string }>) {
-        const value = { agentPreset: request.payload.agentPreset }
-        return Promise.resolve({ rpcId: request.rpcId, result: { ok: true as const, value } })
-      },
       openDocument(request: RpcRequest<{ agentPreset: string }>) {
         return Promise.resolve({ rpcId: request.rpcId, result: { ok: true as const, value: { opened: true as const } } })
-      },
-      remove(request: RpcRequest<{ agentPreset: string }>) {
-        return Promise.resolve({ rpcId: request.rpcId, result: { ok: true as const, value: {} } })
       },
     },
     skills: {
       async list(request) {
         return { rpcId: request.rpcId, result: { ok: true, value: { skills: [{ name: 'commit-helper', description: 'Git commits', modelInvocable: true }] } } }
-      },
-    },
-    goals: {
-      async create(request) {
-        return { rpcId: request.rpcId, result: { ok: false, error: { code: 'internal', message: 'stub', details: {} } } }
-      },
-      async edit(request) {
-        return { rpcId: request.rpcId, result: { ok: false, error: { code: 'internal', message: 'stub', details: {} } } }
-      },
-      async pause(request) {
-        return { rpcId: request.rpcId, result: { ok: false, error: { code: 'internal', message: 'stub', details: {} } } }
-      },
-      async resume(request) {
-        return { rpcId: request.rpcId, result: { ok: false, error: { code: 'internal', message: 'stub', details: {} } } }
-      },
-      async complete(request) {
-        return { rpcId: request.rpcId, result: { ok: false, error: { code: 'internal', message: 'stub', details: {} } } }
-      },
-      async clear(request) {
-        return { rpcId: request.rpcId, result: { ok: false, error: { code: 'internal', message: 'stub', details: {} } } }
       },
     },
     settings: {
@@ -182,26 +141,12 @@ describe('unary round trip (handler ⇄ client, no network)', () => {
     if (!response.result.ok) expect(response.result.error.code).toBe('settings-rejected')
   })
 
-  it('round-trips every agent-preset method, authoring included', async () => {
-    const c = client()
-
-    // The whole domain crosses the carrier: the roster a picker reads, the
-    // per-session switch, and the authoring calls the settings page makes.
-    // Each has its own request schema, so a registration missing from either
-    // half fails here rather than in the browser.
-    expect((await c.agentPresets.list({})).result).toEqual({
-      ok: true, value: { presets: [], authorable: false, hasDocument: false },
-    })
-    expect((await c.agentPresets.select({ sessionId: 's' as never, agentPreset: 'minimal' })).result)
-      .toEqual({ ok: true, value: { agentPreset: 'minimal' } })
-    expect((await c.agentPresets.read({ agentPreset: 'mine' })).result).toEqual({
-      ok: true, value: { agentPreset: 'mine', trust: 'user', content: '' },
-    })
-    expect((await c.agentPresets.copy({ from: 'standard', agentPreset: 'mine' })).result)
-      .toEqual({ ok: true, value: { agentPreset: 'mine' } })
-    expect((await c.agentPresets.openDocument({ agentPreset: 'mine' })).result)
+  it('round-trips the agent-preset document opener', async () => {
+    // The opener is the domain's whole carried surface: its request schema is
+    // registered in both halves, so a missing registration fails here rather
+    // than in the browser.
+    expect((await client().agentPresets.openDocument({ agentPreset: 'mine' })).result)
       .toEqual({ ok: true, value: { opened: true } })
-    expect((await c.agentPresets.remove({ agentPreset: 'mine' })).result).toEqual({ ok: true, value: {} })
   })
 
   it('round-trips the native picker without the default unary timeout', async () => {

@@ -40,7 +40,7 @@ function signature(markdown: string) {
     'counterpart.zh.md',
     {
       repoRoot: process.cwd(), sourcePath: 'counterpart.md',
-      isTranslationPairSource: fixturePairSource, markdown,
+      isTranslationPairSource: fixturePairSource, repositoryFileExists: () => true, markdown,
     },
   )
 }
@@ -247,6 +247,30 @@ describe('translation pairing switchers', () => {
     } finally {
       rmSync(root, { recursive: true, force: true })
     }
+  })
+})
+
+describe('translation pairing link language parity', () => {
+  it('compares a .zh.md target and its .md sibling as the same document', () => {
+    const en = 'See [docs](persistence.md) and [notes](note.md#anchor).'
+    const zh = '参见[文档](persistence.zh.md)与[笔记](note.zh.md#anchor)。'
+    expect(
+      translationStructureDiff(
+        signature(en),
+        signature(zh),
+      ),
+    ).toEqual([])
+  })
+
+  it('still rejects a genuinely different target', () => {
+    const en = 'See [docs](persistence.md).'
+    const zh = '参见[文档](other.md)。'
+    expect(
+      translationStructureDiff(
+        signature(en),
+        signature(zh),
+      ),
+    ).not.toEqual([])
   })
 })
 

@@ -2,7 +2,7 @@
 
 import type { Context } from '@deepseek-ai/cordis'
 import {
-  CallId,
+  ToolCallId,
   LlmAdapter,
   ReasoningEffortId,
   type GenerateOptions,
@@ -50,7 +50,7 @@ class ControlSurfaceAdapter extends LlmAdapter {
       .join('')
     const hasToolResult = current.some(message => message.content.some(block => block.type === 'tool-result'))
     if (!hasToolResult) {
-      const callId = CallId(userText.includes('cancel') ? 'control-cancel-add' : 'control-add')
+      const callId = ToolCallId(userText.includes('cancel') ? 'control-cancel-add' : 'control-add')
       yield { type: 'block-start', index: 0, blockType: 'reasoning' }
       yield { type: 'reasoning-delta', index: 0, text: 'checking the attached tool' }
       yield { type: 'block-end', index: 0, block: { type: 'reasoning', text: 'checking the attached tool' } }

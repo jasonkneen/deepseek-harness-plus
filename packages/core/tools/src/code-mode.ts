@@ -6,7 +6,7 @@
  * @module @deepseek-ai/dsh-tools/src/code-mode
  */
 
-import { CallId, createUserMessage, HarnessError } from '@deepseek-ai/dsh-llm'
+import { ToolCallId, createUserMessage, HarnessError } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type { CodeBindingFunction, CodeRunResult, CodeRuntime } from '@deepseek-ai/dsh-code-runtime'
 import { snapshotJsonValue } from '@deepseek-ai/dsh-session'
@@ -470,7 +470,7 @@ export function createRunCodeTool(registry: ToolRuntime, options: RunCodeBridgeO
         }
         const normalized = jsonNormalizeArgs(rawArgs)
         const n = ++dispatches
-        const subCallId = CallId(`${String(exec.callId)}:code:${n}`)
+        const subCallId = ToolCallId(`${String(exec.callId)}:code:${n}`)
         const input = {
           callId: subCallId,
           rootCallId: exec.rootCallId,

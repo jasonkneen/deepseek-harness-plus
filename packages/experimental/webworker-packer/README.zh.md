@@ -1,8 +1,27 @@
+---
+description: "面向构建或排查实验性预览部署的维护者，说明浏览器 worker VFS 镜像打包。"
+kind: "package-library"
+---
+
 # `@deepseek-ai/dsh-experimental-webworker-packer`
 
 [English](README.md) | 中文
 
-VFS 镜像打包器：把一份合成 profile 变成浏览器 worker 挂载为文件系统的 gzip 压缩基础 tar，并把不透明数据目录变成按序应用的 overlay tar（[experimental 定位](../../../.agents/notes/implemented/architecture/2026-08-20-webworker-pack-lowering-and-preview.zh.md)）。不做任何源码编译——基础镜像携带仓库真实构建产物，预览部署调试的正是 served 部署交付的字节。
+## 概述
+
+VFS 镜像打包器：把一份合成 profile 变成浏览器 worker 挂载为文件系统的 gzip 压缩基础 tar，并把不透明数据目录变成按序应用的 overlay tar（[experimental 定位](../../../.agents/notes/implemented/architecture/2026-08-20-webworker-pack-lowering-and-preview.zh.md)）。不做任何源码编译——基础镜像携带仓库真实构建产物，预览部署调试的正是 served 部署交付的字节。打包预览镜像或排查镜像内容时，请阅读本页。
+
+## 目录
+
+- [使用本包](#use-this-package)
+- [模型体验](#model-experience)
+- [Known Limitations and Deferred Work](#known-limitations-and-deferred-work)
+- [开发备注](#dev-note)
+
+-----
+
+<a id="use-this-package"></a>
+## 使用本包
 
 打包是三层标准栈：
 
@@ -14,6 +33,9 @@ VFS 镜像打包器：把一份合成 profile 变成浏览器 worker 挂载为�
 
 仓库适配层还声明 `webworker-runtime/tests/fixtures/` 下仅用于 preview 的 fixture tree。CLI 会把每套具名 fixture 打成一份独立的确定性 overlay 归档，并写出浏览器可读的 manifest。Overlay 文件绕过 NPM 发布视图和模块可达性排除规则，因此点目录与示例源码会完整保留；其挂载位置仅限 `home/` 与 `workspace/`。`pack.ts` 把它们视为不透明字节；Session 与 Workspace 的解释仍归拥有这些格式的 runtime 包。
 
+-----
+
+<a id="model-experience"></a>
 ## 模型体验
 
 无：本包在构建期运行并写出镜像文件，其产物本身不进入任何模型请求。
@@ -24,6 +46,19 @@ VFS 镜像打包器：把一份合成 profile 变成浏览器 worker 挂载为�
 
 ## Known Limitations and Deferred Work
 
+<a id="known-limitations-and-deferred-work"></a>
+
 - **规则表是判断题**（`rules.ts`：exclude glob、页面资产模式、入口种子），由 `tests/` 钉住；worker 需要触达的新资产类别应加表行，而不是改扫描器。
 - **vendored 包源码（`src/*.ts`）被排除**——运行时无人解析它们；未来若有 worker 内源码巡检功能需要专门的 include 规则。
 - **打包器假定构建产物 `lib/` 是新鲜的**：它从不编译，工作区构建过期就打包过期字节。先跑仓库构建。
+
+
+<a id="dev-note"></a>
+### 开发备注
+
+<details>
+<summary>维护者工作上下文——点击展开</summary>
+
+无。
+
+</details>

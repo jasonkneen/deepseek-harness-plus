@@ -35,7 +35,7 @@ interface SpillStore {
 
 interface SpillSource {
   toolName: string
-  callId: CallId
+  callId: ToolCallId
   label: string
 }
 

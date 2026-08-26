@@ -209,6 +209,7 @@ describe('candidates', () => {
       session,
       position: 'inline',
       via: 'menu',
+      action: 'pick',
       span: { start: 0, end: 6, draftRev: 1 },
     })).toEqual({
       insert: {
@@ -276,18 +277,33 @@ describe('candidates', () => {
 })
 
 describe('pick and codec', () => {
-  const pick = (source: InputTriggerSource, candidate: InputTriggerCandidate) => source.onPick({
-    candidate,
-    session,
-    position: 'inline',
-    via: 'menu',
-    span: { start: 0, end: 1, draftRev: 1 },
-  })
+  const pickAs = (action: 'pick' | 'drill') =>
+    (source: InputTriggerSource, candidate: InputTriggerCandidate) => source.onPick({
+      candidate,
+      session,
+      position: 'inline',
+      via: 'menu',
+      action,
+      span: { start: 0, end: 1, draftRev: 1 },
+    })
+  const pick = pickAs('pick')
+  const drill = pickAs('drill')
 
-  it('inserts files as atomic icon labels while keeping directory completion open', async () => {
+  it('settles files and directories as atomic icon labels; drill keeps directory completion open', async () => {
     const { source } = await bench()
     const [directory, file] = await source.candidates(session, request(''))
-    expect(pick(source, directory!)).toEqual({ text: '@src/', continue: true })
+    expect(directory?.drill).toBe(true)
+    expect(file?.drill).toBeUndefined()
+    expect(pick(source, directory!)).toEqual({
+      insert: {
+        source: 'reference',
+        ref: '@src/',
+        label: 'src/',
+        appearance: 'folder',
+        clipboardText: '@src/',
+      },
+    })
+    expect(drill(source, directory!)).toEqual({ text: '@src/', continue: true })
     expect(pick(source, file!)).toEqual({
       insert: {
         source: 'reference',
@@ -298,7 +314,7 @@ describe('pick and codec', () => {
       },
     })
     const [quotedDirectory] = await source.candidates(session, request('', { quoted: true }))
-    expect(pick(source, quotedDirectory!)).toEqual({ text: '@"src/', continue: true })
+    expect(drill(source, quotedDirectory!)).toEqual({ text: '@"src/', continue: true })
   })
 
   it('inserts sessions as atomic chips whose clipboard and model forms are canonical mentions', async () => {

@@ -5,10 +5,11 @@ export type { ConversationBinding } from './conversation/assembly.ts'
 export { ConversationController, UnsupportedImageMediaTypeError } from './service.ts'
 export type { IConversation } from './service.ts'
 export type {
-  ConversationContextReader, ConversationEventInput, ConversationLocation,
+  ConversationContextReader, ConversationLocation,
   ConversationLocationData, ConversationLocationDataScope, ConversationLocationDataStore,
   ConversationMatch, ConversationMatchResult, ConversationNodeContext,
   ConversationNodeDefinition, ConversationPreviousContext, ConversationPublication,
+  ConversationStartMatch,
   ConversationStepDataMap, ConversationTimelineSnapshot, ConversationTurnDataMap,
   ConversationViewBuilder, ConversationViewDefinition, ConversationViewNode,
   ConversationViewSnapshotMap, ConversationViewSnapshotStore, StepLocation, TurnLocation,

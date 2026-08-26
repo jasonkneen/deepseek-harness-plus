@@ -198,6 +198,19 @@ let unmount: (() => Promise<void>) | undefined
  * the boot globals, and the injected plugin styles afterwards.
  */
 export function installAssembledBootEnv(): void {
+  // jsdom implements no scroll geometry: the trigger menu reveals its
+  // highlight with scrollIntoView on open, which a pasted leading token now
+  // reaches in this lane (the editor re-tracks at the settled caret).
+  if (typeof Element.prototype.scrollIntoView !== 'function') {
+    Element.prototype.scrollIntoView = () => {}
+  }
+  // jsdom implements no Range geometry either: Lexical's selection reveal
+  // measures the caret with one after a programmatic edit settles focus.
+  if (typeof Range.prototype.getBoundingClientRect !== 'function') {
+    Range.prototype.getBoundingClientRect = () => ({
+      top: 0, bottom: 0, left: 0, right: 0, width: 0, height: 0, x: 0, y: 0, toJSON: () => ({}),
+    })
+  }
   beforeEach(() => {
     localStorage.clear()
     // The locale service derives its provisional locale from the browser and

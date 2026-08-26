@@ -212,7 +212,7 @@ One `MessageFeedbackController` per Session backs every message control in that 
 ## Boundaries and limitations
 
 - The mutation queue is process-local. Storage-domain has no cross-process conditional write, so multiple Host writers to one storage root have no compare-and-swap or lost-update guarantee.
-- Session persistence has no durable deletion API. The service does not treat `session/disposed` or `host/session-removed` as deletion and therefore performs no fake cascade; orphan sidecar rows may remain after out-of-band log removal.
+- Session persistence has no durable deletion API. The service does not treat `session/disposed` or `api-session/removed` as deletion and therefore performs no fake cascade; orphan sidecar rows may remain after out-of-band log removal.
 - A request in the narrow interval after live detach but before the persistence catalog materializes the header can receive `session-not-found`; callers retry after retirement materialization.
 - Cold requests scan the complete Session snapshot catalog because persistence has no lookup-by-id metadata operation. One Session row also has no item-count or aggregate-byte cap; `maxNoteBytes` bounds only each note until a concrete consumer owns a row policy.
 - Header identity detects a reused id only when `{createdAt, cwd}` differs; a cloned log retaining the same header identity is indistinguishable by this contract.

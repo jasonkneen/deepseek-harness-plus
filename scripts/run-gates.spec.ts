@@ -71,6 +71,7 @@ describe('gate graph validation', () => {
     'check-all',
     'hygiene',
     'doc-sync',
+    'doc-quick',
   ] as const)('constructs and executes preflight for a valid non-empty %s graph', async (mode) => {
     const subject = withPnpmEntrypoint(() => gatesForMode(mode))
     const execute = vi.fn(async (item: Gate) => resultFor(item))
@@ -88,6 +89,13 @@ describe('gate graph validation', () => {
     const ids = withPnpmEntrypoint(() => gatesForMode('doc-sync').map(subject => subject.id))
 
     expect(ids).toContain('subsystem-pages')
+  })
+
+  it('derives the quick documentation aggregate from marked doc-sync leaves', () => {
+    const full = withPnpmEntrypoint(() => gatesForMode('doc-sync'))
+    const quick = withPnpmEntrypoint(() => gatesForMode('doc-quick'))
+
+    expect(quick).toEqual(full.filter(gate => gate.quick === true))
   })
 
   it('keeps the hygiene aggregate aligned with the package script checks', () => {
@@ -167,9 +175,13 @@ describe('gate graph validation', () => {
     const byId = new Map(complete.map(subject => [subject.id, subject]))
 
     expect(byId.get('coverage')?.allowFailure).not.toBe(true)
+    expect(byId.get('coverage')?.needs).toContain('build')
     expect(byId.get('coverage-exempt-heavy')?.allowFailure).not.toBe(true)
     expect(byId.get('coverage')?.needs).toContain('build')
     expect(byId.get('coverage-exempt-heavy')?.needs).toContain('build')
+    expect(byId.get('coverage-exempt-heavy')?.args).toContain(
+      'packages/experimental/webworker-packer/tests/image-loadable.spec.ts',
+    )
     expect(observational).not.toHaveLength(0)
     for (const gate of observational) {
       const completeGate = byId.get(gate.id)
@@ -218,6 +230,7 @@ describe('gate graph validation', () => {
     expect(coverage).toMatchObject({
       displayCommand: 'DSH_COVERAGE_PARTITIONS=3 pnpm run test:coverage:partitioned',
       args: ['/private/pnpm.cjs', 'run', 'test:coverage:partitioned'],
+      env: { DSH_COVERAGE_EXEMPT_HEAVY: '1' },
       streamOutput: true,
     })
   })
@@ -433,6 +446,7 @@ describe('Node 24 lane ownership', () => {
         'packages/subprocess/subprocess-local/tests/spawn-runner-built.e2e.ts',
         'packages/subagent/subagent-codex/tests/loader-composition.e2e.ts',
         'packages/subagent/subagent-claude-code/tests/loader-composition.e2e.ts',
+        'packages/experimental/agent-team/tests/built-lib.e2e.ts',
       ]),
     )
     expect(subject.find(item => item.id === 'built-bin-smoke')?.env).toEqual({
@@ -442,6 +456,15 @@ describe('Node 24 lane ownership', () => {
     expect(subject.find(item => item.id === 'web-snapshot')).toMatchObject({
       displayCommand: 'DSH_SNAPSHOT=replay pnpm run test:web:built',
       env: { DSH_SNAPSHOT: 'replay' },
+      after: [
+        'publint',
+        'lint-and-duplication',
+        'snapshot',
+        'expected-output',
+        'doc-typecheck',
+        'node-next-types',
+        'built-bin-smoke',
+      ],
     })
   })
 })

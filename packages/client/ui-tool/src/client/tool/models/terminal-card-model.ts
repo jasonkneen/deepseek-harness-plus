@@ -205,6 +205,20 @@ function shellCall(name: string, args: Record<string, unknown>): ShellCall | nul
   }
 }
 
+/**
+ * Identify a settled root call from the persistent Bash or PowerShell tool.
+ * Its result stays on the generic input/output path because the persistent
+ * shell can report resets and partial output without one process exit status.
+ * @param block - running or settled Tool block.
+ * @returns whether the block is a settled persistent-shell call.
+ */
+export function isSettledPersistentShellCall(block: ToolCallBlock): boolean {
+  if (!('kind' in block) || block.parentCallId !== undefined) return false
+  const parsed = parsedToolCall(block)
+  if (parsed === null) return false
+  return shellCall(parsed.name, parsed.args)?.persistent === true
+}
+
 interface TerminalSendCall {
   kind: 'terminal-send'
   text: string
@@ -244,7 +258,8 @@ function parseExitStatus(text: string): { output: string; exitCode?: number; sig
  * Derive terminal props for supported root shell and terminal-send calls.
  * Standard shell results parse their final status marker; persistent shell
  * results, background calls, errors, malformed input, or child dispatches use
- * the generic path.
+ * the generic path. {@link isSettledPersistentShellCall} lets that generic
+ * persistent result remain expandable without inventing one process status.
  * @param block - running or settled Tool block.
  * @param sessionCwd - session workspace root used to resolve workdir.
  * @returns locale-neutral terminal-card data, or null for the generic path.

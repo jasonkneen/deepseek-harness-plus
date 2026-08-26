@@ -219,7 +219,7 @@ describe('web e2e: seeded history renders through cold resume', () => {
 
   it.skipIf(MODE !== 'record')('records the seed turn live through the composer', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-seeded-record'))
-    const input = page.locator('textarea').first()
+    const input = page.locator('[data-composer-input]').first()
     await input.waitFor({ timeout: 10_000 })
     const settled = scaffold.whenTurnSettled()
     await input.fill(PROMPT)
@@ -492,7 +492,7 @@ describe('web e2e: seeded history renders through cold resume', () => {
     const previousDshHome = process.env.DSH_HOME
     process.env.DSH_HOME = scaffold.harnessHome
     try {
-      const input = page.locator('textarea').first()
+      const input = page.locator('[data-composer-input]').first()
       await input.fill('/feedback the diff view is unreadable')
       await input.press('Enter')
       const row = page.locator('[data-variant="others"]').filter({

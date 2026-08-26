@@ -4,6 +4,7 @@ import type {
 } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type {} from '@deepseek-ai/dsh-llm-retry/types'
 import { isAppendSurfaceEvent } from '@deepseek-ai/dsh-session/surface'
+import type { SessionEvent } from '@deepseek-ai/dsh-session/types'
 import { deriveTurnTokenUsage } from '@deepseek-ai/dsh-token-meter/client'
 import type {
   AssistantChatData, FinalAssistantChatData, TurnTailChatData,
@@ -36,6 +37,12 @@ interface StepEvidence {
   readonly finalized: boolean
 }
 
+function isSessionEvent(event: ConversationMatch['event']): event is SessionEvent {
+  return event.type !== 'chunkrow/text-chunks'
+    && event.type !== 'chunkrow/reasoning-chunks'
+    && event.type !== 'chunkrow/tool-call-chunks'
+}
+
 function hasTextAssistant(event: Parameters<ConversationNodeDefinition['match']>[0]): boolean {
   return event.type === 'assistant/message'
     && isAppendSurfaceEvent(event)
@@ -44,6 +51,11 @@ function hasTextAssistant(event: Parameters<ConversationNodeDefinition['match']>
 }
 
 function chunkHasText(event: Parameters<ConversationNodeDefinition['match']>[0]): boolean {
+  if (event.type === 'chunkrow/text-chunks') {
+    return event.data.texts.some(text => text.trim() !== '')
+  }
+  if (event.type === 'chunkrow/reasoning-chunks'
+    || event.type === 'chunkrow/tool-call-chunks') return false
   if (event.type !== 'assistant/chunk') return false
   const chunk = event.data.chunk
   if (chunk.type === 'text-delta') return chunk.text.trim() !== ''
@@ -59,6 +71,9 @@ function turnCoordinates(event: Parameters<ConversationNodeDefinition['match']>[
   if (event.type === 'assistant/message'
     || event.type === 'assistant/chunk'
     || event.type === 'step/start'
+    || event.type === 'chunkrow/text-chunks'
+    || event.type === 'chunkrow/reasoning-chunks'
+    || event.type === 'chunkrow/tool-call-chunks'
     || event.type === 'step/end') {
     return { turn: event.data.turn, step: event.data.step }
   }
@@ -80,7 +95,10 @@ function closingAnchor(context: ConversationNodeContext<TurnTailState>): number 
     const coordinates = turnCoordinates(event)
     if (coordinates?.step === undefined) continue
     const previous = steps.get(coordinates.step) ?? { streamedText: false, finalized: false }
-    if (event.type === 'assistant/chunk') {
+    if (event.type === 'assistant/chunk'
+      || event.type === 'chunkrow/text-chunks'
+      || event.type === 'chunkrow/reasoning-chunks'
+      || event.type === 'chunkrow/tool-call-chunks') {
       steps.set(coordinates.step, {
         ...previous,
         streamedText: previous.streamedText || chunkHasText(event),
@@ -143,7 +161,7 @@ function tailData(context: ConversationNodeContext<TurnTailState>): TurnTailChat
   }
   const metrics = deriveTurnMetrics(finalized.map(candidate => candidate.finalNode)).get(end.event.data.turn)
   const tokenUsage = context.start?.event.type === 'turn/start'
-    ? deriveTurnTokenUsage(context.matches.map(match => match.event))
+    ? deriveTurnTokenUsage(context.matches.map(match => match.event).filter(isSessionEvent))
     : undefined
   return {
     turn: end.event.data.turn,

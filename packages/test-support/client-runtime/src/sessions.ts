@@ -6,9 +6,9 @@ import {
 } from '@deepseek-ai/dsh-api-session-controller/client'
 import type {
   AgentContext, ISessions, ProjectionsFace, SessionBinding, SessionFace, SessionListState,
-  SessionSearchResultItem, SessionSnapshot, SessionSummary,
+  SessionEventLikeEntry, SessionLiveEventEntry, SessionSearchResultItem,
+  SessionSnapshot, SessionSummary,
 } from '@deepseek-ai/dsh-api-session-controller/client'
-import type { SessionEventEntry } from '@deepseek-ai/dsh-api-session-controller/types'
 import type { SubagentAddress } from '@deepseek-ai/dsh-client-connection/client'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
 import type { ObservableSnapshot, SnapshotStore } from '@deepseek-ai/dsh-client-store'
@@ -259,7 +259,7 @@ export class TestSessions implements ISessions {
    */
   async replaceEvents(
     id: string,
-    entries: readonly SessionEventEntry[],
+    entries: readonly SessionEventLikeEntry[],
     hasMore = false,
   ): Promise<void> {
     await this.stabilize(() => { this.require(id).session.eventSource.replace(entries, hasMore) })
@@ -273,7 +273,7 @@ export class TestSessions implements ISessions {
    */
   async prependEvents(
     id: string,
-    entries: readonly SessionEventEntry[],
+    entries: readonly SessionEventLikeEntry[],
     hasMore = false,
   ): Promise<void> {
     await this.stabilize(() => { this.require(id).session.eventSource.prepend(entries, hasMore) })
@@ -284,7 +284,7 @@ export class TestSessions implements ISessions {
    * @param id - Session identity.
    * @param entry - live event entry.
    */
-  async appendEvent(id: string, entry: SessionEventEntry): Promise<void> {
+  async appendEvent(id: string, entry: SessionLiveEventEntry): Promise<void> {
     await this.stabilize(() => { this.require(id).session.eventSource.append(entry) })
   }
 

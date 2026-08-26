@@ -154,7 +154,7 @@ describe.skipIf(MODE === 'record')('web e2e: composer interrupt for a running co
     // One prompted parent turn makes the parent non-blank so the session
     // header (and its subagent catalog action) renders.
     const parentSettled = scaffold.whenTurnSettled()
-    const parentInput = page.locator('textarea:enabled').first()
+    const parentInput = page.locator('[data-composer-input][contenteditable="true"]').first()
     await parentInput.fill('Ask a research subagent to explain event sourcing.')
     await parentInput.press('Enter')
     expect(await parentSettled).toBe(parent.id)

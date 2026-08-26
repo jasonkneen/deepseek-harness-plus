@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import { agentEvents, type Agent } from '@deepseek-ai/dsh-agent'
 import { CompactionId, compactCheckpointSource } from '@deepseek-ai/dsh-compaction'
-import { createUserMessage, CallId , createMessage, createToolResultMessage } from '@deepseek-ai/dsh-llm'
+import { createUserMessage, ToolCallId , createMessage, createToolResultMessage } from '@deepseek-ai/dsh-llm'
 import SessionStore, { Session, SessionId } from '@deepseek-ai/dsh-session'
 import SessionQueryEngine from '@deepseek-ai/dsh-session-query'
 import SessionReferenceResolver, {
@@ -122,7 +122,7 @@ function appendConversation(session: Session): void {
     {
       turn: 2, step: 1,
       message: createToolResultMessage({
-        callId: CallId('call'),
+        callId: ToolCallId('call'),
         content: [{ type: 'text', text: 'tool output' }],
         isError: false,
       }),

@@ -7,7 +7,11 @@ import {
 import type { PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
 import type { ToolCallViewProps } from '../../contract/slots.ts'
 import {
-  localizeTerminalCardModel, terminalBlockLabels, terminalCardModel, terminalFailed,
+  isSettledPersistentShellCall,
+  localizeTerminalCardModel,
+  terminalBlockLabels,
+  terminalCardModel,
+  terminalFailed,
 } from '../models/terminal-card-model.ts'
 import { toolRowModel, type ToolRowState } from '../models/tool-call-model.ts'
 import { CONVERSATION_NS as NS } from '../../locale.ts'
@@ -49,13 +53,13 @@ export function BashRow({ toolName, block, sessionId, useSessions, inspect, t }:
     : model.state
   const status = stateStatus(state, t)
   const [expanded, setExpanded] = useState(false)
-  // Execution failures (for example cancellation before the process reports a
-  // terminal result) use the generic body. Keep their recorded args and
-  // full error reachable instead of collapsing the row to the first line.
-  const genericError = terminal === null
-    && model.state === 'error'
+  // Execution failures and persistent-shell results have no terminal card.
+  // Keep their recorded args and complete output reachable through the generic
+  // body; background acknowledgements and malformed calls remain collapsed.
+  const genericBody = terminal === null
+    && (model.state === 'error' || isSettledPersistentShellCall(block))
     && (model.body !== null || model.output !== null)
-  const expandable = terminal !== null || genericError
+  const expandable = terminal !== null || genericBody
   const open = expanded && expandable
   const failureLine = model.state === 'error' ? model.errorSummary : null
   const toggleExpand = () => {
@@ -123,7 +127,7 @@ export function BashRow({ toolName, block, sessionId, useSessions, inspect, t }:
                 {model.output !== null && (
                   <div className={css.ioSection}>
                     <span className={css.ioLabel}>{t('row.output')}</span>
-                    <span className={css.ioText} data-error>
+                    <span className={css.ioText} data-error={state === 'error' || undefined}>
                       {model.output}
                     </span>
                   </div>

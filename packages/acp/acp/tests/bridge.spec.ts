@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { AttachmentError } from '@deepseek-ai/dsh-attachment'
-import { CallId, type StreamChunk } from '@deepseek-ai/dsh-llm'
+import { ToolCallId, type StreamChunk } from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import { defineContentToolFixture } from '@deepseek-ai/dsh-tools'
 import { makeBridgeHarness, textResponse, type BridgeHarness } from './harness.ts'
@@ -14,11 +14,11 @@ import { startHttpMcpFixture } from '../../../mcp/mcp-client/tests/http-fixture.
 function oneToolCall(): StreamChunk[] {
   return [
     { type: 'block-start', index: 0, blockType: 'tool-call' },
-    { type: 'tool-call-delta', index: 0, id: CallId('call-switch'), name: 'switch_model', argumentsDelta: '{}' },
+    { type: 'tool-call-delta', index: 0, id: ToolCallId('call-switch'), name: 'switch_model', argumentsDelta: '{}' },
     {
       type: 'block-end',
       index: 0,
-      block: { type: 'tool-call', id: CallId('call-switch'), name: 'switch_model', arguments: '{}' },
+      block: { type: 'tool-call', id: ToolCallId('call-switch'), name: 'switch_model', arguments: '{}' },
     },
     { type: 'finish', reason: { kind: 'tool-calls' } },
   ]

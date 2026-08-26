@@ -1,5 +1,7 @@
 /** Agent-preset vocabulary shared by discovery, mounting, and consumers. */
 
+import type { SessionId } from '@deepseek-ai/dsh-session/types'
+
 /**
  * Where a preset's composition came from. A `system` preset ships with the
  * deployment; a `user` preset was authored locally, by a person or by an
@@ -84,6 +86,22 @@ export class UnknownPresetError extends Error {
     readonly available: readonly string[],
   ) {
     super(`agent-presets: preset "${presetId}" not found (available: ${available.join(', ') || 'none'})`)
+  }
+}
+
+/**
+ * The session's composition is fixed: its conversation has started, so its
+ * history was produced under the preset it runs and swapping the composition
+ * would leave logged tool calls the new one cannot make.
+ */
+export class PresetLockedError extends Error {
+  constructor(
+    /** The session whose composition is already fixed. */
+    readonly sessionId: SessionId,
+    /** The preset that was refused. */
+    readonly presetId: string,
+  ) {
+    super(`agent-presets: session "${sessionId}" has already started; its agent preset is fixed`)
   }
 }
 

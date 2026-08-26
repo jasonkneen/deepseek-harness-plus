@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { act, cleanup, renderHook } from '@testing-library/react'
-import type { SessionEventEntry } from '@deepseek-ai/dsh-api-session-controller/types'
+import type { SessionLiveEventEntry } from '@deepseek-ai/dsh-api-session-controller/client'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
 import { EMPTY_CHAT_SNAPSHOT } from '@deepseek-ai/dsh-client-ui-chat/client'
 import { EMPTY_CONVERSATION_SNAPSHOT } from '@deepseek-ai/dsh-client-ui-conversation/client'
@@ -24,15 +24,15 @@ afterAll(() => {
   expect(navigator.language).toBe(originalLanguage)
 })
 
-function entry(seq: number): SessionEventEntry {
+function entry(seq: number): SessionLiveEventEntry {
   return {
+    type: 'event',
     event: {
       type: 'fixture/event',
       seq,
       time: seq,
       data: { seq },
-      ignorable: true,
-    },
+    } as SessionLiveEventEntry['event'],
   }
 }
 

@@ -57,6 +57,14 @@ interface DomainSpec {
   readonly name: string
   /** Domain format version; a medium stamped with a different version rejects at open. */
   readonly version: number
+  /**
+   * Medium layout for the backend unit: `single` (the default) stores the
+   * whole unit as one document; `per-record` stores each record as its own
+   * document, for units whose records are large, sparse, or individually
+   * disposable — the projection cache — and scopes version bumps per record
+   * (a stale record document is discarded, never migrated).
+   */
+  readonly layout?: 'single' | 'per-record'
   /** Optional global singleton slot. */
   readonly global?: DomainGlobalSpec<unknown>
   /** Table declarations keyed by table name; each name must match `UNIT_NAME_RE`. */

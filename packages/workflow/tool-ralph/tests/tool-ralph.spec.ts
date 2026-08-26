@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
 import type { Agent } from '@deepseek-ai/dsh-agent'
-import { CallId } from '@deepseek-ai/dsh-llm'
+import { ToolCallId } from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import SubagentRuntime from '@deepseek-ai/dsh-subagent'
 import type { SubagentCapabilities, SubagentProvider, SubagentRun, SubagentStartRequest } from '@deepseek-ai/dsh-subagent'
@@ -100,7 +100,7 @@ function execute(
 ): Promise<ToolExecutionResult> {
   return ctx.tools.execute({
     signal: extra?.signal ?? testToolSignal,
-    callId: CallId('ralph-call'),
+    callId: ToolCallId('ralph-call'),
     name: 'ralph',
     arguments: args,
     ...extra?.agent === undefined ? {} : { agent: extra.agent },

@@ -6,7 +6,7 @@ import { Context } from '@deepseek-ai/cordis'
 import { AttachmentId, ImageVariantId } from '@deepseek-ai/dsh-attachment'
 import type { AttachmentStore, ImageAttachmentRef, RequestImageAttachment } from '@deepseek-ai/dsh-attachment'
 import { createLaunchEnvironmentSnapshot } from '@deepseek-ai/dsh-launch-environment'
-import LlmRuntime, { CallId, createUserMessage,
+import LlmRuntime, { ToolCallId, createUserMessage,
   CONTEXT_WINDOW_EXCEEDED_CODE,
   LlmError,
   ProviderRequestId,
@@ -660,7 +660,7 @@ describe('DeepSeekAdapter against a mock server', () => {
     const nested = createUserMessage({
       content: [{
         type: 'tool-result',
-        toolCallId: CallId('image-result'),
+        toolCallId: ToolCallId('image-result'),
         content: [{ type: 'image', attachment: imageRef }],
       }],
       source: { kind: 'plugin', plugin: 'test' },

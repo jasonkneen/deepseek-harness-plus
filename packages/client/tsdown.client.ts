@@ -451,6 +451,18 @@ function clientConfig(id: string, entry: string): UserConfig {
       // everything else is bundled.
       alwaysBundle: (specifier: string) => !isRequested(specifier),
     },
+    // Dual-mode libraries (lexical's exports carry development/production/
+    // node conditions; the node file picks its flavor with a top-level await
+    // a CJS bundle cannot carry) resolve their static flavor matching the
+    // NODE_ENV the defines below bake in.
+    inputOptions: {
+      resolve: {
+        conditionNames: [
+          (process.env.NODE_ENV ?? 'production') === 'development' ? 'development' : 'production',
+          'browser', 'import', 'module', 'default',
+        ],
+      },
+    },
     // Browser bundles inline node-idiom deps (zustand/immer read
     // process.env.NODE_ENV; zustand's esm build also probes
     // import.meta.env.MODE, which a CJS output cannot carry — rolldown flags

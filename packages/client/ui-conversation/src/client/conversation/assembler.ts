@@ -1,7 +1,11 @@
 import type {
-  ConversationContextReader, ConversationEventInput, ConversationLocationData, ConversationMatch,
+  SessionEventLikeEntry, SessionLiveEventEntry,
+} from '@deepseek-ai/dsh-api-session-controller/client'
+import type {
+  ConversationContextReader, ConversationLocationData, ConversationMatch,
   ConversationNodeContext, ConversationNodeDefinition, ConversationPreviousContext,
   ConversationLocationDataScope, ConversationPublication, ConversationViewBuilder,
+  ConversationStartMatch,
   ConversationViewDefinition, ConversationViewNode, ConversationViewSnapshotMap,
   ConversationViewSnapshotStore,
 } from '../contract/conversation.ts'
@@ -23,7 +27,7 @@ interface InternalContext {
   readonly id: string
   readonly definition: ConversationNodeDefinition
   startSeq: number | undefined
-  start: ConversationMatch | undefined
+  start: ConversationStartMatch | undefined
   matches: ConversationMatch[]
   state: unknown
   revision: number
@@ -117,6 +121,21 @@ function mergeMatches(
   return merged
 }
 
+function conversationMatch(
+  key: string,
+  input: SessionEventLikeEntry,
+  role: ConversationMatch['role'],
+  location: ConversationMatch['location'],
+): ConversationMatch {
+  if (role === 'start') {
+    if (input.type === 'chunks') {
+      throw new Error(`conversation Context ${key} received a packed start Match`)
+    }
+    return { event: input.event, role, location }
+  }
+  return { event: input.event, role, location }
+}
+
 /** Event Registry subset consumed by a Session-owned Assembler. */
 export interface ConversationEventDefinitions {
   /** @returns ordinary Definitions in registration order. */
@@ -139,7 +158,7 @@ export class ConversationNodeAssembler implements ConversationViewSnapshotStore 
   private readonly contexts = new Map<string, InternalContext>()
   private readonly contextsByKind = new Map<string, InternalContext[]>()
   private readonly contextsBySeq = new Map<number, Set<InternalContext>>()
-  private readonly inputs = new Map<number, ConversationEventInput>()
+  private readonly inputs = new Map<number, SessionEventLikeEntry>()
   private readonly locationIndex = new ConversationLocationIndex()
   private readonly dirty = new Set<InternalContext>()
   private readonly revised = new Set<InternalContext>()
@@ -166,7 +185,7 @@ export class ConversationNodeAssembler implements ConversationViewSnapshotStore 
    * @param hasMore - whether older history remains outside the window.
    * @returns immediate publication request.
    */
-  replaceWindow(entries: readonly ConversationEventInput[], hasMore: boolean): ConversationPublication {
+  replaceWindow(entries: readonly SessionEventLikeEntry[], hasMore: boolean): ConversationPublication {
     this.contexts.clear()
     this.contextsByKind.clear()
     this.contextsBySeq.clear()
@@ -189,17 +208,18 @@ export class ConversationNodeAssembler implements ConversationViewSnapshotStore 
 
   /**
    * Add one contiguous live tail event without scanning existing Contexts.
-   * @param input - appended Session event.
+   * @param record - appended Session event entry.
    * @returns highest requested publication cadence.
    */
-  append(input: ConversationEventInput): ConversationPublication {
-    if (this.inputs.has(input.event.seq)) return 'none'
+  append(record: SessionLiveEventEntry): ConversationPublication {
+    const event = record.event
+    if (this.inputs.has(event.seq)) return 'none'
     this.revised.clear()
-    this.inputs.set(input.event.seq, input)
+    this.inputs.set(event.seq, record)
     let publication: ConversationPublication = 'none'
-    if (isLocationBoundary(input.event.type)) {
+    if (isLocationBoundary(event.type)) {
       const previousTimeline = this.locationIndex.snapshot()
-      const changed = this.locationIndex.appendBoundary(input.event)
+      const changed = this.locationIndex.appendBoundary(event)
       if (this.locationIndex.snapshot() !== previousTimeline) {
         this.timelineDirty = true
         publication = 'immediate'
@@ -207,9 +227,9 @@ export class ConversationNodeAssembler implements ConversationViewSnapshotStore 
       this.replayContexts(this.refreshMatchLocations(changed))
       if (changed.size > 0) publication = 'immediate'
     } else {
-      this.locationIndex.appendNonBoundary(input.event)
+      this.locationIndex.appendNonBoundary(event)
     }
-    publication = maximumPublication(publication, this.matchInput(input))
+    publication = maximumPublication(publication, this.matchInput(record))
     if (this.replayRevisedDependents()) publication = 'immediate'
     this.revised.clear()
     return publication
@@ -221,7 +241,7 @@ export class ConversationNodeAssembler implements ConversationViewSnapshotStore 
    * @param hasMore - whether history still precedes the expanded window.
    * @returns highest requested publication cadence.
    */
-  prepend(entries: readonly ConversationEventInput[], hasMore: boolean): ConversationPublication {
+  prepend(entries: readonly SessionEventLikeEntry[], hasMore: boolean): ConversationPublication {
     this.revised.clear()
     let publication: ConversationPublication = 'none'
     const previousHasMore = this.hasMore
@@ -343,26 +363,27 @@ export class ConversationNodeAssembler implements ConversationViewSnapshotStore 
     return active
   }
 
-  private sortedInputs(): ConversationEventInput[] {
+  private sortedInputs(): SessionEventLikeEntry[] {
     return [...this.inputs.values()].sort((left, right) => left.event.seq - right.event.seq)
   }
 
-  private matchInput(input: ConversationEventInput): ConversationPublication {
+  private matchInput(input: SessionEventLikeEntry): ConversationPublication {
     return this.dispatchInput(input, (definition, id, role) =>
       this.acceptMatch(definition, id, role, input))
   }
 
   private collectInput(
-    input: ConversationEventInput,
+    input: SessionEventLikeEntry,
     pending: Map<string, PendingMatch[]>,
   ): ConversationPublication {
     return this.dispatchInput(input, (definition, id, role) => {
       const key = conversationContextKey(definition.kind, id)
-      const match: ConversationMatch = {
-        ...input,
+      const match = conversationMatch(
+        key,
+        input,
         role,
-        location: this.locationIndex.locationOf(input.event),
-      }
+        this.locationIndex.locationOf(input.event),
+      )
       const matches = pending.get(key) ?? []
       matches.push({ definition, id, match })
       pending.set(key, matches)
@@ -371,17 +392,18 @@ export class ConversationNodeAssembler implements ConversationViewSnapshotStore 
   }
 
   private dispatchInput(
-    input: ConversationEventInput,
+    input: SessionEventLikeEntry,
     accept: (
       definition: ConversationNodeDefinition,
       id: string,
       role: ConversationMatch['role'],
     ) => ConversationPublication,
   ): ConversationPublication {
+    const event = input.event
     const matchedTargets = new Set<string>()
     let publication: ConversationPublication = 'none'
     for (const definition of this.eventDefinitions.entries()) {
-      const result = definition.match(input.event)
+      const result = definition.match(event)
       if (result === null) continue
       if (definition.target !== undefined) matchedTargets.add(definition.target)
       publication = maximumPublication(publication, accept(definition, result.id, result.role))
@@ -389,7 +411,7 @@ export class ConversationNodeAssembler implements ConversationViewSnapshotStore 
     const fallback = this.eventDefinitions.fallbackEntry()
     const target = fallback?.target
     if (fallback !== undefined && target !== undefined && !matchedTargets.has(target)) {
-      const result = fallback.match(input.event)
+      const result = fallback.match(event)
       if (result !== null) {
         publication = maximumPublication(publication, accept(fallback, result.id, result.role))
       }
@@ -401,7 +423,7 @@ export class ConversationNodeAssembler implements ConversationViewSnapshotStore 
     definition: ConversationNodeDefinition,
     id: string,
     role: ConversationMatch['role'],
-    input: ConversationEventInput,
+    input: SessionEventLikeEntry,
   ): ConversationPublication {
     const key = conversationContextKey(definition.kind, id)
     let context = this.contexts.get(key)
@@ -425,11 +447,12 @@ export class ConversationNodeAssembler implements ConversationViewSnapshotStore 
       }
       this.contexts.set(key, context)
     }
-    const match: ConversationMatch = {
-      ...input,
+    const match = conversationMatch(
+      key,
+      input,
       role,
-      location: this.locationIndex.locationOf(input.event),
-    }
+      this.locationIndex.locationOf(input.event),
+    )
     const previous = context.matches.at(-1)
     if (previous !== undefined && previous.event.seq >= input.event.seq) {
       throw new Error(`conversation Context ${key} received non-appended Match ${input.event.seq}`)
@@ -438,7 +461,7 @@ export class ConversationNodeAssembler implements ConversationViewSnapshotStore 
       throw new Error(`conversation Context ${key} received an update before its start Match`)
     }
     context.matches.push(match)
-    if (role === 'start') {
+    if (match.role === 'start') {
       context.startSeq = input.event.seq
       context.start = match
       this.indexStartedContext(context)
@@ -447,7 +470,7 @@ export class ConversationNodeAssembler implements ConversationViewSnapshotStore 
     owners.add(context)
     this.contextsBySeq.set(input.event.seq, owners)
 
-    if (role === 'start') {
+    if (match.role === 'start') {
       this.replayContext(context)
     } else if (context.state !== undefined) {
       const typed = contextSnapshot(context) as ConversationNodeContext & { readonly state: unknown }
@@ -485,7 +508,7 @@ export class ConversationNodeAssembler implements ConversationViewSnapshotStore 
         }
         this.contexts.set(key, context)
       }
-      let discoveredStart: ConversationMatch | undefined
+      let discoveredStart: ConversationStartMatch | undefined
       const additions = entries
         .map((entry) => {
           if (entry.definition !== context.definition || entry.id !== context.id) {
@@ -707,9 +730,15 @@ export class ConversationNodeAssembler implements ConversationViewSnapshotStore 
       let start = context.start
       const matches = context.matches.map((match): ConversationMatch => {
         if (!changedSeqs.has(match.event.seq)) return match
-        const refreshed = { ...match, location: this.locationIndex.locationOf(match.event) }
-        if (match === start) start = refreshed
-        return refreshed
+        if (match.role === 'start') {
+          const refreshed: ConversationStartMatch = {
+            ...match,
+            location: this.locationIndex.locationOf(match.event),
+          }
+          if (match === start) start = refreshed
+          return refreshed
+        }
+        return { ...match, location: this.locationIndex.locationOf(match.event) }
       })
       context.matches = matches
       context.start = start

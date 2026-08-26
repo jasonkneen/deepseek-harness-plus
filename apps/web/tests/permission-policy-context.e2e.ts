@@ -94,7 +94,7 @@ describe('web e2e: current sandbox policy reaches the model before tools', () =>
       expect(fixtureUserPrompts(await readFile(FIXTURE, 'utf8'))).toEqual(PROMPTS)
     }
 
-    const input = page.locator('textarea').first()
+    const input = page.locator('[data-composer-input]').first()
     let sessionId: Awaited<ReturnType<WebScaffold['whenTurnSettled']>> | undefined
     for (const [index, preset] of ['read-only', 'danger-full-access', 'workspace-write'].entries()) {
       await input.fill(`/permission ${preset}`)

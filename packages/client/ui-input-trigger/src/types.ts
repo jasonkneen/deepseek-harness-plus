@@ -37,6 +37,9 @@ export type TriggerPosition = 'leading' | 'inline'
 /** Which of the three pick paths produced a pick. */
 export type PickVia = 'menu' | 'space' | 'enter'
 
+/** What a pick asks for: resolve the candidate, or drill into it in place. */
+export type PickAction = 'pick' | 'drill'
+
 /** One menu candidate. Pure display data — zero behavior declaration. */
 export interface InputTriggerCandidate {
   readonly name: string
@@ -47,6 +50,12 @@ export interface InputTriggerCandidate {
   readonly section?: string
   /** Opaque source-owned pick payload. */
   readonly value?: string
+  /**
+   * The row offers a drill action beside the settling pick: Tab or the row's
+   * chevron refines the query in place (directory descent) instead of
+   * resolving the candidate.
+   */
+  readonly drill?: boolean
 }
 
 /**
@@ -74,6 +83,8 @@ export interface InputTriggerPick {
   readonly session: ClientSessionContext
   readonly position: TriggerPosition
   readonly via: PickVia
+  /** Settling pick, or the candidate's drill action (Tab / row chevron). */
+  readonly action: PickAction
   readonly span: TokenSpan
 }
 

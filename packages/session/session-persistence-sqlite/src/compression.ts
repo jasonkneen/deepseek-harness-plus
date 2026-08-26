@@ -24,7 +24,7 @@ export interface BoundRecord {
   readonly data: string | Uint8Array
   readonly sourceEventSeqs: Uint8Array | null
   readonly surfaceOp: string | null
-  readonly ignorable: number | null
+  readonly isPacked: 0 | 1
 }
 
 /** Small values stay as SQLite text to avoid per-frame CPU and byte overhead. */
@@ -34,8 +34,6 @@ const MAX_SAFE_INTEGER = BigInt(Number.MAX_SAFE_INTEGER)
 const MAX_ZIGZAG_INTEGER = MAX_SAFE_INTEGER * 2n
 const UTF8_DECODER = new TextDecoder('utf-8', { fatal: true })
 const ZSTD_COMPRESSION_LEVEL = 3
-const PACKED_ROW_SENTINEL = 0
-
 const CHUNK_TAGS = ['text-chunks', 'reasoning-chunks', 'tool-call-chunks'] as const
 type ChunkTag = typeof CHUNK_TAGS[number]
 
@@ -49,7 +47,7 @@ function isChunkTag(value: string): value is ChunkTag {
  * @returns every logical event represented by the row.
  */
 export function decodeRow(row: EventRow): SessionEvent[] {
-  if (row.ignorable !== PACKED_ROW_SENTINEL) return [decodeScalarRow(row)]
+  if (row.is_packed === 0) return [decodeScalarRow(row)]
   if (!isChunkTag(row.type)) {
     throw new Error(`malformed ${row.type} storage row: packed discriminator requires a chunk tag`)
   }
@@ -78,7 +76,7 @@ export function bindRecord(record: StorageRecord): BoundRecord {
       data: encodeData(JSON.stringify(record.data)),
       sourceEventSeqs: null,
       surfaceOp: null,
-      ignorable: PACKED_ROW_SENTINEL,
+      isPacked: 1,
     }
   }
   const event = record
@@ -92,7 +90,7 @@ export function bindRecord(record: StorageRecord): BoundRecord {
       ? null
       : encodeSourceEventSeqs(surface.sourceEventSeqs),
     surfaceOp: surface.surfaceOp === undefined ? null : JSON.stringify(surface.surfaceOp),
-    ignorable: event.ignorable === true ? 1 : null,
+    isPacked: 0,
   }
 }
 
@@ -212,7 +210,6 @@ function decodeScalarRow(row: EventRow): SessionEvent {
     time: row.time,
     data: JSON.parse(decodeData(row.data)) as SessionEvent['data'],
     ...surfaceFields,
-    ...row.ignorable === 1 ? { ignorable: true as const } : {},
   } as SessionEvent
 }
 

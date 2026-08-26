@@ -36,6 +36,7 @@ export type Mode =
   | 'check-all'
   | 'hygiene'
   | 'doc-sync'
+  | 'doc-quick'
 
 type GateResultStatus = 'passed' | 'failed' | 'skipped'
 type GateState = 'pending' | 'running' | GateResultStatus
@@ -51,6 +52,8 @@ export interface Gate {
   /** Gate ids that must settle, regardless of outcome, before this gate starts. */
   after?: string[]
   env?: Record<string, string | undefined>
+  /** Include this leaf in the build-free documentation aggregate. */
+  quick?: boolean
   /** Keep a failure visible without failing the aggregate. */
   allowFailure?: boolean
   /** Write child output as it arrives instead of buffering it until completion. */
@@ -127,10 +130,11 @@ function parseMode(raw: string | undefined): Mode {
     case 'check-all':
     case 'hygiene':
     case 'doc-sync':
+    case 'doc-quick':
       return raw
     default:
       throw new Error(
-        `run-gates: expected mode ci-primary | ci-linux-primary | ci-static | ci-lint-contracts-ready | ci-coverage | ci-snapshot | ci-artifacts | ci-consumers | ci-windows-blocking | ci-windows-complete | ci-windows-observational | node-compat | check-all | hygiene | doc-sync, got ${JSON.stringify(raw)}.`,
+        `run-gates: expected mode ci-primary | ci-linux-primary | ci-static | ci-lint-contracts-ready | ci-coverage | ci-snapshot | ci-artifacts | ci-consumers | ci-windows-blocking | ci-windows-complete | ci-windows-observational | node-compat | check-all | hygiene | doc-sync | doc-quick, got ${JSON.stringify(raw)}.`,
       )
   }
 }
@@ -150,7 +154,10 @@ export function defaultConcurrency(
   if (selectedMode === 'ci-consumers') return { workers: total, source: 'ci-consumers gate count' }
   // Local modes cap workers: several doc gates each build a full ts.Program,
   // so an uncapped default on a large host trades wall clock for memory blowups.
-  const localCap = selectedMode === 'check-all' || selectedMode === 'hygiene' || selectedMode === 'doc-sync'
+  const localCap = selectedMode === 'check-all'
+    || selectedMode === 'hygiene'
+    || selectedMode === 'doc-sync'
+    || selectedMode === 'doc-quick'
   const modeLimit = localCap ? Math.min(4, available) : available
   return {
     workers: Math.min(total, modeLimit),
@@ -261,6 +268,8 @@ export function gatesForMode(selected: Mode): Gate[] {
       ]
     case 'doc-sync':
       return docSyncLeafGates()
+    case 'doc-quick':
+      return docQuickLeafGates()
   }
 }
 
@@ -415,6 +424,18 @@ function ciArtifactGates(): Gate[] {
 function ciConsumerGates(): Gate[] {
   const builtTree = ['build']
   const validatedBuild = ['built-package-invariants']
+  // The HMR web test starts `dev:web`, which rewrites the shared `lib/` and
+  // `apps/web/dist/` trees. Let every build-artifact reader settle before that
+  // writer starts; `after` preserves the web diagnostic even if a reader fails.
+  const buildArtifactReaders = [
+    'publint',
+    'lint-and-duplication',
+    'snapshot',
+    'expected-output',
+    'doc-typecheck',
+    'node-next-types',
+    'built-bin-smoke',
+  ]
   return [
     ciBuildGate(),
     pnpmScript('node-compat', 'check:node-compat', {
@@ -429,7 +450,7 @@ function ciConsumerGates(): Gate[] {
     }),
     snapshotGate(validatedBuild),
     expectedOutputGate(validatedBuild),
-    webSnapshotGate(validatedBuild),
+    webSnapshotGate(validatedBuild, buildArtifactReaders),
     pnpmScript('doc-typecheck', 'doc-typecheck:contracts-ready', {
       needs: validatedBuild,
       env: { DSH_DOC_TYPECHECK_USE_BUILD_OUTPUT: '1' },
@@ -442,7 +463,8 @@ function ciConsumerGates(): Gate[] {
   ]
 }
 
-function webSnapshotGate(needs: string[]): Gate {
+function webSnapshotGate(needs: string[], after?: string[]): Gate {
+  const order = after === undefined ? { needs } : { needs, after }
   const workerRaw = process.env.DSH_WEB_SNAPSHOT_WORKERS
   if (workerRaw !== undefined && workerRaw !== '') {
     const workers = Number.parseInt(workerRaw, 10)
@@ -453,7 +475,7 @@ function webSnapshotGate(needs: string[]): Gate {
       label: 'web browser snapshot',
       displayCommand: `DSH_SNAPSHOT=replay DSH_WEB_SNAPSHOT_WORKERS=${workers} pnpm run test:web:ci`,
       env: { DSH_SNAPSHOT: 'replay' },
-      needs,
+      ...order,
       streamOutput: true,
     })
   }
@@ -461,7 +483,7 @@ function webSnapshotGate(needs: string[]): Gate {
     label: 'web browser snapshot',
     displayCommand: 'DSH_SNAPSHOT=replay pnpm run test:web:built',
     env: { DSH_SNAPSHOT: 'replay' },
-    needs,
+    ...order,
   })
 }
 
@@ -670,36 +692,49 @@ function docSyncLeafGates(options: {
       : [pnpmScript('doc-typecheck', options.docTypecheckScript ?? 'doc-typecheck', docTypecheckOptions)],
     pnpmScript('docs-site-build', options.docsBuildScript ?? 'docs:build', { label: 'documentation build' }),
     pnpmScript('doc-graphs', 'verify-doc-graphs', { label: 'doc graphs' }),
-    pnpmScript('markdown-links', 'verify-md-links', { label: 'markdown links' }),
-    pnpmScript('type-equivalence', 'verify-type-equiv', { label: 'type equivalence' }),
+    pnpmScript('markdown-links', 'verify-md-links', { label: 'markdown links', quick: true }),
+    pnpmScript('type-equivalence', 'verify-type-equiv', { label: 'type equivalence', quick: true }),
     pnpmScript('cordis-catalog', 'verify-cordis-catalog', { label: 'cordis catalog' }),
     pnpmScript('cordis-inspect-catalog', 'verify-cordis-inspect-catalog', { label: 'Cordis inspect catalog' }),
     pnpmScript('mermaid', 'verify-mermaid'),
     pnpmScript('scoped-events', 'verify-scoped-events', { label: 'scoped events' }),
-    pnpmScript('translation-pairing', 'verify-translation-pairing', { label: 'translation pairing' }),
-    pnpmScript('markdown-wrap', 'verify-md-wrap', { label: 'markdown wrap' }),
+    pnpmScript('translation-pairing', 'verify-translation-pairing', { label: 'translation pairing', quick: true }),
+    pnpmScript('markdown-wrap', 'verify-md-wrap', { label: 'markdown wrap', quick: true }),
     pnpmScript('client-catalog', 'verify-client-catalog', { label: 'client catalog' }),
     pnpmScript('export-jsdoc', 'verify-export-jsdoc', { label: 'export jsdoc' }),
     pnpmScript('tool-catalog', 'verify-tool-catalog', { label: 'tool catalog' }),
     pnpmScript('config-catalog', 'verify-config-catalog', { label: 'config catalog' }),
     pnpmScript('persistence-catalog', 'verify-persistence-catalog', { label: 'persistence catalog' }),
-    pnpmScript('public-repository-links', 'verify-public-repository-links', { label: 'public repository links' }),
-    pnpmScript('doc-refs', 'verify-doc-refs', { label: 'doc refs' }),
+    pnpmScript('public-repository-links', 'verify-public-repository-links', { label: 'public repository links', quick: true }),
+    pnpmScript('doc-refs', 'verify-doc-refs', { label: 'doc refs', quick: true }),
     pnpmScript('subsystem-pages', 'verify-subsystem-pages', { label: 'subsystem pages' }),
     pnpmScript('package-paths', 'verify-package-paths', { label: 'package paths' }),
     pnpmScript('config-source-ownership', 'verify-config-source-ownership', { label: 'config source ownership' }),
-    pnpmScript('package-readme-model-experience', 'verify-package-readme-model-experience', { label: 'package README model experience' }),
-    pnpmScript('agent-note-classification', 'verify-agent-note-classification', { label: 'agent note classification' }),
-    pnpmScript('agent-note-format', 'verify-agent-note-format', { label: 'agent note format' }),
-    pnpmScript('archived-agent-notes', 'verify-archived-agent-notes', { label: 'archived agent notes' }),
-    pnpmScript('skill-invocation-metadata', 'verify-skill-invocation-metadata', { label: 'skill invocation metadata' }),
-    pnpmScript('translation-prompt', 'verify-translation-prompt', { label: 'translation prompt' }),
-    pnpmScript('doc-budgets', 'verify-doc-budgets', { label: 'doc budgets' }),
+    pnpmScript('package-readme-model-experience', 'verify-package-readme-model-experience', { label: 'package README model experience', quick: true }),
+    pnpmScript('agent-note-classification', 'verify-agent-note-classification', { label: 'agent note classification', quick: true }),
+    pnpmScript('agent-note-format', 'verify-agent-note-format', { label: 'agent note format', quick: true }),
+    pnpmScript('archived-agent-notes', 'verify-archived-agent-notes', { label: 'archived agent notes', quick: true }),
+    pnpmScript('skill-invocation-metadata', 'verify-skill-invocation-metadata', { label: 'skill invocation metadata', quick: true }),
+    pnpmScript('translation-prompt', 'verify-translation-prompt', { label: 'translation prompt', quick: true }),
+    pnpmScript('doc-budgets', 'verify-doc-budgets', { label: 'doc budgets', quick: true }),
+    pnpmExec('doc-standard-tests', ['vitest', 'run', 'scripts/doc-standard.spec.ts'], {
+      label: 'documentation standard tests',
+      quick: true,
+    }),
     pnpmExec('docs-site-projection', ['vitest', 'run', 'scripts/project-doc-site.spec.ts', 'scripts/verify-doc-site-fragments.spec.ts'], {
       label: 'documentation site checks',
     }),
-    pnpmScript('package-readme-limitations', 'verify-package-readme-limitations', { label: 'package README limitations' }),
+    pnpmScript('package-readme-limitations', 'verify-package-readme-limitations', { label: 'package README limitations', quick: true }),
   ]
+}
+
+/**
+ * The quick comprehensive documentation-standard aggregate for `test:docs`.
+ * It covers the prose, pairing, README, budget, and Agent Note gates
+ * without builds, generator regeneration, or the VitePress site build.
+ */
+function docQuickLeafGates(): Gate[] {
+  return docSyncLeafGates({ includeDocTypecheck: false }).filter(gate => gate.quick === true)
 }
 
 function builtBinSmokeGate(needs: string[] = ['build']): Gate {
@@ -716,6 +751,7 @@ function builtBinSmokeGate(needs: string[] = ['build']): Gate {
     'packages/subagent/subagent-codex/tests/loader-composition.e2e.ts',
     'packages/subagent/subagent-claude-code/tests/loader-composition.e2e.ts',
     'packages/api/remotes/tests/built-lib.e2e.ts',
+    'packages/experimental/agent-team/tests/built-lib.e2e.ts',
     // Built execution consumers: the only automated proof that package-name
     // imports reach their lib/ entrypoints under plain Node. The e2e lane runs
     // unbuilt, so these files self-skip there.

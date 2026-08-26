@@ -79,7 +79,7 @@ Use one unique value and keep the provider's storage scope unchanged throughout:
 2. Create DSH session B in the same running Host. Do not copy session A's conversation. Ask: `What is my validation drink? Check memory.` Confirm the model called the provider's search or recall tool and returned the value.
 3. Still in session B, ask: `Use that preference to suggest one drink for the meeting.` Confirm the answer uses the recalled value.
 
-A new DSH session is required; a Host restart is not. Restart or HMR is needed only after an MCP child crashes because the current generic client does not auto-reconnect; its tool registrations remain until plugin disposal or a successful re-sync, and calls can fail against the closed transport. Initial discovery is asynchronous, so wait for the provider's `mcp__...` tools before sending the first validation prompt.
+A new DSH session is required; a Host restart is not. A crashed MCP child triggers automatic reconnection with backoff and a tool re-sync; tools stay listed and calls fail only during the outage, and after the reconnect budget is exhausted the tools are unregistered and reconnection stops until a reload or restart. Initial discovery is asynchronous, so wait for the provider's `mcp__...` tools before sending the first validation prompt.
 
 ## Bring another MCP server
 

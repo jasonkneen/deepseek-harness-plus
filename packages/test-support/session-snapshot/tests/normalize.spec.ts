@@ -4,6 +4,7 @@ import {
   extractSnapshotSpillPaths,
   normalizeSessionLog,
   normalizeSessionSnapshot,
+  normalizeSessionSnapshots,
   normalizeStdout,
   scrubRequestHeaders,
   scrubSessionSnapshot,
@@ -496,10 +497,54 @@ describe('normalizeSessionSnapshot', () => {
       JSON.stringify({ type: 'session', version: 0 }),
       JSON.stringify({
         type: 'text-chunks',
-        data: { turn: 1, step: 1, index: 0, dt: [9], texts: ['a', 'b'] },
+        data: { turn: 1, step: 1, index: 0, dt: [9, 8], texts: ['a', 'b', 'c'] },
       }),
     ].join('\n') + '\n'
-    expect(normalizeSessionSnapshot(raw, ctx)).toContain('"dt":[0]')
+    expect(normalizeSessionSnapshot(raw, ctx)).toContain('"dt":[0,0]')
+  })
+
+  it('re-packs adjacent chunk runs split by persistence flushes', () => {
+    const raw = [
+      JSON.stringify({ type: 'session', version: 0 }),
+      JSON.stringify({
+        type: 'text-chunks',
+        data: { turn: 1, step: 1, index: 0, dt: [4, 5], texts: ['a', 'b', 'c'] },
+      }),
+      JSON.stringify({
+        type: 'text-chunks',
+        data: { turn: 1, step: 1, index: 0, dt: [6, 7], texts: ['d', 'e', 'f'] },
+      }),
+    ].join('\n') + '\n'
+    expect(normalizeSessionSnapshot(raw, ctx)).toBe([
+      JSON.stringify({ type: 'session', version: 0 }),
+      JSON.stringify({
+        type: 'text-chunks',
+        data: { turn: 1, step: 1, index: 0, dt: [0, 0, 0, 0, 0], texts: ['a', 'b', 'c', 'd', 'e', 'f'] },
+      }),
+      '',
+    ].join('\n'))
+  })
+
+  it('re-packs multi-session fixtures after relationship-preserving id redaction', () => {
+    const raw = [
+      JSON.stringify({ type: 'session', version: 0 }),
+      JSON.stringify({
+        type: 'reasoning-chunks',
+        data: { turn: 1, step: 1, index: 0, dt: [1, 2], texts: ['a', 'b', 'c'] },
+      }),
+      JSON.stringify({
+        type: 'reasoning-chunks',
+        data: { turn: 1, step: 1, index: 0, dt: [3, 4], texts: ['d', 'e', 'f'] },
+      }),
+    ].join('\n') + '\n'
+    expect(normalizeSessionSnapshots([raw], ctx)).toEqual([[
+      JSON.stringify({ type: 'session', version: 0 }),
+      JSON.stringify({
+        type: 'reasoning-chunks',
+        data: { turn: 1, step: 1, index: 0, dt: [0, 0, 0, 0, 0], texts: ['a', 'b', 'c', 'd', 'e', 'f'] },
+      }),
+      '',
+    ].join('\n')])
   })
 
   it('rejects headerless input', () => {

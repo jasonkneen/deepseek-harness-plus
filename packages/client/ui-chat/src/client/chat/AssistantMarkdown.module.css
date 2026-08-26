@@ -1,8 +1,16 @@
+/* Assistant flow body: full-width narration (figma 16/28 scaled 0.875 → 14/24
+   with the markdown token ladder), block gap 16. The Settings font-size
+   preference rides the body-published axis: size follows
+   --dsh-content-font-size and the line height keeps the 10px leading via the
+   shared px delta. IconActions sit below the body with an explicit 16px top
+   margin (figma 43:32997) — separate from the body's internal gap so the
+   footer spacing stays fixed when the body is a single block. */
+
 .root {
   display: flex;
   flex-direction: column;
-  font-size: 16px;
-  line-height: 28px;
+  font-size: var(--dsh-content-font-size, 14px);
+  line-height: calc(24px + var(--dsh-content-font-delta, 0px));
   color: var(--dsw-alias-label-primary);
 }
 
@@ -34,7 +42,9 @@
   padding-left: var(--dsh-table-lead);
 }
 
-/* Interrupted-turn terminal marker: quiet inline tag, no animation. */
+/* Interrupted-turn terminal marker: quiet inline tag, no animation. Fixed
+   size like the small/code token variants — 11px is dense secondary text
+   that would fall to an illegible 9px at the 12px floor. */
 .stopped {
   align-self: flex-start;
   padding: 0 6px;

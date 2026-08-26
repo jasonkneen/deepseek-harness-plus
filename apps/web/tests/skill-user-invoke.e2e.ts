@@ -98,7 +98,7 @@ describe.skipIf(MODE === 'record')('web e2e: user-explicit skill invocation thro
 
   it('claims /name args into a gesture bubble, an injection row, and a replayed answer', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-skill-user-invoke'))
-    const composer = page.locator('textarea:enabled').last()
+    const composer = page.locator('[data-composer-input][contenteditable="true"]').last()
     await composer.waitFor({ timeout: 15_000 })
 
     // The menu lists the user-only skill (its only entry point) before enter.

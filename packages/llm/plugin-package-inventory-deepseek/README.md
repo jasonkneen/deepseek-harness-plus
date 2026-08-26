@@ -1,9 +1,27 @@
+---
+description: "Active Loader package inventory metadata for deployments sending official DeepSeek requests."
+kind: "package-reference"
+---
+
 # @deepseek-ai/dsh-plugin-package-inventory-deepseek
 
 English | [中文](README.zh.md)
 
-Complete active Loader-backed plugin package inventory for official DeepSeek LLM API requests. This function plugin injects the Loader, live Agent registry, and `ctx.deepseekLlmApiExtensions`, then owns the `dsh_plugin_packages` field.
+## Summary
 
+Complete active Loader-backed plugin package inventory for official DeepSeek LLM API requests. This function plugin injects the Loader, live Agent registry, and `ctx.deepseekLlmApiExtensions`, then owns the `dsh_plugin_packages` field. Enable it when the official API needs the active package list for request diagnostics.
+
+## Table of Contents
+
+- [Configuration](#configuration)
+- [Collection](#collection)
+- [Model Experience](#model-experience)
+- [Known Limitations and Deferred Work](#known-limitations-and-deferred-work)
+- [Dev Note](#dev-note)
+
+-----
+
+<a id="configuration"></a>
 ## Configuration
 
 | Key | Default | Meaning |
@@ -12,6 +30,7 @@ Complete active Loader-backed plugin package inventory for official DeepSeek LLM
 
 Shipped profiles use the default, so every official DeepSeek request carries the package inventory when preparation succeeds.
 
+<a id="collection"></a>
 ## Collection
 
 Every request re-reads active non-group entries from the host Loader tree. When optional `ctx.agentPresets` is present and `sessionId` resolves to a live Agent joined to a standing preset, that preset's separate Loader tree joins the same collection; deployments without the service report the host tree only. Entries are included only while their root fiber is `ACTIVE` and their effective Loader state is enabled.
@@ -20,6 +39,7 @@ Bare package and package-subpath specifiers resolve through Node's package searc
 
 The version-1 `dsh_plugin_packages` field contains only `{ name, version }` pairs. Disabled, pending, failed, disposed, unloading, structural `cordis:` rows, ordinary dependencies, loose files without an owning package identity, programmatically mounted child fibers, and in-memory dynamic plugins are excluded.
 
+<a id="model-experience"></a>
 ## Model Experience
 
 ### Package inventory metadata
@@ -38,6 +58,19 @@ None; package lifecycle changes do not alter the model-visible prefix.
 
 ## Known Limitations and Deferred Work
 
+<a id="known-limitations-and-deferred-work"></a>
+
 - **Loader package provenance only** — programmatic child fibers and in-memory dynamic plugins do not have authoritative npm name/version provenance and remain outside this inventory.
 - **Loose modules are omitted** — a relative file without a named and versioned owning manifest is a plugin module, not a plugin package.
 - **In-place package replacement requires restart** — manifest identities are cached for the process lifetime. Loader enable, disable, mount, unmount, and ordinary source HMR still refresh the active entry set, but replacing a mounted package's manifest with another version in the same process is not a supported upgrade path.
+
+
+<a id="dev-note"></a>
+### Dev Note
+
+<details>
+<summary>Working context for maintainers — click to expand</summary>
+
+None.
+
+</details>

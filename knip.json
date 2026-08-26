@@ -91,6 +91,14 @@
       ]
     },
     "packages/client/ui-conversation": {
+      "entry": [
+        "tests/**/*.spec.{ts,tsx}",
+        "tests/**/*.perf.client.ts"
+      ],
+      "project": [
+        "src/**/*.{ts,tsx}",
+        "tests/**/*.{ts,tsx}"
+      ],
       "ignoreDependencies": [
         "@deepseek-ai/dsh-client-ui-workspace"
       ]
@@ -676,6 +684,7 @@
       "entry": [
         "tests/**/*.spec.ts",
         "tests/**/*.e2e.ts",
+        "tests/profiles/**/fixtures/**/*.{ts,mjs}",
         "tests/profiles/**/tests/fixtures/**/*.{ts,mjs}"
       ],
       "project": [
@@ -726,6 +735,12 @@
         "tests/**/*.ts"
       ]
     },
+    "packages/experimental/agent-team-profile": {
+      "ignoreDependencies": [
+        "@deepseek-ai/dsh-experimental-agent-team",
+        "@deepseek-ai/dsh-experimental-tool-agent-team"
+      ]
+    },
     "packages/bundle/base": {
       "ignoreDependencies": [
         "@deepseek-ai/.+"
@@ -749,6 +764,17 @@
     "packages/bundle/sdk-minimal": {
       "ignoreDependencies": [
         "@deepseek-ai/.+"
+      ]
+    },
+    "packages/experimental/agent-team": {
+      "entry": [
+        "tests/**/*.spec.ts",
+        "tests/**/*.e2e.ts"
+      ]
+    },
+    "packages/experimental/agent-team-web-profile": {
+      "ignoreDependencies": [
+        "@deepseek-ai/dsh-experimental-client-ui-agent-team"
       ]
     },
     "packages/bundle/web-app": {

@@ -26,7 +26,20 @@ Claude Code maps Agent SDK results into five categories:
 
 The diagnostic also retains the derived `query-start`, `query-run`, `process`, or `teardown` stage and independently observed exit code and signal. A contributing permission decision follows the failure line. Successful completion and local cancellation expose no failure diagnostic, and original SDK text remains only on the internal cause chain and in Host observation.
 
-Codex currently retains the version-pinned categories documented by the [structured failure-facts decision](../feature/2026-08-18-product-subagent-failure-facts.md). The two providers may adopt the minimal mapping independently because neither shares a public error enum or asks a consumer to branch on category text.
+Codex maps app-server failures into eight categories:
+
+| Category | Safe input |
+| --- | --- |
+| `limit` | Context, session-budget, or usage limits |
+| `access-policy` | Authentication, cyber-policy, product-policy, or sandbox failures |
+| `service` | Overload or internal service failures |
+| `transport` | HTTP and response-stream connection failures or exhausted attempts |
+| `product-error` | Invalid requests, rollback, active-turn, or other product failures |
+| `invalid-result` | A completed turn without a nonblank final answer |
+| `process` | The managed app-server exits before another terminal result |
+| `unknown` | Startup, teardown, malformed protocol values, or failures without a more specific safe fact |
+
+The Codex diagnostic retains `initialize`, `thread-start`, `turn-start`, `turn`, `process`, or `teardown`, plus applicable numeric HTTP status and independently observed exit code and signal. `contextWindowExceeded` still maps the shared stop reason to `max-tokens`; every other category remains `error`. Only structured protocol facts contribute permission detail. Product stderr is Host-only observation and is neither classified nor copied into the result.
 
 ### Ownership and lifecycle
 
@@ -40,7 +53,7 @@ Codex currently retains the version-pinned categories documented by the [structu
 
 ## Verification
 
-Claude Code package tests cover every coarse category, all four stages, unknown structured values, permission ordering, raw-text exclusion, success and cancellation omission, concurrent-run isolation, and independent exit code and signal fields. The real Agent SDK 0.3.241 and Claude Code 2.1.241 fixture produces an actual max-turns limit, process failure, permission denial, strict final answer, cancellation, and whole-tree quiescence. Loader and keyless product compositions continue to expose static tools without a diagnostic parser or model-visible category input.
+Claude Code package tests cover every coarse category, all four stages, unknown structured values, permission ordering, raw-text exclusion, success and cancellation omission, concurrent-run isolation, and independent exit code and signal fields. The real Agent SDK 0.3.241 and Claude Code 2.1.241 fixture produces an actual max-turns limit, process failure, permission denial, strict final answer, cancellation, and whole-tree quiescence. Codex package tests cover every coarse category, all six stages, applicable HTTP status, structured permission ordering, stderr exclusion, success and cancellation omission, concurrency, and cleanup aggregation. The real 0.149.1 app-server fixture produces service, product-error, process, final-answer, model-isolation, cancellation, and quiescence evidence. Loader and keyless product compositions continue to expose static tools without a diagnostic parser or model-visible category input.
 
 ## Alternatives considered
 
@@ -54,6 +67,6 @@ Claude Code package tests cover every coarse category, all four stages, unknown 
 
 ## Consequences
 
-Claude Code upgrades no longer require a model-visible promise for every SDK error subtype. Parents still distinguish a limit, general product failure, invalid result, managed process exit, and unknown failure while retaining stage, permission, and process facts.
+Product runtime upgrades no longer require a model-visible promise for every SDK or app-server error member. Parents still distinguish limits, access and policy restrictions, service and transport failures, general product failures, invalid results, managed process exits, and unknown failures while retaining applicable stage, permission, HTTP, and process facts.
 
 The diagnostic remains safe display text rather than a recovery protocol. This change adds no raw error forwarding, fallback model, automatic retry, product session persistence, public structured result field, or dynamic provider and model selection.

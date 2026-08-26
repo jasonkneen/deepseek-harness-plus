@@ -72,7 +72,6 @@ interface EventDraft {
   readonly data: unknown
   readonly surfaceOp?: 'append'
   readonly sourceEventSeqs?: number[]
-  readonly ignorable?: true
 }
 
 class EventLog {

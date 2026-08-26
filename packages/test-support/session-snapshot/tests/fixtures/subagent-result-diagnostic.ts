@@ -24,12 +24,12 @@ const RESULTS = [
   },
   {
     id: '00000000-0000-4000-8000-0000000000d3',
-    diagnostic: 'Product subagent failure (product: Codex; stage: turn; category: httpConnectionFailed; HTTP status: 503)',
+    diagnostic: 'Product subagent failure (product: Codex; stage: turn; category: transport; HTTP status: 503)',
     output: [{ type: 'text' as const, text: 'partial assistant text' }],
   },
   {
     id: '00000000-0000-4000-8000-0000000000d4',
-    diagnostic: 'Product subagent failure (product: Codex; stage: turn; category: httpConnectionFailed; HTTP status: 503)',
+    diagnostic: 'Product subagent failure (product: Codex; stage: turn; category: transport; HTTP status: 503)',
     output: [],
   },
 ] as const

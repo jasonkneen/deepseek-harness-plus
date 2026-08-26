@@ -23,6 +23,7 @@
     model: mock-routed
     env:
       DSH_TELEMETRY_DISABLED: '1'
+      DSH_TEST_CHILD_FAILURE: !!js String(process.env.DSH_TEST_CHILD_FAILURE ?? '')
 
 - id: tool-subagent
   name: '@deepseek-ai/dsh-tool-subagent'

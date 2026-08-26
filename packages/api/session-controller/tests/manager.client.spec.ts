@@ -759,7 +759,7 @@ describe('connected generation', () => {
   it('refreshes query baselines without rebuilding independently resumed Session sources', async () => {
     const api = new FakeApiClient()
     api.onHistory = () => Promise.resolve(ok({
-      events: entries(plainTurn(0, 0, 'a', 'b')) as never[],
+      records: entries(plainTurn(0, 0, 'a', 'b')) as never[],
       hasMore: false,
       modelSelection: { provider: 'deepseek-official', model: 'deepseek-chat' },
     }))

@@ -22,7 +22,8 @@
   - text: Context injection @deepseek-ai/dsh-system-prompt
 - paragraph: partial
 - status: Deep diving...
-- textbox "Message the agent": Queue this follow-up while the current turn is running.
+- textbox "Message the agent":
+  - paragraph: Queue this follow-up while the current turn is running.
 - button "Commands":
   - img
 - 'button "Access mode, current: Workspace Write"': Workspace Write

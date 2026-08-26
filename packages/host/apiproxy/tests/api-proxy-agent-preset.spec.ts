@@ -13,7 +13,6 @@ import {
   agentPresetProjectionDefinition, InvalidPresetIdError, PresetExistsError, UnknownPresetError,
 } from '@deepseek-ai/dsh-agent-presets'
 import type {} from '@deepseek-ai/dsh-agent-presets/types'
-import { GoalId } from '@deepseek-ai/dsh-goal'
 import { createApiProxy } from '../src/api-proxy.ts'
 import { describe, expect, it } from 'vitest'
 import { SessionQueryError, type SessionObservation } from '@deepseek-ai/dsh-session-query'
@@ -210,23 +209,6 @@ async function harness(
  * instance through the agent instead of reading a root-realm singleton.
  */
 describe('a capability the session\'s preset mounts', () => {
-  it('serves the goal RPC from the session\'s own goal service', async () => {
-    const { api } = await harness(['standard'])
-    await createSession(api, { sessionId: SessionId('g1'), agentPreset: 'standard' })
-    const ref = { id: GoalId('goal-1'), revision: 1 }
-    const paused: unknown[] = []
-    services.set('g1', {
-      goals: { pause: (agent: { id: unknown }, r: unknown) => { paused.push([String(agent.id), r]); return ref } },
-    })
-
-    const response = await api.goals.pause(request({ sessionId: SessionId('g1'), ref }))
-
-    expect(response.result).toMatchObject({ ok: true, value: { ref } })
-    // Reached the instance this session mounted, and was handed its own agent.
-    expect(paused).toEqual([['g1', ref]])
-    services.delete('g1')
-  })
-
   it('serves the skill catalog from the session\'s own registry', async () => {
     const { api } = await harness(['standard'])
     await createSession(api, { sessionId: SessionId('k1'), agentPreset: 'standard' })
@@ -259,205 +241,6 @@ describe('a capability the session\'s preset mounts', () => {
     expect(response.result.ok).toBe(false)
     const failure = response.result as { ok: false; error: { message: string } }
     expect(failure.error.message).toContain('neither this session')
-  })
-})
-
-describe('agentPreset.list', () => {
-  it('marks the default and carries each preset\'s trust', async () => {
-    const { api } = await harness(['standard', 'minimal'])
-
-    const response = await api.agentPresets.list(request({}))
-
-    expect(response.result.ok).toBe(true)
-    if (!response.result.ok) throw new Error('unreachable')
-    expect(response.result.value.presets).toEqual([
-      { id: 'standard', trust: 'system', isDefault: true },
-      { id: 'minimal', trust: 'system', isDefault: false },
-    ])
-    expect(response.result.value.authorable).toBe(true)
-  })
-
-  it('answers with an empty roster when the deployment composes no presets', async () => {
-    const { api } = await harness()
-
-    const response = await api.agentPresets.list(request({}))
-
-    // Composing no presets is a valid deployment, not an error: every session
-    // then shares the host composition and the browser offers no choice.
-    expect(response.result.ok).toBe(true)
-    if (!response.result.ok) throw new Error('unreachable')
-    expect(response.result.value.presets).toEqual([])
-    // Nothing to write to either, so a surface offering "new preset" knows to
-    // stay hidden rather than offering a button whose save always fails.
-    expect(response.result.value.authorable).toBe(false)
-  })
-})
-
-describe('agentPreset.select', () => {
-  it('recomposes a blank session', async () => {
-    const { api } = await harness(['standard', 'minimal'])
-    await createSession(api, { sessionId: SessionId('sel-1'), agentPreset: 'standard' })
-
-    const response = await api.agentPresets.select(
-      request({ sessionId: SessionId('sel-1'), agentPreset: 'minimal' }))
-
-    expect(response.result.ok).toBe(true)
-    if (!response.result.ok) throw new Error('unreachable')
-    expect(response.result.value.agentPreset).toBe('minimal')
-  })
-
-  it('records the switch in the log', async () => {
-    const { api, ctx } = await harness(['standard', 'minimal'])
-    await createSession(api, { sessionId: SessionId('sel-log'), agentPreset: 'standard' })
-
-    await api.agentPresets.select(
-      request({ sessionId: SessionId('sel-log'), agentPreset: 'minimal' }))
-
-    // The header is written once at creation, so the switch lives in the log —
-    // this is what a restart replays and what every projection resolves from.
-    // Asserting only the RPC's echo would miss a switch that never persisted.
-    const session = ctx.sessions.get(SessionId('sel-log'))
-    if (session === undefined) throw new Error('unreachable')
-    expect(session.header.agentPreset).toBe('standard')
-    expect(session.events.findLast(event => event.type === 'agent-preset/selected')?.data)
-      .toEqual({ agentPreset: 'minimal' })
-  })
-
-  it('serializes two concurrent selects on one session', async () => {
-    const { api, ctx } = await harness(['standard', 'minimal'])
-    await createSession(api, { sessionId: SessionId('sel-race'), agentPreset: 'standard' })
-
-    // Both pass the blank check; unserialized, the second unmount finds no
-    // record because the first already removed it, and two compositions end up
-    // in one agent layer. The client's busy flag is not enforcement.
-    const [first, second] = await Promise.all([
-      api.agentPresets.select(request({ sessionId: SessionId('sel-race'), agentPreset: 'minimal' })),
-      api.agentPresets.select(request({ sessionId: SessionId('sel-race'), agentPreset: 'standard' })),
-    ])
-
-    expect(first.result.ok).toBe(true)
-    expect(second.result.ok).toBe(true)
-    const session = ctx.sessions.get(SessionId('sel-race'))
-    if (session === undefined) throw new Error('unreachable')
-    // One winner, and the log agrees with it: the last committed switch.
-    expect(session.events.findLast(event => event.type === 'agent-preset/selected')?.data)
-      .toEqual({ agentPreset: 'standard' })
-  })
-
-  it('refuses once the conversation has started', async () => {
-    const { api, ctx } = await harness(['standard', 'minimal'])
-    await createSession(api, { sessionId: SessionId('sel-2'), agentPreset: 'standard' })
-    // One turn is enough: the history from here on was produced under
-    // `standard`'s tools, and a swap would strand those tool calls.
-    ctx.sessions.get(SessionId('sel-2'))?.append('turn/start', { turn: 0 })
-
-    const response = await api.agentPresets.select(
-      request({ sessionId: SessionId('sel-2'), agentPreset: 'minimal' }))
-
-    expect(response.result.ok).toBe(false)
-    if (response.result.ok) throw new Error('unreachable')
-    expect(response.result.error.code).toBe('agent-preset-locked')
-  })
-
-  it('reports an unknown preset without disturbing the session', async () => {
-    const { api } = await harness(['standard'])
-    await createSession(api, { sessionId: SessionId('sel-3') })
-
-    const response = await api.agentPresets.select(
-      request({ sessionId: SessionId('sel-3'), agentPreset: 'nope' }))
-
-    expect(response.result.ok).toBe(false)
-    if (response.result.ok) throw new Error('unreachable')
-    expect(response.result.error.code).toBe('agent-preset-not-found')
-  })
-
-  it('reports a deployment that composes no presets', async () => {
-    const { api } = await harness()
-    await createSession(api, { sessionId: SessionId('sel-4') })
-
-    const response = await api.agentPresets.select(
-      request({ sessionId: SessionId('sel-4'), agentPreset: 'anything' }))
-
-    expect(response.result.ok).toBe(false)
-    if (response.result.ok) throw new Error('unreachable')
-    expect(response.result.error.code).toBe('agent-preset-not-found')
-  })
-})
-
-describe('authoring over the wire', () => {
-  it('reads a composition with its trust', async () => {
-    const { api } = await harness(['standard'])
-
-    const response = await api.agentPresets.read(request({ agentPreset: 'standard' }))
-
-    expect(response.result.ok).toBe(true)
-    if (!response.result.ok) throw new Error('unreachable')
-    // The shipped set is readable: it is the known-good composition a copy
-    // starts from, and trust is what tells a surface to say so.
-    expect(response.result.value.trust).toBe('system')
-    expect(response.result.value.content).toContain('- id: x')
-  })
-
-  it('copies a preset under a new id', async () => {
-    const { api } = await harness(['standard'])
-
-    const response = await api.agentPresets.copy(
-      request({ from: 'standard', agentPreset: 'mine', name: '我的模式' }))
-
-    expect(response.result.ok).toBe(true)
-    if (!response.result.ok) throw new Error('unreachable')
-    expect(response.result.value.agentPreset).toBe('mine')
-  })
-
-  it('rejects a copy target that could escape the preset root', async () => {
-    const { api } = await harness(['standard'])
-
-    const response = await api.agentPresets.copy(request({ from: 'standard', agentPreset: '../escape' }))
-
-    expect(response.result.ok).toBe(false)
-    if (response.result.ok) throw new Error('unreachable')
-    expect(response.result.error.code).toBe('agent-preset-invalid')
-  })
-
-  it('rejects a copy target the roster already supplies', async () => {
-    const { api } = await harness(['standard', 'minimal'])
-
-    const response = await api.agentPresets.copy(request({ from: 'standard', agentPreset: 'minimal' }))
-
-    expect(response.result.ok).toBe(false)
-    if (response.result.ok) throw new Error('unreachable')
-    expect(response.result.error.code).toBe('agent-preset-invalid')
-    expect(response.result.error.message).toMatch(/already exists/)
-  })
-
-  it('rejects a copy whose source is unknown', async () => {
-    const { api } = await harness(['standard'])
-
-    const response = await api.agentPresets.copy(request({ from: 'never-existed', agentPreset: 'mine' }))
-
-    expect(response.result.ok).toBe(false)
-    if (response.result.ok) throw new Error('unreachable')
-    expect(response.result.error.code).toBe('agent-preset-not-found')
-  })
-
-  it('reports a deployment that composes no presets', async () => {
-    const { api } = await harness()
-
-    const response = await api.agentPresets.read(request({ agentPreset: 'anything' }))
-
-    expect(response.result.ok).toBe(false)
-    if (response.result.ok) throw new Error('unreachable')
-    expect(response.result.error.code).toBe('agent-preset-not-found')
-  })
-
-  it('reports an unknown id on delete rather than succeeding silently', async () => {
-    const { api } = await harness(['standard'])
-
-    const response = await api.agentPresets.remove(request({ agentPreset: 'never-existed' }))
-
-    expect(response.result.ok).toBe(false)
-    if (response.result.ok) throw new Error('unreachable')
-    expect(response.result.error.code).toBe('agent-preset-not-found')
   })
 })
 
@@ -510,7 +293,7 @@ describe('opening a preset directory', () => {
     expect(opened).toEqual([])
   })
 
-  it('reports the roster capability on list', async () => {
+  it('reports the opener capability on host.describe', async () => {
     const openable = await harness(['standard'], {
       defaults: { canOpenPath: () => true },
     })
@@ -518,11 +301,13 @@ describe('opening a preset directory', () => {
       defaults: { canOpenPath: () => false },
     })
 
-    const yes = await openable.api.agentPresets.list(request({}))
-    const no = await headless.api.agentPresets.list(request({}))
+    // The capability a surface joins onto the roster to decide between opening
+    // a preset directory and showing its path as text.
+    const yes = await openable.api.host.describe(request({}))
+    const no = await headless.api.host.describe(request({}))
 
-    expect(yes.result.ok && yes.result.value.hasDocument).toBe(true)
-    expect(no.result.ok && no.result.value.hasDocument).toBe(false)
+    expect(yes.result.ok && yes.result.value.canOpenPath).toBe(true)
+    expect(no.result.ok && no.result.value.canOpenPath).toBe(false)
   })
 
   it('counts an injected opener as openable', async () => {
@@ -530,9 +315,9 @@ describe('opening a preset directory', () => {
       defaults: { openPath: () => Promise.resolve() },
     })
 
-    const response = await api.agentPresets.list(request({}))
+    const response = await api.host.describe(request({}))
 
-    expect(response.result.ok && response.result.value.hasDocument).toBe(true)
+    expect(response.result.ok && response.result.value.canOpenPath).toBe(true)
   })
 })
 

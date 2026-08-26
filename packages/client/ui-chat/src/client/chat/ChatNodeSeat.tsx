@@ -36,6 +36,10 @@ export const ChatNodeSeat = memo(function ChatNodeSeat({
     node, selectedCallId, cwd, openFile, inspectCall, forkAt, renderMessageImages, fileMentions,
   ])
   if (routedNode === undefined || owner === null) return null
+  const location = routedNode.location
+  const turn = location.kind === 'turn' || location.kind === 'step'
+    ? location.turn.turn
+    : undefined
   // Runtime dispatch owns the correlation: every Node's discriminant is the
   // keyed-slot entry passed alongside that same Node. TypeScript does not
   // distribute an object containing a union into a union of objects itself.
@@ -46,6 +50,7 @@ export const ChatNodeSeat = memo(function ChatNodeSeat({
       data-chat-anchor-key={routedNode.key}
       data-chat-flow-key={routedNode.key}
       data-chat-flow-kind={routedNode.kind}
+      data-chat-turn={turn}
     >
       {renderSlot('conversation.chat.node', routedOwner, {
         entryKey: routedNode.kind,

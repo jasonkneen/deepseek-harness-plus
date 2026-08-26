@@ -135,7 +135,7 @@ async function measureWriteTraffic(
     readonly data: string | Uint8Array
     readonly source_event_seqs: Uint8Array | null
     readonly surface_op: string | null
-    readonly ignorable: number | null
+    readonly is_packed: number
   }
   const sameValue = (left: string | Uint8Array | null, right: string | Uint8Array | null): boolean => (
     typeof left === 'string' || left === null
@@ -150,7 +150,7 @@ async function measureWriteTraffic(
       && sameValue(left.data, right.data)
       && sameValue(left.source_event_seqs, right.source_event_seqs)
       && left.surface_op === right.surface_op
-      && left.ignorable === right.ignorable
+      && left.is_packed === right.is_packed
   )
   const ctx = new Context()
   await ctx.plugin(SessionStore)
@@ -223,7 +223,7 @@ runCoordinatorContract('sqlite', async (): Promise<CoordinatorFixture> => {
         : 1
       const next = last.seq + logicalLength
       db.prepare(testSql('insert-corrupt-event'))
-        .run(id, next, 'assistant/chunk', 99, '{not valid json', null)
+        .run(id, next, 'assistant/chunk', 99, '{not valid json', 0)
       db.close()
     },
     cleanup: async () => { await rm(directory, { recursive: true, force: true }) },
@@ -326,7 +326,7 @@ describe('SessionPersistenceSqlite physical packing', () => {
 
     const db = new DatabaseSync(path)
     db.prepare(testSql('insert-corrupt-event'))
-      .run(header.id, 1, 'assistant/chunk', 2, JSON.stringify(chunk(1).data), null)
+      .run(header.id, 1, 'assistant/chunk', 2, JSON.stringify(chunk(1).data), 0)
     db.close()
 
     expect((await store.loadStoredFrom(header.id, 2))?.events).toEqual([chunk(2)])
@@ -334,7 +334,7 @@ describe('SessionPersistenceSqlite physical packing', () => {
     const malformed = new DatabaseSync(path)
     malformed.prepare(testSql('delete-session-events')).run(header.id)
     malformed.prepare(testSql('insert-corrupt-event'))
-      .run(header.id, 0, 'text-chunks', 1, '{not json', 0)
+      .run(header.id, 0, 'text-chunks', 1, '{not json', 1)
     malformed.close()
     expect((await store.loadStoredFrom(header.id, 2))?.events).toEqual([])
     await store.close()
@@ -372,11 +372,11 @@ describe('SessionPersistenceSqlite physical packing', () => {
   it('rejects an older SQLite physical schema', async () => {
     const path = await freshDbPath('dsh-sqlite-old-schema-')
     const seed = await openDatabase(DatabaseSync, path, 'wal', DEFAULT_BUSY_TIMEOUT_MS)
-    seed.exec(testSql('set-user-version-16'))
+    seed.exec(testSql('set-user-version-17'))
     seed.close()
     await chmod(path, 0o600)
     await expect(openDatabase(DatabaseSync, path, 'wal', DEFAULT_BUSY_TIMEOUT_MS))
-      .rejects.toThrow(/schema version 16.*incompatible/)
+      .rejects.toThrow(/schema version 17.*incompatible/)
   })
 
   it('rejects a stale physical append without replacing the winning tail', async () => {
@@ -399,7 +399,7 @@ describe('SessionPersistenceSqlite physical packing', () => {
     const header = meta(SessionId('stale-repair'))
     await stale.appendBatch(header, [chunk(0)], false)
     const db = new DatabaseSync(path)
-    db.prepare(testSql('insert-corrupt-event')).run(header.id, 1, 'assistant/chunk', 2, '{not json', null)
+    db.prepare(testSql('insert-corrupt-event')).run(header.id, 1, 'assistant/chunk', 2, '{not json', 0)
     db.close()
     expect((await stale.loadStored(header.id))?.tornMarker).toBe(1)
     await winner.commitRepair(header, 1, [])
@@ -531,13 +531,13 @@ describe('SessionPersistenceSqlite schema ownership', () => {
 
     const incompatiblePath = await freshDbPath('dsh-sqlite-incompatible-')
     const incompatible = new DatabaseSync(incompatiblePath)
-    incompatible.exec(testSql('set-user-version-16'))
+    incompatible.exec(testSql('set-user-version-17'))
     incompatible.close()
     await expect(openDatabase(DatabaseSync, incompatiblePath, 'wal', DEFAULT_BUSY_TIMEOUT_MS)).rejects.toThrow(/incompatible with this build/)
 
     const foreignPath = await freshDbPath('dsh-sqlite-foreign-')
     const foreign = new DatabaseSync(foreignPath)
-    foreign.exec(testSql('set-user-version-17'))
+    foreign.exec(testSql('set-user-version-18'))
     foreign.exec(testSql('set-application-id-12345'))
     foreign.close()
     await expect(openDatabase(DatabaseSync, foreignPath, 'wal', DEFAULT_BUSY_TIMEOUT_MS)).rejects.toThrow(/has application id 12345/)
@@ -567,7 +567,7 @@ describe('SessionPersistenceSqlite schema ownership', () => {
 
   it('rejects schema ownership changes observed at mutation time', async () => {
     const changedVersion = await openDatabase(DatabaseSync, ':memory:', 'wal', DEFAULT_BUSY_TIMEOUT_MS)
-    changedVersion.exec(testSql('set-user-version-16'))
+    changedVersion.exec(testSql('set-user-version-17'))
     expect(() => { validateSchemaForMutation(DatabaseSync, changedVersion, ':memory:') })
       .toThrow(/schema changed before mutation/)
     changedVersion.close()
@@ -636,7 +636,7 @@ describe('SessionPersistenceSqlite schema ownership', () => {
 
     const eventRow = {
       seq: 0, type: 'turn/start', time: 1, data: '{}',
-      source_event_seqs: null, surface_op: null, ignorable: null,
+      source_event_seqs: null, surface_op: null, is_packed: 0,
     }
     for (const [value, message] of [
       [null, /object/],
@@ -645,7 +645,7 @@ describe('SessionPersistenceSqlite schema ownership', () => {
       [{ ...eventRow, time: '1' }, /time.*safe integer/],
       [{ ...eventRow, data: 1 }, /data.*string or blob/],
       [{ ...eventRow, source_event_seqs: 1 }, /source_event_seqs.*blob or null/],
-      [{ ...eventRow, ignorable: 2 }, /ignorable.*0, 1, or null/],
+      [{ ...eventRow, is_packed: 2 }, /is_packed.*0 or 1/],
     ] as const) {
       expect(() => decodeEventRow(value)).toThrow(message)
     }
@@ -755,7 +755,7 @@ describe('SessionPersistenceSqlite edge behavior', () => {
     const header = meta('repair-validation')
     await store.appendBatch(header, [chunk(0)], false)
     const db = new DatabaseSync(path)
-    db.prepare(testSql('insert-corrupt-event')).run(header.id, 1, 'assistant/chunk', 2, '{not json', null)
+    db.prepare(testSql('insert-corrupt-event')).run(header.id, 1, 'assistant/chunk', 2, '{not json', 0)
     db.close()
     await expect(store.commitRepair(header, undefined, [chunk(1)])).rejects.toThrow(/omitted current torn tail/)
     await store.commitRepair(header, 1, [])
@@ -776,7 +776,7 @@ describe('SessionPersistenceSqlite edge behavior', () => {
     await store.appendBatch(header, [chunk(0)], false)
     const db = new DatabaseSync(path)
     db.prepare(testSql('insert-corrupt-event'))
-      .run(header.id, 1, 'assistant/chunk', 2, '{not json', null)
+      .run(header.id, 1, 'assistant/chunk', 2, '{not json', 0)
     db.close()
 
     await expect(store.appendBatch(header, [chunk(2)], true)).rejects.toThrow(/invalid physical tail/)

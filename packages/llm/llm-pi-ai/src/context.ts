@@ -4,7 +4,7 @@
  * @module dsh-llm-pi-ai/context
  */
 
-import { CallId, contentHasImage, LlmError, offloadedImageText, offloadRequestImagesWithPolicy, requestImageHandleText } from '@deepseek-ai/dsh-llm'
+import { ToolCallId, contentHasImage, LlmError, offloadedImageText, offloadRequestImagesWithPolicy, requestImageHandleText } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, GenerateOptions, ImageAttachmentAccessResolver, Message } from '@deepseek-ai/dsh-llm'
 import type {
   AttachmentId,
@@ -138,7 +138,7 @@ function piContext(options: GenerateOptions, messages: PiMessage[]): PiContext {
 }
 
 function textOnlyContext(options: GenerateOptions, onReplayDegrade?: (reason: string) => void): PiContext {
-  const toolNames = new Map<CallId, string>()
+  const toolNames = new Map<ToolCallId, string>()
   const messages: PiMessage[] = []
   for (const message of options.messages) {
     if (contentHasImage(message.content)) {
@@ -150,7 +150,7 @@ function textOnlyContext(options: GenerateOptions, onReplayDegrade?: (reason: st
     }
     if (message.role === 'assistant') {
       const assistant = toPiAssistant(message, onReplayDegrade)
-      for (const block of assistant.content) if (block.type === 'toolCall') toolNames.set(CallId(block.id), block.name)
+      for (const block of assistant.content) if (block.type === 'toolCall') toolNames.set(ToolCallId(block.id), block.name)
       messages.push(assistant)
       continue
     }
@@ -251,7 +251,7 @@ async function toPiContextWithImages(
     byteLength: ref => (requestImages.get(ref.attachmentId) as RequestImageAttachment).bytes,
     placeholder: ref => offloadedImageText(ref, resolveImageAccess(ref)),
   })
-  const toolNames = new Map<CallId, string>()
+  const toolNames = new Map<ToolCallId, string>()
   const messages: PiMessage[] = []
 
   for (const message of exactMessages) {
@@ -265,7 +265,7 @@ async function toPiContextWithImages(
     if (message.role === 'assistant') {
       const assistant = toPiAssistant(message, onReplayDegrade)
       for (const block of assistant.content) {
-        if (block.type === 'toolCall') toolNames.set(CallId(block.id), block.name)
+        if (block.type === 'toolCall') toolNames.set(ToolCallId(block.id), block.name)
       }
       messages.push(assistant)
       continue

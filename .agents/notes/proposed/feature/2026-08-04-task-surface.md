@@ -142,7 +142,7 @@ type SubmitTaskSurfaceResult =
 type GetActiveTaskSurfaceResult =
   | {
       active: true
-      callId: CallId
+      callId: ToolCallId
       surfaceId: TaskSurfaceId
       model: TaskSurfaceModelV1
       pending: TaskSurfacePendingSubmission | null
@@ -166,7 +166,7 @@ The Host resolves the exact successful `show_task_surface` occurrence, revalidat
 interface TaskSurfaceCorrelation {
   version: 1
   submissionId: TaskSurfaceSubmissionId
-  callId: CallId
+  callId: ToolCallId
   surfaceId: TaskSurfaceId
   values: Record<string, JsonValue>
 }
@@ -210,7 +210,7 @@ The Session log is the authority. A small `taskSurface` unit in the existing [Se
 
 ```ts ignore-check
 interface TaskSurfaceProjection {
-  active: { callId: CallId; surfaceId: TaskSurfaceId } | null
+  active: { callId: ToolCallId; surfaceId: TaskSurfaceId } | null
 }
 ```
 

@@ -215,14 +215,14 @@ export interface ComposerBarOwnerProps {
   variant: 'hero' | 'composer'
   /** A feature-owned reason that makes message input inert while leaving model selection live. */
   blocked?: { readonly reason: string }
-  /** Lock all message actions while preserving the resident textarea. */
+  /** Lock all message actions while preserving the resident composer surface. */
   disabled?: boolean
   /** Whether the shared Workspace picker is expanded. */
   workspacePickerOpen?: boolean
-  /** Open the Workspace picker from the inert textarea. */
+  /** Open the Workspace picker from the inert composer surface. */
   onRequestWorkspace?: () => void
   placeholder?: string
-  /** Optional content rendered above the textarea. */
+  /** Optional content rendered above the composer surface. */
   accessory?: ReactNode
   /** Floating overlay content rendered inside the composer card. */
   overlay?: ReactNode

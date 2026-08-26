@@ -7,6 +7,35 @@
   - tablist:
     - tab "Chat" [selected]
     - tab "Trajectory"
+- navigation "Turn navigation":
+  - button "Jump to turn 1"
+  - button "Jump to turn 2"
+  - button "Jump to turn 3"
+  - button "Jump to turn 4"
+  - button "Jump to turn 5"
+  - button "Jump to turn 6"
+  - button "Jump to turn 7"
+  - button "Jump to turn 8"
+  - button "Jump to turn 9"
+  - button "Jump to turn 10"
+  - button "Jump to turn 11"
+  - button "Jump to turn 12"
+  - button "Jump to turn 13"
+  - button "Jump to turn 14"
+  - button "Jump to turn 15"
+  - button "Jump to turn 16"
+  - button "Jump to turn 17"
+  - button "Jump to turn 18"
+  - button "Jump to turn 19"
+  - button "Jump to turn 20"
+  - button "Jump to turn 21"
+  - button "Jump to turn 22"
+  - button "Jump to turn 23"
+  - button "Jump to turn 24"
+  - button "Jump to turn 25"
+  - button "Jump to turn 26"
+  - button "Jump to turn 27"
+  - button "Jump to turn 28"
 - text: m1 7/25 {{clock}}
 - button "Copy":
   - img

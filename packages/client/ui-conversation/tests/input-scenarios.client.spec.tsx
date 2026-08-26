@@ -14,8 +14,11 @@ import type { SessionSnapshot } from '@deepseek-ai/dsh-api-session-controller/cl
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
 import { InputTriggerService } from '@deepseek-ai/dsh-client-ui-input-trigger/client'
 import type {
-  ClientSessionContext, CommandClaim, PickOutcome, SubmitEnvelope, SubmitImageAttachment, SubmitOutcome,
+  ClientSessionContext, SubmitEnvelope,
 } from '@deepseek-ai/dsh-client-ui-input-trigger/client'
+import type {
+  CommandClaim, PickOutcome, SubmitImageAttachment, SubmitOutcome,
+} from '../src/client/contract/input.ts'
 import {
   bindSnapshotSelector, conversationSnapshot, makeTranslate, sessionSnapshot, SlotTestRuntime,
 } from '@deepseek-ai/dsh-client-test-runtime'
@@ -27,6 +30,13 @@ import { SessionInputShell } from '../src/client/input/facade.ts'
 import { InputBar } from '../src/client/skeleton/InputBar.tsx'
 import type { InputBarProps } from '../src/client/skeleton/InputBar.tsx'
 import { zh } from '../src/client/locales.ts'
+
+// jsdom implements no Range geometry (Lexical's scroll-into-view measures the
+// caret with one once the surface is genuinely contenteditable).
+Range.prototype.getBoundingClientRect = () => ({
+  top: 0, bottom: 0, left: 0, right: 0, width: 0, height: 0, x: 0, y: 0, toJSON: () => ({}),
+})
+
 
 afterEach(cleanup)
 
@@ -171,9 +181,9 @@ async function scopedBench(register?: (inputTriggers: InputTriggerService) => vo
     variant: 'composer',
   }
   const view = render(<InputBar {...barProps} />)
-  const textarea = view.container.querySelector('textarea')!
+  const textarea = view.container.querySelector<HTMLDivElement>('[data-composer-input]')!
   const type = (text: string): void => {
-    fireEvent.change(textarea, { target: { value: text } })
+    act(() => { shell.setDraft(text) })
   }
   return { runtime, inputTriggers, controller, shell, wiring, view, textarea, type, sink, serialize, release }
 }
@@ -194,22 +204,23 @@ describe('scenario A: menu-pick /goal, type args, enter submits', () => {
     await vi.waitFor(() => {
       const menu = b.controller.menu.getSnapshot()
       expect(menu.open).toBe(true)
-      expect(menu.groups[0]?.items.map(i => i.name)).toContain('goal')
+      expect(menu.groups[0]?.items.map((i: { name: string }) => i.name)).toContain('goal')
     })
     // Pointer pick (menu path executes through the bound target inside the pipeline).
     act(() => { b.controller.pick('command', 0) })
     expect(b.shell.snapshot.phase).toBe('claimed')
-    expect(b.textarea.value).toBe('/goal ')
-    expect(b.view.container.querySelector('[data-decoration="token"]')?.textContent).toBe('/goal ')
+    expect(b.shell.snapshot.draft).toBe('/goal ')
+    act(() => { b.shell.editor.update(() => {}, { discrete: true }) }) // flush the queued decoration refresh
+    expect(b.view.container.querySelector('[data-lexical-text][style*="warn-label"]')?.textContent).toBe('/goal ')
     // The zh dictionary owns a hint.goal entry, which overrides the machine's raw hint (production behavior).
-    expect(b.view.container.querySelector('[data-decoration="hint"]')?.textContent).toBe('输入目标，智能体将持续执行')
+    expect(b.textarea.style.getPropertyValue('--dsh-composer-hint')).toBe(JSON.stringify('输入目标，智能体将持续执行'))
     // Continue typing args; hint drops; claim holds.
     b.type('/goal 发布 v1')
     expect(b.shell.snapshot.phase).toBe('claimed')
     // Enter: submitting → command execute → commit clears.
     fireEvent.keyDown(b.textarea, { key: 'Enter' })
     await vi.waitFor(() => { expect(b.execute).toHaveBeenCalledWith('/goal 发布 v1', []) })
-    await vi.waitFor(() => { expect(b.textarea.value).toBe('') })
+    await vi.waitFor(() => { expect(b.shell.snapshot.draft).toBe('') })
     expect(b.shell.snapshot.phase).toBe('plain')
     expect(b.view.getByText('已执行 /goal 发布 v1')).toBeTruthy()
     expect(b.sink).not.toHaveBeenCalled()
@@ -225,7 +236,7 @@ describe('scenario C: pasted /goal xxx + enter (menu never opened)', () => {
     fireEvent.keyDown(b.textarea, { key: 'Enter' })
     await vi.waitFor(() => { expect(b.execute).toHaveBeenCalledWith('/goal 尽快发布', []) })
     await vi.waitFor(() => { expect(b.shell.snapshot.phase).toBe('plain') })
-    expect(b.textarea.value).toBe('')
+    expect(b.shell.snapshot.draft).toBe('')
     expect(b.sink).not.toHaveBeenCalled()
   })
 })
@@ -268,7 +279,7 @@ describe('scenario: images ride an accepting command through the real pipeline',
     // The envelope the controller forwarded to matchEnter carried the count.
     expect(b.envelopes).toEqual([{ images: 1 }])
     expect(b.serialize).toHaveBeenCalledWith(['img-1'])
-    await vi.waitFor(() => { expect(b.textarea.value).toBe('') })
+    await vi.waitFor(() => { expect(b.shell.snapshot.draft).toBe('') })
     expect(b.release).toHaveBeenCalledWith(['img-1'])
     expect(b.shell.snapshot.imageIds).toEqual([])
     expect(b.sink).not.toHaveBeenCalled()
@@ -291,12 +302,12 @@ describe('scenario H: backspace breaks the token', () => {
     b.type('/goal')
     await vi.waitFor(() => { expect(b.controller.menu.getSnapshot().open).toBe(true) })
     // Space adjudication claims (space column, leadingInput).
-    fireEvent.keyDown(b.textarea, { key: ' ' })
+    fireEvent.keyDown(b.textarea, { key: ' ', keyCode: 32 })
     expect(b.shell.snapshot.phase).toBe('claimed')
     // Backspace into the token: watch break → plain, visuals gone.
     b.type('/goa ')
     expect(b.shell.snapshot.phase).toBe('plain')
-    expect(b.view.container.querySelector('[data-decoration="token"]')).toBeNull()
+    expect(b.view.container.querySelector('[data-lexical-text][style*="warn-label"]')).toBeNull()
   })
 })
 
@@ -318,13 +329,14 @@ describe('scenario: reference decoration lights up when the lexicon settles', ()
     })
     // Typed before the catalog settled: a plain token, no decoration.
     b.type('/deploy now')
-    expect(b.view.container.querySelector('[data-decoration="text-ref"]')).toBeNull()
+    expect(b.view.container.querySelector('[data-composer-text-ref]')).toBeNull()
     // The catalog settles (ui-skill's settle path fires the same notification).
     act(() => {
       roll = ['deploy']
       notify?.()
     })
-    const mark = b.view.container.querySelector('[data-decoration="text-ref"]')
+    act(() => { b.shell.editor.update(() => {}, { discrete: true }) }) // flush the queued re-scan
+    const mark = b.view.container.querySelector('[data-composer-text-ref]')
     expect(mark?.textContent).toBe('/deploy')
   })
 })
@@ -352,7 +364,7 @@ describe('scenario I: unknown /xyz + enter', () => {
     fireEvent.keyDown(b.textarea, { key: 'Enter' })
     await vi.waitFor(() => { expect(b.view.getByText('目录预热失败')).toBeTruthy() })
     // Never a silent downgrade: draft retained, sink untouched.
-    expect(b.textarea.value).toBe('/plan 上线')
+    expect(b.shell.snapshot.draft).toBe('/plan 上线')
     expect(b.sink).not.toHaveBeenCalled()
   })
 })

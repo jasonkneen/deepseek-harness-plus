@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { Context } from '@deepseek-ai/cordis'
-import { CallId, MessageId } from '@deepseek-ai/dsh-llm'
+import { ToolCallId, MessageId } from '@deepseek-ai/dsh-llm'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
 import { assistantUpdates, toolCallUpdate, toolResultUpdate } from '../src/updates.ts'
 
@@ -33,7 +33,7 @@ describe('standard ACP update projection', () => {
     const session = { requestContext: () => undefined } as unknown as Session
     const event = assistantEvent([
       { type: 'reasoning', text: '' },
-      { type: 'tool-call', id: CallId('call-hidden'), name: 'hidden', arguments: '{}' },
+      { type: 'tool-call', id: ToolCallId('call-hidden'), name: 'hidden', arguments: '{}' },
     ])
 
     await expect(assistantUpdates(ctx, session, event)).resolves.toEqual([])
@@ -59,7 +59,7 @@ describe('standard ACP update projection', () => {
       type: 'tool/call',
       seq: 0,
       time: 0,
-      data: { turn: 1, step: 1, callId: CallId('call-bad'), name: 'broken', arguments: '{' },
+      data: { turn: 1, step: 1, callId: ToolCallId('call-bad'), name: 'broken', arguments: '{' },
     })
     const result = await toolResultUpdate({ get: () => undefined } as unknown as Context, {
       type: 'tool/result',
@@ -71,10 +71,10 @@ describe('standard ACP update projection', () => {
         message: {
           id: MessageId('tool-message'),
           role: 'user',
-          source: { kind: 'tool', callId: CallId('call-bad') },
+          source: { kind: 'tool', callId: ToolCallId('call-bad') },
           content: [{
             type: 'tool-result',
-            toolCallId: CallId('call-bad'),
+            toolCallId: ToolCallId('call-bad'),
             isError: true,
             content: [{ type: 'reasoning', text: 'hidden' }],
           }],

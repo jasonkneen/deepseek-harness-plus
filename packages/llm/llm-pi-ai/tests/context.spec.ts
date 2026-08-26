@@ -6,7 +6,7 @@ import type {
   ImageRequestPolicy,
   RequestImageAttachment,
 } from '@deepseek-ai/dsh-attachment'
-import { CallId, createMessage, createUserMessage, offloadedImageText } from '@deepseek-ai/dsh-llm'
+import { ToolCallId, createMessage, createUserMessage, offloadedImageText } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, GenerateOptions, Message } from '@deepseek-ai/dsh-llm'
 import { toPiContext } from '../src/context.ts'
 import type { PiImageRequestContext } from '../src/context.ts'
@@ -82,7 +82,7 @@ describe('pi-ai request context conversion', () => {
   })
 
   it('converts complete text-only history and rejects nested images without storage', () => {
-    const callId = CallId('call-1')
+    const callId = ToolCallId('call-1')
     expect(toPiContext(request([
       history('system', [{ type: 'text', text: 'history system' }]),
       history('assistant', [{ type: 'tool-call', id: callId, name: 'lookup', arguments: '{}' }]),
@@ -119,8 +119,8 @@ describe('pi-ai request context conversion', () => {
   })
 
   it('resolves user and tool-result images while preserving explicit fallbacks', async () => {
-    const callId = CallId('missing-call')
-    const knownCallId = CallId('known-call')
+    const callId = ToolCallId('missing-call')
+    const knownCallId = ToolCallId('known-call')
     const context = await toPiContext(request([
       user([{ type: 'text', text: '' }]),
       history('assistant', [
@@ -204,7 +204,7 @@ describe('pi-ai request context conversion', () => {
   })
 
   it('recursively converts nested tool-result text and images', async () => {
-    const callId = CallId('nested-call')
+    const callId = ToolCallId('nested-call')
     const context = await toPiContext(request([user([{
       type: 'tool-result',
       toolCallId: callId,
@@ -237,7 +237,7 @@ describe('pi-ai request context conversion', () => {
   })
 
   it('flattens nested text-only tool results and ignores other block types without storage', () => {
-    const callId = CallId('nested-text')
+    const callId = ToolCallId('nested-text')
     expect(toPiContext(request([user([{
       type: 'tool-result',
       toolCallId: callId,
@@ -263,7 +263,7 @@ describe('pi-ai request context conversion', () => {
     ))
     const store = projectionStore(readImageRequest)
     const sized: ImageAttachmentRef = { ...ref, bytes: 3 }
-    const callId = CallId('shot-call')
+    const callId = ToolCallId('shot-call')
     // Three 3-byte images cost 4 base64 characters each (12 total); a bound of
     // 8 forces exactly the oldest one out, including one nested in a tool result.
     const context = await toPiContext(request([
@@ -417,12 +417,12 @@ describe('pi-ai request context conversion', () => {
   })
 
   it('keeps empty text-only users while separating result-only messages', () => {
-    const callId = CallId('unknown-call')
+    const callId = ToolCallId('unknown-call')
     expect(toPiContext(request([
       user([]),
       history('assistant', [
         { type: 'text', text: 'answer' },
-        { type: 'tool-call', id: CallId('other-call'), name: 'lookup', arguments: '{}' },
+        { type: 'tool-call', id: ToolCallId('other-call'), name: 'lookup', arguments: '{}' },
       ]),
       user([{
         type: 'tool-result',

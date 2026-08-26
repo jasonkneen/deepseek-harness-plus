@@ -18,10 +18,12 @@
       name: '@deepseek-ai/dsh-subagent-codex'
       config:
         providerName: codex-primary
+        model: codex-primary-model
     - id: subagent-codex-secondary
       name: '@deepseek-ai/dsh-subagent-codex'
       config:
         providerName: codex-secondary
+        model: codex-secondary-model
     - id: subagent-claude-primary
       name: '@deepseek-ai/dsh-subagent-claude-code'
       config:

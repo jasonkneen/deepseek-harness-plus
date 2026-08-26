@@ -50,7 +50,7 @@ import { TextRetainer, describeOmitted } from '@deepseek-ai/dsh-output-retention
 import type { Omitted } from '@deepseek-ai/dsh-output-retention'
 import type { SaveTextSpill, SpillRef } from '@deepseek-ai/dsh-spill'
 import type { SessionId } from '@deepseek-ai/dsh-session'
-import type { CallId } from '@deepseek-ai/dsh-llm'
+import type { ToolCallId } from '@deepseek-ai/dsh-llm'
 import type { PostToolDecision, ToolExecution } from '@deepseek-ai/dsh-tools'
 import type { SpillPolicyExec } from './types.ts'
 
@@ -132,7 +132,7 @@ export function apply(ctx: Context, config: Config): void {
     totalBytes: number,
     sessionId: SessionId | undefined,
     toolName: string,
-    callId: CallId,
+    callId: ToolCallId,
     label: 'result' | 'dispatch',
   ): Promise<string | undefined> {
     if (sessionId === undefined) {
