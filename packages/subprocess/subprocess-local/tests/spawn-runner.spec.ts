@@ -119,16 +119,14 @@ function runRunner(invocation: string[], requestPath: string, eventsPath: string
 }
 
 describe('spawn runner transport', () => {
-  it('selects the source runner from source-plane execution', () => {
+  it('selects the source runner without publishing a runner package face', () => {
     expect(spawnRunnerInvocation()).toEqual(sourceInvocation)
     const manifest = JSON.parse(readFileSync(
       fileURLToPath(new URL('../package.json', import.meta.url)),
       'utf8',
-    )) as { exports: Record<string, { types: string; default: string }> }
-    expect(manifest.exports['./spawn-runner']).toEqual({
-      types: './lib/types/bin.d.ts',
-      default: './lib/spawn-runner.js',
-    })
+    )) as { exports: Record<string, unknown> }
+    expect(manifest.exports).not.toHaveProperty('./spawn-runner')
+    expect(manifest.exports['./package.json']).toBe('./package.json')
   })
 
   it('observes runner events without SharedArrayBuffer', async () => {

@@ -15,9 +15,6 @@
       "path": "../../../vendor/schemastery"
     },
     {
-      "path": "../../subprocess/subprocess-local"
-    },
-    {
       "path": "../../runtime-diagnostics/invariants"
     },
     {

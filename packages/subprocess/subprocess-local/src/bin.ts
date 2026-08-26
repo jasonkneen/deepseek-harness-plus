@@ -1,4 +1,3 @@
-#!/usr/bin/env node
 /** Thin process entry for the ordinary subprocess native runner. */
 
 import { reportSpawnRunnerFailure, runSpawnRunner } from './spawn-runner.ts'

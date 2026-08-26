@@ -28,9 +28,9 @@ export type RunnerInvocation = [string, ...string[]]
 export function spawnRunnerInvocation(): RunnerInvocation {
   if ('pkg' in process) return [process.execPath, PACKAGED_RUNNER_ARG]
   /* v8 ignore start -- source-plane coverage cannot execute the bundled module;
-     the required built-runner smoke executes its published entry. */
+     the required built-runner smoke executes its private built entry. */
   if (extname(fileURLToPath(import.meta.url)) !== '.ts') {
-    const builtEntry = fileURLToPath(import.meta.resolve('@deepseek-ai/dsh-subprocess-local/spawn-runner'))
+    const builtEntry = fileURLToPath(new URL('./spawn-runner.js', import.meta.url))
     return [process.execPath, builtEntry]
   }
   /* v8 ignore stop */

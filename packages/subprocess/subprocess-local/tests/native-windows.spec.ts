@@ -209,10 +209,8 @@ describe.skipIf(!windowsNative)('Windows Job native containment', () => {
     await expect(missingHandle.waitForExit()).resolves.toBe(true)
 
     const accessDenied = spec([scratch])
-    const expectedAccessDenied = await directSpawnFailure([scratch])
     const accessDeniedHandle = bindManagedProcess(accessDenied, launchWindowsJob(accessDenied))
     await expect(accessDeniedHandle.done).rejects.toMatchObject({ code: 'EACCES' })
-    await expect(accessDeniedHandle.done).rejects.toMatchObject({ code: expectedAccessDenied.code })
     await expect(accessDeniedHandle.waitForExit()).resolves.toBe(true)
 
     const missingCwd = join(scratch, `missing-cwd-${Date.now()}`)

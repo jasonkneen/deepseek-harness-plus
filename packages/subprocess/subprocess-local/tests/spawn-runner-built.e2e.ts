@@ -4,11 +4,14 @@ import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { cleanupRunnerFiles, createRunnerFiles, readRunnerEvents } from '../src/runner-protocol.ts'
 
-const builtEntry = fileURLToPath(import.meta.resolve('@deepseek-ai/dsh-subprocess-local/spawn-runner'))
+const builtEntry = fileURLToPath(new URL(
+  './lib/spawn-runner.js',
+  import.meta.resolve('@deepseek-ai/dsh-subprocess-local/package.json'),
+))
 const required = process.env.DSH_REQUIRE_BUILT_SUBPROCESS_RUNNER === '1'
 
 describe.skipIf(!existsSync(builtEntry) && !required)('built subprocess runner entry', () => {
-  it('reports the direct target outcome through the published entry', () => {
+  it('reports the direct target outcome through the built private entry', () => {
     if (!existsSync(builtEntry)) throw new Error(`required built subprocess runner is missing: ${builtEntry}`)
     const files = createRunnerFiles({
       argv: [process.execPath, '-e', 'process.exit(11)'],

@@ -25,7 +25,11 @@ function readVersion(): string {
 
 if (process.argv[2] === PACKAGED_RUNNER_ARG) {
   process.argv.splice(2, 1)
-  await import('@deepseek-ai/dsh-subprocess-local/spawn-runner')
+  const runnerEntry = new URL(
+    './lib/spawn-runner.js',
+    import.meta.resolve('@deepseek-ai/dsh-subprocess-local/package.json'),
+  )
+  await import(runnerEntry.href)
 } else {
   const invocation = parseDshArgs(process.argv.slice(2), readVersion())
 
