@@ -114,9 +114,10 @@ export class LocalSubprocessRuntime extends SubprocessRuntime {
       pending.push(terminal.terminate().then(() => { this.terminals.delete(terminal) }))
     }
     const outcomes = await Promise.allSettled(pending)
-    const failures = outcomes.flatMap<unknown>(outcome => outcome.status === 'rejected'
-      ? [outcome.reason as unknown]
-      : [])
+    const failures: unknown[] = []
+    for (const outcome of outcomes) {
+      if (outcome.status === 'rejected') failures.push(outcome.reason)
+    }
     if (failures.length > 0) this.terminateForHostExit()
     if (failures.length === 1) throw failures[0]
     if (failures.length > 1) throw new AggregateError(failures, 'local subprocess teardown failed')

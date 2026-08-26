@@ -12,7 +12,7 @@ Status: implemented
 
 ## Decision
 
-`LocalSubprocessRuntime`在自身 Cordis effect中安装一个同步 Node `exit` listener。只有正常 dispose结算后，同一 effect才移除该 listener。异步清理仍在等待时，普通和 terminal handle继续保留在服务已有的存活集合中，因此更短的外层退出上限仍能看到并强制终止它们。等待中的 dispose报告清理失败时，服务会在清空集合并移除 listener前调用同一组同步最终操作。
+`LocalSubprocessRuntime`在自身 Cordis effect中安装一个同步 Node `exit` listener。只有正常 dispose成功后，同一 effect才移除该 listener。异步清理仍在等待时，普通和 terminal handle继续保留在服务已有的存活集合中，因此更短的外层退出上限仍能看到并强制终止它们。dispose会逐个释放已经成功停稳的目标；失败的目标与 listener继续由服务拥有，使后续宿主退出仍能调用同一组同步最终操作。
 
 该 listener使用本地实现私有的最终操作；公共 `SubprocessHandle`和 `SubprocessTerminalHandle`接口不包含这些操作：
 
@@ -46,6 +46,6 @@ Status: implemented
 
 ## Consequences
 
-每个有效的本地 subprocess service都会贡献一个进程全局 exit listener，并随服务 effect移除。致命退出放弃宽限、输出排空与进程内停稳证明，以换取宿主消失前发出本地可用的最强终止操作。正常 dispose的保证与成本保持不变。
+每个有效的本地 subprocess service都会贡献一个进程全局 exit listener。成功的 dispose会随服务 effect移除它；失败的 dispose会让它与仍需最终终止的目标一起保留。致命退出放弃宽限、输出排空与进程内停稳证明，以换取宿主消失前发出本地可用的最强终止操作。正常 dispose的保证与成本保持不变。
 
 listener 无法覆盖不执行 JavaScript 的故障。受支持的 Linux terminal 会向[containment decision](2026-08-20-subprocess-native-containment.zh.md)所述的 scope 发出信号；fallback terminal 仍无法发现 provider 首次观察前已经逃逸的后代。

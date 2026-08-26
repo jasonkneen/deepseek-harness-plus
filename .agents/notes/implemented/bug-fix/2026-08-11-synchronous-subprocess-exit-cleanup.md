@@ -12,7 +12,7 @@ The public subprocess seam correctly promises awaited quiescence during normal d
 
 ## Decision
 
-`LocalSubprocessRuntime` installs one synchronous Node `exit` listener in its Cordis effect. The same effect removes the listener only after normal disposal settles. Ordinary and terminal handles remain in the service's existing live sets while asynchronous cleanup is pending, so a shorter outer exit bound still sees and force-terminates them. If awaited disposal reports a cleanup failure, the service invokes the same synchronous final operations before clearing the sets and removing the listener.
+`LocalSubprocessRuntime` installs one synchronous Node `exit` listener in its Cordis effect. The same effect removes the listener only after normal disposal succeeds. Ordinary and terminal handles remain in the service's existing live sets while asynchronous cleanup is pending, so a shorter outer exit bound still sees and force-terminates them. Disposal releases each successfully stopped target individually; failed targets and the listener remain owned so a later host exit can invoke the same synchronous final operations.
 
 The listener uses local-only final operations that are absent from the public `SubprocessHandle` and `SubprocessTerminalHandle` interfaces:
 
@@ -46,6 +46,6 @@ Unit evidence pins synchronous native-owner and fallback delivery, native termin
 
 ## Consequences
 
-Each active local subprocess service contributes one process-global exit listener, removed with the service effect. Fatal exit gives up grace, output draining, and an in-process quiescence proof in exchange for issuing the strongest available local termination before the host disappears. Normal disposal keeps those guarantees and costs unchanged.
+Each active local subprocess service contributes one process-global exit listener. Successful disposal removes it with the service effect; failed disposal retains it with the targets that still require final termination. Fatal exit gives up grace, output draining, and an in-process quiescence proof in exchange for issuing the strongest available local termination before the host disappears. Normal disposal keeps those guarantees and costs unchanged.
 
 The listener cannot cover failures that do not execute JavaScript. Supported Linux terminals signal the scope described by the [containment decision](2026-08-20-subprocess-native-containment.md); fallback terminals still cannot discover a descendant that escaped before the provider observed it.

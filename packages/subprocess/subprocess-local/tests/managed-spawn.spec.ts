@@ -180,29 +180,45 @@ describe('managed process binding', () => {
     }
   })
 
-  it('retries after a background range-observation rejection', async () => {
-    const wrapper = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], {
-      stdio: ['ignore', 'pipe', 'pipe'],
-    })
+  it('retries termination after an expired escalation and range-observation rejection', async () => {
+    vi.useFakeTimers()
     const failure = new Error('range observation failed')
+    const firstObservation = Promise.withResolvers<undefined>()
+    const secondObservation = Promise.withResolvers<undefined>()
     const waitForExit = vi.fn()
-      .mockRejectedValueOnce(failure)
-      .mockResolvedValue(undefined)
-    const handle = bindManagedProcess(spec(), {
-      stdin: wrapper.stdin,
-      stdout: wrapper.stdout,
-      stderr: wrapper.stderr,
-      pid: wrapper.pid,
+      .mockImplementationOnce(() => firstObservation.promise)
+      .mockImplementationOnce(() => secondObservation.promise)
+    const signal = vi.fn()
+    const handle = bindManagedProcess({
+      ...spec(),
+      stdio: { stdin: 'ignore', stdout: 'inherit', stderr: 'inherit' },
+    }, {
+      stdin: null,
+      stdout: null,
+      stderr: null,
+      pid: 4242,
       direct: new Promise(() => {}),
-      owner: { signal: vi.fn(), waitForExit },
+      owner: { signal, waitForExit },
     })
     try {
       handle.terminate()
-      await new Promise(resolve => setImmediate(resolve))
-      await expect(handle.waitForExit()).resolves.toBe(true)
+      const firstWait = handle.waitForExit()
+      expect(signal.mock.calls).toEqual([['SIGTERM']])
+      await vi.advanceTimersByTimeAsync(30)
+      expect(signal.mock.calls).toEqual([['SIGTERM'], ['SIGKILL']])
+      firstObservation.reject(failure)
+      await expect(firstWait).rejects.toBe(failure)
+
+      handle.terminate()
+      const secondWait = handle.waitForExit()
+      expect(signal.mock.calls).toEqual([['SIGTERM'], ['SIGKILL'], ['SIGTERM']])
+      await vi.advanceTimersByTimeAsync(30)
+      expect(signal.mock.calls).toEqual([['SIGTERM'], ['SIGKILL'], ['SIGTERM'], ['SIGKILL']])
+      secondObservation.resolve(undefined)
+      await expect(secondWait).resolves.toBe(true)
       expect(waitForExit).toHaveBeenCalledTimes(2)
     } finally {
-      wrapper.kill('SIGKILL')
+      vi.useRealTimers()
     }
   })
 

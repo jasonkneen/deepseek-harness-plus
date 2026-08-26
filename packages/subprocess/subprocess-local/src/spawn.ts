@@ -507,7 +507,10 @@ export function bindManagedProcess(
     // leaking an unhandled rejection when a caller only invokes terminate().
     void observeRangeExit().catch(() => {})
     kill('SIGTERM')
-    graceTimer = setTimeout(() => { kill('SIGKILL') }, spec.graceMs)
+    graceTimer = setTimeout(() => {
+      graceTimer = undefined
+      kill('SIGKILL')
+    }, spec.graceMs)
   }
 
   const terminateForHostExit = (): void => {
