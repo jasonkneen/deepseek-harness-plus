@@ -21,7 +21,9 @@ if (Number.isSafeInteger(configuredExit)) {
     terminated = true
     appendRunnerEvent(eventsPath, { type: 'exit', exitCode: 1, signal: null })
     clearInterval(hold)
-    if (process.connected) process.disconnect()
+    setImmediate(() => {
+      if (process.connected) process.disconnect()
+    })
     process.exitCode = 0
   }
   process.on('message', (message: unknown) => {
