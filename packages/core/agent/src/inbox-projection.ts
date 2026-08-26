@@ -3,6 +3,7 @@
 import type { UserMessage } from '@deepseek-ai/dsh-llm/types'
 import type { ProjectionDefinition } from '@deepseek-ai/dsh-session-projection'
 import { z } from 'zod'
+import type { InboxState, InboxWireState } from './types.ts'
 
 /** Wire validation for pending agent input reconstructed from durable inbox splices. */
 export const inboxProjectionSchema = z.object({
@@ -10,10 +11,7 @@ export const inboxProjectionSchema = z.object({
   'next-step': z.array(z.custom<UserMessage>()).readonly(),
 }).readonly()
 
-/** Complete pending Inbox value reconstructed from durable splices. */
-export type InboxState = z.infer<typeof inboxProjectionSchema>
-
-/** Standard fold that reconstructs pending agent input from durable splices. */
+/** Standard fold that reconstructs pending input and rejects invalid durable splice history. */
 export const inboxProjectionDefinition = {
   key: 'inbox',
   stateSchema: inboxProjectionSchema,
@@ -21,25 +19,35 @@ export const inboxProjectionDefinition = {
   apply(state: InboxState, event) {
     if (event.type !== 'agent/inbox/spliced') return state
     const splice = event.data
-    const next = state[splice.target].toSpliced(
-      splice.start,
-      splice.removedCount ?? 0,
-      ...splice.inserted,
-    )
-    return splice.target === 'next-turn'
-      ? { 'next-turn': next, 'next-step': state['next-step'] }
-      : { 'next-turn': state['next-turn'], 'next-step': next }
+    try {
+      const inbox = state[splice.target]
+      const removedCount = splice.removedCount ?? 0
+      if (!Number.isSafeInteger(splice.start) || splice.start < 0 || splice.start > inbox.length
+        || !Number.isSafeInteger(removedCount) || removedCount < 0
+        || splice.start + removedCount > inbox.length) {
+        throw new Error('invalid inbox splice')
+      }
+      const next = inbox.toSpliced(splice.start, removedCount, ...splice.inserted)
+      const ids = new Set<string>()
+      for (const message of splice.target === 'next-turn'
+        ? [...next, ...state['next-step']]
+        : [...state['next-turn'], ...next]) {
+        if (ids.has(message.id)) throw new Error(`message "${message.id}" is already pending`)
+        ids.add(message.id)
+      }
+      return splice.target === 'next-turn'
+        ? { 'next-turn': next, 'next-step': state['next-step'] }
+        : { 'next-turn': state['next-turn'], 'next-step': next }
+    } catch (error: unknown) {
+      throw new Error(`invalid persisted inbox splice at session seq ${event.seq}`, { cause: error })
+    }
   },
   wire: {
-    viewSchema: inboxProjectionSchema,
-    view: (state: InboxState) => state,
+    // The wire value is the fold state itself: every pending message already
+    // round-trips the session log as lossless JSON. Only the static type
+    // narrows to the JSON-safe projection table entry.
+    viewSchema: inboxProjectionSchema as unknown as z.ZodType<InboxWireState>,
+    view: (state: InboxState) => state as unknown as InboxWireState,
   },
   stateVersion: 1,
 } satisfies ProjectionDefinition<'inbox', InboxState>
-
-declare module '@deepseek-ai/dsh-session-projection/types' {
-  interface SessionProjectionMap {
-    /** Pending agent input reconstructed from durable inbox splices. */
-    inbox: InboxState
-  }
-}

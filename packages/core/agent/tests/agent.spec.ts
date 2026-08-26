@@ -54,7 +54,51 @@ async function inboxAgent(rawId: string): Promise<{ ctx: Context; session: Sessi
   return { ctx, session, agent }
 }
 
+async function reconstructPersistedInbox(
+  rawId: string,
+  populate: (session: Session) => void,
+): Promise<Error> {
+  const ctx = new Context()
+  await ctx.plugin(SessionStore)
+  const session = ctx.sessions.create(SessionId(rawId))
+  populate(session)
+  await ctx.plugin(SessionProjectionRegistry)
+  await ctx.plugin(AgentRegistry)
+  try {
+    ctx.sessionProjections.stateOf(session, 'inbox')
+  } catch (error: unknown) {
+    if (error instanceof Error) return error
+    throw error
+  }
+  throw new Error('persisted inbox reconstruction unexpectedly succeeded')
+}
+
 describe('Inbox', () => {
+  it('rejects invalid durable coordinates and duplicate identities during reconstruction', async () => {
+    const outOfRange = await reconstructPersistedInbox('invalid-inbox-range', (session) => {
+      session.append('agent/inbox/spliced', {
+        target: 'next-turn', start: 0, removedCount: 1, inserted: [],
+      })
+    })
+    expect(outOfRange.message).toBe('invalid persisted inbox splice at session seq 0')
+    expect((outOfRange.cause as Error).message).toBe('invalid inbox splice')
+
+    const pending = createUserMessage({
+      content: [{ type: 'text', text: 'duplicate' }],
+      source: { kind: 'user' },
+    })
+    const duplicate = await reconstructPersistedInbox('invalid-inbox-duplicate', (session) => {
+      session.append('agent/inbox/spliced', {
+        target: 'next-turn', start: 0, inserted: [pending],
+      })
+      session.append('agent/inbox/spliced', {
+        target: 'next-step', start: 0, inserted: [pending],
+      })
+    })
+    expect(duplicate.message).toBe('invalid persisted inbox splice at session seq 1')
+    expect((duplicate.cause as Error).message).toBe(`message "${pending.id}" is already pending`)
+  })
+
   it('projects inherited Inbox events in a forked session', async () => {
     const { ctx, session: parent, agent: parentAgent } = await inboxAgent('inbox-fork-parent')
     const inherited = createUserMessage({

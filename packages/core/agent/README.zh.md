@@ -56,7 +56,7 @@ Agent *创建* 由实现 `AgentFactory` 的插件（`dsh-agent-loop`）提供，
 
 `PreStepDecision` 要么是 `{ kind: 'reject' }`，要么是 `{ kind: 'enter', messages, startsRequestSeries? }`。enter 分支是拟进入步骤的完整、带标识且冻结的批次。`startsRequestSeries: true` 声明该接纳批次会开启一个独立的模型消息序列；普通 follow-up 不设置它。包装下游 enter 的监听器会同时保留该声明和消息批次，除非有意替换其中一项；新增消息遵循 waterfall 的自然返回顺序。领取操作已经把候选消息从 inbox 删除，因此 reject 不会保留它们；领取后插入的消息仍等待后续边界。
 
-`AgentRegistry` 会在投影注册表已组合时贡献标准 `inbox` 会话投影。注册表只折叠一次持久 `agent/inbox/spliced` 事件，并继续作为 live `{ 'next-turn', 'next-step' }` 状态的唯一所有者；Inbox 是读取该单元的命令 facade，不会重新回放或复制折叠结果。Inbox 的实时通知刻意采用逐消息的最小载荷：`agent/inbox/inserted { message }`、`agent/inbox/claimed { message, turn }` 与 `agent/inbox/discarded { message }`。Inbox 在提交对应变更时自行发出这些通知，不引入另一层生命周期封套。
+`AgentRegistry` 会在投影注册表已组合时贡献标准 `inbox` 会话投影。注册表只折叠一次持久 `agent/inbox/spliced` 事件，并继续作为 live `{ 'next-turn', 'next-step' }` 状态的唯一所有者；Inbox 是读取该单元的命令 facade，不会重新回放或复制折叠结果。重建过程会拒绝不安全或越界的 splice 坐标，以及跨两份待处理列表重复的 `MessageId`，并报告出错事件的 seq，而不会接受格式错误的持久历史。Inbox 的实时通知刻意采用逐消息的最小载荷：`agent/inbox/inserted { message }`、`agent/inbox/claimed { message, turn }` 与 `agent/inbox/discarded { message }`。Inbox 在提交对应变更时自行发出这些通知，不引入另一层生命周期封套。
 
 轮次和步骤边界以及模型 token 流是持久 `session/event` 事实，而不是镜像的 `agent/*` 通知。消费方从会话事件流读取 `turn/*`、`step/*` 和 `assistant/chunk`；工具策略与结果观测属于 [`dsh-tools`](../tools/README.zh.md) 记录的完整流水线。
 

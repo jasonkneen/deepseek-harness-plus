@@ -18,7 +18,7 @@ Before every proposed step, `Inbox.claim(target)` atomically removes the complet
 
 The durable inbox remains two `UserMessage[]` lists addressed by `MessageId`. `append`, `prepend`, and `splice` take a target, while `replace(messageId, newMessage)` and `remove(messageId)` locate the pending message across both lists before committing a normalized splice. Replacement may change identity and emits the old message as discarded followed by the new message as inserted. Every insertion emits `agent/inbox/inserted { message }`; an ordinary removal records `outcome: 'canceled'` and emits `agent/inbox/discarded { message }`. Claiming records pure deletions without an outcome and emits claimed events from Inbox itself. These live events add no placement, outcome, or batch fields.
 
-The two event surfaces have separate consumers. Observers following one message use `agent/inbox/inserted`, `claimed`, and `discarded`. `AgentRegistry` contributes the standard `inbox` projection over the durable `agent/inbox/spliced` stream whenever the projection registry is composed; UI edits and removals route through an Inbox mutation method so the same projection records every change.
+The two event surfaces have separate consumers. Observers following one message use `agent/inbox/inserted`, `claimed`, and `discarded`. `AgentRegistry` contributes the standard `inbox` projection over the durable `agent/inbox/spliced` stream whenever the projection registry is composed; UI edits and removals route through an Inbox mutation method so the same projection records every change. When that projection reconstructs durable history, it rejects unsafe or out-of-range coordinates and duplicate `MessageId` values across both lists, and reports the offending event seq.
 
 Plugins that need current-step atomic rewriting return messages from `agent/pre-step`. Plugins that only need later context may mutate `agent.inbox` directly. Workspace context uses both paths: asynchronous filesystem projections stage one replaceable `next-step` item, while the next entering pre-step folds that item or a newly composed baseline into its final batch and removes the pending copy. Rejection keeps the item queued.
 
@@ -34,7 +34,7 @@ The archived [addressable queue occurrence decision](../../archived/feature/2026
 
 ## Verification
 
-Agent-loop coverage pins turn-start-before-claim-before-pre-step ordering, exact live event payloads, balanced no-step rejection, final-batch rewriting, input inserted after a claim, listener failure, and cancellation. Inbox and consumer tests pin pure claim deletions, canceled ordinary removals, agent-instructions staging, replacement, and same-step entry, plan/goal/hook behavior, UI cleanup, compaction, checkpointing, and resumed durable projection. Generated event and type catalogs expose only the new waterfall and payloads.
+Agent-loop coverage pins turn-start-before-claim-before-pre-step ordering, exact live event payloads, balanced no-step rejection, final-batch rewriting, input inserted after a claim, listener failure, and cancellation. Inbox and consumer tests pin pure claim deletions, canceled ordinary removals, agent-instructions staging, replacement, and same-step entry, plan/goal/hook behavior, UI cleanup, compaction, checkpointing, resumed durable projection, and rejection of invalid persisted coordinates or cross-list identities. Generated event and type catalogs expose only the new waterfall and payloads.
 
 ## Consequences
 
