@@ -146,22 +146,6 @@ function parseRunnerEvents(content: string): RunnerEvent[] {
 }
 
 /**
- * Parse every complete event record currently present.
- * @param eventsPath - private event file.
- * @returns complete records in append order.
- */
-export function readRunnerEvents(eventsPath: string): RunnerEvent[] {
-  let content: string
-  try {
-    content = readFileSync(eventsPath, 'utf8')
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return []
-    throw error
-  }
-  return parseRunnerEvents(content)
-}
-
-/**
  * Asynchronously parse every complete event record currently present.
  * @param eventsPath - private event file.
  * @returns complete records in append order.

@@ -23,7 +23,6 @@ import {
   consumeRunnerRequest,
   createRunnerFiles,
   deserializeSpawnError,
-  readRunnerEvents,
   readRunnerEventsAsync,
   serializeSpawnError,
 } from '../src/runner-protocol.ts'
@@ -35,6 +34,7 @@ const sourceInvocation = [
   'tsx/esm',
   fileURLToPath(import.meta.resolve('@deepseek-ai/dsh-subprocess-local/src/bin.ts')),
 ]
+
 function spec(overrides: Partial<SubprocessSpawnSpec> = {}): SubprocessSpawnSpec {
   return {
     argv: [process.execPath, '-e', ''],
@@ -185,7 +185,7 @@ describe('spawn runner transport', () => {
         '--events', files.eventsPath,
       ], asRunnerHost(host))
       expect(host.exitCode).toBe(12)
-      expect(readRunnerEvents(files.eventsPath)).toEqual([
+      expect(await readRunnerEventsAsync(files.eventsPath)).toEqual([
         expect.objectContaining({ type: 'started' }),
         { type: 'exit', exitCode: 12, signal: null },
       ])
@@ -208,7 +208,7 @@ describe('spawn runner transport', () => {
         '--events', files.eventsPath,
       ], asRunnerHost(host))
       expect(host.exitCode).toBe(127)
-      const [event] = readRunnerEvents(files.eventsPath)
+      const [event] = await readRunnerEventsAsync(files.eventsPath)
       expect(event?.type).toBe('spawn-error')
       if (event?.type !== 'spawn-error') throw new Error('expected spawn error')
       expect(event.error.code).toBe('ENOENT')
@@ -244,7 +244,7 @@ describe('spawn runner transport', () => {
         detached: true,
       })
       expect(host.exitCode).toBe(127)
-      expect(readRunnerEvents(files.eventsPath)).toEqual([
+      expect(await readRunnerEventsAsync(files.eventsPath)).toEqual([
         { type: 'started', pid: 4321 },
         { type: 'runner-error', error: { name: 'Error', message: 'post-start node failure' } },
       ])
@@ -272,7 +272,7 @@ describe('spawn runner transport', () => {
         '--events', files.eventsPath,
       ], asRunnerHost(host), fakeRunnerInternals({ spawn: injectedSpawn }))
       expect(host.exitCode).toBe(1)
-      expect(readRunnerEvents(files.eventsPath)).toEqual([
+      expect(await readRunnerEventsAsync(files.eventsPath)).toEqual([
         { type: 'started', pid: 4321 },
         { type: 'exit', exitCode: null, signal: 'SIGTERM' },
       ])
@@ -390,7 +390,7 @@ describe('spawn runner transport', () => {
       )
       expect(pollProcessExit).toHaveBeenCalledTimes(2)
       expect(isJobEmpty).toHaveBeenCalledTimes(2)
-      expect(readRunnerEvents(files.eventsPath)).toEqual([
+      expect(await readRunnerEventsAsync(files.eventsPath)).toEqual([
         { type: 'started', pid: 1234 },
         { type: 'exit', exitCode: 42, signal: null },
       ])
@@ -433,7 +433,7 @@ describe('spawn runner transport', () => {
       expect(internals.terminateJob).toHaveBeenCalledOnce()
       expect(internals.terminateJob).toHaveBeenCalledWith(fakeWin32Api, fakeJobHandle, 1)
       expect(host.disconnect).not.toHaveBeenCalled()
-      expect(readRunnerEvents(files.eventsPath)).toEqual([
+      expect(await readRunnerEventsAsync(files.eventsPath)).toEqual([
         { type: 'started', pid: 1234 },
         { type: 'exit', exitCode: 0, signal: null },
       ])
@@ -460,7 +460,7 @@ describe('spawn runner transport', () => {
 
       expect(host.exitCode).toBe(127)
       expect(host.disconnect).toHaveBeenCalledOnce()
-      expect(readRunnerEvents(files.eventsPath)).toEqual([
+      expect(await readRunnerEventsAsync(files.eventsPath)).toEqual([
         { type: 'started', pid: 1234 },
         { type: 'runner-error', error: { name: 'Error', message: 'raw termination failure' } },
       ])
@@ -505,7 +505,7 @@ describe('spawn runner transport', () => {
         internals,
       )
       expect(host.exitCode).toBeUndefined()
-      const [event] = readRunnerEvents(files.eventsPath)
+      const [event] = await readRunnerEventsAsync(files.eventsPath)
       expect(event?.type).toBe('spawn-error')
       if (event?.type !== 'spawn-error') throw new Error('expected spawn error')
       expect(event.error).toMatchObject({
@@ -545,7 +545,7 @@ describe('spawn runner transport', () => {
       )
       expect(chdir).toHaveBeenCalledTimes(2)
       expect(host.exitCode).toBeUndefined()
-      const [event] = readRunnerEvents(files.eventsPath)
+      const [event] = await readRunnerEventsAsync(files.eventsPath)
       expect(event?.type).toBe('spawn-error')
       if (event?.type !== 'spawn-error') throw new Error('expected spawn error')
       expect(event.error).toMatchObject({
@@ -578,7 +578,7 @@ describe('spawn runner transport', () => {
         fakeRunnerInternals(),
       )
       expect(host.exitCode).toBeUndefined()
-      const [event] = readRunnerEvents(files.eventsPath)
+      const [event] = await readRunnerEventsAsync(files.eventsPath)
       expect(event?.type).toBe('spawn-error')
       if (event?.type !== 'spawn-error') throw new Error('expected spawn error')
       expect(typeof event.error.message).toBe('string')
@@ -612,7 +612,7 @@ describe('spawn runner transport', () => {
         '--stdin-pipe', '\\\\.\\pipe\\stdin',
       ]), asRunnerHost(host), internals)
       expect(host.exitCode).toBe(127)
-      const [event] = readRunnerEvents(files.eventsPath)
+      const [event] = await readRunnerEventsAsync(files.eventsPath)
       expect(event?.type).toBe('runner-error')
       if (event?.type !== 'runner-error') throw new Error('expected runner error')
       expect(event.error.name).toBe(name)
@@ -638,7 +638,7 @@ describe('spawn runner transport', () => {
       await runSpawnRunner(win32RunnerArgs(files.requestPath, files.eventsPath, [
         '--stdin-pipe', '\\\\.\\pipe\\stdin',
       ]), asRunnerHost(new FakeRunnerHost()), internals)
-      expect(readRunnerEvents(files.eventsPath)).toEqual([
+      expect(await readRunnerEventsAsync(files.eventsPath)).toEqual([
         { type: 'started', pid: 1234 },
         {
           type: 'runner-error',
@@ -675,7 +675,7 @@ describe('spawn runner transport', () => {
         '--stdin-pipe', '\\\\.\\pipe\\stdin',
         '--stdout-pipe', '\\\\.\\pipe\\stdout',
       ]), asRunnerHost(new FakeRunnerHost()), internals)
-      expect(readRunnerEvents(files.eventsPath)).toContainEqual({
+      expect(await readRunnerEventsAsync(files.eventsPath)).toContainEqual({
         type: 'runner-error',
         error: { name: 'Error', message: 'first close failure' },
       })
@@ -720,7 +720,7 @@ describe('spawn runner transport', () => {
       await vi.advanceTimersByTimeAsync(10)
       await running
 
-      expect(readRunnerEvents(files.eventsPath)).toEqual([
+      expect(await readRunnerEventsAsync(files.eventsPath)).toEqual([
         { type: 'started', pid: 1234 },
         ...stage === 'poll' ? [] : [{ type: 'exit' as const, exitCode: 0, signal: null }],
         { type: 'runner-error', error: { name: 'Error', message } },
@@ -755,7 +755,7 @@ describe('spawn runner transport', () => {
       await vi.advanceTimersByTimeAsync(10)
       await running
 
-      expect(readRunnerEvents(files.eventsPath)).toEqual([
+      expect(await readRunnerEventsAsync(files.eventsPath)).toEqual([
         { type: 'started', pid: 1234 },
         { type: 'exit', exitCode: 0, signal: null },
         {
@@ -786,7 +786,7 @@ describe('spawn runner transport', () => {
       )
       expect(chdir).toHaveBeenCalledTimes(2)
       expect(host.exitCode).toBe(127)
-      expect(readRunnerEvents(files.eventsPath)).toEqual([
+      expect(await readRunnerEventsAsync(files.eventsPath)).toEqual([
         { type: 'started', pid: 1234 },
         { type: 'runner-error', error: { name: 'Error', message: 'cwd restore failed' } },
       ])
@@ -809,7 +809,7 @@ describe('spawn runner transport', () => {
         internals,
       )).rejects.toThrow('binding setup failed')
       expect(host.disconnect).toHaveBeenCalledOnce()
-      expect(readRunnerEvents(files.eventsPath)).toEqual([])
+      expect(await readRunnerEventsAsync(files.eventsPath)).toEqual([])
     } finally {
       cleanupRunnerFiles(files)
     }
@@ -824,7 +824,7 @@ describe('spawn runner transport', () => {
     await expect(runSpawnRunner([...argv], asRunnerHost(new FakeRunnerHost()))).rejects.toThrow(message)
   })
 
-  it('reports only failures whose arguments identify an event transport', () => {
+  it('reports only failures whose arguments identify an event transport', async () => {
     const files = createRunnerFiles({ argv: ['node'], cwd: '.', env: {} })
     try {
       reportSpawnRunnerFailure([
@@ -834,7 +834,7 @@ describe('spawn runner transport', () => {
       ], new Error('runner main failed'))
       reportSpawnRunnerFailure(['--mode', 'probe-node'], new Error('ignored probe failure'))
       reportSpawnRunnerFailure(['--mode'], new Error('unparseable failure'))
-      expect(readRunnerEvents(files.eventsPath)).toEqual([
+      expect(await readRunnerEventsAsync(files.eventsPath)).toEqual([
         { type: 'runner-error', error: { name: 'Error', message: 'runner main failed' } },
       ])
     } finally {
@@ -917,7 +917,7 @@ describe('spawn runner transport', () => {
   it('reads only complete known event records and propagates file errors', async () => {
     const files = createRunnerFiles({ argv: ['node'], cwd: '.', env: {} })
     try {
-      expect(readRunnerEvents(files.eventsPath)).toEqual([])
+      await expect(readRunnerEventsAsync(files.eventsPath)).resolves.toEqual([])
       await expect(readRunnerEventsAsync(join(files.directory, 'missing.ndjson'))).resolves.toEqual([])
       appendRunnerEvent(files.eventsPath, { type: 'started', pid: 123 })
       appendRunnerEvent(files.eventsPath, {
@@ -937,7 +937,7 @@ describe('spawn runner transport', () => {
           spawnargs: ['argument'],
         },
       })
-      expect(readRunnerEvents(files.eventsPath)).toEqual([
+      await expect(readRunnerEventsAsync(files.eventsPath)).resolves.toEqual([
         { type: 'started', pid: 123 },
         { type: 'runner-error', error: { name: 'Error', message: 'runner failed' } },
         { type: 'exit', exitCode: null, signal: 'SIGTERM' },
@@ -954,18 +954,14 @@ describe('spawn runner transport', () => {
           },
         },
       ])
-      await expect(readRunnerEventsAsync(files.eventsPath)).resolves.toEqual(readRunnerEvents(files.eventsPath))
-
       writeFileSync(files.eventsPath, '{"type":"started","pid":123}\n{"type":"exit"')
-      expect(readRunnerEvents(files.eventsPath)).toEqual([{ type: 'started', pid: 123 }])
+      await expect(readRunnerEventsAsync(files.eventsPath)).resolves.toEqual([{ type: 'started', pid: 123 }])
       for (const event of [null, []]) {
         writeFileSync(files.eventsPath, `${JSON.stringify(event)}\n`)
-        expect(() => readRunnerEvents(files.eventsPath)).toThrow('emitted invalid event')
+        await expect(readRunnerEventsAsync(files.eventsPath)).rejects.toThrow('emitted invalid event')
       }
       writeFileSync(files.eventsPath, '{"type":"unknown"}\n')
-      expect(() => readRunnerEvents(files.eventsPath)).toThrow('emitted unknown event')
       await expect(readRunnerEventsAsync(files.eventsPath)).rejects.toThrow('emitted unknown event')
-      expect(() => readRunnerEvents(files.directory)).toThrow()
       await expect(readRunnerEventsAsync(files.directory)).rejects.toThrow()
     } finally {
       cleanupRunnerFiles(files)
@@ -992,11 +988,11 @@ describe('spawn runner transport', () => {
     ['spawn error with a numeric path', { type: 'spawn-error', error: { name: 'Error', message: 'failed', path: 1 } }],
     ['spawn error with non-array args', { type: 'spawn-error', error: { name: 'Error', message: 'failed', spawnargs: 'arg' } }],
     ['spawn error with non-string args', { type: 'spawn-error', error: { name: 'Error', message: 'failed', spawnargs: [1] } }],
-  ])('rejects an invalid event payload: %s', (_label, event) => {
+  ])('rejects an invalid event payload: %s', async (_label, event) => {
     const files = createRunnerFiles({ argv: ['node'], cwd: '.', env: {} })
     try {
       writeFileSync(files.eventsPath, `${JSON.stringify(event)}\n`)
-      expect(() => readRunnerEvents(files.eventsPath)).toThrow('emitted invalid event')
+      await expect(readRunnerEventsAsync(files.eventsPath)).rejects.toThrow('emitted invalid event')
     } finally {
       cleanupRunnerFiles(files)
     }
@@ -1110,7 +1106,7 @@ describe('spawn runner transport', () => {
         readRunnerEventsAsync: vi.fn(async (eventsPath: string) => {
           readCount += 1
           if (readCount === 1) return staleRead.promise
-          return actual.readRunnerEvents(eventsPath)
+          return actual.readRunnerEventsAsync(eventsPath)
         }),
       }
     })
@@ -1192,7 +1188,7 @@ describe('spawn runner transport', () => {
     expect(existsSync(files.directory)).toBe(false)
   })
 
-  it('reports the direct target pid and exit outcome from the source entry', () => {
+  it('reports the direct target pid and exit outcome from the source entry', async () => {
     const files = createRunnerFiles({
       argv: [process.execPath, '-e', 'process.exit(7)'],
       cwd: process.cwd(),
@@ -1201,7 +1197,7 @@ describe('spawn runner transport', () => {
     try {
       const result = runRunner(sourceInvocation, files.requestPath, files.eventsPath)
       expect(result.error).toBeUndefined()
-      const events = readRunnerEvents(files.eventsPath)
+      const events = await readRunnerEventsAsync(files.eventsPath)
       expect(events).toHaveLength(2)
       expect(events[0]?.type).toBe('started')
       if (events[0]?.type !== 'started') throw new Error('expected started event')
@@ -1236,7 +1232,7 @@ describe('spawn runner transport', () => {
     }
   })
 
-  it('reports target spawn failure without executing a fallback command', () => {
+  it('reports target spawn failure without executing a fallback command', async () => {
     const files = createRunnerFiles({
       argv: [`missing-dsh-runner-${Date.now()}`],
       cwd: process.cwd(),
@@ -1245,7 +1241,7 @@ describe('spawn runner transport', () => {
     try {
       const result = runRunner(sourceInvocation, files.requestPath, files.eventsPath)
       expect(result.error).toBeUndefined()
-      const events = readRunnerEvents(files.eventsPath)
+      const events = await readRunnerEventsAsync(files.eventsPath)
       expect(events).toHaveLength(1)
       expect(events[0]).toMatchObject({ type: 'spawn-error', error: { code: 'ENOENT' } })
     } finally {

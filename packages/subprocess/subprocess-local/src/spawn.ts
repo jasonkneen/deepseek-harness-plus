@@ -478,9 +478,9 @@ export function bindManagedProcess(
   let settled = false
 
   /**
-   * Start or reuse the handle's single managed-range exit observer. The first
-   * confirmed absence is a permanent no-more-signals boundary: it cancels a
-   * pending escalation before a stale platform identity can be reused.
+   * Start or reuse the handle's managed-range exit observer. A failed read can
+   * be retried; the first confirmed absence is the permanent no-more-signals
+   * boundary and cancels pending escalation before stale identity can be used.
    */
   const observeRangeExit = (): Promise<void> => {
     rangeExitObservation ??= (async () => {
@@ -489,7 +489,10 @@ export function bindManagedProcess(
       if (graceTimer !== undefined) clearTimeout(graceTimer)
       graceTimer = undefined
       spec.signal?.removeEventListener('abort', onAbort)
-    })()
+    })().catch((error: unknown) => {
+      rangeExitObservation = undefined
+      throw error
+    })
     return rangeExitObservation
   }
 

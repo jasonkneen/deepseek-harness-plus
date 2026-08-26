@@ -119,7 +119,11 @@ describe('LocalSubprocessRuntime', () => {
     expect(terminate).toHaveBeenCalledOnce()
     expect(terminateForHostExit).toHaveBeenCalledOnce()
     expect(disposalErrors).toEqual([rangeFailure])
-    expect(process.listeners('exit')).not.toContain(listener)
+    expect(live.size).toBe(1)
+    expect(process.listeners('exit')).toContain(listener)
+    listener?.(0)
+    expect(terminateForHostExit).toHaveBeenCalledTimes(2)
+    if (listener !== undefined) process.off('exit', listener)
   })
 
   it('contains each host-exit termination failure and continues with the other targets', async () => {
@@ -237,8 +241,11 @@ describe('LocalSubprocessRuntime', () => {
   })
 
   it('waits for every terminal cleanup and aggregates teardown failures', async () => {
+    const before = new Set(process.listeners('exit'))
     const ctx = new Context()
     const fiber = await ctx.plugin(LocalSubprocessRuntime)
+    const listener = process.listeners('exit').find(candidate => !before.has(candidate))
+    expect(listener).toBeTypeOf('function')
     const service = ctx.subprocess
     const firstFailure = new Error('first cleanup failure')
     const secondFailure = new Error('second cleanup failure')
@@ -276,20 +283,25 @@ describe('LocalSubprocessRuntime', () => {
     expect(disposed).toBe(false)
     finishCleanup()
     await disposing
-    expect(terminals.size).toBe(0)
+    expect(terminals).toEqual(new Set([failedTerminal, secondFailedTerminal]))
     expect(disposalErrors).toHaveLength(1)
     expect(disposalErrors[0]).toMatchObject({
       errors: [firstFailure, secondFailure],
       message: 'local subprocess teardown failed',
     })
+    expect(process.listeners('exit')).toContain(listener)
+    if (listener !== undefined) process.off('exit', listener)
   })
 
   it('reports one cleanup failure without wrapping it', async () => {
+    const before = new Set(process.listeners('exit'))
     const ctx = new Context()
     const failure = new Error('single cleanup failure')
     const disposalErrors: unknown[] = []
     ctx.logger.error = ((error: unknown) => { disposalErrors.push(error) }) as typeof ctx.logger.error
     const fiber = await ctx.plugin(LocalSubprocessRuntime)
+    const listener = process.listeners('exit').find(candidate => !before.has(candidate))
+    expect(listener).toBeTypeOf('function')
     const service = ctx.subprocess
     const terminal: SubprocessTerminalHandle = {
       pid: 1,
@@ -306,9 +318,12 @@ describe('LocalSubprocessRuntime', () => {
     await fiber.dispose()
 
     expect(disposalErrors).toEqual([failure])
+    expect(terminals.has(terminal)).toBe(true)
+    expect(process.listeners('exit')).toContain(listener)
+    if (listener !== undefined) process.off('exit', listener)
   })
 
-  it('force-terminates remaining targets before releasing a failed disposal', async () => {
+  it('force-terminates and retains failed disposal targets for host exit', async () => {
     const before = new Set(process.listeners('exit'))
     const ctx = new Context()
     const fiber = await ctx.plugin(LocalSubprocessRuntime)
@@ -328,8 +343,11 @@ describe('LocalSubprocessRuntime', () => {
     await fiber.dispose()
 
     expect(terminateForHostExit).toHaveBeenCalledOnce()
-    expect(terminals.size).toBe(0)
-    expect(process.listeners('exit')).not.toContain(listener)
+    expect(terminals.size).toBe(1)
+    expect(process.listeners('exit')).toContain(listener)
+    listener?.(0)
+    expect(terminateForHostExit).toHaveBeenCalledTimes(2)
+    if (listener !== undefined) process.off('exit', listener)
   })
 
   it('releases a terminal after top-level exit reaches quiescence', async () => {
@@ -549,21 +567,22 @@ describe('LocalSubprocessRuntime', () => {
   })
 
   it('reports the platform-specific reason for every fallback mode', async () => {
-    for (const [platform, kind, reason] of [
-      ['darwin', 'ordinary', 'macOS has no supported persistent process-range owner'],
-      ['linux', 'terminal', 'a modern readable user-systemd scope is unavailable'],
-      ['win32', 'ordinary', 'the Win32 Job runner is unavailable'],
-      ['win32', 'terminal', 'Windows ConPTY remains outside Job containment'],
-      ['freebsd', 'ordinary', 'platform freebsd has no native managed range'],
+    for (const [platform, kind, reason, selectedReason] of [
+      ['darwin', 'ordinary', 'macOS has no supported persistent process-range owner', undefined],
+      ['linux', 'terminal', 'a modern readable user-systemd scope is unavailable', undefined],
+      ['linux', 'ordinary', 'the private Linux subprocess runner is unavailable', 'the private Linux subprocess runner is unavailable'],
+      ['win32', 'ordinary', 'the Win32 Job runner is unavailable', undefined],
+      ['win32', 'terminal', 'Windows ConPTY remains outside Job containment', undefined],
+      ['freebsd', 'ordinary', 'platform freebsd has no native managed range', undefined],
     ] as const) {
       const ctx = new Context()
       const warning = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => {})
       const fiber = await ctx.plugin(LocalSubprocessRuntime)
       const runtime = ctx.subprocess as unknown as {
-        warnFallback(platform: NodeJS.Platform, kind: 'ordinary' | 'terminal'): void
+        warnFallback(platform: NodeJS.Platform, kind: 'ordinary' | 'terminal', selectedReason?: string): void
       }
       try {
-        runtime.warnFallback(platform, kind)
+        runtime.warnFallback(platform, kind, selectedReason)
         expect(warning).toHaveBeenLastCalledWith(
           expect.stringContaining(reason),
         )

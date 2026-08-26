@@ -97,7 +97,7 @@ export class LspInstance {
     const run = abortable(this.queue, signal)
       .then(() => this.runQuery(request, source, signal))
       .catch(async (error: unknown) => {
-        if (this.isTransportFailure(error)) await this.startTeardown()
+        if (this.isTransportFailure(error)) await this.throwAfterTeardown(error)
         throw error
       })
     // Keep the tail alive regardless of this query's outcome so the next caller still serializes. The
@@ -136,7 +136,7 @@ export class LspInstance {
       await abortable(this.ready, signal)
     } catch (error) {
       if (!this.dead) {
-        await this.startTeardown()
+        await this.throwAfterTeardown(error)
       }
       throw error
     }
@@ -152,6 +152,8 @@ export class LspInstance {
 
     const uri = source.fileUrl
     let opened = false
+    let queryFailed = false
+    let queryFailure: unknown
     try {
       /* v8 ignore next -- guards an abort landing between the ready wait and didOpen; not deterministically reproducible. */
       if (signal?.aborted) throw abortError(signal)
@@ -162,12 +164,15 @@ export class LspInstance {
       } catch (error) {
         // A canceled backpressured write or failed stdin leaves the protocol stream unusable before
         // `opened` can arm the didClose cleanup. Teardown here makes the pool evict the instance.
-        await this.startTeardown()
-        throw error
+        await this.throwAfterTeardown(error)
       }
       opened = true
       const payload = await this.sendRequest(request.operation, uri, request.position, signal)
       return this.normalize(request.operation, payload)
+    } catch (error: unknown) {
+      queryFailed = true
+      queryFailure = error
+      throw error
     } finally {
       // A disposed or closed instance (e.g. an aborted request whose server ignored
       // `$/cancelRequest`) is already tearing down; sending didClose would race that teardown and let
@@ -175,14 +180,19 @@ export class LspInstance {
       if (opened && !this.dead) {
         try {
           await this.connection.notify('textDocument/didClose', { textDocument: { uri } })
-        } catch {
+        } catch (closeError: unknown) {
           // A close-write failure does not replace the settled result/error, but the instance can no
-          // longer be trusted: invalidate it and await bounded process termination.
+          // longer be trusted: invalidate it and await bounded process termination. If teardown also
+          // fails, every failure remains visible in operation, close, cleanup order.
           try {
             await this.startTeardown()
-          } catch {
-            /* v8 ignore next -- teardown owns all expected process races; this only preserves the
-               already-settled query outcome if an unexpected cleanup primitive itself rejects. */
+          } catch (teardownError: unknown) {
+            throw new AggregateError(
+              queryFailed
+                ? [queryFailure, closeError, teardownError]
+                : [closeError, teardownError],
+              'LSP query cleanup failed',
+            )
           }
         }
       }
@@ -232,7 +242,7 @@ export class LspInstance {
             grace.signal.addEventListener('abort', () => { resolve(false) }, { once: true })
           }),
         ])
-        if (!settled) await this.startTeardown()
+        if (!settled) await this.throwAfterTeardown(error)
       } finally {
         grace[Symbol.dispose]()
       }
@@ -281,6 +291,16 @@ export class LspInstance {
     this.disposed = true
     this.teardownPromise ??= this.tearDown()
     return this.teardownPromise
+  }
+
+  /** Preserve an operation failure when teardown also fails. */
+  private async throwAfterTeardown(error: unknown): Promise<never> {
+    try {
+      await this.startTeardown()
+    } catch (teardownError: unknown) {
+      throw new AggregateError([error, teardownError], 'LSP operation and teardown failed')
+    }
+    throw error
   }
 
   private async tearDown(): Promise<void> {

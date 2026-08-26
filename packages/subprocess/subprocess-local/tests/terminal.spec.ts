@@ -144,17 +144,41 @@ describe('LocalTerminalHandle', () => {
     expect(signals).toEqual(['SIGTERM', 'SIGKILL'])
   })
 
-  it('force-kills a managed range when observation rejects and preserves that failure', async () => {
+  it('force-kills and retries a managed range when observation first rejects', async () => {
     const pty = new FakePty()
     const failure = new Error('scope became unreadable')
     const signals: Array<'SIGTERM' | 'SIGKILL'> = []
+    const waitForExit = vi.fn()
+      .mockRejectedValueOnce(failure)
+      .mockResolvedValue(undefined)
     const owner: BoundProcessOwner = {
       signal: (signal) => { signals.push(signal) },
-      waitForExit: async () => { throw failure },
+      waitForExit,
     }
     const handle = new LocalTerminalHandle(pty.asPty(), new FakeInspector(), 10, 'linux', owner)
 
     await expect(handle.terminate()).rejects.toBe(failure)
+    expect(signals).toEqual(['SIGTERM', 'SIGKILL'])
+    expect(waitForExit).toHaveBeenCalledTimes(2)
+  })
+
+  it('preserves both failed managed-range observations after force-kill', async () => {
+    const pty = new FakePty()
+    const firstFailure = new Error('scope became unreadable')
+    const finalFailure = new Error('scope stayed unreadable')
+    const signals: Array<'SIGTERM' | 'SIGKILL'> = []
+    const owner: BoundProcessOwner = {
+      signal: (signal) => { signals.push(signal) },
+      waitForExit: vi.fn()
+        .mockRejectedValueOnce(firstFailure)
+        .mockRejectedValueOnce(finalFailure),
+    }
+    const handle = new LocalTerminalHandle(pty.asPty(), new FakeInspector(), 10, 'linux', owner)
+
+    await expect(handle.terminate()).rejects.toMatchObject({
+      errors: [firstFailure, finalFailure],
+      message: 'terminal managed-range cleanup failed',
+    })
     expect(signals).toEqual(['SIGTERM', 'SIGKILL'])
   })
 

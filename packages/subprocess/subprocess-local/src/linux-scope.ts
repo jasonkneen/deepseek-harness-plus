@@ -155,6 +155,7 @@ class SystemdScopeOwner implements BoundProcessOwner {
     ], { encoding: 'utf8', env: systemctlEnv(), timeout: SYSTEMCTL_TIMEOUT_MS })
     if (signal === 'SIGKILL' && result.error === undefined) this.onForceKillAttempt()
     if (result.error === undefined && result.status === 0) {
+      if (signal === 'SIGKILL') this.killFailure = undefined
       return
     }
     if (signal === 'SIGKILL') {
@@ -197,7 +198,10 @@ class SystemdScopeOwner implements BoundProcessOwner {
     this.observation ??= (async () => {
       while (await this.active()) await sleepMs(SCOPE_POLL_INTERVAL_MS)
       this.stopped = true
-    })()
+    })().catch((error: unknown) => {
+      this.observation = undefined
+      throw error
+    })
     await this.observation
   }
 }

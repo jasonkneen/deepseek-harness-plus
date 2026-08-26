@@ -257,25 +257,57 @@ describe.skipIf(process.platform === 'win32')('Linux systemd scope adapter', () 
     await expect(launch.owner.waitForExit()).resolves.toBeUndefined()
   })
 
-  it('rejects wait when the selected native owner becomes unreadable', async () => {
+  it('retries wait after the selected native owner becomes readable again', async () => {
     const run = vi.fn((_command: string, args: readonly string[], options: Parameters<typeof spawn>[2]) => {
       const separator = args.indexOf('--')
       return spawn(args[separator + 1] as string, args.slice(separator + 2), options)
     }) as unknown as typeof spawn
-    const runSync = vi.fn(() => ({
-      status: 1,
-      stdout: '',
-      stderr: 'Failed to connect to bus: No such file or directory',
-      error: undefined,
-    })) as unknown as typeof spawnSync
+    const failure = new Error('Failed to connect to bus: No such file or directory')
+    const query = vi.fn()
+      .mockRejectedValueOnce(failure)
+      .mockResolvedValue({ status: 0, stdout: 'inactive\n', stderr: '' })
     const launch = launchLinuxScope(spec([process.execPath, '-e', 'process.exit(0)']), {
       spawn: run,
-      spawnSync: runSync,
-      systemctlQuery: asyncQuery(runSync),
+      spawnSync: vi.fn(() => ({ status: 0, stdout: '', stderr: '', error: undefined })) as unknown as typeof spawnSync,
+      systemctlQuery: query,
       runnerInvocation: spawnRunnerInvocation(),
     })
     await expect(launch.direct).resolves.toEqual({ exitCode: 0, signal: null })
-    await expect(launch.owner.waitForExit()).rejects.toThrow('Failed to connect to bus')
+    await expect(launch.owner.waitForExit()).rejects.toBe(failure)
+    await expect(launch.owner.waitForExit()).resolves.toBeUndefined()
+    expect(query).toHaveBeenCalledTimes(2)
+  })
+
+  it('clears a failed KILL result after a later KILL succeeds', async () => {
+    let killed = false
+    let killAttempts = 0
+    const runSync = vi.fn((_command: string, args: readonly string[]) => {
+      if (args.includes('--signal=SIGKILL')) {
+        killAttempts += 1
+        if (killAttempts === 1) {
+          return { status: 1, stdout: '', stderr: 'kill failed', error: undefined }
+        }
+        killed = true
+      }
+      return { status: 0, stdout: '', stderr: '', error: undefined }
+    }) as unknown as typeof spawnSync
+    const query = vi.fn(async () => ({
+      status: 0,
+      stdout: killed ? 'inactive\n' : 'active\n',
+      stderr: '',
+    }))
+    const launch = prepareLinuxTerminalScope(['/bin/sh'], {
+      spawnSync: runSync,
+      systemctlQuery: query,
+    })
+    const owner = launch.bindOwner(() => true)
+
+    owner.signal('SIGKILL')
+    await expect(owner.waitForExit()).rejects.toThrow('kill failed')
+    owner.signal('SIGKILL')
+    await expect(owner.waitForExit()).resolves.toBeUndefined()
+
+    expect(query).toHaveBeenCalledTimes(2)
   })
 
   it('propagates systemctl execution failures and unknown active states', async () => {

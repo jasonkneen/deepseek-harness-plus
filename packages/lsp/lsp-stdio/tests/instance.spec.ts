@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { mkdtemp, mkdir, readFile, rm, writeFile, realpath } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -95,6 +95,24 @@ function scriptInstance(script: string, overrides: Partial<InstanceSpec> = {}): 
   }, spawnSubprocess)
   live.push(instance)
   return instance
+}
+
+interface TestConnection {
+  readonly closed: Promise<void>
+  waitForProcessTreeExit(signal?: AbortSignal): Promise<boolean>
+}
+
+/** Make the instance's final managed-range observation fail deterministically. */
+function rejectProcessTreeWait(instance: LspInstance, failure: Error): TestConnection {
+  const connection = (instance as unknown as { connection: TestConnection }).connection
+  vi.spyOn(connection, 'waitForProcessTreeExit').mockRejectedValue(failure)
+  return connection
+}
+
+/** A failed teardown cannot be disposed again; await process close and remove it from afterEach. */
+async function releaseFailedInstance(instance: LspInstance, connection: TestConnection): Promise<void> {
+  live = live.filter(candidate => candidate !== instance)
+  await connection.closed
 }
 
 /** An inline server that answers initialize + definition and echoes a location. */
@@ -244,6 +262,52 @@ describe('LspInstance query and abort', () => {
     expect(processAlive(pid)).toBe(false)
   })
 
+  it('preserves a request write failure with a managed-range teardown failure', async () => {
+    const operationFailure = new Error('fixture textDocument/definition failure')
+    const teardownFailure = new Error('managed range observation failed')
+    const instance = makeInstance({}, {
+      shutdownTimeoutMs: 100,
+      killGraceMs: 100,
+    }, failingWriter('textDocument/definition', operationFailure))
+    const connection = rejectProcessTreeWait(instance, teardownFailure)
+    try {
+      const failure = await run(instance, 'goToDefinition').then(
+        () => undefined,
+        (error: unknown) => error,
+      )
+      expect(failure).toMatchObject({
+        errors: [operationFailure, teardownFailure],
+        message: 'LSP operation and teardown failed',
+      })
+    } finally {
+      await releaseFailedInstance(instance, connection)
+    }
+  })
+
+  it('preserves an initialization failure with a managed-range teardown failure', async () => {
+    const teardownFailure = new Error('managed range observation failed')
+    const instance = makeInstance({ LSP_FAKE_ENCODING: 'utf-8' }, {
+      shutdownTimeoutMs: 100,
+      killGraceMs: 100,
+    })
+    const connection = rejectProcessTreeWait(instance, teardownFailure)
+    try {
+      const failure = await run(instance, 'goToDefinition').then(
+        () => undefined,
+        (error: unknown) => error,
+      )
+      expect(failure).toBeInstanceOf(AggregateError)
+      const errors = (failure as AggregateError).errors as unknown[]
+      expect(errors).toHaveLength(2)
+      expect(errors[0]).toBeInstanceOf(Error)
+      expect((errors[0] as Error).message).toContain('unsupported position encoding')
+      expect(errors[1]).toBe(teardownFailure)
+      expect((failure as AggregateError).message).toBe('LSP operation and teardown failed')
+    } finally {
+      await releaseFailedInstance(instance, connection)
+    }
+  })
+
   it('rejects when the server lacks the operation capability', async () => {
     const instance = makeInstance({ LSP_FAKE_CAPS: JSON.stringify({ definitionProvider: false }), LSP_FAKE_DEF: 'null' })
     await expect(run(instance, 'goToDefinition')).rejects.toThrow(/does not support goToDefinition/)
@@ -267,6 +331,52 @@ describe('LspInstance query and abort', () => {
       resolvedWorkspaceUri: pathToFileURL(ws).href,
     })
     expect(instance.dead).toBe(true)
+  })
+
+  it('reports didClose and teardown failures after a settled result', async () => {
+    const closeFailure = new Error('fixture textDocument/didClose failure')
+    const teardownFailure = new Error('managed range observation failed')
+    const instance = makeInstance({
+      LSP_FAKE_DEF: 'null',
+    }, { shutdownTimeoutMs: 100, killGraceMs: 100 }, failingWriter('textDocument/didClose', closeFailure))
+    const connection = rejectProcessTreeWait(instance, teardownFailure)
+    try {
+      const failure = await run(instance, 'goToDefinition').then(
+        () => undefined,
+        (error: unknown) => error,
+      )
+      expect(failure).toMatchObject({
+        errors: [closeFailure, teardownFailure],
+        message: 'LSP query cleanup failed',
+      })
+    } finally {
+      await releaseFailedInstance(instance, connection)
+    }
+  })
+
+  it('reports query, didClose, and teardown failures in lifecycle order', async () => {
+    const closeFailure = new Error('fixture textDocument/didClose failure')
+    const teardownFailure = new Error('managed range observation failed')
+    const instance = makeInstance({
+      LSP_FAKE_ERROR: '1',
+    }, { shutdownTimeoutMs: 100, killGraceMs: 100 }, failingWriter('textDocument/didClose', closeFailure))
+    const connection = rejectProcessTreeWait(instance, teardownFailure)
+    try {
+      const failure = await run(instance, 'goToDefinition').then(
+        () => undefined,
+        (error: unknown) => error,
+      )
+      expect(failure).toBeInstanceOf(AggregateError)
+      const errors = (failure as AggregateError).errors as unknown[]
+      expect(errors).toHaveLength(3)
+      expect(errors[0]).toBeInstanceOf(Error)
+      expect((errors[0] as Error).message).toContain('server refused')
+      expect(errors[1]).toBe(closeFailure)
+      expect(errors[2]).toBe(teardownFailure)
+      expect((failure as AggregateError).message).toBe('LSP query cleanup failed')
+    } finally {
+      await releaseFailedInstance(instance, connection)
+    }
   })
 })
 
@@ -372,10 +482,10 @@ async function waitForProcessExit(pid: number, timeoutMs = 3_000): Promise<void>
 }
 
 /** Write normally except for one method whose callback receives a deterministic transport error. */
-function failingWriter(method: string): ConnectionWriter {
+function failingWriter(method: string, failure = new Error(`fixture ${method} failure`)): ConnectionWriter {
   return (stdin, message, done) => {
     if ((message as { method?: unknown }).method === method) {
-      queueMicrotask(() => { done(new Error(`fixture ${method} failure`)) })
+      queueMicrotask(() => { done(failure) })
       return
     }
     stdin.write(encodeMessage(message), done)

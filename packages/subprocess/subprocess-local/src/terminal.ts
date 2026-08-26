@@ -337,7 +337,12 @@ export class LocalTerminalHandle implements SubprocessTerminalHandle {
       owner.signal('SIGKILL')
       if (first.kind === 'failed') {
         // The observation failure is still authoritative, but force cleanup
-        // must be attempted before exposing it to the caller.
+        // and a fresh final observation must be attempted before exposing it.
+        try {
+          await owner.waitForExit()
+        } catch (finalError: unknown) {
+          throw new AggregateError([first.error, finalError], 'terminal managed-range cleanup failed')
+        }
         throw first.error
       }
       await observation

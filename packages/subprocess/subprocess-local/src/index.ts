@@ -72,11 +72,8 @@ export class LocalSubprocessRuntime extends SubprocessRuntime {
       const onHostExit = (): void => { this.terminateForHostExit() }
       process.prependListener('exit', onHostExit)
       return async () => {
-        try {
-          await this.disposeManagedProcesses()
-        } finally {
-          process.off('exit', onHostExit)
-        }
+        await this.disposeManagedProcesses()
+        process.off('exit', onHostExit)
       }
     }, 'local subprocess teardown')
   }
@@ -111,18 +108,16 @@ export class LocalSubprocessRuntime extends SubprocessRuntime {
       pending.push(Promise.all([
         handle.done.catch(() => {}),
         handle.waitForExit(),
-      ]).then(() => undefined))
+      ]).then(() => { this.live.delete(handle) }))
     }
     for (const terminal of this.terminals) {
-      pending.push(terminal.terminate())
+      pending.push(terminal.terminate().then(() => { this.terminals.delete(terminal) }))
     }
     const outcomes = await Promise.allSettled(pending)
     const failures = outcomes.flatMap<unknown>(outcome => outcome.status === 'rejected'
       ? [outcome.reason as unknown]
       : [])
     if (failures.length > 0) this.terminateForHostExit()
-    this.live.clear()
-    this.terminals.clear()
     if (failures.length === 1) throw failures[0]
     if (failures.length > 1) throw new AggregateError(failures, 'local subprocess teardown failed')
   }
@@ -195,6 +190,7 @@ export class LocalSubprocessRuntime extends SubprocessRuntime {
     kind: 'ordinary' | 'terminal',
   ): 'linux-scope' | 'windows-job' | 'fallback' {
     const platform = this.internals.platform ?? process.platform
+    let fallbackReason: string | undefined
     if (platform === 'linux') {
       const managerAvailable = probeLinuxUserManager()
       if (managerAvailable && !this.linuxScopeCapabilityConfirmed) {
@@ -206,6 +202,7 @@ export class LocalSubprocessRuntime extends SubprocessRuntime {
           this.linuxRunnerCapabilityConfirmed = probeLinuxRunner()
         }
         if (this.linuxRunnerCapabilityConfirmed) return 'linux-scope'
+        fallbackReason = 'the private Linux subprocess runner is unavailable'
       }
     }
     if (kind === 'ordinary' && platform === 'win32') {
@@ -214,14 +211,18 @@ export class LocalSubprocessRuntime extends SubprocessRuntime {
       }
       if (this.windowsJobCapabilityConfirmed) return 'windows-job'
     }
-    this.warnFallback(platform, kind)
+    this.warnFallback(platform, kind, fallbackReason)
     return 'fallback'
   }
 
-  private warnFallback(platform: NodeJS.Platform, kind: 'ordinary' | 'terminal'): void {
+  private warnFallback(
+    platform: NodeJS.Platform,
+    kind: 'ordinary' | 'terminal',
+    selectedReason?: string,
+  ): void {
     if (this.fallbackWarningIssued) return
     this.fallbackWarningIssued = true
-    const reason = platform === 'darwin'
+    const reason = selectedReason ?? (platform === 'darwin'
       ? 'macOS has no supported persistent process-range owner'
       : platform === 'linux'
         ? 'a modern readable user-systemd scope is unavailable'
@@ -229,7 +230,7 @@ export class LocalSubprocessRuntime extends SubprocessRuntime {
           ? kind === 'terminal'
             ? 'Windows ConPTY remains outside Job containment'
             : 'the Win32 Job runner is unavailable'
-          : `platform ${platform} has no native managed range`
+          : `platform ${platform} has no native managed range`)
     this.ctx.logger.warn(
       `subprocess-local is using weaker process-tree containment because ${reason}; descendants that escape the process group or direct-parent tree are not guaranteed to terminate or delay waitForExit()`,
     )

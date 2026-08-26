@@ -180,23 +180,27 @@ describe('managed process binding', () => {
     }
   })
 
-  it('contains background range-observation rejection until waitForExit observes it', async () => {
+  it('retries after a background range-observation rejection', async () => {
     const wrapper = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], {
       stdio: ['ignore', 'pipe', 'pipe'],
     })
     const failure = new Error('range observation failed')
+    const waitForExit = vi.fn()
+      .mockRejectedValueOnce(failure)
+      .mockResolvedValue(undefined)
     const handle = bindManagedProcess(spec(), {
       stdin: wrapper.stdin,
       stdout: wrapper.stdout,
       stderr: wrapper.stderr,
       pid: wrapper.pid,
       direct: new Promise(() => {}),
-      owner: { signal: vi.fn(), waitForExit: async () => { throw failure } },
+      owner: { signal: vi.fn(), waitForExit },
     })
     try {
       handle.terminate()
       await new Promise(resolve => setImmediate(resolve))
-      await expect(handle.waitForExit()).rejects.toBe(failure)
+      await expect(handle.waitForExit()).resolves.toBe(true)
+      expect(waitForExit).toHaveBeenCalledTimes(2)
     } finally {
       wrapper.kill('SIGKILL')
     }
