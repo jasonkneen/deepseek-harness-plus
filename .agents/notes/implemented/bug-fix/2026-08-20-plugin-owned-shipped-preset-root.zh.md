@@ -18,7 +18,7 @@ Status: implemented
 
 ## 测试
 
-`shipped-root.spec.ts` 直接覆盖插件所有权：裸 roster 列出四套内置 preset 且健康、`system` 信任（证明搬移后的文件能从包内解析）；内置根前置于配置根与推导用户根之前，fixture 目录占用内置 id 时被遮蔽；`includeShippedRoot: false` 挂载不含内置集合的 roster。钉住确切 roster 的既有套件选择关闭，这正是该选项文档命名的第二用途。Web 组合 e2e 以 config 中零 roots 启动真实 bundle，断言内置四套加配置共享根的 preset、内置 id 遮蔽、以及配置根 preset 组合出 agent；对 built `lib/` 运行验证打包布局同样解析得到目录。门禁脚本（`verify-cordis-config`、`verify-runtime-closure`）扫描新位置。
+`shipped-root.spec.ts` 直接覆盖插件所有权：裸 roster 列出四套内置 preset 为 `system` 信任、且除未解析行外不携带其他原因（证明搬移后的文件能从包内解析）。健康检查此后新增了一趟模块解析——见[预设健康解析它能证明会启动的行](../architecture/2026-08-26-preset-health-resolves-rows.zh.md)——而 fixture 基准并不是内置行所引用的包所在的那个安装，因此该断言点名它容忍的原因，而不是要求一个都没有；内置根前置于配置根与推导用户根之前，fixture 目录占用内置 id 时被遮蔽；`includeShippedRoot: false` 挂载不含内置集合的 roster。钉住确切 roster 的既有套件选择关闭，这正是该选项文档命名的第二用途。Web 组合 e2e 以 config 中零 roots 启动真实 bundle，断言内置四套加配置共享根的 preset、内置 id 遮蔽、以及配置根 preset 组合出 agent；对 built `lib/` 运行验证打包布局同样解析得到目录。门禁脚本（`verify-cordis-config`、`verify-runtime-closure`）扫描新位置。
 
 ## 曾考虑的替代方案
 

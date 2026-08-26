@@ -346,6 +346,51 @@ describe('web e2e: settings modal and General preferences', () => {
     expect(tripwire.pageErrors).toEqual([])
   }, 90_000)
 
+  it('steps the content font size, applies it to body, and persists across reload', async () => {
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-settings-font-size'))
+    const readFontSize = async (target: Page = page): Promise<string> => await target.evaluate(
+      () => document.body.style.getPropertyValue('--dsh-content-font-size'),
+    )
+    expect(await readFontSize()).toBe('14px')
+    await page.getByRole('button', { name: '设置', exact: true }).click()
+    const dialog = page.getByRole('dialog', { name: '设置' })
+    await dialog.waitFor({ timeout: 10_000 })
+    // The stepper reveals its arrows on hover; the up arrow steps 14 → 15 → 16.
+    await dialog.getByText('14', { exact: true }).hover()
+    const increase = dialog.getByRole('button', { name: '增大字号' })
+    await increase.click()
+    await dialog.getByText('15', { exact: true }).waitFor({ timeout: 5_000 })
+    await increase.click()
+    await dialog.getByText('16', { exact: true }).waitFor({ timeout: 5_000 })
+    await expect.poll(readFontSize, { timeout: 5_000 }).toBe('16px')
+    await expect.poll(async () => readFile(join(scaffold.harnessHome, 'settings.yaml'), 'utf8'), { timeout: 5_000 })
+      .toMatch(/ui-theme:\n(?:\s+\w+: .*\n)*?\s+fontSize: 16/)
+    await page.keyboard.press('Escape')
+
+    // Reload: the boot script embeds the durable size and ThemeRuntime seeds
+    // its initial snapshot from the boot-written body variable, so activation
+    // never flashes the default while the settings read is in flight.
+    const warningStart = tripwire.warnings.length
+    await page.reload({ waitUntil: 'load' })
+    acknowledgeReloadConnectionLoss(tripwire, warningStart)
+    await page.waitForSelector('[class*="frame"]', { timeout: 30_000 })
+    await expect.poll(readFontSize, { timeout: 5_000 }).toBe('16px')
+
+    // Restore the default for the specs that follow (and the dialog golden).
+    await page.getByRole('button', { name: '设置', exact: true }).click()
+    const restored = page.getByRole('dialog', { name: '设置' })
+    await restored.waitFor({ timeout: 10_000 })
+    await restored.getByText('16', { exact: true }).hover()
+    const decrease = restored.getByRole('button', { name: '减小字号' })
+    await decrease.click()
+    await restored.getByText('15', { exact: true }).waitFor({ timeout: 5_000 })
+    await decrease.click()
+    await restored.getByText('14', { exact: true }).waitFor({ timeout: 5_000 })
+    await expect.poll(readFontSize, { timeout: 5_000 }).toBe('14px')
+    await page.keyboard.press('Escape')
+    expect(tripwire.pageErrors).toEqual([])
+  }, 90_000)
+
   it('persists the busy-state Enter behavior across reload and a distinct port', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-settings-enter-behavior'))
     await page.getByRole('button', { name: '设置', exact: true }).click()

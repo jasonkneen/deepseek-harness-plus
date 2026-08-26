@@ -5,7 +5,7 @@
  * explicit act of widening what features may do to the sessions domain.
  */
 import type { Context } from '@deepseek-ai/cordis'
-import type { SubagentAddress } from '@deepseek-ai/dsh-client-connection/client'
+import type { SubagentAddress } from '@deepseek-ai/dsh-subagent/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { WorkspaceId } from '@deepseek-ai/dsh-workspace/types'
 import type { AgentContext } from '../scope.ts'

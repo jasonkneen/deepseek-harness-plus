@@ -58,7 +58,13 @@ describe('the shipped preset root', () => {
     const listed = await ctx.agentPresets.list()
     expect(listed.map(preset => preset.id).sort()).toEqual(['code', 'cordis', 'minimal', 'standard'])
     expect(listed.every(preset => preset.trust === 'system')).toBe(true)
-    expect(listed.every(preset => preset.broken === undefined)).toBe(true)
+    // Not `broken === undefined`: health asks whether each row's package is
+    // installed above the base, and the shipped rows name packages the
+    // deployment installs beside the roster. This fixture base is not that
+    // install, so unresolved rows are the only reason it can report here —
+    // malformed would be a different one, and this asserts there is none.
+    expect(listed.map(preset => preset.broken)
+      .filter(reason => reason !== undefined && !reason.includes('cannot be resolved'))).toEqual([])
   })
 
   it('prepends the shipped root before configured roots and the derived user root', async () => {

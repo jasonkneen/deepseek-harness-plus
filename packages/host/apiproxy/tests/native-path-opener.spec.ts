@@ -318,4 +318,10 @@ describe('canOpenNativePath', () => {
 
     expect(canOpenNativePath({ platform: 'linux', osRelease: '6.8.0-generic' })).toBe(expected)
   })
+
+  it('samples the ambient platform when none is named', () => {
+    // The internals are a test seam; a deployment calls this with nothing and
+    // must get the answer for the host it is actually running on.
+    expect(canOpenNativePath()).toBe(canOpenNativePath({ platform: process.platform }))
+  })
 })

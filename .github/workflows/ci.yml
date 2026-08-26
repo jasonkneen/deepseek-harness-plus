@@ -159,7 +159,7 @@ jobs:
           || 'dsh-ubuntu-24-04-16core' }}
     name: node 24 / snapshots and artifacts
     env:
-      DSH_GATE_CONCURRENCY: '8'
+      DSH_GATE_CONCURRENCY: '10'
       DSH_NODE_COMPAT_SKIP_TYPECHECK: '1'
       DSH_OXLINT_THREADS: '8'
       DSH_PUBLINT_CONCURRENCY: '8'
@@ -421,6 +421,13 @@ jobs:
         run: >-
           reg add "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\AppModelUnlock"
           /t REG_DWORD /f /v "AllowDevelopmentWithoutDevLicense" /d "1"
+      # Best-effort: a torn-down job on this self-hosted pool can leave a
+      # locked @reflink native module under the action's install destination,
+      # and pnpm/action-setup's self-installer then fails its unlink with
+      # EPERM. Clearing the destination gives every attempt fresh state.
+      - name: Clear stale pnpm setup state
+        shell: pwsh
+        run: if (Test-Path "$env:RUNNER_TEMP/setup-pnpm-js") { Remove-Item -Recurse -Force "$env:RUNNER_TEMP/setup-pnpm-js" -ErrorAction SilentlyContinue }
       - uses: pnpm/action-setup@v4
         with:
           dest: ${{ runner.temp }}/setup-pnpm-js
@@ -457,6 +464,10 @@ jobs:
         run: >-
           reg add "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\AppModelUnlock"
           /t REG_DWORD /f /v "AllowDevelopmentWithoutDevLicense" /d "1"
+      # Best-effort stale pnpm-destination cleanup; rationale on windows-build's copy.
+      - name: Clear stale pnpm setup state
+        shell: pwsh
+        run: if (Test-Path "$env:RUNNER_TEMP/setup-pnpm-js") { Remove-Item -Recurse -Force "$env:RUNNER_TEMP/setup-pnpm-js" -ErrorAction SilentlyContinue }
       - uses: pnpm/action-setup@v4
         with:
           dest: ${{ runner.temp }}/setup-pnpm-js
@@ -491,6 +502,10 @@ jobs:
         run: >-
           reg add "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\AppModelUnlock"
           /t REG_DWORD /f /v "AllowDevelopmentWithoutDevLicense" /d "1"
+      # Best-effort stale pnpm-destination cleanup; rationale on windows-build's copy.
+      - name: Clear stale pnpm setup state
+        shell: pwsh
+        run: if (Test-Path "$env:RUNNER_TEMP/setup-pnpm-js") { Remove-Item -Recurse -Force "$env:RUNNER_TEMP/setup-pnpm-js" -ErrorAction SilentlyContinue }
       - uses: pnpm/action-setup@v4
         with:
           dest: ${{ runner.temp }}/setup-pnpm-js
@@ -533,6 +548,10 @@ jobs:
         run: >-
           reg add "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\AppModelUnlock"
           /t REG_DWORD /f /v "AllowDevelopmentWithoutDevLicense" /d "1"
+      # Best-effort stale pnpm-destination cleanup; rationale on windows-build's copy.
+      - name: Clear stale pnpm setup state
+        shell: pwsh
+        run: if (Test-Path "$env:RUNNER_TEMP/setup-pnpm-js") { Remove-Item -Recurse -Force "$env:RUNNER_TEMP/setup-pnpm-js" -ErrorAction SilentlyContinue }
       - uses: pnpm/action-setup@v4
         with:
           dest: ${{ runner.temp }}/setup-pnpm-js

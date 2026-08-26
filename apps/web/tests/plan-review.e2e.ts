@@ -68,7 +68,7 @@ describe('web e2e: plan review takeover round trip', () => {
     if (MODE !== 'record') {
       expect(fixtureUserPrompts(await readFile(FIXTURE, 'utf8'))).toEqual([TASK])
     }
-    const input = page.locator('textarea').first()
+    const input = page.locator('[data-composer-input]').first()
     await input.waitFor({ timeout: 10_000 })
     const settled = scaffold.whenTurnSettled(MODE === 'record' ? 180_000 : 30_000)
     await input.fill(LINE)
@@ -108,7 +108,7 @@ describe('web e2e: plan review takeover round trip', () => {
     // Card gone; regular input restored.
     expect(await page.locator('[data-plan-review-key]').count()).toBe(0)
     expect(await selectedRow.locator('[data-state="warning"]').count()).toBe(0)
-    await expect.poll(() => page.locator('textarea').first().isEnabled(), { timeout: 10_000 }).toBe(true)
+    await expect.poll(() => page.locator('[data-composer-input]').first().isEnabled(), { timeout: 10_000 }).toBe(true)
     const snapshot = await captureStableAria(page, '[class*="centerCol"]', scaffold.workspaceCwd)
     await compareOrRefreshGolden(APPROVED_EXPECTED, snapshot, MODE)
     expect(tripwire.pageErrors).toEqual([])

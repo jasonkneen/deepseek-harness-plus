@@ -95,16 +95,12 @@ interface ClientArtifactBaseline {
   readonly mtimeMs: number
   /** Bundle size in bytes. */
   readonly size: number
-  /** Source-map modification time, or null when no map was observable. */
-  readonly mapMtimeMs: number | null
-  /** Source-map size in bytes, or null when no map was observable. */
-  readonly mapSize: number | null
 }
 ```
 
-`ClientModuleRegistry` (`ctx.clientModules`, defined in [`packages/client/modules/src/index.ts`](../../packages/client/modules/src/index.ts)) exposes reads and the rebuild face; signatures are in the generated [service catalog](#ctxclientmodules--clientmoduleregistry). `graph()` returns the current composed graph (a stable object between changes), `clientPath(id)` returns the bundle's absolute path, and `artifactBaseline(id)` returns the bundle/map stat values captured before the current snapshot was read. `rebuilt(id)` is the only entry point through which changed bundle content reaches the graph: it re-hashes that artifact, and only a real rev change recomposes the graph and notifies. `onRebuilt` fires per changed bundle with the new rev; `onGraphChanged` fires after any flush that recomposed the graph (row added or removed, or a rebuilt rev change) and is pull-model — listeners re-read `graph()`. Both notification paths contain listener exceptions so one throwing subscriber cannot skip later subscribers or kill whatever triggered the flush.
+`ClientModuleRegistry` (`ctx.clientModules`, defined in [`packages/client/modules/src/index.ts`](../../packages/client/modules/src/index.ts)) exposes reads and the rebuild face; signatures are in the generated [service catalog](#ctxclientmodules--clientmoduleregistry). `graph()` returns the current composed graph (a stable object between changes), `clientPath(id)` returns the bundle's absolute path, and `artifactBaseline(id)` returns the bundle stat values captured before the current snapshot was read. `rebuilt(id)` is the only entry point through which changed bundle content reaches the graph: it re-hashes the bundle together with its current source map, and only a real rev change recomposes the graph and notifies. `onRebuilt` fires per changed bundle with the new rev; `onGraphChanged` fires after any flush that recomposed the graph (row added or removed, or a rebuilt rev change) and is pull-model — listeners re-read `graph()`. Both notification paths contain listener exceptions so one throwing subscriber cannot skip later subscribers or kill whatever triggered the flush.
 
-In development, [dsh-client-hmr](../../packages/client/hmr/README.md) is the registry's watch driver: its node half stat-polls every graph row's bundle and optional map from the module host's pre-read baseline, calls `rebuilt(id)` only for a changed or dirty row, resyncs its watch set through `onGraphChanged`, and broadcasts rev changes to the browser half over SSE. Production graphs omit the HMR row entirely; the module host itself never watches files.
+In development, [dsh-client-hmr](../../packages/client/hmr/README.md) is the registry's watch driver: its node half stat-polls every graph row's bundle from the module host's pre-read baseline, calls `rebuilt(id)` only for a changed or dirty row, resyncs its watch set through `onGraphChanged`, and broadcasts rev changes to the browser half over SSE. Source-map changes alone do not trigger a reload; the current map joins the snapshot when a bundle change does. Production graphs omit the HMR row entirely; the module host itself never watches files.
 
 <!-- BEGIN GENERATED cordis-surface (gen-cordis-catalog.ts) — do not edit between markers -->
 

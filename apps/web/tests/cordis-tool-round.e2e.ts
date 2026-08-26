@@ -106,7 +106,7 @@ describe('web e2e: Cordis tools use their owned cards', () => {
     if (MODE !== 'record') {
       expect(fixtureUserPrompts(await readFile(FIXTURE, 'utf8'))).toEqual([PROMPT, STOP_PROMPT])
     }
-    const input = page.locator('textarea').first()
+    const input = page.locator('[data-composer-input]').first()
     await input.waitFor({ timeout: 10_000 })
     const runTurnSettled = scaffold.whenTurnSettled()
     await input.fill(PROMPT)

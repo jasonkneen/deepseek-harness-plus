@@ -183,12 +183,12 @@ type ToolExecutionToken = symbol & { readonly [toolExecutionTokenBrand]: true }
  * callers do not choose that token.
  */
 interface ToolExecutionInput {
-  readonly callId: CallId
+  readonly callId: ToolCallId
   /**
    * Root model-requested call owning this execution tree. Callers omit it for
    * a root execution; nested dispatchers propagate the enclosing value.
    */
-  readonly rootCallId?: CallId
+  readonly rootCallId?: ToolCallId
   readonly name: string
   /** Losslessly JSON-serializable parsed arguments (tools validate their own schema). */
   readonly arguments: unknown
@@ -270,7 +270,7 @@ interface CodeDispatchLog {
   /** The calling agent (the scope routing key and the spill owner), when the outer call has one. */
   readonly agent?: Agent
   /** Deterministic sub-call id (`<parent>:code:<n>`). */
-  readonly subCallId: CallId
+  readonly subCallId: ToolCallId
   /** The dispatched sub-tool name. */
   readonly name: string
   /** Whether the sub-call settled as an error. */
@@ -290,7 +290,7 @@ interface CodeDispatchLog {
  */
 interface ToolExecution extends ToolExecutionInput {
   /** Root model-requested call, resolved for every root and nested execution. */
-  readonly rootCallId: CallId
+  readonly rootCallId: ToolCallId
   /** Registry-assigned identity shared with nested calls only as their opaque `parent` token. */
   readonly token: ToolExecutionToken
 }

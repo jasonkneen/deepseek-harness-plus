@@ -23,11 +23,13 @@ function fakeParent(): Agent {
 vi.setConfig({ testTimeout: 30_000 })
 
 /**
- * Wait up to 10 seconds for CPU-bound worker startup or cross-thread delivery on contended CI.
- * Host reactions after an observed event use explicit tight overrides, so this generous startup
+ * Wait up to 60 seconds for CPU-bound worker startup or cross-thread delivery on contended CI:
+ * startup is the only environment-sensitive phase of a same-process worker exchange, and the
+ * loaded self-hosted Windows pool stretches the tsx-in-worker boot past 10 seconds. Host
+ * reactions after an observed event use explicit tight overrides, so this generous startup
  * allowance cannot hide multi-second reap regressions.
  */
-function waitFor(assertion: () => void, timeout = 10_000): Promise<void> {
+function waitFor(assertion: () => void, timeout = 60_000): Promise<void> {
   return vi.waitFor(assertion, { timeout, interval: 50 })
 }
 
@@ -181,7 +183,9 @@ async function run(ctx: Context, parent: Agent, source: { script: string; meta: 
   }
 }
 
-describe('dsh-workflow-worker-thread', () => {
+// The per-test cap leaves room for one generous startup wait plus the tight
+// post-event assertions; explicit narrower timeouts inside stay authoritative.
+describe('dsh-workflow-worker-thread', { timeout: 120_000 }, () => {
   describe('script execution over a real worker thread', () => {
     it('runs a script end-to-end: agent() text results, phases, log, args, return value, events', async () => {
       const { ctx, parent, provider } = await setup({ reply: (_request, index) => text(`answer-${index}`) })

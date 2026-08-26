@@ -62,16 +62,6 @@ export interface RpcErrorDetailsMap {
    * details name the endpoint asked, never the credential offered.
    */
   'model-discovery-failed': { settingsNs: string; baseURL?: string }
-  'subagent-parent-unavailable': { parentSessionId: SessionId }
-  'subagent-not-found': { parentSessionId: SessionId; childSessionId: SessionId }
-  'subagent-catalog-diagnostic': {
-    parentSessionId: SessionId
-    childSessionId: SessionId
-    reason: 'corrupt' | 'unsupported' | 'unavailable'
-  }
-  'subagent-not-resumable': { childSessionId: SessionId }
-  'subagent-unauthorized': { childSessionId: SessionId }
-  'subagent-delivery-unavailable': { childSessionId: SessionId }
   'internal': {}
 }
 

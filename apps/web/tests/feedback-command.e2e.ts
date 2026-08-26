@@ -63,7 +63,7 @@ describe('web e2e: /feedback command acknowledgement', () => {
       // Drift guard: the committed fixture must carry exactly the drive prompt.
       expect(fixtureUserPrompts(await readFile(FIXTURE, 'utf8'))).toEqual([PROMPT])
     }
-    const input = page.locator('textarea').first()
+    const input = page.locator('[data-composer-input]').first()
     await input.waitFor({ timeout: 10_000 })
     // Arm the turn-boundary waiter BEFORE sending, so a burst replay cannot
     // miss the turn/end that settles the recorded turn.
@@ -82,7 +82,7 @@ describe('web e2e: /feedback command acknowledgement', () => {
     // command row does not render while a fresh session is still blank) and
     // the replayed reply is on screen.
     await page.getByText('LIGHTHOUSE', { exact: true }).waitFor({ timeout: 15_000 })
-    const input = page.locator('textarea').first()
+    const input = page.locator('[data-composer-input]').first()
     await input.fill('/feedback the diff view is unreadable')
     await input.press('Enter')
     // The command plane settles without a model turn: the ack row names the

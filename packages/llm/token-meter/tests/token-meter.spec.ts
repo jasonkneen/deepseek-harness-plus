@@ -1,6 +1,6 @@
 import { describe, expect, expectTypeOf, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
-import { createUserMessage, CallId, createMessage } from '@deepseek-ai/dsh-llm'
+import { createUserMessage, ToolCallId, createMessage } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, Message, TokenUsage } from '@deepseek-ai/dsh-llm'
 import SessionStore, { Session, SessionId, canonicalHeader } from '@deepseek-ai/dsh-session'
 import type { EpochHeader, SessionEvent } from '@deepseek-ai/dsh-session'
@@ -134,10 +134,10 @@ describe('TokenMeter pricing', () => {
     const blocks: ContentBlock[] = [
       { type: 'text', text: 'abcd' },
       { type: 'reasoning', text: 'ab' },
-      { type: 'tool-call', id: CallId('c'), name: 'read', arguments: '{"x":1}' },
+      { type: 'tool-call', id: ToolCallId('c'), name: 'read', arguments: '{"x":1}' },
       {
         type: 'tool-result',
-        toolCallId: CallId('c'),
+        toolCallId: ToolCallId('c'),
         content: [{ type: 'text', text: 'xy' }],
         isError: false,
       },

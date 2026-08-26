@@ -21,7 +21,7 @@ import {
   acknowledgeReloadConnectionLoss, assertFixtureInventory, captureStableAria, compareOrRefreshGolden, fixtureUserPrompts,
   launchWebScaffold, recordFixture, watchConsole, webSnapshotMode, type WebScaffold,
 } from './scaffold.ts'
-import { connectFreshWorkspace, newEnglishPage, saveFailureShot } from './support.ts'
+import { connectFreshWorkspace, newEnglishPage, saveFailureShot, writeComposerDraft } from './support.ts'
 
 const SNAPSHOT_DIR = fileURLToPath(new URL('../../../snapshots/web/lifecycle-chrome', import.meta.url))
 const FIXTURE = join(SNAPSHOT_DIR, 'session.jsonl')
@@ -76,10 +76,10 @@ describe('web e2e: lifecycle & chrome (workspace flow / reload / dark mode)', ()
     expect(snapshot).not.toContain('text: Skills')
     expect(snapshot).not.toContain('text: Subagents')
     const launchedBox = await menu.boundingBox()
-    await page.locator('textarea').first().press('Escape')
+    await page.locator('[data-composer-input]').first().press('Escape')
     await expect.poll(() => menu.count()).toBe(0)
-    const input = page.locator('textarea').first()
-    await input.fill('/')
+    const input = page.locator('[data-composer-input]').first()
+    await writeComposerDraft(page, input, '/')
     await menu.waitFor({ timeout: 10_000 })
     const typedBox = await menu.boundingBox()
     expect(launchedBox).not.toBeNull()
@@ -88,13 +88,13 @@ describe('web e2e: lifecycle & chrome (workspace flow / reload / dark mode)', ()
     expect(Math.abs(
       launchedBox!.y + launchedBox!.height - typedBox!.y - typedBox!.height,
     )).toBeLessThan(1)
-    await input.fill('/cpt')
+    await writeComposerDraft(page, input, '/cpt')
     await expect.poll(() => menu.getByRole('option').allTextContents()).toEqual([
       'compactCompact older conversation history',
     ])
     const fuzzySnapshot = await captureStableAria(page, '[role="listbox"]', scaffold.workspaceCwd)
     await compareOrRefreshGolden(FUZZY_COMMAND_MENU_EXPECTED, fuzzySnapshot, MODE)
-    await input.fill('')
+    await writeComposerDraft(page, input, '')
     await expect.poll(() => menu.count()).toBe(0)
   })
 
@@ -106,19 +106,19 @@ describe('web e2e: lifecycle & chrome (workspace flow / reload / dark mode)', ()
       await activePage.goto(activeScaffold.authenticatedUrl, { waitUntil: 'load' })
       await activePage.waitForSelector('[class*="frame"]', { timeout: 30_000 })
       await connectFreshWorkspace(activePage, activeScaffold.workspaceCwd)
-      const input = activePage.locator('textarea').first()
+      const input = activePage.locator('[data-composer-input]').first()
       await activePage.getByRole('button', { name: 'Commands' }).click()
       const menu = activePage.getByRole('listbox', { name: 'Trigger suggestions' })
       await menu.waitFor({ timeout: 10_000 })
       await menu.getByRole('option', { name: 'plan Enter or leave plan mode' }).click()
-      await expect.poll(() => input.inputValue()).toBe('/plan ')
+      await expect.poll(() => input.textContent()).toBe('/plan ')
       await input.press('Enter')
       const planButton = activePage.getByRole('button', { name: 'Plan mode on, press to turn off' })
       await planButton.waitFor({ timeout: 10_000 })
       // The golden encodes an empty composer, and the button arriving does not
       // mean the submitted text is gone yet: under load the capture can catch
       // a textbox still holding `/plan`.
-      await expect.poll(() => input.inputValue(), { timeout: 10_000 }).toBe('')
+      await expect.poll(() => input.textContent(), { timeout: 10_000 }).toBe('')
       const planSnapshot = await captureStableAria(activePage, '[class*="frame"]', activeScaffold.workspaceCwd)
       await compareOrRefreshGolden(PLAN_ACTIVE_EXPECTED, planSnapshot, MODE)
       const planStyle = await planButton.evaluate((element) => {
@@ -164,7 +164,7 @@ describe('web e2e: lifecycle & chrome (workspace flow / reload / dark mode)', ()
     // The blank frame renders the hero, not the resident composer: the
     // headline plus the guidance placeholder are the empty state's anchors.
     await expect.poll(() => page.getByText('Into the Unknown', { exact: false }).count(), { timeout: 15_000 }).toBe(1)
-    const input = page.locator('textarea').first()
+    const input = page.locator('[data-composer-input]').first()
     await input.waitFor({ timeout: 10_000 })
     if (MODE !== 'record') {
       await page.getByText('Into the Unknown', { exact: false }).hover()
@@ -175,7 +175,7 @@ describe('web e2e: lifecycle & chrome (workspace flow / reload / dark mode)', ()
       await compareOrRefreshGolden(HERO_EXPECTED, snapshot, MODE)
     }
     const settled = scaffold.whenTurnSettled()
-    await input.fill(PROMPT)
+    await writeComposerDraft(page, input, PROMPT)
     const observeTurn = async () => {
       const originalViewport = page.viewportSize() ?? { width: 1680, height: 1000 }
       if (MODE !== 'record') await page.setViewportSize({ width: 480, height: 1000 })

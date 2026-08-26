@@ -5,7 +5,7 @@ import { Context } from '@deepseek-ai/cordis'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
 import SessionStore from '@deepseek-ai/dsh-session'
 import { decodeStorageRecord, type ChunkRow } from '@deepseek-ai/dsh-session/chunk-rows'
-import { CallId, createMessage, createToolResultMessage, createUserMessage } from '@deepseek-ai/dsh-llm'
+import { ToolCallId, createMessage, createToolResultMessage, createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { Session, SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
 import { SessionHistoryController } from '@deepseek-ai/dsh-api-session-controller/src/history.ts'
 import type {
@@ -110,12 +110,12 @@ describe('Session history raw journal', () => {
     const stream = await openFollow(history, session.id, abort.signal)
     const collected = collect(stream, 2, abort)
     const call = session.append('tool/call', {
-      turn: 1, step: 1, callId: CallId('raw-call'), name: 'custom', arguments: '{malformed',
+      turn: 1, step: 1, callId: ToolCallId('raw-call'), name: 'custom', arguments: '{malformed',
     })
     const result = session.append('tool/result', {
       turn: 1, step: 1,
       message: createToolResultMessage({
-        callId: CallId('raw-call'),
+        callId: ToolCallId('raw-call'),
         content: [{ type: 'text', text: 'raw output' }],
         isError: false,
       }),
@@ -140,7 +140,7 @@ describe('Session history raw journal', () => {
     const iterator = stream[Symbol.asyncIterator]()
 
     session.append('tool/call', {
-      turn: 1, step: 1, callId: CallId('live-fast'), name: 'term', arguments: '{"cmd":"pwd"}',
+      turn: 1, step: 1, callId: ToolCallId('live-fast'), name: 'term', arguments: '{"cmd":"pwd"}',
     })
     await expect(iterator.next()).resolves.toMatchObject({
       value: { type: 'event', event: { type: 'tool/call', data: { callId: 'live-fast' } } },
@@ -153,7 +153,7 @@ describe('Session history raw journal', () => {
       session.append('tool/result', {
         turn: 1, step: 1,
         message: createToolResultMessage({
-          callId: CallId('live-fast'),
+          callId: ToolCallId('live-fast'),
           content: [{ type: 'text', text: 'ok' }],
           isError: false,
         }),
@@ -175,12 +175,12 @@ describe('Session history raw journal', () => {
     const session = ctx.sessions.create(undefined, { meta: { cwd: '/workspace' } })
     const start = session.append('turn/start', { turn: 1 })
     const call = session.append('tool/call', {
-      turn: 1, step: 1, callId: CallId('history-call'), name: 'custom', arguments: '{broken',
+      turn: 1, step: 1, callId: ToolCallId('history-call'), name: 'custom', arguments: '{broken',
     })
     const result = session.append('tool/result', {
       turn: 1, step: 1,
       message: createToolResultMessage({
-        callId: CallId('history-call'),
+        callId: ToolCallId('history-call'),
         content: [{ type: 'text', text: 'failed raw output' }],
         isError: true,
       }),
@@ -298,7 +298,7 @@ describe('Session history raw journal', () => {
       step: 1,
       chunk: { type: 'reasoning-delta', index: 0, text: `r${String(index)}` },
     }))
-    const callId = CallId('packed-call')
+    const callId = ToolCallId('packed-call')
     const toolCall = [0, 1, 2].map(index => session.append('assistant/chunk', {
       turn: 1,
       step: 1,
@@ -358,7 +358,7 @@ describe('Session history raw journal', () => {
     await expect(iterator.next()).resolves.toMatchObject({
       value: { type: 'event', event: { type: 'turn/start' } },
     })
-    session.append('tool/call', { turn: 1, step: 1, callId: CallId('c-late'), name: 'term', arguments: '{"cmd":"tail"}' })
+    session.append('tool/call', { turn: 1, step: 1, callId: ToolCallId('c-late'), name: 'term', arguments: '{"cmd":"tail"}' })
     await expect(iterator.next()).resolves.toMatchObject({
       value: { type: 'event', event: { type: 'tool/call' } },
     })
@@ -373,7 +373,7 @@ describe('Session history raw journal', () => {
       const result = session.append('tool/result', {
         turn: 1, step: 1,
         message: createToolResultMessage({
-          callId: CallId('c-late'),
+          callId: ToolCallId('c-late'),
           content: [{ type: 'text', text: 'ok' }],
           isError: false,
         }),

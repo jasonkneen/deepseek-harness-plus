@@ -10,11 +10,11 @@
  * deployment default again, matching the workspace picker beside it.
  */
 
-import type { IApiClient } from '@deepseek-ai/dsh-api-remotes/client'
+import type { ClientRemote } from '@deepseek-ai/dsh-api-remotes/client'
 import type { SessionSummary } from '@deepseek-ai/dsh-api-session-controller/client'
 import { createSnapshotStore, type SnapshotStore } from '@deepseek-ai/dsh-client-store'
 import type {} from '@deepseek-ai/dsh-agent-presets/types'
-import { messageOf, presetOptions } from './settings-store.ts'
+import { messageOf, presetOptions, readRoster } from './settings-store.ts'
 import type { AgentPresetOption } from './settings-store.ts'
 
 /** Hero-chip snapshot. */
@@ -53,7 +53,7 @@ export class AgentPresetSeatController {
   private staged: string | undefined
 
   constructor(
-    private readonly api: Pick<IApiClient, 'agentPresets'>,
+    private readonly remote: Pick<ClientRemote, 'agentPresets'>,
     /** The session the hero is about to hand over to, when there is one. */
     private readonly currentSession: () => Pick<
       SessionSummary,
@@ -67,44 +67,47 @@ export class AgentPresetSeatController {
 
   /**
    * Read the roster and open the chip on the deployment default.
-   * @returns once the snapshot reflects the host.
-   */
+  * @returns once the snapshot reflects the host.
+  */
   async load(): Promise<void> {
-    try {
-      const response = await this.api.agentPresets.list({})
-      if (!response.result.ok) {
-        this.set({ error: response.result.error.message })
-        return
-      }
-      const { presets } = response.result.value
-      this.fallback = presets.find(preset => preset.isDefault)?.id ?? presets[0]?.id ?? ''
-      const session = this.currentSession()
-      this.set({
-        options: presetOptions(presets),
-        // Staged pick first, then the composition the current session
-        // already carries, then the deployment default. The middle term is
-        // what keeps a late-landing load from regressing the display after
-        // an applied stage was consumed — the chip mounts (and loads) only
-        // once the flow's session is current, so the reply can arrive after
-        // apply() already composed it.
-        current: this.staged ?? (session === undefined ? this.fallback : presetOf(session) ?? ''),
-        error: null,
-      })
-    } catch (error) {
-      this.set({ error: messageOf(error) })
+    const roster = await readRoster(this.remote)
+    if (!roster.ok) {
+      this.set({ error: roster.error })
+      return
     }
+    const { presets } = roster.value
+    this.fallback = presets.find(preset => preset.isDefault)?.id ?? presets[0]?.id ?? ''
+    const session = this.currentSession()
+    this.set({
+      options: presetOptions(presets),
+      // Staged pick first, then the composition the current session
+      // already carries, then the deployment default. The middle term is
+      // what keeps a late-landing load from regressing the display after
+      // an applied stage was consumed — the chip mounts (and loads) only
+      // once the flow's session is current, so the reply can arrive after
+      // apply() already composed it.
+      current: this.staged ?? (session === undefined ? this.fallback : presetOf(session) ?? ''),
+      error: null,
+    })
   }
 
   /**
    * Stage one preset for the next session, applying it immediately when a
    * blank session is already current.
+   *
+   * The refusal is returned as well as stored, because the two readers need
+   * different things from it: the chip's own label carries the standing state,
+   * while the caller that made this pick is the one that has to say why the
+   * label came back — and only it knows the pick was a person's, not the
+   * applier catching up with a session that just became current.
    * @param id - the preset to stage.
-   * @returns once the stage settled, and the apply too when one happened.
+   * @returns the refusal text, or undefined once the pick settled.
    */
-  async select(id: string): Promise<void> {
-    if (this.store.getSnapshot().busy) return
+  async select(id: string): Promise<string | undefined> {
+    if (this.store.getSnapshot().busy) return undefined
     this.stage(id)
     await this.apply()
+    return this.store.getSnapshot().error ?? undefined
   }
 
   /**
@@ -153,18 +156,26 @@ export class AgentPresetSeatController {
     }
     this.set({ busy: true, error: null })
     try {
-      const response = await this.api.agentPresets.select({ sessionId: session.id, agentPreset: staged })
+      const result = await this.remote.agentPresets.select(session.id, staged)
       this.staged = undefined
-      if (!response.result.ok) {
+      if (!result.ok) {
+        const { error } = result
         this.set({
           busy: false,
-          error: response.result.error.message,
+          // A refusal carries its cause twice: `message` wraps it in the
+          // roster's own frame, which names the preset the surface reporting
+          // this already names, and a `reason` detail holds the same cause
+          // without it. Read by the detail rather than by the code, because
+          // every refusal that has a cause to give names it the same way.
+          error: 'reason' in error.details && typeof error.details.reason === 'string'
+            ? error.details.reason
+            : error.message,
           current: presetOf(session) ?? '',
         })
         return
       }
       // Consumed: the next new session opens on the deployment default again.
-      this.set({ busy: false, current: response.result.value.agentPreset })
+      this.set({ busy: false, current: result.value })
     } catch (error) {
       this.staged = undefined
       this.set({

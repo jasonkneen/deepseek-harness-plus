@@ -77,7 +77,7 @@ describe('web e2e: plan chip click area at the narrow viewport', () => {
 
   it('keeps the plan chip and model trigger disjoint and exits plan mode by click', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-plan-narrow-viewport'))
-    const input = page.locator('textarea').first()
+    const input = page.locator('[data-composer-input]').first()
     await input.waitFor({ timeout: 10_000 })
     await input.fill('/plan ')
     await input.press('Enter')

@@ -14,7 +14,7 @@ import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
-import { CallId } from '@deepseek-ai/dsh-llm'
+import { ToolCallId } from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
@@ -68,7 +68,7 @@ afterEach(async () => {
 /** A web_fetch call carrying a session owner (so the policy can scope the spill). */
 function fetchCall(): Promise<{ isError: boolean; content: { type: string; text?: string }[] }> {
   const agent = { session: { header: { id: SessionId('web-sess') } } }
-  const exec = { callId: CallId('call-1'), name: 'web_fetch', arguments: { url: base }, agent, signal: testToolSignal } as unknown as ToolExecution
+  const exec = { callId: ToolCallId('call-1'), name: 'web_fetch', arguments: { url: base }, agent, signal: testToolSignal } as unknown as ToolExecution
   return ctx.tools.execute(exec)
 }
 

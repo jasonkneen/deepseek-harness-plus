@@ -9,9 +9,6 @@
   ],
   "references": [
     {
-      "path": "../../goal/goal"
-    },
-    {
       "path": "../../settings/settings"
     },
     {
@@ -55,9 +52,6 @@
     },
     {
       "path": "../../session-query/session-query"
-    },
-    {
-      "path": "../../subagent/subagent"
     },
     {
       "path": "../../skill/skill"

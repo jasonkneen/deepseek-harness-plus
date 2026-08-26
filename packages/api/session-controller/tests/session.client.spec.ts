@@ -5,7 +5,7 @@ import { RemoteStreamError } from '@deepseek-ai/dsh-api-gateway/client'
 import type { SessionEvent } from '@deepseek-ai/dsh-session/types'
 import type { SessionId } from '@deepseek-ai/dsh-api-remotes/client'
 import { Session, type SessionOptions } from '../src/client/sessions/session.ts'
-import { FakeApiClient, deferred, err, fakeRemote, ok } from './fake-api.client.ts'
+import { FakeApiClient, deferred, err, fakeRemote, ok, remoteErr } from './fake-api.client.ts'
 import { entries, ev, historyValue, plainTurn } from './event-script.client.ts'
 
 const SID = 'fk-s1' as SessionId
@@ -19,7 +19,7 @@ function makeSession(
   api = new FakeApiClient(),
   options: SessionOptions = {},
 ): { api: FakeApiClient; session: Session } {
-  return { api, session: new Session(SID, api, fakeRemote(api), options) }
+  return { api, session: new Session(SID, fakeRemote(api), options) }
 }
 
 function follow(
@@ -239,7 +239,7 @@ describe('paging', () => {
 describe('prompt and cancel errors', () => {
   it('routes an addressed child through non-activating history, continuation prompt, and interrupt only', async () => {
     const api = new FakeApiClient()
-    const session = new Session(SID, api, fakeRemote(api), {
+    const session = new Session(SID, fakeRemote(api), {
       address: { parentSessionId: PARENT, childSessionId: SID, mode: 'continuable' },
       parentAvailable: true,
     })
@@ -258,15 +258,17 @@ describe('prompt and cancel errors', () => {
       },
     ])
     expect(api.callsOf('subagent.history')).toEqual([])
-    expect(api.callsOf('subagent.prompt')).toEqual([
+    expect(api.callsOf('subagents.prompt')).toEqual([
       {
-        parentSessionId: PARENT, childSessionId: SID, mode: 'continuable',
+        requestId: expect.any(String) as unknown as string,
+        parentSessionId: PARENT, childSessionId: SID,
+        mode: 'continuable',
         content: [{ type: 'text', text: '继续' }],
         clientTimeZone: new Intl.DateTimeFormat().resolvedOptions().timeZone,
       },
     ])
-    expect(api.callsOf('subagent.interrupt')).toEqual([
-      { parentSessionId: PARENT, childSessionId: SID, mode: 'continuable' },
+    expect(api.callsOf('subagents.interruptByParent')).toEqual([
+      { childSessionId: SID, parentSessionId: PARENT, mode: 'continuable' },
     ])
     expect(api.callsOf('session.history')).toEqual([])
     expect(api.callsOf('session.prompt')).toEqual([])
@@ -281,10 +283,10 @@ describe('prompt and cancel errors', () => {
 
   it('lands an interrupt business failure in promptError with op=stop', async () => {
     const api = new FakeApiClient()
-    api.onSubagentInterrupt = () => Promise.resolve(err({
+    api.onSubagentInterrupt = () => Promise.resolve(remoteErr({
       code: 'subagent-unauthorized', message: 'nope', details: { childSessionId: SID },
-    }) as never)
-    const session = new Session(SID, api, fakeRemote(api), {
+    }))
+    const session = new Session(SID, fakeRemote(api), {
       address: { parentSessionId: PARENT, childSessionId: SID, mode: 'continuable' },
       parentAvailable: true,
     })
@@ -298,7 +300,7 @@ describe('prompt and cancel errors', () => {
 
   it('keeps one-shot history readable without exposing prompt or cancel transport', async () => {
     const api = new FakeApiClient()
-    const session = new Session(SID, api, fakeRemote(api), {
+    const session = new Session(SID, fakeRemote(api), {
       address: { parentSessionId: PARENT, childSessionId: SID, mode: 'one-shot' },
     })
     await session.open()
@@ -316,8 +318,8 @@ describe('prompt and cancel errors', () => {
       },
     ])
     expect(api.callsOf('subagent.history')).toEqual([])
-    expect(api.callsOf('subagent.prompt')).toEqual([])
-    expect(api.callsOf('subagent.interrupt')).toEqual([])
+    expect(api.callsOf('subagents.prompt')).toEqual([])
+    expect(api.callsOf('subagents.interruptByParent')).toEqual([])
     expect(api.callsOf('session.cancel')).toEqual([])
   })
 

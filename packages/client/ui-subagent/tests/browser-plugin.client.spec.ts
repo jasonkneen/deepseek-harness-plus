@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest'
 import type {
   SessionListState, SessionSnapshot, SessionSummary,
 } from '@deepseek-ai/dsh-api-session-controller/client'
-import type { SubagentAddress } from '@deepseek-ai/dsh-client-connection/client'
+import type { SubagentAddress } from '@deepseek-ai/dsh-subagent/client'
 import { SlotRegistry } from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { ComposerChainProps } from '@deepseek-ai/dsh-client-ui-conversation/client'

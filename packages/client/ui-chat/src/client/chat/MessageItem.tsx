@@ -1,6 +1,6 @@
 import { memo, useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
-import { JsonBlock, MessageText, ReferenceIcon, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
+import { JsonBlock, projectUserText, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { ChatNodeOwnerProps, ChatNodeViewProps, ChatViewSlotProps } from '../contract/slots.ts'
 import type { ModelRetryNode, TurnErrorNode, UserMessageNode } from '../contract/snapshot.ts'
 import { CompactionItem } from './CompactionItem.tsx'
@@ -142,74 +142,6 @@ function TurnMaxTokensItem({ t }: {
       </div>
     </div>
   )
-}
-
-/**
- * Display projection of reference forms in a user bubble (free geometry — no
- * textarea alignment constraint here); everything else stays plain text. The
- * logged model text remains the single truth; this is presentation only.
- * Plain-text `/name` / `@name` word-boundary tokens decorate (the sent text
- * IS the reference — the bubble uses the same plainest token
- * scan as the composer, minus the lexicon: sent tokens were validated at
- * compose time, so shape alone decorates).
- */
-function projectUserText(text: string, sessionLabels: readonly string[]): ReactNode {
-  const ranges: { start: number; end: number; label: string; kind: 'session' | 'plain' }[] = []
-  for (const rawLabel of [...new Set(sessionLabels)].sort((a, b) => b.length - a.length)) {
-    const label = `@${rawLabel}`
-    let start = text.indexOf(label)
-    while (start >= 0) {
-      ranges.push({ start, end: start + label.length, label, kind: 'session' })
-      start = text.indexOf(label, start + label.length)
-    }
-  }
-  const re = /(^|\s)(\/[\w-]+|@"[^"\n]+"|@[^\s]+)/gu
-  let m: RegExpExecArray | null
-  while ((m = re.exec(text)) !== null) {
-    const tokenStart = m.index + (m[1]?.length ?? 0)
-    const rawLabel = m[2] ?? ''
-    const label = rawLabel.startsWith('@"')
-      ? rawLabel
-      : rawLabel.replace(/[.,;:!?，。；：！？]+$/gu, '')
-    if (label.length <= 1) continue
-    ranges.push({ start: tokenStart, end: tokenStart + label.length, label, kind: 'plain' })
-  }
-  ranges.sort((a, b) => a.start - b.start
-    || (a.kind === b.kind ? b.end - a.end : a.kind === 'session' ? -1 : 1))
-  const parts: ReactNode[] = []
-  let cursor = 0
-  for (const range of ranges) {
-    if (range.start < cursor) continue
-    const { start: tokenStart, end, label, kind } = range
-    if (tokenStart > cursor) parts.push(<MessageText key={cursor} text={text.slice(cursor, tokenStart)} />)
-    const referenceKind = kind === 'session'
-      ? 'session'
-      : label.startsWith('@')
-        ? label.endsWith('/') ? 'folder' : 'file'
-        : undefined
-    const displayLabel = referenceKind === undefined
-      ? label
-      : referenceKind === 'session'
-        ? label.slice(1)
-        : label.slice(1).replace(/^"|"$/gu, '').split(/[\\/]/u).filter(Boolean).at(-1) ?? label.slice(1)
-    parts.push(
-      <span
-        key={tokenStart}
-        className={css.refChip}
-        data-ref-chip={referenceKind ?? 'skill'}
-        title={label}
-      >
-        {referenceKind !== undefined && (
-          <ReferenceIcon kind={referenceKind} size={16} className={css.refIcon} />
-        )}
-        {displayLabel}
-      </span>,
-    )
-    cursor = end
-  }
-  if (parts.length === 0) return <MessageText text={text} />
-  if (cursor < text.length) parts.push(<MessageText key={cursor} text={text.slice(cursor)} />)
-  return <>{parts}</>
 }
 
 /** Right-aligned bubble shared by user and steering rows. */

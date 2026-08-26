@@ -391,7 +391,6 @@ export interface SessionWireEvent {
   readonly seq: number
   readonly time: number
   readonly data: JsonValue
-  readonly ignorable?: true
   readonly sourceEventSeqs?: number[]
   readonly surfaceOp?: SurfaceOp
 }

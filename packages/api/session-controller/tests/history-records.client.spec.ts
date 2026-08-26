@@ -1,7 +1,7 @@
 /** Packed history records become one event-shaped Client value per wire record. */
 
 import { describe, expect, it } from 'vitest'
-import { CallId } from '@deepseek-ai/dsh-llm/brand'
+import { ToolCallId } from '@deepseek-ai/dsh-llm/brand'
 import type { SessionHistoryRecord } from '../src/types.ts'
 import {
   historyEntries,
@@ -59,7 +59,7 @@ describe('Session history record projection', () => {
           turn: 2,
           step: 4,
           index: 1,
-          id: CallId('call-1'),
+          id: ToolCallId('call-1'),
           dt: [2, 3],
           args: ['', '{"x":', '1}'],
         },

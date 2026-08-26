@@ -547,6 +547,19 @@ describe('normalizeSessionSnapshot', () => {
     ].join('\n')])
   })
 
+  it('projects persisted provenance ranges back to logical seq arrays', () => {
+    const raw = [
+      JSON.stringify({ type: 'session', version: 0 }),
+      JSON.stringify({
+        type: 'assistant/message',
+        sourceEventSeqs: [[1, 3], 5],
+        surfaceOp: 'append',
+        data: { turn: 1, step: 1 },
+      }),
+    ].join('\n') + '\n'
+    expect(normalizeSessionSnapshot(raw, ctx)).toContain('"sourceEventSeqs":[1,2,3,5]')
+  })
+
   it('rejects headerless input', () => {
     expect(() => normalizeSessionSnapshot('{"type":"turn/start"}\n', ctx))
       .toThrow('session snapshot must start with a session header')

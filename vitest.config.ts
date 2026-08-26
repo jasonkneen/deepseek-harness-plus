@@ -268,6 +268,9 @@ export default defineConfig({
         // only in lib; the post-build built-bin smoke executes both entries.
         'packages/api/remotes/src/index.ts',
         'packages/api/remotes/src/client/index.ts',
+        // The Team browser entry binds its source-covered mount lifecycle to
+        // the generated Team Remote contribution, which likewise exists only in lib.
+        'packages/experimental/client-ui-agent-team/src/client/index.ts',
         // Slash/command/input round: per-file gaps deferred with the same
         // client-lane debt. TODO(gui): cover and remove with the lane above.
         'packages/client/connection/src/client/fixture.ts',
@@ -303,6 +306,10 @@ export default defineConfig({
         // would put whole-workspace compiler analysis under v8
         // instrumentation — the coverage lane's longest tail.
         'packages/typert/generator/src/*.ts',
+        // Experimental webworker-runtime is outside the coverage requirement
+        // by decision: its correctness signal is its uninstrumented suite and
+        // the packer's end-to-end image spec.
+        'packages/experimental/webworker-runtime/src/**/*.ts',
         'packages/host/apiproxy/src/index.ts',
         'packages/host/apiproxy/src/invariant.ts',
         'packages/host/apiproxy/src/api-proxy.ts',

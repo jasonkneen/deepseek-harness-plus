@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
-import { CallId } from '@deepseek-ai/dsh-llm'
+import { ToolCallId } from '@deepseek-ai/dsh-llm'
 import AgentRegistry, { type Agent } from '@deepseek-ai/dsh-agent'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
@@ -98,7 +98,7 @@ describe('ask_user_question tool', () => {
 
     const result = await ctx.tools.execute({
       signal: testToolSignal,
-      callId: CallId('ask-1'),
+      callId: ToolCallId('ask-1'),
       name: 'ask_user_question',
       arguments: {
         questions: [{
@@ -134,7 +134,7 @@ describe('ask_user_question tool', () => {
 
     await ctx.tools.execute({
       signal: testToolSignal,
-      callId: CallId('ask-recommended'),
+      callId: ToolCallId('ask-recommended'),
       name: 'ask_user_question',
       arguments: {
         questions: [{
@@ -170,7 +170,7 @@ describe('ask_user_question tool', () => {
 
     const result = await ctx.tools.execute({
       signal: testToolSignal,
-      callId: CallId('ask-multi'),
+      callId: ToolCallId('ask-multi'),
       name: 'ask_user_question',
       arguments: {
         questions: [
@@ -218,7 +218,7 @@ describe('ask_user_question tool', () => {
     const controller = new AbortController()
 
     await ctx.tools.execute({
-      callId: CallId('ask-2'),
+      callId: ToolCallId('ask-2'),
       name: 'ask_user_question',
       arguments: { questions: [{ id: 'continue', question: 'Continue?' }] },
       signal: controller.signal,
@@ -241,7 +241,7 @@ describe('ask_user_question tool', () => {
 
     const result = await ctx.tools.execute({
       signal: testToolSignal,
-      callId: CallId('ask-3'),
+      callId: ToolCallId('ask-3'),
       name: 'ask_user_question',
       arguments: { questions: [{ id: 'continue', header: 'Confirm', question: 'Continue?' }] },
       agent,
@@ -256,7 +256,7 @@ describe('ask_user_question tool', () => {
 
     const result = await ctx.tools.execute({
       signal: testToolSignal,
-      callId: CallId('ask-no-provider'),
+      callId: ToolCallId('ask-no-provider'),
       name: 'ask_user_question',
       arguments: { questions: [{ id: 'continue', question: 'Continue?' }] },
     })
@@ -283,7 +283,7 @@ describe('ask_user_question tool', () => {
 
     const result = await ctx.tools.execute({
       signal: testToolSignal,
-      callId: CallId('ask-delegated'),
+      callId: ToolCallId('ask-delegated'),
       name: 'ask_user_question',
       arguments: { questions: [{ id: 'continue', question: 'Continue?' }] },
       agent: child,
@@ -305,7 +305,7 @@ describe('ask_user_question tool', () => {
 
     const result = await ctx.tools.execute({
       signal: testToolSignal,
-      callId: CallId('ask-empty'),
+      callId: ToolCallId('ask-empty'),
       name: 'ask_user_question',
       arguments: { questions: [] },
     })

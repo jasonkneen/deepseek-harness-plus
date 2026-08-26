@@ -32,22 +32,44 @@ import type {
 } from '../src/client/contract/slots.ts'
 import type { ViewTab } from '../src/client/contract/views.ts'
 
+// jsdom implements no Range geometry (Lexical's scroll-into-view measures the
+// caret with one once the surface is genuinely contenteditable).
+Range.prototype.getBoundingClientRect = () => ({
+  top: 0, bottom: 0, left: 0, right: 0, width: 0, height: 0, x: 0, y: 0, toJSON: () => ({}),
+})
+
 function fakeWiring() {
   const sink = vi.fn(() => Promise.resolve({ kind: 'success' as const }))
   const shell = new SessionInputShell({ actx: {} as Context, defaultSink: sink, commandImages: { serialize: () => Promise.resolve([]), release: () => {}, unsupportedNotice: (token: string) => `${token.trim()} images-unsupported` } })
   return { wiring: shell, sink, shell }
 }
 
-/** jsdom has no ResizeObserver; the composer seat publishes its height through one. */
+/** jsdom has no ResizeObserver; the root publishes its width and the composer
+ * seat its height through one. Observed targets are recorded so a case can
+ * fire the callback against a chosen element. */
+const resizeObservers: { callback: ResizeObserverCallback; targets: Element[] }[] = []
 class ResizeObserverStub {
-  observe(): void {}
+  targets: Element[] = []
+  constructor(callback: ResizeObserverCallback) {
+    resizeObservers.push({ callback, targets: this.targets })
+  }
+
+  observe(target: Element): void { this.targets.push(target) }
   unobserve(): void {}
-  disconnect(): void {}
+  disconnect(): void { this.targets.length = 0 }
+}
+
+/** Fires every recorded observer whose target list includes the element. */
+function fireResize(el: Element): void {
+  for (const entry of resizeObservers) {
+    if (entry.targets.includes(el)) entry.callback([], undefined as never)
+  }
 }
 
 afterEach(() => {
   cleanup()
   vi.unstubAllGlobals()
+  resizeObservers.length = 0
 })
 beforeEach(() => {
   localStorage.clear()
@@ -279,7 +301,7 @@ function mount(
   }
   const view = render(<ConversationRoot {...props} />)
   return {
-    view, store, sink, retargetWorkspace, session, conversation, slotCalls, lineageOwners, seatOwners, open,
+    view, store, wiring, sink, retargetWorkspace, session, conversation, slotCalls, lineageOwners, seatOwners, open,
     pickerOwner: () => pickerOwner,
     rerender: () => { view.rerender(<ConversationRoot {...props} />) },
   }
@@ -308,11 +330,11 @@ describe('ConversationRoot resident composer', () => {
     const b = mount(sessionSnapshotOf(), undefined, undefined, {
       composerBlock: { reason: 'select a model first' },
     })
-    const box = b.view.getByRole('textbox') as HTMLTextAreaElement
-    // One disabled textarea with the blocker's placeholder, never a second
+    const box = b.view.getByRole('textbox')
+    // One disabled composer with the blocker's placeholder, never a second
     // tree: the DOM survives the block being raised and cleared.
-    expect(box.disabled).toBe(true)
-    expect(box.placeholder).toBe('select a model first')
+    expect(box.getAttribute('aria-disabled')).toBe('true')
+    expect(box.getAttribute('data-placeholder')).toBe('select a model first')
     fireEvent.keyDown(box, { key: 'Enter' })
     expect(b.sink).not.toHaveBeenCalled()
 
@@ -331,11 +353,11 @@ describe('ConversationRoot resident composer', () => {
       summaryBlank: true,
       composerBlock: { reason: 'select a model first' },
     })
-    const box = b.view.getByRole('textbox') as HTMLTextAreaElement
-    expect(box.disabled).toBe(false)
-    expect(box.readOnly).toBe(true)
+    const box = b.view.getByRole('textbox')
+    expect(box.getAttribute('aria-disabled')).not.toBe('true')
+    expect(box.getAttribute('contenteditable')).not.toBe('true')
     expect(box.getAttribute('aria-haspopup')).toBe('menu')
-    expect(box.placeholder).not.toBe('select a model first')
+    expect(box.getAttribute('data-placeholder')).not.toBe('select a model first')
     const modelSeat = b.seatOwners.filter(call => call.key === 'conversation.input.model').at(-1)?.owner
     expect(modelSeat).toEqual({ locked: true })
   })
@@ -343,8 +365,8 @@ describe('ConversationRoot resident composer', () => {
   it('keeps composer text in the machine, mirrors to the Conversation store, and submits through the sink', () => {
     const b = mount(sessionSnapshotOf())
     const box = b.view.getByRole('textbox')
-    expect((box as HTMLTextAreaElement).value).toBe('ordinary draft')
-    fireEvent.change(box, { target: { value: 'ordinary revised' } })
+    expect(b.wiring.snapshot.draft).toBe('ordinary draft')
+    act(() => { b.wiring.setDraft('ordinary revised') })
     expect(b.store.store.getSnapshot().draft).toBe('ordinary revised')
     fireEvent.keyDown(box, { key: 'Enter' })
     expect(b.sink).toHaveBeenCalledWith('ordinary revised', [], 'queue', expect.any(AbortSignal))
@@ -381,7 +403,7 @@ describe('ConversationRoot resident composer', () => {
     const host = b.view.container.querySelector('[data-conversation-scroll]')
     const seat = b.view.container.querySelector('[data-composer-seat]')
     const header = b.view.container.querySelector('header')
-    const textarea = b.view.container.querySelector('textarea')
+    const textarea = b.view.container.querySelector<HTMLDivElement>('[data-composer-input]')
     expect(host).not.toBeNull()
     expect(seat).not.toBeNull()
     expect(header).not.toBeNull()
@@ -425,7 +447,7 @@ describe('ConversationRoot resident composer', () => {
     // for blank sessions): hero typing reaches the Conversation store.
     const box = b.view.getByRole('textbox')
     expect(host?.contains(box)).toBe(true)
-    fireEvent.change(box, { target: { value: 'draft in hero' } })
+    act(() => { b.wiring.setDraft('draft in hero') })
     expect(b.store.store.getSnapshot().draft).toBe('draft in hero')
     // Picker: open through the chip; a pick switches to the other
     // workspace's blank session (draft carry is apply-layer wiring).
@@ -490,15 +512,15 @@ describe('ConversationRoot resident composer', () => {
   it('same textarea DOM node survives the hero → active flip into the sticky scrollport', () => {
     const b = mount(sessionSnapshotOf({ blank: true }))
     const before = b.view.getByRole('textbox')
-    fireEvent.change(before, { target: { value: 'kept across flip' } })
+    act(() => { b.wiring.setDraft('kept across flip') })
     // First message landed: content exists, phase leaves blank. Composer
     // already sat in the resident scrollport during hero, so the textarea
     // node and InputHub draft both survive.
     b.session.set(sessionSnapshotOf({ blank: false }))
     b.rerender()
-    const after = b.view.getByRole('textbox') as HTMLTextAreaElement
+    const after = b.view.getByRole('textbox')
     expect(after).toBe(before)
-    expect(after.value).toBe('kept across flip')
+    expect(b.wiring.snapshot.draft).toBe('kept across flip')
     expect(b.store.store.getSnapshot().draft).toBe('kept across flip')
     expect(b.view.container.querySelector('[data-conversation-scroll]')?.contains(after)).toBe(true)
     expect(b.view.queryByText('探索未至之境')).toBeNull()
@@ -559,5 +581,72 @@ describe('ConversationRoot resident composer', () => {
     }))
     expect(b.view.getByRole('alert').textContent).toContain('Message send failed (offline)')
     expect(b.view.queryByRole('button', { name: 'Retry' })).toBeNull()
+  })
+
+  it('publishes the column width as a px variable for the shared width axis', () => {
+    const b = mount(sessionSnapshotOf())
+    const root = b.view.container.querySelector('[data-phase]') as HTMLElement
+    // jsdom offsetWidth is 0 until faked: the observer publishes whatever the
+    // layout reports, and the CSS clamp() floors the axis at 680px either way.
+    Object.defineProperty(root, 'offsetWidth', { value: 1200, configurable: true })
+    act(() => { fireResize(root) })
+    expect(root.style.getPropertyValue('--dsh-conversation-column-width')).toBe('1200px')
+    // No dragged preference: the user-width override stays absent so the
+    // adaptive clamp term applies.
+    expect(root.style.getPropertyValue('--dsh-chat-user-width')).toBe('')
+  })
+
+  it('drag → persist → window clamp round-trip on a width handle', () => {
+    const b = mount(sessionSnapshotOf())
+    const root = b.view.container.querySelector('[data-phase]') as HTMLElement
+    Object.defineProperty(root, 'offsetWidth', { value: 1600, configurable: true })
+    act(() => { fireResize(root) })
+    const handle = b.view.container.querySelector('[data-width-handle="right"]') as HTMLElement
+    expect(handle).not.toBeNull()
+    // jsdom lacks pointer capture: emulate per-element so hasPointerCapture
+    // gates pass; the finally block restores the original descriptors so the
+    // stubs cannot leak into later tests.
+    const names = ['setPointerCapture', 'releasePointerCapture', 'hasPointerCapture'] as const
+    const originals = names.map(name =>
+      [name, Object.getOwnPropertyDescriptor(Element.prototype, name)] as const)
+    const captured = new Set<Element>()
+    Element.prototype.setPointerCapture = function () { captured.add(this) }
+    Element.prototype.releasePointerCapture = function () { captured.delete(this) }
+    Element.prototype.hasPointerCapture = function () { return captured.has(this) }
+    try {
+      // Base resolves from the adaptive clamp: min(1600*0.64, 920) = 920.
+      // Dragging the right handle outward by 25px widens by 2×25 = 50 → 970,
+      // inside both bounds (max = 1600 − 176 = 1424 keeps the handles on-column).
+      fireEvent.pointerDown(handle, { pointerId: 1, clientX: 800, clientY: 300 })
+      fireEvent.pointerUp(handle, { pointerId: 1, clientX: 825, clientY: 300 })
+      expect(root.style.getPropertyValue('--dsh-chat-user-width')).toBe('970px')
+      expect(localStorage.getItem('dsh.conversation.contentWidth')).toBe('970')
+      // Window shrinks: the displayed width re-clamps (900 − 176 = 724) but the
+      // preference stays.
+      Object.defineProperty(root, 'offsetWidth', { value: 900, configurable: true })
+      act(() => { fireResize(root) })
+      expect(root.style.getPropertyValue('--dsh-chat-user-width')).toBe('724px')
+      expect(localStorage.getItem('dsh.conversation.contentWidth')).toBe('970')
+      // A press without travel (a real double-click delivers two such
+      // press/release rounds) must not commit the clamped display value over
+      // the stored preference.
+      fireEvent.pointerDown(handle, { pointerId: 1, clientX: 800, clientY: 300 })
+      fireEvent.pointerUp(handle, { pointerId: 1, clientX: 800, clientY: 300 })
+      expect(localStorage.getItem('dsh.conversation.contentWidth')).toBe('970')
+      expect(root.style.getPropertyValue('--dsh-chat-user-width')).toBe('724px')
+      // No reset affordance on the handle: double-click leaves the preference alone.
+      fireEvent.doubleClick(handle)
+      expect(localStorage.getItem('dsh.conversation.contentWidth')).toBe('970')
+    } finally {
+      for (const [name, descriptor] of originals) {
+        if (descriptor === undefined) Reflect.deleteProperty(Element.prototype, name)
+        else Object.defineProperty(Element.prototype, name, descriptor)
+      }
+    }
+  })
+
+  it('hero phase renders no width handles (no transcript to size)', () => {
+    const b = mount(sessionSnapshotOf({ blank: true }))
+    expect(b.view.container.querySelector('[data-width-handle]')).toBeNull()
   })
 })

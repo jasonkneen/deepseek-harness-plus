@@ -6,7 +6,7 @@
 
 import { describe, expect, it } from 'vitest'
 import fc from 'fast-check'
-import { CallId } from '@deepseek-ai/dsh-llm'
+import { ToolCallId } from '@deepseek-ai/dsh-llm'
 import type { StreamChunk } from '@deepseek-ai/dsh-llm'
 import { decodeStorageRecord, packChunkRuns } from '@deepseek-ai/dsh-session'
 import { chunkRowLength, isChunkRow } from '@deepseek-ai/dsh-session/chunk-rows'
@@ -47,7 +47,7 @@ describe('packChunkRuns', () => {
   it('packs reasoning and tool-call runs under their own tags', () => {
     const reasoning = deltaRun('reasoning-delta', 3)
     const toolCall = [4, 5, 6].map(seq =>
-      chunkEvent(seq, 1000 + seq, { type: 'tool-call-delta', index: 1, id: CallId('c1'), name: 'write', argumentsDelta: `a${seq}` }))
+      chunkEvent(seq, 1000 + seq, { type: 'tool-call-delta', index: 1, id: ToolCallId('c1'), name: 'write', argumentsDelta: `a${seq}` }))
     const packed = packChunkRuns([...reasoning, ...toolCall])
     expect(packed.map(r => (r as ChunkRow).type)).toStrictEqual(['reasoning-chunks', 'tool-call-chunks'])
     const row = packed[1] as ChunkRow & { type: 'tool-call-chunks' }
@@ -58,7 +58,7 @@ describe('packChunkRuns', () => {
 
   it('packs a name-less tool-call run and round-trips field absence', () => {
     const events = [0, 1, 2].map(seq =>
-      chunkEvent(seq, 1000, { type: 'tool-call-delta', index: 0, id: CallId('c1'), argumentsDelta: `a${seq}` }))
+      chunkEvent(seq, 1000, { type: 'tool-call-delta', index: 0, id: ToolCallId('c1'), argumentsDelta: `a${seq}` }))
     const packed = packChunkRuns(events)
     expect(packed).toHaveLength(1)
     expect(Object.hasOwn((packed[0] as ChunkRow).data, 'name')).toBe(false)
@@ -96,7 +96,7 @@ describe('packChunkRuns', () => {
 
   it('breaks a tool-call run on call-id or name change', () => {
     const call = (seq: number, id: string, name?: string): SessionEvent =>
-      chunkEvent(seq, 1000, { type: 'tool-call-delta', index: 0, id: CallId(id), ...name !== undefined ? { name } : {}, argumentsDelta: 'a' })
+      chunkEvent(seq, 1000, { type: 'tool-call-delta', index: 0, id: ToolCallId(id), ...name !== undefined ? { name } : {}, argumentsDelta: 'a' })
     const idSwitch = [call(0, 'c1', 'w'), call(1, 'c1', 'w'), call(2, 'c2', 'w')]
     expect(packChunkRuns(idSwitch)).toStrictEqual(idSwitch)
     const namePresence = [call(0, 'c1', 'w'), call(1, 'c1', 'w'), call(2, 'c1')]
@@ -191,13 +191,13 @@ const deltaChunkArb: fc.Arbitrary<StreamChunk> = fc.oneof(
   fc.record({
     type: fc.constant<'tool-call-delta'>('tool-call-delta'),
     index: fc.nat(2),
-    id: fc.constantFrom(CallId('c1'), CallId('c2')),
+    id: fc.constantFrom(ToolCallId('c1'), ToolCallId('c2')),
     argumentsDelta: fc.string(),
   }),
   fc.record({
     type: fc.constant<'tool-call-delta'>('tool-call-delta'),
     index: fc.nat(2),
-    id: fc.constantFrom(CallId('c1'), CallId('c2')),
+    id: fc.constantFrom(ToolCallId('c1'), ToolCallId('c2')),
     name: fc.constantFrom('write', 'read'),
     argumentsDelta: fc.string(),
   }),

@@ -170,7 +170,7 @@ export class SessionProjectionCache extends Service {
   }
 
   /**
-   * Durably checkpoint one live session NOW (both mandatory points call
+   * Durably checkpoint one live session NOW (all mandatory points call
    * this; tests and carriers may too). The registry cut is snapshotted at
    * this boundary (states are live references), then the session's record is
    * replaced on the domain's write chain. NOT fail-soft — callers on the
@@ -247,7 +247,7 @@ export class SessionProjectionCache extends Service {
       void this.flushSoft(session, 'create')
     })
 
-    // Detach (the live-to-cold moment): the second mandatory point. After
+    // Detach (the live-to-cold moment): the final mandatory point. After
     // this write the cold-read ladder serves the session from the cache.
     // flushSoft's synchronous prefix reads and resets the dirty state, so
     // dropping it (timer already cleared by markClean) right after is safe.

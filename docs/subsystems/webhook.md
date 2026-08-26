@@ -18,7 +18,7 @@ The Webhook subsystem turns authenticated external deliveries into optional ordi
 
 ## Fire-and-forget dispatch
 
-`dispatch()` snapshots the currently matching rules, schedules each independently, and returns before any callback settles. Throws and rejections are contained per rule. Registration disposal removes the rule before aborting and draining its active calls, so no later delivery can enter code that is unloading.
+`dispatch()` snapshots the matching rules, schedules each independently, and returns before any callback settles. Throws and rejections are contained per rule. Registration disposal removes the rule before aborting and draining its active calls, so no later delivery can enter code that is unloading.
 
 The runtime has no queue, retry, deduplication, execution status, crash replay, Agent-status listener, or completion result. Repeated delivery may create repeated Sessions. The only active-operation table is private teardown bookkeeping and disappears with the process.
 

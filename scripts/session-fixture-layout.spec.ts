@@ -76,12 +76,24 @@ describe('canonicalSessionFixture', () => {
 })
 
 describe('isPhysicalSessionFixture', () => {
-  it('excludes only persisted logs under the WebWorker example root', () => {
+  it('recognizes fixtures that preserve physical persistence encoding', () => {
     expect(isPhysicalSessionFixture(
       'packages/experimental/webworker-runtime/tests/fixtures/vfs-example/home/sessions/--dsh-workspace--/main/session.jsonl',
     )).toBe(true)
     expect(isPhysicalSessionFixture(
+      'scripts/snapshots/python-sdk-single-exe/advanced/session.1.jsonl',
+    )).toBe(true)
+    expect(isPhysicalSessionFixture(
+      'scripts/snapshots/python-sdk-single-exe/advanced/session.jsonl',
+    )).toBe(true)
+    expect(isPhysicalSessionFixture(
+      'scripts/snapshots/python-sdk-single-exe/restart/session.2.jsonl',
+    )).toBe(true)
+    expect(isPhysicalSessionFixture(
       'packages/experimental/webworker-runtime/tests/fixtures/vfs-example/home/sessions/README.jsonl',
+    )).toBe(false)
+    expect(isPhysicalSessionFixture(
+      'scripts/snapshots/python-sdk-single-exe/advanced/requests.jsonl',
     )).toBe(false)
     expect(isPhysicalSessionFixture('apps/web/tests/snapshots/example/session.jsonl')).toBe(false)
   })

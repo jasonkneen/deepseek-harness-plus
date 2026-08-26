@@ -32,7 +32,7 @@ export function apply(ctx: Context) {
 }
 ```
 
-这个 waterfall（瀑布式事件）是可重排的策略层。当不变式需要单调的最终拒绝时使用 `ctx.tools.guard()`；当插件需要包裹实际分发生命周期时（超时/重试/指标；仅 `exec.signal` 可替换）使用 `tools/execute`；显式结果变换使用 `tools/post-execute`；对不可变最终结果的受限观察使用 `tools/result`。选择规则见[添加工具指南](adding-a-tool.zh.md#execution-policy-and-observation)。
+这个 waterfall（瀑布式事件）是可重排的策略层。当不变式需要单调的最终拒绝时使用 `ctx.tools.guard()`；当插件需要包裹分发生命周期时（超时/重试/指标；仅 `exec.signal` 可替换）使用 `tools/execute`；显式结果变换使用 `tools/post-execute`；对不可变最终结果的受限观察使用 `tools/result`。选择规则见[添加工具指南](adding-a-tool.zh.md#execution-policy-and-observation)。
 
 ## UI 插件
 
@@ -121,11 +121,11 @@ export function apply(ctx: Context) {
 | 子进程沙箱（landlock / sandbox-exec） | 通过 `dsh-bash-sandbox` 使用 `ctx.sandbox` 后端；能力级别的拒绝使用 `tools/pre-execute` |
 | 权限系统 / AskUserQuestion | 从 `tools/pre-execute` 返回 `ask` 并通过 `ctx.approval` 应答；为普通用户提问注册一个独立的面向模型的 ask 工具 |
 | Plan mode | [`@deepseek-ai/dsh-plan-mode`](../../packages/plan/plan-mode/README.zh.md)：落日志的 `plan/mode` 状态、`plan:policy` 引导段、`/plan [message]` 入口、`/plan off` 直接退出，以及经用户评审的 `exit_plan_mode` 出口；强制约束留在独立的沙箱/审批轴上 |
-| subagent 委派 | `ctx.subagents` 提供方注册表（`dsh-subagent-spawn-in-process`/`-fork`/`-acp`/`-codex`/`-claude-code`/`-dsh-sdk`）+ `dsh-tool-subagent` 向模型暴露一个已配置的提供方 |
+| subagent 委派 | `ctx.subagents` 提供方注册表（`dsh-subagent-spawn-in-process`/`dsh-subagent-fork-in-process`/`dsh-subagent-acp`/`dsh-subagent-codex`/`dsh-subagent-claude-code`/`dsh-subagent-dsh-sdk`）+ `dsh-tool-subagent` 向模型暴露一个已配置的提供方 |
 | MCP | 每个服务器一个插件：发现工具 → `ctx.tools.register()` |
 | skill（技能） | section + 工具注册；调用时通过 `inject()` 注入 skill 内容 |
 | 记忆 | section 提供方 + 工具 |
-| 定时任务（cron） | 插件注册面向模型的调度工具；定时器触发 → 空闲时 `followup(…, {source: {kind: 'cron', …}})`／忙碌时 `inject()` 通知 |
+| 定时任务（cron） | 插件注册面向模型的调度工具；定时器触发 → 空闲时 `followup(…, {source: {kind: 'plugin', plugin: 'schedule'}})`／忙碌时 `inject()` 通知 |
 | UI（GUI；CLI（命令行界面）输出 JSONL） | 监听 `session/event`（助手分片、边界、工具活动）；输入 → `followup()` |
 | Web Client Chat 业务节点 | 注册 `ConversationNodeDefinition` 与 `conversation.chat.node` keyed renderer |
 | 遥测 / 可回放 trace | `session/event` → JSONL；回放 = `sessions.create(id, { seed })` |

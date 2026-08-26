@@ -138,7 +138,7 @@ interface SessionEventSearchDocument extends SessionEventRecord {
 }
 ```
 
-`ctx.sessionQuery.filterSessions(filters)` 会对完整的逻辑会话语料库应用 `SessionResultFilter`；`ctx.sessionQuery.filterEvents(sessionId, filters)` 按 seq 升序返回匹配的文档。消息、推理（reasoning）、工具调用和工具结果、被阻止的提示词、待办事项，以及失败和状态详情会纳入语义文本；结构事件和流分片则不会。
+`ctx.sessionQuery.filterSessions(filters)` 会对完整的逻辑会话语料库应用 `SessionResultFilter`；`ctx.sessionQuery.filterEvents(sessionId, filters)` 按 seq 升序返回匹配的文档。消息、工具调用和工具结果、待办事项，以及失败和状态详情会纳入语义文本；推理（reasoning）块、被阻止的提示词、结构事件和流分片则不会。
 
 ## 全文搜索结果页
 

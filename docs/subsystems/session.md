@@ -71,7 +71,7 @@ interface SessionEventMap {
    * JSON string exactly as the model produced it (unparsed). `callId` pairs the
    * call with its `tool/result`.
    */
-  'tool/call': { turn: number; step: number; callId: CallId; name: string; arguments: string }
+  'tool/call': { turn: number; step: number; callId: ToolCallId; name: string; arguments: string }
   /**
    * A completed tool call's model-facing result, optional internal failure
    * identity, and optional tool-private `meta` presentation payload. `meta` is
@@ -201,17 +201,6 @@ type SessionEvent<T extends SessionEventType = SessionEventType> = {
     /** Unix epoch milliseconds. */
     time: number
     data: SessionEventMap[K]
-    /**
-     * Marks an event a reader may safely skip when it does not recognize
-     * `type`. Absent means required: a reader meeting an unrecognized type
-     * without this marker MUST refuse to reconstruct the session instead of
-     * silently dropping the event, because an unrecognized required event may
-     * change how the rest of the log is interpreted. A writer sets `true` only
-     * on purely informational records whose loss cannot affect reconstruction;
-     * defaulting to required means a forgotten marker over-refuses (an
-     * inconvenience) rather than silently resuming a gutted session.
-     */
-    ignorable?: true
   } & (K extends SurfaceEventType ? {
     /**
      * Seq numbers of earlier events that this event cites as sources
@@ -576,7 +565,7 @@ Consumers that order Sessions by human activity exclude this boundary: picking a
 
 ## Plugin-contributed log-only events
 
-A plugin may declaration-merge extra `SessionEventMap` types. These are **log-only**: NOT `SurfaceEventType`s (they carry no `surfaceOp` and contribute nothing to derived history). Their owner decides whether they belong to an open execution turn or may stand between turns, and enforces any relation in its own invariant companion. The generated [persistence log event catalog](../persistence-catalog.md) enumerates every core and plugin-contributed event with its payload, surface badge, and declaration site; the compaction seam's `compaction/*` semantics are discussed on [compaction.md](compaction.md).
+A plugin may declaration-merge extra `SessionEventMap` types. These are **log-only**: NOT `SurfaceEventType`s (they carry no `surfaceOp` and contribute nothing to derived history). Their owner decides whether they belong to an open execution turn or may stand between turns, and enforces any relation in its own invariant companion. The generated [persistence log event catalog](../persistence-catalog.md) enumerates every core and plugin-contributed event; the compaction seam's `compaction/*` semantics are discussed on [compaction.md](compaction.md).
 
 When several events in one plugin-owned family assemble into one Web Client Conversation Node, every start, update, result, resource, or interruption event in that family carries or independently derives the same stable business id. This requirement applies to correlated Node families, not to every Session event; it lets the client group each event without guessing from adjacency or scanning history. See the [Conversation subsystem](conversation.md).
 

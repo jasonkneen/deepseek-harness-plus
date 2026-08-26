@@ -51,7 +51,7 @@ interface SettingsRegisterOptions<T> {
 
 `validate` runs after the schema admits a value, so it sees defaults and the composition base exactly as the owner will. `dsh-llm-pi-ai` uses it to refuse a provider profile it could not serve at the write that produced it, rather than storing one that would disable every route in its namespace.
 
-`applies` is a UI hint, not a mechanism: a `restart` owner simply never watches, so its value is read once at construction and configuration surfaces can badge the pending change.
+`applies` is a UI hint, not a mechanism: a `restart` owner never watches, so its value is read once at construction and configuration surfaces can badge the pending change.
 
 ```ts type-equiv
 /** When a namespace's changes take effect for its owner. */

@@ -135,6 +135,27 @@ describe('MenuView', () => {
     expect(onPick).toHaveBeenCalledWith('reference', 2)
   })
 
+  it('renders the drill chevron only on drillable rows and routes its own action', () => {
+    const { onPick } = mount(openState({
+      groups: [{
+        source: 'reference',
+        status: 'ready',
+        items: [
+          { name: 'Folder · src/', drill: true },
+          { name: 'File · README.md' },
+        ],
+      }],
+      highlight: { source: 'reference', index: 0 },
+    }))
+    const chevrons = screen.getAllByRole('button', { name: '进入目录' })
+    expect(chevrons).toHaveLength(1)
+    // The chevron drills; the row body still settles the pick untouched.
+    fireEvent.mouseDown(chevrons[0]!)
+    expect(onPick).toHaveBeenCalledWith('reference', 0, 'drill')
+    fireEvent.mouseDown(screen.getAllByRole('option')[0]!)
+    expect(onPick).toHaveBeenCalledWith('reference', 0)
+  })
+
   it('exposes the highlight via aria-activedescendant and aria-selected', () => {
     mount(openState({ highlight: { source: 'command', index: 1 } }))
     const listbox = screen.getByRole('listbox')

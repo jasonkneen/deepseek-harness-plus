@@ -62,7 +62,7 @@ export interface Config {
  */
 export class ApiProxyService extends Service implements ApiProxy {
   static inject = [
-    'agentDefaultModel', 'agents', 'attachments', 'directoryPicker', 'llm', 'sessions', 'subagents', 'sessionQuery',
+    'agentDefaultModel', 'agents', 'attachments', 'directoryPicker', 'llm', 'sessions', 'sessionQuery',
     'sessionController',
   ]
 
@@ -72,9 +72,7 @@ export class ApiProxyService extends Service implements ApiProxy {
       .default(DEFAULT_SESSION_LOG_COMPRESSION_LEVEL) as z<SessionLogCompressionLevel>,
   })
 
-  readonly subagents: ApiProxy['subagents']
   readonly host: ApiProxy['host']
-  readonly goals: ApiProxy['goals']
   readonly skills: ApiProxy['skills']
   readonly agentPresets: ApiProxy['agentPresets']
   readonly settings: ApiProxy['settings']
@@ -92,9 +90,7 @@ export class ApiProxyService extends Service implements ApiProxy {
         ? {}
         : { sessionExportCompressionLevel: config.sessionExportCompressionLevel }),
     })
-    this.subagents = api.subagents
     this.host = api.host
-    this.goals = api.goals
     this.skills = api.skills
     this.agentPresets = api.agentPresets
     this.settings = api.settings

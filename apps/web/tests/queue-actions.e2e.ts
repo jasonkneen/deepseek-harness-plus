@@ -86,13 +86,15 @@ describe('web e2e: queue row actions', () => {
     await connectFreshWorkspace(page, scaffold.workspaceCwd)
     onTestFailed(() => saveFailureShot(page, 'web-e2e-queue-actions'))
 
-    const input = page.locator('textarea').first()
+    const input = page.locator('[data-composer-input]').first()
     const firstSettled = scaffold.whenTurnSettled()
     await input.fill(ACTIVE_PROMPT)
     await input.press('Enter')
     await expect.poll(() => existsSync(readyFile), { timeout: 15_000 }).toBe(true)
 
     for (const text of [REMOVE, EDIT]) {
+      // A just-submitted composer is read-only for the prompt round-trip.
+      await page.locator('[data-composer-input][contenteditable="true"]').first().waitFor({ timeout: 10_000 })
       await input.fill(text)
       await input.press('Enter')
     }
@@ -131,7 +133,7 @@ describe('web e2e: queue row actions', () => {
     expect(queueRightInset).toBeCloseTo(composerMetrics.dockInset, 1)
     await page.setViewportSize({ width: 1680, height: 1000 })
 
-    const editRow = page.getByText(EDIT, { exact: true }).locator('..')
+    const editRow = page.locator('[data-queue-dock] li', { hasText: EDIT })
     await editRow.getByRole('button', { name: 'Edit queued message' }).click()
     const editor = page.getByRole('textbox', { name: 'Edit queued message' })
     await editor.fill(EDITED)
@@ -140,7 +142,7 @@ describe('web e2e: queue row actions', () => {
     await page.getByRole('button', { name: 'Save queued message' }).click()
     await page.getByText(EDITED, { exact: true }).waitFor()
 
-    const removeRow = page.getByText(REMOVE, { exact: true }).locator('..')
+    const removeRow = page.locator('[data-queue-dock] li', { hasText: REMOVE })
     await removeRow.getByRole('button', { name: 'Remove queued message' }).click()
     await expect.poll(() => page.getByText(REMOVE, { exact: true }).count()).toBe(0)
 
@@ -196,8 +198,9 @@ describe('web e2e: queue row actions', () => {
     await connectFreshWorkspace(page, scaffold.workspaceCwd)
     onTestFailed(() => saveFailureShot(page, 'web-e2e-context-layout'))
 
-    const input = page.locator('textarea').first()
+    const input = page.locator('[data-composer-input]').first()
     const settled = scaffold.whenTurnSettled()
+    await page.locator('[data-composer-input][contenteditable="true"]').first().waitFor({ timeout: 10_000 })
     await input.fill('/goal Keep the composer context panels aligned')
     await input.press('Enter')
     await expect.poll(() => existsSync(readyFile), { timeout: 15_000 }).toBe(true)
@@ -214,6 +217,8 @@ describe('web e2e: queue row actions', () => {
     await page.locator('[data-testid="todo-panel"]').waitFor({ timeout: 10_000 })
 
     for (const text of ['Layout queue first', 'Layout queue second']) {
+      // A just-submitted composer is read-only for the prompt round-trip.
+      await page.locator('[data-composer-input][contenteditable="true"]').first().waitFor({ timeout: 10_000 })
       await input.fill(text)
       await input.press('Enter')
     }

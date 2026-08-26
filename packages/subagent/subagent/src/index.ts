@@ -29,13 +29,25 @@
  * @module @deepseek-ai/dsh-subagent
  */
 
-import { Context, Service } from '@deepseek-ai/cordis'
+import { Context } from '@deepseek-ai/cordis'
 import { scopeTarget } from '@deepseek-ai/dsh-scope'
 import type { Scoped } from '@deepseek-ai/dsh-scope'
 import { assertObjectJsonSchema } from '@deepseek-ai/dsh-tools'
 import type { ContentBlock, MessageId } from '@deepseek-ai/dsh-llm'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { SessionId } from '@deepseek-ai/dsh-session'
+import { Remote, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
+import {
+  canonicalClientTimeZone, catalogView, rejectCatalogRead, rejectControl, rejectPrompt,
+  validateControlRequest,
+} from './control.ts'
+import type {
+  SubagentCatalog,
+  SubagentInterruptReceipt,
+  SubagentPromptReceipt,
+  SubagentPromptRequest,
+  SubagentPromptRequestId,
+} from './control-types.ts'
 import type {
   ContinuableCreateRequest,
   ContinuableCreateSpec,
@@ -121,7 +133,8 @@ export type {
   SubagentSettledMessageSource,
 } from './continuation.ts'
 export type { ContinuableSetupContribution } from './activation-setup-registry.ts'
-export type { SubagentDescendantListEntry, SubagentListEntry } from './list-children.ts'
+export type * from './control-types.ts'
+export type { SubagentDescendantListEntry } from './list-children.ts'
 export type { SubagentRunEndInfo, SubagentRunInfo } from './types.ts'
 export type { SubagentIdentityProjection, SubagentTimingProjection } from './projection-types.ts'
 
@@ -166,8 +179,21 @@ declare module '@deepseek-ai/cordis' {
   }
 }
 
+/**
+ * Durable attribution of one browser-authored follow-up. The Session
+ * Controller declares this `user-rpc` message source and depends on this
+ * package, so the fields are spelled here: `MessageSource`'s `user` member
+ * accepts the record and the correlation id rides the durable message the
+ * Client reconciles its optimistic prompt against.
+ */
+interface BrowserPromptSource {
+  readonly kind: 'user'
+  readonly rpcId: SubagentPromptRequestId
+  readonly clientTimeZone?: string
+}
+
 /** Named provider registry with one-shot runs, durable discovery, and continuable-child operations. */
-export class SubagentRuntime extends Service {
+export class SubagentRuntime extends TypertRemoteService {
   private providers = new Map<string, SubagentProvider>()
   private continuations: SubagentContinuationManager | undefined
   /** Deployment contributions composed into unpublished continuable children. */
@@ -361,6 +387,114 @@ export class SubagentRuntime extends Service {
    */
   listDescendants(rootSessionId: SessionId, signal?: AbortSignal): Promise<SubagentDescendantListEntry[]> {
     return listSubagentDescendants(this.ctx, rootSessionId, signal)
+  }
+
+  /**
+   * Remote face of {@link listChildren} for one browser: the durable listing
+   * plus live Agent activity and the delivery-time parent availability hint.
+   * Parent availability is a hint; {@link prompt} performs the authoritative
+   * check. Named apart from the provider-name {@link list}, which owns the
+   * member.
+   * @param parentSessionId - parent session whose direct children are listed.
+   * @param signal - carrier cancellation forwarded to Session queries.
+   * @returns the catalog view for that parent.
+   * @throws {TypertRemoteFailure} `bad-request` for an empty parent id,
+   *   `cancelled` for an aborted read, `subagent-projections-unavailable` when
+   *   the deployment has no projection registry, otherwise `internal`.
+   */
+  @Remote('list')
+  async remoteExportList(parentSessionId: SessionId, signal: AbortSignal): Promise<SubagentCatalog> {
+    validateControlRequest('subagent.list', { parentSessionId })
+    try {
+      return catalogView(this.ctx, parentSessionId, await this.listChildren(parentSessionId, signal))
+    } catch (error: unknown) {
+      return rejectCatalogRead(error, signal)
+    }
+  }
+
+  /**
+   * Deliver one browser-authored message to a continuable child through the
+   * exact live direct parent, retaining the caller-minted request identity and
+   * validated browser zone on the accepted message. Success identifies the
+   * message the child's FIFO inbox accepted; later execution is independent of
+   * this call.
+   * @param request - durable address, minted identity, content, and optional browser zone.
+   * @param signal - carrier cancellation, owning the call until inbox acceptance.
+   * @returns the accepted message's inbox identity.
+   * @throws {TypertRemoteFailure} `bad-request`, `invalid-time-zone`,
+   *   `subagent-parent-unavailable`, `subagent-not-resumable`,
+   *   `subagent-unauthorized`, `subagent-delivery-unavailable`, `cancelled`, or
+   *   `internal`.
+   */
+  @Remote('prompt')
+  async prompt(request: SubagentPromptRequest, signal: AbortSignal): Promise<SubagentPromptReceipt> {
+    const { parentSessionId, childSessionId, clientTimeZone } = request
+    validateControlRequest('subagent.prompt', request)
+    const canonicalTimeZone = clientTimeZone === undefined
+      ? undefined
+      : canonicalClientTimeZone(clientTimeZone)
+    if (clientTimeZone !== undefined && canonicalTimeZone === undefined) {
+      return rejectControl(
+        'invalid-time-zone',
+        'clientTimeZone must be UTC or a valid IANA Area/Location name',
+        { value: clientTimeZone },
+      )
+    }
+    const parent = this.ctx.get('agents')?.get(parentSessionId)
+    if (parent === undefined) {
+      return rejectControl(
+        'subagent-parent-unavailable',
+        `parent session "${parentSessionId}" is not live`,
+        { parentSessionId },
+      )
+    }
+    const source: BrowserPromptSource = {
+      kind: 'user',
+      rpcId: request.requestId,
+      ...(canonicalTimeZone === undefined ? {} : { clientTimeZone: canonicalTimeZone }),
+    }
+    const content: ContentBlock[] = [...request.content]
+    try {
+      return { messageId: await this.followup(parent, childSessionId, content, { source, signal }) }
+    } catch (error: unknown) {
+      return rejectPrompt(error, childSessionId, signal)
+    }
+  }
+
+  /**
+   * Remote face of {@link interrupt} under one durable parent address. No
+   * catalog, history, persistence, or parent Agent lookup runs: the core
+   * primitive alone authorizes the address against the live Activation, which
+   * is what keeps a live child interruptible while its parent Agent is offline.
+   * Absent, idle, and already-completed targets are accepted no-ops there.
+   * @param childSessionId - durable child session id to interrupt.
+   * @param parentSessionId - durable direct parent whose authority is claimed.
+   * @param mode - required continuable-address discriminator.
+   * @returns acknowledgement that the cancel signal was admitted, not that the target is quiescent.
+   * @throws {TypertRemoteFailure} `bad-request` for an empty id,
+   *   `subagent-unauthorized` when the address does not own the live target,
+   *   otherwise `internal`.
+   */
+  @Remote('interruptByParent')
+  interruptByParent(
+    childSessionId: SessionId,
+    parentSessionId: SessionId,
+    mode: 'continuable',
+  ): SubagentInterruptReceipt {
+    validateControlRequest('subagent.interrupt', { childSessionId, parentSessionId, mode })
+    try {
+      this.interrupt(childSessionId, { kind: 'user', parentSessionId })
+    } catch (error: unknown) {
+      if (error instanceof SubagentError && error.code === 'UNAUTHORIZED') {
+        return rejectControl(
+          'subagent-unauthorized',
+          'subagent does not belong to this parent',
+          { childSessionId },
+        )
+      }
+      return rejectControl('internal', 'subagent interrupt failed', {})
+    }
+    return { accepted: true }
   }
 
   /**

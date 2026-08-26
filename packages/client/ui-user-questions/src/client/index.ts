@@ -23,6 +23,7 @@ import type { TypertClientEventListener } from '@deepseek-ai/dsh-typert-protocol
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type {} from '@deepseek-ai/dsh-api-session-controller/client'
 import { PendingQuestion } from './contract/slots.ts'
+import { createQuestionDraftStore } from './draft-store.ts'
 import { QuestionComposer } from './QuestionComposer.tsx'
 import { en, zh, type QuestionKey } from './locales.ts'
 
@@ -86,6 +87,7 @@ async function answerQuestion(
  */
 export function apply(ctx: ClientContext): void {
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'ui-user-questions: dictionaries')
+  const questionDraftStore = createQuestionDraftStore()
   const registerPendingInteraction = ctx.uiSession.registerPendingInteraction<PendingQuestion>(
     pending => pending.kind === 'plan-review' ? 2 : 1,
   )
@@ -95,6 +97,7 @@ export function apply(ctx: ClientContext): void {
       select: ({ pendingInteraction }: ComposerChainProps): PendingQuestion | null =>
         pendingInteraction instanceof PendingQuestion ? pendingInteraction : null,
       locale: NS,
+      store: questionDraftStore,
     },
     QuestionComposer,
   ))

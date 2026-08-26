@@ -123,6 +123,8 @@ root
 │     ├─ settings.onboarding
 │     └─ settings.section
 │        ├─ settings.general.item
+│        ├─ settings.models.provider-card
+│        ├─ settings.models.footer
 │        └─ settings.plugins.tab
 │           └─ settings.plugin.item
 ├─ conversation

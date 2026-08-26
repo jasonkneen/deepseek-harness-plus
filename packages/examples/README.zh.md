@@ -1,13 +1,43 @@
-# examples/：可复用组合包
+---
+description: "examples 包组：供测试与自定义部署使用的可复用 agent-spine 组合 bundle。"
+kind: "package-group"
+---
+
+# examples/：可复用组合 bundle
 
 [English](README.md) | 中文
 
-预先组合的插件组合包，供需要具体 Agent 主干、但不应手工组装它的测试与自定义部署使用。npm 名称的 `-demo` 后缀表明每个包都是支撑基础设施，而非产品接口。
+## 概述
+
+examples 组提供可复用 agent 主干，供需要具体组合但不想手工组装的测试与自定义部署使用。其 npm 名称中的 `-demo` 后缀表明它是支持基础设施，而非产品接口。ACP、SDK 与单次执行应用分别通过 `acp`、`sdk` 或 `sdk-minimal`、`headless` profile 启动。本组不包含应用入口。
+
+## 目录
+
+- [包](#packages)
+- [相关文档](#related-documentation)
+- [开发备注](#dev-note)
+
+-----
+
+<a id="packages"></a>
+## 包
 
 | 包 | npm 名称 | 角色 |
 |---|---|---|
-| [`agent-spine-demo/`](agent-spine-demo/README.zh.md) | `@deepseek-ai/dsh-agent-spine-demo` | 可复用的 agent-spine（智能体主干）组合包 |
+| [`agent-spine-demo/`](agent-spine-demo/README.zh.md) | `@deepseek-ai/dsh-agent-spine-demo` | 可挂载、可用自己的 LLM 与执行器配置的工作 agent 核心 |
 
-`agent-spine-demo` 是共享组合包。产品 SDK、ACP 与一次性执行分别由 `dsh --profile sdk`／`dsh --profile sdk-minimal`、`dsh --profile acp` 和 `dsh --profile headless` 提供；本目录没有任何包提供应用入口。
+`agent-spine-demo` 是共享 agent 核心。产品应用装配位于 [`bundle/`](../bundle/README.zh.md)；这个支持包继续供聚焦测试与自定义组合使用。
 
-这些包不是产品 API。产品 seam 与产品入口仍位于各自的归属组；支撑组合包为聚焦消费方选择具体组合。
+-----
+
+<a id="related-documentation"></a>
+## 相关文档
+
+- [ACP 应用组合包](../bundle/acp-app/README.zh.md)——面向程序化客户端的 `dsh --profile acp` 应用。
+- [SDK 应用组合包](../bundle/sdk-app/README.zh.md)——面向 JSON-RPC 客户端的 `dsh --profile sdk` 应用。
+- [极简 SDK 组合包](../bundle/sdk-minimal/README.zh.md)——Python 示例使用的独立双工具 SDK profile。
+
+<a id="dev-note"></a>
+## 开发备注
+
+无。

@@ -52,20 +52,24 @@ export function apply(ctx: ClientContext): void {
         ...sessionItems.map(candidate => sessionCandidate(candidate, t)),
       ]
     },
-    onPick({ candidate }) {
+    onPick({ candidate, action }) {
       const value = parseCandidate(candidate.value)
       if (value?.kind === 'file') {
-        return value.fileKind === 'directory'
-          ? { text: value.mention, continue: true }
-          : {
-            insert: {
-              source: 'reference',
-              ref: value.mention,
-              label: value.label,
-              appearance: 'file',
-              clipboardText: value.mention,
-            },
-          }
+        // A directory row carries two verbs: the settling pick resolves the
+        // folder itself as an atomic reference, while the drill action (Tab /
+        // row chevron) keeps the literal descent text and the open menu.
+        if (value.fileKind === 'directory' && action === 'drill') {
+          return { text: value.mention, continue: true }
+        }
+        return {
+          insert: {
+            source: 'reference',
+            ref: value.mention,
+            label: value.fileKind === 'directory' ? `${value.label}/` : value.label,
+            appearance: value.fileKind === 'directory' ? 'folder' : 'file',
+            clipboardText: value.mention,
+          },
+        }
       }
       if (value?.kind === 'session') {
         return {
@@ -111,6 +115,7 @@ function fileCandidate(candidate: FileReferenceCandidate, preserveQuote: boolean
     description: candidate.path,
     section: t('section.files'),
     value: JSON.stringify(value),
+    ...(directory ? { drill: true } : {}),
   }]
 }
 

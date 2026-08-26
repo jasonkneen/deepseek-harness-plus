@@ -81,7 +81,9 @@ describe('ModelsSettingsStore', () => {
     expect(state.status).toBe('ready')
     expect(state.writable).toBe(true)
     expect(state.credentialError).toBeNull()
-    expect(seenRefs).toEqual([['DEEPSEEK_API_KEY', 'OPENAI_API_KEY']])
+    // Named references first (rows order), then the derived <ROUTE>_API_KEY
+    // of every row whose profile names none — one batched describe.
+    expect(seenRefs).toEqual([['DEEPSEEK_API_KEY', 'OPENAI_API_KEY', 'ANTHROPIC_API_KEY', 'GHOST_API_KEY']])
     const byProvider = new Map(state.rows.map(row => [row.entry.provider, row]))
     expect(byProvider.get('deepseek-official')).toMatchObject({
       configured: true,
@@ -196,7 +198,7 @@ describe('edge joins', () => {
     expect(state.rows[0]?.apiKeyEnv).toBeUndefined()
   })
 
-  it('skips the credential describe entirely when no row names a reference', async () => {
+  it('describes the derived reference for a row whose profile names none', async () => {
     const { face, mirror, seenRefs } = api({
       describeSettings: () => Promise.resolve(ok({
         writable: true,
@@ -208,11 +210,19 @@ describe('edge joins', () => {
           { provider: 'anthropic', displayName: 'anthropic', settingsNs: 'llm-pi-ai', settingsPath: ['providers', 'anthropic'], active: false },
         ] as never,
       })),
+      describeCredentials: refs => Promise.resolve(ok({
+        credentials: Object.fromEntries(refs.map(ref => [ref, { configured: true, writable: true }])),
+      })),
     })
     const store = new ModelsSettingsStore(face, settingsSchema, mirror)
     await store.load()
-    expect(seenRefs).toEqual([])
-    expect(store.store.getSnapshot().status).toBe('ready')
+    // The dormant row names no reference, so the join asks about the page's
+    // own derived <ROUTE>_API_KEY — what the editor would display for it.
+    expect(seenRefs).toEqual([['ANTHROPIC_API_KEY']])
+    const state = store.store.getSnapshot()
+    expect(state.status).toBe('ready')
+    expect(state.rows[0]?.credential).toBeUndefined()
+    expect(state.rows[0]?.derivedCredential).toMatchObject({ configured: true })
   })
 
   it('surfaces a settings describe failure', async () => {

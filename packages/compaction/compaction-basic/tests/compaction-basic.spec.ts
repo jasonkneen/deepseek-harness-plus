@@ -13,7 +13,7 @@ import {
   resolveTargetPolicy,
 } from '@deepseek-ai/dsh-compaction-basic/src/config.ts'
 import type { CompactionResult } from '@deepseek-ai/dsh-compaction'
-import LlmRuntime, { createUserMessage, CallId, CONTEXT_WINDOW_EXCEEDED_CODE, createToolResultMessage, LlmAdapter , createMessage } from '@deepseek-ai/dsh-llm'
+import LlmRuntime, { createUserMessage, ToolCallId, CONTEXT_WINDOW_EXCEEDED_CODE, createToolResultMessage, LlmAdapter , createMessage } from '@deepseek-ai/dsh-llm'
 import type {
   ContentBlock,
   GenerateOptions,
@@ -143,7 +143,7 @@ function conversation(turns = 4, text = 'fixture '.repeat(40).trim()): Session {
 function toolConversation(): Session {
   const session = Session.create(SessionId('tools'))
   for (let turn = 1; turn <= 3; turn += 1) {
-    const callId = CallId(`call-${turn}`)
+    const callId = ToolCallId(`call-${turn}`)
     session.append('turn/start', { turn })
     session.append('user/message', createUserMessage({
       content: [{ type: 'text', text: `request ${turn} `.repeat(300) }],
@@ -191,7 +191,7 @@ function toolConversation(): Session {
 /** One closed routed tool step followed by an open turn for rewrite events. */
 function oversizedToolResult(chars = 3_000, withCompactablePrompt = false): Session {
   const session = Session.create(SessionId(`oversized-tool-${chars}`))
-  const callId = CallId('oversized')
+  const callId = ToolCallId('oversized')
   session.append('turn/start', { turn: 1 })
   if (withCompactablePrompt) {
     session.append('user/message', createUserMessage({
@@ -569,7 +569,7 @@ describe('pressure measurement and retention', () => {
   it('declines forced overflow when the whole surface is one indivisible tool pair', async () => {
     const compact = service(compactConfig)
     const session = Session.create(SessionId('single-tool-pair'))
-    const callId = CallId('single-call')
+    const callId = ToolCallId('single-call')
     session.append('turn/start', { turn: 1 })
     session.append('step/start', { turn: 1, step: 1 })
     session.append('request/header', {
@@ -735,7 +735,7 @@ describe('pressure measurement and retention', () => {
   it('declines when rounding a cut would consume the only tool pair', () => {
     const ctx = createContext()
     const session = Session.create(SessionId('one-tool-pair'))
-    const callId = CallId('only')
+    const callId = ToolCallId('only')
     session.append('turn/start', { turn: 1 })
     session.append('step/start', { turn: 1, step: 1 })
     session.append('assistant/message', {
@@ -1184,7 +1184,7 @@ describe('default one-shot summarizer', () => {
     const { adapter, compact } = await summarizerHarness([
       { type: 'reasoning', text: 'private' },
       { type: 'text', text: 'public summary' },
-      { type: 'tool-call', id: CallId('unexpected'), name: 'x', arguments: '{}' },
+      { type: 'tool-call', id: ToolCallId('unexpected'), name: 'x', arguments: '{}' },
     ], undefined, MODEL, {
       auto: false,
       summarizationProvider: MODEL,
@@ -1200,7 +1200,7 @@ describe('default one-shot summarizer', () => {
       rawOutput: [
         { type: 'reasoning', text: 'private' },
         { type: 'text', text: 'public summary' },
-        { type: 'tool-call', id: CallId('unexpected'), name: 'x', arguments: '{}' },
+        { type: 'tool-call', id: ToolCallId('unexpected'), name: 'x', arguments: '{}' },
       ],
       llmStreamCall: true,
       provider: MODEL,
@@ -1418,7 +1418,7 @@ describe('default one-shot summarizer', () => {
   it('rejects image summary output nested in a tool result', async () => {
     const { compact } = await summarizerHarness([{
       type: 'tool-result',
-      toolCallId: CallId('summary-tool'),
+      toolCallId: ToolCallId('summary-tool'),
       content: [{
         type: 'image',
         attachment: {

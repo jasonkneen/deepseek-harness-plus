@@ -11,7 +11,7 @@ import type {
 import type { MarkdownFileMentions } from '@deepseek-ai/dsh-client-ui-primitives'
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 import type { createChatStore } from '../stores.ts'
-import type { CallId, SelectionTarget } from './store.ts'
+import type { ToolCallId, SelectionTarget } from './store.ts'
 import type { ChatNode, ChatNodeKind } from './chat-nodes.ts'
 import type { ChatSnapshot, CommandNode, CompactionSummaryNode, ToolCallBlock } from './snapshot.ts'
 
@@ -59,10 +59,10 @@ export interface ChatNodeTurnDataInjected {
 
 /** Stable owner currency delivered to a keyed Chat renderer. */
 export interface ChatNodeOwnerProps {
-  selectedCallId?: CallId | undefined
+  selectedCallId?: ToolCallId | undefined
   cwd?: string | undefined
   openFile: (path: string) => void
-  inspectCall: (callId: CallId) => void
+  inspectCall: (callId: ToolCallId) => void
   forkAt: (seq: number) => void
   renderMessageImages: RenderMessageImages
   fileMentions: (owner: TurnTailOwnerProps) => MarkdownFileMentions | undefined

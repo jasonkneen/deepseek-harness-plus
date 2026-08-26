@@ -4,8 +4,8 @@
  * are rewritten, that line numbers survive, which forms are refused, and that
  * every covered trap form stays fixed.
  *
- * Scope boundary: this file checks the transform itself; the image collector's
- * loop around it is covered by the packer's `transform-image.spec.ts`.
+ * Scope boundary: this file checks the transform itself; the pack-time loop
+ * around it is covered end-to-end by the packer's `image-loadable.spec.ts`.
  * Emitted-code assertions are deliberately written against substrings
  * of the real output rather than whole-file goldens: a golden would fail on every
  * helper reordering, which is not the contract. The contract is the observable
@@ -142,6 +142,35 @@ check(
 
   // `lowered` must agree with the code/source comparison by construction.
   check('lowered mirrors code !== source', cjsAwait.lowered, cjsAwait.code !== 'module.exports = async () => { await 1 }\n')
+}
+
+{
+  const direct = lowerModuleSource({
+    filename: 'node_modules/p/direct.js',
+    source: "import { createRequire } from 'node:module'\ncreateRequire(import.meta.url)('external-package')\n",
+  })
+  check('literal createRequire call is a module request', direct.moduleRequests, ['node:module', 'external-package'])
+
+  const aliased = lowerModuleSource({
+    filename: 'node_modules/p/aliased.js',
+    source: "makeRequire(import.meta.url)('aliased-package')\nimport { createRequire as makeRequire } from 'node:module'\n",
+  })
+  check('aliased createRequire import is indexed before traversal', aliased.moduleRequests, ['aliased-package', 'node:module'])
+
+  const runtimeOnly = lowerModuleSource({
+    filename: 'node_modules/p/runtime-only.js',
+    source: [
+      "import { createRequire } from 'node:module'",
+      'const localRequire = createRequire(import.meta.url)',
+      "localRequire('stored')",
+      "createRequire(new URL('./other.js', import.meta.url))('rebased')",
+      "{ const createRequire = () => () => undefined; createRequire(import.meta.url)('block-shadowed') }",
+      "function load(createRequire) { createRequire(import.meta.url)('parameter-shadowed') }",
+      "for (const createRequire of []) createRequire(import.meta.url)('for-of-shadowed')",
+      "switch (0) { case 0: const createRequire = () => () => undefined; createRequire(import.meta.url)('switch-shadowed') }",
+    ].join('\n'),
+  })
+  check('stored, rebased, and shadowed createRequire calls stay runtime-only', runtimeOnly.moduleRequests, ['node:module'])
 }
 
 // ---------------------------------------------------------------------------

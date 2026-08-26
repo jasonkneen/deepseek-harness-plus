@@ -181,6 +181,46 @@ describe('built-in conversation node Definitions', () => {
     expect(chatViewDefinition.isActive?.(current)).toBe(false)
   })
 
+  it('keeps the Turn rail projection current when a chunk updates one node in place', () => {
+    const value = assembler([
+      at(1, 'turn/start', { turn: 1 }),
+      at(2, 'user/message', textMessage('user-1', 'navigate here'), { surfaceOp: 'append' }),
+      at(3, 'step/start', { turn: 1, step: 1 }),
+      at(4, 'assistant/chunk', {
+        turn: 1,
+        step: 1,
+        chunk: { type: 'text-delta', index: 0, text: 'first' },
+      }),
+    ])
+    const opening = snapshot(value).navigation.items()
+    expect(opening).toHaveLength(1)
+    expect(opening[0]?.turn).toBe(1)
+    expect(opening[0]?.prompt).toBe('navigate here')
+    expect(opening[0]?.response).toBe('first')
+
+    // Content-only upsert: the node keeps its key, so the rail's preview has to
+    // follow the in-place update rather than the last structural publication.
+    value.append(at(5, 'assistant/chunk', {
+      turn: 1,
+      step: 1,
+      chunk: { type: 'text-delta', index: 0, text: ' and more' },
+    }))
+    value.flush()
+    const streamed = snapshot(value).navigation.items()
+    expect(streamed[0]?.response).toBe('first and more')
+    expect(streamed).not.toBe(opening)
+  })
+
+  it('bounds each rail preview instead of copying the whole transcript', () => {
+    const long = 'x'.repeat(400)
+    const value = assembler([
+      at(1, 'turn/start', { turn: 1 }),
+      at(2, 'user/message', textMessage('user-1', long), { surfaceOp: 'append' }),
+    ])
+    const items = snapshot(value).navigation.items()
+    expect(items[0]?.prompt.length).toBe(160)
+  })
+
   it('keeps one keyed Assistant node while streaming settles and materializes interruption from Location', () => {
     const value = assembler([
       at(1, 'turn/start', { turn: 1 }),

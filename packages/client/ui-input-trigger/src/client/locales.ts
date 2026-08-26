@@ -10,6 +10,7 @@ export const zh = {
   'skill': '技能',
   'subagent': '子智能体',
   'loading': '正在加载…',
+  'drill.aria': '进入目录',
   'suggestions.aria': '触发候选建议',
 } satisfies Record<string, string>
 
@@ -22,5 +23,6 @@ export const en = {
   'skill': 'Skills',
   'subagent': 'Subagents',
   'loading': 'Loading…',
+  'drill.aria': 'Browse folder',
   'suggestions.aria': 'Trigger suggestions',
 } satisfies Record<MenuKey, string>

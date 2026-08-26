@@ -59,7 +59,7 @@ export function probeFreePort(): Promise<number> {
  * until the live composer unlocks. A fresh world has no Workspace, so the boot
  * lands in the Workspace-trigger view state (startup auto-selection has nothing to
  * select); every scenario that types into the composer must connect one
- * first. With nothing to list, activating the textarea raises the dialog directly —
+ * first. With nothing to list, activating the composer surface raises the dialog directly —
  * adding a workspace is the picker's only entry. The directory is staged here
  * and adopted through the path editor, which is idempotent across the repeated
  * connects a scenario may make; creating a folder from inside the dialog (the
@@ -83,7 +83,7 @@ export async function connectFreshWorkspace(page: Page, root: string, name = 'wo
   await dialog.getByRole('button', { name: 'Open', exact: true }).click()
   // The pick connected the workspace: the blank session's live composer
   // replaces the locked placeholder and enables.
-  await page.locator('textarea:enabled[placeholder="Describe what you want to build"]')
+  await page.locator('[data-composer-input][contenteditable="true"][data-placeholder="Describe what you want to build"]')
     .waitFor({ timeout: 15_000 })
 }
 
@@ -106,8 +106,41 @@ export async function connectFreshWorkspaceZh(page: Page, root: string, name = '
   await pathInput.fill(join(root, name))
   await pathInput.press('Enter')
   await dialog.getByRole('button', { name: '打开', exact: true }).click()
-  await page.locator('textarea:enabled[placeholder="描述你想要构建的内容"]')
+  await page.locator('[data-composer-input][contenteditable="true"][data-placeholder="描述你想要构建的内容"]')
     .waitFor({ timeout: 15_000 })
+}
+
+/**
+ * Replace the composer draft through per-key gestures. `fill()` issues
+ * select-all and insertText inside one task; directly after a trigger-menu or
+ * chip interaction Lexical's internal selection has not yet absorbed the DOM
+ * selection, and the batched edit lands on a null selection and is silently
+ * dropped, leaving the previous draft in place. Real keystrokes leave room for
+ * `selectionchange` between keys, which is also what a user's typing does.
+ *
+ * Waits for the surface to be editable first. While the input machine is
+ * adjudicating or submitting a send — and in every locked state (removed
+ * session, no workspace, an owner block) — the composer renders read-only
+ * with `contenteditable="false"` on the same element. `fill()` throws
+ * immediately on that element, and `isEnabled()` reports `true` for a
+ * `<div>` regardless of the attribute — so a gesture directly after a
+ * submit must gate on the attribute, not on enablement. A running turn by
+ * itself keeps the composer editable (that is what queueing types into).
+ * @param page - the page under test.
+ * @param input - the `[data-composer-input]` surface locator.
+ * @param text - the replacement draft; `''` clears the draft. Must not
+ * contain a newline: typed Enter submits the composer.
+ */
+export async function writeComposerDraft(
+  page: Page,
+  input: ReturnType<Page['locator']>,
+  text: string,
+): Promise<void> {
+  await input.and(page.locator('[contenteditable="true"]')).waitFor({ timeout: 15_000 })
+  await input.click()
+  await page.keyboard.press('ControlOrMeta+A')
+  if (text === '') await page.keyboard.press('Backspace')
+  else await page.keyboard.type(text)
 }
 
 /** Failure evidence goes to the gitignored .artifacts/ (repo convention). */

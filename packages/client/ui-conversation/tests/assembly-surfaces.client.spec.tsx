@@ -1,14 +1,22 @@
 // @vitest-environment jsdom
 /** Conversation assembly acceptance independent of Tool presentation. */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, fireEvent, waitFor, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, waitFor, within } from '@testing-library/react'
 import { useState } from 'react'
 import { LocaleRuntime } from '@deepseek-ai/dsh-client-locale/client'
 import type { ISession } from '@deepseek-ai/dsh-api-session-controller/client'
 import type { PropsRenderSlots } from '@deepseek-ai/dsh-client-ui-slots'
 import { SlotTestRuntime, usePinnedBrowserLanguages, stubSettingsScope } from '@deepseek-ai/dsh-client-test-runtime'
+import { InputHub } from '../src/client/input/hub.ts'
 import { apply, inject, type EmptyWorkspaceOwnerProps } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
+
+// jsdom implements no Range geometry (Lexical's scroll-into-view measures the
+// caret with one once the surface is genuinely contenteditable).
+Range.prototype.getBoundingClientRect = () => ({
+  top: 0, bottom: 0, left: 0, right: 0, width: 0, height: 0, x: 0, y: 0, toJSON: () => ({}),
+})
+
 
 usePinnedBrowserLanguages('zh-CN')
 
@@ -81,10 +89,10 @@ describe('resident composer', () => {
     await runtime.mount({ inject: [...inject], apply })
     runtime.slots.register({ name: 'conversation.hero.workspace' }, WorkspaceProbe)
     const view = runtime.renderRoot()
-    const textarea = view.container.querySelector('textarea')
+    const textarea = view.container.querySelector<HTMLDivElement>('[data-composer-input]')
     expect(textarea).not.toBeNull()
-    expect(textarea!.disabled).toBe(false)
-    expect(textarea!.readOnly).toBe(true)
+    expect(textarea!.getAttribute('aria-disabled')).not.toBe('true')
+    expect(textarea!.getAttribute('contenteditable')).not.toBe('true')
     expect(textarea!.getAttribute('aria-haspopup')).toBe('menu')
     expect(view.getByTestId('workspace-probe').textContent).toBe('false:0')
     fireEvent.click(textarea!)
@@ -115,11 +123,11 @@ describe('resident composer', () => {
     const root = view.container.querySelector('[data-phase="hero"]')!
     const scrollBody = view.container.querySelector('[data-conversation-scroll]')!
     const composerSeat = view.container.querySelector('[data-composer-seat]')!
-    const textarea = view.container.querySelector('textarea')!
+    const textarea = view.container.querySelector<HTMLDivElement>('[data-composer-input]')!
     const workspaceChip = view.getByRole('button', { name: '选择工作区' })
     const workspaceProbe = view.getByTestId('workspace-probe')
-    expect(textarea.disabled).toBe(false)
-    expect(textarea.readOnly).toBe(true)
+    expect(textarea.getAttribute('aria-disabled')).not.toBe('true')
+    expect(textarea.getAttribute('contenteditable')).not.toBe('true')
 
     fireEvent.click(workspaceChip)
     fireEvent.click(workspaceProbe)
@@ -134,12 +142,12 @@ describe('resident composer', () => {
     expect(view.container.querySelector('[data-phase="hero"]')).toBe(root)
     expect(view.container.querySelector('[data-conversation-scroll]')).toBe(scrollBody)
     expect(view.container.querySelector('[data-composer-seat]')).toBe(composerSeat)
-    expect(view.container.querySelector('textarea')).toBe(textarea)
+    expect(view.container.querySelector<HTMLDivElement>('[data-composer-input]')).toBe(textarea)
     expect(view.getByRole('button', { name: '选择工作区' })).toBe(workspaceChip)
     expect(view.getByTestId('workspace-probe')).toBe(workspaceProbe)
     expect(workspaceProbe.textContent).toBe('true:1')
-    expect(textarea.disabled).toBe(false)
-    expect(textarea.readOnly).toBe(false)
+    expect(textarea.getAttribute('aria-disabled')).not.toBe('true')
+    expect(textarea.getAttribute('contenteditable')).toBe('true')
     await runtime.dispose()
   })
 
@@ -149,14 +157,14 @@ describe('resident composer', () => {
       draft.items = [{ workspaceId: 'w1', title: 'Proj', path: '/proj', sessionIds: [SID] }] as never
     })
     const view = runtime.renderRoot()
-    const hero = view.container.querySelector('textarea')
+    const hero = view.container.querySelector<HTMLDivElement>('[data-composer-input]')
     expect(hero).not.toBeNull()
-    expect(hero!.disabled).toBe(false)
+    expect(hero!.getAttribute('aria-disabled')).not.toBe('true')
 
     await runtime.sessions.updateSessionSnapshot(SID, (draft) => {
       draft.blank = false
     })
-    expect(view.container.querySelector('textarea')).toBe(hero)
+    expect(view.container.querySelector<HTMLDivElement>('[data-composer-input]')).toBe(hero)
     await runtime.dispose()
   })
 })
@@ -181,8 +189,12 @@ describe('prompt rejection through the assembled composer', () => {
     await runtime.mount({ inject: [...inject], apply })
     const view = runtime.renderRoot()
 
-    const composer = view.container.querySelector('textarea')!
-    fireEvent.change(composer, { target: { value: 'do not lose this' } })
+    const composer = view.container.querySelector<HTMLDivElement>('[data-composer-input]')!
+    // Write through the assembled input resolver (contenteditable change
+    // events carry no value; the resolver is the public draft write path).
+    const conversation = runtime.ctx.get('conversation') as { input: unknown }
+    const shell = (conversation.input as InputHub).shell(SID)
+    act(() => { shell.setDraft('do not lose this') })
     fireEvent.keyDown(composer, { key: 'Enter' })
     await waitFor(() => { expect(prompt).toHaveBeenCalledOnce() })
 
@@ -195,7 +207,7 @@ describe('prompt rejection through the assembled composer', () => {
     const alert = await view.findByRole('alert')
     expect(alert.textContent).toContain('prompt rejected before acceptance (agent-busy)')
     await waitFor(() => {
-      expect((view.container.querySelector('textarea'))!.value).toBe('do not lose this')
+      expect(shell.snapshot.draft).toBe('do not lose this')
     })
     await runtime.dispose()
   })

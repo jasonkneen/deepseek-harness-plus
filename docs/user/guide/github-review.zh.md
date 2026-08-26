@@ -97,6 +97,6 @@ if (workspacePath === undefined) return null
 
 ## 交付语义
 
-webhook runtime 不存储交付或执行状态。重复交付会再次运行规则，并可能创建另一个 Session。崩溃会丢失尚未接纳提示词的规则调用。提示词接纳后，工作由普通 Session 日志、persistence、Workspace 与 Agent 生命周期拥有。
+webhook runtime 不存储交付或执行状态。重复交付会运行规则，并可能创建另一个 Session。崩溃会丢失尚未接纳提示词的规则调用。提示词接纳后，工作由普通 Session 日志、persistence、Workspace 与 Agent 生命周期拥有。
 
 webhook 密钥只验证入站 GitHub 数据。它不会向规则代码或所创建 Agent 授予出站 GitHub 访问权；规则或 Agent 需要时应单独配置该权限。

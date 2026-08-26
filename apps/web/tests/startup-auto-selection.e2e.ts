@@ -54,7 +54,7 @@ describe('web e2e: startup auto-selection', () => {
         workspaceChip: document.querySelector('[aria-label="Choose workspace"]'),
         scrollBody: document.querySelector('[data-conversation-scroll]'),
         composerSeat: document.querySelector('[data-composer-seat]'),
-        textarea: document.querySelector('textarea'),
+        composer: document.querySelector('[data-composer-input]'),
       }
       if (Object.values(refs).some(node => node === null)) throw new Error('incomplete initial Hero tree')
       ;(window as unknown as { __heroTree: typeof refs }).__heroTree = refs
@@ -72,8 +72,8 @@ describe('web e2e: startup auto-selection', () => {
         workspaceChip: document.querySelector('[aria-label="Choose workspace"]') === before.workspaceChip,
         scrollBody: document.querySelector('[data-conversation-scroll]') === before.scrollBody,
         composerSeat: document.querySelector('[data-composer-seat]') === before.composerSeat,
-        textarea: document.querySelector('textarea') === before.textarea,
-        textareaEnabled: !(document.querySelector('textarea') as HTMLTextAreaElement).disabled,
+        composer: document.querySelector('[data-composer-input]') === before.composer,
+        composerEnabled: document.querySelector('[data-composer-input]')?.getAttribute('aria-disabled') !== 'true',
       }
     })).toEqual({
       phase: 'hero',
@@ -81,8 +81,8 @@ describe('web e2e: startup auto-selection', () => {
       workspaceChip: true,
       scrollBody: true,
       composerSeat: true,
-      textarea: true,
-      textareaEnabled: true,
+      composer: true,
+      composerEnabled: true,
     })
     expect(tripwire.pageErrors).toEqual([])
   }, 120_000)
@@ -121,15 +121,21 @@ describe('web e2e: startup auto-selection', () => {
       await page.reload({ waitUntil: 'commit' })
       await openingInFlight
 
+      // The frame a user sees while the session is still opening: hero phase, the
+      // hero title, and a composer that is actually painted (`settling` hides the
+      // seat with `visibility:hidden`, which Playwright reports as not visible).
       await page.waitForSelector(ROOT_PHASE, { timeout: 15_000 })
       expect(await page.locator(ROOT_PHASE).first().getAttribute('data-phase')).toBe('hero')
       expect(await page.getByText('Into the Unknown').isVisible()).toBe(true)
-      expect(await page.locator('textarea').first().isVisible()).toBe(true)
+      expect(await page.locator('[data-composer-input]').first().isVisible()).toBe(true)
 
       releaseOpening()
-      await page.locator('textarea:enabled[placeholder="Describe what you want to build"]')
+      await page.locator('[data-composer-input][contenteditable="true"][data-placeholder="Describe what you want to build"]')
         .waitFor({ timeout: 15_000 })
       acknowledgeReloadConnectionLoss(tripwire, warningsBefore)
+
+      // Settling is not merely absent from the frame sampled above: the root
+      // never entered it at any point of the load.
       expect(await recordedPhases(page)).toEqual(['hero'])
       expect(tripwire.pageErrors).toEqual([])
     } finally {

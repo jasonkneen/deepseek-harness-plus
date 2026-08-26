@@ -1,10 +1,11 @@
 /** Question composer props and one pending Remote waterfall response. */
-import type { PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
+import type { PropsLocale, PropsRuntime, PropsStore } from '@deepseek-ai/dsh-client-ui-slots'
 // The client module declares the conversation.composer SlotMap entry required by PropsRuntime.
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type {
   AskUserQuestionAnswer, AskUserQuestionItem,
 } from '@deepseek-ai/dsh-user-questions'
+import type { createQuestionDraftStore } from '../draft-store.ts'
 
 declare module '@deepseek-ai/dsh-client-ui-session/client' {
   interface SessionPendingInteractionMap {
@@ -38,7 +39,7 @@ function settlePendingComposer(settle: () => void, failureMessage: string): Prom
 /**
  * A request narrowed to the `plan-review` presentation intent: everything the
  * decision card renders and answers with, so the panel never re-reads the
- * request shape. `approve` and `decline` are the asker's own options — an
+ * request fields. `approve` and `decline` are the asker's own options — an
  * answer must carry one of those labels verbatim — and `plan` is the markdown
  * body under review.
  */
@@ -108,7 +109,7 @@ function questionError(message: string, code: 'ASK_ABORTED' | 'ASK_CANCELLED'): 
 export class PendingQuestion {
   /** Presentation discriminator used by Session pending-interaction consumers. */
   readonly kind: 'question' | 'plan-review'
-  /** Opaque render identity and local-draft remount axis. */
+  /** Opaque render identity and request key for the Session-scoped draft store. */
   readonly key: string
   /** The request's question list. */
   readonly questions: readonly AskUserQuestionItem[]
@@ -217,4 +218,7 @@ export type QuestionWait = PendingQuestion
  * whole behavior surface.
  */
 export type QuestionComposerProps =
-  PropsRuntime<'conversation.composer'> & { matched: QuestionWait } & PropsLocale<'question'>
+  PropsRuntime<'conversation.composer'>
+  & PropsStore<ReturnType<typeof createQuestionDraftStore>>
+  & { matched: QuestionWait }
+  & PropsLocale<'question'>

@@ -15,7 +15,7 @@ import {
   assertFinalWorkspaceSnapshot, assertFixtureInventory, fixtureUserPrompts, launchWebScaffold, recordFixture,
   watchConsole, webSnapshotMode, type WebScaffold,
 } from './scaffold.ts'
-import { connectFreshWorkspace, newEnglishPage, saveFailureShot } from './support.ts'
+import { connectFreshWorkspace, newEnglishPage, saveFailureShot, writeComposerDraft } from './support.ts'
 
 const SNAPSHOT_DIR = fileURLToPath(new URL('../../../snapshots/web/permission-policy-context', import.meta.url))
 const FIXTURE = fileURLToPath(new URL('../../../snapshots/web/permission-policy-context/session.jsonl', import.meta.url))
@@ -94,26 +94,26 @@ describe('web e2e: current sandbox policy reaches the model before tools', () =>
       expect(fixtureUserPrompts(await readFile(FIXTURE, 'utf8'))).toEqual(PROMPTS)
     }
 
-    const input = page.locator('textarea').first()
+    const input = page.locator('[data-composer-input][contenteditable="true"]').first()
     let sessionId: Awaited<ReturnType<WebScaffold['whenTurnSettled']>> | undefined
     for (const [index, preset] of ['read-only', 'danger-full-access', 'workspace-write'].entries()) {
-      await input.fill(`/permission ${preset}`)
+      await writeComposerDraft(page, input, `/permission ${preset}`)
       await input.press('Enter')
       await page.getByRole('button', { name: `Access mode, current: ${PRESET_LABELS[index]}` })
         .waitFor({ timeout: 10_000 })
 
       const settled = scaffold.whenTurnSettled()
-      await input.fill(PROMPTS[index] as string)
+      await writeComposerDraft(page, input, PROMPTS[index] as string)
       await input.press('Enter')
       sessionId = await settled
-      await expect.poll(() => input.isEnabled(), { timeout: 10_000 }).toBe(true)
+      await input.waitFor({ timeout: 10_000 })
     }
 
-    await input.fill('/permission read-only')
+    await writeComposerDraft(page, input, '/permission read-only')
     await input.press('Enter')
     await page.getByRole('button', { name: 'Access mode, current: Read Only' }).waitFor({ timeout: 10_000 })
     const settled = scaffold.whenTurnSettled()
-    await input.fill(PROMPTS[3])
+    await writeComposerDraft(page, input, PROMPTS[3])
     await input.press('Enter')
     sessionId = await settled
 

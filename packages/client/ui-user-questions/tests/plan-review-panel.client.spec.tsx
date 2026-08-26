@@ -5,6 +5,7 @@ import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import {
   PendingQuestion, planReviewOf, type QuestionComposerProps, type QuestionWait,
 } from '../src/client/contract/slots.ts'
+import { createQuestionDraftStore } from '../src/client/draft-store.ts'
 import { QuestionComposer } from '../src/client/QuestionComposer.tsx'
 import { en, zh } from '../src/client/locales.ts'
 import { en as commonEn } from '@deepseek-ai/dsh-client-locale/src/locales/en.ts'
@@ -66,6 +67,7 @@ const chatState: ChatState = {
   order: emptyKeys,
   nodes: { get: () => undefined, values: () => [] },
   locations: { getTurn: () => emptyKeys, getStep: () => emptyKeys },
+  navigation: { items: () => [] },
   timeline: { turnOrder: [], turns: new Map() },
   legacy: {
     nodes: [],
@@ -92,6 +94,8 @@ const inputState: InputState = {
   queue: [],
 }
 
+const questionDraftStore = createQuestionDraftStore().create(SID)
+
 /** Framework standard-kit stubs: the panel consumes only the locale seat. */
 const kit: Omit<QuestionComposerProps, 'matched'> = {
   sessionId: SID,
@@ -113,6 +117,8 @@ const kit: Omit<QuestionComposerProps, 'matched'> = {
     pruneImages: () => { throw new Error('unused') },
     submit: () => { throw new Error('unused') },
   },
+  useStore: selector => selector(questionDraftStore.getSnapshot()),
+  actions: questionDraftStore.actions,
   t: seatOver(zh, commonZh),
 }
 

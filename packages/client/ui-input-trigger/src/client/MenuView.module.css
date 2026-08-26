@@ -95,6 +95,26 @@
   color: var(--dsw-alias-label-tertiary);
 }
 
+/* Trailing descent affordance on drillable rows (directories): a quiet
+   chevron that brightens on its own hover, separate from the row pick. */
+.drill {
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  margin-left: auto;
+  border-radius: 4px;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 14px;
+  line-height: 1;
+}
+
+.drill:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-primary);
+}
+
 /* Heading row above a source group: non-interactive small grey text,
  * padding aligned with items (mirrors ui-primitives Menu .label). */
 .groupTitle {

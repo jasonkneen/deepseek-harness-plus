@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
-import { createUserMessage, CallId } from '@deepseek-ai/dsh-llm'
+import { createUserMessage, ToolCallId } from '@deepseek-ai/dsh-llm'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime, { RUN_CODE_NAME, defineContentToolFixture } from '@deepseek-ai/dsh-tools'
 import { Session, SessionId, type UserMessage } from '@deepseek-ai/dsh-session'
@@ -151,7 +151,7 @@ function expectPlanCodeSdkBindings(sdk: string): void {
 let callCounter = 0
 function execute(ctx: Context, name: string, agent?: Agent) {
   return ctx.tools.execute({
-    callId: CallId(`call-${++callCounter}`),
+    callId: ToolCallId(`call-${++callCounter}`),
     name,
     arguments: {},
     signal: new AbortController().signal,
@@ -754,7 +754,7 @@ describe('exit_plan_mode', () => {
 
   function callExit(ctx: Context, agent: Agent | undefined, plan = '# The plan\n\ndo things') {
     return ctx.tools.execute({
-      callId: CallId(`call-exit-${++callCounter}`),
+      callId: ToolCallId(`call-exit-${++callCounter}`),
       name: EXIT_PLAN_MODE,
       arguments: { plan },
       signal: new AbortController().signal,
@@ -882,7 +882,7 @@ describe('exit_plan_mode', () => {
     const agent = await agentWithSession(ctx, 'code-mode-exit', { active: true })
 
     const result = await ctx.tools.execute({
-      callId: CallId(`call-exit-${++callCounter}`),
+      callId: ToolCallId(`call-exit-${++callCounter}`),
       name: RUN_CODE_NAME,
       arguments: { code: `return await tools.${EXIT_PLAN_MODE}({ plan: ${JSON.stringify(plan)} })`, description: 'Submit the plan for review' },
       signal: new AbortController().signal,
@@ -1032,7 +1032,7 @@ describe('exit_plan_mode', () => {
     const { ctx, agent, asked } = await setupWithReview({ selected: ['Approve'] })
     const controller = new AbortController()
     const result = await ctx.tools.execute({
-      callId: CallId(`call-exit-${++callCounter}`),
+      callId: ToolCallId(`call-exit-${++callCounter}`),
       name: EXIT_PLAN_MODE,
       arguments: { plan: '# P' },
       agent,

@@ -107,7 +107,7 @@ describe('web e2e: persisted subagent conversation and human continuation', () =
     const parent = scaffold.ctx.agents.roots()[0]
     if (parent === undefined) throw new Error('fresh workspace did not publish its parent Agent')
     const parentSettled = scaffold.whenTurnSettled()
-    const parentInput = page.locator('textarea:enabled').first()
+    const parentInput = page.locator('[data-composer-input][contenteditable="true"]').first()
     await parentInput.fill(PARENT_PROMPT)
     await parentInput.press('Enter')
     expect(await parentSettled).toBe(parent.id)
@@ -267,7 +267,7 @@ describe('web e2e: persisted subagent conversation and human continuation', () =
 
   it('keeps known descendants reachable across a stale empty catalog response', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-subagent-stale-catalog'))
-    const pattern = '**/api/subagent.list'
+    const pattern = '**/api/subagents/list'
     let firstClaimed = false
     let emptyDelivered = false
     let trailingRequested = false
@@ -373,7 +373,7 @@ describe('web e2e: persisted subagent conversation and human continuation', () =
 
   it('keeps a restored child neutral until its parent availability arrives', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-subagent-restore'))
-    const pattern = '**/api/subagent.list'
+    const pattern = '**/api/subagents/list'
     let requested = false
     let releaseCatalog = (): void => {}
     const catalogHeld = new Promise<void>((resolve) => { releaseCatalog = resolve })
@@ -526,7 +526,7 @@ describe('web e2e: persisted subagent conversation and human continuation', () =
     await sessions.getByRole('treeitem', { name: /Ask a research subagent to/ }).click()
     await page.getByRole('button', { name: '3 subagents' }).hover()
     await page.getByRole('treeitem', { name: new RegExp(LABEL) }).click()
-    await page.locator('textarea:enabled').first().waitFor()
+    await page.locator('[data-composer-input][contenteditable="true"]').first().waitFor()
     expect(scaffold.ctx.agents.get(childId)).toBeUndefined()
 
     const forkResponse = page.waitForResponse(response =>
@@ -543,10 +543,10 @@ describe('web e2e: persisted subagent conversation and human continuation', () =
     await sessions.getByRole('treeitem', { name: /Ask a research subagent to/ }).click()
     await page.getByRole('button', { name: '3 subagents' }).press('ArrowDown')
     await page.getByRole('treeitem', { name: new RegExp(LABEL) }).click()
-    const input = page.locator('textarea:enabled').first()
+    const input = page.locator('[data-composer-input][contenteditable="true"]').first()
     await input.waitFor()
     const promptResponse = page.waitForResponse(response =>
-      new URL(response.url()).pathname === '/api/subagent.prompt')
+      new URL(response.url()).pathname === '/api/subagents/prompt')
     await input.fill(POST_FORK_FOLLOWUP)
     await input.press('Enter')
     const promptReceipt = await (await promptResponse).json() as {

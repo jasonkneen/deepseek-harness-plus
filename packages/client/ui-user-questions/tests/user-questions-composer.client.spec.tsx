@@ -1,8 +1,10 @@
 // @vitest-environment jsdom
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { useSyncExternalStore } from 'react'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import { PendingQuestion, type QuestionComposerProps } from '../src/client/contract/slots.ts'
+import { createQuestionDraftStore } from '../src/client/draft-store.ts'
 import { QuestionComposer, parseRecommendedLabel } from '../src/client/QuestionComposer.tsx'
 import { en, zh } from '../src/client/locales.ts'
 import { en as commonEn } from '@deepseek-ai/dsh-client-locale/src/locales/en.ts'
@@ -64,6 +66,7 @@ const chatState: ChatState = {
   order: emptyKeys,
   nodes: { get: () => undefined, values: () => [] },
   locations: { getTurn: () => emptyKeys, getStep: () => emptyKeys },
+  navigation: { items: () => [] },
   timeline: { turnOrder: [], turns: new Map() },
   legacy: {
     nodes: [],
@@ -90,10 +93,10 @@ const inputState: InputState = {
   queue: [],
 }
 
-/** Framework standard-kit stubs: the composer consumes only the locale seat;
+/** Framework standard-kit stubs: the composer consumes the locale and draft-store seats;
  *  the composed props type mandates delivery of the rest (framework hooks are
  *  plain stubs per the client testing discipline). */
-const kit: Omit<QuestionComposerProps, 'matched'> = {
+const kitBase: Omit<QuestionComposerProps, 'matched' | 'useStore' | 'actions'> = {
   session: undefined,
   sessionId: SID,
   pendingInteraction: undefined,
@@ -116,6 +119,18 @@ const kit: Omit<QuestionComposerProps, 'matched'> = {
   // The seat's key domain is question ∪ common.
   t: seatOver(zh, commonZh),
 }
+
+let kit: Omit<QuestionComposerProps, 'matched'>
+
+beforeEach(() => {
+  const instance = createQuestionDraftStore().create(SID)
+  const useStore: QuestionComposerProps['useStore'] = selector => useSyncExternalStore(
+    listener => instance.subscribe(listener),
+    () => selector(instance.getSnapshot()),
+    () => selector(instance.getSnapshot()),
+  )
+  kit = { ...kitBase, useStore, actions: instance.actions }
+})
 
 const QUESTIONS: PendingQuestion['questions'] = [
   {
@@ -362,13 +377,21 @@ describe('QuestionComposer', () => {
     expect(screen.getByPlaceholderText('Type your answer')).toBeTruthy()
   })
 
-  it('keeps drafts when the same pending request rerenders', () => {
+  it('restores the current page and drafts after the strict Session entry remounts', () => {
     const pending = wait()
     const view = render(<QuestionComposer matched={pending.carrier} {...kit} />)
     fireEvent.click(screen.getByRole('radio', { name: /研究潜力型/ }))
+    const custom = screen.getByPlaceholderText('输入你的答案')
+    fireEvent.change(custom, { target: { value: '保留这段草稿' } })
     expect(screen.getByText('2 / 3')).toBeTruthy()
-    view.rerender(<QuestionComposer matched={pending.carrier} {...kit} />)
+
+    view.unmount()
+    render(<QuestionComposer matched={pending.carrier} {...kit} />)
+
     expect(screen.getByText('2 / 3')).toBeTruthy()
+    expect(screen.getByPlaceholderText<HTMLTextAreaElement>('输入你的答案').value).toBe('保留这段草稿')
+    fireEvent.click(screen.getByLabelText('上一题'))
+    expect(screen.getByRole('radio', { name: /研究潜力型/ }).getAttribute('aria-checked')).toBe('true')
   })
 })
 

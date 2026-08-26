@@ -6,7 +6,7 @@ import { Context } from '@deepseek-ai/cordis'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import { CompactionId } from '@deepseek-ai/dsh-compaction'
 import DeepSeekLlmApiExtensionRegistry from '@deepseek-ai/dsh-deepseek-llm-api-extensions'
-import LlmRuntime, { CallId, createUserMessage, GenerateOptions, LlmAdapter, StreamChunk } from '@deepseek-ai/dsh-llm'
+import LlmRuntime, { ToolCallId, createUserMessage, GenerateOptions, LlmAdapter, StreamChunk } from '@deepseek-ai/dsh-llm'
 import {
   type Config,
   type ReplayEntry,
@@ -101,6 +101,28 @@ describe('parseSessionLog', () => {
     const header = JSON.stringify({ type: 'session', version: 0, id: 's1', createdAt: 0 })
     const ev = chunkEvent(1, 1, 1, TEXT_CHUNKS[0] as StreamChunk)
     expect(parseSessionLog(`${header}\n\n${JSON.stringify(ev)}\n\n`)).toEqual([ev])
+  })
+
+  it('expands range-encoded source provenance', () => {
+    const header = JSON.stringify({ type: 'session', version: 0, id: 's1', createdAt: 0 })
+    const event = {
+      ...chunkEvent(4, 1, 1, TEXT_CHUNKS[0] as StreamChunk),
+      sourceEventSeqs: [[1, 3], 5],
+    }
+    expect(parseSessionLog(`${header}\n${JSON.stringify(event)}\n`)).toEqual([{
+      ...event,
+      sourceEventSeqs: [1, 2, 3, 5],
+    }])
+  })
+
+  it('reports malformed range provenance with its source line', () => {
+    const header = JSON.stringify({ type: 'session', version: 0, id: 's1', createdAt: 0 })
+    const event = {
+      ...chunkEvent(4, 1, 1, TEXT_CHUNKS[0] as StreamChunk),
+      sourceEventSeqs: [[3, 1]],
+    }
+    expect(() => parseSessionLog(`${header}\n${JSON.stringify(event)}\n`))
+      .toThrow('session snapshot line 2: sourceEventSeqs ranges require start <= end')
   })
 
   it('rejects non-object body rows with their source line', () => {
@@ -539,8 +561,8 @@ describe('installLlmReplay (through the real LlmRuntime)', () => {
     function scriptedCall(argumentsDelta: string): StreamChunk[] {
       return [
         { type: 'block-start', index: 0, blockType: 'tool-call' },
-        { type: 'tool-call-delta', index: 0, id: CallId('c1'), name: 'update_goal', argumentsDelta },
-        { type: 'block-end', index: 0, block: { type: 'tool-call', id: CallId('c1'), name: 'update_goal', arguments: argumentsDelta } },
+        { type: 'tool-call-delta', index: 0, id: ToolCallId('c1'), name: 'update_goal', argumentsDelta },
+        { type: 'block-end', index: 0, block: { type: 'tool-call', id: ToolCallId('c1'), name: 'update_goal', arguments: argumentsDelta } },
         { type: 'finish', reason: { kind: 'tool-calls' } },
       ]
     }
@@ -1189,7 +1211,7 @@ describe('installLlmReplay (per-session keying)', () => {
         index: 0,
         block: {
           type: 'tool-call',
-          id: CallId('send-child'),
+          id: ToolCallId('send-child'),
           name: 'send_message',
           arguments: '{"subagent_id":"{{session:2}}"}',
         },
@@ -1210,7 +1232,7 @@ describe('installLlmReplay (per-session keying)', () => {
         index: 0,
         block: {
           type: 'tool-call',
-          id: CallId('send-child'),
+          id: ToolCallId('send-child'),
           name: 'send_message',
           arguments: '{"subagent_id":"live-child"}',
         },

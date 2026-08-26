@@ -91,7 +91,7 @@ describe('web e2e: resident question composer round trip', () => {
     if (MODE !== 'record') {
       expect(fixtureUserPrompts(await readFile(FIXTURE, 'utf8'))).toEqual([PROMPT])
     }
-    const input = page.locator('textarea').first()
+    const input = page.locator('[data-composer-input]').first()
     await input.waitFor({ timeout: 10_000 })
     const settled = scaffold.whenTurnSettled(MODE === 'record' ? 180_000 : 30_000)
     await input.fill(PROMPT)
@@ -195,6 +195,21 @@ describe('web e2e: resident question composer round trip', () => {
     expect(await blue.getAttribute('aria-checked')).toBe('true')
     expect(await custom.inputValue()).toBe('Include accessibility notes')
     if (MODE !== 'record') {
+      // A strict Session-slot switch remounts the composer. Open a fresh blank
+      // Session, then return to the still-waiting request and require its
+      // Session-scoped store to restore both option and free-text drafts.
+      const originalRow = page.locator('[role="treeitem"]')
+        .filter({ hasText: 'Use the ask_user_question tool' }).first()
+      await page.getByRole('button', { name: 'New session', exact: true }).last().click()
+      await page.getByText('New Session', { exact: true }).waitFor({ timeout: 15_000 })
+      await expect.poll(() => composer.count(), { timeout: 10_000 }).toBe(0)
+      await originalRow.click()
+      await composer.waitFor({ timeout: 15_000 })
+      expect(await blue.getAttribute('aria-checked')).toBe('true')
+      expect(await custom.inputValue()).toBe('Include accessibility notes')
+
+      // This golden now owns the composed state after a real A -> B -> A
+      // Session cycle, not merely the state before the remount.
       const snapshot = await captureStableAria(page, '[data-question-key]', scaffold.workspaceCwd)
       await compareOrRefreshGolden(COMPOSED_EXPECTED, snapshot, MODE)
     }
@@ -220,7 +235,7 @@ describe('web e2e: resident question composer round trip', () => {
     // Composer gone; regular input restored.
     expect(await page.locator('[data-question-key]').count()).toBe(0)
     expect(await selectedRow.locator('[data-state="warning"]').count()).toBe(0)
-    await expect.poll(() => page.locator('textarea').first().isEnabled(), { timeout: 10_000 }).toBe(true)
+    await expect.poll(() => page.locator('[data-composer-input]').first().isEnabled(), { timeout: 10_000 }).toBe(true)
     // Golden of the answered transcript: the ask_user_question round trip
     // rendered as history (question tool row + DONE), composer takeover gone.
     const snapshot = await captureStableAria(page, '[class*="centerCol"]', scaffold.workspaceCwd)

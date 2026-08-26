@@ -1603,29 +1603,33 @@ describe('FixtureApiClient (protocol-level fake carrier)', () => {
     const moved = await workspaces.insertSessionBefore({ workspaceId: wsid, sessionId: attached.result.value.sessionId })
     if (!moved.result.ok) throw new Error('workspace move failed')
     expect(moved.result.value.workspace.sessionIds).toEqual([attached.result.value.sessionId])
-    // Goal lifecycle over the fixture fold: create → edit → pause → resume → complete → clear;
-    // every mutation acknowledges with the NEW CAS ref (state rides the projection frames).
-    const goalCreated = await client.goals.create({ sessionId: id, objective: 'ship it' })
-    if (!goalCreated.result.ok) throw new Error('goal create failed')
-    let ref = goalCreated.result.value.ref
-    expect(ref.revision).toBe(1)
-    const edited = await client.goals.edit({ sessionId: id, ref, objective: 'ship it v2' })
-    if (!edited.result.ok) throw new Error('goal edit failed')
-    ref = edited.result.value.ref
-    const paused = await client.goals.pause({ sessionId: id, ref })
-    if (!paused.result.ok) throw new Error('goal pause failed')
-    ref = paused.result.value.ref
-    const resumed = await client.goals.resume({ sessionId: id, ref })
-    if (!resumed.result.ok) throw new Error('goal resume failed')
-    ref = resumed.result.value.ref
+  })
+
+  it('folds the goal lifecycle over the Goal Remotes', async () => {
+    const client = new FixtureApiClient()
+    const sessions = createSessionClient(client.rpc)
+    const created = await sessions.create({})
+    if (!created.result.ok) throw new Error('create failed')
+    const id = created.result.value.sessionId
+    const goal = (endpoint: string, args: Record<string, unknown>) =>
+      client.rpc.call('/api', endpoint, { args: { agentId: id, ...args } })
+
+    // create → edit → pause → resume → complete → clear; each mutation advances the CAS
+    // revision by one (state rides the projection frames).
+    const goalCreated = await goal('goals/create', { request: { objective: 'ship it' } })
+    if (!goalCreated.ok) throw new Error('goal create failed')
+    const { id: goalId, revision } = (goalCreated.value as { ref: { id: string; revision: number } }).ref
+    expect(revision).toBe(1)
+    const ref = (at: number) => ({ id: goalId, revision: at })
+    expect((await goal('goals/edit', { ref: ref(1), request: { objective: 'ship it v2' } })).ok).toBe(true)
+    expect((await goal('goals/pause', { ref: ref(2) })).ok).toBe(true)
+    expect((await goal('goals/resume', { ref: ref(3) })).ok).toBe(true)
     // A stale ref loses the CAS check.
-    expect((await client.goals.pause({ sessionId: id, ref: { ...ref, revision: 1 } })).result.ok).toBe(false)
-    const completed = await client.goals.complete({ sessionId: id, ref })
-    if (!completed.result.ok) throw new Error('goal complete failed')
-    ref = completed.result.value.ref
+    expect((await goal('goals/pause', { ref: ref(1) })).ok).toBe(false)
+    expect((await goal('goals/complete', { ref: ref(4) })).ok).toBe(true)
     // complete → complete is an invalid transition.
-    expect((await client.goals.complete({ sessionId: id, ref })).result.ok).toBe(false)
-    expect((await client.goals.clear({ sessionId: id, ref })).result).toEqual({ ok: true, value: { cleared: true } })
+    expect((await goal('goals/complete', { ref: ref(5) })).ok).toBe(false)
+    expect(await goal('goals/clear', { ref: ref(5) })).toEqual({ ok: true, value: ref(6) })
 
     const goalHistory = await sessions.history({ sessionId: id })
     if (!goalHistory.result.ok) throw new Error('goal history failed')

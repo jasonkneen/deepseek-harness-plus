@@ -2,7 +2,8 @@
  * The `process` global the worker needs before any VFS module runs. Cordis
  * reads `process.env` and `process.versions.node` while the Loader is
  * constructed, and `cordis.yml` keeps its `!!js process.*` expressions, so the
- * configuration bytes stay identical to the Node deployment.
+ * configuration bytes stay identical to the Node deployment. Third-party Node
+ * packages use the presence of `process.title` to avoid browser-only globals.
  * @module @deepseek-ai/dsh-experimental-webworker-runtime/src/node/globals/process
  */
 import { requireActiveModuleLoader } from '../../module-system/module-loader.ts'
@@ -23,6 +24,8 @@ export interface ProcessShim {
   readonly env: Record<string, string>
   readonly argv: string[]
   readonly execArgv: string[]
+  /** Node process identity used by dependencies for environment detection. */
+  readonly title: string
   /**
    * Node 22 `process.getBuiltinModule`: the worker's module proxy for a
    * builtin id (`fs`, `node:fs`), or undefined for anything else — it never
@@ -86,6 +89,7 @@ export function installProcessGlobal(options: ProcessShimOptions): ProcessShim {
     env: { ...options.env },
     argv: [...(options.argv ?? ['node', 'dsh-webworker'])],
     execArgv: [],
+    title: 'dsh-webworker',
     platform: 'linux',
     arch: 'x64',
     pid: 1,

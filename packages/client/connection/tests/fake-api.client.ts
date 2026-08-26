@@ -69,19 +69,6 @@ export class FakeApiClient implements IApiClient {
 
   private readonly generationConns: StreamConn[] = []
 
-  readonly subagents: IApiClient['subagents'] = {
-    list: (payload: unknown) => this.record('subagent.list', payload, Promise.resolve(ok({
-      entries: [],
-      parentAvailable: true,
-    }))),
-    prompt: (payload: unknown) => this.record('subagent.prompt', payload, Promise.resolve(ok({
-      messageId: 'fake-message' as never,
-    }))),
-    interrupt: (payload: unknown) => this.record('subagent.interrupt', payload, Promise.resolve(ok({
-      accepted: true as const,
-    }))),
-  }
-
   readonly host: IApiClient['host'] = {
     describe: payload => this.record('host.describe', payload, this.onDescribe(payload)),
     pickDirectory: payload => this.record('host.pickDirectory', payload, this.onPickDirectory(payload)),
@@ -97,32 +84,12 @@ export class FakeApiClient implements IApiClient {
 
 
   readonly agentPresets: IApiClient['agentPresets'] = {
-    list: (payload: unknown) => this.record('agentPreset.list', payload, Promise.resolve(ok({ presets: [], authorable: false, hasDocument: false }))),
-    select: (payload: { agentPreset: string }) =>
-      this.record('agentPreset.select', payload, Promise.resolve(ok({ agentPreset: payload.agentPreset }))),
-    read: (payload: { agentPreset: string }) =>
-      this.record('agentPreset.read', payload, Promise.resolve(ok({
-        agentPreset: payload.agentPreset, trust: 'user' as const, content: '',
-      }))),
-    copy: (payload: { agentPreset: string }) =>
-      this.record('agentPreset.copy', payload, Promise.resolve(ok({ agentPreset: payload.agentPreset }))),
     openDocument: (payload: { agentPreset: string }) =>
       this.record('agentPreset.openDocument', payload, Promise.resolve(ok({ opened: true as const }))),
-    remove: (payload: { agentPreset: string }) =>
-      this.record('agentPreset.remove', payload, Promise.resolve(ok({}))),
   }
 
   readonly skills: IApiClient['skills'] = {
     list: (payload: unknown) => this.record('skill.list', payload, this.onSkillList(payload)),
-  }
-
-  readonly goals: IApiClient['goals'] = {
-    create: payload => this.record('goal.create', payload, Promise.resolve(ok({ ref: { id: 'fake-goal' as never, revision: 1 } }))),
-    edit: payload => this.record('goal.edit', payload, Promise.resolve(ok({ ref: { id: 'fake-goal' as never, revision: 1 } }))),
-    pause: payload => this.record('goal.pause', payload, Promise.resolve(ok({ ref: { id: 'fake-goal' as never, revision: 1 } }))),
-    resume: payload => this.record('goal.resume', payload, Promise.resolve(ok({ ref: { id: 'fake-goal' as never, revision: 1 } }))),
-    complete: payload => this.record('goal.complete', payload, Promise.resolve(ok({ ref: { id: 'fake-goal' as never, revision: 1 } }))),
-    clear: payload => this.record('goal.clear', payload, Promise.resolve(ok({ cleared: true as const }))),
   }
 
   readonly settings: IApiClient['settings'] = {

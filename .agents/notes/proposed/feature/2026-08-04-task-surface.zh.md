@@ -142,7 +142,7 @@ type SubmitTaskSurfaceResult =
 type GetActiveTaskSurfaceResult =
   | {
       active: true
-      callId: CallId
+      callId: ToolCallId
       surfaceId: TaskSurfaceId
       model: TaskSurfaceModelV1
       pending: TaskSurfacePendingSubmission | null
@@ -166,7 +166,7 @@ Host 解析出 `show_task_surface` 的确切成功调用实例，依据其已持
 interface TaskSurfaceCorrelation {
   version: 1
   submissionId: TaskSurfaceSubmissionId
-  callId: CallId
+  callId: ToolCallId
   surfaceId: TaskSurfaceId
   values: Record<string, JsonValue>
 }
@@ -210,7 +210,7 @@ Task Surface 服务将已接受提交的协调状态记录为 `pending.phase: 'q
 
 ```ts ignore-check
 interface TaskSurfaceProjection {
-  active: { callId: CallId; surfaceId: TaskSurfaceId } | null
+  active: { callId: ToolCallId; surfaceId: TaskSurfaceId } | null
 }
 ```
 

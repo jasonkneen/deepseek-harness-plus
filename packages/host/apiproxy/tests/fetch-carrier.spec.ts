@@ -7,31 +7,6 @@ import { AbstractApiClient, InProcessApiClient } from '../src/fetch/client.ts'
 /** Minimal in-memory ApiProxy that echoes rpcIds. */
 function fakeApi(overrides: Partial<{ crashOn: string }> = {}): ApiProxy {
   return {
-    subagents: {
-      async list(request) {
-        return { rpcId: request.rpcId, result: { ok: true, value: { entries: [], parentAvailable: false } } }
-      },
-      async prompt(request, signal) {
-        if (request.payload.content.some(block => block.type === 'text' && block.text === 'hang')) {
-          if (!signal.aborted) {
-            await new Promise<void>((resolve) => {
-              signal.addEventListener('abort', () => { resolve() }, { once: true })
-            })
-          }
-          return {
-            rpcId: request.rpcId,
-            result: { ok: false, error: { code: 'cancelled' as const, message: 'aborted', details: {} } },
-          }
-        }
-        return {
-          rpcId: request.rpcId,
-          result: { ok: true, value: { messageId: 'message-1' as never } },
-        }
-      },
-      async interrupt(request) {
-        return { rpcId: request.rpcId, result: { ok: true, value: { accepted: true as const } } }
-      },
-    },
     host: {
       async describe(request) {
         if (overrides.crashOn === 'host.describe') throw new Error('impl crashed')
@@ -57,54 +32,13 @@ function fakeApi(overrides: Partial<{ crashOn: string }> = {}): ApiProxy {
       },
     },
     agentPresets: {
-      list(request: RpcRequest<{}>) {
-        return Promise.resolve({
-          rpcId: request.rpcId,
-          result: { ok: true as const, value: { presets: [], authorable: false, hasDocument: false } },
-        })
-      },
-      select(request: RpcRequest<{ agentPreset: string }>) {
-        const value = { agentPreset: request.payload.agentPreset }
-        return Promise.resolve({ rpcId: request.rpcId, result: { ok: true as const, value } })
-      },
-      read(request: RpcRequest<{ agentPreset: string }>) {
-        const value = { agentPreset: request.payload.agentPreset, trust: 'user' as const, content: '' }
-        return Promise.resolve({ rpcId: request.rpcId, result: { ok: true as const, value } })
-      },
-      copy(request: RpcRequest<{ from: string; agentPreset: string }>) {
-        const value = { agentPreset: request.payload.agentPreset }
-        return Promise.resolve({ rpcId: request.rpcId, result: { ok: true as const, value } })
-      },
       openDocument(request: RpcRequest<{ agentPreset: string }>) {
         return Promise.resolve({ rpcId: request.rpcId, result: { ok: true as const, value: { opened: true as const } } })
-      },
-      remove(request: RpcRequest<{ agentPreset: string }>) {
-        return Promise.resolve({ rpcId: request.rpcId, result: { ok: true as const, value: {} } })
       },
     },
     skills: {
       async list(request) {
         return { rpcId: request.rpcId, result: { ok: true, value: { skills: [{ name: 'commit-helper', description: 'Git commits', modelInvocable: true }] } } }
-      },
-    },
-    goals: {
-      async create(request) {
-        return { rpcId: request.rpcId, result: { ok: false, error: { code: 'internal', message: 'stub', details: {} } } }
-      },
-      async edit(request) {
-        return { rpcId: request.rpcId, result: { ok: false, error: { code: 'internal', message: 'stub', details: {} } } }
-      },
-      async pause(request) {
-        return { rpcId: request.rpcId, result: { ok: false, error: { code: 'internal', message: 'stub', details: {} } } }
-      },
-      async resume(request) {
-        return { rpcId: request.rpcId, result: { ok: false, error: { code: 'internal', message: 'stub', details: {} } } }
-      },
-      async complete(request) {
-        return { rpcId: request.rpcId, result: { ok: false, error: { code: 'internal', message: 'stub', details: {} } } }
-      },
-      async clear(request) {
-        return { rpcId: request.rpcId, result: { ok: false, error: { code: 'internal', message: 'stub', details: {} } } }
       },
     },
     settings: {
@@ -182,26 +116,12 @@ describe('unary round trip (handler ⇄ client, no network)', () => {
     if (!response.result.ok) expect(response.result.error.code).toBe('settings-rejected')
   })
 
-  it('round-trips every agent-preset method, authoring included', async () => {
-    const c = client()
-
-    // The whole domain crosses the carrier: the roster a picker reads, the
-    // per-session switch, and the authoring calls the settings page makes.
-    // Each has its own request schema, so a registration missing from either
-    // half fails here rather than in the browser.
-    expect((await c.agentPresets.list({})).result).toEqual({
-      ok: true, value: { presets: [], authorable: false, hasDocument: false },
-    })
-    expect((await c.agentPresets.select({ sessionId: 's' as never, agentPreset: 'minimal' })).result)
-      .toEqual({ ok: true, value: { agentPreset: 'minimal' } })
-    expect((await c.agentPresets.read({ agentPreset: 'mine' })).result).toEqual({
-      ok: true, value: { agentPreset: 'mine', trust: 'user', content: '' },
-    })
-    expect((await c.agentPresets.copy({ from: 'standard', agentPreset: 'mine' })).result)
-      .toEqual({ ok: true, value: { agentPreset: 'mine' } })
-    expect((await c.agentPresets.openDocument({ agentPreset: 'mine' })).result)
+  it('round-trips the agent-preset document opener', async () => {
+    // The opener is the domain's whole carried surface: its request schema is
+    // registered in both halves, so a missing registration fails here rather
+    // than in the browser.
+    expect((await client().agentPresets.openDocument({ agentPreset: 'mine' })).result)
       .toEqual({ ok: true, value: { opened: true } })
-    expect((await c.agentPresets.remove({ agentPreset: 'mine' })).result).toEqual({ ok: true, value: {} })
   })
 
   it('round-trips the native picker without the default unary timeout', async () => {
@@ -276,23 +196,6 @@ describe('unary round trip (handler ⇄ client, no network)', () => {
     }
   })
 
-  it('round-trips the subagent domain through the wire form', async () => {
-    const c = client()
-    expect((await c.subagents.list({ parentSessionId: 'parent' as never })).result)
-      .toEqual({ ok: true, value: { entries: [], parentAvailable: false } })
-    expect((await c.subagents.prompt({
-      parentSessionId: 'parent' as never,
-      childSessionId: 'child' as never,
-      mode: 'continuable',
-      content: [],
-    })).result).toEqual({ ok: true, value: { messageId: 'message-1' } })
-    expect((await c.subagents.interrupt({
-      parentSessionId: 'parent' as never,
-      childSessionId: 'child' as never,
-      mode: 'continuable',
-    })).result).toEqual({ ok: true, value: { accepted: true } })
-  })
-
   it('keeps caller and connection aborts on a deadline-exempt unary', async () => {
     const api = fakeApi()
     const started = Promise.withResolvers<AbortSignal>()
@@ -316,34 +219,6 @@ describe('unary round trip (handler ⇄ client, no network)', () => {
 
     await expect(execution).rejects.toThrow('connection closed')
     expect(handlerSignal.aborted).toBe(true)
-  })
-
-  it('propagates the carrier Request signal into subagent.prompt', async () => {
-    const handler = toFetchHandler(fakeApi())
-    const controller = new AbortController()
-    const body = JSON.stringify({
-      type: 'client-request',
-      rpcId: 'r-subagent-sig',
-      method: 'subagent.prompt',
-      payload: {
-        parentSessionId: 'parent',
-        childSessionId: 'child',
-        mode: 'continuable',
-        content: [{ type: 'text', text: 'hang' }],
-      },
-    })
-    const pending = handler.fetch(new Request(
-      'http://x/api/subagent.prompt',
-      { method: 'POST', headers: { 'content-type': 'application/json' }, body, signal: controller.signal },
-    ))
-    controller.abort()
-    const response = await pending
-    const parsed = await response.json() as {
-      rpcId: string
-      result: { error?: { code: string } }
-    }
-    expect(parsed.rpcId).toBe('r-subagent-sig')
-    expect(parsed.result.error?.code).toBe('cancelled')
   })
 
   it('propagates the carrier Request signal into host.pickDirectory', async () => {

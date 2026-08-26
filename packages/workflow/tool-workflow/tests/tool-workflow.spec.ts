@@ -10,7 +10,7 @@ import type {
   WorkflowAgentEndInfo, WorkflowAgentInfo, WorkflowResult, WorkflowRun,
   WorkflowRunId as WorkflowRunIdType, WorkflowStartRequest,
 } from '@deepseek-ai/dsh-workflow'
-import { CallId } from '@deepseek-ai/dsh-llm'
+import { ToolCallId } from '@deepseek-ai/dsh-llm'
 import SubagentRuntime from '@deepseek-ai/dsh-subagent'
 import WorkerThreadWorkflowEngine from '@deepseek-ai/dsh-workflow-worker-thread'
 import * as toolWorkflow from '../src/index.ts'
@@ -96,7 +96,7 @@ function execute(ctx: Context, args: unknown, extra?: {
 }): Promise<ToolExecutionResult> {
   return ctx.tools.execute({
     signal: testToolSignal,
-    callId: CallId('call-1'),
+    callId: ToolCallId('call-1'),
     name: 'workflow',
     arguments: args,
     ...extra?.agent ? { agent: extra.agent } : {},

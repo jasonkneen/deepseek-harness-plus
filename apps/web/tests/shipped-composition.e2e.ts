@@ -7,7 +7,7 @@ import { readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { fileURLToPath } from 'node:url'
 import { afterEach, expect, it } from 'vitest'
-import { CallId } from '@deepseek-ai/dsh-llm'
+import { ToolCallId } from '@deepseek-ai/dsh-llm'
 import { canonicalPath, writableRoots } from '@deepseek-ai/dsh-sandbox'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import { settingsNamespace } from '@deepseek-ai/dsh-settings'
@@ -207,7 +207,7 @@ it('lets a preset producer reach the background-job registry', async () => {
     // fails here — with every task control still listed in the catalog above.
     const started = await ctx.tools.execute({
       signal,
-      callId: CallId('shipped-bash-background'),
+      callId: ToolCallId('shipped-bash-background'),
       name: 'bash',
       arguments: {
         command: 'printf SHIPPED_BACKGROUND_OK',
@@ -225,7 +225,7 @@ it('lets a preset producer reach the background-job registry', async () => {
     // owner. A per-preset registry would list nothing here even on success.
     const listed = await ctx.tools.execute({
       signal,
-      callId: CallId('shipped-task-list'),
+      callId: ToolCallId('shipped-task-list'),
       name: 'job_list',
       arguments: {},
       agent: handle.agent,
@@ -239,7 +239,7 @@ it('lets a preset producer reach the background-job registry', async () => {
     // through a preset-plane control, which is the linkage the realm severed.
     const collected = await ctx.tools.execute({
       signal,
-      callId: CallId('shipped-task-output'),
+      callId: ToolCallId('shipped-task-output'),
       name: 'job_output',
       arguments: { job_id: 'bash-1', wait: true },
       agent: handle.agent,

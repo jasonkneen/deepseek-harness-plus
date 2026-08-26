@@ -91,7 +91,7 @@ describe.skipIf(MODE === 'record')('web e2e: details panel follows the current S
   it('starts and reloads closed, then stays closed across Session ownership changes', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-details-session-lifecycle'))
     const settled = scaffold.whenTurnSettled()
-    const input = page.locator('textarea').first()
+    const input = page.locator('[data-composer-input]').first()
     await input.fill(PROMPT)
     await input.press('Enter')
     await settled

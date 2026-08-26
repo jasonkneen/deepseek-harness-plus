@@ -110,6 +110,22 @@ export function MenuView({ menu, onPick, onDismiss, t }: MenuViewProps) {
                         {item.icon !== undefined && <span className={css.itemIcon} aria-hidden>{item.icon}</span>}
                         <span className={css.itemName}>{item.name}</span>
                         {item.description !== undefined && <span className={css.itemDescription}>{item.description}</span>}
+                        {item.drill === true && (
+                          <span
+                            role="button"
+                            aria-label={t('drill.aria')}
+                            className={css.drill}
+                            // mousedown so the composer keeps focus, same as the row;
+                            // stopPropagation keeps the row's settling pick out of it.
+                            onMouseDown={(ev) => {
+                              ev.preventDefault()
+                              ev.stopPropagation()
+                              onPick(group.source, index, 'drill')
+                            }}
+                          >
+                            ›
+                          </span>
+                        )}
                       </button>
                     </Fragment>
                   )

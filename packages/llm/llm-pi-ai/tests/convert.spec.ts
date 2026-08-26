@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { AttachmentId, ImageVariantId } from '@deepseek-ai/dsh-attachment'
 import type { AttachmentStore, ImageAttachmentRef, ImageRequestPolicy, RequestImageAttachment } from '@deepseek-ai/dsh-attachment'
-import { createUserMessage, CallId, CONTEXT_WINDOW_EXCEEDED_CODE, EMPTY_RESPONSE_CODE, createMessage } from '@deepseek-ai/dsh-llm'
+import { createUserMessage, ToolCallId, CONTEXT_WINDOW_EXCEEDED_CODE, EMPTY_RESPONSE_CODE, createMessage } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, StreamChunk } from '@deepseek-ai/dsh-llm'
 import type { AssistantMessage, AssistantMessageEvent, Usage } from '@earendil-works/pi-ai'
 import { toPiContext } from '../src/context.ts'
@@ -148,14 +148,14 @@ describe('toPiContext', () => {
       messages: [createUserMessage({
         content: [{
           type: 'tool-result',
-          toolCallId: CallId('outer'),
+          toolCallId: ToolCallId('outer'),
           content: [
-            { type: 'tool-result', toolCallId: CallId('empty'), content: [] },
+            { type: 'tool-result', toolCallId: ToolCallId('empty'), content: [] },
             { type: 'text', text: 'before' },
-            { type: 'tool-result', toolCallId: CallId('text'), content: [{ type: 'text', text: 'middle' }] },
+            { type: 'tool-result', toolCallId: ToolCallId('text'), content: [{ type: 'text', text: 'middle' }] },
             {
               type: 'tool-result',
-              toolCallId: CallId('inner'),
+              toolCallId: ToolCallId('inner'),
               content: [
                 { type: 'image', attachment },
                 { type: 'text', text: 'after' },
@@ -208,7 +208,7 @@ describe('toPiContext', () => {
         content: [
           { type: 'reasoning', text: 'hmm' },
           { type: 'text', text: 'calling' },
-          { type: 'tool-call', id: CallId('c1'), name: 'f', arguments: '{"a":1}' },
+          { type: 'tool-call', id: ToolCallId('c1'), name: 'f', arguments: '{"a":1}' },
         ],
         source: { kind: 'plugin', plugin: 'test' },
       })],
@@ -259,7 +259,7 @@ describe('toPiContext', () => {
       model: 'm',
       messages: [createMessage({
         role: 'assistant',
-        content: [{ type: 'tool-call', id: CallId('c1'), name: 'f', arguments: '{broken' }],
+        content: [{ type: 'tool-call', id: ToolCallId('c1'), name: 'f', arguments: '{broken' }],
         source: { kind: 'plugin', plugin: 'test' },
       })],
     })
@@ -273,7 +273,7 @@ describe('toPiContext', () => {
       model: 'm',
       messages: [createMessage({
         role: 'assistant',
-        content: [{ type: 'tool-call', id: CallId('c1'), name: 'f', arguments: '[1,2]' }],
+        content: [{ type: 'tool-call', id: ToolCallId('c1'), name: 'f', arguments: '[1,2]' }],
         source: { kind: 'plugin', plugin: 'test' },
       })],
     })
@@ -287,16 +287,16 @@ describe('toPiContext', () => {
       messages: [
         createMessage({
           role: 'assistant',
-          content: [{ type: 'tool-call', id: CallId('c1'), name: 'get_weather', arguments: '{}' }],
+          content: [{ type: 'tool-call', id: ToolCallId('c1'), name: 'get_weather', arguments: '{}' }],
           source: { kind: 'plugin', plugin: 'test' },
         }),
         createUserMessage({
           content: [{
             type: 'tool-result',
-            toolCallId: CallId('c1'),
+            toolCallId: ToolCallId('c1'),
             content: [
               { type: 'text', text: 'Sunny' },
-              { type: 'tool-result', toolCallId: CallId('nested'), content: [{ type: 'text', text: '!' }] },
+              { type: 'tool-result', toolCallId: ToolCallId('nested'), content: [{ type: 'text', text: '!' }] },
               { type: 'chart', data: 'ignored' } as unknown as ContentBlock,
             ],
           }],
@@ -319,7 +319,7 @@ describe('toPiContext', () => {
       provider: 'deepseek',
       model: 'm',
       messages: [createUserMessage({
-        content: [{ type: 'tool-result', toolCallId: CallId('zz'), content: [], isError: true }],
+        content: [{ type: 'tool-result', toolCallId: ToolCallId('zz'), content: [], isError: true }],
         source: { kind: 'plugin', plugin: 'test' },
       })],
     })
@@ -343,7 +343,7 @@ describe('toPiContext', () => {
         createUserMessage({
           content: [
             { type: 'text', text: 'note' },
-            { type: 'tool-result', toolCallId: CallId('c1'), content: [{ type: 'text', text: 'ok' }] },
+            { type: 'tool-result', toolCallId: ToolCallId('c1'), content: [{ type: 'text', text: 'ok' }] },
           ],
           source: { kind: 'plugin', plugin: 'test' },
         }),
@@ -390,7 +390,7 @@ describe('toPiContext', () => {
         content: [
           { type: 'reasoning', text: 'private reasoning' },
           { type: 'text', text: 'calling' },
-          { type: 'tool-call', id: CallId('c1'), name: 'f', arguments: '{"a":1}' },
+          { type: 'tool-call', id: ToolCallId('c1'), name: 'f', arguments: '{"a":1}' },
         ],
         source: {
           kind: 'model',
@@ -431,7 +431,7 @@ describe('toPiContext', () => {
         content: [
           { type: 'reasoning', text: 'private reasoning' },
           { type: 'text', text: 'calling' },
-          { type: 'tool-call', id: CallId('c1'), name: 'f', arguments: '{"a":1}' },
+          { type: 'tool-call', id: ToolCallId('c1'), name: 'f', arguments: '{"a":1}' },
         ],
         source: {
           kind: 'model',

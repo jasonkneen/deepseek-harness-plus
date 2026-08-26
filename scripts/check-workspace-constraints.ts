@@ -160,8 +160,12 @@ const packageFileExtras: Readonly<Record<string, readonly string[]>> = {
   // sandbox-local resolves it through the package's ./runner export. tsdown
   // also shares its generated FFI code through a hashed runtime chunk.
   '@deepseek-ai/dsh-sandbox-windows-acl': ['lib/runner.js', 'lib/types-*.js'],
-  // SQLite loads every statement from immutable package resources at runtime.
-  '@deepseek-ai/dsh-session-persistence-sqlite': ['resources/sql/**/*.sql'],
+  // SQLite loads its compression dictionary and every statement from immutable
+  // package resources at runtime.
+  '@deepseek-ai/dsh-session-persistence-sqlite': [
+    'resources/zstd-dictionary.bin',
+    'resources/sql/**/*.sql',
+  ],
   '@deepseek-ai/dsh-skill-badge': ['assets'],
   // tsdown shares the repository/pack code between the lib entry and the bin
   // through a hashed chunk. The committed bin.js is the link target pnpm can
@@ -174,7 +178,7 @@ function sameStringList(actual: readonly string[] | undefined, expected: readonl
   return !!actual && actual.length === expected.length && actual.every((value, index) => value === expected[index])
 }
 
-function expectedDshPackageFiles(manifest: PackageManifest): readonly string[] {
+export function expectedDshPackageFiles(manifest: PackageManifest): readonly string[] {
   const declaredPatch = manifest.dsh?.bundle?.patch
   const bundleFiles = declaredPatch === undefined ? [] : [declaredPatch.replace(/^\.\//, '')]
   const extras = [

@@ -4,14 +4,14 @@
  * @module @deepseek-ai/dsh-tools/types
  */
 
-import type { CallId } from '@deepseek-ai/dsh-llm/brand'
+import type { ToolCallId } from '@deepseek-ai/dsh-llm/brand'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm/types'
 
 /** Payload recorded when one nested Code Mode Tool dispatch starts. */
 export interface CodeDispatchStartEventData {
-  rootCallId: CallId
-  parentCallId: CallId
-  subCallId: CallId
+  rootCallId: ToolCallId
+  parentCallId: ToolCallId
+  subCallId: ToolCallId
   name: string
   arguments: unknown
 }

@@ -70,7 +70,7 @@ interface ApprovalRequest extends ApprovalRequestEvent {
    * The exact tool call being decided, when the asker has one — lets a UI
    * attach the prompt to the tool call it already streamed.
    */
-  readonly callId?: CallId
+  readonly callId?: ToolCallId
   /** The asker's human-readable explanation of WHY it is asking. */
   readonly reason?: string
   /**

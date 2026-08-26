@@ -6,11 +6,8 @@
  */
 
 import { describe, expect, it, vi } from 'vitest'
-import type { SessionId } from '@deepseek-ai/dsh-session'
-import type { ApiProxy, GoalRef, RpcMessage, RpcRequest, RpcResponse } from '@deepseek-ai/dsh-host-apiproxy'
+import type { ApiProxy, RpcMessage, RpcRequest, RpcResponse } from '@deepseek-ai/dsh-host-apiproxy'
 import { InProcessApiClient, RpcId, toFetchHandler } from '@deepseek-ai/dsh-host-apiproxy'
-
-const sid = (id: string): SessionId => id as SessionId
 
 function ok<T>(request: RpcRequest<unknown>, value: T): Promise<RpcResponse<T>> {
   return Promise.resolve({ rpcId: request.rpcId, result: { ok: true, value } })
@@ -18,11 +15,9 @@ function ok<T>(request: RpcRequest<unknown>, value: T): Promise<RpcResponse<T>> 
 
 /** Scripted impl: every method resolves an empty-ish OK unless a case overrides it. */
 function scriptedApi(overrides: {
-  subagents?: Partial<ApiProxy['subagents']>
   host?: Partial<ApiProxy['host']>
   skills?: Partial<ApiProxy['skills']>
   agentPresets?: Partial<ApiProxy['agentPresets']>
-  goals?: Partial<ApiProxy['goals']>
   settings?: Partial<ApiProxy['settings']>
   credentials?: Partial<ApiProxy['credentials']>
   llm?: Partial<ApiProxy['llm']>
@@ -30,12 +25,6 @@ function scriptedApi(overrides: {
   const err = <T>(r: RpcRequest<unknown>): Promise<RpcResponse<T>> =>
     Promise.resolve({ rpcId: r.rpcId, result: { ok: false, error: { code: 'internal' as const, message: 'stub', details: {} } } })
   return {
-    subagents: {
-      list: r => ok(r, { entries: [], parentAvailable: false }),
-      prompt: r => ok(r, { messageId: 'message-1' as never }),
-      interrupt: r => ok(r, { accepted: true as const }),
-      ...overrides.subagents,
-    },
     host: {
       describe: r => ok(r, {
         version: '0-test', cwd: '/t', attachedSessions: 0, home: '/h', canOpenPath: true,
@@ -48,22 +37,8 @@ function scriptedApi(overrides: {
     },
     skills: { list: r => ok(r, { skills: [] }), ...overrides.skills },
     agentPresets: {
-      list: r => ok(r, { presets: [], authorable: false, hasDocument: false }),
-      select: r => ok(r, { agentPreset: r.payload.agentPreset }),
-      read: r => ok(r, { agentPreset: r.payload.agentPreset, trust: 'user' as const, content: '' }),
-      copy: r => ok(r, { agentPreset: r.payload.agentPreset }),
       openDocument: r => ok(r, { opened: true as const }),
-      remove: r => ok(r, {}),
       ...overrides.agentPresets,
-    },
-    goals: {
-      create: err,
-      edit: err,
-      pause: err,
-      resume: err,
-      complete: err,
-      clear: err,
-      ...overrides.goals,
     },
     settings: {
       describe: r => ok(r, { writable: true, hasDocument: false, namespaces: [] }),
@@ -125,16 +100,9 @@ describe('unary round trip', () => {
     expect(response.result).toMatchObject({ ok: true, value: { version: '0-test' } })
   })
 
-  it('routes the agent-preset roster and switch through the wire', async () => {
-    const c = client(scriptedApi())
-
-    const listed = await c.agentPresets.list({})
-    expect(listed.result).toEqual({ ok: true, value: { presets: [], authorable: false, hasDocument: false } })
-
-    // The switch carries the session it is about: the host refuses one whose
-    // conversation has started, and it can only know which by id.
-    const selected = await c.agentPresets.select({ sessionId: sid('s1'), agentPreset: 'standard' })
-    expect(selected.result).toEqual({ ok: true, value: { agentPreset: 'standard' } })
+  it('routes the agent-preset document opener through the wire', async () => {
+    const opened = await client(scriptedApi()).agentPresets.openDocument({ agentPreset: 'mine' })
+    expect(opened.result).toEqual({ ok: true, value: { opened: true } })
   })
 
   it('passes business errors through as 200 + err result, not a throw', async () => {
@@ -160,32 +128,6 @@ describe('unary round trip', () => {
       },
     })
     await expect(client(api).host.describe({})).rejects.toThrow(/rpcId mismatch/)
-  })
-
-  it('round-trips subagent.interrupt and rejects a one-shot or incomplete address', async () => {
-    const interrupt = vi.fn((r: RpcRequest<unknown>) => ok(r, { accepted: true as const }))
-    const api = scriptedApi({ subagents: { interrupt } })
-    const c = client(api)
-
-    const accepted = await c.subagents.interrupt({
-      parentSessionId: sid('parent'), childSessionId: sid('child'), mode: 'continuable',
-    })
-    expect(accepted.result).toEqual({ ok: true, value: { accepted: true } })
-    expect(interrupt).toHaveBeenCalledTimes(1)
-
-    // The wire schema owns the mode fence: a one-shot address never reaches the impl.
-    const oneShot = await c.subagents.interrupt({
-      parentSessionId: sid('parent'), childSessionId: sid('child'), mode: 'one-shot',
-    } as never)
-    expect(oneShot.result.ok).toBe(false)
-    if (!oneShot.result.ok) expect(oneShot.result.error.code).toBe('bad-request')
-
-    const incomplete = await c.subagents.interrupt({
-      parentSessionId: sid('parent'), mode: 'continuable',
-    } as never)
-    expect(incomplete.result.ok).toBe(false)
-    if (!incomplete.result.ok) expect(incomplete.result.error.code).toBe('bad-request')
-    expect(interrupt).toHaveBeenCalledTimes(1)
   })
 
   it('rejects a method/path mismatch as bad-request', async () => {
@@ -306,63 +248,6 @@ describe('unary round trip', () => {
       host: { describe: request => Promise.resolve({ rpcId: request.rpcId, result: { ok: true, value: { version: 1 } } }) as never },
     })
     await expect(client(api).host.describe({})).rejects.toThrow()
-  })
-})
-
-describe('goals unary surface', () => {
-  const ref: GoalRef = { id: 'goal-1' as GoalRef['id'], revision: 1 }
-  /** The `{ ref }` acknowledgement every non-clear mutation answers (state travels on the projection). */
-  const ack = { ref: { id: 'goal-1' as GoalRef['id'], revision: 2 } }
-
-  it('round-trips every goal method with its own payload and value shape', async () => {
-    const seen: { method: string; payload: unknown }[] = []
-    const record = recorderInto(seen)
-    const api = scriptedApi({
-      goals: {
-        create: record('goal.create', r => ok(r, ack)),
-        edit: record('goal.edit', r => ok(r, { ref: { ...ack.ref, revision: 3 } })),
-        pause: record('goal.pause', r => ok(r, ack)),
-        resume: record('goal.resume', r => ok(r, ack)),
-        complete: record('goal.complete', r => ok(r, ack)),
-        clear: record('goal.clear', r => ok(r, { cleared: true as const })),
-      },
-    })
-    const c = client(api)
-
-    const created = await c.goals.create({ sessionId: sid('s1'), objective: 'ship it', maxGoalRounds: 4 })
-    expect(created.result).toEqual({ ok: true, value: ack })
-    const edited = await c.goals.edit({ sessionId: sid('s1'), ref, objective: 'ship v2' })
-    expect(edited.result).toEqual({ ok: true, value: { ref: { ...ack.ref, revision: 3 } } })
-    expect((await c.goals.pause({ sessionId: sid('s1'), ref })).result).toEqual({ ok: true, value: ack })
-    expect((await c.goals.resume({ sessionId: sid('s1'), ref })).result).toEqual({ ok: true, value: ack })
-    expect((await c.goals.complete({ sessionId: sid('s1'), ref })).result).toEqual({ ok: true, value: ack })
-    const cleared = await c.goals.clear({ sessionId: sid('s1'), ref })
-    expect(cleared.result).toEqual({ ok: true, value: { cleared: true } })
-
-    // The handler dispatched each call through its own route row: payload parsed per method.
-    expect(seen.map(s => s.method)).toEqual(['goal.create', 'goal.edit', 'goal.pause', 'goal.resume', 'goal.complete', 'goal.clear'])
-    expect(seen[0]?.payload).toEqual({ sessionId: 's1', objective: 'ship it', maxGoalRounds: 4 })
-    expect(seen[1]?.payload).toEqual({ sessionId: 's1', ref, objective: 'ship v2' })
-  })
-
-  it('passes business errors through as results, not throws', async () => {
-    // Default scripted goals impl answers an err result: it must arrive as a result, not a throw.
-    const failed = await client(scriptedApi()).goals.pause({ sessionId: sid('s1'), ref })
-    expect(failed.result.ok).toBe(false)
-    if (!failed.result.ok) expect(failed.result.error.code).toBe('internal')
-  })
-
-  it('rejects an invalid goal payload at the handler as bad-request', async () => {
-    const response = await client(scriptedApi()).goals.create({ sessionId: sid('s1'), objective: '' })
-    expect(response.result.ok).toBe(false)
-    if (!response.result.ok) expect(response.result.error.code).toBe('bad-request')
-
-    let editCalls = 0
-    const api = scriptedApi({ goals: { edit: (r) => { editCalls++; return ok(r, ack) } } })
-    const emptyEdit = await client(api).goals.edit({ sessionId: sid('s1'), ref })
-    expect(emptyEdit.result.ok).toBe(false)
-    if (!emptyEdit.result.ok) expect(emptyEdit.result.error.code).toBe('bad-request')
-    expect(editCalls).toBe(0)
   })
 })
 

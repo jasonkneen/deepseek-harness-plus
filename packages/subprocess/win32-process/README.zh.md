@@ -1,9 +1,27 @@
+---
+description: "面向实现或排查 Windows ACL 沙箱的维护者，说明底层 Win32 进程原语。"
+kind: "package-library"
+---
+
 # @deepseek-ai/dsh-win32-process
 
 [English](README.md) | 中文
 
-供 Windows ACL 沙箱消费的底层 Win32 进程库。它唯一拥有仓库中可复用 restricted-process、stdio 与 Job Object 操作的 Koffi 绑定表；它不是 Cordis 服务，也不决定沙箱策略或公共 child 行为。
+## 概述
 
+供 Windows ACL 沙箱消费的底层 Win32 进程库。它唯一拥有仓库中可复用 restricted-process、stdio 与 Job Object 操作的 Koffi 绑定表；它不是 Cordis 服务，也不决定沙箱策略或公共 child 行为。维护沙箱原生进程路径或检查 handle 生命周期限制时，请阅读本页。
+
+## 目录
+
+- [Behavior](#behavior)
+- [头部验证](#header-verification)
+- [Model Experience](#model-experience)
+- [Known Limitations and Deferred Work](#known-limitations-and-deferred-work)
+- [开发备注](#dev-note)
+
+-----
+
+<a id="behavior"></a>
 ## Behavior
 
 - **唯一可复用 ABI owner** — `abi.ts` 拥有 sandbox process 路径消费的 Win32 常量与 x64 布局值。`ffi.ts` 懒加载 `kernel32.dll` 与 `advapi32.dll`，核验 `STARTUPINFOW` 和 `PROCESS_INFORMATION`，提供带类型的操作与错误格式化，并让 sandbox policy 通过同一组已加载库绑定剩余 API。
@@ -16,6 +34,7 @@ Windows ACL 沙箱在这些原语上增加 SID、DACL、grant、workspace 与公
 
 <a id="header-verification"></a>
 
+<a id="header-verification"></a>
 ## 头部验证
 
 process、stdio 与 Job 的常量以及选定结构体的大小和偏移由 [`verify/abi-probe.cpp`](verify/abi-probe.cpp) 对照 MinGW Windows 头文件检查：
@@ -26,6 +45,7 @@ g++ -std=c++20 -municode -O2 -o abi-probe.exe verify/abi-probe.cpp && ./abi-prob
 
 Koffi 的 `STARTUPINFOW` 与 `PROCESS_INFORMATION` 定义还会在模块加载时断言各自的 64 位大小；其余已记录偏移和常量由该探针提供证据。
 
+<a id="model-experience"></a>
 ## Model Experience
 
 ### 进程原语
@@ -44,9 +64,22 @@ Koffi 的 `STARTUPINFOW` 与 `PROCESS_INFORMATION` 定义还会在模块加载�
 
 ## Known Limitations and Deferred Work
 
+<a id="known-limitations-and-deferred-work"></a>
+
 - **仅在 Windows 原生加载** — 导入通用类型可跨平台进行，但解析绑定表会加载 Windows DLL，并在其他宿主失败。跨平台测试注入绑定表，不加载原生 API。
 - **没有公共进程服务** — 本包刻意不把原语包装成 Cordis 或 Node streams。消费方必须拥有自己的策略、异步调度、输出上限、取消与最终句柄关闭。
 - **只继承环境** — 进程创建传入空环境块。sandbox 会先通过 `SetEnvironmentVariableW` 建立改动，因为经 Koffi 传入显式环境块会使 `CreateProcessAsUserW` 以 `ERROR_INVALID_PARAMETER` 失败。其他需要改写环境的调用方必须在调用原语前建立环境，或使用自己的 runner 进程。
 - **只有 restricted-token 消费方** — ordinary `CreateProcessW`、精确 `applicationName`、parent-stdio release 与 whole-Job settlement 在 ordinary process 消费方出现前均不提供。
 - **创建到分配之间的中断** — 目标以 suspended 状态启动，不能在 Job 分配前执行，但 runner 若在进程创建到分配之间的极窄区间被外力终止，可能留下 suspended target。本包不声明原子 Job 附加保证。
 - **header 证据限定架构** — 已提交的 ABI probe 与布局常量覆盖仓库当前 64 位 Windows 目标。支持新的指针宽度或不兼容 Windows ABI 前，必须先更新 probe。
+
+
+<a id="dev-note"></a>
+### 开发备注
+
+<details>
+<summary>维护者工作上下文——点击展开</summary>
+
+无。
+
+</details>

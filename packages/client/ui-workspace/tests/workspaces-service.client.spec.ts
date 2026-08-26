@@ -185,10 +185,8 @@ class FakeApiClient implements IApiClient {
   onCreateDirectory: IApiClient['host']['createDirectory'] = () => Promise.resolve(ok({ path: '/home/u/new' }))
   onOpenPath: IApiClient['host']['openPath'] = () => Promise.resolve(ok({ opened: true }))
 
-  declare readonly subagents: IApiClient['subagents']
   declare readonly skills: IApiClient['skills']
   declare readonly agentPresets: IApiClient['agentPresets']
-  declare readonly goals: IApiClient['goals']
   declare readonly settings: IApiClient['settings']
   declare readonly credentials: IApiClient['credentials']
   declare readonly llm: IApiClient['llm']

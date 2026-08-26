@@ -56,6 +56,7 @@ export function toolChatSnapshot(
       getTurn: () => empty,
       getStep: () => empty,
     },
+    navigation: { items: () => [] },
     timeline: { turnOrder: [], turns: new Map() },
     legacy: {
       nodes: settled,

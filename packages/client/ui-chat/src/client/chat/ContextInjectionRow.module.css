@@ -29,8 +29,8 @@
   min-width: 0;
   overflow: hidden;
   color: var(--dsw-alias-label-tertiary);
-  font-size: 14px;
-  line-height: 24px;
+  font-size: var(--dsh-content-font-size, 14px);
+  line-height: calc(24px + var(--dsh-content-font-delta, 0px));
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -41,17 +41,18 @@
   min-width: 0;
   overflow: hidden;
   color: var(--dsw-alias-label-tertiary);
-  font-size: 14px;
-  line-height: 24px;
+  font-size: var(--dsh-content-font-size, 14px);
+  line-height: calc(24px + var(--dsh-content-font-delta, 0px));
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .body {
   box-sizing: border-box;
-  width: calc(100% - 22px);
+  /* Indent under the title, which starts at leading (16 + delta) + gap 6. */
+  width: calc(100% - 22px - var(--dsh-content-font-delta, 0px));
   max-height: 141px;
-  margin: 4px 0 0 22px;
+  margin: 4px 0 0 calc(22px + var(--dsh-content-font-delta, 0px));
   overflow: auto;
   padding: 10px 16px 12px 12px;
   border: none;

@@ -7,7 +7,7 @@
 
 import type { Context } from '@deepseek-ai/cordis'
 import { assertNever } from '@deepseek-ai/dsh-llm'
-import type { CallId } from '@deepseek-ai/dsh-llm'
+import type { ToolCallId } from '@deepseek-ai/dsh-llm'
 import type { InvariantFailure, InvariantInstaller } from '@deepseek-ai/dsh-invariants'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
 import { TOOL_NOT_STARTED } from './repair.ts'
@@ -26,7 +26,7 @@ interface SessionTrace {
   openStep: number | null
   nextTurn: number
   nextStep: number
-  pendingCalls: Set<CallId>
+  pendingCalls: Set<ToolCallId>
 }
 
 /** One accepted event's deferred mutation of a committed session trace. */
@@ -34,7 +34,7 @@ interface SessionTraceTransition {
   scalars: Pick<SessionTrace, 'lastSeq' | 'openTurn' | 'openStep' | 'nextTurn' | 'nextStep'>
   pendingCalls:
     | { kind: 'none' }
-    | { kind: 'add' | 'delete'; callId: CallId }
+    | { kind: 'add' | 'delete'; callId: ToolCallId }
     | { kind: 'clear' }
 }
 

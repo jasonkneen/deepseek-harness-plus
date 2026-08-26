@@ -1,6 +1,6 @@
 /** Web subagent catalog, navigation, and addressed-session composer owner. */
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
-import type { SubagentAddress } from '@deepseek-ai/dsh-client-connection/client'
+import type { SubagentAddress } from '@deepseek-ai/dsh-subagent/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { ComposerChainProps } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import { SubagentHeaderLineage, type SubagentCatalogInjected } from './SubagentHeaderLineage.tsx'

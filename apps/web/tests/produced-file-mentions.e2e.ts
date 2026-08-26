@@ -9,7 +9,7 @@
 import type { Browser, Page } from 'playwright'
 import { chromium } from 'playwright'
 import { afterAll, beforeAll, describe, expect, it, onTestFailed } from 'vitest'
-import { CallId, createAssistantMessage, createToolResultMessage, createUserMessage } from '@deepseek-ai/dsh-llm'
+import { ToolCallId, createAssistantMessage, createToolResultMessage, createUserMessage } from '@deepseek-ai/dsh-llm'
 import { SESSION_FORMAT_VERSION, Session, SessionId } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-session-title'
 import {
@@ -46,7 +46,7 @@ function mentionFixture(): string {
   session.append('step/start', { turn: 1, step: 1 })
   const calls = WRITES.map((path, index) => ({
     path,
-    callId: CallId(`file-mention-${String(index)}`),
+    callId: ToolCallId(`file-mention-${String(index)}`),
     args: JSON.stringify({ file_path: path, content: `content of ${path}\n` }),
   }))
   session.append('assistant/message', {

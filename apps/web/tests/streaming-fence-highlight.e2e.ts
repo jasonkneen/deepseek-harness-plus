@@ -16,7 +16,7 @@ import {
   webSnapshotMode,
   type WebScaffold,
 } from './scaffold.ts'
-import { connectFreshWorkspace, newEnglishPage, saveFailureShot } from './support.ts'
+import { connectFreshWorkspace, newEnglishPage, saveFailureShot, writeComposerDraft } from './support.ts'
 
 const SNAPSHOT_DIR = fileURLToPath(new URL('./snapshots/streaming-fence-highlight', import.meta.url))
 const MID_EXPECTED = fileURLToPath(new URL('./snapshots/streaming-fence-highlight/mid-stream.expected.md', import.meta.url))
@@ -111,9 +111,9 @@ describe.skipIf(MODE === 'record')('web e2e: streaming code-fence highlighting',
 
   it('renders the growing fence through shiki and preserves its token tree when the turn settles', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-streaming-fence-highlight'))
-    const input = page.locator('textarea').first()
+    const input = page.locator('[data-composer-input]').first()
     const settled = scaffold.whenTurnSettled(30_000)
-    await input.fill(PROMPT)
+    await writeComposerDraft(page, input, PROMPT)
     await input.press('Enter')
     await adapter.paused
 

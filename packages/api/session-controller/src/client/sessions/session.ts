@@ -3,9 +3,7 @@
 import type { Context } from '@deepseek-ai/cordis'
 import { randomUUID } from '@deepseek-ai/dsh-util-crypto'
 import type { AttachmentIdType, ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
-import type {
-  IApiClient, SubagentAddress,
-} from '@deepseek-ai/dsh-client-connection/client'
+import type { SubagentAddress } from '@deepseek-ai/dsh-subagent/client'
 import type { MessageId } from '@deepseek-ai/dsh-llm/brand'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import {
@@ -133,13 +131,11 @@ export class Session implements SessionFace {
 
   /**
    * @param sessionId - Host session identity (client sessions are always Host-born).
-   * @param api - shared wire client.
    * @param remote - generated Remote namespaces this session calls.
    * @param options - optional manager-owned state observers.
    */
   constructor(
     readonly sessionId: SessionId,
-    private readonly api: IApiClient,
     private readonly remote: SessionRemotes,
     private readonly options: SessionOptions = {},
   ) {
@@ -222,13 +218,16 @@ export class Session implements SessionFace {
             },
           }
         } else {
-          const routed = (await this.api.subagents.prompt({
-            ...this.address,
+          const routed = toSessionResult(await this.remote.subagents.prompt({
+            requestId: randomUUID() as SessionRequestId,
+            parentSessionId: this.address.parentSessionId,
+            childSessionId: this.address.childSessionId,
+            mode: this.address.mode,
             content: content.flatMap(part => part.type === 'text'
               ? [{ type: 'text' as const, text: part.text }]
               : []),
             clientTimeZone: resolvedClientTimeZone(),
-          }, signal)).result
+          }, signal))
           result = routed.ok ? { ok: true, value: { accepted: true } } : routed
         }
       }
@@ -290,7 +289,7 @@ export class Session implements SessionFace {
   /**
    * Stop the active turn while the Host preserves pending inbox work; failures
    * land in promptError (same error-strip display slot). A continuable
-   * subagent address routes through `subagent.interrupt`, whose durable
+   * subagent address routes through `subagents.interruptByParent`, whose durable
    * parent-address authority works without a live parent Agent; a one-shot
    * address stays uncancellable (the UI offers no stop action, so this arm is
    * defensive).
@@ -314,7 +313,11 @@ export class Session implements SessionFace {
     let result: ClientResult<{ accepted: true }>
     try {
       result = address !== undefined
-        ? (await this.api.subagents.interrupt(address)).result
+        ? toSessionResult(await this.remote.subagents.interruptByParent(
+          address.childSessionId,
+          address.parentSessionId,
+          address.mode,
+        ))
         : toSessionResult(await this.remote.session.cancel({ sessionId: this.sessionId }))
     } catch (error) {
       result = transportResult(error)

@@ -2,7 +2,7 @@
 import { Context } from '@deepseek-ai/cordis'
 import { createScope, scopeOf } from '@deepseek-ai/dsh-api-session-controller/client'
 import InvariantRegistry from '@deepseek-ai/dsh-invariants'
-import type { CallId } from '@deepseek-ai/dsh-llm'
+import type { ToolCallId } from '@deepseek-ai/dsh-llm'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -122,7 +122,7 @@ describe('PendingApproval', () => {
     const remove = vi.spyOn(controller.signal, 'removeEventListener')
     const pending = new PendingApproval(id('s1'), {
       toolName: 'bash',
-      callId: 'call-1' as CallId,
+      callId: 'call-1' as ToolCallId,
       reason: 'needs access',
       signal: controller.signal,
     })
@@ -343,7 +343,7 @@ describe('ApprovalPanel', () => {
   it('renders correlated detail and returns allow-once', async () => {
     const pending = new PendingApproval(id('s1'), {
       toolName: 'bash',
-      callId: 'call-1' as CallId,
+      callId: 'call-1' as ToolCallId,
       reason: 'Run this exact command',
     })
     const renderSlot = vi.fn(() => <code>pnpm test</code>)

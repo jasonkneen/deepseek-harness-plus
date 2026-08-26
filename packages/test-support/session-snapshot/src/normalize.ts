@@ -7,6 +7,7 @@
  */
 
 import {
+  decodeSeqRanges,
   decodeStorageRecord,
   packChunkRuns,
   type SessionEvent,
@@ -366,6 +367,9 @@ export function normalizeSessionLog(
       const data = record.data as Record<string, unknown>
       if ('createdAt' in data) data.createdAt = 0
       if ('updatedAt' in data) data.updatedAt = 0
+    }
+    if (Object.hasOwn(record, 'sourceEventSeqs')) {
+      record.sourceEventSeqs = decodeSeqRanges(record.sourceEventSeqs)
     }
     return scrubValue(record, ctx, cwdPathMode, identityMode) as Record<string, unknown>
   })

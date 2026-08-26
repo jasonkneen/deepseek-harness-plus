@@ -153,6 +153,7 @@ function menuPick(source: InputTriggerSource, name: string, session: ClientSessi
     session,
     position: 'leading',
     via: 'menu',
+    action: 'pick',
     span: { start: 0, end: end ?? name.length + 1, draftRev: 3 },
   }
   return source.onPick(pick)

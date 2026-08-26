@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
-import LlmRuntime, { createUserMessage, CallId, HarnessError  } from '@deepseek-ai/dsh-llm'
+import LlmRuntime, { createUserMessage, ToolCallId, HarnessError  } from '@deepseek-ai/dsh-llm'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
@@ -96,7 +96,7 @@ function runCode(
   agent?: Agent,
 ): Promise<ToolExecutionResult> {
   return harness.tools.execute({
-    callId: CallId(`keyless-code-${++keylessCall}`),
+    callId: ToolCallId(`keyless-code-${++keylessCall}`),
     name: RUN_CODE_NAME,
     arguments: { code, description: 'Run the e2e program' },
     signal,

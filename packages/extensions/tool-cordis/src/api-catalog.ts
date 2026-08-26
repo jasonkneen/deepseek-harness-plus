@@ -142,6 +142,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'the presets, first-root-wins per id.',
       },
       {
+        signature: '@Remote(\'list\') async remoteExportList(): Promise<AgentPresetRoster>',
+        description: 'The roster off the Host: list projected to path-free rows, with the default marked and this deployment\'s authoring capability beside it.\n\nWhether a client can open a preset\'s directory is the Host\'s own opener capability, not a roster property — a caller needing both joins them.',
+        parameters: [],
+        returns: 'the rows and the authoring capability.',
+      },
+      {
         signature: 'async resolve(id?: string): Promise<AgentPreset>',
         description: 'Resolve one preset by id.\n\nA broken preset resolves — deleting one, reading one, and reporting one all need the row — and the mounting paths refuse it AFTER resolution through resolveMountable.',
         parameters: [{ name: 'id', description: 'the preset id, or `undefined` for {@link defaultId}.' }],
@@ -176,16 +182,37 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         throws: ['when no configured root supplies that id.'],
       },
       {
+        signature: '@Remote(\'read\') async readDocument(agentPreset: string): Promise<AgentPresetDocument>',
+        description: 'One preset\'s composition text with the roster row it belongs to.',
+        parameters: [{ name: 'agentPreset', description: 'the preset id.' }],
+        returns: 'the composition beside its trust and published metadata.',
+        throws: ['{TypertRemoteFailure} `bad-request` for an empty id, or `agent-preset-not-found` when no configured root supplies it.'],
+      },
+      {
         signature: 'async copy(from: string, id: string, name?: string): Promise<void>',
         description: 'Create a locally authored preset by copying an existing one whole.\n\nCopy is the only authoring write. Composition text never crosses this seam: the source is named by id and its directory is copied as it stands, so the copy is exactly as loadable as its source and authoring grants no capability the roster did not already carry. The copy is NOT mounted to validate — a source that mounts today yields a copy that mounts today.',
         parameters: [{ name: 'from', description: 'the preset the copy starts from; shipped presets are the primary source, so any trust is accepted.' }, { name: 'id', description: 'the new preset\'s id, which becomes its directory name.' }, { name: 'name', description: 'display name for the copy; absent falls back to the id.' }],
         throws: ['when the source is unknown, the id is unusable or already taken, or the deployment configures no writable root.'],
       },
       {
+        signature: '@Remote(\'copy\') async remoteExportCopy(from: string, id: string, name?: string): Promise<void>',
+        description: 'Copy one preset through the Remote API.',
+        parameters: [{ name: 'from', description: 'the source preset id.' }, { name: 'id', description: 'the new preset id.' }, { name: 'name', description: 'the copy\'s optional display name.' }],
+        returns: 'once the copy is stored.',
+        throws: ['{TypertRemoteFailure} with the corresponding stable preset code and details when the copy is refused.'],
+      },
+      {
         signature: 'async remove(id: string): Promise<void>',
         description: 'Delete a locally authored preset.',
         parameters: [{ name: 'id', description: 'the preset id.' }],
         throws: ['when the preset is unknown or ships with the deployment.'],
+      },
+      {
+        signature: '@Remote(\'deletePreset\') async remoteExportDelete(id: string): Promise<void>',
+        description: 'Delete one preset through the Remote API.',
+        parameters: [{ name: 'id', description: 'the preset id.' }],
+        returns: 'once the preset is deleted.',
+        throws: ['{TypertRemoteFailure} with the corresponding stable preset code and details when deletion is refused.'],
       },
       {
         signature: 'serviceFor<K extends string & keyof Context>(agent: { ctx: Context }, name: K): Context[K] | undefined',
@@ -199,6 +226,13 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         parameters: [{ name: 'agentCtx', description: 'the agent\'s scope context.' }, { name: 'id', description: 'the preset to compose the agent from instead.' }],
         returns: 'the preset now installed.',
         throws: ['when the preset is unknown or its composition is unusable.'],
+      },
+      {
+        signature: '@Remote(\'select\') async select(agent: Agent, agentPreset: string): Promise<string>',
+        description: 'Compose a blank session\'s agent from a different preset and record it.',
+        parameters: [{ name: 'agent', description: 'the session\'s live agent, resolved from the wire identity.' }, { name: 'agentPreset', description: 'the preset to compose the agent from instead.' }],
+        returns: 'the preset id that was recorded.',
+        throws: ['{TypertRemoteFailure} with `bad-request`, `agent-preset-locked`, `agent-preset-not-found`, or `agent-preset-invalid` when refused.'],
       },
       {
         signature: 'async standingKeyFor(id?: string): Promise<ScopeKey>',
@@ -374,6 +408,24 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         description: 'Resolve a caller without throwing, used by scoped-tool installation and observers.',
         parameters: [{ name: 'agent', description: 'candidate exact live Agent.' }],
         returns: 'Team membership, or undefined for non-Team subagents and stale identities.',
+      },
+      {
+        signature: '@Remote(\'view\') remoteView(agent: Agent): TeamView',
+        description: 'Read the current roster and non-deleted task board through the generated Remote API.',
+        parameters: [{ name: 'agent', description: 'exact live Team member used as the authority credential.' }],
+        returns: 'detached current roster and task views.',
+      },
+      {
+        signature: '@Remote(\'createTask\') remoteCreateTask(agent: Agent, request: CreateTeamTaskRequest): Promise<TeamTaskMutationResult>',
+        description: 'Create one shared task through the generated Remote API.',
+        parameters: [{ name: 'agent', description: 'exact live Team member creating the task.' }, { name: 'request', description: 'task text, blockers, and advisory write scopes.' }],
+        returns: 'the revision-one task or a typed Team rejection.',
+      },
+      {
+        signature: '@Remote(\'updateTask\') remoteUpdateTask(agent: Agent, request: UpdateTeamTaskRequest): Promise<TeamTaskMutationResult>',
+        description: 'Apply one task mutation and preserve Team rejections as business results.',
+        parameters: [{ name: 'agent', description: 'exact live Team member authorizing the mutation.' }, { name: 'request', description: 'task identity, expected revision, action, and action fields.' }],
+        returns: 'the committed task or a typed Team rejection.',
       },
     ],
   },
@@ -1412,7 +1464,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
       {
         signature: 'async write(session: Session): Promise<void>',
-        description: 'Durably checkpoint one live session NOW (both mandatory points call this; tests and carriers may too). The registry cut is snapshotted at this boundary (states are live references), then the session\'s record is replaced on the domain\'s write chain. NOT fail-soft — callers on the fail-soft paths contain it.',
+        description: 'Durably checkpoint one live session NOW (all mandatory points call this; tests and carriers may too). The registry cut is snapshotted at this boundary (states are live references), then the session\'s record is replaced on the domain\'s write chain. NOT fail-soft — callers on the fail-soft paths contain it.',
         parameters: [{ name: 'session', description: 'the live session to checkpoint.' }],
         returns: 'resolution after durability and event emission.',
       },
@@ -2020,6 +2072,27 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         parameters: [{ name: 'rootSessionId', description: 'session whose complete descendant tree is listed.' }, { name: 'signal', description: 'caller-owned cancellation forwarded to persistence reads and observed around every read await.' }],
         returns: 'children and per-candidate diagnostics with tree position, in stable pre-order.',
         throws: ['{@link SubagentError} under the same conditions as {@link listChildren}.'],
+      },
+      {
+        signature: '@Remote(\'list\') async remoteExportList(parentSessionId: SessionId, signal: AbortSignal): Promise<SubagentCatalog>',
+        description: 'Remote face of listChildren for one browser: the durable listing plus live Agent activity and the delivery-time parent availability hint. Parent availability is a hint; prompt performs the authoritative check. Named apart from the provider-name list, which owns the member.',
+        parameters: [{ name: 'parentSessionId', description: 'parent session whose direct children are listed.' }, { name: 'signal', description: 'carrier cancellation forwarded to Session queries.' }],
+        returns: 'the catalog view for that parent.',
+        throws: ['{TypertRemoteFailure} `bad-request` for an empty parent id, `cancelled` for an aborted read, `subagent-projections-unavailable` when the deployment has no projection registry, otherwise `internal`.'],
+      },
+      {
+        signature: '@Remote(\'prompt\') async prompt(request: SubagentPromptRequest, signal: AbortSignal): Promise<SubagentPromptReceipt>',
+        description: 'Deliver one browser-authored message to a continuable child through the exact live direct parent, retaining the caller-minted request identity and validated browser zone on the accepted message. Success identifies the message the child\'s FIFO inbox accepted; later execution is independent of this call.',
+        parameters: [{ name: 'request', description: 'durable address, minted identity, content, and optional browser zone.' }, { name: 'signal', description: 'carrier cancellation, owning the call until inbox acceptance.' }],
+        returns: 'the accepted message\'s inbox identity.',
+        throws: ['{TypertRemoteFailure} `bad-request`, `invalid-time-zone`, `subagent-parent-unavailable`, `subagent-not-resumable`, `subagent-unauthorized`, `subagent-delivery-unavailable`, `cancelled`, or `internal`.'],
+      },
+      {
+        signature: '@Remote(\'interruptByParent\') interruptByParent( childSessionId: SessionId, parentSessionId: SessionId, mode: \'continuable\', ): SubagentInterruptReceipt',
+        description: 'Remote face of interrupt under one durable parent address. No catalog, history, persistence, or parent Agent lookup runs: the core primitive alone authorizes the address against the live Activation, which is what keeps a live child interruptible while its parent Agent is offline. Absent, idle, and already-completed targets are accepted no-ops there.',
+        parameters: [{ name: 'childSessionId', description: 'durable child session id to interrupt.' }, { name: 'parentSessionId', description: 'durable direct parent whose authority is claimed.' }, { name: 'mode', description: 'required continuable-address discriminator.' }],
+        returns: 'acknowledgement that the cancel signal was admitted, not that the target is quiescent.',
+        throws: ['{TypertRemoteFailure} `bad-request` for an empty id, `subagent-unauthorized` when the address does not own the live target, otherwise `internal`.'],
       },
       {
         signature: 'registerProvider(provider: SubagentProvider): () => void',
@@ -3180,6 +3253,18 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface AgentPreset {\n    readonly id: string;\n    readonly trust: PresetTrust;\n    readonly path: string;\n    readonly name?: string;\n    readonly description?: string;\n    readonly order?: number;\n    readonly broken?: string;\n}',
   },
   {
+    name: 'AgentPresetDocument',
+    declaration: 'export interface AgentPresetDocument {\n    readonly agentPreset: string;\n    readonly trust: PresetTrust;\n    readonly content: string;\n    readonly name?: string;\n    readonly description?: string;\n}',
+  },
+  {
+    name: 'AgentPresetRoster',
+    declaration: 'export interface AgentPresetRoster {\n    readonly presets: readonly AgentPresetRow[];\n    readonly authorable: boolean;\n}',
+  },
+  {
+    name: 'AgentPresetRow',
+    declaration: 'export interface AgentPresetRow {\n    readonly id: string;\n    readonly trust: PresetTrust;\n    readonly isDefault: boolean;\n    readonly name?: string;\n    readonly description?: string;\n    readonly broken?: string;\n}',
+  },
+  {
     name: 'AgentSetup',
     declaration: 'export type AgentSetup = (agentCtx: Context) => AgentSetupCommit | Promise<AgentSetupCommit | void> | void;',
   },
@@ -3213,11 +3298,11 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'ApprovalRequest',
-    declaration: 'export interface ApprovalRequest extends ApprovalRequestEvent {\n    readonly agent: Agent;\n    readonly toolName: string;\n    readonly callId?: CallId;\n    readonly reason?: string;\n    readonly signal?: AbortSignal;\n}',
+    declaration: 'export interface ApprovalRequest extends ApprovalRequestEvent {\n    readonly agent: Agent;\n    readonly toolName: string;\n    readonly callId?: ToolCallId;\n    readonly reason?: string;\n    readonly signal?: AbortSignal;\n}',
   },
   {
     name: 'ApprovalRequestEvent',
-    declaration: 'export interface ApprovalRequestEvent {\n    readonly agent: Agent;\n    readonly toolName: string;\n    readonly callId?: CallId;\n    readonly reason?: string;\n    readonly signal?: AbortSignal;\n}',
+    declaration: 'export interface ApprovalRequestEvent {\n    readonly agent: Agent;\n    readonly toolName: string;\n    readonly callId?: ToolCallId;\n    readonly reason?: string;\n    readonly signal?: AbortSignal;\n}',
   },
   {
     name: 'AskUserQuestionAnswer',
@@ -3349,7 +3434,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'ClientArtifactBaseline',
-    declaration: 'export interface ClientArtifactBaseline {\n    readonly path: string;\n    readonly mtimeMs: number;\n    readonly size: number;\n    readonly mapMtimeMs: number | null;\n    readonly mapSize: number | null;\n}',
+    declaration: 'export interface ClientArtifactBaseline {\n    readonly path: string;\n    readonly mtimeMs: number;\n    readonly size: number;\n}',
   },
   {
     name: 'CodeBindingErrorClass',
@@ -3365,7 +3450,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'CodeDispatchLog',
-    declaration: 'export interface CodeDispatchLog {\n    readonly exec: ToolExecution;\n    readonly agent?: Agent;\n    readonly subCallId: CallId;\n    readonly name: string;\n    readonly isError: boolean;\n    readonly content: ContentBlock[];\n}',
+    declaration: 'export interface CodeDispatchLog {\n    readonly exec: ToolExecution;\n    readonly agent?: Agent;\n    readonly subCallId: ToolCallId;\n    readonly name: string;\n    readonly isError: boolean;\n    readonly content: ContentBlock[];\n}',
   },
   {
     name: 'CodeJsonValue',
@@ -3768,12 +3853,20 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface GoalChanged {\n    readonly operation: GoalOperation;\n    readonly ref: GoalRef;\n    readonly goal?: GoalView;\n}',
   },
   {
+    name: 'GoalId',
+    declaration: 'export type GoalId = Branded<\'GoalId\'>;',
+  },
+  {
     name: 'GoalOperation',
     declaration: 'export type GoalOperation = \'create\' | \'edit\' | \'pause\' | \'resume\' | \'complete\' | \'block\' | \'clear\';',
   },
   {
     name: 'GoalPhase',
     declaration: 'export type GoalPhase = \'active\' | \'paused\' | \'blocked\' | \'complete\';',
+  },
+  {
+    name: 'GoalRef',
+    declaration: 'export interface GoalRef {\n    readonly id: GoalId;\n    readonly revision: number;\n}',
   },
   {
     name: 'GoalSnapshot',
@@ -4237,7 +4330,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'PrunedEntry',
-    declaration: 'export interface PrunedEntry {\n    readonly originalSeq: number;\n    readonly replacementSeq: number;\n    readonly callId: CallId;\n    readonly charsBefore: number;\n    readonly charsAfter: number;\n}',
+    declaration: 'export interface PrunedEntry {\n    readonly originalSeq: number;\n    readonly replacementSeq: number;\n    readonly callId: ToolCallId;\n    readonly charsBefore: number;\n    readonly charsAfter: number;\n}',
   },
   {
     name: 'PruneResult',
@@ -4329,7 +4422,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'RpcErrorDetailsMap',
-    declaration: 'export interface RpcErrorDetailsMap {\n    \'bad-request\': {\n        issues: ZodIssue[];\n    };\n    \'cancelled\': {};\n    \'session-not-found\': {\n        sessionId: SessionId;\n    };\n    \'invalid-time-zone\': {\n        value: string;\n    };\n    \'directory-unreadable\': {\n        path: string;\n    };\n    \'directory-exists\': {\n        path: string;\n    };\n    \'directory-create-failed\': {\n        path: string;\n    };\n    \'directory-picker-unavailable\': {\n        capability: string;\n    };\n    \'agent-preset-read-only\': {\n        agentPreset: string;\n        reason: string;\n    };\n    \'agent-preset-locked\': {\n        sessionId: SessionId;\n        agentPreset: string;\n    };\n    \'agent-preset-not-found\': {\n        agentPreset: string;\n        available: readonly string[];\n    };\n    \'agent-preset-invalid\': {\n        agentPreset: string;\n        reason: string;\n    };\n    \'agent-busy\': {\n        reason: string;\n    };\n    \'settings-rejected\': {\n        ns: string;\n    };\n    \'settings-conflict\': {\n        ns: string;\n        expected: number;\n        actual: number;\n    };\n    \'credential-rejected\': {\n        ref: string;\n    };\n    \'model-discovery-failed\': {\n        settingsNs: string;\n        baseURL?: string;\n    };\n    \'subagent-parent-unavailable\': {\n        parentSessionId: SessionId;\n    };\n    \'subagent-not-found\': {\n        parentSessionId: SessionId;\n        childSessionId: SessionId;\n    };\n    \'subagent-catalog-diagnostic\': {\n        parentSessionId: SessionId;\n        childS /* …truncated — full shape in source */',
+    declaration: 'export interface RpcErrorDetailsMap {\n    \'bad-request\': {\n        issues: ZodIssue[];\n    };\n    \'cancelled\': {};\n    \'session-not-found\': {\n        sessionId: SessionId;\n    };\n    \'invalid-time-zone\': {\n        value: string;\n    };\n    \'directory-unreadable\': {\n        path: string;\n    };\n    \'directory-exists\': {\n        path: string;\n    };\n    \'directory-create-failed\': {\n        path: string;\n    };\n    \'directory-picker-unavailable\': {\n        capability: string;\n    };\n    \'agent-preset-read-only\': {\n        agentPreset: string;\n        reason: string;\n    };\n    \'agent-preset-locked\': {\n        sessionId: SessionId;\n        agentPreset: string;\n    };\n    \'agent-preset-not-found\': {\n        agentPreset: string;\n        available: readonly string[];\n    };\n    \'agent-preset-invalid\': {\n        agentPreset: string;\n        reason: string;\n    };\n    \'agent-busy\': {\n        reason: string;\n    };\n    \'settings-rejected\': {\n        ns: string;\n    };\n    \'settings-conflict\': {\n        ns: string;\n        expected: number;\n        actual: number;\n    };\n    \'credential-rejected\': {\n        ref: string;\n    };\n    \'model-discovery-failed\': {\n        settingsNs: string;\n        baseURL?: string;\n    };\n    \'internal\': {};\n}',
   },
   {
     name: 'RpcId',
@@ -4477,7 +4570,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SessionEvent',
-    declaration: 'export type SessionEvent<T extends SessionEventType = SessionEventType> = {\n    [K in SessionEventType]: {\n        type: K;\n        seq: number;\n        time: number;\n        data: SessionEventMap[K];\n        ignorable?: true;\n    } & (K extends SurfaceEventType ? {\n        sourceEventSeqs?: number[];\n        surfaceOp?: SurfaceOp;\n    } : object);\n}[T];',
+    declaration: 'export type SessionEvent<T extends SessionEventType = SessionEventType> = {\n    [K in SessionEventType]: {\n        type: K;\n        seq: number;\n        time: number;\n        data: SessionEventMap[K];\n    } & (K extends SurfaceEventType ? {\n        sourceEventSeqs?: number[];\n        surfaceOp?: SurfaceOp;\n    } : object);\n}[T];',
   },
   {
     name: 'SessionEventEntry',
@@ -4485,7 +4578,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SessionEventMap',
-    declaration: 'export interface SessionEventMap {\n    \'turn/start\': {\n        turn: number;\n    };\n    \'turn/end\': {\n        turn: number;\n        reason: TurnEndReason;\n    };\n    \'step/start\': {\n        turn: number;\n        step: number;\n    };\n    \'step/end\': {\n        turn: number;\n        step: number;\n    };\n    \'user/message\': UserMessage;\n    \'assistant/chunk\': {\n        turn: number;\n        step: number;\n        chunk: StreamChunk;\n    };\n    \'assistant/message\': {\n        turn: number;\n        step: number;\n        message: AssistantMessage;\n        usage?: TokenUsage;\n        interrupted?: true;\n    };\n    \'tool/call\': {\n        turn: number;\n        step: number;\n        callId: CallId;\n        name: string;\n        arguments: string;\n    };\n    \'tool/result\': {\n        turn: number;\n        step: number;\n        message: ToolResultMessage;\n        error?: {\n            name: string;\n            code: string;\n        };\n        meta?: JsonValue;\n    };\n    \'request/header\': {\n        header: EpochHeader;\n        reason: RequestHeaderReason;\n        startsSeries?: true;\n    };\n    \'request/context\': RequestContext;\n    \'session/end-seed\': Record<string, never>;\n}',
+    declaration: 'export interface SessionEventMap {\n    \'turn/start\': {\n        turn: number;\n    };\n    \'turn/end\': {\n        turn: number;\n        reason: TurnEndReason;\n    };\n    \'step/start\': {\n        turn: number;\n        step: number;\n    };\n    \'step/end\': {\n        turn: number;\n        step: number;\n    };\n    \'user/message\': UserMessage;\n    \'assistant/chunk\': {\n        turn: number;\n        step: number;\n        chunk: StreamChunk;\n    };\n    \'assistant/message\': {\n        turn: number;\n        step: number;\n        message: AssistantMessage;\n        usage?: TokenUsage;\n        interrupted?: true;\n    };\n    \'tool/call\': {\n        turn: number;\n        step: number;\n        callId: ToolCallId;\n        name: string;\n        arguments: string;\n    };\n    \'tool/result\': {\n        turn: number;\n        step: number;\n        message: ToolResultMessage;\n        error?: {\n            name: string;\n            code: string;\n        };\n        meta?: JsonValue;\n    };\n    \'request/header\': {\n        header: EpochHeader;\n        reason: RequestHeaderReason;\n        startsSeries?: true;\n    };\n    \'request/context\': RequestContext;\n    \'session/end-seed\': Record<string, never>;\n}',
   },
   {
     name: 'SessionEventMetadataFilter',
@@ -4837,7 +4930,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SessionWireEvent',
-    declaration: 'export interface SessionWireEvent {\n    readonly type: string;\n    readonly seq: number;\n    readonly time: number;\n    readonly data: JsonValue;\n    readonly ignorable?: true;\n    readonly sourceEventSeqs?: number[];\n    readonly surfaceOp?: SurfaceOp;\n}',
+    declaration: 'export interface SessionWireEvent {\n    readonly type: string;\n    readonly seq: number;\n    readonly time: number;\n    readonly data: JsonValue;\n    readonly sourceEventSeqs?: number[];\n    readonly surfaceOp?: SurfaceOp;\n}',
   },
   {
     name: 'SettingsApplies',
@@ -4969,7 +5062,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SpillSource',
-    declaration: 'export interface SpillSource {\n    toolName: string;\n    callId: CallId;\n    label: string;\n}',
+    declaration: 'export interface SpillSource {\n    toolName: string;\n    callId: ToolCallId;\n    label: string;\n}',
   },
   {
     name: 'StorageBackend',
@@ -4985,11 +5078,15 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'StreamChunk',
-    declaration: 'export type StreamChunk = {\n    type: \'block-start\';\n    index: number;\n    blockType: ContentBlockType;\n} | {\n    type: \'text-delta\';\n    index: number;\n    text: string;\n} | {\n    type: \'reasoning-delta\';\n    index: number;\n    text: string;\n} | {\n    type: \'tool-call-delta\';\n    index: number;\n    id: CallId;\n    name?: string;\n    argumentsDelta: string;\n} | {\n    type: \'block-end\';\n    index: number;\n    block: ContentBlock;\n} | {\n    type: \'usage\';\n    usage: TokenUsage;\n} | {\n    type: \'finish\';\n    reason: FinishReason;\n    replayState?: ReplayEnvelope;\n};',
+    declaration: 'export type StreamChunk = {\n    type: \'block-start\';\n    index: number;\n    blockType: ContentBlockType;\n} | {\n    type: \'text-delta\';\n    index: number;\n    text: string;\n} | {\n    type: \'reasoning-delta\';\n    index: number;\n    text: string;\n} | {\n    type: \'tool-call-delta\';\n    index: number;\n    id: ToolCallId;\n    name?: string;\n    argumentsDelta: string;\n} | {\n    type: \'block-end\';\n    index: number;\n    block: ContentBlock;\n} | {\n    type: \'usage\';\n    usage: TokenUsage;\n} | {\n    type: \'finish\';\n    reason: FinishReason;\n    replayState?: ReplayEnvelope;\n};',
   },
   {
     name: 'SubagentCapabilities',
     declaration: 'export interface SubagentCapabilities {\n    readonly agentOptions: boolean;\n    readonly outputSchema: boolean;\n    readonly depthLimit: boolean;\n    readonly toolFilter: boolean;\n    readonly persona: boolean;\n}',
+  },
+  {
+    name: 'SubagentCatalog',
+    declaration: 'export interface SubagentCatalog {\n    readonly entries: readonly SubagentListEntry[];\n    readonly parentAvailable: boolean;\n}',
   },
   {
     name: 'SubagentDescendantListEntry',
@@ -5006,6 +5103,26 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'SubagentInterruptAuthority',
     declaration: 'export type SubagentInterruptAuthority = {\n    readonly kind: \'user\';\n    readonly parentSessionId: SessionId;\n} | {\n    readonly kind: \'ancestor\';\n    readonly agent: Agent;\n};',
+  },
+  {
+    name: 'SubagentInterruptReceipt',
+    declaration: 'export interface SubagentInterruptReceipt {\n    readonly accepted: true;\n}',
+  },
+  {
+    name: 'SubagentListEntry',
+    declaration: 'export type SubagentListEntry = {\n    readonly kind: \'child\';\n    readonly id: SessionId;\n    readonly activity: \'running\' | \'inactive\';\n    readonly hasChildren: boolean;\n} & ({\n    readonly mode: \'one-shot\';\n    readonly label?: string;\n} | {\n    readonly mode: \'continuable\';\n    readonly label: string;\n}) | {\n    readonly kind: \'diagnostic\';\n    readonly id: SessionId;\n    readonly reason: \'corrupt\' | \'unsupported\' | \'unavailable\';\n};',
+  },
+  {
+    name: 'SubagentPromptReceipt',
+    declaration: 'export interface SubagentPromptReceipt {\n    readonly messageId: MessageId;\n}',
+  },
+  {
+    name: 'SubagentPromptRequest',
+    declaration: 'export interface SubagentPromptRequest {\n    readonly requestId: SubagentPromptRequestId;\n    readonly parentSessionId: SessionId;\n    readonly childSessionId: SessionId;\n    readonly mode: \'continuable\';\n    readonly content: ContentBlock[];\n    readonly clientTimeZone?: string;\n}',
+  },
+  {
+    name: 'SubagentPromptRequestId',
+    declaration: 'export type SubagentPromptRequestId = Branded<\'session-request-id\'>;',
   },
   {
     name: 'SubagentProvider',
@@ -5041,7 +5158,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SubagentRuntime',
-    declaration: 'export class SubagentRuntime extends Service {\n    constructor(ctx: Context);\n    async startContinuable(spec: ContinuableStartSpec): Promise<ContinuableStart>;\n    async followup(parent: Agent, childId: SessionId, content: ContentBlock[], options: SubagentFollowupOptions): Promise<MessageId>;\n    interrupt(targetSessionId: SessionId, authority: SubagentInterruptAuthority): void;\n    async reportFrom(child: Agent, content: ContentBlock[], options: SubagentReportOptions): Promise<MessageId>;\n    registerContinuableSetup(contribution: ContinuableSetupContribution): () => void;\n    async drainContinuableDescendants(parents: readonly Agent[]): Promise<void>;\n    async drainContinuableChildren(parent: Agent, childIds: readonly SessionId[]): Promise<void>;\n    listChildren(parentSessionId: SessionId, signal?: AbortSignal): Promise<SubagentListEntry[]>;\n    listDescendants(rootSessionId: SessionId, signal?: AbortSignal): Promise<SubagentDescendantListEntry[]>;\n    registerProvider(provider: SubagentProvider): () => void;\n    getProvider(name: string): SubagentProvider | undefined;\n    list(): string[];\n    async start(name: string, request: SubagentStartRequest): Promise<SubagentRun>;\n}',
+    declaration: 'export class SubagentRuntime extends TypertRemoteService {\n    constructor(ctx: Context);\n    async startContinuable(spec: ContinuableStartSpec): Promise<ContinuableStart>;\n    async followup(parent: Agent, childId: SessionId, content: ContentBlock[], options: SubagentFollowupOptions): Promise<MessageId>;\n    interrupt(targetSessionId: SessionId, authority: SubagentInterruptAuthority): void;\n    async reportFrom(child: Agent, content: ContentBlock[], options: SubagentReportOptions): Promise<MessageId>;\n    registerContinuableSetup(contribution: ContinuableSetupContribution): () => void;\n    async drainContinuableDescendants(parents: readonly Agent[]): Promise<void>;\n    async drainContinuableChildren(parent: Agent, childIds: readonly SessionId[]): Promise<void>;\n    listChildren(parentSessionId: SessionId, signal?: AbortSignal): Promise<SubagentListEntry[]>;\n    listDescendants(rootSessionId: SessionId, signal?: AbortSignal): Promise<SubagentDescendantListEntry[]>;\n    @Remote(\'list\')\n    async remoteExportList(parentSessionId: SessionId, signal: AbortSignal): Promise<SubagentCatalog>;\n    @Remote(\'prompt\')\n    async prompt(request: SubagentPromptRequest, signal: AbortSignal): Promise<SubagentPromptReceipt>;\n    @Remote(\'interruptByParent\')\n    interruptByParent(childSessionId: SessionId, parentSessionId: SessionId, mode: \'continuable\'): SubagentInterruptReceipt;\n    registerProvider(provider: SubagentProvider): () => void;\n    getProvider(name: string): SubagentProvider | un /* …truncated — full shape in source */',
   },
   {
     name: 'SubagentStartRequest',
@@ -5164,12 +5281,20 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type TeamTaskId = Branded<\'TeamTaskId\'>;',
   },
   {
+    name: 'TeamTaskMutationResult',
+    declaration: 'export type TeamTaskMutationResult = {\n    readonly ok: true;\n    readonly value: TeamTaskView;\n} | {\n    readonly ok: false;\n    readonly error: {\n        readonly code: \'team-task-conflict\' | \'team-rejected\';\n        readonly message: string;\n    };\n};',
+  },
+  {
     name: 'TeamTaskStatus',
     declaration: 'export type TeamTaskStatus = \'pending\' | \'in_progress\' | \'completed\' | \'deleted\';',
   },
   {
     name: 'TeamTaskView',
     declaration: 'export interface TeamTaskView {\n    readonly id: TeamTaskId;\n    readonly revision: number;\n    readonly subject: string;\n    readonly description: string;\n    readonly status: TeamTaskStatus;\n    readonly blockedBy: TeamTaskId[];\n    readonly writeScopes: string[];\n    readonly ownerName?: string;\n    readonly ready: boolean;\n    readonly writeScopeWarnings: string[];\n}',
+  },
+  {
+    name: 'TeamView',
+    declaration: 'export interface TeamView {\n    readonly members: TeamMemberView[];\n    readonly tasks: TeamTaskView[];\n}',
   },
   {
     name: 'TeamWaitResult',
@@ -5293,7 +5418,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'ToolExecution',
-    declaration: 'export interface ToolExecution extends ToolExecutionInput {\n    readonly rootCallId: CallId;\n    readonly token: ToolExecutionToken;\n}',
+    declaration: 'export interface ToolExecution extends ToolExecutionInput {\n    readonly rootCallId: ToolCallId;\n    readonly token: ToolExecutionToken;\n}',
   },
   {
     name: 'ToolExecutionFailure',
@@ -5301,7 +5426,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'ToolExecutionInput',
-    declaration: 'export interface ToolExecutionInput {\n    readonly callId: CallId;\n    readonly rootCallId?: CallId;\n    readonly name: string;\n    readonly arguments: unknown;\n    readonly agent?: Agent;\n    readonly parent?: ToolExecutionToken;\n    readonly signal: AbortSignal;\n}',
+    declaration: 'export interface ToolExecutionInput {\n    readonly callId: ToolCallId;\n    readonly rootCallId?: ToolCallId;\n    readonly name: string;\n    readonly arguments: unknown;\n    readonly agent?: Agent;\n    readonly parent?: ToolExecutionToken;\n    readonly signal: AbortSignal;\n}',
   },
   {
     name: 'ToolExecutionMode',
@@ -5329,7 +5454,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'ToolMessageSource',
-    declaration: 'export interface ToolMessageSource {\n    kind: \'tool\';\n    callId: CallId;\n}',
+    declaration: 'export interface ToolMessageSource {\n    kind: \'tool\';\n    callId: ToolCallId;\n}',
   },
   {
     name: 'ToolOutputDefinition',
@@ -5353,7 +5478,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'ToolResultBlock',
-    declaration: 'export interface ToolResultBlock {\n    type: \'tool-result\';\n    toolCallId: CallId;\n    content: ContentBlock[];\n    isError?: boolean;\n}',
+    declaration: 'export interface ToolResultBlock {\n    type: \'tool-result\';\n    toolCallId: ToolCallId;\n    content: ContentBlock[];\n    isError?: boolean;\n}',
   },
   {
     name: 'ToolResultMessage',
@@ -5416,6 +5541,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface TypertEventModel extends TypertDocumentation {\n    readonly name: string;\n    readonly mode?: string;\n    readonly signature: string;\n}',
   },
   {
+    name: 'TypertGatewayBinding',
+    declaration: 'export interface TypertGatewayBinding<Service extends object = object> {\n    readonly service: Service;\n    readonly serviceKey: string;\n    readonly namespace: string;\n}',
+  },
+  {
     name: 'TypertGatewayWireStream',
     declaration: 'export interface TypertGatewayWireStream {\n    readonly open: (endpoint: string, payload: unknown, signal: AbortSignal) => Promise<AsyncIterable<unknown>>;\n    readonly failure: (error: unknown) => {\n        readonly code: string;\n        readonly message: string;\n        readonly details: object;\n    };\n}',
   },
@@ -5462,6 +5591,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'TypertRemoteEventSource',
     declaration: 'export type TypertRemoteEventSource = (signal: AbortSignal) => AsyncIterable<TypertRemoteEventDispatch>;',
+  },
+  {
+    name: 'TypertRemoteService',
+    declaration: 'export abstract class TypertRemoteService<out T = never> extends Service<T> {\n    readonly typertRemote: TypertGatewayBinding<this>;\n}',
   },
   {
     name: 'TypertSchemaFilter',
@@ -5721,7 +5854,7 @@ export const INHERITED_CTX_API: readonly InheritedApiEntry[] = [
   { name: 'ctx.effect', summary: 'Register a disposable side effect tied to the fiber.' },
   { name: 'ctx.get / ctx.set / ctx.provide / ctx.accessor / ctx.mixin', summary: 'Low-level service-store access and binding.' },
   { name: 'ctx.extend / ctx.isolate / ctx.intercept', summary: 'Derive a child context (scoped services / isolation / interception).' },
-  { name: 'ctx.root / ctx.scope / ctx.fiber / ctx.registry / ctx.reflect / ctx.events / ctx.logger', summary: 'Ambient handles onto the running context graph.' },
+  { name: 'ctx.root / ctx.fiber / ctx.registry / ctx.reflect / ctx.events / ctx.logger', summary: 'Ambient handles onto the running context graph.' },
   { name: 'ctx.timer (+ interval / timeout / throttle / debounce)', summary: 'Disposable timer helpers. The `timer` key is provided at runtime; the four supported helpers are mixed onto ctx directly (declared via Pick).' },
   { name: 'ctx.loader', summary: 'The config Loader that booted the app (present under the loader).' },
   { name: 'ctx.hmr', summary: 'The hot-module-reload watcher (present under the hmr plugin).' },

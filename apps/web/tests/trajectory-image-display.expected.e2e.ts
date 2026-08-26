@@ -6,11 +6,23 @@
 // selecting the ledger record renders the shared ui-attachment gallery from
 // the durable session-log reference, and the browser URL is the SAME object
 // URL Chat resolved — one sessions.attachment read per session attachment.
-import { fireEvent, screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { expect, it, vi } from 'vitest'
 import { installAssembledBootEnv, mountAssembledApp } from './assembled-boot.ts'
 
 installAssembledBootEnv()
+
+/**
+ * How long the mounted tree waits out the virtual ledger's scroll-idle timer.
+ * jsdom fires no `scrollend`, so `@tanstack/react-virtual` falls back to a
+ * debounce it re-arms on every scroll event (`isScrollingResetDelay`, 150ms by
+ * default) and its unsubscribe removes only the listeners; a scenario that
+ * ends inside that window leaves the timer to re-render the table after vitest
+ * has torn this file's jsdom down, where React reads a `window` that is gone.
+ * Armed later and with a longer delay than the debounce, this wait always
+ * expires after it.
+ */
+const SCROLL_IDLE_DRAIN_MS = 400
 
 /** Open the fixture history session and wait for the Chat gallery to load. */
 async function openFixtureSession(): Promise<void> {
@@ -41,16 +53,24 @@ async function scrollRowIntoWindow(needle: string): Promise<HTMLElement> {
   }, { timeout: 10_000 })
   const pane = document.querySelector('[data-trajectory-scroll] table')?.parentElement
   if (!(pane instanceof HTMLElement)) throw new Error('trajectory scroll pane missing')
-  for (let top = 0; top <= 40_000; top += 1_000) {
+  const findRow = (): HTMLElement | undefined =>
+    [...document.querySelectorAll<HTMLElement>('tr[data-trajectory-row-key]')]
+      .find(row => row.textContent?.includes(needle))
+  let mounted = false
+  for (let top = 0; !mounted && top <= 40_000; top += 1_000) {
     pane.scrollTop = top
     fireEvent.scroll(pane)
     // Let the virtualizer publish the new window before probing.
     await new Promise(resolve => setTimeout(resolve, 25))
-    const hit = [...document.querySelectorAll<HTMLElement>('tr[data-trajectory-row-key]')]
-      .find(row => row.textContent?.includes(needle))
-    if (hit !== undefined) return hit
+    mounted = findRow() !== undefined
   }
-  throw new Error(`trajectory row containing ${JSON.stringify(needle)} never mounted`)
+  // Nothing scrolls the ledger after this, so draining the scroll-idle
+  // debounce here leaves no timer armed for the rest of the scenario. The
+  // drained reset re-renders the window, so the row is read afterwards.
+  await act(async () => { await new Promise(resolve => setTimeout(resolve, SCROLL_IDLE_DRAIN_MS)) })
+  const hit = findRow()
+  if (hit === undefined) throw new Error(`trajectory row containing ${JSON.stringify(needle)} never mounted`)
+  return hit
 }
 
 it('renders durable record images in the Trajectory details panel from the shared cache', async () => {

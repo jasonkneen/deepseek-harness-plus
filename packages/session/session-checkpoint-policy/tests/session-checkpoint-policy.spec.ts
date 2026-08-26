@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
 import { agentEvents, type Agent } from '@deepseek-ai/dsh-agent'
-import LlmRuntime, { CallId, type GenerateOptions, LlmAdapter, type StreamChunk } from '@deepseek-ai/dsh-llm'
+import LlmRuntime, { ToolCallId, type GenerateOptions, LlmAdapter, type StreamChunk } from '@deepseek-ai/dsh-llm'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import type { SessionEvent, SessionHeader } from '@deepseek-ai/dsh-session'
 import SessionPersistence from '@deepseek-ai/dsh-session-persistence'
@@ -138,7 +138,7 @@ describe('session-checkpoint-policy tool and step boundaries', () => {
     })
 
     const pending = ctx.tools.execute({
-      callId: CallId('write-1'), name: 'write', arguments: {}, agent,
+      callId: ToolCallId('write-1'), name: 'write', arguments: {}, agent,
       signal: new AbortController().signal,
     })
     await Promise.resolve()
@@ -167,7 +167,7 @@ describe('session-checkpoint-policy tool and step boundaries', () => {
     })
 
     const pending = ctx.tools.execute({
-      callId: CallId('write-cancelled'), name: 'write', arguments: {}, agent,
+      callId: ToolCallId('write-cancelled'), name: 'write', arguments: {}, agent,
       signal: controller.signal,
     })
     await Promise.resolve()
@@ -198,7 +198,7 @@ describe('session-checkpoint-policy tool and step boundaries', () => {
       execute: async () => { ran = true; return null },
     })
     const result = await ctx.tools.execute({
-      callId: CallId('write-2'), name: 'write', arguments: {}, agent,
+      callId: ToolCallId('write-2'), name: 'write', arguments: {}, agent,
       signal: new AbortController().signal,
     })
     expect(result.isError).toBe(true)
@@ -218,7 +218,7 @@ describe('session-checkpoint-policy tool and step boundaries', () => {
       execute: async () => null,
     })
     await ctx.tools.execute({
-      callId: CallId('nested-1'), name: 'nested', arguments: {}, agent,
+      callId: ToolCallId('nested-1'), name: 'nested', arguments: {}, agent,
       parent: Symbol('outer') as never,
       signal: new AbortController().signal,
     })

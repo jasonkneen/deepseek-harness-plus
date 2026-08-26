@@ -322,7 +322,7 @@ describe('web e2e: Trajectory virtualization over tail-paged history', () => {
         host.scrollTo = trackedScrollTo as typeof host.scrollTo
       })
       const settled = scaffold.whenTurnSettled()
-      const input = page.locator('textarea').first()
+      const input = page.locator('[data-composer-input]').first()
       await input.fill('Stream one deterministic response while Trajectory remains visible.')
       await input.press('Enter')
       await settled

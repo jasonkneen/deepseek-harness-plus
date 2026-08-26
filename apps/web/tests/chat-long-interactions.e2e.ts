@@ -193,6 +193,54 @@ describe('web e2e: long Chat interaction contract', () => {
     if (boundary === undefined) throw new Error(`turn ${String(BRANCH_TURN)} has no turn/end event`)
     const expectedUserText = textContent(branchUserEvent.data.content)
 
+    const turnNavigation = page.getByRole('navigation', { name: 'Turn navigation' })
+    await turnNavigation.waitFor({ state: 'visible', timeout: 15_000 })
+    const initialTurnButtons = turnNavigation.getByRole('button')
+    const initialTurnCount = await initialTurnButtons.count()
+    expect(initialTurnCount).toBeGreaterThan(1)
+    expect(await initialTurnButtons.last().getAttribute('aria-current')).toBe('true')
+    const firstTurnButton = initialTurnButtons.first()
+    const firstTurnLabel = await firstTurnButton.getAttribute('aria-label')
+    if (firstTurnLabel === null) throw new Error('first Turn navigation mark has no accessible label')
+    const firstTurn = Number(firstTurnLabel.match(/^Jump to turn (\d+)$/)?.[1])
+    expect(Number.isSafeInteger(firstTurn)).toBe(true)
+    await firstTurnButton.focus()
+    const preview = page.getByRole('tooltip')
+    await preview.waitFor({ state: 'visible', timeout: 5_000 })
+    // The first loaded Turn may begin mid-Turn at a page boundary. Its mark is
+    // still useful with the loaded response and gains the prompt after prepend.
+    expect(await preview.textContent()).toContain(`Turn ${String(firstTurn)}`)
+    expect(await preview.textContent()).toContain(FIXTURE.markers.assistant(firstTurn))
+    const firstTurnPosition = await firstTurnButton.evaluate(button => (
+      button.parentElement?.style.getPropertyValue('--turn-position') ?? ''
+    ))
+    expect(firstTurnPosition).toBe('0%')
+
+    const loadEarlier = page.getByRole('button', { name: 'Load earlier', exact: true })
+    await loadEarlier.click()
+    await expect.poll(() => turnNavigation.getByRole('button').count(), { timeout: 15_000 })
+      .toBeGreaterThan(initialTurnCount)
+    const stableFirstTurnButton = turnNavigation.getByRole('button', { name: firstTurnLabel })
+    expect(await stableFirstTurnButton.evaluate(button => (
+      button.parentElement?.style.getPropertyValue('--turn-position') ?? ''
+    ))).not.toBe(firstTurnPosition)
+    await stableFirstTurnButton.focus()
+    await expect.poll(() => preview.textContent(), { timeout: 5_000 })
+      .toContain(FIXTURE.markers.user(firstTurn))
+    expect(await preview.textContent()).toContain(FIXTURE.markers.assistant(firstTurn))
+    await stableFirstTurnButton.press('Enter')
+    await expect.poll(() => stableFirstTurnButton.getAttribute('aria-current'), { timeout: 5_000 }).toBe('true')
+    await expect.poll(
+      () => page.locator(`[data-chat-turn="${String(firstTurn)}"][data-chat-flow-kind="user"]`).count(),
+      { timeout: 5_000 },
+    ).toBe(1)
+
+    // Desktop-only affordance: a narrow Chat container hides the rail outright.
+    await page.setViewportSize({ width: 800, height: 900 })
+    await turnNavigation.waitFor({ state: 'hidden', timeout: 5_000 })
+    await page.setViewportSize({ width: 1_680, height: 900 })
+    await turnNavigation.waitFor({ state: 'visible', timeout: 5_000 })
+
     await wheelUntilMounted(page, `[data-chat-call-id="${TARGET_CALL_2}"]`, -1_100)
     const toolUserKey = messageKey(toolUserEvent)
     const toolAssistantKey = assistantKey(toolAssistantEvent)
@@ -272,14 +320,14 @@ describe('web e2e: long Chat interaction contract', () => {
       .toBe(`${FIXTURE.title} (1)`)
     await page.getByText(branchAssistantMarker, { exact: false }).last().waitFor({ timeout: 15_000 })
     const settled = scaffold.whenTurnSettled(60_000)
-    const composer = page.locator('textarea:enabled').last()
+    const composer = page.locator('[data-composer-input][contenteditable="true"]').last()
     await composer.fill(CONTINUE_PROMPT)
     await page.getByRole('button', { name: 'Send message', exact: true }).click()
     await expect.poll(() => page.getByText(CONTINUE_PROMPT, { exact: true }).count(), { timeout: 15_000 }).toBe(1)
     expect(await settled).toBe(child.session.id)
     await page.getByText(CONTINUE_DONE, { exact: false }).last().waitFor({ timeout: 15_000 })
     await expect.poll(() => page.locator('[data-streaming="true"]').count(), { timeout: 15_000 }).toBe(0)
-    expect(await composer.inputValue()).toBe('')
+    expect(await composer.textContent()).toBe('')
     expect(await composer.isEnabled()).toBe(true)
     expect(source.session.events.some(event => carries(event, CONTINUE_PROMPT))).toBe(false)
     expect(child.session.events.filter(event => (

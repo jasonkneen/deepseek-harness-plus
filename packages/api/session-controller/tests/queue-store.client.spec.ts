@@ -48,12 +48,12 @@ function makeSession(): Session {
 
 function makeBench(): { api: FakeApiClient; session: Session } {
   const api = new FakeApiClient()
-  return { api, session: new Session(SID, api, fakeRemote(api)) }
+  return { api, session: new Session(SID, fakeRemote(api)) }
 }
 
 function makeManager(): SessionManager {
   const api = new FakeApiClient()
-  return new SessionManager(api, fakeRemote(api))
+  return new SessionManager(fakeRemote(api))
 }
 
 describe('Session queue snapshot intake', () => {
@@ -210,7 +210,7 @@ describe('Session queue snapshot intake', () => {
 describe('queue operation transport', () => {
   it('addresses the session.updateQueue RPC without optimistic local mutation', async () => {
     const api = new FakeApiClient()
-    const session = new Session(SID, api, fakeRemote(api))
+    const session = new Session(SID, fakeRemote(api))
     session.handleControlFrame(queueFrame([{ id: 'q-op', body: 'pending' }]))
     const before = session.getSnapshot().queue
 

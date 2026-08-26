@@ -50,7 +50,7 @@ export type { AgentPresetOption, AgentPresetSettingsState } from './settings-sto
 export { AGENT_PRESET_SETTINGS_NS, writeDefaultPreset } from './settings-store.ts'
 
 /** Required services (cordis fiber inject). */
-export const inject = ['slots', 'locale', 'connection', 'remote', 'settingsScope']
+export const inject = ['slots', 'locale', 'connection', 'remote', 'remote.agentPresets', 'settingsScope']
 
 /**
  * Mount the General-settings row.
@@ -58,11 +58,11 @@ export const inject = ['slots', 'locale', 'connection', 'remote', 'settingsScope
  */
 export function apply(ctx: ClientContext): void {
   const { api } = ctx.get('connection') as ConnectionHandle
-  const controller = new AgentPresetSettingsController(api, ctx.settingsScope.describe())
+  const controller = new AgentPresetSettingsController(api, ctx.remote, ctx.settingsScope.describe())
   // One roster, four surfaces. The chip is registered in a later scope, so it
   // subscribes here rather than being reached from this one.
   const rosterReaders = new Set<() => void>()
-  const section = new AgentPresetSectionController(api, () => {
+  const section = new AgentPresetSectionController(api, ctx.remote, () => {
     void controller.load()
     for (const read of rosterReaders) read()
   })
@@ -104,8 +104,7 @@ export function apply(ctx: ClientContext): void {
   // The new-session chip and the header label: one controller, because the
   // staged choice belongs to the flow rather than to any one session.
   ctx.inject(['slots', 'conversation', 'sessions', 'uiWorkspace'], (scope: ClientContext) => {
-    const api = (scope.get('connection') as ConnectionHandle).api
-    const seat = new AgentPresetSeatController(api, () => {
+    const seat = new AgentPresetSeatController(scope.remote, () => {
       const state = scope.sessions.list.getSnapshot()
       return state.current === undefined ? undefined : state.byId[state.current]
     })

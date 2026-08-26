@@ -1,7 +1,7 @@
 /**
  * HMR plugin, node half: the host end of the dev reload chain. One interval
- * stat-polls every graph row's client bundle and optional source map (polling
- * by design: network mounts deliver no inotify events), reports changes through
+ * stat-polls every graph row's client bundle (polling by design: network mounts
+ * deliver no inotify events), reports changes through
  * `clientModuleHost.rebuilt(id)`, and serves the `/plugins/events` SSE channel
  * broadcasting graph/rebuilt frames to the browser half (src/client/).
  * The web bundle mounts this row unconditionally: without a rebuild
@@ -42,30 +42,22 @@ function sseData(frame: PluginsEventFrame): string {
   return `data: ${JSON.stringify(frame)}\n\n`
 }
 
-type WatchedArtifactStat = Omit<ClientArtifactBaseline, 'path'>
+type WatchedBundleStat = Omit<ClientArtifactBaseline, 'path'>
 
 type WatchedBundle = {
   -readonly [K in keyof ClientArtifactBaseline]: ClientArtifactBaseline[K]
 } & { dirty: boolean }
 
-/** Snapshot the bundle plus its optional development source map. */
-function artifactStat(path: string): WatchedArtifactStat {
+/** Snapshot the executable bundle metadata that drives reloads. */
+function bundleStat(path: string): WatchedBundleStat {
   const bundle = statSync(path)
-  try {
-    const map = statSync(`${path}.map`)
-    return { mtimeMs: bundle.mtimeMs, size: bundle.size, mapMtimeMs: map.mtimeMs, mapSize: map.size }
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
-    return { mtimeMs: bundle.mtimeMs, size: bundle.size, mapMtimeMs: null, mapSize: null }
-  }
+  return { mtimeMs: bundle.mtimeMs, size: bundle.size }
 }
 
-/** Whether neither served artifact changed since the last successful re-hash. */
-function sameArtifactStat(left: WatchedArtifactStat, right: WatchedArtifactStat): boolean {
+/** Whether the executable bundle is unchanged since the last successful re-hash. */
+function sameBundleStat(left: WatchedBundleStat, right: WatchedBundleStat): boolean {
   return left.mtimeMs === right.mtimeMs
     && left.size === right.size
-    && left.mapMtimeMs === right.mapMtimeMs
-    && left.mapSize === right.mapSize
 }
 
 /**
@@ -80,7 +72,7 @@ export function apply(ctx: Context, config: Config): void {
   // --- bundle watch: one HMR-owned stat poll ------------------------------
   const watched = new Map<string, WatchedBundle>()
 
-  const rehash = (id: string, watch: WatchedBundle, current: WatchedArtifactStat): void => {
+  const rehash = (id: string, watch: WatchedBundle, current: WatchedBundleStat): void => {
     try {
       // rebuilt() replaces the opaque startup rev on its first call; later
       // calls stay silent when the content hash is unchanged.
@@ -95,17 +87,15 @@ export function apply(ctx: Context, config: Config): void {
     }
     watch.mtimeMs = current.mtimeMs
     watch.size = current.size
-    watch.mapMtimeMs = current.mapMtimeMs
-    watch.mapSize = current.mapSize
     watch.dirty = false
   }
 
   const watchRow = (id: string, baseline: ClientArtifactBaseline): void => {
     const watch: WatchedBundle = { ...baseline, dirty: false }
     watched.set(id, watch)
-    let current: WatchedArtifactStat
+    let current: WatchedBundleStat
     try {
-      current = artifactStat(baseline.path)
+      current = bundleStat(baseline.path)
     } catch (error) {
       watch.dirty = true
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') ctx.logger.warn(error)
@@ -113,20 +103,20 @@ export function apply(ctx: Context, config: Config): void {
     }
     // The module host captured its baseline before reading the bytes in the
     // startup batch. Only a mismatch crosses into the content-hash path.
-    if (!sameArtifactStat(current, watch)) rehash(id, watch, current)
+    if (!sameBundleStat(current, watch)) rehash(id, watch, current)
   }
 
   const pollWatches = (): void => {
     for (const [id, watch] of watched) {
-      let current: WatchedArtifactStat
+      let current: WatchedBundleStat
       try {
-        current = artifactStat(watch.path)
+        current = bundleStat(watch.path)
       } catch (error) {
         watch.dirty = true
         if ((error as NodeJS.ErrnoException).code !== 'ENOENT') ctx.logger.warn(error)
         continue
       }
-      if (!watch.dirty && sameArtifactStat(current, watch)) continue
+      if (!watch.dirty && sameBundleStat(current, watch)) continue
       // Stat-before-hash preserves a detectable older baseline for writes that
       // land during hashing. Repeated stat changes heal a torn read.
       rehash(id, watch, current)

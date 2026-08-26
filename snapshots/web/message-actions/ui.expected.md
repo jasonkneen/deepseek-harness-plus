@@ -7,6 +7,9 @@
   - tablist:
     - tab "Chat" [selected]
     - tab "Trajectory"
+- navigation "Turn navigation":
+  - button "Jump to turn 1"
+  - button "Jump to turn 2"
 - button "System prompt":
   - img
   - img

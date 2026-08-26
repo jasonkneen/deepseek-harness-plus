@@ -1,9 +1,27 @@
+---
+description: "Low-level Win32 process primitives for maintainers implementing or debugging the Windows ACL sandbox."
+kind: "package-library"
+---
+
 # @deepseek-ai/dsh-win32-process
 
 English | [中文](README.zh.md)
 
-Low-level Win32 process library consumed by the Windows ACL sandbox. It owns the repository's one Koffi binding table for reusable restricted-process, stdio, and Job Object operations; it is not a Cordis service and does not choose sandbox policy or public child behavior.
+## Summary
 
+Low-level Win32 process library consumed by the Windows ACL sandbox. It owns the repository's one Koffi binding table for reusable restricted-process, stdio, and Job Object operations; it is not a Cordis service and does not choose sandbox policy or public child behavior. Read this page when maintaining the sandbox's native process path or checking its handle-lifetime limits.
+
+## Table of Contents
+
+- [Behavior](#behavior)
+- [Header verification](#header-verification)
+- [Model Experience](#model-experience)
+- [Known Limitations and Deferred Work](#known-limitations-and-deferred-work)
+- [Dev Note](#dev-note)
+
+-----
+
+<a id="behavior"></a>
 ## Behavior
 
 - **One reusable ABI owner** — `abi.ts` owns the Win32 constants and x64 layout values consumed by the sandbox process paths. `ffi.ts` lazily loads `kernel32.dll` and `advapi32.dll`, verifies `STARTUPINFOW` and `PROCESS_INFORMATION`, exposes typed operations and error formatting, and lets sandbox policy bind its remaining APIs through the same loaded libraries.
@@ -14,6 +32,9 @@ Low-level Win32 process library consumed by the Windows ACL sandbox. It owns the
 
 The Windows ACL sandbox adds SID, DACL, grant, workspace, and public child policy above these primitives.
 
+<a id="header-verification"></a>
+
+<a id="header-verification"></a>
 ## Header verification
 
 The process, stdio, and Job constants plus selected structure sizes and offsets are checked against the MinGW Windows headers by [`verify/abi-probe.cpp`](verify/abi-probe.cpp):
@@ -24,6 +45,7 @@ g++ -std=c++20 -municode -O2 -o abi-probe.exe verify/abi-probe.cpp && ./abi-prob
 
 The Koffi `STARTUPINFOW` and `PROCESS_INFORMATION` definitions also assert their 64-bit sizes at module load. The probe remains the evidence for the other recorded offsets and constants.
 
+<a id="model-experience"></a>
 ## Model Experience
 
 ### Process primitives
@@ -42,9 +64,22 @@ The package contributes no stable request prefix, so it does not invalidate mode
 
 ## Known Limitations and Deferred Work
 
+<a id="known-limitations-and-deferred-work"></a>
+
 - **Windows-only native loading** — importing the generic types is portable, but resolving the binding table loads Windows DLLs and fails on other hosts. Cross-platform tests inject a binding table instead of loading native APIs.
 - **No public process service** — the package intentionally does not wrap its primitives in Cordis or Node streams. A consumer must own its policy, async scheduling, output limits, cancellation, and final handle closure.
 - **Inherited environment only** — process creation passes a null environment block. The sandbox establishes changes through `SetEnvironmentVariableW` first because passing an explicit block through Koffi makes `CreateProcessAsUserW` fail with `ERROR_INVALID_PARAMETER`. Other callers that need environment changes must establish them before invoking the primitive or use their own runner process.
 - **Restricted-token consumer only** — ordinary `CreateProcessW`, exact `applicationName`, parent-stdio release, and whole-Job settlement are absent until an ordinary process consumer requires them.
 - **Create-to-assignment interruption** — the target starts suspended and cannot execute before Job assignment, but an external termination of the runner in the narrow interval between process creation and assignment can leave the suspended target behind. The package does not claim atomic Job attachment.
 - **Header evidence is architecture-specific** — the committed ABI probe and layout constants cover the repository's current 64-bit Windows targets. A new pointer width or incompatible Windows ABI requires updating the probe before support is claimed.
+
+
+<a id="dev-note"></a>
+### Dev Note
+
+<details>
+<summary>Working context for maintainers — click to expand</summary>
+
+None.
+
+</details>

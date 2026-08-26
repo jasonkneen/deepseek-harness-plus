@@ -97,6 +97,6 @@ if (workspacePath === undefined) return null
 
 ## Delivery semantics
 
-The webhook runtime stores no delivery or execution state. Repeated delivery runs the rule again and may create another Session. A crash loses rule calls that have not admitted their prompt. After prompt admission, the ordinary Session log, persistence, Workspace, and Agent lifecycle own the work.
+The webhook runtime stores no delivery or execution state. Repeated delivery runs the rule and may create another Session. A crash loses rule calls that have not admitted their prompt. After prompt admission, the ordinary Session log, persistence, Workspace, and Agent lifecycle own the work.
 
 The webhook secret authenticates inbound GitHub data only. It grants neither rule code nor the created Agent outbound GitHub access; configure that authority separately when a rule or Agent needs it.

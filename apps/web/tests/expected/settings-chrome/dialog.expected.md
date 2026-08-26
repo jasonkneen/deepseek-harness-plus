@@ -39,7 +39,12 @@
   - button "跟随系统" [pressed]:
     - img
     - text: 跟随系统
-  - text: 繁忙时 Enter 键行为 仅在智能体运行时生效；Cmd/Ctrl+Enter 使用另一行为
+  - text: 字号大小 仅影响会话内容的字号 14
+  - button "增大字号":
+    - img
+  - button "减小字号":
+    - img
+  - text: px 繁忙时 Enter 键行为 仅在智能体运行时生效；Cmd/Ctrl+Enter 使用另一行为
   - button "排队发送":
     - text: 排队发送
     - img

@@ -743,7 +743,7 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY || notReady.length > 0)('web smoke
     // step mounts and the page is immediately interactive.
     // Fresh world: connect a Workspace so the composer starts live.
     await connectFreshWorkspace(page, sessionsDir)
-    const input = page.locator('textarea').first()
+    const input = page.locator('[data-composer-input]').first()
     await input.waitFor({ timeout: 10_000 })
     const productTitle = await page.title()
     await screen(page, '02-empty-state')
@@ -803,7 +803,7 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY || notReady.length > 0)('web smoke
 
   it('bash differential rendering: tool row click leaves the default details column closed', async () => {
     onTestFailed(() => saveFailureShot(page, 'w5-tool-details'))
-    const input = page.locator('textarea').first()
+    const input = page.locator('[data-composer-input]').first()
     await input.fill('请用 bash 工具运行命令 echo w5marker 然后告诉我结果')
     await input.press('Enter')
     // Wait for the tool ROW, not response text (the reply echoes any marker).

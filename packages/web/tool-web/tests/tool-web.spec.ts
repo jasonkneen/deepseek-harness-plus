@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import TurndownService from 'turndown'
-import { CallId } from '@deepseek-ai/dsh-llm'
+import { ToolCallId } from '@deepseek-ai/dsh-llm'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime, { type ToolExecutionResult } from '@deepseek-ai/dsh-tools'
 import WebRuntime from '@deepseek-ai/dsh-web'
@@ -49,7 +49,7 @@ async function mountTools(opts: {
   if (opts.fetchProvider) ctx.web.registerFetchProvider(opts.fetchProvider)
   const fiber = await ctx.plugin(ToolWeb, opts.config ?? {})
   let counter = 0
-  const call = (name: string, args: unknown) => ctx.tools.execute({ signal: testToolSignal, callId: CallId(`call-${++counter}`), name, arguments: args })
+  const call = (name: string, args: unknown) => ctx.tools.execute({ signal: testToolSignal, callId: ToolCallId(`call-${++counter}`), name, arguments: args })
   return { ctx, fiber, call }
 }
 
@@ -452,9 +452,9 @@ describe('tool-web registration', () => {
     const names = ctx.tools.schemas().map(s => s.name)
     expect(names).toContain('web_search')
     expect(names).toContain('web_fetch')
-    expect(ctx.tools.executionMode({ signal: testToolSignal, callId: CallId('search-safe'), name: 'web_search', arguments: { queries: ['q'] } }))
+    expect(ctx.tools.executionMode({ signal: testToolSignal, callId: ToolCallId('search-safe'), name: 'web_search', arguments: { queries: ['q'] } }))
       .toEqual({ kind: 'parallel' })
-    expect(ctx.tools.executionMode({ signal: testToolSignal, callId: CallId('fetch-safe'), name: 'web_fetch', arguments: { url: 'https://a.test' } }))
+    expect(ctx.tools.executionMode({ signal: testToolSignal, callId: ToolCallId('fetch-safe'), name: 'web_fetch', arguments: { url: 'https://a.test' } }))
       .toEqual({ kind: 'parallel' })
     await fiber.dispose()
     expect(ctx.tools.schemas().map(s => s.name)).not.toContain('web_search')
@@ -724,7 +724,7 @@ describe('tool-web execution through the real registry', () => {
     }
     const { ctx, fiber } = await mountTools({ webConfig: { fetchProvider: 'stub-fetch' }, fetchProvider })
     const controller = new AbortController()
-    const out = await ctx.tools.execute({ callId: CallId('fetch-1'), name: 'web_fetch', arguments: { url: 'https://a.test' }, signal: controller.signal })
+    const out = await ctx.tools.execute({ callId: ToolCallId('fetch-1'), name: 'web_fetch', arguments: { url: 'https://a.test' }, signal: controller.signal })
     expect(out.isError).toBe(false)
     expect(out.value).toEqual({
       url: 'https://a.test',
@@ -751,7 +751,7 @@ describe('tool-web execution through the real registry', () => {
       },
     }
     const { ctx, fiber } = await mountTools({ webConfig: { fetchProvider: 'stub-fetch' }, fetchProvider })
-    const out = await ctx.tools.execute({ signal: testToolSignal, callId: CallId('fetch-2'), name: 'web_fetch', arguments: { url: 'https://a.test' } })
+    const out = await ctx.tools.execute({ signal: testToolSignal, callId: ToolCallId('fetch-2'), name: 'web_fetch', arguments: { url: 'https://a.test' } })
     expect(out.isError).toBe(false)
     expect(out.value).toEqual({
       url: 'https://a.test',
@@ -773,7 +773,7 @@ describe('tool-web execution through the real registry', () => {
     }
     const { ctx, fiber } = await mountTools({ webConfig: { searchProvider: 'stub-search' }, search: provider })
     const controller = new AbortController()
-    await ctx.tools.execute({ callId: CallId('search-1'), name: 'web_search', arguments: { queries: ['q'] }, signal: controller.signal })
+    await ctx.tools.execute({ callId: ToolCallId('search-1'), name: 'web_search', arguments: { queries: ['q'] }, signal: controller.signal })
     expect(seen.signal).toBe(controller.signal)
     await fiber.dispose()
   })
@@ -792,7 +792,7 @@ describe('tool-web execution through the real registry', () => {
     }
     const { ctx, fiber } = await mountTools({ webConfig: { searchProvider: 'stub-search' }, search: provider })
     const controller = new AbortController()
-    const pending = ctx.tools.execute({ callId: CallId('search-multi-1'), name: 'web_search', arguments: { queries: ['one', 'two'] }, signal: controller.signal })
+    const pending = ctx.tools.execute({ callId: ToolCallId('search-multi-1'), name: 'web_search', arguments: { queries: ['one', 'two'] }, signal: controller.signal })
     await vi.waitFor(() => { expect(signals).toHaveLength(2) })
     expect(signals[0]).toBe(signals[1])
     expect(signals[0]).not.toBe(controller.signal)

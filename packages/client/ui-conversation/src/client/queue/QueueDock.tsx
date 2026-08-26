@@ -4,7 +4,7 @@ import type { PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import {
   IconCheckOutline16, IconChevronDownOutline14, IconChevronUpOutline14, IconCloseOutline16,
-  IconEditOutline16, IconQueueOutline14, IconSendOutline14, IconTrashOutline16, Tooltip,
+  IconEditOutline16, IconQueueOutline14, IconSendOutline14, IconTrashOutline16, projectUserText, Tooltip,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { QueueAction, QueueItemId } from '../contract/queue.ts'
 import { NS } from '../locales.ts'
@@ -114,7 +114,7 @@ export function QueueDock({ useSession, updateQueue, notify, t }: QueueDockProps
                     }}
                   />
                 )
-                : <span className={css.preview}>{row.preview}</span>}
+                : <span className={css.preview}>{projectUserText(row.preview, [])}</span>}
               {queueMutable && <div className={css.actions}>
                 {editing?.id === row.id
                   ? (

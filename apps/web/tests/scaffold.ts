@@ -54,6 +54,7 @@ import {
   composeEntries,
   healProfilesModuleFallback,
   loadOverlayPatches,
+  type Profile,
 } from '@deepseek-ai/dsh-app-boot'
 import { dshHomePath } from '@deepseek-ai/dsh-home-paths'
 import { settingsNamespace } from '@deepseek-ai/dsh-settings'
@@ -237,6 +238,11 @@ export interface LaunchOptions {
    * ordering.
    */
   extraOverlayPath?: string
+  /**
+   * Additional source-checkout package manifests whose dependency closures
+   * supply private profile layers named by {@link extraOverlayPath}.
+   */
+  extraInstallAnchors?: string[]
   /**
    * Replay fixture (session.jsonl) served by the inserted dsh-llm-replay row
    * in replay/refresh modes; ignored in record mode (the real adapter
@@ -569,11 +575,35 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
   let replayHandle: ReplayHandle | undefined
   try {
     process.chdir(workspaceCwd)
-    // The production module-resolution setup: an empty profile root inside the temp
-    // harness home, with bare plugin names resolving through the flat module
-    // fallback the launcher heals under <home>/profiles.
-    await healProfilesModuleFallback(INSTALL_ANCHOR, harnessHome)
     const profileDir = join(harnessHome, 'profiles', 'scaffold')
+    const extraLayers: Profile['layers'] = await Promise.all((options.extraInstallAnchors ?? []).map(async (anchor) => {
+      const manifest = JSON.parse(await readFile(anchor, 'utf8')) as { name?: unknown }
+      if (typeof manifest.name !== 'string' || manifest.name === '') {
+        throw new Error(`web scaffold extra install anchor has no package name: ${anchor}`)
+      }
+      const packageDir = dirname(anchor)
+      return {
+        packageName: manifest.name,
+        packageDir,
+        patchPath: join(packageDir, 'cordis.patch.yml'),
+        patches: [],
+      }
+    }))
+    // Mirror the production launcher: the shared installation closure keeps
+    // its carrier-specific fallback, while private bundle dependencies stay
+    // isolated to this synthetic scaffold profile.
+    await healProfilesModuleFallback({
+      installAnchor: INSTALL_ANCHOR,
+      home: harnessHome,
+      profile: {
+        name: 'scaffold',
+        dir: profileDir,
+        layers: extraLayers,
+        patchPath: join(profileDir, 'cordis.patch.yml'),
+        patches: [],
+        patchReload: 'startup',
+      },
+    })
     await mkdir(profileDir, { recursive: true })
     const rootConfig = join(profileDir, 'cordis.yml')
     await writeFile(rootConfig, '[]\n')

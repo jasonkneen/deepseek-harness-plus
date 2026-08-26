@@ -17,7 +17,7 @@ import { detectTrigger } from '../core/detect.ts'
 import { MENU_CLOSED, menuReduce, seedGroups } from '../core/menu.ts'
 import type { MenuEvent, MenuState, TriggerHit } from '../core/contract.ts'
 import type {
-  ClientSessionContext, InputTriggerSource, SubmitEnvelope, TriggerChar, TriggerGuard,
+  ClientSessionContext, InputTriggerSource, PickAction, SubmitEnvelope, TriggerChar, TriggerGuard,
 } from '../types.ts'
 
 /** Roster access the controller borrows from the root service (registration order preserved). */
@@ -154,8 +154,9 @@ export class InputTriggerController {
    * and execute claim/insert outcomes via the scoped input events.
    * @param source - source (group) name.
    * @param index - candidate index within the group.
+   * @param action - settling pick (default) or the candidate's drill action.
    */
-  pick(source: string, index: number): void {
+  pick(source: string, index: number, action: PickAction = 'pick'): void {
     const state = this.menu.getSnapshot()
     const hit = this.hit
     if (this.disposed || !state.open || hit === null) return
@@ -169,6 +170,7 @@ export class InputTriggerController {
       session: this.project(),
       position: hit.position,
       via: 'menu',
+      action,
       span: hit.span,
     })
     this.stopFetch()
@@ -204,6 +206,18 @@ export class InputTriggerController {
         if (state.highlight === null) return 'pass'
         this.pick(state.highlight.source, state.highlight.index)
         return 'pick-highlighted'
+      }
+      case 'tab': {
+        // Tab drills into the highlighted candidate when it offers descent;
+        // otherwise the key passes so native focus behavior is untouched.
+        if (state.highlight === null) return 'pass'
+        const group = state.groups.find(g => g.source === state.highlight?.source)
+        const item = group !== undefined && group.status === 'ready'
+          ? group.items[state.highlight.index]
+          : undefined
+        if (item?.drill !== true) return 'pass'
+        this.pick(state.highlight.source, state.highlight.index, 'drill')
+        return 'consumed'
       }
     }
   }

@@ -5,7 +5,7 @@
  */
 import { describe, expect, it, vi } from 'vitest'
 import type { Context } from '@deepseek-ai/cordis'
-import type { InputTriggerController, SubmitOutcome } from '@deepseek-ai/dsh-client-ui-input-trigger/client'
+import type { InputTriggerController, SubmitOutcome } from '../src/client/contract/input.ts'
 import { SessionInputShell } from '../src/client/input/facade.ts'
 import type { DraftAttachmentId } from '../src/client/contract/input.ts'
 
@@ -53,7 +53,9 @@ describe('reference submission', () => {
       end: 4,
       draftRev: first.snapshot.draftRev,
     })).toBe(true)
-    expect(first.snapshot.draft).toBe('@Research notes ')
+    // InputState.draft IS the clipboard projection now (chips expand to their
+    // canonical text); the display label lives in the chip's decorator DOM.
+    expect(first.snapshot.draft).toBe(`${spacedMention} `)
     expect(mirror).toHaveBeenLastCalledWith(`${spacedMention} `)
 
     const sink = vi.fn(() => Promise.resolve<SubmitOutcome>({ kind: 'success' }))
@@ -82,6 +84,7 @@ describe('reference submission', () => {
     const inputTriggers = {
       serializeReference,
       track: vi.fn(),
+      lexicon: { getSnapshot: () => new Map(), subscribe: () => () => {} },
     } as unknown as InputTriggerController
     const shell = new SessionInputShell({
       actx: {} as Context,
@@ -91,8 +94,8 @@ describe('reference submission', () => {
     })
     chip(shell)
     expect(shell.snapshot).toMatchObject({
-      draft: '@Research ',
-      occurrences: [{ source: 'reference', ref: mention, label: 'Research', offset: 0, length: 9 }],
+      draft: `${mention} `,
+      occurrences: [{ source: 'reference', ref: mention, label: 'Research', offset: 0, length: mention.length }],
     })
 
     shell.submit('queue')
@@ -102,8 +105,8 @@ describe('reference submission', () => {
     })
     expect(sink).toHaveBeenNthCalledWith(1, mention, [], 'queue', expect.any(AbortSignal))
     expect(shell.snapshot).toMatchObject({
-      draft: '@Research ',
-      occurrences: [{ source: 'reference', ref: mention, label: 'Research', offset: 0, length: 9 }],
+      draft: `${mention} `,
+      occurrences: [{ source: 'reference', ref: mention, label: 'Research', offset: 0, length: mention.length }],
     })
     expect(shell.notices.getSnapshot()).toMatchObject({
       level: 'error',
@@ -124,6 +127,7 @@ describe('reference submission', () => {
     const inputTriggers = {
       serializeReference: () => Promise.reject(new Error('reference codec unavailable')),
       track: vi.fn(),
+      lexicon: { getSnapshot: () => new Map(), subscribe: () => () => {} },
     } as unknown as InputTriggerController
     const shell = new SessionInputShell({
       actx: {} as Context,
@@ -137,7 +141,7 @@ describe('reference submission', () => {
       expect(shell.snapshot.phase).toBe('plain')
     })
     expect(sink).not.toHaveBeenCalled()
-    expect(shell.snapshot.draft).toBe('@Research ')
+    expect(shell.snapshot.draft).toBe(`${mention} `)
     expect(shell.snapshot.occurrences).toHaveLength(1)
     expect(shell.notices.getSnapshot()).toMatchObject({
       level: 'error',
@@ -219,11 +223,12 @@ describe('submit transaction hardening', () => {
     expect(shell.notices.getSnapshot()).toBeNull()
   })
 
-  it('re-tracks at the caret when a continuing insert-text splice lands (directory descent)', () => {
+  it('re-tracks at the caret when an insert-text splice lands (directory descent reopens the menu)', () => {
     const track = vi.fn()
+    const lexicon = { getSnapshot: () => new Map(), subscribe: () => () => {} }
     const shell = new SessionInputShell({
       actx: {} as Context,
-      inputTriggers: () => ({ track } as unknown as InputTriggerController),
+      inputTriggers: () => ({ track, lexicon } as unknown as InputTriggerController),
       defaultSink: vi.fn(),
       commandImages,
     })
@@ -231,10 +236,8 @@ describe('submit transaction hardening', () => {
     const applied = shell.insertText('@src/', { start: 0, end: 3, draftRev: shell.snapshot.draftRev }, true)
     expect(applied).toBe(true)
     expect(shell.snapshot.draft).toBe('@src/')
+    // Every editor commit re-tracks at the settled caret (the continue flag
+    // is a contract passenger now): a trailing '/' keeps the menu open.
     expect(track).toHaveBeenCalledWith('@src/', 5, { tier: 'plain' }, shell.snapshot.draftRev)
-
-    track.mockClear()
-    shell.insertText(' plain ', { start: 0, end: 0, draftRev: shell.snapshot.draftRev })
-    expect(track).not.toHaveBeenCalled()
   })
 })

@@ -2,7 +2,7 @@
 import type { ContentBlock } from '@deepseek-ai/dsh-llm/types'
 import type { MessageId } from '@deepseek-ai/dsh-llm/brand'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
-import type { SubagentAddress } from '@deepseek-ai/dsh-client-connection/client'
+import type { SubagentAddress } from '@deepseek-ai/dsh-subagent/client'
 import type { ClientFailure } from './result.ts'
 
 /** One transient inbox occurrence from the authoritative queue snapshot. */

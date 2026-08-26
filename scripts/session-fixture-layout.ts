@@ -8,8 +8,12 @@ import { packChunkRuns, type SessionEvent } from '@deepseek-ai/dsh-session'
 import { parseSessionLog } from '@deepseek-ai/dsh-llm-replay'
 
 /** Physical persistence artifacts validated by the WebWorker runtime fixture spec. */
-const PHYSICAL_SESSION_FIXTURE_ROOT =
+const WEBWORKER_PHYSICAL_SESSION_FIXTURE_ROOT =
   'packages/experimental/webworker-runtime/tests/fixtures/vfs-example/home/sessions/'
+
+/** Installed-runtime snapshots that preserve the JSONL writer's physical encoding. */
+const PYTHON_RUNTIME_PHYSICAL_SESSION_FIXTURE_ROOT =
+  'scripts/snapshots/python-sdk-single-exe/'
 
 /** One repository session fixture and its canonical projected representation. */
 export interface SessionFixtureLayout {
@@ -22,13 +26,17 @@ export interface SessionFixtureLayout {
 }
 
 /**
- * Whether a repository JSONL is a production-layout persistence artifact rather
- * than an envelope-free replay snapshot owned by this script.
+ * Whether a repository JSONL preserves physical persistence encoding rather
+ * than the logical event projection owned by this script.
  * @param path - Repository-relative path with `/` separators.
- * @returns True only for Session logs under the WebWorker VFS example root.
+ * @returns True for physical WebWorker and installed-runtime session logs.
  */
 export function isPhysicalSessionFixture(path: string): boolean {
-  return path.startsWith(PHYSICAL_SESSION_FIXTURE_ROOT) && path.endsWith('/session.jsonl')
+  if (path.startsWith(WEBWORKER_PHYSICAL_SESSION_FIXTURE_ROOT)) {
+    return path.endsWith('/session.jsonl')
+  }
+  return path.startsWith(PYTHON_RUNTIME_PHYSICAL_SESSION_FIXTURE_ROOT)
+    && /\/session(?:\.\d+)?\.jsonl$/.test(path)
 }
 
 function isSessionHeader(value: unknown): boolean {

@@ -124,7 +124,7 @@ describe('web e2e: Goal keeps one assistant action row per completed turn', () =
 
   /** Submit the Goal command after arming the two-turn barrier. */
   async function runGoal(timeoutMs: number): Promise<SessionId> {
-    const input = page.locator('textarea').first()
+    const input = page.locator('[data-composer-input]').first()
     await input.waitFor({ timeout: 10_000 })
     const settled = whenTurnsSettled(scaffold!, 2, timeoutMs)
     await input.fill(COMMAND)

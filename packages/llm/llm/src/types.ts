@@ -6,7 +6,7 @@
 
 import type { Branded } from '@deepseek-ai/dsh-brand'
 import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
-import type { CallId, ProviderRequestId, ReasoningEffortId } from './brand.ts'
+import type { ToolCallId, ProviderRequestId, ReasoningEffortId } from './brand.ts'
 import type { Message } from './message.ts'
 
 declare module '@deepseek-ai/cordis' {
@@ -78,7 +78,7 @@ export interface ImageBlock {
 export interface ToolCallBlock {
   type: 'tool-call'
   /** Provider-issued call id; correlates with the matching tool result. */
-  id: CallId
+  id: ToolCallId
   name: string
   /** Raw JSON string as produced by the model. */
   arguments: string
@@ -87,7 +87,7 @@ export interface ToolCallBlock {
 /** The result of a tool invocation, sent back to the model. */
 export interface ToolResultBlock {
   type: 'tool-result'
-  toolCallId: CallId
+  toolCallId: ToolCallId
   content: ContentBlock[]
   isError?: boolean
 }
@@ -351,7 +351,7 @@ export type StreamChunk =
   | { type: 'block-start'; index: number; blockType: ContentBlockType }
   | { type: 'text-delta'; index: number; text: string }
   | { type: 'reasoning-delta'; index: number; text: string }
-  | { type: 'tool-call-delta'; index: number; id: CallId; name?: string; argumentsDelta: string }
+  | { type: 'tool-call-delta'; index: number; id: ToolCallId; name?: string; argumentsDelta: string }
   | { type: 'block-end'; index: number; block: ContentBlock }
   | { type: 'usage'; usage: TokenUsage }
   | {

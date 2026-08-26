@@ -18,17 +18,8 @@ import {
 } from '../api/host.schema.ts'
 import { skillListValueSchema } from '../api/skills.schema.ts'
 import {
-  agentPresetCopyValueSchema, agentPresetListValueSchema, agentPresetOpenDocumentValueSchema,
-  agentPresetReadValueSchema, agentPresetRemoveValueSchema, agentPresetSelectValueSchema,
+  agentPresetOpenDocumentValueSchema,
 } from '../api/agent-presets.schema.ts'
-import {
-  goalCreateValueSchema,
-  goalEditValueSchema,
-  goalPauseValueSchema,
-  goalResumeValueSchema,
-  goalCompleteValueSchema,
-  goalClearValueSchema,
-} from '../api/goals.schema.ts'
 import {
   settingsDescribeValueSchema, settingsMutateValueSchema, settingsOpenDocumentValueSchema,
   settingsReplaceValueSchema, settingsUpdateValueSchema,
@@ -37,11 +28,6 @@ import {
   credentialsDescribeValueSchema, credentialsSetValueSchema, credentialsUnsetValueSchema,
 } from '../api/credentials.schema.ts'
 import { llmDiscoverModelsValueSchema, llmModelsValueSchema, llmProvidersValueSchema } from '../api/llm.schema.ts'
-import {
-  subagentInterruptValueSchema,
-  subagentListValueSchema,
-  subagentPromptValueSchema,
-} from '../api/subagents.schema.ts'
 
 /**
  * Client consumption face of the contract (shape a): same domain tree as ApiProxy, but unary
@@ -56,11 +42,6 @@ import {
  * Derived per method key from RpcMethodMap so a map row addition updates this mechanically.
  */
 export interface IApiClient {
-  subagents: {
-    list(payload: RequestPayload<'subagent.list'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'subagent.list'>>>
-    prompt(payload: RequestPayload<'subagent.prompt'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'subagent.prompt'>>>
-    interrupt(payload: RequestPayload<'subagent.interrupt'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'subagent.interrupt'>>>
-  }
   host: {
     describe(payload: RequestPayload<'host.describe'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'host.describe'>>>
     pickDirectory(payload: RequestPayload<'host.pickDirectory'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'host.pickDirectory'>>>
@@ -72,20 +53,7 @@ export interface IApiClient {
     list(payload: RequestPayload<'skill.list'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'skill.list'>>>
   }
   agentPresets: {
-    list(payload: RequestPayload<'agentPreset.list'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'agentPreset.list'>>>
-    select(payload: RequestPayload<'agentPreset.select'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'agentPreset.select'>>>
-    read(payload: RequestPayload<'agentPreset.read'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'agentPreset.read'>>>
-    copy(payload: RequestPayload<'agentPreset.copy'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'agentPreset.copy'>>>
     openDocument(payload: RequestPayload<'agentPreset.openDocument'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'agentPreset.openDocument'>>>
-    remove(payload: RequestPayload<'agentPreset.remove'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'agentPreset.remove'>>>
-  }
-  goals: {
-    create(payload: RequestPayload<'goal.create'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'goal.create'>>>
-    edit(payload: RequestPayload<'goal.edit'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'goal.edit'>>>
-    pause(payload: RequestPayload<'goal.pause'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'goal.pause'>>>
-    resume(payload: RequestPayload<'goal.resume'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'goal.resume'>>>
-    complete(payload: RequestPayload<'goal.complete'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'goal.complete'>>>
-    clear(payload: RequestPayload<'goal.clear'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'goal.clear'>>>
   }
   settings: {
     describe(payload: RequestPayload<'settings.describe'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'settings.describe'>>>
@@ -111,27 +79,13 @@ export interface IApiClient {
  * mirror of the handler's request table; key coverage compiler-enforced against RpcMethodMap).
  */
 const UNARY_VALUE_SCHEMAS: { [K in keyof RpcMethodMap]: z.ZodType<Wire<ResponseValue<K>>> } = {
-  'subagent.list': subagentListValueSchema,
-  'subagent.prompt': subagentPromptValueSchema,
-  'subagent.interrupt': subagentInterruptValueSchema,
   'host.describe': hostDescribeValueSchema,
   'host.pickDirectory': hostPickDirectoryValueSchema,
   'host.listDirectory': hostListDirectoryValueSchema,
   'host.createDirectory': hostCreateDirectoryValueSchema,
   'host.openPath': hostOpenPathValueSchema,
   'skill.list': skillListValueSchema,
-  'agentPreset.list': agentPresetListValueSchema,
-  'agentPreset.select': agentPresetSelectValueSchema,
-  'agentPreset.read': agentPresetReadValueSchema,
-  'agentPreset.copy': agentPresetCopyValueSchema,
   'agentPreset.openDocument': agentPresetOpenDocumentValueSchema,
-  'agentPreset.remove': agentPresetRemoveValueSchema,
-  'goal.create': goalCreateValueSchema,
-  'goal.edit': goalEditValueSchema,
-  'goal.pause': goalPauseValueSchema,
-  'goal.resume': goalResumeValueSchema,
-  'goal.complete': goalCompleteValueSchema,
-  'goal.clear': goalClearValueSchema,
   'settings.describe': settingsDescribeValueSchema,
   'settings.openDocument': settingsOpenDocumentValueSchema,
   'settings.update': settingsUpdateValueSchema,
@@ -273,12 +227,6 @@ export abstract class AbstractApiClient implements IApiClient {
 
   // ---- IApiClient API (arrow properties so destructured/passed references stay bound) ----
 
-  readonly subagents: IApiClient['subagents'] = {
-    list: (payload, signal) => this.callUnary('subagent.list', payload, signal),
-    prompt: (payload, signal) => this.callUnary('subagent.prompt', payload, signal),
-    interrupt: (payload, signal) => this.callUnary('subagent.interrupt', payload, signal),
-  }
-
   readonly host: IApiClient['host'] = {
     describe: (payload, signal) => this.callUnary('host.describe', payload, signal),
     // A native system dialog is user-paced and may legitimately stay open
@@ -301,21 +249,7 @@ export abstract class AbstractApiClient implements IApiClient {
   // the whole gateway, and with it the host `Context` merges, into every
   // Client program that imports this carrier.
   readonly agentPresets: IApiClient['agentPresets'] = {
-    list: (payload, signal) => this.callUnary('agentPreset.list', payload, signal),
-    select: (payload, signal) => this.callUnary('agentPreset.select', payload, signal),
-    read: (payload, signal) => this.callUnary('agentPreset.read', payload, signal),
-    copy: (payload, signal) => this.callUnary('agentPreset.copy', payload, signal),
     openDocument: (payload, signal) => this.callUnary('agentPreset.openDocument', payload, signal),
-    remove: (payload, signal) => this.callUnary('agentPreset.remove', payload, signal),
-  }
-
-  readonly goals: IApiClient['goals'] = {
-    create: (payload, signal) => this.callUnary('goal.create', payload, signal),
-    edit: (payload, signal) => this.callUnary('goal.edit', payload, signal),
-    pause: (payload, signal) => this.callUnary('goal.pause', payload, signal),
-    resume: (payload, signal) => this.callUnary('goal.resume', payload, signal),
-    complete: (payload, signal) => this.callUnary('goal.complete', payload, signal),
-    clear: (payload, signal) => this.callUnary('goal.clear', payload, signal),
   }
 
   readonly settings: IApiClient['settings'] = {
