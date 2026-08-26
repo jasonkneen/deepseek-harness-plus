@@ -133,6 +133,7 @@ async function runNode(
     cwd: request.cwd,
     env: request.env,
     stdio: 'inherit',
+    detached: true,
   })
   await new Promise<void>((resolve) => {
     let started = false

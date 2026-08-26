@@ -236,6 +236,13 @@ describe('spawn runner transport', () => {
         '--request', files.requestPath,
         '--events', files.eventsPath,
       ], asRunnerHost(host), fakeRunnerInternals({ spawn: injectedSpawn }))
+      expect(injectedSpawn).toHaveBeenCalledTimes(1)
+      expect(injectedSpawn).toHaveBeenCalledWith('node', [], {
+        cwd: process.cwd(),
+        env: {},
+        stdio: 'inherit',
+        detached: true,
+      })
       expect(host.exitCode).toBe(127)
       expect(readRunnerEvents(files.eventsPath)).toEqual([
         { type: 'started', pid: 4321 },
