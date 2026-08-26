@@ -262,6 +262,7 @@ function queryFrom(
 
 function waitingQuery(signal: AbortSignal, close = vi.fn()): Query {
   async function* stream(): AsyncGenerator<SDKMessage, void> {
+    yield { type: 'system', subtype: 'init' } as SDKMessage
     await new Promise<never>((_resolve, reject) => {
       const fail = (): void => {
         reject(signal.reason instanceof Error
@@ -330,7 +331,7 @@ beforeEach(() => {
       env: options.env!,
       signal: options.abortController!.signal,
     }))
-    return queryFrom([])
+    return queryFrom([{ type: 'system', subtype: 'init' } as SDKMessage])
   })
 })
 
@@ -686,7 +687,10 @@ describe('task admission and package contracts', () => {
     child.stdout.end()
     await expect(run.result).resolves.toEqual({
       output: [],
-      diagnostic: expectedFailureDiagnostic('query-run', 'invalid-result'),
+      diagnostic: expectedFailureDiagnostic('query-run', 'invalid-result', {
+        exitCode: 9,
+        signal: null,
+      }),
       stopReason: 'error',
     })
     expect(warn).toHaveBeenCalledWith(
@@ -1213,6 +1217,7 @@ describe('run publication, cancellation, and settlement', () => {
     for (const outcome of outcomes) {
       const child = fakeChild()
       async function* stream(): AsyncGenerator<SDKMessage, void> {
+        yield { type: 'system', subtype: 'init' } as SDKMessage
         child.settle(outcome)
         await Promise.resolve()
         throw new Error('SECRET_TOKEN from process transport')
@@ -1592,7 +1597,7 @@ describe('run publication, cancellation, and settlement', () => {
       .rejects.not.toThrow('live child cleanup failed')
   })
 
-  it('waits one event-loop turn for a queued provider startup rejection', async () => {
+  it('waits for the first SDK message or a delayed provider startup rejection', async () => {
     const spawnError = Object.assign(
       new Error('spawn /sdk/claude ENOENT'),
       { code: 'ENOENT', path: '/sdk/claude' },
@@ -1601,7 +1606,59 @@ describe('run publication, cancellation, and settlement', () => {
     const close = vi.fn()
     queryMock.mockImplementationOnce(({ options }) => {
       options.spawnClaudeCodeProcess!(sdkSpawnOptions())
-      queueMicrotask(() => { child.fail(spawnError) })
+      async function* stream(): AsyncGenerator<SDKMessage, void> {
+        await new Promise<never>(() => {})
+      }
+      return Object.assign(stream(), { close }) as unknown as Query
+    })
+
+    const startup = startClaudeCodeRun(request(), {
+      cwd: '/workspace',
+      permissionMode: DEFAULT_CLAUDE_CODE_PERMISSION_MODE,
+      env: {},
+      disposeGraceMs: 5,
+      spawn: () => child.handle,
+    })
+    await nextTask()
+    child.fail(spawnError)
+    await expect(startup).rejects.toMatchObject({ cause: spawnError })
+    expect(close).toHaveBeenCalledOnce()
+    expect(child.terminate).toHaveBeenCalledOnce()
+    expect(child.waitForExit).toHaveBeenCalledOnce()
+  })
+
+  it('keeps local cancellation authoritative when it arrives with the first SDK message', async () => {
+    const controller = new AbortController()
+    const child = fakeChild()
+    const close = vi.fn()
+    queryMock.mockImplementationOnce(({ options }) => {
+      options.spawnClaudeCodeProcess!(sdkSpawnOptions())
+      async function* stream(): AsyncGenerator<SDKMessage, void> {
+        controller.abort(new Error('cancelled while the first message arrived'))
+        yield { type: 'system', subtype: 'init' } as SDKMessage
+      }
+      return Object.assign(stream(), { close }) as unknown as Query
+    })
+
+    await expect(startClaudeCodeRun(
+      request(undefined, controller.signal),
+      {
+        cwd: '/workspace',
+        permissionMode: DEFAULT_CLAUDE_CODE_PERMISSION_MODE,
+        env: {},
+        disposeGraceMs: 5,
+        spawn: () => child.handle,
+      },
+    )).rejects.toThrow('aborted before SDK startup')
+    expect(close).toHaveBeenCalledOnce()
+    expect(child.terminate).toHaveBeenCalledOnce()
+  })
+
+  it('rejects an SDK stream that ends before its first message', async () => {
+    const child = fakeChild()
+    const close = vi.fn()
+    queryMock.mockImplementationOnce(({ options }) => {
+      options.spawnClaudeCodeProcess!(sdkSpawnOptions())
       return queryFrom([], undefined, close)
     })
 
@@ -1612,7 +1669,9 @@ describe('run publication, cancellation, and settlement', () => {
       disposeGraceMs: 5,
       spawn: () => child.handle,
     })
-    await expect(startup).rejects.toMatchObject({ cause: spawnError })
+    await expect(startup).rejects.toThrow(
+      expectedFailureDiagnostic('query-start', 'unknown'),
+    )
     expect(close).toHaveBeenCalledOnce()
     expect(child.terminate).toHaveBeenCalledOnce()
     expect(child.waitForExit).toHaveBeenCalledOnce()

@@ -179,6 +179,19 @@ function replaceProcessOutcome(child: SubprocessHandle, outcome: SubprocessOutco
   }
 }
 
+function hideProcessPid(child: SubprocessHandle): SubprocessHandle {
+  return {
+    pid: undefined,
+    stdin: child.stdin,
+    stdout: child.stdout,
+    stderr: child.stderr,
+    collected: child.collected,
+    done: child.done,
+    terminate: () => { child.terminate() },
+    waitForExit: (signal?: AbortSignal) => child.waitForExit(signal),
+  }
+}
+
 describe('acpStopReason', () => {
   it('maps each ACP stop reason to the harness vocabulary', () => {
     expect(acpStopReason('end_turn')).toBe('completed')
@@ -734,7 +747,7 @@ describe('dsh-subagent-acp', () => {
       env: { MOCK_CRASH_ON_INITIALIZE: '1' },
       disposeEofGraceMs: DEFAULT_DISPOSE_EOF_GRACE_MS,
       disposeGraceMs: DEFAULT_DISPOSE_GRACE_MS,
-      spawn: spawnSubprocess,
+      spawn: spec => hideProcessPid(spawnSubprocess(spec)),
     }).catch((cause: unknown) => cause)
     expect(error).toBeInstanceOf(Error)
     expect((error as Error).message).toBe(
@@ -751,11 +764,42 @@ describe('dsh-subagent-acp', () => {
       env: {},
       disposeEofGraceMs: 50,
       disposeGraceMs: 50,
-      spawn: spec => closeProtocolImmediately(spawnSubprocess(spec)),
+      spawn: spec => closeProtocolImmediately(hideProcessPid(spawnSubprocess(spec))),
     }).catch((cause: unknown) => cause)
     expect(error).toBeInstanceOf(Error)
     expect((error as Error).message).toBe(
       `subagent-acp: ${expectedFailure('stage: initialize; category: transport')}`,
+    )
+  })
+
+  it('reuses a direct outcome already observed before the startup transport closes', async () => {
+    const outcome = { exitCode: 19, signal: null } as const
+    const stdin = new PassThrough()
+    const stdout = new PassThrough()
+    const starting = startAcpRun(request(), {
+      command: 'fake-acp',
+      args: [],
+      cwd: process.cwd(),
+      permission: 'reject',
+      env: {},
+      disposeEofGraceMs: 50,
+      disposeGraceMs: 50,
+      spawn: () => ({
+        pid: undefined,
+        stdin,
+        stdout,
+        stderr: undefined,
+        collected: {},
+        done: Promise.resolve(outcome),
+        terminate: vi.fn(),
+        waitForExit: vi.fn().mockResolvedValue(true),
+      }),
+    })
+    await Promise.resolve()
+    stdout.end()
+
+    await expect(starting).rejects.toThrow(
+      `subagent-acp: ${expectedFailure('stage: initialize; category: process-exit; exit code: 19')}`,
     )
   })
 
@@ -1144,8 +1188,16 @@ describe('dsh-subagent-acp', () => {
   })
 
   it('preserves partial output and structured process facts when the child exits', async () => {
-    const ctx = await setup({ MOCK_TEXT: 'partial answer', MOCK_CRASH_AFTER_CHUNK: '1' })
-    const run = await ctx.subagents.start('acp', request())
+    const run = await startAcpRun(request(), {
+      command: process.execPath,
+      args: [mockServer],
+      cwd: process.cwd(),
+      permission: 'reject',
+      env: { MOCK_TEXT: 'partial answer', MOCK_CRASH_AFTER_CHUNK: '1' },
+      disposeEofGraceMs: DEFAULT_DISPOSE_EOF_GRACE_MS,
+      disposeGraceMs: DEFAULT_DISPOSE_GRACE_MS,
+      spawn: spec => hideProcessPid(spawnSubprocess(spec)),
+    })
     const result = await run.result
     expect(result).toEqual({
       output: [{ type: 'text', text: 'partial answer' }],
@@ -1153,6 +1205,45 @@ describe('dsh-subagent-acp', () => {
       stopReason: 'error',
     })
     await run.dispose()
+  })
+
+  it('classifies a rejected direct result independently of PID publication', async () => {
+    const processFailure = new Error('remote provider failed before publishing a PID')
+    const direct = Promise.withResolvers<SubprocessOutcome>()
+    let realChild: SubprocessHandle | undefined
+    const errors: Error[] = []
+    const run = await startAcpRun(request(), {
+      command: process.execPath,
+      args: [mockServer],
+      cwd: process.cwd(),
+      permission: 'reject',
+      env: { MOCK_HANG: '1' },
+      disposeEofGraceMs: 100,
+      disposeGraceMs: 100,
+      spawn: (spec) => {
+        const child = spawnSubprocess(spec)
+        realChild = child
+        return closeProtocolOnPrompt({
+          pid: undefined,
+          stdin: child.stdin,
+          stdout: child.stdout,
+          stderr: child.stderr,
+          collected: child.collected,
+          done: direct.promise,
+          terminate: () => { child.terminate() },
+          waitForExit: (signal?: AbortSignal) => child.waitForExit(signal),
+        }, () => { direct.reject(processFailure) })
+      },
+      onError: (error) => { errors.push(error) },
+    })
+    await expect(run.result).resolves.toEqual({
+      output: [],
+      diagnostic: expectedFailure('stage: process; category: process-start'),
+      stopReason: 'error',
+    })
+    expect(errors).toContain(processFailure)
+    await run.dispose()
+    await realChild?.done
   })
 
   it('reports a signal-only process outcome', async () => {

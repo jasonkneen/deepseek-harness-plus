@@ -285,11 +285,11 @@ function reportFailure(spec: AcpRunSpec, error: unknown): void {
 function startupFailure(
   error: unknown,
   stage: Extract<AcpFailureStage, 'initialize' | 'new-session'>,
-  child: SubprocessHandle,
+  processFailure: Error | undefined,
   outcome: SubprocessOutcome | undefined,
 ): AcpRunFailure {
-  if (child.pid === undefined) {
-    return new AcpRunFailure({ stage: 'process', category: 'process-start' }, error)
+  if (processFailure !== undefined) {
+    return new AcpRunFailure({ stage: 'process', category: 'process-start' }, processFailure)
   }
   return new AcpRunFailure(
     /* v8 ignore next -- Windows anonymous pipes cannot expose a live-child protocol close during startup. */
@@ -366,10 +366,17 @@ export async function startAcpRun(request: SubagentStartRequest, spec: AcpRunSpe
   }
   /* v8 ignore stop */
   let processOutcome: SubprocessOutcome | undefined
-  const processDone = child.done.then((outcome) => {
-    processOutcome = outcome
-    return outcome
-  })
+  let processFailure: Error | undefined
+  const processDone = child.done.then(
+    (outcome) => {
+      processOutcome = outcome
+      return outcome
+    },
+    (error: unknown) => {
+      processFailure = toError(error)
+      throw processFailure
+    },
+  )
 
   // Spawn-level failure surfaces as `done` rejecting into the startup race; a
   // clean exit must never win it, so the success arm parks forever. (The ACP
@@ -383,7 +390,7 @@ export async function startAcpRun(request: SubagentStartRequest, spec: AcpRunSpe
   spawnFailed.catch(() => { /* observed by the startup race; never unhandled */ })
 
   const observeProcessOutcome = async (signal?: AbortSignal): Promise<SubprocessOutcome | undefined> => {
-    if (processOutcome !== undefined || child.pid === undefined) return processOutcome
+    if (processOutcome !== undefined) return processOutcome
     const timeout = AbortSignal.timeout(Math.ceil(spec.disposeGraceMs))
     const bound = signal === undefined ? timeout : AbortSignal.any([signal, timeout])
     const aborted = Promise.withResolvers<undefined>()
@@ -507,13 +514,16 @@ export async function startAcpRun(request: SubagentStartRequest, spec: AcpRunSpe
     // A child closing its protocol stream can precede whole-tree exit
     // observation. Local cancellation does not need the discarded startup
     // classification; other failures use the configured process grace.
+    const observedOutcome = !cancelledBeforeCleanup && !(error instanceof AcpRunFailure)
+      ? await observeProcessOutcome()
+      : undefined
     const startup = cancelledBeforeCleanup
       ? { kind: 'cancelled' } as const
       : {
         kind: 'failed',
         failure: error instanceof AcpRunFailure
           ? error
-          : startupFailure(error, startupStage, child, await observeProcessOutcome()),
+          : startupFailure(error, startupStage, processFailure, observedOutcome),
       } as const
     if (startup.kind === 'cancelled') {
       // Local cancellation owns the startup outcome; only cleanup failure is
@@ -521,7 +531,7 @@ export async function startAcpRun(request: SubagentStartRequest, spec: AcpRunSpe
     } else {
       reportFailure(spec, error instanceof AcpRunFailure
         ? error.cause
-        : error)
+        : processFailure ?? error)
     }
     try {
       await disposeProcess()
@@ -572,13 +582,14 @@ export async function startAcpRun(request: SubagentStartRequest, spec: AcpRunSpe
       } catch (error: unknown) {
         if (!flags.cancelled) {
           const outcome = await observeProcessOutcome(request.signal)
-          /* v8 ignore next -- Windows anonymous pipes cannot expose a live-child prompt transport failure. */
-          const facts = outcome === undefined
-            ? { stage: 'prompt', category: 'transport' } as const
-            : { stage: 'process', category: 'process-exit', outcome } as const
+          const facts = processFailure !== undefined
+            ? { stage: 'process', category: 'process-start' } as const
+            : outcome === undefined
+              ? { stage: 'prompt', category: 'transport' } as const
+              : { stage: 'process', category: 'process-exit', outcome } as const
           diagnostic = diagnosticText(facts, latestPermission)
         }
-        throw error
+        throw processFailure ?? error
       }
     },
     collectOutput,
