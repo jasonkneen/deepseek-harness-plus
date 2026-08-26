@@ -78,6 +78,7 @@ class WindowsJobOwner implements BoundProcessOwner {
         if (error !== null && this.runner.connected) this.runner.kill()
       })
     } catch {
+      // oxlint-disable-next-line typescript/no-unnecessary-condition -- ChildProcess.send() may synchronously disconnect before throwing.
       if (this.runner.connected) this.runner.kill()
     }
   }
