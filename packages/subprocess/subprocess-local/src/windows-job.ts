@@ -70,8 +70,8 @@ class WindowsJobOwner implements BoundProcessOwner {
 
   signal(_signal: 'SIGTERM' | 'SIGKILL'): void {
     if (this.stopped || this.runnerClosed || this.runner.pid === undefined) return
-    // The runner handles an IPC disconnect as termination, and only disconnects
-    // itself after proving the Job empty. Wait for its close instead of killing it.
+    // The runner handles an IPC disconnect as termination and disconnects itself
+    // after its Win32 cleanup path. Its close status reports whether the Job is empty.
     if (!this.runner.connected) return
     try {
       this.runner.send({ type: 'terminate' }, (error) => {
