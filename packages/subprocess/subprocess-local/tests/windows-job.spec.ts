@@ -127,18 +127,44 @@ describe('Windows Job runner adapter', () => {
     await expect(launch.owner.waitForExit()).resolves.toBeUndefined()
   })
 
-  it('falls back to killing the runner when IPC delivery is unavailable or fails', async () => {
-    for (const mode of ['callback-error', 'disconnected', 'throw'] as const) {
+  it('waits for a runner that disconnects before its clean close', async () => {
+    const child = new EventEmitter() as ChildProcess
+    const kill = vi.fn(() => true)
+    const send = vi.fn()
+    Object.assign(child, { pid: 321, connected: false, kill, send })
+    let eventsPath = ''
+    const run = vi.fn((_command: string, args: readonly string[]) => {
+      eventsPath = args[args.indexOf('--events') + 1] as string
+      appendRunnerEvent(eventsPath, { type: 'started', pid: 321 })
+      return child
+    }) as unknown as typeof spawn
+    const launch = launchWindowsJob(spec(['fake-target']), { spawn: run, runnerInvocation: ['fake-runner'] })
+
+    launch.owner.signal('SIGTERM')
+    expect(send).not.toHaveBeenCalled()
+    expect(kill).not.toHaveBeenCalled()
+
+    appendRunnerEvent(eventsPath, { type: 'exit', exitCode: 0, signal: null })
+    child.emit('close', 0, null)
+    await expect(launch.direct).resolves.toEqual({ exitCode: 0, signal: null })
+    await expect(launch.owner.waitForExit()).resolves.toBeUndefined()
+  })
+
+  it('kills the runner only when IPC delivery fails while still connected', async () => {
+    for (const mode of ['callback-error', 'callback-disconnect', 'throw', 'throw-disconnect'] as const) {
       const child = new EventEmitter() as ChildProcess
       const kill = vi.fn(() => true)
       const send = vi.fn((_message: unknown, callback: (error: Error | null) => void) => {
-        if (mode === 'throw') throw new Error('send threw')
-        callback(mode === 'callback-error' ? new Error('send failed') : null)
+        if (mode === 'callback-disconnect' || mode === 'throw-disconnect') {
+          Object.assign(child, { connected: false })
+        }
+        if (mode === 'throw' || mode === 'throw-disconnect') throw new Error('send threw')
+        callback(new Error('send failed'))
         return true
       })
       Object.assign(child, {
         pid: 321,
-        connected: mode !== 'disconnected',
+        connected: true,
         kill,
         send,
       })
@@ -151,15 +177,17 @@ describe('Windows Job runner adapter', () => {
       const launch = launchWindowsJob(spec(['fake-target']), { spawn: run, runnerInvocation: ['fake-runner'] })
 
       launch.owner.signal('SIGTERM')
-      if (mode === 'callback-error' || mode === 'throw' || mode === 'disconnected') {
-        expect(kill).toHaveBeenCalledOnce()
-      }
-      if (mode === 'disconnected') expect(send).not.toHaveBeenCalled()
+      const shouldKill = mode === 'callback-error' || mode === 'throw'
+      expect(kill).toHaveBeenCalledTimes(shouldKill ? 1 : 0)
 
       appendRunnerEvent(eventsPath, { type: 'exit', exitCode: 0, signal: null })
-      child.emit('close', null, 'SIGTERM')
+      child.emit('close', shouldKill ? null : 0, shouldKill ? 'SIGTERM' : null)
       await expect(launch.direct).resolves.toEqual({ exitCode: 0, signal: null })
-      await expect(launch.owner.waitForExit()).rejects.toThrow('before proving its managed range empty')
+      if (shouldKill) {
+        await expect(launch.owner.waitForExit()).rejects.toThrow('before proving its managed range empty')
+      } else {
+        await expect(launch.owner.waitForExit()).resolves.toBeUndefined()
+      }
       const sends = send.mock.calls.length
       const kills = kill.mock.calls.length
       launch.owner.signal('SIGKILL')
