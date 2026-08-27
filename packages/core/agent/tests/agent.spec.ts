@@ -74,6 +74,17 @@ async function reconstructPersistedInbox(
 }
 
 describe('Inbox', () => {
+  it('reports a missing Inbox projection as a composition error', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionProjectionRegistry)
+    const agent = stubAgent('missing-inbox-projection', { ctx })
+    const inbox = new Inbox(ctx, agent.session, agentEvents(ctx, agent))
+
+    expect(() => inbox.nextTurn).toThrow(
+      'agent "missing-inbox-projection" cannot read inbox state: session projection "inbox" is not registered; load AgentRegistry with SessionProjectionRegistry before constructing Inbox',
+    )
+  })
+
   it('rejects invalid durable coordinates and duplicate identities during reconstruction', async () => {
     const outOfRange = await reconstructPersistedInbox('invalid-inbox-range', (session) => {
       session.append('agent/inbox/spliced', {

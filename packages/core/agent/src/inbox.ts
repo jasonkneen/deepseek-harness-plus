@@ -128,9 +128,13 @@ export class Inbox {
 
   /** Read the current durable projection state. */
   private current(): InboxState {
-    // AgentLoop requires sessionProjections; AgentRegistry contributes this unit to it.
-    // oxlint-disable-next-line typescript/no-non-null-assertion
-    return this.ctx.sessionProjections.stateOf(this.session, 'inbox')!
+    const state = this.ctx.sessionProjections.stateOf(this.session, 'inbox')
+    if (state === undefined) {
+      throw new Error(
+        `agent "${this.session.id}" cannot read inbox state: session projection "inbox" is not registered; load AgentRegistry with SessionProjectionRegistry before constructing Inbox`,
+      )
+    }
+    return state
   }
 
   /** Commit one normalized mutation and publish its live events. */
