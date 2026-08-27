@@ -1,10 +1,13 @@
 import { Context } from '@deepseek-ai/cordis'
-import AgentRegistry, { Inbox } from '@deepseek-ai/dsh-agent'
-import type { Agent } from '@deepseek-ai/dsh-agent'
+import AgentRegistry from '@deepseek-ai/dsh-agent'
+import type { Agent, Inbox } from '@deepseek-ai/dsh-agent'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
+import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import { describe, expect, it } from 'vitest'
 import { SessionControlController } from '../src/control.ts'
+import type { SessionControlFrame } from '../src/types.ts'
+import { createInboxFixture } from '@deepseek-ai/dsh-agent-loop-testkit'
 
 async function harness(): Promise<{
   ctx: Context
@@ -14,12 +17,13 @@ async function harness(): Promise<{
 }> {
   const ctx = new Context()
   await ctx.plugin(SessionStore)
+  await ctx.plugin(SessionProjectionRegistry)
   await ctx.plugin(AgentRegistry)
   const session = ctx.sessions.create(SessionId('queue-session'))
-  const inbox = new Inbox(session, { inserted: () => {}, discarded: () => {}, claimed: () => {} })
-  const agent = { id: session.id, session, inbox, status: 'running', ctx } as Agent
+  const agent = { id: session.id, session, inbox: undefined as never, status: 'running', ctx } as unknown as Agent
+  Object.assign(agent, { inbox: createInboxFixture(ctx.sessionProjections, session).inbox })
   ctx.agents.register(agent)
-  return { ctx, control: new SessionControlController(ctx), agent, inbox }
+  return { ctx, control: new SessionControlController(ctx), agent, inbox: agent.inbox }
 }
 
 function message(text: string, source: 'user' | 'plugin' = 'user') {
@@ -30,6 +34,17 @@ function message(text: string, source: 'user' | 'plugin' = 'user') {
 }
 
 describe('Session control queue projection', () => {
+  /** Consume frames until the next queue replacement (inbox projection frames interleave). */
+  async function nextQueueFrame(
+    iterator: AsyncIterator<SessionControlFrame>,
+  ): Promise<Extract<SessionControlFrame, { type: 'queue' }>> {
+    for (;;) {
+      const next = await iterator.next()
+      if (next.done) throw new Error('stream ended before a queue frame')
+      if (next.value.type === 'queue') return next.value
+    }
+  }
+
   it('projects both pending lists in baselines and live replacement frames', async () => {
     const { control, inbox } = await harness()
     const queued = message('queued')
@@ -57,13 +72,11 @@ describe('Session control queue projection', () => {
 
     const replacement = message('replacement')
     inbox.append('next-turn', replacement)
-    const replaced = await iterator.next()
-    if (replaced.done || replaced.value.type !== 'queue') throw new Error('missing queue replacement')
-    expect(replaced.value.items.map(item => item.id)).toContain(replacement.id)
+    const replaced = await nextQueueFrame(iterator)
+    expect(replaced.items.map(item => item.id)).toContain(replacement.id)
     inbox.remove(steering.id)
-    const removed = await iterator.next()
-    if (removed.done || removed.value.type !== 'queue') throw new Error('missing queue replacement')
-    expect(removed.value.items.map(item => item.id)).not.toContain(steering.id)
+    const removed = await nextQueueFrame(iterator)
+    expect(removed.items.map(item => item.id)).not.toContain(steering.id)
 
     abort.abort()
     await iterator.next()
@@ -77,7 +90,7 @@ describe('Session control queue projection', () => {
     await ctx.plugin(SessionProjectionRegistry)
     const session = ctx.sessions.create(SessionId('late-projection-queue'))
     const agent = { id: session.id, session, inbox: undefined as never, status: 'running', ctx } as unknown as Agent
-    Object.assign(agent, { inbox: new Inbox(ctx, agent.session, agentEvents(ctx, agent)) })
+    Object.assign(agent, { inbox: createInboxFixture(ctx.sessionProjections, session).inbox })
     ctx.agents.register(agent)
     const abort = new AbortController()
     const iterator = control.control(abort.signal)[Symbol.asyncIterator]()
@@ -139,14 +152,18 @@ describe('Session control queue projection', () => {
     const { ctx, control, inbox } = await harness()
     const iterator = control.control(new AbortController().signal)[Symbol.asyncIterator]()
     await iterator.next()
-    inbox.append('next-turn', message('first'))
-    inbox.append('next-turn', message('second'))
+    const first = message('first')
+    const second = message('second')
+    inbox.append('next-turn', first)
+    inbox.append('next-turn', second)
 
-    const first = await iterator.next()
-    expect(first).toMatchObject({ done: false, value: { type: 'queue' } })
+    const queues: Extract<SessionControlFrame, { type: 'queue' }>[] = []
     await ctx.fiber.dispose()
-    const second = await iterator.next()
-    expect(second).toMatchObject({ done: false, value: { type: 'queue' } })
-    await expect(iterator.next()).resolves.toMatchObject({ done: true })
+    for (;;) {
+      const next = await iterator.next()
+      if (next.done) break
+      if (next.value.type === 'queue') queues.push(next.value)
+    }
+    expect(queues.map(queue => queue.items.map(item => item.id))).toEqual([[first.id], [first.id, second.id]])
   })
 })

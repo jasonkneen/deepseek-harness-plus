@@ -86,18 +86,18 @@ The package is built on one separation: the public `Agent` surface and registry 
 
 ### Durable inbox
 
-`AgentRegistry` contributes the standard `inbox` session projection whenever the projection registry is composed. The registry folds durable `agent/inbox/spliced` events once and remains the sole owner of the live `{ 'next-turn', 'next-step' }` state; `Inbox` is a command facade that reads that unit rather than replaying or copying the fold. Reconstruction rejects unsafe or out-of-range splice coordinates and duplicate `MessageId` values across both pending lists, reporting the offending event seq instead of accepting malformed durable history.
+`AgentRegistry` contributes the standard `inbox` session projection whenever the projection registry is composed. The registry folds durable `agent/inbox/spliced` events once and remains the sole owner of the live `{ 'next-turn', 'next-step' }` state. `Agent.inbox` exposes only the structural `Inbox` interface; dsh-agent-loop owns the package-internal `ProjectedInbox` that reads the projection. Missing projection composition fails explicitly, while reconstruction rejects unsafe or out-of-range splice coordinates and duplicate `MessageId` values across both pending lists and reports the offending event seq.
 
-`Inbox` exposes pending `nextTurn` and `nextStep` messages and mutates them through `append`, `prepend`, `replace`, `remove`, `clear`, `splice`, and `claim`. Ordinary removals and `clear()` are durable cancellations; claiming uses pure deletion splices. Its live notifications are deliberately per-message and minimal: `agent/inbox/inserted { message }`, `agent/inbox/claimed { message, turn }`, and `agent/inbox/discarded { message }`.
+`Inbox` exposes pending `nextTurn` and `nextStep` messages and mutates them through `append`, `prepend`, `replace`, `remove`, `clear`, and `splice`. Ordinary removals and `clear()` are durable cancellations. At a step boundary, the loop's internal implementation claims pending input through pure deletion splices. Live notifications are deliberately per-message and minimal: `agent/inbox/inserted { message }`, `agent/inbox/claimed { message, turn }`, and `agent/inbox/discarded { message }`.
 
 ### Source map
 
 | File | Role |
 |---|---|
 | [`src/index.ts`](src/index.ts) | Plugin entry: `AgentRegistry`, factory slot, initiator scope, `CreateAgentOptions`/`ResumeAgentOptions` |
-| [`src/runtime-types.ts`](src/runtime-types.ts) | `Agent`, `AgentStatus`, and the `agent/*` event declarations |
-| [`src/types.ts`](src/types.ts) | `AgentOptions`, cancellation causes, and inbox vocabulary |
-| [`src/inbox.ts`](src/inbox.ts) | The `Inbox` projection over durable `agent/inbox/spliced` events |
+| [`src/runtime-types.ts`](src/runtime-types.ts) | `Agent`, structural `Inbox`, `AgentStatus`, and the `agent/*` event declarations |
+| [`src/types.ts`](src/types.ts) | `AgentOptions`, cancellation causes, and inbox projection vocabulary |
+| [`src/inbox-projection.ts`](src/inbox-projection.ts) | Standard projection over durable `agent/inbox/spliced` events |
 | [`src/dispatch.ts`](src/dispatch.ts) | `agentEvents` fused dispatcher and `assembleContextFor(agent)` |
 | [`src/consumed-work.ts`](src/consumed-work.ts) | `foldConsumedWork(events)`: what the log's consumed work became |
 | [`src/model-selection.ts`](src/model-selection.ts) | `installModelSelection`: coupling one selection to assembly and routing |

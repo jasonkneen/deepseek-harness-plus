@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
-import AgentRegistry, { agentEvents, Inbox } from '@deepseek-ai/dsh-agent'
+import AgentRegistry, { agentEvents } from '@deepseek-ai/dsh-agent'
 import type { Agent, AgentStatus } from '@deepseek-ai/dsh-agent'
 import GoalService, { GoalId } from '@deepseek-ai/dsh-goal'
 import type { GoalRef } from '@deepseek-ai/dsh-goal'
@@ -13,6 +13,7 @@ import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
 import type { ToolExecutionResult } from '@deepseek-ai/dsh-tools'
 import * as toolGoal from '@deepseek-ai/dsh-tool-goal'
+import { createInboxFixture, type InboxFixture } from '@deepseek-ai/dsh-agent-loop-testkit'
 
 const testToolSignal = new AbortController().signal
 
@@ -26,6 +27,14 @@ const isolatedInboxCtx = new Context()
 await isolatedInboxCtx.plugin(SessionStore)
 await isolatedInboxCtx.plugin(SessionProjectionRegistry)
 await isolatedInboxCtx.plugin(AgentRegistry)
+const inboxFixtures = new WeakMap<Agent, InboxFixture>()
+
+/** Test-driver operations for one structural agent inbox. */
+function inboxFixture(agent: Agent): InboxFixture {
+  const fixture = inboxFixtures.get(agent)
+  if (fixture === undefined) throw new Error('agent inbox fixture is unavailable')
+  return fixture
+}
 
 /** Build one registry-compatible live agent whose injections enter the durable inbox. */
 function stubAgent(rawId: string, supplied?: Session, suppliedCtx?: Context): StubAgent {
@@ -54,7 +63,9 @@ function stubAgent(rawId: string, supplied?: Session, suppliedCtx?: Context): St
     runMaintenance: task => task(new AbortController().signal),
     whenIdle() { return Promise.resolve() },
   }
-  Object.assign(agent, { inbox: new Inbox(agentCtx, agent.session, agentEvents(agentCtx, agent)) })
+  const fixture = createInboxFixture(agentCtx.sessionProjections, session)
+  Object.assign(agent, { inbox: fixture.inbox })
+  inboxFixtures.set(agent, fixture)
   return { agent, session, setStatus(value) { status = value } }
 }
 
@@ -68,7 +79,7 @@ function openTurn(stub: StubAgent, source: MessageSource, text = 'prompt'): numb
     source,
   })
   stub.agent.inbox.append('next-turn', message)
-  const claimed = stub.agent.inbox.claim('next-turn', turn)
+  const claimed = inboxFixture(stub.agent).claim('next-turn')
   if (claimed.length === 0) throw new Error('expected queued turn input')
   stub.session.append('turn/start', { turn })
   for (const admitted of claimed) {

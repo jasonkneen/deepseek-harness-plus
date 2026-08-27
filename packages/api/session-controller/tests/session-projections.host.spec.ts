@@ -10,17 +10,18 @@
 import { describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import { z } from 'zod'
-import AgentRegistry, { agentEvents, Inbox } from '@deepseek-ai/dsh-agent'
+import AgentRegistry from '@deepseek-ai/dsh-agent'
 import { AttachmentStore } from '@deepseek-ai/dsh-attachment'
 import { agentPresetProjectionDefinition } from '@deepseek-ai/dsh-agent-presets'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
-import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
+import type { Session, SessionEvent, UserMessage } from '@deepseek-ai/dsh-session'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import type { ProjectionDefinition } from '@deepseek-ai/dsh-session-projection'
 import { SessionControlController } from '@deepseek-ai/dsh-api-session-controller/src/control.ts'
 import type { SessionControlFrame, SessionFollowFrame } from '@deepseek-ai/dsh-api-session-controller/types'
+import { createInboxFixture } from '@deepseek-ai/dsh-agent-loop-testkit'
 import { createSessionTestRemote, testSessionPersistence, type TestSessionRemote } from './test-remote.ts'
 
 declare module '@deepseek-ai/dsh-session-projection/types' {
@@ -91,7 +92,11 @@ const internalCountUnit = () => ({
   stateVersion: 1,
 }) satisfies ProjectionDefinition<'test/internal-count', number>
 
-async function harness(withRegistry: boolean): Promise<{ ctx: Context; session: Session }> {
+async function harness(withRegistry: boolean): Promise<{
+  ctx: Context
+  session: Session
+  readonly claim: (target: 'next-turn' | 'next-step') => UserMessage[]
+}> {
   const ctx = new Context()
   await ctx.plugin(SessionStore)
   await ctx.plugin(AgentRegistry)
@@ -100,13 +105,21 @@ async function harness(withRegistry: boolean): Promise<{ ctx: Context; session: 
   const agent = {
     id: session.id,
     session,
-    inbox: { nextTurn: [], nextStep: [], hasPending: false } as never,
+    inbox: { nextTurn: [], nextStep: [] } as never,
     status: 'idle',
     ctx,
   } as unknown as Agent
-  if (withRegistry) Object.assign(agent, { inbox: new Inbox(ctx, agent.session, agentEvents(ctx, agent)) })
+  const fixture = withRegistry ? createInboxFixture(ctx.sessionProjections, session) : undefined
+  if (fixture !== undefined) Object.assign(agent, { inbox: fixture.inbox })
   ctx.agents.register(agent)
-  return { ctx, session }
+  return {
+    ctx,
+    session,
+    claim: (target) => {
+      if (fixture === undefined) throw new Error('inbox fixture is unavailable without the projection registry')
+      return fixture.claim(target)
+    },
+  }
 }
 
 /** Append `count` user messages so the log has paginable message boundaries. */
@@ -192,7 +205,7 @@ describe('session.history projections block', () => {
   })
 
   it('removes claimed steering from the pending Inbox projection immediately', async () => {
-    const { ctx, session } = await harness(true)
+    const { ctx, session, claim } = await harness(true)
     const proxy = remote(ctx)
     const message = createUserMessage({
       content: [{ type: 'text', text: 'apply this now' }],
@@ -201,7 +214,7 @@ describe('session.history projections block', () => {
     const agent = ctx.agents.get(session.id)
     if (agent === undefined) throw new Error('missing Agent')
     agent.inbox.append('next-step', message)
-    agent.inbox.claim('next-step', 1)
+    claim('next-step')
 
     const during = await opening(proxy, session.id)
     expect(during.projections.values.inbox).toEqual({
@@ -222,7 +235,7 @@ describe('session.history projections block', () => {
     })
     session.append('turn/start', { turn: 1 })
     agent.inbox.append('next-step', rejected)
-    agent.inbox.claim('next-step', 1)
+    claim('next-step')
     session.append('turn/end', { turn: 1, reason: { kind: 'blocked' } })
     const closed = await opening(proxy, session.id)
     expect(closed.projections.values.inbox).toEqual({

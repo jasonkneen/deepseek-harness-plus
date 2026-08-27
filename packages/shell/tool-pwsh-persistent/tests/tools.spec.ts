@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import { ToolCallId } from '@deepseek-ai/dsh-llm'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
-import AgentRegistry, { agentEvents, Inbox } from '@deepseek-ai/dsh-agent'
+import AgentRegistry from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import TerminalSessionService from '@deepseek-ai/dsh-terminal'
 import type {
@@ -39,7 +39,7 @@ function agent(ctx: Context, cwd: string | undefined): Agent {
     id,
     options: {},
     session,
-    inbox: undefined as never,
+    inbox: { nextTurn: [], nextStep: [] } as never,
     status: 'idle',
     ctx: scope.ctx,
     send: () => {},
@@ -50,7 +50,6 @@ function agent(ctx: Context, cwd: string | undefined): Agent {
     runMaintenance: task => task(new AbortController().signal),
     whenIdle: () => Promise.resolve(),
   }
-  Object.assign(value, { inbox: new Inbox(value.ctx, value.session, agentEvents(value.ctx, value)) })
   ctx.agents.register(value)
   return value
 }

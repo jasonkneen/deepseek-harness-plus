@@ -1,5 +1,5 @@
 ---
-description: "为运行具体 AgentLoop 的测试挂载共享服务先决依赖，面向接线真实循环前置依赖的测试作者。"
+description: "为测试 agent-loop 行为提供共享先决依赖挂载与基于会话的结构化 Inbox fixture。"
 kind: "package-library"
 ---
 
@@ -9,7 +9,7 @@ kind: "package-library"
 
 ## 概述
 
-`dsh-agent-loop-testkit` 为测试在加载具体 `AgentLoop` 之前所需的全部标准先决服务——LLM（大语言模型）运行时、会话存储、系统提示词注册表、工具注册表与 agent（智能体）注册表——按依赖顺序一键挂载。loop 本身、适配器、可选插件、agent 与清理仍由测试掌控，因此每个场景都保持自己的加载顺序与拓扑。当测试对象是 loop 行为而非服务接线时使用它；针对注入失败或部分拓扑的测试会直接挂载其依赖。它自身不注册任何模型可见行为。
+`dsh-agent-loop-testkit` 为测试在加载具体 `AgentLoop` 之前所需的全部标准先决服务——LLM（大语言模型）运行时、会话存储、系统提示词注册表、工具注册表与 agent（智能体）注册表——按依赖顺序一键挂载。它还为消费方测试创建由会话支撑的结构化 `Inbox`，而不暴露生产环境的 `ProjectedInbox` 实现。loop 本身、适配器、可选插件、agent 与清理仍由测试掌控，因此每个场景都保持自己的加载顺序与拓扑。当测试对象是 loop 行为而非服务接线时使用它；针对注入失败或部分拓扑的测试会直接挂载其依赖。它自身不注册任何模型可见行为。
 
 ## 目录
 
@@ -25,7 +25,7 @@ kind: "package-library"
 <a id="use-this-package"></a>
 ## 使用本包
 
-本包在 loop 挂载前为 AgentLoop 测试提供可用的服务拓扑：在测试上下文上调用此辅助函数，然后用待测配置挂载 `AgentLoop`，并注册你的适配器与可选插件。
+本包在 loop 挂载前为 AgentLoop 测试提供可用的服务拓扑，并为消费方测试提供由标准会话 projection 支撑的结构化 Inbox。
 
 ### 最小示例
 
@@ -41,15 +41,15 @@ await mountAgentLoopTestDependencies(ctx)
 await ctx.plugin(AgentLoop, { agents: [] })
 ```
 
-该辅助函数按依赖顺序激活 LLM、会话、系统提示词、工具与 agent 服务，并在 loop 挂载前返回。系统提示词与工具注册表配置可通过 `options` 转发；除服务自有的默认值外，本辅助函数不提供测试默认值。
+挂载辅助函数按依赖顺序激活 LLM、会话、系统提示词、工具与 agent 服务，并在 loop 挂载前返回。系统提示词与工具注册表配置可通过 `options` 转发；除服务自有的默认值外，本辅助函数不提供测试默认值。agent 注册表注册标准 inbox projection 后，`createInboxFixture(ctx.sessionProjections, session)` 会返回供待测代码使用的 `inbox`，并另行返回供测试驱动使用的 `claim` 操作；每次编辑都会追加持久的 `agent/inbox/spliced` 会话事件。
 
 ### 何时使用
 
-当测试对象是 loop 本身——在真实先决依赖栈上的加载顺序、重试、工具执行或会话行为——时使用此辅助函数。当测试要探测服务加载顺序、注入失败、部分拓扑或清理时，请直接挂载依赖——辅助函数隐藏的正是这类测试必须控制的接线。
+当测试对象是 loop 本身——在真实先决依赖栈上的加载顺序、重试、工具执行或会话行为——时使用挂载辅助函数。当消费方测试需要持久队列编辑但不应构造包内的 `ProjectedInbox` 时，请使用 Inbox fixture。当测试要探测服务加载顺序、注入失败、部分拓扑或清理时，请直接挂载依赖——辅助函数隐藏的正是这类测试必须控制的接线。
 
 ### 可能出什么问题
 
-插件加载失败会使辅助函数调用被拒绝；顺序中较早激活的服务仍归你的上下文所有，并随上下文一起解除。上下文拥有所有已挂载服务，因此测试结束后请 dispose（资源释放）它。
+插件加载失败会使挂载辅助函数调用被拒绝；顺序中较早激活的服务仍归你的上下文所有，并随上下文一起解除。当注册表不含标准 inbox projection 时，Inbox fixture 会抛出错误。上下文拥有所有已挂载服务，因此测试结束后请 dispose（资源释放）它。
 
 -----
 
@@ -59,11 +59,11 @@ await ctx.plugin(AgentLoop, { agents: [] })
 <details>
 <summary>实现细节——点击展开</summary>
 
-本节解释辅助函数的设计；可观察行为已在[使用本包](#use-this-package)中完整说明。
+本节解释测试辅助工具的设计；可观察行为已在[使用本包](#use-this-package)中完整说明。
 
 ### 设计
 
-该辅助函数是单个函数 `mountAgentLoopTestDependencies`，按固定依赖顺序——LLM、会话、系统提示词、工具注册表、agent 注册表——挂载五个服务插件，并刻意在 `AgentLoop` 之前停下，使调用方控制 loop 加载顺序与待测拓扑。所有权留在调用方的上下文：每个已挂载服务都归上下文所有，插件加载失败会拒绝 promise，较早的服务随上下文一起解除。实现位于 [`src/index.ts`](src/index.ts)；[`src/invariant.ts`](src/invariant.ts) 配套入口声明无运行时不变式，因为本包不拥有任何生产事件流或可变数据——消费它的测试套件会检验其行为。
+`mountAgentLoopTestDependencies` 按固定依赖顺序——LLM、会话、系统提示词、工具注册表、agent 注册表——挂载五个服务插件，并刻意在 `AgentLoop` 之前停下，使调用方控制 loop 加载顺序与待测拓扑。`createInboxFixture` 只实现公开的结构化 Inbox 操作，并将 loop 驱动方的 claim 操作分离；会话 projection 重放提供其状态。所有权留在调用方的上下文与会话。实现位于 [`src/index.ts`](src/index.ts) 与 [`src/inbox.ts`](src/inbox.ts)；[`src/invariant.ts`](src/invariant.ts) 配套入口声明无运行时不变式，因为本包不拥有任何生产事件流或可变数据——消费它的测试套件会检验其行为。
 
 </details>
 
@@ -85,7 +85,7 @@ await ctx.plugin(AgentLoop, { agents: [] })
 <a id="model-experience"></a>
 ## 模型体验
 
-无。该测试专用组合辅助函数既不驱动也不修改模型请求。
+无。这些测试专用辅助工具既不驱动也不修改模型请求。
 
 #### KV Cache 影响
 
@@ -96,9 +96,10 @@ await ctx.plugin(AgentLoop, { agents: [] })
 <a id="known-limitations-and-deferred-work"></a>
 
 
-这些限制说明辅助函数不共享什么。它们是当前包约束，不是任务积压。
+这些限制说明辅助工具不共享什么。它们是当前包约束，不是任务积压。
 
 - **只共享必需的先决主干**——适配器、可选插件、`AgentLoop`、agent 与上下文清理仍由调用方负责，以使特定场景的挂载顺序清晰可见。
+- **Inbox fixture 只发出持久会话事件**——它不会复现由 `ProjectedInbox` 负责的实时 `agent/inbox/inserted` 或 `agent/inbox/discarded` 通知。
 
 <a id="dev-note"></a>
 ### 开发备注

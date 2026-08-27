@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
 import Include from '@deepseek-ai/cordis-plugin-include'
-import AgentRegistry, { agentEvents, Inbox } from '@deepseek-ai/dsh-agent'
+import AgentRegistry from '@deepseek-ai/dsh-agent'
 import type { Agent, AgentStatus } from '@deepseek-ai/dsh-agent'
 import CommandRuntime from '@deepseek-ai/dsh-commands'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
@@ -34,7 +34,7 @@ function agent(ctx: Context): Agent {
     id,
     options: {},
     session,
-    inbox: undefined as never,
+    inbox: { nextTurn: [], nextStep: [] } as never,
     ctx: scope.ctx,
     get status() { return status },
     send: () => {},
@@ -45,7 +45,6 @@ function agent(ctx: Context): Agent {
     runMaintenance: task => task(new AbortController().signal),
     whenIdle: () => Promise.resolve(),
   }
-  Object.assign(value, { inbox: new Inbox(value.ctx, value.session, agentEvents(value.ctx, value)) })
   ctx.agents.register(value)
   return value
 }

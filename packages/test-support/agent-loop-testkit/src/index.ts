@@ -1,6 +1,6 @@
 /**
- * Shared mounting for the services required before tests load the concrete
- * agent loop. The caller retains ownership of the context, loop, adapters,
+ * Shared service mounting and session-backed Inbox fixtures for agent-loop
+ * tests. Callers retain ownership of their contexts, loops, adapters,
  * optional plugins, and teardown.
  * @module @deepseek-ai/dsh-agent-loop-testkit
  */
@@ -14,6 +14,9 @@ import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import type { Config as SystemPromptConfig } from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
 import type { Config as ToolRuntimeConfig } from '@deepseek-ai/dsh-tools'
+
+export { createInboxFixture } from './inbox.ts'
+export type { InboxFixture } from './inbox.ts'
 
 /** Configuration forwarded to the prerequisite service plugins. */
 export interface AgentLoopTestDependenciesOptions {

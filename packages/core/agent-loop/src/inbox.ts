@@ -1,22 +1,18 @@
 /**
- * Command facade over the durable agent Inbox projection.
+ * Driver-owned command facade over the durable agent inbox projection.
  *
- * @module @deepseek-ai/dsh-agent/inbox
+ * @module @deepseek-ai/dsh-agent-loop/inbox
  */
 
-import type { Context } from '@deepseek-ai/cordis'
 import type { MessageId } from '@deepseek-ai/dsh-llm'
-// Type-only: resolves ctx.sessionProjections for the required Inbox projection.
-import type {} from '@deepseek-ai/dsh-session-projection'
+import type SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import type { Session, SessionEventMap, UserMessage } from '@deepseek-ai/dsh-session'
-import type { AgentEventDispatch } from './dispatch.ts'
-import type { InboxState } from './inbox-projection.ts'
-import type { InboxTarget } from './types.ts'
+import type { AgentEventDispatch, Inbox, InboxState, InboxTarget } from '@deepseek-ai/dsh-agent'
 
-/** Agent-owned command facade over the standard durable Inbox projection. */
-export class Inbox {
+/** Concrete inbox implementation constructed only by ReactLoopAgent. */
+export class ProjectedInbox implements Inbox {
   constructor(
-    private readonly ctx: Context,
+    private readonly projections: SessionProjectionRegistry,
     private readonly session: Session,
     private readonly dispatch: AgentEventDispatch,
   ) {}
@@ -128,10 +124,10 @@ export class Inbox {
 
   /** Read the current durable projection state. */
   private current(): InboxState {
-    const state = this.ctx.sessionProjections.stateOf(this.session, 'inbox')
+    const state = this.projections.stateOf(this.session, 'inbox')
     if (state === undefined) {
       throw new Error(
-        `agent "${this.session.id}" cannot read inbox state: session projection "inbox" is not registered; load AgentRegistry with SessionProjectionRegistry before constructing Inbox`,
+        `agent "${this.session.id}" cannot read inbox state: session projection "inbox" is not registered; load AgentRegistry with SessionProjectionRegistry before constructing ReactLoopAgent`,
       )
     }
     return state

@@ -12,11 +12,13 @@ Status: implemented
 
 ## 决策
 
-每个拟议步骤之前，`Inbox.claim(target)` 会原子移除完整批次：全部 `next-step` 消息，以及轮次边界上的一条 `next-turn` 消息。在首次边界，循环会先提交 `turn/start`，使领取及其唯一一次 `agent/pre-step` 决策拥有持久轮次归属。领取会记录规范化、不带 outcome 的纯删除 `agent/inbox/spliced`，针对每条已领取消息发出一次 `agent/inbox/claimed { message, turn }`，并把独占批次返回给循环，由后者用 `{ turn, step, signal }` 等待 waterfall（瀑布式事件）。
+每个拟议步骤之前，循环包内部的 `ProjectedInbox` 会原子领取完整批次：全部 `next-step` 消息，以及轮次边界上的一条 `next-turn` 消息。在首次边界，循环会先提交 `turn/start`，使领取及其唯一一次 `agent/pre-step` 决策拥有持久轮次归属。领取会记录规范化、不带 outcome 的纯删除 `agent/inbox/spliced`，针对每条已领取消息发出一次 `agent/inbox/claimed { message, turn }`，并把独占批次返回给循环，由后者用 `{ turn, step, signal }` 等待 waterfall（瀑布式事件）。
 
 `PreStepDecision` 为 `{ kind: 'reject' } | { kind: 'enter'; messages: UserMessage[] }`。reject 不会打开步骤，会让已领取批次保持已删除，并将轮次关闭为 blocked，且不产生任何步骤事件。空的 enter、取消以及 `step/start` 前的失败同样会关闭一个边界平衡的无步骤轮次。enter 提供在 `step/start` 后以 `user/message` 追加的完整批次。包装 `next()` 的监听器会保留下游变更，除非有意替换，因此全部消息改写只在最终返回值中一次性结算。系统不再存在 `agent/prompt-prepare`、`agent/prompt-submit` 或 `agent/step` 扩展点。
 
-持久 inbox 仍是两份通过 `MessageId` 寻址的 `UserMessage[]` 列表。`append`、`prepend` 与 `splice` 接受 target；`replace(messageId, newMessage)` 与 `remove(messageId)` 则在提交规范化 splice 前，通过 `MessageId` 跨两份列表定位待处理消息。替换可以改变标识，并先将旧消息作为 discarded 发布，再将新消息作为 inserted 发布。每次插入发出 `agent/inbox/inserted { message }`；普通删除记录 `outcome: 'canceled'` 并发出 `agent/inbox/discarded { message }`。领取记录不带 outcome 的纯删除，并由 Inbox 自行发出 claimed 事件。这些实时事件不增加 placement、outcome 或批次字段。
+持久 inbox 仍是两份通过 `MessageId` 寻址的 `UserMessage[]` 列表。`append`、`prepend` 与 `splice` 接受 target；`replace(messageId, newMessage)` 与 `remove(messageId)` 则在提交规范化 splice 前，通过 `MessageId` 跨两份列表定位待处理消息。替换可以改变标识，并先将旧消息作为 discarded 发布，再将新消息作为 inserted 发布。每次插入发出 `agent/inbox/inserted { message }`；普通删除记录 `outcome: 'canceled'` 并发出 `agent/inbox/discarded { message }`。领取记录不带 outcome 的纯删除，并由 `ProjectedInbox` 发出 claimed 事件。这些实时事件不增加 placement、outcome 或批次字段。
+
+`Agent.inbox` 只暴露用于读取和变更待处理工作的结构化 `Inbox` 接口；仅供循环使用的 `hasPending` 与领取操作不在该公开接口上。dsh-agent-loop 只构造一个 `ProjectedInbox`，同时用于结构化命令与驱动器操作。具体构造函数直接接收 `SessionProjectionRegistry`，而不是更宽泛的 Cordis `Context`；`inbox` 投影缺失时会抛出明确的组合错误。
 
 两类事件接口服务不同消费方。跟踪单条消息的观察方使用 `agent/inbox/inserted`、`claimed` 与 `discarded`。`AgentRegistry` 会在投影注册表已组合时，在持久 `agent/inbox/spliced` 流上贡献标准 `inbox` 投影；UI 编辑与移除通过 Inbox 变更方法处理，从而让同一投影记录所有变化。该投影重建持久历史时，会拒绝不安全或越界的坐标，以及跨两份列表重复的 `MessageId`，并报告出错事件的 seq。整体队列的 control 消费方使用投影变更流：Session controller 先发布 projection frame，再从同一份折叠后的 inbox 值派生 queue replacement。
 

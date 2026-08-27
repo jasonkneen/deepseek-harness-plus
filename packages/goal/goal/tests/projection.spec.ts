@@ -35,7 +35,7 @@ function liveAgent(ctx: Context, session: Session): Agent {
     id: session.id,
     options: {},
     session,
-    inbox: { nextTurn: [], nextStep: [], hasPending: false } as never,
+    inbox: { nextTurn: [], nextStep: [] } as never,
     ctx,
     get status() { return status },
     send: () => {},

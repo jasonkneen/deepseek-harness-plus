@@ -2,13 +2,14 @@
 
 import { afterEach, describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
-import AgentRegistry, { agentEvents, Inbox } from '@deepseek-ai/dsh-agent'
+import AgentRegistry from '@deepseek-ai/dsh-agent'
 import type { Agent, AgentHandle, CreateAgentOptions } from '@deepseek-ai/dsh-agent'
 import AgentDefaultModelConfig from '@deepseek-ai/dsh-agent-default-model'
 import { createAssistantMessage } from '@deepseek-ai/dsh-llm'
 import SessionStore from '@deepseek-ai/dsh-session'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import type { Session, UserMessage } from '@deepseek-ai/dsh-session'
+import { createInboxFixture } from '@deepseek-ai/dsh-agent-loop-testkit'
 import { apply, Config, internals } from '../src/index.ts'
 
 const originalInternals = { ...internals }
@@ -70,25 +71,28 @@ async function bench(script: Script): Promise<{
       let idle = Promise.resolve()
       const agent = {} as Agent
       const agentCtx = ownerCtx.extend({ agent })
+      const inbox = createInboxFixture(ctx.sessionProjections, session)
       Object.assign(agent, {
         id: session.id,
         options: options.agentOptions ?? {},
         session,
-        inbox: undefined as never,
+        inbox: inbox.inbox,
         status: 'idle',
         ctx: agentCtx,
         cancel: () => {},
         runMaintenance: () => Promise.reject(new Error('not used')),
         send: () => {},
         followup: (message: UserMessage) => {
-          agent.inbox.append('next-turn', message)
-          idle = Promise.resolve().then(() => script.afterPrompt(session, message))
+          inbox.inbox.append('next-turn', message)
+          const claimed = inbox.claim('next-turn')
+          const [prompt] = claimed
+          if (prompt === undefined || claimed.length !== 1) throw new Error('scripted Agent expected one claimed prompt')
+          idle = Promise.resolve().then(() => script.afterPrompt(session, prompt))
         },
         steer: () => {},
         inject: () => {},
         whenIdle: () => idle,
       } satisfies Partial<Agent>)
-      Object.assign(agent, { inbox: new Inbox(ctx, agent.session, agentEvents(ctx, agent)) })
       await options.setup?.(agentCtx)
       script.before?.(session)
       ctx.agents.register(agent)
