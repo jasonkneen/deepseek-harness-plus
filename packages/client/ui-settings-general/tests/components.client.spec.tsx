@@ -77,11 +77,8 @@ describe('SettingsDocumentAction', () => {
     const controller = derivedDocumentStore({
       settings: {
         describe: vi.fn(() => Promise.resolve({
-          rpcId: 'document-action' as never,
-          result: {
-            ok: true as const,
-            value: { writable: true, hasDocument: true, namespaces: [] },
-          },
+          ok: true as const,
+          value: { writable: true, hasDocument: true, namespaces: [] },
         })),
         openDocument,
       },
@@ -99,14 +96,8 @@ describe('SettingsDocumentAction', () => {
 
   it('stays absent without a document and follows a mirror refresh to available', async () => {
     const describe = vi.fn()
-      .mockResolvedValueOnce({
-        rpcId: 'document-action-absent' as never,
-        result: { ok: true as const, value: { writable: true, hasDocument: false, namespaces: [] } },
-      })
-      .mockResolvedValueOnce({
-        rpcId: 'document-action-ready' as never,
-        result: { ok: true as const, value: { writable: true, hasDocument: true, namespaces: [] } },
-      })
+      .mockResolvedValueOnce({ ok: true as const, value: { writable: true, hasDocument: false, namespaces: [] } })
+      .mockResolvedValueOnce({ ok: true as const, value: { writable: true, hasDocument: true, namespaces: [] } })
     const wire = { settings: { describe, openDocument: vi.fn() } } as never
     const mirror = new SettingsDescribeMirror(wire)
     const controller = new SettingsDocumentStore(wire, mirror)
@@ -138,11 +129,8 @@ describe('SettingsDocumentAction', () => {
     const controller = derivedDocumentStore({
       settings: {
         describe: vi.fn(() => Promise.resolve({
-          rpcId: 'document-action' as never,
-          result: {
-            ok: true as const,
-            value: { writable: true, hasDocument: true, namespaces: [] },
-          },
+          ok: true as const,
+          value: { writable: true, hasDocument: true, namespaces: [] },
         })),
         openDocument: vi.fn(() => Promise.resolve({
           rpcId: 'document-open-failed' as never,

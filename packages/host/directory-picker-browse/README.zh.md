@@ -25,7 +25,7 @@ kind: "package-reference"
 <a id="use-this-package"></a>
 ## 使用本包
 
-当工作区目录必须在没有 OS 选择器的情况下被选中时——远程浏览器、SSH 转发会话或无人值守宿主——组合此后端。工作区流程驱动 `host.listDirectory` 与 `host.createDirectory`；两个原语都从宿主文件系统作答。
+当工作区目录必须在没有 OS 选择器的情况下被选中时——远程浏览器、SSH 转发会话或无人值守宿主——组合此后端。工作区流程驱动 `directoryPicker/list` 与 `directoryPicker/createDirectory`；两个原语都从宿主文件系统作答。
 
 ### 列举目录
 

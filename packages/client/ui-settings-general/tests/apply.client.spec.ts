@@ -32,14 +32,11 @@ async function bench(isLoopback = true) {
   locale.setLocale('zh')
   ctx.provide('locale', locale)
   const settingsDescribe = vi.fn(() => Promise.resolve({
-    rpcId: 'settings-general' as never,
-    result: {
-      ok: true as const,
-      value: {
-        writable: true,
-        hasDocument: true,
-        namespaces: [],
-      },
+    ok: true as const,
+    value: {
+      writable: true,
+      hasDocument: true,
+      namespaces: [],
     },
   }))
   const settingsOpenDocument = vi.fn(() => Promise.resolve({
@@ -47,10 +44,10 @@ async function bench(isLoopback = true) {
     result: { ok: true as const, value: { opened: true as const } },
   }))
   ctx.provide('connection', {
-    api: { settings: { describe: settingsDescribe, openDocument: settingsOpenDocument } },
+    api: { settings: { openDocument: settingsOpenDocument } },
     isLoopback,
   } as never)
-  new TestRemote(ctx)
+  new TestRemote(ctx, { settings: { describe: settingsDescribe } })
   await ctx.plugin({ inject: [...settingsInject], apply: settingsApply }).await()
   return { ctx, slots: ctx.get('slots') as SlotRegistry, locale, settingsDescribe, settingsOpenDocument }
 }

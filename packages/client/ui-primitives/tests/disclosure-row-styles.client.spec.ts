@@ -19,9 +19,9 @@ function declarations(selector: string): string[] {
 }
 
 describe('DisclosureRow.module.css font-size axis', () => {
-  it('sizes the title from the content font axis with the shared px delta', () => {
+  it('sizes the title from the secondary content tier on the shared row line', () => {
     expect(declarations('.title')).toEqual(expect.arrayContaining([
-      'font-size: var(--dsh-content-font-size, 14px)',
+      'font-size: var(--dsh-content-font-size-secondary, 13px)',
       'line-height: calc(24px + var(--dsh-content-font-delta, 0px))',
     ]))
   })

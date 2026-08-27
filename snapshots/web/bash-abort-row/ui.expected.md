@@ -26,7 +26,7 @@
 - 'button "Failed Bash Error: tool call aborted before dispatch"':
   - img
   - text: "Failed Bash Error: tool call aborted before dispatch"
-- textbox "Message the agent"
+- textbox "Message or run a task... / commands, @ files or sessions"
 - button "Commands":
   - img
 - 'button "Access mode, current: Full access"': Full access

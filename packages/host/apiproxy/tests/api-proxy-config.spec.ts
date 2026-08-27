@@ -1,8 +1,7 @@
 /**
- * Settings/credentials/llm RPC domains and their owner events over
- * createApiProxy: layered redacted describe, write-path rejection mapping,
- * value-free credential views, the directory/live-route merge, and the three
- * invalidation frames (settings/credentials/models changed).
+ * Settings and llm RPC domains and their owner events over createApiProxy:
+ * layered redacted describe, write-path rejection mapping, the
+ * directory/live-route merge, and the settings and model invalidation frames.
  */
 
 import { describe, expect, it, vi } from 'vitest'
@@ -240,18 +239,6 @@ async function captureSettingsUpdates(
   }
 }
 
-/** Observe credential commits while one API operation runs. */
-async function captureCredentialUpdates(ctx: Context, run: () => Promise<void>): Promise<CredentialRef[]> {
-  const updates: CredentialRef[] = []
-  const dispose = ctx.on('credentials/reference-updated', (ref) => { updates.push(ref) })
-  try {
-    await run()
-    return updates
-  } finally {
-    dispose()
-  }
-}
-
 /** Count model-adapter topology commits while one API operation runs. */
 async function countAdapterUpdates(ctx: Context, run: () => Promise<void>): Promise<number> {
   let updates = 0
@@ -273,32 +260,11 @@ describe('settings domain', () => {
   it('reports an actionable error when no settings provider is mounted', async () => {
     const ctx = await harness({ settings: false })
     const api = createApiProxy(ctx, DEFAULTS)
-    const error = expectErr(await api.settings.describe(request({})))
+    const error = expectErr(await api.settings.openDocument(request({}), new AbortController().signal))
     expect(error.code).toBe('internal')
     expect(error.message).toContain('dsh-settings-file')
   })
 
-  it('describes layered redacted namespaces with their secret slots', async () => {
-    const ctx = await harness({ settings: {
-      doc: { 'llm-deepseek': { apiKey: 'user-secret', baseURL: 'https://user' } },
-      documentPath: '/tmp/custom-settings.yaml',
-    } })
-    ctx.settings.register(NS, AdapterConfig, { base: { baseURL: 'https://base' } })
-    const api = createApiProxy(ctx, DEFAULTS)
-    const value = expectOk(await api.settings.describe(request({})))
-    expect(value.writable).toBe(true)
-    expect(value.hasDocument).toBe(true)
-    expect(value.namespaces).toHaveLength(1)
-    const view = value.namespaces[0]!
-    expect(view.ns).toBe('llm-deepseek')
-    expect(view.applies).toBe('live')
-    expect((view.schema as { refs?: unknown }).refs).toBeDefined()
-    expect(view.value).toEqual({ apiKeyEnv: 'DEEPSEEK_API_KEY', baseURL: 'https://user' })
-    expect(view.base).toEqual({ baseURL: 'https://base' })
-    expect(view.user).toEqual({ baseURL: 'https://user' })
-    expect(view.secrets).toEqual([{ path: ['apiKey'], set: true }])
-    expect(JSON.stringify(value)).not.toContain('user-secret')
-  })
 
   it('opens the provider-resolved document without accepting a browser path', async () => {
     const ctx = await harness({ settings: {
@@ -322,7 +288,7 @@ describe('settings domain', () => {
   it('refuses to open settings when the provider has no local document', async () => {
     const ctx = await harness()
     const api = createApiProxy(ctx, DEFAULTS)
-    expect(expectOk(await api.settings.describe(request({}))).hasDocument).toBe(false)
+    expect(ctx.settings.documentPath).toBeUndefined()
     const error = expectErr(await api.settings.openDocument(request({}), new AbortController().signal))
     expect(error.code).toBe('internal')
     expect(error.message).toContain('no local document')
@@ -356,141 +322,9 @@ describe('settings domain', () => {
     expect(opened).toEqual([])
   })
 
-  it('serves every registered namespace, including one this repository never named', async () => {
-    // Registering IS the exposure: a plugin distributed outside this
-    // repository configures itself from the browser without a change here.
-    // The plane stays browser-authenticated and secret-redacted, and which
-    // surface renders a namespace is the browser's decision, not this proxy's.
-    const ctx = await harness()
-    ctx.settings.register(NS, AdapterConfig)
-    ctx.settings.register(settingsNamespace('some-other-plugin'), z.object({ secretPath: z.string() }))
-    ctx.settings.register(settingsNamespace('permission'), z.object({
-      defaultPreset: z.union(['read-only', 'workspace-write']).required(),
-    }), {
-      base: { defaultPreset: 'read-only' },
-    })
-    ctx.settings.register(settingsNamespace('ui-theme'), z.object({
-      preference: z.union(['light', 'dark', 'system']).default('system'),
-    }))
-    ctx.settings.register(settingsNamespace('locale'), z.object({
-      preference: z.union(['zh', 'en']).required(false),
-    }))
-    ctx.settings.register(settingsNamespace('ui-conversation'), z.object({
-      busyEnter: z.union(['queue', 'steer']).default('queue'),
-    }))
-    ctx.settings.register(settingsNamespace('shell'), z.object({
-      timeoutMs: z.number().default(120_000),
-    }))
-    ctx.settings.register(settingsNamespace('agent-loop'), z.object({
-      maxParallelToolCalls: z.number().default(10),
-    }))
-    ctx.settings.register(settingsNamespace('web-search-deepseek'), z.object({
-      baseURL: z.string(),
-    }))
-    const api = createApiProxy(ctx, DEFAULTS)
 
-    const value = expectOk(await api.settings.describe(request({})))
-    expect(value.namespaces.map(view => view.ns)).toEqual([
-      'llm-deepseek', 'some-other-plugin', 'permission', 'ui-theme', 'locale',
-      'ui-conversation', 'shell', 'agent-loop', 'web-search-deepseek',
-    ])
-    const permission = expectOk(await api.settings.mutate(request({
-      ns: 'permission',
-      ops: [{ op: 'set', path: ['defaultPreset'], value: 'workspace-write' }],
-    })))
-    expect(permission.value).toEqual({ defaultPreset: 'workspace-write' })
-    const theme = expectOk(await api.settings.mutate(request({
-      ns: 'ui-theme',
-      ops: [{ op: 'set', path: ['preference'], value: 'dark' }],
-    })))
-    expect(theme.value).toEqual({ preference: 'dark' })
-    const locale = expectOk(await api.settings.mutate(request({
-      ns: 'locale',
-      ops: [{ op: 'set', path: ['preference'], value: 'en' }],
-    })))
-    expect(locale.value).toEqual({ preference: 'en' })
-    const conversation = expectOk(await api.settings.mutate(request({
-      ns: 'ui-conversation',
-      ops: [{ op: 'set', path: ['busyEnter'], value: 'steer' }],
-    })))
-    expect(conversation.value).toEqual({ busyEnter: 'steer' })
-    const bash = expectOk(await api.settings.mutate(request({
-      ns: 'shell',
-      ops: [{ op: 'set', path: ['timeoutMs'], value: 5_000 }],
-    })))
-    expect(bash.value).toEqual({ timeoutMs: 5_000 })
-    const agentLoop = expectOk(await api.settings.mutate(request({
-      ns: 'agent-loop',
-      ops: [{ op: 'set', path: ['maxParallelToolCalls'], value: 2 }],
-    })))
-    expect(agentLoop.value).toEqual({ maxParallelToolCalls: 2 })
-    const webSearch = expectOk(await api.settings.mutate(request({
-      ns: 'web-search-deepseek',
-      ops: [{ op: 'set', path: ['baseURL'], value: 'https://search.test/v1' }],
-    })))
-    expect(webSearch.value).toEqual({ baseURL: 'https://search.test/v1' })
 
-    const other = expectOk(await api.settings.update(request({
-      ns: 'some-other-plugin',
-      patch: { secretPath: '/etc/shadow' },
-    })))
-    expect(other.value).toEqual({ secretPath: '/etc/shadow' })
-    expect(ctx.settings.describe().find(d => String(d.ns) === 'some-other-plugin')?.value)
-      .toEqual({ secretPath: '/etc/shadow' })
-  })
 
-  it('serves product preference namespaces without invalidating the model catalog', async () => {
-    const ctx = await harness()
-    ctx.settings.register(settingsNamespace('ui-onboarding'), z.object({ welcomeNoticeVersion: z.string() }))
-    ctx.settings.register(settingsNamespace('ui-theme'), z.object({
-      preference: z.union(['light', 'dark', 'system']).default('system'),
-    }))
-    const api = createApiProxy(ctx, DEFAULTS)
-    expect(expectOk(await api.settings.describe(request({}))).namespaces.map(view => view.ns))
-      .toEqual(['ui-onboarding', 'ui-theme'])
-    const updates = await captureSettingsUpdates(ctx, async () => {
-      expectOk(await api.settings.mutate(request({
-        ns: 'ui-onboarding',
-        ops: [{ op: 'set', path: ['welcomeNoticeVersion'], value: 'v1' }],
-      })))
-      expectOk(await api.settings.mutate(request({
-        ns: 'ui-theme',
-        ops: [{ op: 'set', path: ['preference'], value: 'dark' }],
-      })))
-    })
-    expect(updates).toEqual([
-      expectedSettingsUpdate('ui-onboarding'),
-      expectedSettingsUpdate('ui-theme'),
-    ])
-  })
-
-  it('serves the agent-preset namespace, so a browser preset picker can persist its choice', async () => {
-    const ctx = await harness()
-    ctx.settings.register(settingsNamespace('agent-presets'), z.object({ default: z.string() }))
-    const api = createApiProxy(ctx, DEFAULTS)
-
-    expectOk(await api.settings.update(request({ ns: 'agent-presets', patch: { default: 'minimal' } })))
-
-    // Both browser surfaces that offer the choice — the General row and the
-    // management section — write the default through `settings.update`, so a
-    // namespace outside this boundary makes the picker move and then silently
-    // forget, which is worse than refusing the control.
-    expect(ctx.settings.describe().find(view => String(view.ns) === 'agent-presets')?.value)
-      .toEqual({ default: 'minimal' })
-  })
-
-  it('keeps serving a provider namespace whose directory entry is gone', async () => {
-    // The configurable-provider directory says what the Models page can offer,
-    // not what a user may configure: a dormant route's stored section is still
-    // theirs to edit, and losing the entry must not strand it.
-    const ctx = await harness({ configurableProviders: false })
-    ctx.settings.register(NS, AdapterConfig)
-    const api = createApiProxy(ctx, DEFAULTS)
-    expect(expectOk(await api.settings.describe(request({}))).namespaces.map(view => view.ns))
-      .toEqual(['llm-deepseek'])
-    expect(expectOk(await api.settings.update(request({ ns: 'llm-deepseek', patch: { baseURL: 'https://x' } }))).value)
-      .toMatchObject({ baseURL: 'https://x' })
-  })
 
   it('forwards a provider settings change for model-catalog consumers', async () => {
     // Editing `models` changes no route, so llm/adapters-updated never fires
@@ -500,13 +334,12 @@ describe('settings domain', () => {
     // overridden.
     const ctx = await harness()
     ctx.settings.register(NS, AdapterConfig, { base: { baseURL: 'https://base' } })
-    const api = createApiProxy(ctx, DEFAULTS)
     const updates = await captureSettingsUpdates(ctx, async () => {
-      await api.settings.update(request({ ns: 'llm-deepseek', patch: { baseURL: 'https://base' } }))
+      await ctx.settings.update(settingsNamespace('llm-deepseek'), { baseURL: 'https://base' })
     })
     expect(updates).toEqual([expectedSettingsUpdate('llm-deepseek')])
     // The resolved value never moved: base already said https://base.
-    expect(expectOk(await api.settings.describe(request({}))).namespaces[0]!.value)
+    expect(ctx.settings.describe().find(view => String(view.ns) === 'llm-deepseek')?.value)
       .toEqual({ apiKeyEnv: 'DEEPSEEK_API_KEY', baseURL: 'https://base' })
   })
 
@@ -538,116 +371,11 @@ describe('settings domain', () => {
     expect(updates).toEqual([expectedSettingsUpdate('agent-default-model')])
   })
 
-  it('maps a stale expectedRevision to settings-conflict carrying both revisions', async () => {
-    const ctx = await harness()
-    ctx.settings.register(NS, AdapterConfig)
-    const api = createApiProxy(ctx, DEFAULTS)
-    const opened = expectOk(await api.settings.describe(request({}))).namespaces[0]!.revision
-    expect(expectOk(await api.settings.update(request({ ns: 'llm-deepseek', patch: { baseURL: 'https://first' }, expectedRevision: opened })))
-      .revision).toBe(opened + 1)
-    const error = expectErr(await api.settings.update(request({ ns: 'llm-deepseek', patch: { baseURL: 'https://second' }, expectedRevision: opened })))
-    expect(error.code).toBe('settings-conflict')
-    expect(error.details).toEqual({ ns: 'llm-deepseek', expected: opened, actual: opened + 1 })
-    // The refused write changed nothing.
-    expect(expectOk(await api.settings.describe(request({}))).namespaces[0]!.user).toEqual({ baseURL: 'https://first' })
-  })
 
-  it('updates the user layer, answers with the new redacted view, and broadcasts the frame', async () => {
-    const ctx = await harness()
-    ctx.settings.register(NS, AdapterConfig, { base: { baseURL: 'https://base' } })
-    const api = createApiProxy(ctx, DEFAULTS)
-    const updates = await captureSettingsUpdates(ctx, async () => {
-      const view = expectOk(await api.settings.update(request({ ns: 'llm-deepseek', patch: { apiKey: 'sk-new', baseURL: 'https://next' } })))
-      expect(view.value).toEqual({ apiKeyEnv: 'DEEPSEEK_API_KEY', baseURL: 'https://next' })
-      expect(view.user).toEqual({ baseURL: 'https://next' })
-      expect(view.secrets).toEqual([{ path: ['apiKey'], set: true }])
-      expect(JSON.stringify(view)).not.toContain('sk-new')
-    })
-    expect(updates).toEqual([expectedSettingsUpdate('llm-deepseek')])
-  })
 
-  it('replace resets the user layer wholesale', async () => {
-    const ctx = await harness({ settings: { doc: { 'llm-deepseek': { baseURL: 'https://user' } } } })
-    ctx.settings.register(NS, AdapterConfig)
-    const api = createApiProxy(ctx, DEFAULTS)
-    const view = expectOk(await api.settings.replace(request({ ns: 'llm-deepseek', section: {} })))
-    expect(view.value).toEqual({ apiKeyEnv: 'DEEPSEEK_API_KEY' })
-    expect(view.user).toEqual({})
-  })
 
-  it.each([
-    ['an invalid namespace name', 'Not A Namespace', {}],
-    ['a schema-invalid patch', 'llm-deepseek', { baseURL: 42 }],
-  ])('rejects %s as settings-rejected', async (_case, ns, patch) => {
-    const ctx = await harness()
-    ctx.settings.register(NS, AdapterConfig)
-    const api = createApiProxy(ctx, DEFAULTS)
-    const error = expectErr(await api.settings.update(request({ ns, patch })))
-    expect(error.code).toBe('settings-rejected')
-    expect(error.details).toEqual({ ns })
-  })
 
-  it('answers an unregistered namespace as the seam does, and a malformed one alike', async () => {
-    // A name no registration answers and a name no registration could answer
-    // fold into the same rejection: the proxy adds no boundary of its own, so
-    // the seam's own refusal is the whole answer.
-    const ctx = await harness()
-    ctx.settings.register(NS, AdapterConfig)
-    const api = createApiProxy(ctx, DEFAULTS)
-    const unknown = expectErr(await api.settings.update(request({ ns: 'unknown-ns', patch: {} })))
-    const malformed = expectErr(await api.settings.update(request({ ns: 'Not A Namespace', patch: {} })))
-    expect(unknown.code).toBe('settings-rejected')
-    expect(unknown.message).toContain('is not registered')
-    expect(malformed.code).toBe(unknown.code)
-  })
 
-  it('maps a read-only provider refusal onto the same rejection', async () => {
-    const ctx = await harness({ settings: { readOnly: true } })
-    ctx.settings.register(NS, AdapterConfig)
-    const api = createApiProxy(ctx, DEFAULTS)
-    const value = expectOk(await api.settings.describe(request({})))
-    expect(value.writable).toBe(false)
-    const error = expectErr(await api.settings.update(request({ ns: 'llm-deepseek', patch: {} })))
-    expect(error.code).toBe('settings-rejected')
-    expect(error.message).toContain('read-only')
-  })
-})
-
-describe('credentials domain', () => {
-  it('reports an actionable error when no credential provider is mounted', async () => {
-    const ctx = await harness({ credentials: false })
-    const api = createApiProxy(ctx, DEFAULTS)
-    const error = expectErr(await api.credentials.describe(request({ refs: ['A'] })))
-    expect(error.code).toBe('internal')
-    expect(error.message).toContain('dsh-credentials-local')
-  })
-
-  it('describes value-free views and flips state through set/unset with frames', async () => {
-    const ctx = await harness()
-    const api = createApiProxy(ctx, DEFAULTS)
-    const before = expectOk(await api.credentials.describe(request({ refs: ['OPENAI_API_KEY'] })))
-    expect(before.credentials).toEqual({ OPENAI_API_KEY: { configured: false, writable: true } })
-    const updates = await captureCredentialUpdates(ctx, async () => {
-      expectOk(await api.credentials.set(request({ ref: 'OPENAI_API_KEY', value: 'sk-secret' })))
-      const after = expectOk(await api.credentials.describe(request({ refs: ['OPENAI_API_KEY'] })))
-      expect(after.credentials).toEqual({ OPENAI_API_KEY: { configured: true, source: 'file', writable: true } })
-      expect(JSON.stringify(after)).not.toContain('sk-secret')
-      expectOk(await api.credentials.unset(request({ ref: 'OPENAI_API_KEY' })))
-    })
-    expect(updates).toEqual(['OPENAI_API_KEY', 'OPENAI_API_KEY'])
-  })
-
-  it('maps a shadowed write onto credential-rejected for set and unset alike', async () => {
-    const ctx = await harness({ credentials: { shadowed: ['DEEPSEEK_API_KEY'] } })
-    const api = createApiProxy(ctx, DEFAULTS)
-    const described = expectOk(await api.credentials.describe(request({ refs: ['DEEPSEEK_API_KEY'] })))
-    expect(described.credentials['DEEPSEEK_API_KEY']).toEqual({ configured: true, source: 'env', writable: false })
-    const setError = expectErr(await api.credentials.set(request({ ref: 'DEEPSEEK_API_KEY', value: 'x' })))
-    expect(setError.code).toBe('credential-rejected')
-    expect(setError.details).toEqual({ ref: 'DEEPSEEK_API_KEY' })
-    const unsetError = expectErr(await api.credentials.unset(request({ ref: 'DEEPSEEK_API_KEY' })))
-    expect(unsetError.code).toBe('credential-rejected')
-  })
 })
 
 describe('llm domain', () => {
@@ -734,8 +462,7 @@ describe('llm.discoverModels', () => {
     }])
     // Interrogating a draft is a read: no namespace gained a section, and no
     // credential reference was written.
-    expect(expectOk(await api.settings.describe(request({}))).namespaces.map(view => view.ns))
-      .not.toContain('llm-pi-ai')
+    expect(ctx.settings.describe().map(view => String(view.ns))).not.toContain('llm-pi-ai')
   })
 
   it('carries the route being edited so an adapter can answer from its own registry', async () => {

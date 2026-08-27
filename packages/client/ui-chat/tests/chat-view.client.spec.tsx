@@ -1568,7 +1568,7 @@ describe('ChatView', () => {
     })
     const fv = render(<failed.ChatView {...failed.props} />)
     expect(fv.container.querySelector('[data-state="error"]')).not.toBeNull()
-    expect(fv.getByText('命令失败')).toBeTruthy()
+    expect(fv.getByText('指令失败')).toBeTruthy()
     expect(fv.getByText('失败')).toBeTruthy()
 
     // Still executing: running state with the executing copy.
@@ -1585,7 +1585,7 @@ describe('ChatView', () => {
       nodes: [command({ seq: 8, commandId: 'cmd-4' as CommandNode['commandId'], name: null, args: null, outcome: { kind: 'success' } })],
     })
     const ov = render(<orphan.ChatView {...orphan.props} />)
-    expect(ov.getByText('命令')).toBeTruthy()
+    expect(ov.getByText('指令')).toBeTruthy()
     expect(ov.getByText('已完成')).toBeTruthy()
   })
 

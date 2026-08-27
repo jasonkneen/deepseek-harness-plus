@@ -1664,7 +1664,7 @@
     {
       "doc": "docs/subsystems/credentials.md",
       "symbol": "CredentialInfo",
-      "source": "packages/credentials/credentials/src/index.ts"
+      "source": "packages/credentials/credentials/src/types.ts"
     },
     {
       "doc": "docs/subsystems/settings.md",

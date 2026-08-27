@@ -19,25 +19,25 @@ function declarationsFrom(source: string, selector: string): string[] {
 }
 
 describe('chat flow font-size axis', () => {
-  it('think text keeps its 2px step under the body size and moves with the delta', () => {
+  it('think text reads the secondary tier (one step under the body size)', () => {
     const css = read('ReasoningRow.module.css')
     for (const selector of ['.summary', '.thinkBody']) {
       expect(declarationsFrom(css, selector)).toEqual(expect.arrayContaining([
-        'font-size: calc(12px + var(--dsh-content-font-delta, 0px))',
-        'line-height: calc(20px + var(--dsh-content-font-delta, 0px))',
+        'font-size: var(--dsh-content-font-size-secondary, 13px)',
+        'line-height: calc(20px + var(--dsh-content-font-delta-secondary, 0px))',
       ]))
     }
   })
 
-  it('command and context summaries ride the axis at the body size', () => {
+  it('command and context summaries read the secondary tier on the shared row line', () => {
     expect(declarationsFrom(read('GenericCommandCard.module.css'), '.summary')).toEqual(expect.arrayContaining([
-      'font-size: var(--dsh-content-font-size, 14px)',
+      'font-size: var(--dsh-content-font-size-secondary, 13px)',
       'line-height: calc(24px + var(--dsh-content-font-delta, 0px))',
     ]))
     const context = read('ContextInjectionRow.module.css')
     for (const selector of ['.source', '.summary']) {
       expect(declarationsFrom(context, selector)).toEqual(expect.arrayContaining([
-        'font-size: var(--dsh-content-font-size, 14px)',
+        'font-size: var(--dsh-content-font-size-secondary, 13px)',
         'line-height: calc(24px + var(--dsh-content-font-delta, 0px))',
       ]))
     }
@@ -60,7 +60,7 @@ describe('chat flow font-size axis', () => {
     const css = read('MessageItem.module.css')
     for (const selector of ['.compactionTitle', '.compactionSummary', '.compactionBody']) {
       expect(declarationsFrom(css, selector)).toEqual(expect.arrayContaining([
-        'font-size: var(--dsh-content-font-size, 14px)',
+        'font-size: var(--dsh-content-font-size-secondary, 13px)',
         'line-height: calc(24px + var(--dsh-content-font-delta, 0px))',
       ]))
     }

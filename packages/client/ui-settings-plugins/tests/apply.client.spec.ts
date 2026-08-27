@@ -26,30 +26,24 @@ async function bench(served?: string[]) {
   const locale = new LocaleRuntime(ctx)
   locale.setLocale('zh')
   ctx.provide('locale', locale)
-  const describeCredentials = vi.fn(() => Promise.resolve({ rpcId: 'c', result: { ok: false, error: {} } }))
+  const describeCredentials = vi.fn(() => Promise.resolve({ ok: false, error: { code: 'internal', message: 'no provider', details: {} } }))
   const describeSettings = vi.fn(() => Promise.resolve(served === undefined
-    ? { rpcId: 's', result: { ok: false, error: {} } }
+    ? { ok: false, error: { code: 'internal', message: 'no provider', details: {} } }
     : {
-      rpcId: 's',
-      result: {
-        ok: true,
-        value: {
-          writable: true,
-          hasDocument: true,
-          namespaces: served.map(ns => ({
-            ns, schema: {}, value: {}, applies: 'live', secrets: [], revision: 0,
-          })),
-        },
+      ok: true,
+      value: {
+        writable: true,
+        hasDocument: true,
+        namespaces: served.map(ns => ({
+          ns, schema: {}, value: {}, applies: 'live', secrets: [], revision: 0,
+        })),
       },
     }))
-  const remote = new TestRemote(ctx)
-  ctx.provide('connection', {
-    isLoopback: true,
-    api: {
-      settings: { describe: describeSettings },
-      credentials: { describe: describeCredentials },
-    },
-  } as never)
+  const remote = new TestRemote(ctx, {
+    credentials: { describe: describeCredentials, set: vi.fn() },
+    settings: { describe: describeSettings },
+  })
+  ctx.provide('connection', { isLoopback: true, api: {} } as never)
   await ctx.plugin({ inject: [...settingsInject], apply: settingsApply }).await()
   return { ctx, slots: ctx.get('slots') as SlotRegistry, describeCredentials, describeSettings, remote }
 }
@@ -63,7 +57,7 @@ function declareRoot(slots: SlotRegistry): () => void {
 
 describe('ui-settings-plugins apply', () => {
   it('declares the services it uses', () => {
-    expect(inject).toEqual(['slots', 'locale', 'connection', 'remote', 'settingsScope'])
+    expect(inject).toEqual(['slots', 'locale', 'remote', 'remote.credentials', 'settingsScope'])
   })
 
   it('registers one Plugins section and declares the tab and card slots', async () => {

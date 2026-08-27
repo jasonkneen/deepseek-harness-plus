@@ -2,7 +2,8 @@
 
 import { useState } from 'react'
 import type { ReactNode } from 'react'
-import type { IApiClient, SettingsNamespaceView } from '@deepseek-ai/dsh-api-remotes/client'
+import type { SettingsNamespaceView } from '@deepseek-ai/dsh-api-remotes/client'
+import type { SettingsWireFace } from '@deepseek-ai/dsh-client-ui-settings/client'
 import type { ModelsSettingsStore } from './store.ts'
 import type { en } from './locales.ts'
 import { messageOf } from './store.ts'
@@ -15,7 +16,7 @@ export interface SubagentModelSelectionCardProps {
   /** Whether the settings provider accepts writes. */
   writable: boolean
   /** Settings wire face. */
-  api: Pick<IApiClient, 'settings'>
+  api: SettingsWireFace
   /** Models page controller to refresh after a commit. */
   controller: ModelsSettingsStore
   /** Localized Models copy. */
@@ -45,13 +46,13 @@ export function SubagentModelSelectionCard({
     setSaving(true)
     setSaved(false)
     setError(undefined)
-    void api.settings.update({
-      ns: namespace.ns,
-      patch: { enabled: !enabled },
-      expectedRevision: namespace.revision,
-    }).then(async (response) => {
-      if (!response.result.ok) throw new Error(response.result.error.message)
-      controller.acceptNamespace(response.result.value)
+    void api.settings.update(
+      namespace.ns,
+      { enabled: !enabled },
+      namespace.revision,
+    ).then(async (response) => {
+      if (!response.ok) throw new Error(response.error.message)
+      controller.acceptNamespace(response.value)
       await controller.load()
       setSaved(true)
     }).catch((reason: unknown) => {

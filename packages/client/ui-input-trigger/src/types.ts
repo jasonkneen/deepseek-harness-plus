@@ -40,11 +40,14 @@ export type PickVia = 'menu' | 'space' | 'enter'
 /** What a pick asks for: resolve the candidate, or drill into it in place. */
 export type PickAction = 'pick' | 'drill'
 
+/** Leading glyph token of one menu candidate, mapped to its SVG by the menu view. */
+export type InputTriggerCandidateIcon = 'file' | 'folder' | 'session'
+
 /** One menu candidate. Pure display data — zero behavior declaration. */
 export interface InputTriggerCandidate {
   readonly name: string
   readonly description?: string
-  readonly icon?: string
+  readonly icon?: InputTriggerCandidateIcon
   readonly hint?: string
   /** Optional visual heading shared by adjacent candidates; sectioned groups omit their source-title row. */
   readonly section?: string

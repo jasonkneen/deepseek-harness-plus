@@ -6,11 +6,13 @@
 
 /** Simplified Chinese dictionary (the key-set source of truth). */
 export const zh = {
-  'command': '命令',
+  'command': '指令',
   'skill': '技能',
   'subagent': '子智能体',
   'loading': '正在加载…',
   'drill.aria': '进入目录',
+  'drill.hint': '进入目录',
+  'drill.key': 'Tab',
   'suggestions.aria': '触发候选建议',
 } satisfies Record<string, string>
 
@@ -24,5 +26,7 @@ export const en = {
   'subagent': 'Subagents',
   'loading': 'Loading…',
   'drill.aria': 'Browse folder',
+  'drill.hint': 'Browse folder',
+  'drill.key': 'Tab',
   'suggestions.aria': 'Trigger suggestions',
 } satisfies Record<MenuKey, string>

@@ -19,7 +19,6 @@ function scriptedApi(overrides: {
   skills?: Partial<ApiProxy['skills']>
   agentPresets?: Partial<ApiProxy['agentPresets']>
   settings?: Partial<ApiProxy['settings']>
-  credentials?: Partial<ApiProxy['credentials']>
   llm?: Partial<ApiProxy['llm']>
 } = {}): ApiProxy {
   const err = <T>(r: RpcRequest<unknown>): Promise<RpcResponse<T>> =>
@@ -29,9 +28,6 @@ function scriptedApi(overrides: {
       describe: r => ok(r, {
         version: '0-test', cwd: '/t', attachedSessions: 0, home: '/h', canOpenPath: true,
       }),
-      pickDirectory: r => ok(r, { path: null }),
-      listDirectory: r => ok(r, { path: '/t', home: '/t', crumbs: [], entries: [], truncated: false }),
-      createDirectory: r => ok(r, { path: '/t/new' }),
       openPath: r => ok(r, { opened: true as const }),
       ...overrides.host,
     },
@@ -41,18 +37,8 @@ function scriptedApi(overrides: {
       ...overrides.agentPresets,
     },
     settings: {
-      describe: r => ok(r, { writable: true, hasDocument: false, namespaces: [] }),
       openDocument: r => ok(r, { opened: true as const }),
-      update: err,
-      replace: err,
-      mutate: err,
       ...overrides.settings,
-    },
-    credentials: {
-      describe: r => ok(r, { credentials: {} }),
-      set: err,
-      unset: err,
-      ...overrides.credentials,
     },
     llm: {
       providers: r => ok(r, { providers: [] }),
@@ -294,18 +280,9 @@ describe('envelope tap', () => {
 })
 
 describe('config unary surface', () => {
-  it('round-trips every settings/credentials/llm method with its own payload and value shape', async () => {
+  it('round-trips every settings/llm method with its own payload and value shape', async () => {
     const seen: { method: string; payload: unknown }[] = []
     const record = recorderInto(seen)
-    const view = {
-      ns: 'llm-deepseek',
-      schema: { uid: 1, refs: { 1: { type: 'object' } } },
-      value: { baseURL: 'https://next' },
-      user: { baseURL: 'https://next' },
-      applies: 'live' as const,
-      secrets: [{ path: ['apiKey'], set: true }],
-      revision: 0,
-    }
     const providerRow = {
       provider: 'openai',
       displayName: 'openai',
@@ -316,16 +293,7 @@ describe('config unary surface', () => {
     const group = { id: 'deepseek-official', name: 'DeepSeek', models: [{ id: 'deepseek-v4-flash', name: 'Flash' }] }
     const api = scriptedApi({
       settings: {
-        describe: record('settings.describe', r => ok(r, { writable: true, hasDocument: false, namespaces: [view] })),
         openDocument: record('settings.openDocument', r => ok(r, { opened: true as const })),
-        update: record('settings.update', r => ok(r, view)),
-        replace: record('settings.replace', r => ok(r, view)),
-        mutate: record('settings.mutate', r => ok(r, view)),
-      },
-      credentials: {
-        describe: record('credentials.describe', r => ok(r, { credentials: { OPENAI_API_KEY: { configured: true, source: 'file', writable: true } } })),
-        set: record('credentials.set', r => ok(r, {})),
-        unset: record('credentials.unset', r => ok(r, {})),
       },
       llm: {
         providers: record('llm.providers', r => ok(r, { providers: [providerRow] })),
@@ -340,23 +308,7 @@ describe('config unary surface', () => {
     })
     const c = client(api)
 
-    const described = await c.settings.describe({})
-    expect(described.result).toEqual({ ok: true, value: { writable: true, hasDocument: false, namespaces: [view] } })
     expect((await c.settings.openDocument({})).result).toEqual({ ok: true, value: { opened: true } })
-    const updated = await c.settings.update({ ns: 'llm-deepseek', patch: { baseURL: 'https://next' } })
-    expect(updated.result).toEqual({ ok: true, value: view })
-    const replaced = await c.settings.replace({ ns: 'llm-deepseek', section: {} })
-    expect(replaced.result).toEqual({ ok: true, value: view })
-    const mutated = await c.settings.mutate({
-      ns: 'llm-deepseek',
-      ops: [{ op: 'unset', path: ['baseURL'] }],
-      expectedRevision: 0,
-    })
-    expect(mutated.result).toEqual({ ok: true, value: view })
-    const creds = await c.credentials.describe({ refs: ['OPENAI_API_KEY'] })
-    expect(creds.result).toEqual({ ok: true, value: { credentials: { OPENAI_API_KEY: { configured: true, source: 'file', writable: true } } } })
-    expect((await c.credentials.set({ ref: 'OPENAI_API_KEY', value: 'sk-x' })).result).toEqual({ ok: true, value: {} })
-    expect((await c.credentials.unset({ ref: 'OPENAI_API_KEY' })).result).toEqual({ ok: true, value: {} })
     const providers = await c.llm.providers({})
     expect(providers.result).toEqual({ ok: true, value: { providers: [providerRow] } })
     const models = await c.llm.models({})
@@ -378,29 +330,16 @@ describe('config unary surface', () => {
     expect(discovered.result).toEqual({ ok: true, value: { models: [{ id: 'acme-large', contextWindow: 65536 }] } })
 
     expect(seen.map(call => call.method)).toEqual([
-      'settings.describe', 'settings.openDocument', 'settings.update', 'settings.replace', 'settings.mutate',
-      'credentials.describe', 'credentials.set', 'credentials.unset',
+      'settings.openDocument',
       'llm.providers', 'llm.models', 'llm.discoverModels',
     ])
-    expect(seen[2]?.payload).toEqual({ ns: 'llm-deepseek', patch: { baseURL: 'https://next' } })
-    expect(seen[4]?.payload)
-      .toEqual({ ns: 'llm-deepseek', ops: [{ op: 'unset', path: ['baseURL'] }], expectedRevision: 0 })
-    expect(seen[6]?.payload).toEqual({ ref: 'OPENAI_API_KEY', value: 'sk-x' })
     // The draft crosses whole, credential included: the host needs it for this
     // one interrogation and stores none of it.
-    expect(seen[10]?.payload).toEqual({
+    expect(seen[3]?.payload).toEqual({
       settingsNs: 'llm-pi-ai',
       baseURL: 'https://gateway.acme.example/v1',
       api: 'openai-completions',
       apiKey: 'probe-key',
     })
-  })
-
-  it('rejects an invalid credential reference name at the carrier boundary', async () => {
-    const api = scriptedApi()
-    const response = await client(api).credentials.set({ ref: 'not a var', value: 'x' })
-    expect(response.result.ok).toBe(false)
-    if (response.result.ok) throw new Error('unreachable')
-    expect(response.result.error.code).toBe('bad-request')
   })
 })

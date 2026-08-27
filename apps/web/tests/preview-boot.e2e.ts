@@ -310,25 +310,13 @@ async function bootPreview(origin: string, browser: Browser): Promise<void> {
     const configureLater = page.getByRole('button', { name: 'Configure later' })
     await configureLater.waitFor({ timeout: 30_000 })
     await configureLater.click()
-    await page.locator('[data-composer-input][data-placeholder="Describe what you want to build"]')
+    await page.locator('[data-composer-input][data-placeholder="Describe what you want to build... / commands, @ files or sessions"]')
       .waitFor({ timeout: 30_000 })
 
     const exercised = await page.evaluate(async () => {
       type Result<T> = { result: { ok: true; value: T } | { ok: false; error: { code: string; message: string } } }
       interface PreviewApi {
-        host: { createDirectory(payload: { path: string; name: string }): Promise<Result<{ path: string }>> }
         skills: { list(payload: { sessionId: string }): Promise<Result<{ skills: unknown[] }>> }
-        settings: {
-          describe(payload: object): Promise<Result<{ namespaces: Array<{ ns: string; revision: number }> }>>
-          update(payload: { ns: string; patch: object; expectedRevision: number }): Promise<Result<unknown>>
-        }
-        credentials: {
-          set(payload: { ref: string; value: string }): Promise<Result<unknown>>
-          unset(payload: { ref: string }): Promise<Result<unknown>>
-          describe(payload: { refs: string[] }): Promise<Result<{
-            credentials: Record<string, { configured: boolean }>
-          }>>
-        }
       }
       interface PreviewTransport {
         fetch(input: string, init: RequestInit): Promise<Response>
@@ -349,33 +337,54 @@ async function bootPreview(origin: string, browser: Browser): Promise<void> {
       const sessionId = sessions.result.value.items[0]?.sessionId
       if (sessionId === undefined) throw new Error('workspace adoption created no Session')
 
+      // Remote namespaces answer over the same unary carrier; the args object
+      // keys every wire parameter by its name.
+      const remote = async <T>(endpoint: string, args: object): Promise<T> => {
+        const answered = await transport.fetch(`/api/${endpoint}`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            type: 'client-request', rpcId: `preview-${endpoint.replace('/', '-')}`,
+            method: endpoint, payload: { args },
+          }),
+        })
+        const body = await answered.json() as Result<T>
+        if (!body.result.ok) throw new Error(`${endpoint} failed: ${body.result.error.message}`)
+        return body.result.value
+      }
       const api = transport.createApiClient()
       const skills = await api.skills.list({ sessionId })
       if (!skills.result.ok) throw new Error(`skill.list failed: ${skills.result.error.message}`)
       const createDirectory = async (path: string, name: string): Promise<void> => {
-        const created = await api.host.createDirectory({ path, name })
-        if (!created.result.ok) throw new Error(`host.createDirectory failed: ${created.result.error.message}`)
+        await remote<string>('directoryPicker/createDirectory', { path, name })
         await new Promise((resolve) => { setTimeout(resolve, 250) })
         const refreshed = await api.skills.list({ sessionId })
         if (!refreshed.result.ok) throw new Error(`skill.list refresh failed: ${refreshed.result.error.message}`)
       }
       await createDirectory('/dsh/workspace/.agents/skills', 'runtime-created')
-      const settings = await api.settings.describe({})
-      if (!settings.result.ok) throw new Error(`settings.describe failed: ${settings.result.error.message}`)
-      const shell = settings.result.value.namespaces.find(namespace => namespace.ns === 'shell')
-      if (shell === undefined) throw new Error('settings.describe omitted the shell namespace')
-      const updated = await api.settings.update({ ns: 'shell', patch: { timeoutMs: 61_000 }, expectedRevision: shell.revision })
-      if (!updated.result.ok) throw new Error(`settings.update failed: ${updated.result.error.message}`)
-      const stored = await api.credentials.set({ ref: 'PREVIEW_TEST_SECRET', value: 'worker-only' })
-      if (!stored.result.ok) throw new Error(`credentials.set failed: ${stored.result.error.message}`)
-      const credentials = await api.credentials.describe({ refs: ['PREVIEW_TEST_SECRET'] })
-      if (!credentials.result.ok) throw new Error(`credentials.describe failed: ${credentials.result.error.message}`)
-      const removed = await api.credentials.unset({ ref: 'PREVIEW_TEST_SECRET' })
-      if (!removed.result.ok) throw new Error(`credentials.unset failed: ${removed.result.error.message}`)
+      // Settings and credentials both answer over the Remote carrier, so this
+      // half of the sweep posts the generated endpoints directly like the
+      // session read above.
+      const settings = await remote<{ namespaces: { ns: string; revision: number }[] }>(
+        'settings/describe', {},
+      )
+      const shell = settings.namespaces.find(namespace => namespace.ns === 'shell')
+      if (shell === undefined) throw new Error('settings/describe omitted the shell namespace')
+      await remote('settings/update', {
+        ns: 'shell',
+        patch: { timeoutMs: 61_000 },
+        expectedRevision: shell.revision,
+      })
+      await remote('credentials/set', { ref: 'PREVIEW_TEST_SECRET', value: 'worker-only' })
+      const credentials = await remote<Record<string, { configured: boolean }>>(
+        'credentials/describe',
+        { refs: ['PREVIEW_TEST_SECRET'] },
+      )
+      await remote('credentials/unset', { ref: 'PREVIEW_TEST_SECRET' })
       await new Promise((resolve) => { setTimeout(resolve, 250) })
       return {
         skillCount: skills.result.value.skills.length,
-        credentialConfigured: credentials.result.value.credentials.PREVIEW_TEST_SECRET?.configured,
+        credentialConfigured: credentials.PREVIEW_TEST_SECRET?.configured,
       }
     })
     expect(exercised.skillCount).toBeGreaterThan(0)

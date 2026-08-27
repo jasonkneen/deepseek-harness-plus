@@ -179,6 +179,18 @@ export class InputTriggerController {
   }
 
   /**
+   * Pointer hover from MenuView: park the shared highlight on the hovered
+   * candidate (keyboard `move` and pointer hover drive one highlight —
+   * last input wins).
+   * @param source - source (group) name.
+   * @param index - candidate index within the group.
+   */
+  hover(source: string, index: number): void {
+    if (this.disposed) return
+    this.reduce({ type: 'hover', source, index })
+  }
+
+  /**
    * Keyboard arbitration while the menu is open.
    * @param key - intercepted key.
    * @param composing - inside IME composition: everything passes.

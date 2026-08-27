@@ -29,9 +29,10 @@ The packages below provide the Remote layer; the package READMEs own the exhaust
 | [`remotes/`](remotes/README.md) | Chooses which Host capabilities and events the Client can consume. | — |
 | [`gateway/`](gateway/README.md) | Carries typed unary calls, multiplexed streams, and forwarded Host events. | `ctx.typertGateway` / `ctx.remote` |
 | [`session-controller/`](session-controller/README.md) | Owns Session commands, history streams, live control state, and Agent/Session identity policy. | `ctx.sessionController` / `ctx.remote.session` |
+| [`settings-controller/`](settings-controller/README.md) | Owns the configuration-surface reads and writes over the settings-domain seams. | `ctx.settingsController`, `ctx.credentialsController` / `ctx.remote.settings`, `ctx.remote.credentials` |
 | [`workspace-controller/`](workspace-controller/README.md) | Owns Workspace mutations and the complete Client Workspace projection. | `ctx.workspaceController` / `ctx.remote.workspace` |
 
-Remote calls run Client → Host over the application's shared Connection. API Gateway owns Remote transport, while the two controller packages own Session and Workspace behavior. Endpoints without a Remote definition fall through to the application's API Proxy.
+Remote calls run Client → Host over the application's shared Connection. API Gateway owns Remote transport, while the controller packages own Session, configuration-surface, and Workspace behavior. Endpoints without a Remote definition fall through to the application's API Proxy.
 
 -----
 

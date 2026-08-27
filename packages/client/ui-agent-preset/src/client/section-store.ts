@@ -15,6 +15,7 @@
  */
 
 import type { ClientRemote, IApiClient } from '@deepseek-ai/dsh-api-remotes/client'
+import type { SettingsWireFace } from '@deepseek-ai/dsh-client-ui-settings/client'
 import { createSnapshotStore, type SnapshotStore } from '@deepseek-ai/dsh-client-store'
 import { beginRosterRead, messageOf, writeDefaultPreset } from './settings-store.ts'
 
@@ -133,7 +134,7 @@ export class AgentPresetSectionController {
   readonly store: SnapshotStore<AgentPresetSectionState> = createSnapshotStore(INITIAL)
 
   constructor(
-    private readonly api: Pick<IApiClient, 'agentPresets' | 'settings' | 'host'>,
+    private readonly api: SettingsWireFace & Pick<IApiClient, 'agentPresets' | 'host'>,
     private readonly remote: Pick<ClientRemote, 'agentPresets'>,
     /**
      * Called after this page changes the roster DIRECTORY, so the other

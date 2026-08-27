@@ -50,7 +50,7 @@ describe('apply', () => {
     const { ctx, locale } = await bench()
     await ctx.plugin({ inject: [...inject], apply }).await()
     const t = locale.bind('slash.menu')
-    expect(t('command')).toBe('命令')
+    expect(t('command')).toBe('指令')
     locale.setLocale('en')
     expect(t('skill')).toBe('Skills')
     expect(t('subagent')).toBe('Subagents')
@@ -83,6 +83,9 @@ describe('apply', () => {
     expect(injected.menu).toBe(controller.menu)
     // The pick face routes into the controller pipeline (closed menu → no-op).
     injected.onPick('command', 0)
+    expect(controller.menu.getSnapshot().open).toBe(false)
+    // The hover face routes into the controller too (closed menu → no-op).
+    injected.onHover('command', 0)
     expect(controller.menu.getSnapshot().open).toBe(false)
     // The dismiss face routes into the controller too (closed menu → no-op).
     injected.onDismiss()

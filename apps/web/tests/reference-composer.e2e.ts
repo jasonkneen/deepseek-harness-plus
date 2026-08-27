@@ -150,14 +150,14 @@ describe.skipIf(MODE === 'record')('web e2e: file and session references through
     const snapshot = await captureStableAria(page, '[role="listbox"]', scaffold.workspaceCwd)
     await compareOrRefreshGolden(MENU_EXPECTED, snapshot, MODE)
     expect(snapshot).toContain('Files & folders')
-    expect(snapshot).toContain('Session conversations')
+    expect(snapshot).toContain('Sessions')
     expect(snapshot).not.toContain('text: reference Files & folders')
-    expect(snapshot).toContain('File \u00b7 reference.txt')
-    expect(snapshot).toContain('Session \u00b7 Research notes')
+    expect(snapshot).toContain('reference.txt')
+    expect(snapshot).toContain('Research notes')
     expect(snapshot).not.toContain('text: Subagents')
 
     await input.fill('@reference')
-    await menu.getByRole('option', { name: /File \u00b7 reference\.txt/ }).click()
+    await menu.getByRole('option', { name: /reference\.txt/ }).click()
     // The pick lands an atomic chip: a real DOM capsule carrying the domain
     // icon and the label (the canonical reference text lives on the node and
     // expands on submit; the surface text is the label plus the separator).
@@ -167,7 +167,7 @@ describe.skipIf(MODE === 'record')('web e2e: file and session references through
     await expect.poll(() => input.textContent()).toBe('reference.txt ')
 
     await input.fill('@Research')
-    await menu.getByRole('option', { name: /Session \u00b7 Research notes/ }).click()
+    await menu.getByRole('option', { name: /Research notes/ }).click()
     const sessionReference = page.locator('[data-composer-chip]').last()
     await expect.poll(() => sessionReference.textContent()).toBe('Research notes')
     await expect.poll(() => sessionReference.locator('svg').count()).toBe(1)
@@ -183,7 +183,7 @@ describe.skipIf(MODE === 'record')('web e2e: file and session references through
     const menu = page.getByRole('listbox', { name: 'Trigger suggestions' })
 
     await input.fill('@reference')
-    await menu.getByRole('option', { name: /File · reference\.txt/ }).click()
+    await menu.getByRole('option', { name: /reference\.txt/ }).click()
     await expect.poll(() => input.locator('[data-composer-chip]').count()).toBe(1)
 
     // The #2813 gesture: collapse the caret to the document start, directly
@@ -192,7 +192,7 @@ describe.skipIf(MODE === 'record')('web e2e: file and session references through
     await page.keyboard.press('ControlOrMeta+A')
     await page.keyboard.press('ArrowLeft')
     await page.keyboard.type('@Research')
-    await menu.getByRole('option', { name: /Session · Research notes/ }).click()
+    await menu.getByRole('option', { name: /Research notes/ }).click()
 
     // Both chips survive the boundary insert: the session chip lands ahead of
     // the intact file chip.
@@ -212,7 +212,7 @@ describe.skipIf(MODE === 'record')('web e2e: file and session references through
     const menu = page.getByRole('listbox', { name: 'Trigger suggestions' })
 
     await input.fill('@reference')
-    await menu.getByRole('option', { name: /File · reference\.txt/ }).click()
+    await menu.getByRole('option', { name: /reference\.txt/ }).click()
     await expect.poll(() => input.locator('[data-composer-chip]').count()).toBe(1)
 
     // First ArrowLeft crosses the trailing space; the second steps across the
@@ -250,7 +250,7 @@ describe.skipIf(MODE === 'record')('web e2e: file and session references through
     // as an atomic chip — folder glyph, no trigger character, one unit.
     await writeComposerDraft(page, input, '@folderx')
     // First folder query on this page: allow the Host index a cold start.
-    await menu.getByRole('option', { name: /Folder · folderx\// }).waitFor({ timeout: 60_000 })
+    await menu.getByRole('option', { name: /^folderx\// }).waitFor({ timeout: 60_000 })
     await page.keyboard.press('Enter')
     const chip = input.locator('[data-composer-chip]').last()
     await expect.poll(() => chip.textContent()).toBe('folderx/')
@@ -260,18 +260,18 @@ describe.skipIf(MODE === 'record')('web e2e: file and session references through
     // Tab drills: the literal descent text stays editable and the open menu
     // lists the folder's children.
     await writeComposerDraft(page, input, '@folderx')
-    await menu.getByRole('option', { name: /Folder · folderx\// }).waitFor()
+    await menu.getByRole('option', { name: /^folderx\// }).waitFor()
     await page.keyboard.press('Tab')
     await expect.poll(() => input.textContent()).toBe('@folderx/')
-    await menu.getByRole('option', { name: /File · child\.txt/ }).waitFor()
+    await menu.getByRole('option', { name: /child\.txt/ }).waitFor()
 
     // The row chevron drills the same way by pointer.
     await writeComposerDraft(page, input, '@folderx')
-    const row = menu.getByRole('option', { name: /Folder · folderx\// })
+    const row = menu.getByRole('option', { name: /^folderx\// })
     await row.waitFor()
     await row.getByRole('button', { name: 'Browse folder' }).click()
     await expect.poll(() => input.textContent()).toBe('@folderx/')
-    await menu.getByRole('option', { name: /File · child\.txt/ }).waitFor()
+    await menu.getByRole('option', { name: /child\.txt/ }).waitFor()
     await page.keyboard.press('Escape')
 
     expect(tripwire.pageErrors).toEqual([])

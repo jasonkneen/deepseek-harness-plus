@@ -30,6 +30,9 @@
       "path": "../connection/tsconfig.client.json"
     },
     {
+      "path": "../../api/remotes/tsconfig.client.json"
+    },
+    {
       "path": "../store"
     },
     {

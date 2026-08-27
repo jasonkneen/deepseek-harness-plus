@@ -31,28 +31,11 @@ export interface RpcErrorDetailsMap {
   'cancelled': {}
   'session-not-found': { sessionId: SessionId }
   'invalid-time-zone': { value: string }
-  'directory-unreadable': { path: string }
-  'directory-exists': { path: string }
-  'directory-create-failed': { path: string }
-  'directory-picker-unavailable': { capability: string }
   'agent-preset-read-only': { agentPreset: string; reason: string }
   'agent-preset-locked': { sessionId: SessionId; agentPreset: string }
   'agent-preset-not-found': { agentPreset: string; available: readonly string[] }
   'agent-preset-invalid': { agentPreset: string; reason: string }
   'agent-busy': { reason: string }
-  /**
-   * A settings write was refused (schema validation, unknown namespace,
-   * read-only provider, or storage failure); the message is the seam's text.
-   */
-  'settings-rejected': { ns: string }
-  /**
-   * A settings write carried an `expectedRevision` the namespace has already
-   * moved past: another writer (tab, editor, or an external file edit) landed
-   * first. The details carry both revisions so a client can re-read and retry.
-   */
-  'settings-conflict': { ns: string; expected: number; actual: number }
-  /** A credential write was refused (read-only shadowing layer or storage failure); the message is the seam's own text. */
-  'credential-rejected': { ref: string }
   /**
    * Interrogating a draft provider endpoint did not produce a model listing:
    * no adapter family serves the namespace, the protocol has no listing this

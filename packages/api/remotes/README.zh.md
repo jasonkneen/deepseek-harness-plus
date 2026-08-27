@@ -27,7 +27,7 @@ kind: "package-reference"
 
 [`@deepseek-ai/dsh-api-session-controller`](../session-controller/README.zh.md) 拥有 Agent 与 Session 身份策略，包括供其他 namespace 使用的 Typert lookup resolver。本包只选择并挂载生成的 Session contribution，不复制激活策略。
 
-Client 组合挂载 Commands、Goal、动态 Cordis、文件与 Session 引用、只读 Host 插件清单、消息反馈、Session Controller 和 Workspace Controller contribution。该组合卸载时，Cordis effect 的所有权机制会撤回所有贡献；`@deepseek-ai/dsh-api-gateway/client` 负责描述符校验、可追踪 namespace Service、直接与作用域方法、调用、流与取消。Client 入口通过 Cordis 消费共享的 `TypertClientRemote` 接口，不导入具体 Gateway；它只以 type-only 形式重新导出 Gateway Client face 的声明合并，因此消费端经由本外观取到转发事件词汇时，运行时不会多出一条通往 Gateway 实现的边。
+Client 组合挂载 Commands、凭据、settings、Goal、动态 Cordis、文件与 Session 引用、只读 Host 插件清单、消息反馈、Session Controller 和 Workspace Controller contribution。该组合卸载时，Cordis effect 的所有权机制会撤回所有贡献；`@deepseek-ai/dsh-api-gateway/client` 负责描述符校验、可追踪 namespace Service、直接与作用域方法、调用、流与取消。Client 入口通过 Cordis 消费共享的 `TypertClientRemote` 接口，不导入具体 Gateway；它只以 type-only 形式重新导出 Gateway Client face 的声明合并，因此消费端经由本外观取到转发事件词汇时，运行时不会多出一条通往 Gateway 实现的边。
 
 本包不拥有物理传输或 Host 服务发现。它只把应用选择投影为生成的 Remote contribution 和唯一的 Host Cordis event source；API Gateway 负责 endpoint、carrier、取消与重连。Web 或未来的 TUI 只要提供同一份不依赖 React 的 `ctx.remote` 约定，均可复用其 Client face。
 

@@ -15,6 +15,13 @@ export interface MenuViewInjected {
    * @param action - settling pick (default) or the candidate's drill action.
    */
   onPick: (source: string, index: number, action?: PickAction) => void
+  /**
+   * Pointer hover routed to the shared highlight (pointer and keyboard drive
+   * one highlight — last input wins).
+   * @param source - source (group) name.
+   * @param index - candidate index within the group.
+   */
+  onHover: (source: string, index: number) => void
   /** Dismiss the menu (external pointer outside the composer area). */
   onDismiss: () => void
 }

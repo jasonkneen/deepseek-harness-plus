@@ -1,7 +1,7 @@
 /**
  * Browser half of the native directory-picker backend: fills ui-workspace's
  * two directory-flow holes with a renderless occupant that answers each
- * `open` by driving `host.pickDirectory` (the node half's OS chooser) and
+ * `open` by driving `directoryPicker/pick` (the node half's OS chooser) and
  * reporting the one outcome — picked path, cancellation, or failure — back
  * through the owner conversation. Mounting this package therefore composes
  * both sides of the native interaction with one cordis.yml row; no client

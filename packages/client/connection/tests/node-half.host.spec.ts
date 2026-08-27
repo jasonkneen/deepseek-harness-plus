@@ -174,8 +174,7 @@ describe('connection node half', () => {
   it('requires the same browser session for every method on every trusted authority', async () => {
     const { routes, connection, dispose } = await mounted({ trustedHosts: ['harness.example'] })
     const methods = [
-      'host.pickDirectory', 'host.openPath',
-      'settings.describe', 'settings.update', 'credentials.describe', 'credentials.set',
+      'host.openPath',
       'llm.discoverModels', 'llm.models', 'agentPreset.openDocument',
     ]
     for (const method of methods) {
@@ -501,9 +500,8 @@ describe('connection node half over a real HTTP server', () => {
     const { port, close } = await serve(routes)
     try {
       const methods = [
-        'settings.describe', 'settings.openDocument', 'settings.update', 'settings.replace', 'settings.mutate',
-        'credentials.describe', 'credentials.set', 'credentials.unset',
-        'host.pickDirectory', 'host.openPath',
+        'settings.openDocument',
+        'host.openPath',
         'llm.discoverModels',
         'agentPreset.openDocument',
         'llm.providers', 'llm.models',
@@ -512,7 +510,7 @@ describe('connection node half over a real HTTP server', () => {
         expect([method, await call(port, method, 'localhost')]).toEqual([method, 401])
         expect([method, await call(port, method, 'harness.example')]).toEqual([method, 401])
       }
-      expect(await call(port, 'settings.describe', 'other.example')).toBe(403)
+      expect(await call(port, 'settings.openDocument', 'other.example')).toBe(403)
 
       const declaredCookie = browserCookie(connection, 'harness.example')
       for (const method of methods) {
@@ -521,7 +519,7 @@ describe('connection node half over a real HTTP server', () => {
       const loopbackAuthority = `127.0.0.1:${String(port)}`
       expect(await call(
         port,
-        'settings.describe',
+        'settings.openDocument',
         loopbackAuthority,
         browserCookie(connection, loopbackAuthority),
       )).toBe(404)

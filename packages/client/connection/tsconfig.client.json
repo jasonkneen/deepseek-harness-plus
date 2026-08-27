@@ -34,7 +34,16 @@
       "path": "../../core/tools"
     },
     {
+      "path": "../../credentials/credentials"
+    },
+    {
+      "path": "../../settings/settings"
+    },
+    {
       "path": "../../host/apiproxy"
+    },
+    {
+      "path": "../../host/directory-picker"
     },
     {
       "path": "../../interaction/commands"

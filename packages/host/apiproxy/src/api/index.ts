@@ -8,7 +8,6 @@ import type { HostApi } from './host.ts'
 import type { AgentPresetsApi } from './agent-presets.ts'
 import type { SkillsApi } from './skills.ts'
 import type { SettingsApi } from './settings.ts'
-import type { CredentialsApi } from './credentials.ts'
 import type { LlmApi } from './llm.ts'
 import type { DownloadsApi } from './downloads.ts'
 
@@ -18,7 +17,6 @@ export interface ApiProxy {
   skills: SkillsApi
   agentPresets: AgentPresetsApi
   settings: SettingsApi
-  credentials: CredentialsApi
   llm: LlmApi
   /** Host-only download surfaces (GET, no wire envelope); absent from IApiClient. */
   downloads: DownloadsApi
@@ -29,11 +27,10 @@ export type {
   ModelCatalog, ModelCatalogFailure, ModelCatalogModel, ModelProviderGroup, ModelReasoning,
   ModelReasoningEffort, ModelSelection,
 } from '@deepseek-ai/dsh-api-session-controller/types'
-export type { DirectoryEntry, DirectoryListing, HostApi } from './host.ts'
+export type { HostApi } from './host.ts'
 export type { SkillsApi, SkillEntry } from './skills.ts'
 export type { AgentPresetsApi } from './agent-presets.ts'
-export type { SettingsApi, SettingsNamespaceView, SettingsPathOpView, SettingsSecretView } from './settings.ts'
-export type { CredentialsApi, CredentialView } from './credentials.ts'
+export type { SettingsApi } from './settings.ts'
 export type { ConfigurableProviderView, DiscoveredModelView, LlmApi } from './llm.ts'
 export type { DownloadsApi } from './downloads.ts'
 

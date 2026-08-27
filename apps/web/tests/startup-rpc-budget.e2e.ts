@@ -1,4 +1,4 @@
-// Cold boot may issue at most two settings.describe calls regardless of client
+// Cold boot may issue at most two settings/describe calls regardless of client
 // plugin count. No model call or replay fixture is involved.
 import type { Browser, Page } from 'playwright'
 import { chromium } from 'playwright'
@@ -38,7 +38,7 @@ describe('startup RPC budget', () => {
     // absorbs the first-connection reset wave the budget must include.
     await page.getByRole('textbox', { name: 'Choose workspace' }).waitFor({ timeout: 30_000 })
     await page.waitForTimeout(3000)
-    const describeCount = calls.filter(method => method === 'settings.describe').length
+    const describeCount = calls.filter(method => method === 'settings/describe').length
     expect(describeCount, `startup /api calls:\n${calls.join('\n')}`).toBe(DESCRIBE_BUDGET)
   })
 })

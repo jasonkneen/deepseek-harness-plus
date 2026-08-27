@@ -700,6 +700,18 @@ describe('arbitrate', () => {
     expect(controller.menu.getSnapshot().highlight).toEqual({ source: 'command', index: 0 })
   })
 
+  it('hover parks the shared highlight; disposed controllers ignore it', async () => {
+    const { controller } = await menuBench()
+    controller.hover('command', 1)
+    expect(controller.menu.getSnapshot().highlight).toEqual({ source: 'command', index: 1 })
+    // Keyboard keeps moving from the parked spot: last input wins.
+    expect(controller.arbitrate('up', false)).toBe('consumed')
+    expect(controller.menu.getSnapshot().highlight).toEqual({ source: 'command', index: 0 })
+    controller.dispose()
+    controller.hover('command', 1)
+    expect(controller.menu.getSnapshot().highlight).toBeNull()
+  })
+
   it('enter picks the highlight through the pipeline', async () => {
     const { controller, cmd } = await menuBench()
     expect(controller.arbitrate('enter', false)).toBe('pick-highlighted')

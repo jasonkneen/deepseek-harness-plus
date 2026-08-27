@@ -14,10 +14,7 @@ import {
   InvalidPresetIdError, PresetExistsError,
   PresetNotWritableError, UnknownPresetError,
 } from '@deepseek-ai/dsh-agent-presets'
-import type {
-  ApiProxy, ConfigurableProviderView, CredentialView,
-  SettingsNamespaceView,
-} from './api/index.ts'
+import type { ApiProxy, ConfigurableProviderView } from './api/index.ts'
 import { buildModelCatalog } from '@deepseek-ai/dsh-api-session-controller'
 import { SessionQueryError } from '@deepseek-ai/dsh-session-query'
 import {
@@ -33,15 +30,8 @@ import type { SessionRawArtifact } from '@deepseek-ai/dsh-session-persistence'
 // Type-only edges: resolve the command-change stream and `ctx.get('skills')`.
 import type {} from '@deepseek-ai/dsh-commands'
 import type {} from '@deepseek-ai/dsh-skill'
-// The settings/credentials seams: brand guards run at this wire boundary; the
-// service reads stay optional (`ctx.get`) so a composition without either
-// provider still serves every other domain.
-import { SettingsConflictError, settingsNamespace } from '@deepseek-ai/dsh-settings'
-import type { SettingsDescriptor, SettingsNamespace, SettingsPathOp } from '@deepseek-ai/dsh-settings'
-import { credentialRef } from '@deepseek-ai/dsh-credentials'
 import type { ScopeKey } from '@deepseek-ai/dsh-scope'
 import type { RpcError, RpcRequest, RpcResponse } from './api/rpc.ts'
-import { DirectoryPickerError } from '@deepseek-ai/dsh-host-directory-picker'
 import { canOpenNativePath, openNativePath, openNativeTextFile } from './native-path-opener.ts'
 
 /** Read live abort state across awaits without treating it as synchronously immutable. */
@@ -57,14 +47,6 @@ function ok<T>(request: RpcRequest<unknown>, value: T): RpcResponse<T> {
 /** Wrap an error result echoing the request's rpcId. */
 function err<T>(request: RpcRequest<unknown>, error: RpcError): RpcResponse<T> {
   return { rpcId: request.rpcId, result: { ok: false, error } }
-}
-
-/** Map a browse-primitive failure onto the wire error vocabulary (unknown throws stay internal). */
-function directoryError(error: unknown): RpcError {
-  if (error instanceof DirectoryPickerError) {
-    return { code: error.code, message: error.message, details: { path: error.path } }
-  }
-  return { code: 'internal', message: error instanceof Error ? error.message : String(error), details: {} }
 }
 
 /** Deployment metadata and Host integrations consumed by the API implementation. */
@@ -196,80 +178,6 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
     return defaults.openPath !== undefined || canOpenNativePath()
   }
 
-  /** Missing-service report shared by the credentials domain. */
-  function credentialsAbsent(): RpcError {
-    return { code: 'internal', message: 'credentials service is absent: this deployment does not mount a credential provider (e.g. @deepseek-ai/dsh-credentials-local) in its composition', details: {} }
-  }
-
-  /** Map one redacted settings descriptor to its wire view. */
-  function namespaceView(descriptor: SettingsDescriptor): SettingsNamespaceView {
-    return {
-      ns: String(descriptor.ns),
-      schema: descriptor.schema,
-      value: descriptor.value,
-      ...descriptor.base === undefined ? {} : { base: descriptor.base },
-      ...descriptor.user === undefined ? {} : { user: descriptor.user },
-      applies: descriptor.applies,
-      secrets: (descriptor.secrets ?? []).map(secret => ({ path: [...secret.path], set: secret.set })),
-      revision: descriptor.revision,
-    }
-  }
-
-  /**
-   * Run one settings write (merge or wholesale replace) and acknowledge with
-   * the namespace's new redacted view. Every seam refusal — unknown or invalid
-   * namespace, read-only provider, schema validation, storage — becomes one
-   * `settings-rejected` carrying the seam's own message.
-   */
-  async function settingsWrite(
-    request: RpcRequest<unknown>,
-    ns: string,
-    mode: 'update' | 'replace' | 'mutate',
-    section: object,
-    expectedRevision?: number,
-  ): Promise<RpcResponse<SettingsNamespaceView>> {
-    const settings = ctx.get('settings')
-    if (settings === undefined) return err(request, settingsAbsent())
-    const rejected = (error: unknown): RpcResponse<SettingsNamespaceView> => {
-      // A stale writer is its own outcome, not a malformed request: the client
-      // must re-read and re-apply rather than treat the write as invalid.
-      if (error instanceof SettingsConflictError) {
-        return err(request, {
-          code: 'settings-conflict',
-          message: error.message,
-          details: { ns, expected: error.expected, actual: error.actual },
-        })
-      }
-      return err(request, {
-        code: 'settings-rejected',
-        message: error instanceof Error ? error.message : String(error),
-        details: { ns },
-      })
-    }
-    let branded: SettingsNamespace
-    try {
-      branded = settingsNamespace(ns)
-    } catch (error: unknown) {
-      // A malformed name can address no registration, so it fails exactly as
-      // an unregistered one does.
-      return rejected(error)
-    }
-    try {
-      if (mode === 'update') await settings.update(branded, section, expectedRevision)
-      else if (mode === 'replace') await settings.replace(branded, section, expectedRevision)
-      else await settings.mutate(branded, section as SettingsPathOp[], expectedRevision)
-    } catch (error: unknown) {
-      return rejected(error)
-    }
-    const descriptor = settings.describe({ redactSecrets: true }).find(candidate => candidate.ns === branded)
-    if (descriptor === undefined) {
-      // The write committed but the namespace vanished before this read: only
-      // a concurrent registrant disposal can produce it.
-      return err(request, { code: 'internal', message: `settings namespace "${ns}" was disposed after the ${mode}`, details: {} })
-    }
-    return ok(request, namespaceView(descriptor))
-  }
-
   return {
     host: {
       describe(request) {
@@ -288,72 +196,6 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
           home: homedir(),
           canOpenPath: canOpenPaths(),
         }))
-      },
-
-      async pickDirectory(request, signal) {
-        const capability = ctx.directoryPicker.capability()
-        if (capability.kind !== 'native') {
-          return err(request, {
-            code: 'directory-picker-unavailable',
-            message: `host.pickDirectory needs the native capability; the composed picker serves "${capability.kind}"`,
-            details: { capability: capability.kind },
-          })
-        }
-        try {
-          const path = await capability.pick(signal)
-          return ok(request, { path })
-        } catch (error: unknown) {
-          if (signal.aborted) {
-            return err(request, {
-              code: 'cancelled',
-              message: 'directory picker was aborted',
-              details: {},
-            })
-          }
-          return err(request, {
-            code: 'internal',
-            message: `directory picker failed: ${error instanceof Error ? error.message : String(error)}`,
-            details: {},
-          })
-        }
-      },
-
-      async listDirectory(request, signal) {
-        const capability = ctx.directoryPicker.capability()
-        if (capability.kind !== 'browse') {
-          return err(request, {
-            code: 'directory-picker-unavailable',
-            message: `host.listDirectory needs the browse capability; the composed picker serves "${capability.kind}"`,
-            details: { capability: capability.kind },
-          })
-        }
-        try {
-          // The carrier's signal follows the caller: a disconnect or timeout
-          // stops the backend's directory scan instead of outliving it.
-          return ok(request, await capability.list(request.payload.path, signal))
-        } catch (error: unknown) {
-          // An abort is the caller's own timeout/disconnect, not a server failure.
-          if (signal.aborted) {
-            return err(request, { code: 'cancelled', message: 'directory listing was aborted', details: {} })
-          }
-          return err(request, directoryError(error))
-        }
-      },
-
-      async createDirectory(request) {
-        const capability = ctx.directoryPicker.capability()
-        if (capability.kind !== 'browse') {
-          return err(request, {
-            code: 'directory-picker-unavailable',
-            message: `host.createDirectory needs the browse capability; the composed picker serves "${capability.kind}"`,
-            details: { capability: capability.kind },
-          })
-        }
-        try {
-          return ok(request, { path: await capability.createDirectory(request.payload.path, request.payload.name) })
-        } catch (error: unknown) {
-          return err(request, directoryError(error))
-        }
       },
 
       async openPath(request, signal) {
@@ -458,15 +300,6 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
     },
 
     settings: {
-      describe(request) {
-        const settings = ctx.get('settings')
-        if (settings === undefined) return Promise.resolve(err(request, settingsAbsent()))
-        return Promise.resolve(ok(request, {
-          writable: settings.writable,
-          hasDocument: settings.documentPath !== undefined,
-          namespaces: settings.describe({ redactSecrets: true }).map(namespaceView),
-        }))
-      },
       async openDocument(request, signal) {
         const settings = ctx.get('settings')
         if (settings === undefined) return err(request, settingsAbsent())
@@ -509,58 +342,6 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
           })
         }
         return openTextFile(request, path, signal)
-      },
-      update: request => settingsWrite(request, request.payload.ns, 'update', request.payload.patch, request.payload.expectedRevision),
-      replace: request => settingsWrite(request, request.payload.ns, 'replace', request.payload.section, request.payload.expectedRevision),
-      mutate: request => settingsWrite(request, request.payload.ns, 'mutate', request.payload.ops, request.payload.expectedRevision),
-    },
-
-    credentials: {
-      async describe(request) {
-        const credentials = ctx.get('credentials')
-        if (credentials === undefined) return err(request, credentialsAbsent())
-        const entries = await Promise.all(request.payload.refs.map(async (ref) => {
-          const info = await credentials.describe(credentialRef(ref))
-          const view: CredentialView = {
-            configured: info.configured,
-            ...info.source === undefined ? {} : { source: info.source },
-            writable: info.writable,
-          }
-          return [ref, view] as const
-        }))
-        return ok(request, { credentials: Object.fromEntries(entries) })
-      },
-
-      async set(request) {
-        const credentials = ctx.get('credentials')
-        if (credentials === undefined) return err(request, credentialsAbsent())
-        const { ref, value } = request.payload
-        try {
-          await credentials.set(credentialRef(ref), value)
-        } catch (error: unknown) {
-          return err(request, {
-            code: 'credential-rejected',
-            message: error instanceof Error ? error.message : String(error),
-            details: { ref },
-          })
-        }
-        return ok(request, {})
-      },
-
-      async unset(request) {
-        const credentials = ctx.get('credentials')
-        if (credentials === undefined) return err(request, credentialsAbsent())
-        const { ref } = request.payload
-        try {
-          await credentials.unset(credentialRef(ref))
-        } catch (error: unknown) {
-          return err(request, {
-            code: 'credential-rejected',
-            message: error instanceof Error ? error.message : String(error),
-            details: { ref },
-          })
-        }
-        return ok(request, {})
       },
     },
 

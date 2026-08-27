@@ -30,11 +30,11 @@ function acceptWrites<T>(host: StubSettingsScope<T>): void {
 
 function credentialsApi(configured: boolean) {
   const describe = vi.fn(() => Promise.resolve({
-    rpcId: 'c-1' as never,
-    result: { ok: true as const, value: { credentials: { DEEPSEEK_API_KEY: { configured, writable: true } } } },
+    ok: true as const,
+    value: { DEEPSEEK_API_KEY: { configured, writable: true } },
   }))
-  const set = vi.fn(() => Promise.resolve({ rpcId: 'c-2' as never, result: { ok: true as const, value: {} } }))
-  return { api: { credentials: { describe, set } } as never, describe, set }
+  const set = vi.fn(() => Promise.resolve({ ok: true as const, value: undefined }))
+  return { api: { describe, set } as never, describe, set }
 }
 
 describe('CardForm', () => {
@@ -412,13 +412,13 @@ describe('WebSearchCardController', () => {
     expect(credentials.set).not.toHaveBeenCalled()
 
     credentials.describe.mockImplementation(() => Promise.resolve({
-      rpcId: 'c-1' as never,
-      result: { ok: true as const, value: { credentials: { DEEPSEEK_API_KEY: { configured: true, writable: true } } } },
+      ok: true as const,
+      value: { DEEPSEEK_API_KEY: { configured: true, writable: true } },
     }))
     face.save()
     await vi.waitFor(() => { expect(credentials.set).toHaveBeenCalled() })
 
-    expect(credentials.set).toHaveBeenCalledWith({ ref: 'DEEPSEEK_API_KEY', value: 'ds-secret' })
+    expect(credentials.set).toHaveBeenCalledWith('DEEPSEEK_API_KEY', 'ds-secret')
     expect(host.set).not.toHaveBeenCalled()
     await vi.waitFor(() => {
       expect(face.hooks.webSearchCard.getSnapshot()).toMatchObject({ dirty: false, apiKeyConfigured: true })
@@ -454,8 +454,8 @@ describe('WebSearchCardController', () => {
 
     // A key written on another surface reaches this card only through this signal.
     credentials.describe.mockImplementation(() => Promise.resolve({
-      rpcId: 'c-1' as never,
-      result: { ok: true as const, value: { credentials: { DEEPSEEK_API_KEY: { configured: true, writable: true } } } },
+      ok: true as const,
+      value: { DEEPSEEK_API_KEY: { configured: true, writable: true } },
     }))
     controller.refreshCredential('DEEPSEEK_API_KEY')
 
@@ -475,7 +475,7 @@ describe('WebSearchCardController', () => {
     face.save()
     await vi.waitFor(() => { expect(credentials.set).toHaveBeenCalled() })
 
-    expect(credentials.set).toHaveBeenCalledWith({ ref: 'SEARCH_KEY', value: 'ds-secret' })
+    expect(credentials.set).toHaveBeenCalledWith('SEARCH_KEY', 'ds-secret')
   })
 
   it('reports a key the Host did not store as a failed save', async () => {
@@ -497,7 +497,7 @@ describe('WebSearchCardController', () => {
     const host = stubSettingsScope<WebSearchSettings>()
     const describe = vi.fn(() => Promise.reject(new Error('offline')))
     const set = vi.fn(() => Promise.reject(new Error('offline')))
-    const controller = new WebSearchCardController(host.scope, { credentials: { describe, set } } as never)
+    const controller = new WebSearchCardController(host.scope, { describe, set })
     const face = controller.inject()
     await vi.waitFor(() => { expect(describe).toHaveBeenCalled() })
 
@@ -516,10 +516,10 @@ describe('WebSearchCardController', () => {
   it('ignores a credential read the Host refused', async () => {
     const host = stubSettingsScope<WebSearchSettings>()
     const describe = vi.fn(() => Promise.resolve({
-      rpcId: 'c-1' as never,
-      result: { ok: false as const, error: { code: 'credentials-unavailable', message: 'no provider' } },
+      ok: false as const,
+      error: { code: 'internal', message: 'no credential provider', details: {} },
     }))
-    const controller = new WebSearchCardController(host.scope, { credentials: { describe, set: vi.fn() } } as never)
+    const controller = new WebSearchCardController(host.scope, { describe, set: vi.fn() })
     await vi.waitFor(() => { expect(describe).toHaveBeenCalled() })
 
     expect(controller.inject().hooks.webSearchCard.getSnapshot().apiKeyConfigured).toBe(false)
@@ -546,16 +546,13 @@ describe('WebSearchCardController', () => {
 describe('ConfigurablePluginsTabController', () => {
   function settingsApi(namespaces: string[]) {
     const describe = vi.fn(() => Promise.resolve({
-      rpcId: 's-1' as never,
-      result: {
-        ok: true as const,
-        value: {
-          writable: true,
-          hasDocument: true,
-          namespaces: namespaces.map(ns => ({
-            ns, schema: {}, value: {}, applies: 'live' as const, secrets: [], revision: 0,
-          })),
-        },
+      ok: true as const,
+      value: {
+        writable: true,
+        hasDocument: true,
+        namespaces: namespaces.map(ns => ({
+          ns, schema: {}, value: {}, applies: 'live' as const, secrets: [], revision: 0,
+        })),
       },
     }))
     return { mirror: new SettingsDescribeMirror({ settings: { describe } } as never), describe }

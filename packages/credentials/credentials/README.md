@@ -130,13 +130,13 @@ One doctrine and four consequences:
 
 | File | Role |
 |---|---|
-| [`src/index.ts`](src/index.ts) | Service Definition: the `credentialRef`/`credentialKey` brands, `ResolvedCredential`/`CredentialInfo`/`CredentialRecordInfo`, the abstract provider over both key spaces, contained fan-out |
-| [`src/types.ts`](src/types.ts) | Client-safe type surface: the `CredentialRef` and `CredentialKey` brands, the stored-record union, the `credentials/reference-updated` and `credentials/record-updated` declarations |
+| [`src/index.ts`](src/index.ts) | Service Definition: the `credentialRef`/`credentialKey` brands, `ResolvedCredential`/`CredentialRecordInfo`, the abstract provider over both key spaces, contained fan-out |
+| [`src/types.ts`](src/types.ts) | Client-safe type surface: the `CredentialRef` and `CredentialKey` brands, the stored-record union, the `CredentialInfo` reference view, the `credentials/reference-updated` and `credentials/record-updated` declarations |
 | [`src/invariant.ts`](src/invariant.ts) | Invariant companion: `credentials/reference-updated` only fires while a credentials service is live |
 
 ### Client-safe types
 
-The `./types` subpath export holds the event declarations together with the `CredentialRef` and `CredentialKey` brands and the stored-record union they name, and the package root re-exports them. A consumer outside the Host compilation face therefore reads the very signature the Host emits instead of restating it.
+The `./types` subpath export holds the event declarations together with the `CredentialRef` and `CredentialKey` brands, the stored-record union they name, and the `CredentialInfo` reference view a configuration surface reads, and the package root re-exports them. A consumer outside the Host compilation face therefore reads the very signature the Host emits instead of restating it.
 
 ### Lifecycle
 

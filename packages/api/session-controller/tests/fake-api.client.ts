@@ -167,22 +167,8 @@ export class FakeApiClient implements IApiClient {
     () => Promise.resolve(ok({
       version: '0-fake', cwd: '/f', attachedSessions: 0, home: '/h', canOpenPath: true,
     }))
-  onPickDirectory: (payload: unknown) => Promise<RpcResponse<{ path: string | null }>> =
-    () => Promise.resolve(ok({ path: null }))
   onOpenPath: (payload: unknown) => Promise<RpcResponse<{ opened: true }>> =
     () => Promise.resolve(ok({ opened: true as const }))
-
-  onListDirectory: (payload: unknown) => Promise<RpcResponse<{
-    path: string
-    home: string
-    crumbs: { name: string; path: string; hidden: boolean }[]
-    entries: { name: string; path: string; hidden: boolean }[]
-    truncated: boolean
-  }>> =
-    () => Promise.resolve(ok({ path: '/home/fake', home: '/home/fake', crumbs: [{ name: '/', path: '/', hidden: false }], entries: [], truncated: false }))
-
-  onCreateDirectory: (payload: unknown) => Promise<RpcResponse<{ path: string }>> =
-    () => Promise.resolve(ok({ path: '/home/fake/new' }))
 
   private readonly followConns = new Map<SessionId, ValueStreamConn<SessionFollowFrame>[]>()
   private readonly controlConns: ValueStreamConn<SessionControlFrame>[] = []
@@ -210,9 +196,6 @@ export class FakeApiClient implements IApiClient {
 
   readonly host: IApiClient['host'] = {
     describe: (payload: unknown) => this.record('host.describe', payload, this.onDescribe(payload)),
-    pickDirectory: (payload: unknown) => this.record('host.pickDirectory', payload, this.onPickDirectory(payload)),
-    listDirectory: (payload: unknown) => this.record('host.listDirectory', payload, this.onListDirectory(payload)),
-    createDirectory: (payload: unknown) => this.record('host.createDirectory', payload, this.onCreateDirectory(payload)),
     openPath: (payload: unknown) => this.record('host.openPath', payload, this.onOpenPath(payload)),
   }
 
@@ -251,17 +234,7 @@ export class FakeApiClient implements IApiClient {
   }
 
   readonly settings: IApiClient['settings'] = {
-    describe: payload => this.record('settings.describe', payload, Promise.resolve(ok({ writable: true, hasDocument: false, namespaces: [] }))),
     openDocument: payload => this.record('settings.openDocument', payload, Promise.resolve(ok({ opened: true as const }))),
-    update: payload => this.record('settings.update', payload, Promise.resolve(ok({ ns: 'fake', schema: {}, value: {}, applies: 'live' as const, secrets: [], revision: 0 }))),
-    replace: payload => this.record('settings.replace', payload, Promise.resolve(ok({ ns: 'fake', schema: {}, value: {}, applies: 'live' as const, secrets: [], revision: 0 }))),
-    mutate: payload => this.record('settings.mutate', payload, Promise.resolve(ok({ ns: 'fake', schema: {}, value: {}, applies: 'live' as const, secrets: [], revision: 0 }))),
-  }
-
-  readonly credentials: IApiClient['credentials'] = {
-    describe: payload => this.record('credentials.describe', payload, Promise.resolve(ok({ credentials: {} }))),
-    set: payload => this.record('credentials.set', payload, Promise.resolve(ok({}))),
-    unset: payload => this.record('credentials.unset', payload, Promise.resolve(ok({}))),
   }
 
   readonly llm: IApiClient['llm'] = {

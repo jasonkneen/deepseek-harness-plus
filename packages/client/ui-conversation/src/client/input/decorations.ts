@@ -18,8 +18,6 @@ export interface TextRefRange {
   readonly start: number
   readonly end: number
   readonly trigger: '/' | '@'
-  /** Optional icon domain for syntax-recognizable plain references. */
-  readonly appearance?: 'folder'
 }
 
 /** Token matcher: a trigger char at line start or after whitespace, then a word-ish name (never crosses \n). */
@@ -59,7 +57,7 @@ export function scanTextRefs(
     const start = folder.index + (folder[1]?.length ?? 0)
     const end = start + token.length
     if (!out.some(range => range.start < end && range.end > start)) {
-      out.push({ start, end, trigger: '@', appearance: 'folder' })
+      out.push({ start, end, trigger: '@' })
     }
   }
   return out.sort((left, right) => left.start - right.start)

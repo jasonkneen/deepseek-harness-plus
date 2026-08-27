@@ -9,7 +9,7 @@ kind: "package-reference"
 
 ## 概述
 
-web GUI 宿主的每个客户端都通过 `dsh-host-apiproxy` 调用同一套类型化 API——会话与历史、工作区、目录选择、模型选择、agent preset、skill、目标、设置、凭据、LLM 目录、事件与会话导出——由 fetch 载体经由 HTTP 或进程内搬运。约定层零 Node 依赖、可从浏览器导入，因此一套类型化 API 同时服务 Web 服务器、Electron 与任何未来的客户端形态。随发行版交付的 Web 组合在 [`dsh-web-app`](../../bundle/web-app/README.zh.md) 中组装网关。选择载体、调用领域 API 与配置网关在前；协议内部细节放在下方可折叠的开发者章节中。
+web GUI 宿主的每个客户端都通过 `dsh-host-apiproxy` 调用同一套类型化 API——会话与历史、工作区、目录选择、模型选择、agent preset、skill、目标、设置、LLM 目录、事件与会话导出——由 fetch 载体经由 HTTP 或进程内搬运。约定层零 Node 依赖、可从浏览器导入，因此一套类型化 API 同时服务 Web 服务器、Electron 与任何未来的客户端形态。随发行版交付的 Web 组合在 [`dsh-web-app`](../../bundle/web-app/README.zh.md) 中组装网关。选择载体、调用领域 API 与配置网关在前；协议内部细节放在下方可折叠的开发者章节中。
 
 ## 目录
 
@@ -40,7 +40,7 @@ HTTP 载体在分发前以 415 拒绝非 JSON 的 POST 请求体，因此跨站�
 
 ### 网关暴露什么
 
-API 按领域分组：`sessions`（list、create、history、prompt、cancel、queue、models、selectModel、rename、fork、search、attachment）、`workspace`、`host`（describe、pickDirectory、listDirectory、createDirectory、openPath）、`skills`、`agentPresets`、`goals`、`settings`、`credentials`、`llm`、`events` 与 `downloads`。sessions、workspace 与 events 契约分别归 Session Controller、Workspace Controller 与 API Remotes 包所有；其余领域契约与 `RpcMethodMap` 位于 `src/api/`。
+API 按领域分组：`sessions`（list、create、history、prompt、cancel、queue、models、selectModel、rename、fork、search、attachment）、`workspace`、`host`（describe、openPath）、`skills`、`agentPresets`、`goals`、`settings`、`llm`、`events` 与 `downloads`。sessions、workspace 与 events 契约分别归 Session Controller、Workspace Controller 与 API Remotes 包所有；其余领域契约与 `RpcMethodMap` 位于 `src/api/`。
 
 ### 会话与历史
 
@@ -56,7 +56,7 @@ API 按领域分组：`sessions`（list、create、history、prompt、cancel、q
 
 ### 模型选择、preset、命令与配置
 
-`session.models` 把当前 `ModelSelection` 与按提供方分组的咨询模型分开报告，`session.selectModel` 通过共享的 `agent-default-model` settings 分节把已接受的切换保存为部署默认值——指向不可用提供方的默认值仍会作为 `current` 送到选择器，而不是被静默替换。每次访问都先解析进程内选择，再读会话最新的 `request/header`，最后使用部署默认值。日志中标记为适配器默认值的推理强度不会进入恢复后的选择，因此下一次解析不会把它提升为显式选择，也不会记录虚假 header 变更。`agentPreset.list` 暴露部署的 preset 名单，每行带 `trust`，preset 无法组合会话时带 `broken` 原因；`agentPreset.select` 替换空白会话的组合，一旦跑过一轮即被拒绝。`skill.list` 为 composer 菜单提供每个 skill 的 `modelInvocable` 标志，`command.execute` 以纯准入语义运行斜杠命令，其结局由落账的 `command/run`／`command/done` 事件对承载。`settings.*`、`credentials.*` 与 `llm.*` 领域是配置页协议：`settings.describe` 返回每个 namespace 的 schema 与脱敏后的分层值，`settings.mutate` 是持有脱敏视图的客户端的删除路径，secret 绝不搭乘任何响应，`llm.discoverModels` 询问页面尚在起草的提供方端点而不写任何东西。
+`session.models` 把当前 `ModelSelection` 与按提供方分组的咨询模型分开报告，`session.selectModel` 通过共享的 `agent-default-model` settings 分节把已接受的切换保存为部署默认值——指向不可用提供方的默认值仍会作为 `current` 送到选择器，而不是被静默替换。每次访问都先解析进程内选择，再读会话最新的 `request/header`，最后使用部署默认值。日志中标记为适配器默认值的推理强度不会进入恢复后的选择，因此下一次解析不会把它提升为显式选择，也不会记录虚假 header 变更。`agentPreset.list` 暴露部署的 preset 名单，每行带 `trust`，preset 无法组合会话时带 `broken` 原因；`agentPreset.select` 替换空白会话的组合，一旦跑过一轮即被拒绝。`skill.list` 为 composer 菜单提供每个 skill 的 `modelInvocable` 标志，`command.execute` 以纯准入语义运行斜杠命令，其结局由落账的 `command/run`／`command/done` 事件对承载。剩余配置操作是 `settings.openDocument` 与 `llm.*` 领域；生成的 settings 与凭据方法归 [`@deepseek-ai/dsh-api-settings-controller`](../../api/settings-controller/README.zh.md) 所有。
 
 ### 配置
 
@@ -92,7 +92,7 @@ API 按领域分组：`sessions`（list、create、history、prompt、cancel、q
 
 ### 网关服务
 
-`ApiProxyService` 提供 `ctx.apiProxy`，并基于所组合的宿主上下文实现约定——会话、工作区注册表、目录选择器、agent preset、设置、凭据、LLM、事件与下载。Host cwd 是默认项目目录。网关只在 `host.describe` 报告的部署元数据中消费 `ctx.agentDefaultModel`；保存已接受的切换由 Session Controller 的 `session.selectModel` 通过共享的 agent-default-model settings 分节完成。产品的 `dsh --profile headless` 是直连 core 的入口，不挂载本包。
+`ApiProxyService` 提供 `ctx.apiProxy`，并基于所组合的宿主上下文实现约定——会话、工作区注册表、目录选择器、agent preset、设置、LLM、事件与下载。Host cwd 是默认项目目录。网关只在 `host.describe` 报告的部署元数据中消费 `ctx.agentDefaultModel`；保存已接受的切换由 Session Controller 的 `session.selectModel` 通过共享的 agent-default-model settings 分节完成。产品的 `dsh --profile headless` 是直连 core 的入口，不挂载本包。
 
 ### 请求流
 
@@ -140,7 +140,6 @@ API 按领域分组：`sessions`（list、create、history、prompt、cancel、q
 - **预留 seam 不进入 `RpcMethodMap`**——`prompt.mode: 'inject'`、`job.list` 和描述字段 `hostInstanceId` 都是已记录的预留项；模型发现使用 `llm.models`。未知方法会在信封解析时直接失败，而不会返回「尚未实现」错误码。
 - **没有协议版本字段**——客户端与宿主一同发布；只有出现独立发布的客户端后，`host.describe` 才会增加版本协商字段。
 - **搜索失败会包含提供方诊断信息**——网关是单用户本地服务；将其暴露给多名用户的载体必须用可安全公开的诊断信息替代内部搜索细节。
-- **Linux 原生选择器依赖桌面工具**——在 `native` 能力下，Zenity 和 KDialog 均未安装时，`host.pickDirectory` 会给出包含解决建议的错误提示；组合层面的回退是浏览后端（见 [native 后端 README](../directory-picker-native/README.zh.md)）。
 - **冷列表提示只向“保持可见、排序偏旧”降级**——projection cache miss 或陈旧的 `lastPromptAt` 会回退到 `createdAt`，除非符合资格的小工件提供精确折叠。[有界空白验证决策](../../../.agents/notes/implemented/bug-fix/2026-08-13-bounded-cold-blank-verification.zh.md)规定了这个安全方向；权威且精确的最近时间索引仍属于[最后活动索引提案](../../../.agents/notes/proposed/architecture/2026-07-29-durable-last-activity-index.zh.md)的范围。
 
 <a id="dev-note"></a>

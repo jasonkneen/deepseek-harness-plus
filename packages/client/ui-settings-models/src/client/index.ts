@@ -24,6 +24,7 @@ import { WelcomeNotice } from './WelcomeNotice.tsx'
 import type { WelcomeNoticeInjected } from './WelcomeNotice.tsx'
 import { decodeWelcomeSection, WelcomeNoticeStore } from './welcome-store.ts'
 import { ModelsSettingsStore } from './store.ts'
+import type { ModelsWire } from './store.ts'
 import { createSettingsSchemaOperations } from './schema-operations.ts'
 import { en, zh, type ModelsKey } from './locales.ts'
 import { WELCOME_NOTICE_SETTINGS_NAMESPACE } from '../onboarding-copy.ts'
@@ -41,7 +42,7 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
 
 /** Dictionary namespace owned by this plugin. */
 const NS = 'settings.models'
-export type { ModelsSettingsState, ProviderRow } from './store.ts'
+export type { ModelsCredentials, ModelsSettingsState, ModelsWire, ProviderRow } from './store.ts'
 
 /**
  * Refetch the page snapshot only after its first load: an unopened Models
@@ -58,7 +59,10 @@ export function refreshIfLoaded(controller: ModelsSettingsStore): void {
  * ui-settings' apply, whose activation order relative to this one is NOT
  * constrained; registration depends on each slot through `slots.inject()`.
  */
-export const inject = ['slots', 'locale', 'connection', 'remote', 'settingsScope', 'settingsSchema']
+export const inject = [
+  'slots', 'locale', 'connection', 'remote', 'remote.credentials', 'remote.settings',
+  'settingsScope', 'settingsSchema',
+]
 
 /**
  * Register the Models section once the `settings.section` declaration is on
@@ -71,21 +75,29 @@ export function apply(ctx: ClientContext): void {
 
   const connection = ctx.get('connection') as ConnectionHandle
   const schema = createSettingsSchemaOperations(ctx.settingsSchema)
-  const controller = new ModelsSettingsStore(connection.api, schema, ctx.settingsScope.describe())
+  // The page's two carriers under one face: model discovery and the catalog
+  // still ride the unary API, while settings and credentials are Remote
+  // namespaces.
+  const wire: ModelsWire = {
+    ...connection.api,
+    credentials: ctx.remote.credentials,
+    settings: ctx.remote.settings,
+  }
+  const controller = new ModelsSettingsStore(wire, schema, ctx.settingsScope.describe())
   // Registration-time text (the nav label thunk) and the inject faces share
   // one bound translate; copy freshness rides the locale revision.
   const t = ctx.locale.bind(NS) as ModelsSectionInjected['t']
   const injected = (): ModelsSectionInjected => ({
     controller,
     hooks: { snapshot: controller.store },
-    api: connection.api,
+    api: wire,
     schema,
     t,
   })
   const deepSeekOnboardingInjected = (): DeepSeekOnboardingInjected => ({
     controller,
     hooks: { models: controller.store },
-    api: connection.api,
+    api: wire,
     schema,
     t,
   })

@@ -70,8 +70,20 @@ async function bench() {
   const locale = new LocaleRuntime(ctx)
   locale.setLocale('zh')
   ctx.provide('locale', locale)
-  const remote = new TestRemote(ctx)
   const calls: string[] = []
+  // The row reads `describe` to learn whether this browser may write at all,
+  // and its default write is the one op this spec records.
+  const settings = {
+    describe: () => Promise.resolve({
+      ok: true as const,
+      value: { writable: true, hasDocument: true, namespaces: [] },
+    }),
+    update: (_ns: string, patch: unknown) => {
+      calls.push(`settings:${JSON.stringify(patch)}`)
+      return Promise.resolve({ ok: true as const, value: {} })
+    },
+  }
+  const remote = new TestRemote(ctx, { settings })
   // The roster and the switch are the AgentPresets Remote namespace; the
   // shared double carries no generated namespaces, so this spec stages its
   // own. Registered twice on purpose: the nested key satisfies the plugin's
@@ -111,14 +123,6 @@ async function bench() {
           calls.push(`openDocument:${payload.agentPreset}`)
           return Promise.resolve({ rpcId: 'r', result: { ok: true as const, value: { opened: true as const } } })
         },
-      },
-      settings: {
-        // The row reads this to learn whether this browser may write at all.
-        describe: () => Promise.resolve({
-          rpcId: 'r',
-          result: { ok: true as const, value: { writable: true, hasDocument: true, namespaces: [] } },
-        }),
-        update: (payload: { patch: unknown }) => { calls.push(`settings:${JSON.stringify(payload.patch)}`); return Promise.resolve({ rpcId: 'r', result: { ok: true as const, value: {} } }) },
       },
     },
   } as never)
@@ -182,7 +186,9 @@ function sessionsDouble(state: {
 
 describe('ui-agent-preset apply', () => {
   it('declares the services it uses', () => {
-    expect(inject).toEqual(['slots', 'locale', 'connection', 'remote', 'remote.agentPresets', 'settingsScope'])
+    expect(inject).toEqual([
+      'slots', 'locale', 'connection', 'remote', 'remote.agentPresets', 'remote.settings', 'settingsScope',
+    ])
   })
 
   it('registers the General row and the settings section', async () => {

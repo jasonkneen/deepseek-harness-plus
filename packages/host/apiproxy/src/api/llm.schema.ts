@@ -103,7 +103,7 @@ export const llmDiscoverModelsRequestSchema = z.object({
   api: z.string().min(1).optional(),
   // Write-only at the host: used for this one interrogation, never stored and
   // never returned. It does ride the client's outgoing envelope like every
-  // other secret-bearing payload (`credentials.set`, `settings.update`), which
+  // other secret-bearing payload (`settings/update`), which
   // `subscribeEnvelopes()` observers can see — redacting that tap is a
   // configuration-plane-wide change, not this method's to make alone.
   apiKey: z.string().min(1).optional(),

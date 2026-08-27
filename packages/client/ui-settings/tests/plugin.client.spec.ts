@@ -7,15 +7,11 @@ import { SettingsScopeBinder } from '../src/client/settings-scope.ts'
 
 function bench() {
   const describeCall = vi.fn().mockResolvedValue({
-    rpcId: 'plugin-bench' as never,
-    result: { ok: true, value: { writable: true, hasDocument: true, namespaces: [] } },
+    ok: true, value: { writable: true, hasDocument: true, namespaces: [] },
   })
   const ctx = new Context()
-  ctx.provide('connection', {
-    api: { settings: { describe: describeCall } },
-    isLoopback: true,
-  } as never)
-  const remote = new TestRemote(ctx)
+  ctx.provide('connection', { api: {}, isLoopback: true } as never)
+  const remote = new TestRemote(ctx, { settings: { describe: describeCall } })
   return { ctx, describeCall, remote, fiber: ctx.plugin({ inject: [...inject], apply }) }
 }
 

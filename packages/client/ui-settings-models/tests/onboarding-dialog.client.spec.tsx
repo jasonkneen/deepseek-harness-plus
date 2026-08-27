@@ -3,7 +3,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import Schema from '@deepseek-ai/schemastery'
-import type { RpcResponse, SettingsNamespaceView } from '@deepseek-ai/dsh-api-remotes/client'
+import type { JsonValue, RpcResponse, SettingsNamespaceView } from '@deepseek-ai/dsh-api-remotes/client'
 import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-test-runtime'
 import { DeepSeekOnboardingDialog } from '../src/client/DeepSeekOnboardingDialog.tsx'
 import type { DeepSeekOnboardingDialogProps } from '../src/client/DeepSeekOnboardingDialog.tsx'
@@ -21,11 +21,12 @@ let nextRpc = 0
 function ok<T>(value: T): RpcResponse<T> {
   return { rpcId: `onboarding-${nextRpc++}` as never, result: { ok: true, value } }
 }
-function fail<T>(message: string): RpcResponse<T> {
-  return {
-    rpcId: `onboarding-${nextRpc++}` as never,
-    result: { ok: false, error: { code: 'internal', message, details: {} } },
-  }
+/** Credentials answers over the Remote carrier, which has no envelope. */
+function remoteOk<T>(value: T) {
+  return { ok: true as const, value }
+}
+function remoteFail(message: string) {
+  return { ok: false as const, error: { code: 'internal', message, details: {} } }
 }
 
 const DeepSeekConfig = Schema.object({
@@ -49,7 +50,7 @@ function deepSeekNamespace(apiKeyEnv: string | null): SettingsNamespaceView {
   const value = apiKeyEnv === null ? {} : { apiKeyEnv }
   return {
     ns: 'llm-deepseek',
-    schema: JSON.parse(JSON.stringify(DeepSeekConfig.toJSON())) as unknown,
+    schema: JSON.parse(JSON.stringify(DeepSeekConfig.toJSON())) as JsonValue,
     value,
     base: value,
     user: {},
@@ -81,12 +82,12 @@ function harness(options: {
   let fileConfigured = false
   const configured = options.configured ?? (() => fileConfigured)
   const apiKeyEnv = options.apiKeyEnv === undefined ? 'DEEPSEEK_API_KEY' : options.apiKeyEnv
-  const mutate = vi.fn(() => Promise.resolve(ok(deepSeekNamespace(apiKeyEnv))))
-  const set = vi.fn((_payload: { ref: string; value: string }) => {
+  const mutate = vi.fn(() => Promise.resolve(remoteOk(deepSeekNamespace(apiKeyEnv))))
+  const set = vi.fn((_ref: string, _value: string) => {
     if (options.setReject !== undefined) return Promise.reject(new Error(options.setReject))
-    if (options.setFailure !== undefined) return Promise.resolve(fail(options.setFailure))
+    if (options.setFailure !== undefined) return Promise.resolve(remoteFail(options.setFailure))
     fileConfigured = true
-    return Promise.resolve(ok({}))
+    return Promise.resolve(remoteOk(undefined))
   })
   const face = {
     llm: {
@@ -106,7 +107,7 @@ function harness(options: {
       },
     },
     settings: {
-      describe: () => Promise.resolve(ok({
+      describe: () => Promise.resolve(remoteOk({
         writable: options.settingsWritable ?? true,
         hasDocument: false,
         namespaces: options.settingsNamespace === false ? [] : [deepSeekNamespace(apiKeyEnv)],
@@ -115,18 +116,16 @@ function harness(options: {
     },
     credentials: {
       describe: () => options.describeFailure === undefined
-        ? Promise.resolve(ok({
-          credentials: {
-            DEEPSEEK_API_KEY: {
-              configured: configured(),
-              ...configured() && options.credential?.source !== undefined
-                ? { source: options.credential.source }
-                : {},
-              writable: options.credential?.writable ?? true,
-            },
+        ? Promise.resolve(remoteOk({
+          DEEPSEEK_API_KEY: {
+            configured: configured(),
+            ...configured() && options.credential?.source !== undefined
+              ? { source: options.credential.source }
+              : {},
+            writable: options.credential?.writable ?? true,
           },
         }))
-        : Promise.resolve(fail(options.describeFailure)),
+        : Promise.resolve(remoteFail(options.describeFailure)),
       set,
     },
   }

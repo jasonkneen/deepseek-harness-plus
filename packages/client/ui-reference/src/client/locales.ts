@@ -8,10 +8,7 @@ export const NS = 'reference'
 /** Simplified Chinese dictionary (the key-set source of truth). */
 export const zh = {
   'section.files': '文件与文件夹',
-  'section.sessions': 'Session 对话',
-  'candidate.file': '文件',
-  'candidate.folder': '文件夹',
-  'candidate.session': 'Session',
+  'section.sessions': '对话',
   'candidate.noCwd': '（无工作目录）',
 } satisfies Record<string, string>
 
@@ -28,9 +25,6 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
 /** English dictionary, checked complete against the zh key set. */
 export const en = {
   'section.files': 'Files & folders',
-  'section.sessions': 'Session conversations',
-  'candidate.file': 'File',
-  'candidate.folder': 'Folder',
-  'candidate.session': 'Session',
+  'section.sessions': 'Sessions',
   'candidate.noCwd': '(no cwd)',
 } satisfies Record<ReferenceKey, string>

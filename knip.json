@@ -76,11 +76,6 @@
         "tests/**/*.ts"
       ]
     },
-    "packages/api/workspace-controller": {
-      "ignoreDependencies": [
-        "zod"
-      ]
-    },
     "packages/client/ui-approval": {
       "entry": [
         "tests/**/*.spec.tsx"

@@ -46,7 +46,7 @@
   border-radius: 14px;
   background: transparent;
   color: var(--dsw-alias-label-tertiary);
-  font-size: calc(13px + var(--dsh-content-font-delta, 0px));
+  font-size: var(--dsh-content-font-size-secondary, 13px);
   line-height: calc(28px + var(--dsh-content-font-delta, 0px));
   white-space: nowrap;
   text-overflow: ellipsis;

@@ -101,8 +101,8 @@
 .turnStatusClock {
   margin-left: 8px;
   font: var(--dsw-font-xs-13);
-  font-size: calc(13px + var(--dsh-content-font-delta, 0px));
-  line-height: calc(20px + var(--dsh-content-font-delta, 0px));
+  font-size: var(--dsh-content-font-size-secondary, 13px);
+  line-height: calc(20px + var(--dsh-content-font-delta-secondary, 0px));
   font-weight: 400;
   font-variant-numeric: tabular-nums;
   color: var(--dsw-alias-label-caption);
@@ -125,14 +125,14 @@
 
 .hint {
   color: var(--dsw-alias-label-tertiary);
-  font-size: calc(12px + var(--dsh-content-font-delta, 0px));
-  line-height: calc(18px + var(--dsh-content-font-delta, 0px));
+  font-size: var(--dsh-content-font-size-secondary, 13px);
+  line-height: calc(18px + var(--dsh-content-font-delta-secondary, 0px));
 }
 
 .openError {
   color: var(--dsw-alias-state-error-primary);
-  font-size: calc(12px + var(--dsh-content-font-delta, 0px));
-  line-height: calc(18px + var(--dsh-content-font-delta, 0px));
+  font-size: var(--dsh-content-font-size-secondary, 13px);
+  line-height: calc(18px + var(--dsh-content-font-delta-secondary, 0px));
 }
 
 .older {

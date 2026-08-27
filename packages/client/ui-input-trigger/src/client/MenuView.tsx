@@ -2,14 +2,14 @@
  * Trigger candidate menu: renders the InputTriggerService menu store into the
  * conversation.input.overlay anchor. Closed state renders null (the overlay
  * slot stays mounted); groups render in roster order under localized title
- * rows, pending groups as a loading row; pointer picks route back through
+ * rows, pending groups as two skeleton rows; pointer picks route back through
  * the service (combobox pattern — focus never leaves the textarea, so rows
  * are mousedown-handled and the highlight is exposed via
  * aria-activedescendant on the listbox).
  */
 import { Fragment, useEffect, useRef, useSyncExternalStore } from 'react'
 import clsx from 'clsx'
-import { useAnchoredMaxHeight } from '@deepseek-ai/dsh-client-ui-primitives'
+import { IconChevronRightOutline14, ReferenceIcon, useAnchoredMaxHeight } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
 import css from './MenuView.module.css'
 import type { MenuViewInjected } from './slots.ts'
@@ -31,7 +31,7 @@ function optionId(source: string, index: number): string {
  * @param props - injected face (the menu store and the pick route); `t` rides the standard locale seat.
  * @returns the dropdown while open; null while closed.
  */
-export function MenuView({ menu, onPick, onDismiss, t }: MenuViewProps) {
+export function MenuView({ menu, onPick, onHover, onDismiss, t }: MenuViewProps) {
   const state = useSyncExternalStore(
     fn => menu.subscribe(fn),
     () => menu.getSnapshot(),
@@ -85,7 +85,12 @@ export function MenuView({ menu, onPick, onDismiss, t }: MenuViewProps) {
                 ? null
                 : <div className={css.groupTitle} role="presentation" data-source={group.source}>{t(group.source as MenuKey)}</div>}
               {group.status === 'pending'
-                ? <div className={css.loading} data-source={group.source}>{t('loading')}</div>
+                ? (
+                  <div role="status" aria-label={t('loading')} data-source={group.source}>
+                    <div className={css.skeletonRow}><span className={css.skeletonBar} style={{ width: '32%' }} /></div>
+                    <div className={css.skeletonRow}><span className={css.skeletonBar} style={{ width: '48%' }} /></div>
+                  </div>
+                )
                 : group.items.map((item, index) => {
                   const active = highlight !== null && highlight.source === group.source && highlight.index === index
                   return (
@@ -106,24 +111,38 @@ export function MenuView({ menu, onPick, onDismiss, t }: MenuViewProps) {
                           ev.preventDefault()
                           onPick(group.source, index)
                         }}
+                        // mousemove, not mouseenter: real pointer motion moves the
+                        // shared highlight; keyboard scrolling rows under a resting
+                        // pointer must not steal it back.
+                        onMouseMove={active ? undefined : () => { onHover(group.source, index) }}
                       >
-                        {item.icon !== undefined && <span className={css.itemIcon} aria-hidden>{item.icon}</span>}
+                        {item.icon !== undefined && (
+                          <span className={css.itemIcon} aria-hidden>
+                            <ReferenceIcon kind={item.icon} size={16} />
+                          </span>
+                        )}
                         <span className={css.itemName}>{item.name}</span>
                         {item.description !== undefined && <span className={css.itemDescription}>{item.description}</span>}
                         {item.drill === true && (
-                          <span
-                            role="button"
-                            aria-label={t('drill.aria')}
-                            className={css.drill}
-                            // mousedown so the composer keeps focus, same as the row;
-                            // stopPropagation keeps the row's settling pick out of it.
-                            onMouseDown={(ev) => {
-                              ev.preventDefault()
-                              ev.stopPropagation()
-                              onPick(group.source, index, 'drill')
-                            }}
-                          >
-                            ›
+                          <span className={css.trailing}>
+                            {/* Visual hint only: Tab drills the highlighted row (the
+                                keyboard twin of the chevron, which owns the aria label). */}
+                            <span className={css.drillHintText} aria-hidden>{t('drill.hint')}</span>
+                            <kbd className={css.drillHint} aria-hidden>{t('drill.key')}</kbd>
+                            <span
+                              role="button"
+                              aria-label={t('drill.aria')}
+                              className={css.drill}
+                              // mousedown so the composer keeps focus, same as the row;
+                              // stopPropagation keeps the row's settling pick out of it.
+                              onMouseDown={(ev) => {
+                                ev.preventDefault()
+                                ev.stopPropagation()
+                                onPick(group.source, index, 'drill')
+                              }}
+                            >
+                              <IconChevronRightOutline14 />
+                            </span>
                           </span>
                         )}
                       </button>

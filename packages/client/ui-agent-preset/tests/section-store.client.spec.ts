@@ -8,6 +8,7 @@
 
 import { describe, expect, it } from 'vitest'
 import type { ClientRemote, IApiClient } from '@deepseek-ai/dsh-api-remotes/client'
+import type { SettingsWireFace } from '@deepseek-ai/dsh-client-ui-settings/client'
 import { AgentPresetSectionController, draftBlocker } from '../src/client/section-store.ts'
 import type { CopyDraft, PresetRow } from '../src/client/section-store.ts'
 
@@ -65,7 +66,7 @@ const remoteFail = (message: string) =>
 function fakeApi(
   defaultId: { id: string },
   options: FakeOptions = {},
-): Pick<IApiClient, 'agentPresets' | 'settings' | 'host'> {
+): SettingsWireFace & Pick<IApiClient, 'agentPresets' | 'host'> {
   const record = (method: string, payload: unknown): void => { options.calls?.push({ method, payload }) }
   return {
     host: {
@@ -84,15 +85,15 @@ function fakeApi(
       },
     },
     settings: {
-      update: (payload: { ns: string; patch: { default?: string } }) => {
-        record('settings.update', payload)
-        if (options.failSettings !== undefined) return fail(options.failSettings)
-        /* v8 ignore next -- the controller only ever patches `default` */
-        defaultId.id = payload.patch.default ?? defaultId.id
-        return ok({})
+      update: (ns: string, patch: { default?: string }) => {
+        record('settings.update', { ns, patch })
+        if (options.failSettings !== undefined) return remoteFail(options.failSettings)
+        /* v8 ignore next -- the controller only ever sets `default` */
+        defaultId.id = patch.default ?? defaultId.id
+        return remoteOk({})
       },
     },
-  } as unknown as Pick<IApiClient, 'agentPresets' | 'settings' | 'host'>
+  } as unknown as SettingsWireFace & Pick<IApiClient, 'agentPresets' | 'host'>
 }
 
 /**
@@ -579,7 +580,7 @@ describe('deleting', () => {
     await controller.load()
     presets.clear()
     const broken = new AgentPresetSectionController(
-      { agentPresets: {}, settings: {}, host: {} } as unknown as Pick<IApiClient, 'agentPresets' | 'settings' | 'host'>,
+      { agentPresets: {}, settings: {}, host: {} } as unknown as SettingsWireFace & Pick<IApiClient, 'agentPresets' | 'host'>,
       {
         agentPresets: {
           list: () => Promise.reject(new Error('gone')),

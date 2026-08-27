@@ -7,7 +7,6 @@ import type { HostApi } from './host.ts'
 import type { AgentPresetsApi } from './agent-presets.ts'
 import type { SkillsApi } from './skills.ts'
 import type { SettingsApi } from './settings.ts'
-import type { CredentialsApi } from './credentials.ts'
 import type { LlmApi } from './llm.ts'
 import type { RpcResponse } from './rpc.ts'
 
@@ -18,20 +17,10 @@ import type { RpcResponse } from './rpc.ts'
  */
 export interface RpcMethodMap {
   'host.describe': HostApi['describe']
-  'host.pickDirectory': HostApi['pickDirectory']
-  'host.listDirectory': HostApi['listDirectory']
-  'host.createDirectory': HostApi['createDirectory']
   'host.openPath': HostApi['openPath']
   'skill.list': SkillsApi['list']
   'agentPreset.openDocument': AgentPresetsApi['openDocument']
-  'settings.describe': SettingsApi['describe']
   'settings.openDocument': SettingsApi['openDocument']
-  'settings.update': SettingsApi['update']
-  'settings.replace': SettingsApi['replace']
-  'settings.mutate': SettingsApi['mutate']
-  'credentials.describe': CredentialsApi['describe']
-  'credentials.set': CredentialsApi['set']
-  'credentials.unset': CredentialsApi['unset']
   'llm.providers': LlmApi['providers']
   'llm.models': LlmApi['models']
   'llm.discoverModels': LlmApi['discoverModels']

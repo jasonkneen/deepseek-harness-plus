@@ -1,9 +1,9 @@
 /** Workspace archive and directory UI capability. */
 
 import { Service, type Context } from '@deepseek-ai/cordis'
-import type {
-  DirectoryListing, IApiClient, RpcError,
-} from '@deepseek-ai/dsh-client-connection/client'
+import type { IApiClient } from '@deepseek-ai/dsh-client-connection/client'
+import type { ClientRemote, DirectoryListing } from '@deepseek-ai/dsh-api-remotes/client'
+import type { RemoteFailure } from '@deepseek-ai/dsh-typert-protocol'
 import type {
   ISessions,
   SessionListState,
@@ -69,7 +69,7 @@ export class DirectoryBrowseError extends Error {
   override readonly name = 'DirectoryBrowseError'
 
   /** @param rpcError - Host directory business failure. */
-  constructor(readonly rpcError: RpcError) {
+  constructor(readonly rpcError: RemoteFailure) {
     super(`directory browse failed: ${rpcError.code}: ${rpcError.message}`)
   }
 }
@@ -81,12 +81,14 @@ class UiWorkspaceService extends Service implements UiWorkspace {
   /**
    * @param ctx - Client root Context.
    * @param api - shared Host API carrier.
+   * @param directoryPicker - the directory-picking Remote namespace.
    * @param workspaces - pure Workspace Controller.
    * @param sessions - pure Session Controller.
    */
   constructor(
     ctx: Context,
     private readonly api: IApiClient,
+    private readonly directoryPicker: ClientRemote['directoryPicker'],
     private readonly workspaces: IWorkspaces,
     private readonly sessions: ISessions,
   ) {
@@ -144,23 +146,21 @@ class UiWorkspaceService extends Service implements UiWorkspace {
   }
 
   async pickDirectory(): Promise<string | null> {
-    const response = await this.api.host.pickDirectory({})
-    if (!response.result.ok) {
-      throw new Error(`directory picker failed: ${response.result.error.message}`)
-    }
-    return response.result.value.path
+    const result = await this.directoryPicker.pick()
+    if (!result.ok) throw new Error(`directory picker failed: ${result.error.message}`)
+    return result.value
   }
 
   async listDirectory(path?: string, signal?: AbortSignal): Promise<DirectoryListing> {
-    const response = await this.api.host.listDirectory(path === undefined ? {} : { path }, signal)
-    if (!response.result.ok) throw new DirectoryBrowseError(response.result.error)
-    return response.result.value
+    const result = await this.directoryPicker.list(path, signal)
+    if (!result.ok) throw new DirectoryBrowseError(result.error)
+    return result.value
   }
 
   async createDirectory(path: string, name: string): Promise<string> {
-    const response = await this.api.host.createDirectory({ path, name })
-    if (!response.result.ok) throw new DirectoryBrowseError(response.result.error)
-    return response.result.value.path
+    const result = await this.directoryPicker.createDirectory(path, name)
+    if (!result.ok) throw new DirectoryBrowseError(result.error)
+    return result.value
   }
 
   async openPath(path: string): Promise<void> {

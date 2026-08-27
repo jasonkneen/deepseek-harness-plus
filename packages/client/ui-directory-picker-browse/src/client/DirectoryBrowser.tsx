@@ -40,7 +40,7 @@ import {
   Button, IconCheckOutline16, IconChevronRightOutline14, IconEditOutline16, IconFolderClose16, IconFolderOpen16,
   IconPlusOutline16, Modal,
 } from '@deepseek-ai/dsh-client-ui-primitives'
-import type { DirectoryEntry, DirectoryListing } from '@deepseek-ai/dsh-client-connection/client'
+import type { DirectoryEntry, DirectoryListing } from '@deepseek-ai/dsh-api-remotes/client'
 import type { Translate } from '@deepseek-ai/dsh-client-locale/client'
 import css from './DirectoryBrowser.module.css'
 

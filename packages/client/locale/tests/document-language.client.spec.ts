@@ -32,17 +32,17 @@ async function bench(preference?: string) {
     revision,
   })
   const describeRpc = vi.fn(async () => ({
-    rpcId: 'locale-describe' as never,
-    result: { ok: true as const, value: { writable: true, hasDocument: true, namespaces: [namespace()] } },
+    ok: true as const,
+    value: { writable: true, hasDocument: true, namespaces: [namespace()] },
   }))
-  const mutate = vi.fn(async (request: { ops: { value: string }[] }) => {
-    stored = request.ops[0]!.value
+  const mutate = vi.fn(async (_ns: string, ops: { value: string }[]) => {
+    stored = ops[0]!.value
     revision += 1
-    return { rpcId: 'locale-mutate' as never, result: { ok: true as const, value: namespace() } }
+    return { ok: true as const, value: namespace() }
   })
-  ctx.provide('connection', { api: { settings: { describe: describeRpc, mutate } }, isLoopback: true } as never)
+  ctx.provide('connection', { api: {}, isLoopback: true } as never)
   // The settings transport and the forwarded-event port the plugin injects.
-  new TestRemote(ctx)
+  new TestRemote(ctx, { settings: { describe: describeRpc, mutate } })
   await ctx.plugin({ inject: [...settingsInject], apply: settingsApply }).await()
   await ctx.plugin({ inject: [...inject], apply }).await()
   return { ctx, locale: ctx.get('locale') as LocaleRuntime }

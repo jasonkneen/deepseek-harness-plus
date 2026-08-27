@@ -18,15 +18,6 @@ function fakeApi(overrides: Partial<{ crashOn: string }> = {}): ApiProxy {
           },
         }
       },
-      async pickDirectory(request) {
-        return { rpcId: request.rpcId, result: { ok: true, value: { path: null } } }
-      },
-      async listDirectory(request) {
-        return { rpcId: request.rpcId, result: { ok: true, value: { path: '/w', home: '/w', crumbs: [{ name: '/', path: '/', hidden: false }], entries: [], truncated: false } } }
-      },
-      async createDirectory(request) {
-        return { rpcId: request.rpcId, result: { ok: true, value: { path: '/w/new' } } }
-      },
       async openPath(request) {
         return { rpcId: request.rpcId, result: { ok: true, value: { opened: true as const } } }
       },
@@ -42,31 +33,8 @@ function fakeApi(overrides: Partial<{ crashOn: string }> = {}): ApiProxy {
       },
     },
     settings: {
-      async describe(request) {
-        return { rpcId: request.rpcId, result: { ok: true, value: { writable: true, hasDocument: false, namespaces: [] } } }
-      },
       async openDocument(request) {
-        return { rpcId: request.rpcId, result: { ok: true, value: { opened: true as const } } }
-      },
-      async update(request) {
-        return { rpcId: request.rpcId, result: { ok: false, error: { code: 'settings-rejected', message: 'stub', details: { ns: request.payload.ns } } } }
-      },
-      async replace(request) {
-        return { rpcId: request.rpcId, result: { ok: false, error: { code: 'settings-rejected', message: 'stub', details: { ns: request.payload.ns } } } }
-      },
-      async mutate(request) {
-        return { rpcId: request.rpcId, result: { ok: false, error: { code: 'settings-rejected', message: 'stub', details: { ns: request.payload.ns } } } }
-      },
-    },
-    credentials: {
-      async describe(request) {
-        return { rpcId: request.rpcId, result: { ok: true, value: { credentials: {} } } }
-      },
-      async set(request) {
-        return { rpcId: request.rpcId, result: { ok: true, value: {} } }
-      },
-      async unset(request) {
-        return { rpcId: request.rpcId, result: { ok: true, value: {} } }
+        return { rpcId: request.rpcId, result: { ok: false, error: { code: 'internal', message: 'stub', details: {} } } }
       },
     },
     llm: {
@@ -111,9 +79,9 @@ describe('unary round trip (handler ⇄ client, no network)', () => {
   })
 
   it('carries a business error as 200 + error result', async () => {
-    const response = await client().settings.update({ ns: 'test', patch: {} })
+    const response = await client().settings.openDocument({})
     expect(response.result.ok).toBe(false)
-    if (!response.result.ok) expect(response.result.error.code).toBe('settings-rejected')
+    if (!response.result.ok) expect(response.result.error.code).toBe('internal')
   })
 
   it('round-trips the agent-preset document opener', async () => {
@@ -122,29 +90,6 @@ describe('unary round trip (handler ⇄ client, no network)', () => {
     // than in the browser.
     expect((await client().agentPresets.openDocument({ agentPreset: 'mine' })).result)
       .toEqual({ ok: true, value: { opened: true } })
-  })
-
-  it('round-trips the native picker without the default unary timeout', async () => {
-    const api = fakeApi()
-    api.host.pickDirectory = async (request) => {
-      await new Promise(resolve => setTimeout(resolve, 15))
-      return { rpcId: request.rpcId, result: { ok: true, value: { path: '/tmp/project' } } }
-    }
-    const response = await client(api, 1).host.pickDirectory({})
-    expect(response.result).toEqual({ ok: true, value: { path: '/tmp/project' } })
-  })
-
-  it('round-trips the browse listing and creation calls through the wire form', async () => {
-    const c = client()
-    const listed = await c.host.listDirectory({ path: '/w' })
-    expect(listed.result).toEqual({
-      ok: true,
-      value: { path: '/w', home: '/w', crumbs: [{ name: '/', path: '/', hidden: false }], entries: [], truncated: false },
-    })
-    const home = await c.host.listDirectory({})
-    expect(home.result).toMatchObject({ ok: true, value: { home: '/w' } })
-    const created = await c.host.createDirectory({ path: '/w', name: 'fresh' })
-    expect(created.result).toEqual({ ok: true, value: { path: '/w/new' } })
   })
 
   it('round-trips host.openPath through the wire form', async () => {
@@ -165,41 +110,10 @@ describe('unary round trip (handler ⇄ client, no network)', () => {
     expect(skills.result).toEqual({ ok: true, value: { skills: [{ name: 'commit-helper', description: 'Git commits', modelInvocable: true }] } })
   })
 
-  it('lets host.pickDirectory finish after the 30-second default unary deadline', async () => {
-    vi.useFakeTimers()
-    const timeoutSpy = vi.spyOn(AbortSignal, 'timeout').mockImplementation((milliseconds) => {
-      const controller = new AbortController()
-      setTimeout(() => {
-        controller.abort(new DOMException('The operation was aborted due to timeout', 'TimeoutError'))
-      }, milliseconds)
-      return controller.signal
-    })
-    try {
-      const api = fakeApi()
-      api.host.pickDirectory = async (request) => {
-        await new Promise(resolve => setTimeout(resolve, 30_001))
-        return { rpcId: request.rpcId, result: { ok: true, value: { path: '/tmp/slow' } } }
-      }
-      const execution = client(api).host.pickDirectory({})
-      const assertion = expect(execution).resolves.toMatchObject({
-        result: { ok: true, value: { path: '/tmp/slow' } },
-      })
-
-      await Promise.all([
-        vi.advanceTimersByTimeAsync(30_001),
-        assertion,
-      ])
-      expect(timeoutSpy).not.toHaveBeenCalled()
-    } finally {
-      timeoutSpy.mockRestore()
-      vi.useRealTimers()
-    }
-  })
-
-  it('keeps caller and connection aborts on a deadline-exempt unary', async () => {
+  it('keeps caller and connection aborts on a signal-taking unary', async () => {
     const api = fakeApi()
     const started = Promise.withResolvers<AbortSignal>()
-    api.host.pickDirectory = async (request, signal) => {
+    api.host.openPath = async (request, signal) => {
       started.resolve(signal)
       if (!signal.aborted) {
         await new Promise<void>((resolve) => {
@@ -212,7 +126,7 @@ describe('unary round trip (handler ⇄ client, no network)', () => {
       }
     }
     const controller = new AbortController()
-    const execution = client(api).host.pickDirectory({}, controller.signal)
+    const execution = client(api).host.openPath({ path: '/tmp/a.txt' }, controller.signal)
     const handlerSignal = await started.promise
 
     controller.abort(new Error('connection closed'))
@@ -221,9 +135,9 @@ describe('unary round trip (handler ⇄ client, no network)', () => {
     expect(handlerSignal.aborted).toBe(true)
   })
 
-  it('propagates the carrier Request signal into host.pickDirectory', async () => {
+  it('propagates the carrier Request signal into host.openPath', async () => {
     const api = fakeApi()
-    api.host.pickDirectory = async (request, signal) => {
+    api.host.openPath = async (request, signal) => {
       if (!signal.aborted) {
         await new Promise<void>((resolve) => {
           signal.addEventListener('abort', () => { resolve() }, { once: true })
@@ -236,8 +150,8 @@ describe('unary round trip (handler ⇄ client, no network)', () => {
     }
     const handler = toFetchHandler(api)
     const controller = new AbortController()
-    const body = JSON.stringify({ type: 'client-request', rpcId: 'r-picker', method: 'host.pickDirectory', payload: {} })
-    const pending = handler.fetch(new Request('http://x/api/host.pickDirectory', {
+    const body = JSON.stringify({ type: 'client-request', rpcId: 'r-opener', method: 'host.openPath', payload: { path: '/tmp/a.txt' } })
+    const pending = handler.fetch(new Request('http://x/api/host.openPath', {
       method: 'POST', headers: { 'content-type': 'application/json' }, body, signal: controller.signal,
     }))
     controller.abort()

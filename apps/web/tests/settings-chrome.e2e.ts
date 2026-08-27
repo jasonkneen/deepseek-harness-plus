@@ -351,7 +351,19 @@ describe('web e2e: settings modal and General preferences', () => {
     const readFontSize = async (target: Page = page): Promise<string> => await target.evaluate(
       () => document.body.style.getPropertyValue('--dsh-content-font-size'),
     )
+    // The secondary tier resolved by the real engine: a probe element's
+    // font-size forces min/max/calc evaluation, which the CSS-text specs
+    // cannot exercise. Setting −1 at ≤14, setting −2 above.
+    const readSecondaryFontSize = async (): Promise<string> => await page.evaluate(() => {
+      const probe = document.createElement('div')
+      probe.style.fontSize = 'var(--dsh-content-font-size-secondary, 13px)'
+      document.body.appendChild(probe)
+      const size = getComputedStyle(probe).fontSize
+      probe.remove()
+      return size
+    })
     expect(await readFontSize()).toBe('14px')
+    expect(await readSecondaryFontSize()).toBe('13px')
     await page.getByRole('button', { name: '设置', exact: true }).click()
     const dialog = page.getByRole('dialog', { name: '设置' })
     await dialog.waitFor({ timeout: 10_000 })
@@ -360,9 +372,13 @@ describe('web e2e: settings modal and General preferences', () => {
     const increase = dialog.getByRole('button', { name: '增大字号' })
     await increase.click()
     await dialog.getByText('15', { exact: true }).waitFor({ timeout: 5_000 })
+    // 15 is the piecewise boundary: the secondary tier holds at 13px (−2)
+    // where the ≤14 branch would have given 14px (−1).
+    await expect.poll(readSecondaryFontSize, { timeout: 5_000 }).toBe('13px')
     await increase.click()
     await dialog.getByText('16', { exact: true }).waitFor({ timeout: 5_000 })
     await expect.poll(readFontSize, { timeout: 5_000 }).toBe('16px')
+    await expect.poll(readSecondaryFontSize, { timeout: 5_000 }).toBe('14px')
     await expect.poll(async () => readFile(join(scaffold.harnessHome, 'settings.yaml'), 'utf8'), { timeout: 5_000 })
       .toMatch(/ui-theme:\n(?:\s+\w+: .*\n)*?\s+fontSize: 16/)
     await page.keyboard.press('Escape')
@@ -375,6 +391,7 @@ describe('web e2e: settings modal and General preferences', () => {
     acknowledgeReloadConnectionLoss(tripwire, warningStart)
     await page.waitForSelector('[class*="frame"]', { timeout: 30_000 })
     await expect.poll(readFontSize, { timeout: 5_000 }).toBe('16px')
+    expect(await readSecondaryFontSize()).toBe('14px')
 
     // Restore the default for the specs that follow (and the dialog golden).
     await page.getByRole('button', { name: '设置', exact: true }).click()

@@ -1,7 +1,7 @@
 import { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import { describe, expect, it, vi } from 'vitest'
-import type { RpcResponse, SettingsNamespaceView } from '@deepseek-ai/dsh-api-remotes/client'
+import type { JsonValue, SettingsNamespaceView } from '@deepseek-ai/dsh-api-remotes/client'
 import { TestRemote } from '@deepseek-ai/dsh-client-test-runtime'
 import type { SettingsScope } from '@deepseek-ai/dsh-client-ui-settings/client'
 import { SettingsSchemaService } from '../src/client/schema.ts'
@@ -18,26 +18,25 @@ const ENVELOPE = z.object({
   preference: z.union(['light', 'dark', 'system']).default('system'),
 }).toJSON()
 
-let rpc = 0
+/** What a Remote call answers with: no carrier envelope, and a free-form failure code. */
+type Answer<T> =
+  | { ok: true; value: T }
+  | { ok: false; error: { code: string; message: string; details: object } }
 
-function ok<T>(value: T): RpcResponse<T> {
-  return { rpcId: `scope-${rpc++}` as never, result: { ok: true, value } }
+function ok<T>(value: T): Answer<T> {
+  return { ok: true, value }
 }
 
-function rejected<T>(): RpcResponse<T> {
-  return {
-    rpcId: `scope-${rpc++}` as never,
-    result: {
-      ok: false,
-      error: { code: 'settings-rejected', message: 'conflict', details: { ns: 'ui-test' } },
-    },
-  }
+function rejected<T>(): Answer<T> {
+  return { ok: false, error: { code: 'settings-rejected', message: 'conflict', details: { ns: 'ui-test' } } }
 }
 
-function view(value: unknown, revision = 0): SettingsNamespaceView {
+function view(value: JsonValue, revision = 0): SettingsNamespaceView {
   return {
     ns: 'ui-test',
-    schema: ENVELOPE,
+    // `toJSON()` already produced the wire envelope; its declared type is the
+    // schema builder's, so one cast names what the Host actually sends.
+    schema: ENVELOPE as unknown as JsonValue,
     value,
     applies: 'live',
     secrets: [],
@@ -45,7 +44,7 @@ function view(value: unknown, revision = 0): SettingsNamespaceView {
   }
 }
 
-function described(value: unknown, revision = 0) {
+function described(value: JsonValue, revision = 0) {
   return ok({ writable: true, hasDocument: true, namespaces: [view(value, revision)] })
 }
 
@@ -148,7 +147,7 @@ describe('SettingsScopeController', () => {
   })
 
   it('serializes rapid set writes, carries revisions, and publishes only the latest settlement', async () => {
-    const first = deferred<RpcResponse<SettingsNamespaceView>>()
+    const first = deferred<Answer<SettingsNamespaceView>>()
     const describeCall = vi.fn().mockResolvedValue(described({ preference: 'system' }, 4))
     const mutate = vi.fn()
       .mockReturnValueOnce(first.promise)
@@ -163,16 +162,16 @@ describe('SettingsScopeController', () => {
     await Promise.all([dark, light])
     expect(published.map(section => section?.preference)).toEqual([undefined, 'system', 'light'])
     expect(scope.getSnapshot()).toMatchObject({ value: { preference: 'light' }, revision: 6 })
-    expect(mutate).toHaveBeenNthCalledWith(1, {
-      ns: 'ui-test',
-      ops: [{ op: 'set', path: ['preference'], value: 'dark' }],
-      expectedRevision: 4,
-    })
-    expect(mutate).toHaveBeenNthCalledWith(2, {
-      ns: 'ui-test',
-      ops: [{ op: 'set', path: ['preference'], value: 'light' }],
-      expectedRevision: 5,
-    })
+    expect(mutate).toHaveBeenNthCalledWith(1,
+      'ui-test',
+      [{ op: 'set', path: ['preference'], value: 'dark' }],
+      4,
+    )
+    expect(mutate).toHaveBeenNthCalledWith(2,
+      'ui-test',
+      [{ op: 'set', path: ['preference'], value: 'light' }],
+      5,
+    )
   })
 
   it('folds the latest write answer into the mirror so a sibling scope sees it', async () => {
@@ -202,10 +201,11 @@ describe('SettingsScopeController', () => {
     initial.resolve(described({ preference: 'system' }, 1))
     await loading
 
-    expect(mutate).toHaveBeenCalledWith({
-      ns: 'ui-test',
-      ops: [{ op: 'set', path: ['preference'], value: 'dark' }],
-    })
+    expect(mutate).toHaveBeenCalledWith(
+      'ui-test',
+      [{ op: 'set', path: ['preference'], value: 'dark' }],
+      undefined,
+    )
     expect(describeCall).toHaveBeenCalledTimes(2)
     expect(scope.getSnapshot()).toMatchObject({ value: { preference: 'dark' }, revision: 2 })
   })
@@ -305,16 +305,16 @@ describe('SettingsScopeController', () => {
     await expect(scope.set('preference', 'light')).resolves.toBeUndefined()
 
     expect(mutate).toHaveBeenCalledTimes(2)
-    expect(mutate).toHaveBeenNthCalledWith(2, {
-      ns: 'ui-test',
-      ops: [{ op: 'set', path: ['preference'], value: 'light' }],
-      expectedRevision: 1,
-    })
+    expect(mutate).toHaveBeenNthCalledWith(2,
+      'ui-test',
+      [{ op: 'set', path: ['preference'], value: 'light' }],
+      1,
+    )
     expect(scope.getSnapshot()).toMatchObject({ value: { preference: 'light' }, revision: 3 })
   })
 
   it('cancels queued and post-dispose writes while draining the in-flight mutation', async () => {
-    const first = deferred<RpcResponse<SettingsNamespaceView>>()
+    const first = deferred<Answer<SettingsNamespaceView>>()
     const mutate = vi.fn().mockReturnValue(first.promise)
     const describeCall = vi.fn()
     const { scope } = derivedScope({ describe: describeCall, mutate })
@@ -433,11 +433,11 @@ describe('SettingsScopeController', () => {
 
     await scope.unset('preference')
 
-    expect(mutate).toHaveBeenCalledWith({
-      ns: 'ui-test',
-      ops: [{ op: 'unset', path: ['preference'] }],
-      expectedRevision: 3,
-    })
+    expect(mutate).toHaveBeenCalledWith(
+      'ui-test',
+      [{ op: 'unset', path: ['preference'] }],
+      3,
+    )
     expect(scope.getSnapshot()).toMatchObject({ value: { preference: 'system' }, revision: 4 })
   })
 
@@ -465,7 +465,7 @@ describe('SettingsScopeBinder.bind', () => {
     let theme!: SettingsScope<UiTestSettings>
     let locale!: SettingsScope<UiTestSettings>
     new TestRemote(ctx)
-    await ctx.plugin(SettingsScopeBinder, { mirror, schema: settingsSchema }).await()
+    await ctx.plugin(SettingsScopeBinder, { mirror, schema: settingsSchema, wire: wire as never }).await()
     expect(ctx.settingsScope.describe()).toBe(mirror)
     const fiber = ctx.plugin({
       inject: ['connection', 'remote', 'settingsScope'],
@@ -493,7 +493,7 @@ describe('SettingsScopeBinder.bind', () => {
     ctx.provide('connection', { api: wire, isLoopback: false } as never)
     let scope!: SettingsScope<UiTestSettings>
     new TestRemote(ctx)
-    await ctx.plugin(SettingsScopeBinder, { mirror, schema: settingsSchema }).await()
+    await ctx.plugin(SettingsScopeBinder, { mirror, schema: settingsSchema, wire: wire as never }).await()
     const fiber = ctx.plugin({
       inject: ['connection', 'remote', 'settingsScope'],
       apply: (plugin: Context) => {

@@ -17,8 +17,9 @@ import {
   type FixtureOptions,
 } from '../src/client/fixture.ts'
 import type {
-  ClientConnectionRpc,
+  ClientConnectionRpc, ConnectionRpcResult,
 } from '../src/rpc.ts'
+import type { DirectoryListing } from '@deepseek-ai/dsh-host-directory-picker/types'
 
 const sid = (id: string): SessionId => id as SessionId
 type WorkspaceId = string & { readonly __fixtureWorkspaceId: 'WorkspaceId' }
@@ -286,10 +287,18 @@ interface FixtureRemoteEventStream extends AsyncIterable<FixtureRemoteEventFrame
 }
 
 type FixtureTestApi = ReturnType<typeof createFixtureFaces>['api'] & {
+  /** The directory-picking Remote namespace as the fixture serves it. */
+  readonly directoryPickerRemote: {
+    pick: () => Promise<ConnectionRpcResult<string | null>>
+    list: (path?: string) => Promise<ConnectionRpcResult<DirectoryListing>>
+    createDirectory: (path: string, name: string) => Promise<ConnectionRpcResult<string>>
+  }
   readonly sessions: FixtureSessionApi
   readonly sessionRemote: FixtureSessionRemote
   readonly workspace: FixtureWorkspaceApi
   readonly workspaceRemote: FixtureWorkspaceRemote
+  readonly credentialRemote: FixtureCredentialRemote
+  readonly settingsRemote: FixtureSettingsRemote
   readonly remoteEvents: (signal: AbortSignal) => FixtureRemoteEventStream
   readonly answerRemoteEvent: (result: FixtureRemoteEventResult) => Promise<unknown>
 }
@@ -298,14 +307,59 @@ type FixtureTestApi = ReturnType<typeof createFixtureFaces>['api'] & {
 function createFixtureApi(options: FixtureOptions = {}): FixtureTestApi {
   const { api, rpc } = createFixtureFaces(options)
   return Object.assign(api, {
+    directoryPickerRemote: {
+      pick: () => rpc.call('/api', 'directoryPicker/pick', { args: {} }) as
+        Promise<ConnectionRpcResult<string | null>>,
+      list: (path?: string) => rpc.call('/api', 'directoryPicker/list', { args: { path } }) as
+        Promise<ConnectionRpcResult<DirectoryListing>>,
+      createDirectory: (path: string, name: string) =>
+        rpc.call('/api', 'directoryPicker/createDirectory', { args: { path, name } }) as
+          Promise<ConnectionRpcResult<string>>,
+    },
     sessions: createSessionApi(rpc),
     sessionRemote: createSessionRemote(rpc),
     workspace: createWorkspaceApi(rpc),
     workspaceRemote: createWorkspaceRemote(rpc),
+    credentialRemote: createCredentialRemote(rpc),
+    settingsRemote: createSettingsRemote(rpc),
     remoteEvents: (signal: AbortSignal) => openFixtureRemoteEvents(rpc, signal),
     answerRemoteEvent: (result: FixtureRemoteEventResult) =>
       rpc.call('/api', '$events/result', { args: result }),
   })
+}
+
+/** The fixture's Credentials Remote endpoints over the shared RPC carrier. */
+interface FixtureCredentialRemote {
+  describe(refs: readonly string[]): Promise<ConnectionRpcResult<unknown>>
+  set(ref: string, value: string): Promise<ConnectionRpcResult<unknown>>
+  unset(ref: string): Promise<ConnectionRpcResult<unknown>>
+}
+
+/** The settings Remote reads the fixture serves, addressed like the credential half. */
+interface FixtureSettingsRemote {
+  describe(): Promise<ConnectionRpcResult<unknown>>
+  update(ns: string, patch: unknown, expectedRevision?: number): Promise<ConnectionRpcResult<unknown>>
+  replace(ns: string, section: unknown, expectedRevision?: number): Promise<ConnectionRpcResult<unknown>>
+}
+
+function createSettingsRemote(rpc: ClientConnectionRpc): FixtureSettingsRemote {
+  return {
+    describe: () => rpc.call('/api', 'settings/describe', { args: {} }),
+    update: (ns, patch, expectedRevision) => rpc.call('/api', 'settings/update', {
+      args: { ns, patch, expectedRevision },
+    }),
+    replace: (ns, section, expectedRevision) => rpc.call('/api', 'settings/replace', {
+      args: { ns, section, expectedRevision },
+    }),
+  }
+}
+
+function createCredentialRemote(rpc: ClientConnectionRpc): FixtureCredentialRemote {
+  return {
+    describe: refs => rpc.call('/api', 'credentials/describe', { args: { refs } }),
+    set: (ref, value) => rpc.call('/api', 'credentials/set', { args: { ref, value } }),
+    unset: ref => rpc.call('/api', 'credentials/unset', { args: { ref } }),
+  }
 }
 
 function openFixtureRemoteEvents(
@@ -708,32 +762,40 @@ describe('createFixtureApi', () => {
 
   it('serves configured DeepSeek readiness and keeps credential values write-only', async () => {
     const api = createFixtureApi()
-    const settings = await api.settings.describe(req({}))
-    if (!settings.result.ok) throw new Error('settings describe failed')
-    expect(settings.result.value.namespaces).toMatchObject([{
+    const settings = await api.settingsRemote.describe()
+    if (!settings.ok) throw new Error('settings describe failed')
+    expect((settings.value as { namespaces: unknown[] }).namespaces).toMatchObject([{
       ns: 'llm-deepseek',
       value: { apiKeyEnv: 'DEEPSEEK_API_KEY' },
       secrets: [{ path: ['apiKey'], set: false }],
     }])
+    for (const result of [
+      await api.settingsRemote.update('llm-deepseek', {}, undefined),
+      await api.settingsRemote.replace('llm-deepseek', {}, undefined),
+    ]) {
+      expect(result).toMatchObject({
+        ok: false,
+        error: { code: 'settings-rejected', message: 'fixture: the minimal readiness settings descriptor is read-only' },
+      })
+    }
 
-    const initial = await api.credentials.describe(req({ refs: ['DEEPSEEK_API_KEY', 'TEST_API_KEY'] }))
-    if (!initial.result.ok) throw new Error('credential describe failed')
-    expect(initial.result.value.credentials).toEqual({
+    const describe = async (refs: readonly string[]): Promise<Record<string, unknown>> => {
+      const result = await api.credentialRemote.describe(refs)
+      if (!result.ok) throw new Error('credential describe failed')
+      return result.value as Record<string, unknown>
+    }
+    expect(await describe(['DEEPSEEK_API_KEY', 'TEST_API_KEY'])).toEqual({
       DEEPSEEK_API_KEY: { configured: true, source: 'file', writable: true },
       TEST_API_KEY: { configured: false, writable: true },
     })
-    await api.credentials.set(req({ ref: 'TEST_API_KEY', value: 'write-only-fixture-secret' }))
-    const configured = await api.credentials.describe(req({ refs: ['TEST_API_KEY'] }))
-    if (!configured.result.ok) throw new Error('credential describe failed')
-    expect(configured.result.value.credentials.TEST_API_KEY).toEqual({
+    await api.credentialRemote.set('TEST_API_KEY', 'write-only-fixture-secret')
+    expect((await describe(['TEST_API_KEY'])).TEST_API_KEY).toEqual({
       configured: true,
       source: 'file',
       writable: true,
     })
-    await api.credentials.unset(req({ ref: 'TEST_API_KEY' }))
-    const cleared = await api.credentials.describe(req({ refs: ['TEST_API_KEY'] }))
-    if (!cleared.result.ok) throw new Error('credential describe failed')
-    expect(cleared.result.value.credentials.TEST_API_KEY).toEqual({ configured: false, writable: true })
+    await api.credentialRemote.unset('TEST_API_KEY')
+    expect((await describe(['TEST_API_KEY'])).TEST_API_KEY).toEqual({ configured: false, writable: true })
   })
 
   it('emits the todo/write snapshot at the real tool boundary: between tool/call and tool/result, timestamps monotonic', async () => {
@@ -1049,18 +1111,18 @@ describe('createFixtureApi', () => {
 
   it('createDirectory under the root mints /name whose listing and crumbs share the identity', async () => {
     const api = createFixtureApi()
-    const created = await api.host.createDirectory(req({ path: '/', name: 'srv' }))
-    if (!created.result.ok) throw new Error('create failed')
-    expect(created.result.value.path).toBe('/srv')
-    const listed = await api.host.listDirectory(req({ path: '/srv' }), new AbortController().signal)
-    if (!listed.result.ok) throw new Error('list failed')
-    expect(listed.result.value.crumbs).toEqual([
+    const created = await api.directoryPickerRemote.createDirectory('/', 'srv')
+    if (!created.ok) throw new Error('create failed')
+    expect(created.value).toBe('/srv')
+    const listed = await api.directoryPickerRemote.list('/srv')
+    if (!listed.ok) throw new Error('list failed')
+    expect(listed.value.crumbs).toEqual([
       { name: '/', path: '/', hidden: false },
       { name: 'srv', path: '/srv', hidden: false },
     ])
-    const root = await api.host.listDirectory(req({ path: '/' }), new AbortController().signal)
-    if (!root.result.ok) throw new Error('root list failed')
-    expect(root.result.value.entries).toContainEqual({ name: 'srv', path: '/srv', hidden: false })
+    const root = await api.directoryPickerRemote.list('/')
+    if (!root.ok) throw new Error('root list failed')
+    expect(root.value.entries).toContainEqual({ name: 'srv', path: '/srv', hidden: false })
   })
 
   it('workspace/follow serves the resident baseline and create reuses on path collision', async () => {

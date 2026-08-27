@@ -13,7 +13,7 @@
 - button "Session recall Research notes":
   - img
   - text: Session recall Research notes
-- textbox "Message the agent"
+- textbox "Message or run a task... / commands, @ files or sessions"
 - button "Commands":
   - img
 - 'button "Access mode, current: Workspace Write"': Workspace Write

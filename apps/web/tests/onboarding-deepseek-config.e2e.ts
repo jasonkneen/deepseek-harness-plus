@@ -141,7 +141,7 @@ describe.skipIf(MODE === 'record')('web e2e: first-run DeepSeek credential setup
     // Regression pin for the reload flash: both steps are satisfied, yet each
     // must load private facts before deciding not to show. Dialog chrome lives
     // inside each visible branch, so the deciding window paints and blocks
-    // nothing. Holding settings.describe widens that window from loopback
+    // nothing. Holding settings/describe widens that window from loopback
     // RTT scale to a deterministic hundreds of milliseconds, removing all
     // timing dependence from the sampler assertions below.
     //
@@ -162,7 +162,7 @@ describe.skipIf(MODE === 'record')('web e2e: first-run DeepSeek credential setup
         if (document.getElementById('root')?.inert === true) sightings.push('inert')
       }, 8)
     })
-    // EVERY settings.describe issued before the release is held — not just
+    // EVERY settings/describe issued before the release is held — not just
     // the first — so the pin cannot silently collapse back to loopback
     // timing if a second boot-time consumer of the join ever appears.
     let released = false
@@ -171,7 +171,7 @@ describe.skipIf(MODE === 'record')('web e2e: first-run DeepSeek credential setup
       released = true
       for (const resolve of heldRoutes.splice(0)) resolve()
     }
-    await page.route('**/api/settings.describe', async (route) => {
+    await page.route('**/api/settings/describe', async (route) => {
       if (!released) await new Promise<void>((resolve) => { heldRoutes.push(resolve) })
       await route.continue()
     })
@@ -182,7 +182,7 @@ describe.skipIf(MODE === 'record')('web e2e: first-run DeepSeek credential setup
     await page.waitForTimeout(600)
     releaseDescribe()
     await page.waitForTimeout(400)
-    await page.unroute('**/api/settings.describe')
+    await page.unroute('**/api/settings/describe')
     acknowledgeReloadConnectionLoss(tripwire, warningsBefore)
     expect(await page.evaluate(() =>
       (window as unknown as { __takeoverSightings: string[] }).__takeoverSightings)).toEqual([])

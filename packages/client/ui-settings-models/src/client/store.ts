@@ -1,17 +1,17 @@
 /**
  * Models settings page store: one snapshot joining the configurable-provider
  * directory (`llm.providers`), the settings namespaces (shared settings mirror),
- * and the referenced credentials (`credentials.describe`). The host stays the
+ * and the referenced credentials (`credentials/describe`). The host stays the
  * single fact source — every mutation writes through the wire and the page
  * re-renders from the next describe, pushed or refetched.
  */
 
 import type {
-  ConfigurableProviderView, CredentialView, IApiClient, SettingsNamespaceView,
+  ClientRemote, ConfigurableProviderView, CredentialInfo, IApiClient, SettingsNamespaceView,
 } from '@deepseek-ai/dsh-api-remotes/client'
 import type { SnapshotStore } from '@deepseek-ai/dsh-client-store'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
-import type { SettingsDescribeFace } from '@deepseek-ai/dsh-client-ui-settings/client'
+import type { SettingsDescribeFace, SettingsRemote } from '@deepseek-ai/dsh-client-ui-settings/client'
 import type { SettingsSchemaOperations } from './schema-operations.ts'
 
 /**
@@ -19,6 +19,21 @@ import type { SettingsSchemaOperations } from './schema-operations.ts'
  * names one that cannot collide with a configured route.
  */
 const PROBE_ROUTE = '\u0000probe'
+
+/** The credentials Remote methods the Models page reads and writes through. */
+export type ModelsCredentials = Pick<ClientRemote['credentials'], 'describe' | 'set' | 'unset'>
+
+/**
+ * Every wire face the Models page reaches: the settings and llm unary domains,
+ * plus the credentials Remote namespace, which is addressed by reference name
+ * and never answers with a value.
+ */
+export interface ModelsWire extends Pick<IApiClient, 'llm'> {
+  /** The settings Remote namespace: the redacted read and the profile writes. */
+  settings: SettingsRemote
+  /** Credential state and writes for the references provider profiles name. */
+  credentials: ModelsCredentials
+}
 
 /** One provider row the page renders. */
 export interface ProviderRow {
@@ -31,14 +46,14 @@ export interface ProviderRow {
   /** The credential reference the resolved profile names, when one does. */
   apiKeyEnv: string | undefined
   /** Credential state for {@link apiKeyEnv}, once described. */
-  credential: CredentialView | undefined
+  credential: CredentialInfo | undefined
   /**
    * Credential state for the page's derived `<ROUTE>_API_KEY`, described only
    * while the profile names no reference — the provider-card seat's
    * `keyConfigured` fact for dormant and keyless rows, matching the editor's
    * own derivation rule.
    */
-  derivedCredential?: CredentialView
+  derivedCredential?: CredentialInfo
 }
 
 /** Page snapshot. */
@@ -122,11 +137,11 @@ export class ModelsSettingsStore {
   private generation = 0
 
   /**
-   * @param api - the wire face (credentials/llm domains, and settings writes).
+   * @param api - the page's wire faces (credentials Remote, llm reads, settings writes).
    * @param describeFace - the shared mirror's describe face (namespace views and writability).
    */
   constructor(
-    private readonly api: Pick<IApiClient, 'settings' | 'credentials' | 'llm'>,
+    private readonly api: ModelsWire,
     private readonly schema: SettingsSchemaOperations,
     private readonly describeFace: SettingsDescribeFace,
   ) {}
@@ -193,16 +208,16 @@ export class ModelsSettingsStore {
       }
     })
     const refs = [...new Set(rows.map(row => row.apiKeyEnv ?? deriveKeyRef(row.entry.provider)))]
-    let credentials: Record<string, CredentialView> = {}
+    let credentials: Record<string, CredentialInfo> = {}
     let credentialError: string | null = null
     if (refs.length > 0) {
       try {
-        const response = await this.api.credentials.describe({ refs })
+        const response = await this.api.credentials.describe(refs)
         // Credential state is an enrichment for the Models page: neither a
         // business rejection nor a transport failure fails the load. The
         // onboarding projection below retains the failure distinction.
-        if (response.result.ok) credentials = response.result.value.credentials
-        else credentialError = response.result.error.message
+        if (response.ok) credentials = response.value
+        else credentialError = response.error.message
       } catch (error) {
         credentialError = messageOf(error)
       }

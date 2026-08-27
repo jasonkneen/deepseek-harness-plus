@@ -14,14 +14,13 @@
 
 import { useState } from 'react'
 import type { ReactNode } from 'react'
-import type { IApiClient } from '@deepseek-ai/dsh-api-remotes/client'
 import { Button, IconPlusOutline16, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { InjectFace, PropsRenderSlots } from '@deepseek-ai/dsh-client-ui-slots'
 // Type-only: pulls this package's SlotMap merge (the two Models child slots).
 import type {} from './slot-contract.ts'
 import { CustomProviderCard } from './CustomProviderCard.tsx'
 import { deriveKeyRef, messageOf, protocolChoices, providerUsable } from './store.ts'
-import type { ModelsSettingsStore, ProviderRow } from './store.ts'
+import type { ModelsSettingsStore, ModelsWire, ProviderRow } from './store.ts'
 import type { SettingsSchemaOperations } from './schema-operations.ts'
 import { ProviderEditor, type ProviderEditorProps } from './ProviderEditor.tsx'
 import { SubagentModelSelectionCard } from './SubagentModelSelectionCard.tsx'
@@ -37,7 +36,7 @@ export interface ModelsSectionInjected {
     snapshot: ModelsSettingsStore['store']
   }
   /** Wire faces the editor writes through. */
-  api: Pick<IApiClient, 'settings' | 'credentials' | 'llm'>
+  api: ModelsWire
   /** Settings schema and immutable path callbacks. */
   schema: SettingsSchemaOperations
   /** Section copy. */
@@ -112,20 +111,21 @@ function renderProviderEditor({ target, ...props }: ProviderEditorRenderProps): 
  * @returns the failure message, or undefined once the write and reload landed.
  */
 export async function removeProviderProfile(
-  api: Pick<IApiClient, 'settings' | 'credentials'>,
+  api: Pick<ModelsWire, 'settings' | 'credentials'>,
   controller: ModelsSettingsStore,
   target: { settingsNs: string; settingsPath: readonly string[]; credentialRef?: string },
 ): Promise<string | undefined> {
   try {
     if (target.credentialRef !== undefined) {
-      const credential = await api.credentials.unset({ ref: target.credentialRef })
-      if (!credential.result.ok) return credential.result.error.message
+      const credential = await api.credentials.unset(target.credentialRef)
+      if (!credential.ok) return credential.error.message
     }
-    const response = await api.settings.mutate({
-      ns: target.settingsNs,
-      ops: [{ op: 'unset', path: [...target.settingsPath] }],
-    })
-    if (!response.result.ok) return response.result.error.message
+    const response = await api.settings.mutate(
+      target.settingsNs,
+      [{ op: 'unset', path: [...target.settingsPath] }],
+      undefined,
+    )
+    if (!response.ok) return response.error.message
   } catch (error) {
     // The transport rejected rather than answering; the caller must be able
     // to retry the idempotent operation instead of the row silently staying.

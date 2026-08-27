@@ -9,18 +9,8 @@ function derivedDocumentStore(api: object) {
   return new SettingsDocumentStore(wire, new SettingsDescribeMirror(wire))
 }
 
-function response(hasDocument = false): RpcResponse<{
-  writable: boolean
-  hasDocument: boolean
-  namespaces: []
-}> {
-  return {
-    rpcId: 'settings-document' as never,
-    result: {
-      ok: true,
-      value: { writable: true, hasDocument, namespaces: [] },
-    },
-  }
+function response(hasDocument = false) {
+  return { ok: true, value: { writable: true, hasDocument, namespaces: [] } }
 }
 
 function opened(): RpcResponse<{ opened: true }> {
@@ -30,11 +20,8 @@ function opened(): RpcResponse<{ opened: true }> {
   }
 }
 
-function describeFailed(message: string): RpcResponse<never> {
-  return {
-    rpcId: 'settings-document-failed' as never,
-    result: { ok: false, error: { code: 'internal', message, details: {} } },
-  }
+function describeFailed(message: string) {
+  return { ok: false as const, error: { code: 'internal', message, details: {} } }
 }
 
 describe('SettingsDocumentStore', () => {

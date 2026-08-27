@@ -31,7 +31,7 @@
 - text: "Interjection: include the word ORANGE in your final reply."
 - button "Copy":
   - img
-- textbox "Message the agent"
+- textbox "Message or run a task... / commands, @ files or sessions"
 - button "Commands":
   - img
 - 'button "Access mode, current: Workspace Write"': Workspace Write

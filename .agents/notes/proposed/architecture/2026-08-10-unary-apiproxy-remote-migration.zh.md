@@ -29,7 +29,8 @@ API Proxy 还包含一些不以业务方法为约定的 BFF 操作：Session 生
 | `session.rename` | `ctx.remote.sessionTitle`，位于 `@deepseek-ai/dsh-session-title` | `SessionTitleService.rename(Session, title)` | 直接使用 `@Remote`；Client 将 `eventSeq` 映射到自身的标题投影序列。 |
 | `command.list`、`command.execute` | `ctx.remote.commands`，位于 `@deepseek-ai/dsh-commands` | `CommandRuntime.list(Agent)`、`execute(Agent, line, signal)` | 直接使用 `@Remote`；Client 将 `undefined` 映射为未匹配结果，并保留调用方的取消行为。 |
 | `llm.providers` | `ctx.remote.llm`，位于 `@deepseek-ai/dsh-llm` | `LlmRuntime.listProviders()`、`listConfigurableProviders()` | 两项读取都直接使用 `@Remote`；Client 关联注册行与配置目录行。 |
-| `credentials.describe`、`credentials.set`、`credentials.unset` | `ctx.remote.credentials`，位于 `@deepseek-ai/dsh-credentials-local` | `LocalCredentialProvider.describe(ref)`、`set(ref, value)`、`unset(ref)` | 直接使用 `@Remote`；当 UI 请求多个 ref 时，Client 批量发起 `describe` 调用。 |
+| `credentials.describe`、`credentials.set`、`credentials.unset` | `ctx.remote.credentials`，位于 `@deepseek-ai/dsh-api-settings-controller` | `CredentialsController.describe(refs)`、`set(ref, value)`、`unset(ref)` | controller 保留批量上限、引用校验、字段投影、provider 缺失诊断与 provider 拒绝映射，不给抽象 Definition 增加 wire 行为。 |
+| `settings.describe`、`settings.update`、`settings.replace`、`settings.mutate` | `ctx.remote.settings`，位于 `@deepseek-ai/dsh-api-settings-controller` | `SettingsController.describe()`、`update(ns, patch, expectedRevision)`、`replace(ns, section, expectedRevision)`、`mutate(ns, ops, expectedRevision)` | controller 保留脱敏、三种写入操作、乐观 revision 校验、provider 缺失诊断与失败 details。 |
 | `agentPreset.read`、`agentPreset.copy`、`agentPreset.remove` | `ctx.remote.agentPresets`，位于 `@deepseek-ai/dsh-agent-presets` | `readDocument(id)`、`copy(from, id, name?)`、`remove(id)` | `copy` 和 `remove` 直接暴露现有方法；`readDocument` 将存储的内容与一次实时发现取得的元数据组合。 |
 | `subagent.interrupt` | `ctx.remote.subagents`，位于 `@deepseek-ai/dsh-subagent` | `interruptByParent(targetSessionId, parentSessionId)` | 适配器构造内部的用户权限变体，不解析也不恢复任一 Agent。 |
 | `workspace.list`、`workspace.insertSessionBefore`、`workspace.archiveSession` | `ctx.remote.workspace`，位于 `@deepseek-ai/dsh-workspace` | `snapshot()`、`insertSessionBefore(workspaceId, sessionId, before?)`、`archiveSession(sessionId)` | 注册表适配器分离可变实体，并返回已完成更新的 workspace 或归档快照。 |
@@ -44,7 +45,7 @@ Remote API 有意采用服务名称，而不保留旧 RPC 的点分名称。例�
 | Session transcript | `session.history`、`attachment`、`subagent.history` | cold／live 日志、分页、投影、呈现器和附件授权。 |
 | Agent 模型选择 | `session.models`、`selectModel` | 各 Agent 的状态、模型校验和默认值持久化属于 BFF 策略。 |
 | Agent 输入与控制 | `session.prompt`、`updateQueue`、`cancel` | 图片准入、Inbox 变更和端点特有的仅限 live 语义。 |
-| 配置 Remote | `settings.describe`、`openDocument`、`update`、`replace`、`mutate` | namespace 暴露、脱敏、修订检查和原生打开操作属于产品策略。 |
+| 原生 settings 文档 | `settings.openDocument` | Host 路径解析、文档准备和原生打开仍属于 API Proxy 中的产品策略。 |
 | Session skill 目录 | `skill.list` | 不得恢复冷 Session；preset 的常驻 scope 和呈现器过滤属于 BFF 关联操作。 |
 | Host 运行时信息 | `host.describe` | 版本、cwd、默认模型和当前已附加的 Session 数量来自多个 Host 所有者。 |
 | Host 路径打开 | `host.openPath`、`agentPreset.openDocument` | 原生桌面权限和取消属于 Host 组合。 |
@@ -72,7 +73,7 @@ Lookup 策略作用于整个 key，而非特定端点。提示词输入、队列
 
 ## Client 与错误行为
 
-生成的 Remote 方法返回业务值，并抛出一个 Error，其 `cause` 包含现有的 RPC 失败。Client 业务服务负责适配到当前的结果／store 接口。它们必须与现有服务一样让成功结果立即生效，使事件帧仍是幂等回放，而非唯一的更新路径。
+生成的 Remote 方法返回 `RemoteResult` 值。Client 业务服务负责把它们适配到现有 store，并与既有服务一样让成功结果立即生效，使事件帧仍是幂等回放，而非唯一的更新路径。迁移保留领域校验、provider 缺失诊断、业务错误码、结构化 details 与成功值；只有 endpoint 寻址、Remote 结果信封和另行接受的超时行为不同于 API Proxy 传输。
 
 Resolver 拥有的 `session-not-found` 和 `agent-busy` 错误保持稳定，因为共享 resolver 会抛出 `TypertLookupFailure`。普通业务异常会变成 Gateway 现有的 `internal` RPC 失败。只有在选定的 Client 消费方不根据更具体的旧版业务错误码进行分支时，才能迁移该调用；如果实现过程中发现这种分支，除非业务包新增与传输无关的类型化失败，否则该 RPC 将退出此集合。
 

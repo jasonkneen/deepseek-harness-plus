@@ -111,8 +111,9 @@ function fileCandidate(candidate: FileReferenceCandidate, preserveQuote: boolean
     mention,
   }
   return [{
-    name: `${t(directory ? 'candidate.folder' : 'candidate.file')} · ${name}${directory ? '/' : ''}`,
+    name: `${name}${directory ? '/' : ''}`,
     description: candidate.path,
+    icon: directory ? 'folder' as const : 'file' as const,
     section: t('section.files'),
     value: JSON.stringify(value),
     ...(directory ? { drill: true } : {}),
@@ -128,8 +129,9 @@ function sessionCandidate(candidate: SessionReferenceMentionCandidate, t: Transl
     mention: candidate.mention,
   }
   return {
-    name: `${t('candidate.session')} · ${candidate.label}`,
+    name: candidate.label,
     description,
+    icon: 'session' as const,
     section: t('section.sessions'),
     value: JSON.stringify(value),
   }

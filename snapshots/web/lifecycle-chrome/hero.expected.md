@@ -29,7 +29,7 @@
   - img
   - text: Standard mode
   - img
-- textbox "Describe what you want to build":
+- textbox "Describe what you want to build... / commands, @ files or sessions":
   - paragraph
 - button "Commands":
   - img

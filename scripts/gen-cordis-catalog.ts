@@ -70,6 +70,8 @@ export const SERVICE_PAGE: Record<string, string> = {
   cordisInspect: 'extensions.md',
   authorization: 'credentials.md',
   credentials: 'credentials.md',
+  credentialsController: 'credentials.md',
+  settingsController: 'settings.md',
   directoryPicker: 'workspace.md',
   deepseekLlmApiExtensions: 'llm-streaming.md',
   dynamicCordisRunner: 'extensions.md',
@@ -118,6 +120,7 @@ export const SERVICE_PAGE: Record<string, string> = {
   webhookRuntime: 'webhook.md',
   workspaceRegistry: 'workspace.md',
   workspaceController: 'workspace.md',
+  directoryPickerController: 'workspace.md',
 }
 
 /**
@@ -526,6 +529,10 @@ export const LINK_MAP: Readonly<Record<string, string>> = {
   SettingsRegisterOptions: 'settings.md',
   SettingsScope: 'settings.md',
   SettingsDescriptor: 'settings.md',
+  SettingsDescribeValue: 'settings.md',
+  SettingsNamespaceView: 'settings.md',
+  SettingsPathOpView: 'settings.md',
+  SettingsSecretView: 'settings.md',
   SettingsPathOp: 'settings.md',
   SettingsDescribeOptions: 'settings.md',
   SettingsUpdateSource: 'settings.md',
@@ -596,6 +603,7 @@ export const LINK_MAP: Readonly<Record<string, string>> = {
   ProjectionSnapshot: 'session-projection.md',
   ProjectionCheckpoint: 'session-projection.md',
   DirectoryPickerCapability: 'workspace.md',
+  DirectoryListing: 'workspace.md',
   TypertContribution: 'invariants.md',
   TypertRemoteEventSource: 'typert.md',
   TypertFace: 'invariants.md',

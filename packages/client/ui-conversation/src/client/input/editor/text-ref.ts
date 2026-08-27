@@ -3,11 +3,13 @@
  * see .agents/notes/implemented/architecture/2026-07-25-web-input-machine-and-slash-pipeline.md):
  * a `/name` or `@name` token whose name is on the trigger's lexicon, and
  * syntax-recognizable `@dir/` folder tokens, render in the chip family
- * colors. Pure derivation as before — the entity transform converts matching
- * text into TextRefNode and back as edits move it in and out of match shape;
- * no occurrence identity exists.
+ * colors. Color only, no icon: a token still carrying its trigger character
+ * is editable text, not a settled chip — the domain icon marks exactly the
+ * settled state. Pure derivation as before — the entity transform converts
+ * matching text into TextRefNode and back as edits move it in and out of
+ * match shape; no occurrence identity exists.
  */
-import type { EditorConfig, LexicalEditor, NodeKey, SerializedTextNode, Spread } from 'lexical'
+import type { EditorConfig, LexicalEditor, SerializedTextNode } from 'lexical'
 import { TextNode } from 'lexical'
 import { registerLexicalTextEntity } from '@lexical/text'
 import { mergeRegister } from '@lexical/utils'
@@ -16,15 +18,10 @@ import { scanTextRefs } from '../decorations.ts'
 import css from './composer-editor.module.css'
 
 /** JSON form of one text-ref node. */
-export type SerializedTextRefNode = Spread<{
-  appearance?: 'folder'
-}, SerializedTextNode>
+export type SerializedTextRefNode = SerializedTextNode
 
 /** One matched plain-text reference as a styled, fully editable text node. */
 export class TextRefNode extends TextNode {
-  /** Optional icon domain for syntax-recognizable plain references. */
-  __appearance: 'folder' | undefined
-
   /** Lexical node registry type tag. */
   static override getType(): string {
     return 'composer-text-ref'
@@ -36,7 +33,7 @@ export class TextRefNode extends TextNode {
    * @returns a copy carrying the same NodeKey.
    */
   static override clone(node: TextRefNode): TextRefNode {
-    return new TextRefNode(node.__text, node.__appearance, node.__key)
+    return new TextRefNode(node.__text, node.__key)
   }
 
   /**
@@ -45,7 +42,7 @@ export class TextRefNode extends TextNode {
    * @returns a fresh node.
    */
   static override importJSON(json: SerializedTextRefNode): TextRefNode {
-    const node = new TextRefNode(json.text, json.appearance)
+    const node = new TextRefNode(json.text)
     node.setFormat(json.format)
     node.setDetail(json.detail)
     node.setMode(json.mode)
@@ -53,22 +50,11 @@ export class TextRefNode extends TextNode {
     return node
   }
 
-  /**
-   * @param text - the matched token text.
-   * @param appearance - optional icon domain (folder tokens).
-   * @param key - Lexical clone-path key; absent for fresh nodes.
-   */
-  constructor(text: string, appearance?: 'folder', key?: NodeKey) {
-    super(text, key)
-    this.__appearance = appearance
-  }
-
   /** Serialize to the JSON node form. */
   override exportJSON(): SerializedTextRefNode {
     return {
       ...super.exportJSON(),
       type: 'composer-text-ref',
-      ...(this.__appearance === undefined ? {} : { appearance: this.__appearance }),
     }
   }
 
@@ -77,7 +63,6 @@ export class TextRefNode extends TextNode {
     const el = super.createDOM(config)
     el.classList.add(css.textRef ?? 'textRef')
     el.setAttribute('data-composer-text-ref', '')
-    if (this.__appearance !== undefined) el.setAttribute('data-ref-appearance', this.__appearance)
     return el
   }
 
@@ -90,15 +75,6 @@ export class TextRefNode extends TextNode {
   override canInsertTextBefore(): boolean {
     return true
   }
-}
-
-/**
- * Folder-shape probe for one matched token (the appearance bit).
- * @param token - matched token text.
- * @returns 'folder' for `@dir/` shapes; undefined otherwise.
- */
-function appearanceOf(token: string): 'folder' | undefined {
-  return token.startsWith('@') && token.endsWith('/') ? 'folder' : undefined
 }
 
 /**
@@ -130,7 +106,7 @@ export function registerTextRefDecoration(
       editor,
       getMatch,
       TextRefNode,
-      node => new TextRefNode(node.getTextContent(), appearanceOf(node.getTextContent())),
+      node => new TextRefNode(node.getTextContent()),
     ),
   )
 }

@@ -17,6 +17,7 @@
     { "path": "../../client/connection/tsconfig.client.json" },
     { "path": "../../client/store" },
     { "path": "../../core/session" },
+    { "path": "../../host/directory-picker" },
     { "path": "../../typert/protocol" },
     { "path": "../../workspace/workspace" }
   ]

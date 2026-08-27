@@ -29,6 +29,9 @@ import type { TodoItem } from '@deepseek-ai/dsh-tool-todo/client'
 // wire-fabrication boundary (the schema layer's one-cast-point posture).
 import type { CommandId } from '@deepseek-ai/dsh-commands/brand'
 import type { CommandDescriptor, CommandExecution, CommandResult } from '@deepseek-ai/dsh-commands/types'
+import type { CredentialInfo } from '@deepseek-ai/dsh-credentials/types'
+import type { DirectoryListing as FixtureDirectoryListing } from '@deepseek-ai/dsh-host-directory-picker/types'
+import type { SettingsDescribeValue, SettingsNamespaceView } from '@deepseek-ai/dsh-settings/types'
 import { deriveEventMessage, foldSurface } from '@deepseek-ai/dsh-session/surface'
 import type {
   ApiProxy, ClientRequest,
@@ -1777,6 +1780,83 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
     // DeepSeek route so unrelated GUI journeys do not enter first-run setup.
     ['DEEPSEEK_API_KEY', true],
   ])
+
+  /** Canonical fixture implementation of the generated Settings Remote contract. */
+  const settingsRemotes = {
+    // Only the resolved DeepSeek address needed by first-run readiness is
+    // represented here. Fixture-backed journeys do not open its Models editor;
+    // real schema-driven forms ride the HTTP transport.
+    describe(): RpcResult<SettingsDescribeValue> {
+      return {
+        ok: true,
+        value: {
+          writable: true,
+          hasDocument: true,
+          namespaces: [{
+            ns: 'llm-deepseek',
+            schema: {},
+            value: { apiKeyEnv: 'DEEPSEEK_API_KEY' },
+            applies: 'live',
+            secrets: [{ path: ['apiKey'], set: false }],
+            revision: 0,
+          }],
+        },
+      }
+    },
+    update(ns: string): ConnectionRpcResult<SettingsNamespaceView> {
+      return {
+        ok: false,
+        error: {
+          code: 'settings-rejected',
+          message: 'fixture: the minimal readiness settings descriptor is read-only',
+          details: { ns },
+        },
+      }
+    },
+    replace(ns: string): ConnectionRpcResult<SettingsNamespaceView> {
+      return {
+        ok: false,
+        error: {
+          code: 'settings-rejected',
+          message: 'fixture: the minimal readiness settings descriptor is read-only',
+          details: { ns },
+        },
+      }
+    },
+    mutate(ns: string): ConnectionRpcResult<SettingsNamespaceView> {
+      // A Remote failure code is free-form, unlike the unary error vocabulary.
+      return {
+        ok: false,
+        error: {
+          code: 'settings-rejected',
+          message: 'fixture: no settings namespaces are registered',
+          details: { ns },
+        },
+      }
+    },
+  }
+
+  const credentialRemotes = {
+    describe(refs: readonly string[]): RpcResult<Record<string, CredentialInfo>> {
+      return {
+        ok: true,
+        value: Object.fromEntries(refs.map(ref => [ref, {
+          configured: fixtureCredentials.has(ref),
+          ...fixtureCredentials.has(ref) ? { source: 'file' } : {},
+          writable: true,
+        }])),
+      }
+    },
+    set(ref: string): RpcResult<void> {
+      fixtureCredentials.set(ref, true)
+      return { ok: true, value: undefined }
+    },
+    unset(ref: string): RpcResult<void> {
+      fixtureCredentials.delete(ref)
+      return { ok: true, value: undefined }
+    },
+  }
+
   /**
    * Preset compositions the fixture serves. Held as state rather than
    * constants so the settings editor's save and delete are exercisable: the
@@ -2175,6 +2255,55 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
           }
         })
       return { ok: true, value }
+    },
+  }
+
+  /**
+   * Canonical fixture implementation of the generated Directory Picker Remote
+   * contract. The pick is deterministic — the keyless lanes drive the full
+   * pick-then-adopt path without an OS chooser — over the same design-mock
+   * tree the browse primitives serve.
+   */
+  const directoryPickerRemotes = {
+    pick(): ConnectionRpcResult<string | null> {
+      return { ok: true, value: `${FIXTURE_HOME}/Documents/project` }
+    },
+    list(path?: string): ConnectionRpcResult<FixtureDirectoryListing> {
+      const target = path ?? FIXTURE_HOME
+      const children = childrenOf(target)
+      if (children === undefined) {
+        return {
+          ok: false,
+          error: { code: 'directory-unreadable', message: `cannot list ${target}: not in the fixture tree`, details: { path: target } },
+        }
+      }
+      return {
+        ok: true,
+        value: {
+          path: target,
+          home: FIXTURE_HOME,
+          crumbs: crumbsOf(target),
+          entries: [...children].sort((a, b) => a.localeCompare(b))
+            .map(name => ({ name, path: target === '/' ? `/${name}` : `${target}/${name}`, hidden: name.startsWith('.') })),
+          // The fixture tree is tiny; no level ever reaches a backend bound.
+          truncated: false,
+        },
+      }
+    },
+    createDirectory(parent: string, name: string): ConnectionRpcResult<string> {
+      const children = childrenOf(parent)
+      if (children === undefined) {
+        return { ok: false, error: { code: 'directory-create-failed', message: `missing parent ${parent}`, details: { path: parent } } }
+      }
+      // Same root special case as list's entry paths: a plain join under '/'
+      // would mint '//name' and fork the tree's identity.
+      const target = parent === '/' ? `/${name}` : `${parent}/${name}`
+      if (children.includes(name)) {
+        return { ok: false, error: { code: 'directory-exists', message: `${target} already exists`, details: { path: target } } }
+      }
+      directoryTree.set(parent, [...children, name])
+      directoryTree.set(target, [])
+      return { ok: true, value: target }
     },
   }
 
@@ -3264,42 +3393,6 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
       describe: request => ok(request, {
         version: '0.0.0-fixture', cwd: '/tmp/fixture', attachedSessions, home: FIXTURE_HOME, canOpenPath: true,
       }),
-      // Deterministic native pick: the keyless lanes drive the full
-      // pick-then-adopt path without an OS chooser (design-mock content,
-      // same tree the browse primitives serve).
-      pickDirectory: request => ok(request, { path: `${FIXTURE_HOME}/Documents/project` }),
-      listDirectory: (request) => {
-        const target = request.payload.path ?? FIXTURE_HOME
-        const children = childrenOf(target)
-        if (children === undefined) {
-          return err(request, { code: 'directory-unreadable', message: `cannot list ${target}: not in the fixture tree`, details: { path: target } })
-        }
-        return ok(request, {
-          path: target,
-          home: FIXTURE_HOME,
-          crumbs: crumbsOf(target),
-          entries: [...children].sort((a, b) => a.localeCompare(b))
-            .map(name => ({ name, path: target === '/' ? `/${name}` : `${target}/${name}`, hidden: name.startsWith('.') })),
-          // The fixture tree is tiny; no level ever reaches a backend bound.
-          truncated: false,
-        })
-      },
-      createDirectory: (request) => {
-        const parent = request.payload.path
-        const children = childrenOf(parent)
-        if (children === undefined) {
-          return err(request, { code: 'directory-create-failed', message: `missing parent ${parent}`, details: { path: parent } })
-        }
-        // Same root special case as listDirectory's entry paths: a plain join
-        // under '/' would mint '//name' and fork the tree's identity.
-        const target = parent === '/' ? `/${request.payload.name}` : `${parent}/${request.payload.name}`
-        if (children.includes(request.payload.name)) {
-          return err(request, { code: 'directory-exists', message: `${target} already exists`, details: { path: target } })
-        }
-        directoryTree.set(parent, [...children, request.payload.name])
-        directoryTree.set(target, [])
-        return ok(request, { path: target })
-      },
       openPath: request => ok(request, { opened: true as const }),
     },
     agentPresets: {
@@ -3333,55 +3426,8 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
       },
     },
     settings: {
-      // Only the resolved DeepSeek address needed by first-run readiness is
-      // represented here. Fixture-backed journeys do not open its Models
-      // editor; real schema-driven forms ride the HTTP transport.
-      describe: request => ok(request, {
-        writable: true,
-        hasDocument: true,
-        namespaces: [{
-          ns: 'llm-deepseek',
-          schema: {},
-          value: { apiKeyEnv: 'DEEPSEEK_API_KEY' },
-          applies: 'live',
-          secrets: [{ path: ['apiKey'], set: false }],
-          revision: 0,
-        }],
-      }),
       // Native opens are deterministic no-op successes in this fixture, as is host.openPath.
       openDocument: request => ok(request, { opened: true as const }),
-      update: request => err(request, {
-        code: 'settings-rejected',
-        message: 'fixture: the minimal readiness settings descriptor is read-only',
-        details: { ns: request.payload.ns },
-      }),
-      replace: request => err(request, {
-        code: 'settings-rejected',
-        message: 'fixture: the minimal readiness settings descriptor is read-only',
-        details: { ns: request.payload.ns },
-      }),
-      mutate: request => err(request, {
-        code: 'settings-rejected',
-        message: 'fixture: no settings namespaces are registered',
-        details: { ns: request.payload.ns },
-      }),
-    },
-    credentials: {
-      describe: request => ok(request, {
-        credentials: Object.fromEntries(request.payload.refs.map(ref => [ref, {
-          configured: fixtureCredentials.has(ref),
-          ...fixtureCredentials.has(ref) ? { source: 'file' } : {},
-          writable: true,
-        }])),
-      }),
-      set: (request) => {
-        fixtureCredentials.set(request.payload.ref, true)
-        return ok(request, {})
-      },
-      unset: (request) => {
-        fixtureCredentials.delete(request.payload.ref)
-        return ok(request, {})
-      },
     },
     llm: {
       providers: request => ok(request, {
@@ -3425,8 +3471,14 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
           agentId: SessionId
           line?: string
           query?: string
+          path?: string
+          name?: string
           images?: readonly unknown[]
-          ref?: { id: string; revision: number }
+          // A goal ref and a credential reference name share this wire field name.
+          ref?: string | { id: string; revision: number }
+          refs?: readonly string[]
+          value?: string
+          ns?: string
           agentPreset?: string
           from?: string
           id?: string
@@ -3442,6 +3494,10 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
         case 'commands/execute': return Promise.resolve(commandRemotes.execute(sessionId, args.line as string, args.images ?? []))
         case 'fileReferences/list': return Promise.resolve(referenceRemotes.files(sessionId, args.query ?? ''))
         case 'sessionReferenceResolver/candidates': return Promise.resolve(referenceRemotes.sessions(sessionId, args.query ?? ''))
+        case 'directoryPicker/pick': return Promise.resolve(directoryPickerRemotes.pick())
+        case 'directoryPicker/list': return Promise.resolve(directoryPickerRemotes.list(args.path))
+        case 'directoryPicker/createDirectory':
+          return Promise.resolve(directoryPickerRemotes.createDirectory(args.path ?? '', args.name ?? ''))
         case 'goals/create': return Promise.resolve(goalRemotes.create(sessionId, {
           objective: (request as { objective?: string } | undefined)?.objective as string,
           ...(request as { maxGoalRounds?: number } | undefined)?.maxGoalRounds === undefined
@@ -3473,6 +3529,13 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
           },
         })
         case 'subagents/interruptByParent': return Promise.resolve({ ok: true, value: { accepted: true } })
+        case 'credentials/describe': return Promise.resolve(credentialRemotes.describe(args.refs ?? []))
+        case 'credentials/set': return Promise.resolve(credentialRemotes.set(args.ref as string))
+        case 'credentials/unset': return Promise.resolve(credentialRemotes.unset(args.ref as string))
+        case 'settings/describe': return Promise.resolve(settingsRemotes.describe())
+        case 'settings/update': return Promise.resolve(settingsRemotes.update(args.ns as string))
+        case 'settings/replace': return Promise.resolve(settingsRemotes.replace(args.ns as string))
+        case 'settings/mutate': return Promise.resolve(settingsRemotes.mutate(args.ns as string))
         case 'session/list': return sessionApi.list(
           args._request as Parameters<FixtureSessionApi['list']>[0],
         )
@@ -3596,20 +3659,10 @@ export class FixtureApiClient extends AbstractApiClient {
   ): Promise<RpcResponse<unknown>> {
     switch (method) {
       case 'host.describe': return this.api.host.describe(request)
-      case 'host.pickDirectory': return this.api.host.pickDirectory(request, new AbortController().signal)
-      case 'host.listDirectory': return this.api.host.listDirectory(request, new AbortController().signal)
-      case 'host.createDirectory': return this.api.host.createDirectory(request)
       case 'host.openPath': return this.api.host.openPath(request, new AbortController().signal)
       case 'skill.list': return this.api.skills.list(request)
       case 'agentPreset.openDocument': return this.api.agentPresets.openDocument(request, new AbortController().signal)
-      case 'settings.describe': return this.api.settings.describe(request)
       case 'settings.openDocument': return this.api.settings.openDocument(request, signal)
-      case 'settings.update': return this.api.settings.update(request)
-      case 'settings.replace': return this.api.settings.replace(request)
-      case 'settings.mutate': return this.api.settings.mutate(request)
-      case 'credentials.describe': return this.api.credentials.describe(request)
-      case 'credentials.set': return this.api.credentials.set(request)
-      case 'credentials.unset': return this.api.credentials.unset(request)
       case 'llm.providers': return this.api.llm.providers(request)
       case 'llm.models': return this.api.llm.models(request)
       case 'llm.discoverModels': return this.api.llm.discoverModels(request, signal)

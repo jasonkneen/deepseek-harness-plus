@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-Every client of the web GUI host calls one typed API through `dsh-host-apiproxy` — sessions and history, workspaces, directory picking, model selection, agent presets, skills, goals, settings, credentials, LLM catalogs, events, and session export — moved over HTTP or in-process by fetch carriers. The contract layer has zero Node dependencies and imports from the browser, so one typed API serves the Web server, Electron, and any future client shape. The shipped Web composition assembles the gateway in [`dsh-web-app`](../../bundle/web-app/README.md). Choosing a carrier, calling the domain APIs, and configuring the gateway come first; the wire protocol internals live in a collapsible developer section below.
+Every client of the web GUI host calls one typed API through `dsh-host-apiproxy` — sessions and history, workspaces, directory picking, model selection, agent presets, skills, goals, settings, LLM catalogs, events, and session export — moved over HTTP or in-process by fetch carriers. The contract layer has zero Node dependencies and imports from the browser, so one typed API serves the Web server, Electron, and any future client shape. The shipped Web composition assembles the gateway in [`dsh-web-app`](../../bundle/web-app/README.md). Choosing a carrier, calling the domain APIs, and configuring the gateway come first; the wire protocol internals live in a collapsible developer section below.
 
 ## Table of Contents
 
@@ -40,7 +40,7 @@ The HTTP carrier refuses non-JSON POST bodies with 415 before dispatch, so cross
 
 ### What the gateway exposes
 
-The API is grouped into domains: `sessions` (list, create, history, prompt, cancel, queue, models, selectModel, rename, fork, search, attachment), `workspace`, `host` (describe, pickDirectory, listDirectory, createDirectory, openPath), `skills`, `agentPresets`, `goals`, `settings`, `credentials`, `llm`, `events`, and `downloads`. The sessions, workspace, and events contracts are owned by the Session Controller, Workspace Controller, and API Remotes packages respectively; the remaining domain contracts and the `RpcMethodMap` live in `src/api/`.
+The API is grouped into domains: `sessions` (list, create, history, prompt, cancel, queue, models, selectModel, rename, fork, search, attachment), `workspace`, `host` (describe, openPath), `skills`, `agentPresets`, `goals`, `settings`, `llm`, `events`, and `downloads`. The sessions, workspace, and events contracts are owned by the Session Controller, Workspace Controller, and API Remotes packages respectively; the remaining domain contracts and the `RpcMethodMap` live in `src/api/`.
 
 ### Sessions and history
 
@@ -56,7 +56,7 @@ The API is grouped into domains: `sessions` (list, create, history, prompt, canc
 
 ### Model selection, presets, commands, and configuration
 
-`session.models` reports the current `ModelSelection` separately from provider-grouped advisory models, and `session.selectModel` saves an accepted switch as the deployment default through the shared `agent-default-model` settings section — a default naming an unavailable provider still reaches the selector as `current` instead of being silently replaced. Each access resolves an in-process selection first, then the session's latest `request/header`, then the deployment default. A logged reasoning effort marked as an adapter default remains absent from the restored selection, so the next resolution does not promote it into an explicit choice or record a false header change. `agentPreset.list` exposes the deployment's preset roster with each row's `trust` and a `broken` reason when a preset cannot compose a session; `agentPreset.select` swaps a blank session's composition and is refused once a turn has run. `skill.list` serves the composer menu with each skill's `modelInvocable` flag, and `command.execute` runs a slash command with pure admission semantics whose outcome rides the logged `command/run`/`command/done` pair. The `settings.*`, `credentials.*`, and `llm.*` domains are the configuration-page wire: `settings.describe` returns each namespace's schema and redacted layered values, `settings.mutate` is the removal path for a client holding the redacted view, secrets never ride any response, and `llm.discoverModels` interrogates a provider endpoint the page is still drafting without writing anything.
+`session.models` reports the current `ModelSelection` separately from provider-grouped advisory models, and `session.selectModel` saves an accepted switch as the deployment default through the shared `agent-default-model` settings section — a default naming an unavailable provider still reaches the selector as `current` instead of being silently replaced. Each access resolves an in-process selection first, then the session's latest `request/header`, then the deployment default. A logged reasoning effort marked as an adapter default remains absent from the restored selection, so the next resolution does not promote it into an explicit choice or record a false header change. `agentPreset.list` exposes the deployment's preset roster with each row's `trust` and a `broken` reason when a preset cannot compose a session; `agentPreset.select` swaps a blank session's composition and is refused once a turn has run. `skill.list` serves the composer menu with each skill's `modelInvocable` flag, and `command.execute` runs a slash command with pure admission semantics whose outcome rides the logged `command/run`/`command/done` pair. The remaining configuration operations are `settings.openDocument` and the `llm.*` domain; generated settings and credential methods belong to [`@deepseek-ai/dsh-api-settings-controller`](../../api/settings-controller/README.md).
 
 ### Configuration
 
@@ -92,7 +92,7 @@ The package is built on one separation: the API contract is channel-independent,
 
 ### The gateway service
 
-`ApiProxyService` provides `ctx.apiProxy` and implements the contract over the composed host context — sessions, workspace registry, directory picker, agent presets, settings, credentials, LLM, events, and downloads. The Host cwd is the default project directory. The gateway consumes `ctx.agentDefaultModel` only for the deployment metadata `host.describe` reports; `session.selectModel` (Session Controller) saves an accepted switch as the deployment default through the shared agent-default-model settings section. Product `dsh --profile headless` is a direct core entry point and does not mount this package.
+`ApiProxyService` provides `ctx.apiProxy` and implements the contract over the composed host context — sessions, workspace registry, directory picker, agent presets, settings, LLM, events, and downloads. The Host cwd is the default project directory. The gateway consumes `ctx.agentDefaultModel` only for the deployment metadata `host.describe` reports; `session.selectModel` (Session Controller) saves an accepted switch as the deployment default through the shared agent-default-model settings section. Product `dsh --profile headless` is a direct core entry point and does not mount this package.
 
 ### Request flow
 
@@ -140,7 +140,6 @@ These limits define where the gateway is a poor fit; they are current package co
 - **Reserved seams stay out of `RpcMethodMap`** — `prompt.mode: 'inject'`, `job.list`, and a describe `hostInstanceId` are documented reservations; model discovery uses `llm.models`. An unknown method fails loud at envelope parse rather than getting a not-implemented code.
 - **No protocol version field** — client and host ship together; `host.describe` gains a version negotiation field only when an independently released client exists.
 - **Search failures include provider diagnostics** — the gateway is a single-user local service; a carrier that exposes it to multiple users must replace internal search details with a public-safe diagnostic.
-- **Linux native picker requires desktop tooling** — under the `native` capability, `host.pickDirectory` reports an actionable error when neither Zenity nor KDialog is installed; the browse backend is the composition-level fallback (see the [native backend README](../directory-picker-native/README.md)).
 - **Cold-list hints degrade only toward visibility and older ordering** — a projection-cache miss or stale `lastPromptAt` falls back to `createdAt` unless an eligible small artifact supplies an exact fold. The [bounded blank-verification decision](../../../.agents/notes/implemented/bug-fix/2026-08-13-bounded-cold-blank-verification.md) owns this safety direction; an authoritative exact recency index remains scoped in the [last-activity-index proposal](../../../.agents/notes/proposed/architecture/2026-07-29-durable-last-activity-index.md).
 
 <a id="dev-note"></a>

@@ -158,11 +158,32 @@ const SERVICE_ROLES: ServiceRole[] = [
     note: 'Owns Session commands, cold reads, durable-event following, live control state, and Agent activation policy; apiProxy reuses its inspection and Agent-resolution operations for Session-aware domains.',
   },
   {
+    key: 'credentialsController',
+    pkg: 'api-settings-controller',
+    title: 'Host credential-surface Remote controller',
+    mode: 'core',
+    note: 'Projects the credential-reference seam onto the generated Remote namespace: batch fan-out, view projection, and refusal mapping live here, not on the seam Definition.',
+  },
+  {
+    key: 'settingsController',
+    pkg: 'api-settings-controller',
+    title: 'Host settings-surface Remote controller',
+    mode: 'core',
+    note: 'Projects the user-settings seam onto the generated Remote namespace: the read is always redacted and every refusal is classified here, not on the seam Definition.',
+  },
+  {
     key: 'workspaceController',
     pkg: 'api-workspace-controller',
     title: 'Host Workspace Remote controller',
     mode: 'core',
     note: 'Owns Workspace commands and reconnect-safe Workspace state delivery through the generated Remote namespace.',
+  },
+  {
+    key: 'directoryPickerController',
+    pkg: 'api-workspace-controller',
+    title: 'Host directory-picking Remote controller',
+    mode: 'core',
+    note: 'Carries the picking seam onto the wire: capability gating, cancellation, and the seam-coded failures a browser directory flow discriminates on.',
   },
   {
     key: 'invariants',
@@ -561,7 +582,7 @@ const SERVICE_ROLES: ServiceRole[] = [
     title: 'Workspace-directory picking seam',
     mode: 'seam',
     implementations: ['host-directory-picker-native', 'host-directory-picker-browse'],
-    consumers: ['host-apiproxy'],
+    consumers: ['api-workspace-controller'],
     note: 'Discriminated interaction capability: the native backend opens one OS chooser on the host display, the browse backend serves listing/creation primitives for the in-app browser; dual-face backends fill ui-workspace directory-flow slots from their browser halves (no wire advertisement).',
   },
   {

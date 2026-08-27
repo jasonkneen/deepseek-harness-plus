@@ -13,6 +13,17 @@ function fail<T>(message: string): RpcResponse<T> {
   return { rpcId: `r-${nextRpc++}` as never, result: { ok: false, error: { code: 'internal', message, details: {} } } }
 }
 
+/** Credentials answers over the Remote carrier, which has no envelope. */
+type RemoteAnswer<T> =
+  | { readonly ok: true; readonly value: T }
+  | { readonly ok: false; readonly error: { code: string; message: string; details: object } }
+function remoteOk<T>(value: T): RemoteAnswer<T> {
+  return { ok: true, value }
+}
+function remoteFail<T>(message: string): RemoteAnswer<T> {
+  return { ok: false, error: { code: 'internal', message, details: {} } }
+}
+
 const DIRECTORY = [
   { provider: 'deepseek-official', displayName: 'DeepSeek', settingsNs: 'llm-deepseek', settingsPath: [], active: true },
   { provider: 'openai', displayName: 'openai', settingsNs: 'llm-pi-ai', settingsPath: ['providers', 'openai'], active: true },
@@ -43,8 +54,8 @@ const NAMESPACES = [
 
 function api(overrides: {
   providers?: () => Promise<RpcResponse<{ providers: typeof DIRECTORY }>>
-  describeSettings?: () => Promise<RpcResponse<{ writable: boolean; namespaces: typeof NAMESPACES }>>
-  describeCredentials?: (refs: string[]) => Promise<RpcResponse<{ credentials: Record<string, unknown> }>>
+  describeSettings?: () => Promise<RemoteAnswer<{ writable: boolean; hasDocument: boolean; namespaces: typeof NAMESPACES }>>
+  describeCredentials?: (refs: readonly string[]) => Promise<RemoteAnswer<Record<string, unknown>>>
 } = {}) {
   const seenRefs: string[][] = []
   const face = {
@@ -53,19 +64,19 @@ function api(overrides: {
       models: () => Promise.resolve(ok({ groups: [], failures: [] })),
     },
     settings: {
-      describe: overrides.describeSettings ?? (() => Promise.resolve(ok({ writable: true, hasDocument: false, namespaces: NAMESPACES }))),
-      update: () => Promise.resolve(fail('unused')),
-      replace: () => Promise.resolve(fail('unused')),
+      describe: overrides.describeSettings
+        ?? (() => Promise.resolve(remoteOk({ writable: true, hasDocument: false, namespaces: NAMESPACES }))),
+      mutate: () => Promise.resolve(remoteFail('the store spec issues no writes')),
     },
     credentials: {
-      describe: (payload: { refs: string[] }) => {
-        seenRefs.push(payload.refs)
-        return (overrides.describeCredentials ?? (refs => Promise.resolve(ok({
-          credentials: Object.fromEntries(refs.map(ref => [ref, { configured: ref === 'OPENAI_API_KEY', writable: true }])),
-        }))))(payload.refs)
+      describe: (refs: readonly string[]) => {
+        seenRefs.push([...refs])
+        return (overrides.describeCredentials ?? (asked => Promise.resolve(remoteOk(
+          Object.fromEntries(asked.map(ref => [ref, { configured: ref === 'OPENAI_API_KEY', writable: true }])),
+        ))))(refs)
       },
-      set: () => Promise.resolve(ok({})),
-      unset: () => Promise.resolve(ok({})),
+      set: () => Promise.resolve(remoteOk(undefined)),
+      unset: () => Promise.resolve(remoteOk(undefined)),
     },
   }
   const wire = face as never
@@ -104,7 +115,7 @@ describe('ModelsSettingsStore', () => {
   })
 
   it('degrades the credential badge, not the page, when the credential domain fails', async () => {
-    const { face, mirror } = api({ describeCredentials: () => Promise.resolve(fail('no provider')) })
+    const { face, mirror } = api({ describeCredentials: () => Promise.resolve(remoteFail('no provider')) })
     const store = new ModelsSettingsStore(face, settingsSchema, mirror)
     await store.load()
     const state = store.store.getSnapshot()
@@ -173,7 +184,7 @@ describe('ModelsSettingsStore', () => {
 describe('edge joins', () => {
   it('treats a non-object profile as having no credential reference', async () => {
     const { face, mirror } = api({
-      describeSettings: () => Promise.resolve(ok({
+      describeSettings: () => Promise.resolve(remoteOk({
         writable: true,
         hasDocument: false,
         namespaces: [{
@@ -200,7 +211,7 @@ describe('edge joins', () => {
 
   it('describes the derived reference for a row whose profile names none', async () => {
     const { face, mirror, seenRefs } = api({
-      describeSettings: () => Promise.resolve(ok({
+      describeSettings: () => Promise.resolve(remoteOk({
         writable: true,
         hasDocument: false,
         namespaces: [{ ns: 'llm-pi-ai', schema: {}, value: { providers: {} }, applies: 'live' as const, secrets: [], revision: 0 }] as never,
@@ -210,9 +221,9 @@ describe('edge joins', () => {
           { provider: 'anthropic', displayName: 'anthropic', settingsNs: 'llm-pi-ai', settingsPath: ['providers', 'anthropic'], active: false },
         ] as never,
       })),
-      describeCredentials: refs => Promise.resolve(ok({
-        credentials: Object.fromEntries(refs.map(ref => [ref, { configured: true, writable: true }])),
-      })),
+      describeCredentials: refs => Promise.resolve(remoteOk(
+        Object.fromEntries(refs.map(ref => [ref, { configured: true, writable: true }])),
+      )),
     })
     const store = new ModelsSettingsStore(face, settingsSchema, mirror)
     await store.load()
@@ -226,7 +237,7 @@ describe('edge joins', () => {
   })
 
   it('surfaces a settings describe failure', async () => {
-    const { face, mirror } = api({ describeSettings: () => Promise.resolve(fail('settings down')) })
+    const { face, mirror } = api({ describeSettings: () => Promise.resolve(remoteFail('settings down')) })
     const store = new ModelsSettingsStore(face, settingsSchema, mirror)
     await store.load()
     expect(store.store.getSnapshot()).toMatchObject({ status: 'error', error: 'settings down' })
@@ -252,8 +263,8 @@ describe('edge joins', () => {
       describeSettings: () => {
         settingsCall += 1
         return Promise.resolve(settingsCall === 1
-          ? ok({ writable: true, hasDocument: false, namespaces: NAMESPACES })
-          : fail('settings refresh down'))
+          ? remoteOk({ writable: true, hasDocument: false, namespaces: NAMESPACES })
+          : remoteFail('settings refresh down'))
       },
     })
     const store = new ModelsSettingsStore(face, settingsSchema, mirror)

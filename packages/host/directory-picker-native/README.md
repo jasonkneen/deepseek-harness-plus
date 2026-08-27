@@ -33,7 +33,7 @@ Choose this backend for a workstation-local operator on macOS, Windows, or deskt
 
 ### What an operator experiences
 
-Each call opens one native chooser on the host display and waits for the operator; aborting the caller's signal terminates the chooser process instead of leaving it open. On Linux the chooser needs either Zenity or KDialog installed; with neither present, `pick` rejects with an actionable error instead of falling back to a typed-path prompt. The browser half of this package registers a renderless flow occupant into the workspace flow — every `open` request drives `host.pickDirectory` and reports the one outcome (picked path, cancel, or failure).
+Each call opens one native chooser on the host display and waits for the operator; aborting the caller's signal terminates the chooser process instead of leaving it open. On Linux the chooser needs either Zenity or KDialog installed; with neither present, `pick` rejects with an actionable error instead of falling back to a typed-path prompt. The browser half of this package registers a renderless flow occupant into the workspace flow — every `open` request drives `directoryPicker/pick` and reports the one outcome (picked path, cancel, or failure).
 
 ### Observable failures
 

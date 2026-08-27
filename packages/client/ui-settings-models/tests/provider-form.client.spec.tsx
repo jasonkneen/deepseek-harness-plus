@@ -4,7 +4,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import Schema from '@deepseek-ai/schemastery'
 import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-test-runtime'
-import type { RpcResponse, SettingsNamespaceView } from '@deepseek-ai/dsh-api-remotes/client'
+import type { JsonValue, RpcResponse, SettingsNamespaceView } from '@deepseek-ai/dsh-api-remotes/client'
 import { ModelsSection, providerCopy } from '../src/client/ModelsSection.tsx'
 import type { ModelsSectionInjected, ModelsSectionProps } from '../src/client/ModelsSection.tsx'
 import { CustomProviderCard } from '../src/client/CustomProviderCard.tsx'
@@ -45,15 +45,22 @@ function ok<T>(value: T): RpcResponse<T> {
 function fail<T>(message: string, code: string): RpcResponse<T> {
   return { rpcId: `r-${nextRpc++}` as never, result: { ok: false, error: { code, message, details: {} } as never } }
 }
+/** Credentials answers over the Remote carrier, which has no envelope. */
+function remoteOk<T>(value: T) {
+  return { ok: true as const, value }
+}
+function remoteFail(message: string, code = 'credential-rejected') {
+  return { ok: false as const, error: { code, message, details: {} } }
+}
 
 function piAiNamespace(
-  providers: Record<string, unknown>,
-  userProviders: Record<string, unknown> = providers,
-  baseProviders: Record<string, unknown> = {},
+  providers: Record<string, JsonValue>,
+  userProviders: Record<string, JsonValue> = providers,
+  baseProviders: Record<string, JsonValue> = {},
 ): SettingsNamespaceView {
   return {
     ns: 'llm-pi-ai',
-    schema: JSON.parse(JSON.stringify(PiAiConfig.toJSON())) as unknown,
+    schema: JSON.parse(JSON.stringify(PiAiConfig.toJSON())) as JsonValue,
     // `value` is the effective section; `user` is only the layer this page
     // writes. They differ whenever a composition `base` supplies something.
     value: { providers },
@@ -66,11 +73,11 @@ function piAiNamespace(
 }
 
 function scriptedFace(options: {
-  providers?: Record<string, unknown>
+  providers?: Record<string, JsonValue>
   /** User layer, when it differs from the effective section. */
-  userProviders?: Record<string, unknown>
+  userProviders?: Record<string, JsonValue>
   /** Composition layer, for a route a `cordis.yml` pins rather than the page. */
-  baseProviders?: Record<string, unknown>
+  baseProviders?: Record<string, JsonValue>
   /** Routes the adapter reports as hand-declared; the rest come back as shipped. */
   declaredRoutes?: readonly string[]
   discover?: ReturnType<typeof vi.fn>
@@ -82,8 +89,8 @@ function scriptedFace(options: {
   }
   const namespace = piAiNamespace(providers, options.userProviders ?? providers, options.baseProviders ?? {})
   const discover = options.discover ?? vi.fn(() => Promise.resolve(ok({ models: [] })))
-  const mutate = options.mutate ?? vi.fn(() => Promise.resolve(ok(namespace)))
-  const set = options.set ?? vi.fn(() => Promise.resolve(ok({})))
+  const mutate = options.mutate ?? vi.fn(() => Promise.resolve(remoteOk(namespace)))
+  const set = options.set ?? vi.fn(() => Promise.resolve(remoteOk(undefined)))
   const face = {
     llm: {
       providers: vi.fn(() => Promise.resolve(ok({
@@ -100,15 +107,13 @@ function scriptedFace(options: {
       discoverModels: discover,
     },
     settings: {
-      describe: vi.fn(() => Promise.resolve(ok({ writable: true, namespaces: [namespace] }))),
-      update: vi.fn(),
-      replace: vi.fn(),
+      describe: vi.fn(() => Promise.resolve(remoteOk({ writable: true, namespaces: [namespace] }))),
       mutate,
     },
     credentials: {
-      describe: vi.fn((payload: { refs: string[] }) => Promise.resolve(ok({
-        credentials: Object.fromEntries(payload.refs.map(ref => [ref, { configured: false, writable: true }])),
-      }))),
+      describe: vi.fn((refs: string[]) => Promise.resolve(remoteOk(
+        Object.fromEntries(refs.map(ref => [ref, { configured: false, writable: true }])),
+      ))),
       set,
       unset: vi.fn(),
     },
@@ -132,11 +137,16 @@ function firstProbe(discover: ReturnType<typeof vi.fn>): unknown {
   return call
 }
 
-/** The first recorded settings write; fails the case when nothing was written. */
+/**
+ * The first recorded settings write, as one record. The Remote method takes
+ * three positional arguments; the cases read the write as a whole, so the
+ * regrouping lives here rather than in every assertion.
+ */
 function firstMutate(mutate: ReturnType<typeof vi.fn>): MutateCall {
-  const call = mutate.mock.calls[0]?.[0] as MutateCall | undefined
+  const call = mutate.mock.calls[0] as [string, MutateCall['ops'], number | undefined] | undefined
   if (call === undefined) throw new Error('no settings write was recorded')
-  return call
+  const [ns, ops, expectedRevision] = call
+  return { ns, ops, ...expectedRevision === undefined ? {} : { expectedRevision } }
 }
 
 async function mountSection(options: Parameters<typeof scriptedFace>[0] = {}) {
@@ -190,7 +200,7 @@ describe('protocolChoices', () => {
     const { namespace } = scriptedFace()
     expect(protocolChoices(namespace, settingsSchema)).toEqual(PROTOCOLS)
     expect(protocolChoices(undefined, settingsSchema)).toEqual([])
-    const plain = { ...namespace, schema: JSON.parse(JSON.stringify(Schema.object({}).toJSON())) as unknown }
+    const plain = { ...namespace, schema: JSON.parse(JSON.stringify(Schema.object({}).toJSON())) as JsonValue }
     expect(protocolChoices(plain, settingsSchema)).toEqual([])
     await Promise.resolve()
   })
@@ -734,7 +744,7 @@ describe('hand-declared providers', () => {
       // meanwhile makes this a conflict rather than an overwrite.
       expectedRevision: 7,
     })
-    expect(set).toHaveBeenCalledWith({ ref: 'ACME_GATEWAY_API_KEY', value: 'gw-key' })
+    expect(set).toHaveBeenCalledWith('ACME_GATEWAY_API_KEY', 'gw-key')
   })
 
   it('scopes each card to fields a provider can actually own', async () => {
@@ -901,8 +911,8 @@ describe('hand-declared providers', () => {
 
   it('retries only the key after the profile landed, and reports the provider on cancel', async () => {
     const set = vi.fn()
-      .mockResolvedValueOnce(fail('credential store is read-only', 'credential-rejected'))
-      .mockResolvedValueOnce(ok({}))
+      .mockResolvedValueOnce(remoteFail('credential store is read-only'))
+      .mockResolvedValueOnce(remoteOk(undefined))
     const { mutate, onClose } = mountCard({}, { set })
 
     fireEvent.change(screen.getByLabelText(en.customRoute), { target: { value: 'acme' } })
@@ -917,7 +927,7 @@ describe('hand-declared providers', () => {
     expect(onClose).not.toHaveBeenCalled()
     expect(mutate).toHaveBeenCalledTimes(1)
     // The key is stored trimmed, matching the editor.
-    expect(set).toHaveBeenNthCalledWith(1, { ref: 'ACME_API_KEY', value: 'gw-key' })
+    expect(set).toHaveBeenNthCalledWith(1, 'ACME_API_KEY', 'gw-key')
 
     // The provider exists now, so the fields describing it are settled and
     // only the key can still be corrected.
@@ -932,11 +942,11 @@ describe('hand-declared providers', () => {
     // first write superseded, so the Host would answer settings-conflict and
     // the key could never be stored from here at all.
     expect(mutate).toHaveBeenCalledTimes(1)
-    expect(set).toHaveBeenNthCalledWith(2, { ref: 'ACME_API_KEY', value: 'gw-key-2' })
+    expect(set).toHaveBeenNthCalledWith(2, 'ACME_API_KEY', 'gw-key-2')
   })
 
   it('reports the created provider when cancelled after its profile landed', async () => {
-    const set = vi.fn().mockResolvedValue(fail('nope', 'credential-rejected'))
+    const set = vi.fn().mockResolvedValue(remoteFail('nope'))
     const { onClose } = mountCard({}, { set })
 
     fireEvent.change(screen.getByLabelText(en.customRoute), { target: { value: 'acme' } })
@@ -1122,7 +1132,7 @@ describe('hand-declared providers', () => {
   })
 
   it('surfaces a refused write and a rejected transport without closing', async () => {
-    const refused = vi.fn(() => Promise.resolve(fail('read-only settings', 'settings-rejected')))
+    const refused = vi.fn(() => Promise.resolve(remoteFail('read-only settings', 'settings-rejected')))
     const { onClose } = mountCard({ api: { ...scriptedFace({ mutate: refused }).face } as never })
 
     fireEvent.change(screen.getByLabelText(en.customRoute), { target: { value: 'acme' } })
@@ -1150,7 +1160,7 @@ describe('hand-declared providers', () => {
   })
 
   it('reports a stored profile whose key write was refused', async () => {
-    const set = vi.fn(() => Promise.resolve(fail('credential is read-only', 'credential-rejected')))
+    const set = vi.fn(() => Promise.resolve(remoteFail('credential is read-only')))
     const { onClose } = mountCard({ api: { ...scriptedFace({ set }).face } as never })
 
     fireEvent.change(screen.getByLabelText(en.customRoute), { target: { value: 'acme' } })
@@ -1363,7 +1373,7 @@ describe('API key field', () => {
     fireEvent.click(screen.getByText(en.apply))
 
     await waitFor(() => { expect(set).toHaveBeenCalled() })
-    expect((set.mock.calls[0]?.[0] as { value: string }).value).toBe('sk-abc')
+    expect(set.mock.calls[0]?.[1]).toBe('sk-abc')
   })
 
   it('blocks the interrogation too, rather than spending a round trip on a refused key', async () => {
