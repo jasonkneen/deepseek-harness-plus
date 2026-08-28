@@ -273,7 +273,6 @@ export class LocalSubprocessRuntime extends SubprocessRuntime {
       this.internals.platform ?? process.platform,
       owner,
       scope?.resolveOutcome,
-      scope?.cleanup,
     )
     this.terminals.add(handle)
     const release = async (): Promise<void> => {

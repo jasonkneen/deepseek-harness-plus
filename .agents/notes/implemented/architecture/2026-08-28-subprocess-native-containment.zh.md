@@ -28,17 +28,17 @@ request 被消费或 manager 已观察到 unit 都能建立 scope ownership。�
 
 ### Windows runner 与 Job
 
-Windows parent 从 bootstrap cwd 与环境启动 provider runner，把原始 target argv 放在私有 `--` 分隔符之后，并通过 Node IPC 传递恰好一条 start request、幂等 terminate control 与恰好一个 direct-result 分支。runner 的 fd 0 至 fd 2 相互隔离，fd 3 承载 IPC，fd 4 至 fd 6 承载 target stdin、stdout 与 stderr。共享 Win32 层通过 UCRT `_get_osfhandle` 解析这些 CRT 描述符，经 `STARTF_USESTDHANDLES` 传递对应 OS handle，并保留单独解析的 `CreateProcessW` application path，而不改变原始 argv 项。suspended target 进入 Job 并恢复后，runner 只关闭 fd 4 至 fd 6，绝不改写或销毁 Node 标准流。parent 把 carrier stream 作为普通句柄的 stdio 返回，用户字节绝不经过 IPC。
+Windows parent 从 bootstrap cwd 与环境启动 provider runner，把原始 target argv 放在私有 `--` 分隔符之后，并通过 Node IPC 传递恰好一条 start request、幂等 terminate control 与恰好一个 result。runner 的 fd 0 至 fd 2 相互隔离，fd 3 承载 IPC，fd 4 至 fd 6 承载 target stdin、stdout 与 stderr。fd 4 始终是 pipe；忽略 stdin 时，parent 会在发送 start request 前销毁写端，使 target 在不改变描述符位置的情况下收到 EOF。共享 Win32 层调用 `GetStartupInfoW`，严格解码 libuv 的 `cbReserved2`／`lpReserved2` 表以取得 fd 4 至 fd 6 的 OS handle，临时启用这些 handle 的继承，并通过 `STARTF_USESTDHANDLES` 传入。`spawnCurrentTokenJobProcess` 要求单独解析的 `applicationName` 与完整 target 环境，并使用 `CREATE_UNICODE_ENVIRONMENT` 传入排序、双 NUL 结尾的 UTF-16LE 块，其中包括 `=X:` 驱动器条目，而不修改 runner 环境。suspended target 进入 Job 并恢复后，runner 只关闭 fd 4 至 fd 6，绝不改写或销毁 Node 标准流。parent 把 carrier stream 作为普通句柄的 stdio 返回，用户字节绝不经过 IPC。
 
 runner 是 target process handle 与 unnamed Job handle 的唯一 owner。`spawnCurrentTokenJobProcess` 以 suspended 状态创建 target，把它分配给不允许 active breakaway 的 kill-on-close Job，并只在分配后恢复。runner 轮询 direct process 获取 target exit code，并轮询 Job 获取 active-process count。只有 direct result 已通过 IPC send callback 交付且 Job 已报告零 active process 后，runner 才成功退出；parent 只把这次 clean exit 映射成成功的 `waitForExit()`。
 
-parent 只有在收到严格 direct-result message，并且既有 stdout／stderr close 或有界 drain barrier 完成后才结算 `.done`。后续 Job query 或 range settlement failure 只会使 `waitForExit()` reject。在该 `.done` barrier 之前发生 IPC loss 会使 `.done` 以 runner infrastructure failure reject；之后发生 IPC loss 会保留已经完成的 direct result，但仍使 range settlement reject。disconnect 或 result-send failure 会让 runner 停止协议工作、终止并关闭自己唯一的 Job handle，然后以非零状态退出。最后一个 Job handle 关闭会终止剩余成员，但不会把 disconnected 路径改写成成功的完全停稳证明。
+parent 会在收到经过校验、只含数字的 `target-exit` 时立即永久锁存它，此时既有 stdout／stderr close 或有界 drain barrier 可能尚未完成。`.done` 只继续等待该 stdio barrier，随后返回已锁存的结果。后续 Job query、range settlement failure、IPC loss 或 runner 异常退出只会使 `waitForExit()` reject，不能替换 direct result。在有效 target result 到达前发生 infrastructure failure 才会使 `.done` reject。disconnect 或 result-send failure 会让 runner 停止协议工作、终止并关闭自己唯一的 Job handle，然后以非零状态退出。最后一个 Job handle 关闭会终止剩余成员，但不会把 disconnected 路径改写成成功的完全停稳证明。
 
 ### 私有分派与协议
 
 source 启动通过 TypeScript source launcher 执行包内 runner 入口，built 启动解析 `@deepseek-ai/dsh-subprocess-local/runner` export，Python SDK 单文件可执行程序则从 `@deepseek-ai/dsh` 由打包层拥有的 `runtime-bootstrap.js` 进入。私有 selector 不存在时，该 bootstrap 导入公共 CLI；否则会删除 selector，并分派到同一 subprocess runner core。公共 `dsh` 参数解析器没有隐藏 runner mode，打包也不提供第二个 Node 可执行程序。
 
-selector 是 per-spawn locator 或 sentinel，不是凭据或持久格式。Linux 使用一个严格 request 与一个可选严格 startup-error 文件；Windows 使用一条 IPC channel，承载闭合集 start、terminate、`target-exit`、`spawn-error`、`runner-error` 与 `start-cancelled` 消息。错误只携带有界的 Node-shaped 字段。缺失、额外、类型错误或未知字段都会 fail closed。target 环境可以包含 selector 名称及其 Windows 大小写变体，因为 provider 会单独传递 target 状态，并且只在私有选择值消费后才恢复该状态。
+selector 是 per-spawn locator 或 sentinel，不是凭据或持久格式。Linux 使用一个严格 request 与一个可选严格 startup-error 文件。Windows 使用一条 IPC channel，承载闭集的 `start` 与 `terminate` request，以及恰好三个 result 分支：只含数字 `exitCode` 的 `target-exit`、携带有界 Node-shaped 字段的 `error`，以及无载荷的 `start-cancelled`；parent 会派生 `signal: null`。取消 reason 不跨 wire 传递，因此 parent 会原样保留第一个本地 reason，包括 `null` 或 `undefined`。缺失、额外、类型错误或未知字段都会 fail closed。target 环境可以包含 selector 名称及其 Windows 大小写变体，因为 provider 会单独传递 target 状态，并且只在私有选择值消费后才恢复该状态。
 
 ### Fallback 与 cleanup
 
@@ -54,7 +54,8 @@ selector 是 per-spawn locator 或 sentinel，不是凭据或持久格式。Linu
 
 ## Verification
 
-- provider 与协议测试套件固定同步 NUL 拒绝发生在启动副作用之前、严格 request／result 解码、target cwd 与完整环境恢复、私有变量碰撞、保留 argv 的 Linux PATH 查找、为继承 stdio 清除 close-on-exec、pre-exec error ownership、三种 scope 建立状态、全部 4 个 Windows result 分支、startup cancellation、result-send 与 IPC-disconnect failure、隔离 carrier 描述符关闭、stdio settlement、active-process 完全停稳，以及唯一 handle cleanup。
+- provider 与 Linux 协议测试套件固定同步 NUL 拒绝发生在启动副作用之前、严格 request／error 解码、target cwd 与完整环境恢复、私有变量碰撞、保留 argv 且对 symlink 敏感的 PATH 遍历、为继承 stdio 清除 close-on-exec、pre-exec error ownership、三种 scope 建立状态，以及 PTY managed-owner 恰好一次 cleanup。
+- Windows 协议与 Win32 测试套件固定恰好三个 result 分支、只含数字的 target exit、原样本地 cancellation reason、access denied 到 `EPERM`／`-4048` 的映射、显式排序的 target 环境块及 `=C:` 保留和双 NUL 结尾、严格的 `GetStartupInfoW` libuv 描述符表解码、始终使用 pipe 的 ignored-stdin carrier、result-send 与 IPC-disconnect failure、stdio settlement 前的 direct-result 锁存、active-process 完全停稳，以及唯一 handle cleanup。
 - 真实 Linux user-systemd 测试会分别通过生产入口运行一条普通命令与一条 `node-pty` `setsid`／reparent 场景。它们证明 scope signalling 与 collection、裸可执行文件查找、逃逸后代终止、range settlement，以及不变的 PTY PID、session、控制终端、前台输入、`/dev/tty`、readiness 与 startup-failure 语义。
 - native Windows 测试证明 suspended creation、resume 前 Job assignment、继承 stdio、默认后代继承、direct result、termination、active-process zero、异常／disconnected runner cleanup、kill-on-close 与同步 host-exit termination。source、built 与 Python packaged 冒烟测试进入同一 runner core。
 - 公共 seam 类型、local 与 E2B provider、LSP 与 subagent 消费方、shell fixture、README、Cordis catalog 与 keyless subprocess API snapshot 都不包含普通 PID；terminal PID 保留。

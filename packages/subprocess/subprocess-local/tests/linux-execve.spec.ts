@@ -49,7 +49,7 @@ describe('Linux libc execve binding', () => {
     expect(errno).toHaveBeenCalledOnce()
     expect(failure).toMatchObject({
       code: 'ENOENT',
-      errno: 2,
+      errno: -2,
       syscall: 'execve',
       path: '/missing/tool',
     })
@@ -69,7 +69,7 @@ describe('Linux libc execve binding', () => {
     const { loadLinuxExecve } = await import('../src/linux-execve.ts')
     expect(() => loadLinuxExecve()('/bin/tool', ['tool'], {})).toThrow(expect.objectContaining({
       code: 'EBADF',
-      errno: 9,
+      errno: -9,
       syscall: 'fcntl',
     }))
     expect(nativeFcntl).toHaveBeenCalledExactlyOnceWith(0, 1, 0)
@@ -91,7 +91,7 @@ describe('Linux libc execve binding', () => {
     const { loadLinuxExecve } = await import('../src/linux-execve.ts')
     expect(() => loadLinuxExecve()('/bin/tool', ['tool'], {})).toThrow(expect.objectContaining({
       code: 'EIO',
-      errno: 5,
+      errno: -5,
       syscall: 'fcntl',
     }))
     expect(nativeFcntl.mock.calls).toEqual([

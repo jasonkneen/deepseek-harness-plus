@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-07-16-explicit-turn-cancellation.md
-2026-07-16-explicit-turn-cancellation.md: 86faad9929d3eb5b00e66bb1c46a2e35b135d954
-2026-07-16-explicit-turn-cancellation.zh.md: acf56e0629668a227324045ffd0521619dc45f33
+2026-07-16-explicit-turn-cancellation.md: 2d611d4f67b911fddea1e374f604277217dd7d54
+2026-07-16-explicit-turn-cancellation.zh.md: a87c45a2fbdc1e654665486fd340d034d70a9b98

@@ -22,11 +22,15 @@ class FakeChild extends EventEmitter {
   sendError: Error | undefined
   throwOnSendCall: number | undefined
   sendThrown: unknown = new Error('send threw')
+  stdinDestroyedAtStart: boolean | undefined
   private sendCalls = 0
 
   send(message: unknown, callback?: (error: Error | null) => void): boolean {
     this.sendCalls += 1
     if (this.sendCalls === this.throwOnSendCall) throw this.sendThrown
+    if ((message as { type?: string }).type === 'start') {
+      this.stdinDestroyedAtStart = this.targetStdin.destroyed
+    }
     this.sent.push(message)
     queueMicrotask(() => { callback?.(this.sendError ?? null) })
     return true
@@ -45,9 +49,12 @@ const spec = {
   graceMs: 100,
 } as const
 
-function launch(child = new FakeChild()) {
+function launch(
+  child = new FakeChild(),
+  request: Parameters<typeof launchWindowsJob>[0] = spec,
+) {
   const spawn = vi.fn(() => child)
-  const result = launchWindowsJob(spec, { TARGET: 'yes' }, {
+  const result = launchWindowsJob(request, { TARGET: 'yes' }, {
     spawn: spawn as never,
     runnerInvocation: ['C:\\node.exe', 'C:\\runner.js'],
   })
@@ -77,7 +84,7 @@ describe('Windows Job capability', () => {
 
       const result = isolated.launchWindowsJob(spec, { TARGET: 'yes' })
       expect(spawn).toHaveBeenCalledOnce()
-      child.emit('message', { type: 'target-exit', exitCode: 0, signal: null })
+      child.emit('message', { type: 'target-exit', exitCode: 0 })
       child.connected = false
       child.emit('close', 0, null)
       await expect(result.direct).resolves.toEqual({ exitCode: 0, signal: null })
@@ -134,29 +141,46 @@ describe('Windows parent runner contract', () => {
     expect(result.stderr).toBe(child.targetStderr)
   })
 
+  it('always carries fd 4 and closes ignored stdin before sending start', () => {
+    const child = new FakeChild()
+    const ignored = {
+      ...spec,
+      stdio: { stdin: 'ignore', stdout: 'pipe', stderr: 'inherit' },
+    } as const
+    const { result, spawn } = launch(child, ignored)
+    expect(spawn).toHaveBeenCalledWith('C:\\node.exe', expect.any(Array), expect.objectContaining({
+      stdio: ['ignore', 'ignore', 'ignore', 'ipc', 'pipe', 'pipe', 2],
+    }))
+    expect(child.stdinDestroyedAtStart).toBe(true)
+    expect(result.stdin).toBeNull()
+  })
+
   it('maps target-exit to direct outcome and clean close to range quiescence', async () => {
     const { child, result } = launch()
-    child.emit('message', { type: 'target-exit', exitCode: 7, signal: null })
+    child.emit('message', { type: 'target-exit', exitCode: 7 })
     await expect(result.direct).resolves.toEqual({ exitCode: 7, signal: null })
     child.connected = false
     child.emit('close', 0, null)
     await expect(result.owner.waitForExit()).resolves.toBeUndefined()
   })
 
-  it('rejects done when runner failure precedes stdio settlement', async () => {
+  it('latches target-exit while stdio drains and leaves later runner failure to waitForExit', async () => {
     const { child, result } = launch()
     const handle = bindManagedProcess(spec, result)
-    child.emit('message', { type: 'target-exit', exitCode: 7, signal: null })
+    child.emit('message', { type: 'target-exit', exitCode: 7 })
     await Promise.resolve()
     child.connected = false
     child.emit('close', 127, null)
-    await expect(handle.done).rejects.toThrow('exit code 127')
+    child.targetStdout.end()
+    child.targetStderr.end()
+    await expect(handle.done).resolves.toEqual({ exitCode: 7, signal: null })
+    await expect(handle.waitForExit()).rejects.toThrow('exit code 127')
   })
 
-  it('maps spawn-error and start-cancelled without requiring public target identity', async () => {
+  it('maps error and preserves raw start-cancellation reasons', async () => {
     const spawned = launch()
     spawned.child.emit('message', {
-      type: 'spawn-error', error: { name: 'Error', message: 'missing', code: 'ENOENT' },
+      type: 'error', error: { name: 'Error', message: 'missing', code: 'ENOENT' },
     })
     await expect(spawned.result.direct).rejects.toMatchObject({ code: 'ENOENT' })
     spawned.child.connected = false
@@ -173,6 +197,15 @@ describe('Windows parent runner contract', () => {
     cancelled.child.emit('close', 0, null)
     await expect(cancelled.result.owner.waitForExit()).resolves.toBeUndefined()
 
+    const nullCancelled = launch()
+    nullCancelled.result.owner.signal('SIGTERM', null)
+    nullCancelled.result.owner.signal('SIGKILL', new Error('later reason'))
+    nullCancelled.child.emit('message', { type: 'start-cancelled' })
+    await expect(nullCancelled.result.direct).rejects.toBeNull()
+    nullCancelled.child.connected = false
+    nullCancelled.child.emit('close', 0, null)
+    await expect(nullCancelled.result.owner.waitForExit()).resolves.toBeUndefined()
+
     const implicit = launch()
     implicit.child.emit('message', { type: 'start-cancelled' })
     await expect(implicit.result.direct).rejects.toThrow('target start was cancelled')
@@ -181,10 +214,10 @@ describe('Windows parent runner contract', () => {
     await expect(implicit.result.owner.waitForExit()).resolves.toBeUndefined()
   })
 
-  it('rejects direct and wait for runner-error or abnormal runner exit', async () => {
+  it('rejects direct and wait for runner error or abnormal runner exit', async () => {
     const failed = launch()
     failed.child.emit('message', {
-      type: 'runner-error', error: { name: 'Error', message: 'Job assignment failed' },
+      type: 'error', error: { name: 'Error', message: 'Job assignment failed' },
     })
     await expect(failed.result.direct).rejects.toThrow('Job assignment failed')
     failed.child.connected = false
@@ -205,13 +238,13 @@ describe('Windows parent runner contract', () => {
 
   it('fails closed on malformed/duplicate result, runner spawn error, and start-send error', async () => {
     const malformed = launch()
-    malformed.child.emit('message', { type: 'target-exit', exitCode: -1, signal: null })
+    malformed.child.emit('message', { type: 'target-exit', exitCode: -1 })
     expect(malformed.child.killed).toEqual(['SIGKILL'])
     await expect(malformed.result.infrastructureFailure).rejects.toThrow('invalid target-exit')
 
     const duplicate = launch()
-    duplicate.child.emit('message', { type: 'target-exit', exitCode: 0, signal: null })
-    duplicate.child.emit('message', { type: 'target-exit', exitCode: 0, signal: null })
+    duplicate.child.emit('message', { type: 'target-exit', exitCode: 0 })
+    duplicate.child.emit('message', { type: 'target-exit', exitCode: 0 })
     await expect(duplicate.result.infrastructureFailure).rejects.toThrow('more than one direct result')
     duplicate.child.connected = false
     duplicate.child.emit('close', 127, null)
@@ -240,8 +273,8 @@ describe('Windows parent runner contract', () => {
     nonError.throwOnSendCall = 1
     nonError.sendThrown = 'start send failed'
     const nonErrorResult = launch(nonError).result
-    await expect(nonErrorResult.direct).rejects.toThrow('start send failed')
-    await expect(nonErrorResult.infrastructureFailure).rejects.toThrow('start send failed')
+    await expect(nonErrorResult.direct).rejects.toBe('start send failed')
+    await expect(nonErrorResult.infrastructureFailure).rejects.toBe('start send failed')
   })
 
   it('fails infrastructure and kills the runner when termination delivery fails', async () => {
@@ -260,7 +293,7 @@ describe('Windows parent runner contract', () => {
     throwingChild.sendThrown = 'terminate send threw'
     const throwing = launch(throwingChild)
     throwing.result.owner.signal('SIGTERM')
-    await expect(throwing.result.infrastructureFailure).rejects.toThrow('terminate send threw')
+    await expect(throwing.result.infrastructureFailure).rejects.toBe('terminate send threw')
     expect(throwing.child.killed).toEqual(['SIGKILL'])
 
     const errorChild = new FakeChild()

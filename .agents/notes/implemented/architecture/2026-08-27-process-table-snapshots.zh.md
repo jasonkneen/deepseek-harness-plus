@@ -22,17 +22,19 @@ Status: implemented
 
 任何派生两个及以上子进程的命令——一条管道、`make`、`pnpm`、`git`——都会把宿主事件循环打满，直到它退出。
 
-拆卸路径的结构相同。`signalProcess` 自己去问存活来给每个信号加 PID 复用围栏，因此向 N 个成员发信号要读 N 次表。
+fallback 终端拆卸路径的结构相同。`signalProcess` 自己去问存活来给每个信号加 PID 复用围栏，因此向 N 个已观察成员发信号要读 N 次表。
 
 ## Decision
 
 `ProcessInspector.snapshot()` 返回一个 `ProcessSnapshot`，即对进程表的一次观察，由它回答 `tree(rootPid)`、`session(sessionId)` 和 `alive(identity)`。它取代了那三个按问题划分的方法；检查器剩下的接口是 `foregroundPgid`、`isStdinWaiting`、`signalGroup` 和 `signalProcess`。
 
-每个调用方捕获一次快照，并从中回答本次流程的全部问题。`LocalTerminalHandle.descendants()` 取一次快照，从中读取树与会话，并用同一个 `alive` 过滤幸存者，因此一次就绪轮询无论有多少子进程都只读一次表。`waitForMembers` 每一轮轮询各捕获一次新快照，因为它的用途正是观察变化。
+每个调用方捕获一次快照，并从中回答本次流程的全部问题。`LocalTerminalHandle.descendants()` 取一次快照，从中读取树与会话，并用同一个 `alive` 过滤幸存者，因此一次就绪轮询无论有多少子进程都只读一次表。fallback `waitForMembers` 每一轮轮询各捕获一次新快照，因为它的用途正是观察变化。
 
 发信号不共用这份观察。`ProcessInspector.isAlive(identity)` 用各平台最窄的按标识来源回答当前状态——Linux 读一个 `/proc/<pid>/stat`、macOS 读一次 `ps` 表、Windows 查一次进程句柄——`signalProcess` 在投递信号前就地取这道围栏。观察无法代替它：观察把原始的「PID 与起始时间」配对保留了下来，因此被复用的 PID 仍会与之匹配，并领走本该发给已退出进程的信号。逐目标读取围栏还让一次失败的读取只损失一个目标，而不是整轮拆卸的其余部分，这正是[同步退出清理约定](../bug-fix/2026-08-11-synchronous-subprocess-exit-cleanup.zh.md)的要求。
 
 `signalMembers` 与 `waitForMembers` 在一轮没有成员时直接返回、不做任何捕获，因此没有派生子进程的命令，其拆卸扫描不付表读取代价。
+
+受支持的 Linux 终端在绑定 user-systemd scope 后，正常拆卸会绕过这些观察扫描，改为等待 manager 拥有的成员事实。进程表快照继续负责前台／就绪检查，以及 fallback 或同步宿主退出清理。[原生 containment 决策](2026-08-28-subprocess-native-containment.zh.md)负责这项分工。
 
 平台差异体现在快照如何构建，而不在它承诺什么：
 
@@ -62,7 +64,7 @@ Status: implemented
 
 一次就绪轮询的进程表代价现在与子进程数量无关。在 macOS 上，一次轮询执行一次完整表读取加一次小的 `tpgid` 读取，也就是上表中 0 子进程那一行的代价，对任意子进程数量都成立。
 
-拆卸保持原有的按次代价：每个目标一次窄的存活读取，在 macOS 上即每个成员一次 `ps` fork。这项代价从来不是实测到的问题——一个终端只拆卸一次，而它的就绪路径最多轮询 600 次——所以本次修复刻意付出它，以保证围栏读的是当前状态。
+fallback 与同步宿主退出拆卸保持原有的按次代价：每个目标一次窄的存活读取，在 macOS 上即每个成员一次 `ps` fork。这项代价从来不是实测到的问题——一个终端只拆卸一次，而它的就绪路径最多轮询 600 次——所以本次修复刻意付出它，以保证围栏读的是当前状态。受支持的 Linux 正常拆卸使用 scope 成员事实，不执行这项扫描。
 
 快照是一个时间点视图，该类型的文档也这样声明。`waitForMembers` 每轮重新捕获是因为观察变化正是它的用途；任何信号都不会从一份已捕获的视图上做决定。
 

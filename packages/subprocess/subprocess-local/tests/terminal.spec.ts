@@ -220,14 +220,15 @@ describe('LocalTerminalHandle', () => {
     expect(pty.kills).toEqual([])
   })
 
-  it('rejects managed outcome conversion and cleans its protocol after exit', async () => {
+  it('rejects managed outcome conversion and cleans through its owner exactly once', async () => {
     const pty = new FakePty()
     const failure = new Error('invalid bootstrap outcome')
-    const cleanupManagedProtocol = vi.fn()
+    const cleanup = vi.fn()
     const owner: BoundProcessOwner = {
       signal: vi.fn(),
       waitForExit: async () => {},
       terminateForHostExit: vi.fn(),
+      cleanup,
     }
     const handle = new LocalTerminalHandle(
       pty.asPty(),
@@ -236,13 +237,33 @@ describe('LocalTerminalHandle', () => {
       'linux',
       owner,
       () => { throw failure },
-      cleanupManagedProtocol,
     )
 
     pty.emitExit()
     await expect(handle.done).rejects.toBe(failure)
     await expect(handle.terminate()).resolves.toBeUndefined()
-    await vi.waitFor(() => { expect(cleanupManagedProtocol).toHaveBeenCalledOnce() })
+    await expect(handle.terminate()).resolves.toBeUndefined()
+    await vi.waitFor(() => { expect(cleanup).toHaveBeenCalledOnce() })
+  })
+
+  it('runs owner cleanup once after repeated failed managed termination attempts', async () => {
+    const pty = new FakePty()
+    const failure = new Error('scope stayed unreadable')
+    const cleanup = vi.fn()
+    const owner: BoundProcessOwner = {
+      signal: vi.fn(),
+      waitForExit: vi.fn(async () => { throw failure }),
+      terminateForHostExit: vi.fn(),
+      cleanup,
+    }
+    const handle = new LocalTerminalHandle(pty.asPty(), new FakeInspector(), 10, 'linux', owner)
+
+    await expect(handle.terminate()).rejects.toThrow('terminal managed-range cleanup failed')
+    await expect(handle.terminate()).rejects.toThrow('terminal managed-range cleanup failed')
+    expect(cleanup).not.toHaveBeenCalled()
+    pty.emitExit()
+    await expect(handle.done).resolves.toEqual({ exitCode: 0, signal: null })
+    await vi.waitFor(() => { expect(cleanup).toHaveBeenCalledOnce() })
   })
 
   it('waits for the node-pty exit event after the managed range becomes empty', async () => {

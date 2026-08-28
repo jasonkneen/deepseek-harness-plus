@@ -342,7 +342,7 @@ export function validateSubprocessSpec(spec: SubprocessSpawnSpec): void {
     throw new Error(`subprocess graceMs must be a positive finite number no greater than ${MAX_TIMER_DELAY_MS}`)
   }
   if (spec.signal?.aborted) {
-    throw new Error(`aborted before spawn: ${String(spec.signal.reason ?? 'aborted')}`)
+    throw spec.signal.reason
   }
   const [program] = spec.argv
   if (program === undefined || program.length === 0) {
@@ -483,6 +483,7 @@ export function bindManagedProcess(
   let graceTimer: ReturnType<typeof setTimeout> | undefined
   let rangeExitObserved = false
   let rangeExitObservation: Promise<void> | undefined
+  let directResultLatched = false
   let settled = false
 
   const scheduleOwnerCleanup = (): boolean => {
@@ -563,17 +564,19 @@ export function bindManagedProcess(
       resolve(outcome)
     }
     const fail = (error: unknown): void => {
-      if (settled) return
+      if (settled || directResultLatched) return
       settled = true
       terminate()
       stopCollectors()
       cleanup()
-      /* v8 ignore next -- managed launch promises reject with Error instances. */
-      const failure = error instanceof Error ? error : new Error(String(error))
-      reject(failure)
+      // Preserve the exact parent-local AbortSignal reason, including null or undefined.
+      // oxlint-disable-next-line typescript/prefer-promise-reject-errors -- Exact cancellation reason is the contract.
+      reject(error)
     }
     void launch.infrastructureFailure?.catch(fail)
     launch.direct.then((outcome) => {
+      if (settled) return
+      directResultLatched = true
       if (stdoutClosed === undefined && stderrClosed === undefined) {
         settle(outcome)
         return

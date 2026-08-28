@@ -10,6 +10,8 @@ export const INFINITE = 0xFFFFFFFF
 export const WAIT_TIMEOUT = 258
 /** CreateProcess flag that prevents user code from running before resume. */
 export const CREATE_SUSPENDED = 0x4
+/** CreateProcess flag selecting a UTF-16 environment block. */
+export const CREATE_UNICODE_ENVIRONMENT = 0x400
 /** GetStdHandle selector for standard input. */
 export const STD_INPUT_HANDLE = -10
 /** GetStdHandle selector for standard output. */
@@ -44,3 +46,11 @@ export const JOBOBJECT_EXTENDED_LIMIT_FLAGS_OFFSET = 16
 export const STARTUPINFOW_SIZE = 104
 /** x64 PROCESS_INFORMATION byte size verified by the native probe. */
 export const PROCESS_INFORMATION_SIZE = 24
+/** libuv CRT descriptor flag marking an inherited descriptor as open. */
+export const CRT_FOPEN = 0x01
+/** Largest descriptor count accepted by libuv's inherited stdio table. */
+export const MAX_INHERITED_STDIO_DESCRIPTORS = 256
+/** Byte width of the descriptor count at the start of libuv's stdio table. */
+export const INHERITED_STDIO_COUNT_SIZE = 4
+/** x64 HANDLE width in libuv's inherited stdio table. */
+export const INHERITED_STDIO_HANDLE_SIZE = 8

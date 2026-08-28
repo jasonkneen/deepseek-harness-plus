@@ -9,6 +9,7 @@ import {
   allocUint32,
   decodeProcessInfo,
   decodePtr,
+  decodeStartupInfo,
   decodeUint32,
   encodeStartupInfo,
   isNullPtr,
@@ -53,6 +54,19 @@ export function buildCommandLine(program: string, args: readonly string[]): stri
   return [program, ...args].map(quoteArg).join(' ')
 }
 
+function compareWindowsEnvironmentKeys(
+  [left]: readonly [string, string],
+  [right]: readonly [string, string],
+): number {
+  return left.toUpperCase().localeCompare(right.toUpperCase(), 'en-US')
+}
+
+function encodeWindowsEnvironment(env: Readonly<Record<string, string>>): Buffer {
+  const entries = Object.entries(env).sort(compareWindowsEnvironmentKeys)
+  const strings = entries.map(([key, value]) => `${key}=${value}`)
+  return Buffer.from(`${strings.join('\0')}\0\0`, 'utf16le')
+}
+
 interface ProcessSpawnOptions {
   /** Executable argv entry passed through CreateProcess. */
   command: string
@@ -65,7 +79,9 @@ interface ProcessSpawnOptions {
 /** Ordinary process creation inputs used by the local Win32 runner. */
 export interface CurrentTokenProcessSpawnOptions extends ProcessSpawnOptions {
   /** Resolved executable path passed separately from the preserved argv entry. */
-  applicationName?: string
+  applicationName: string
+  /** Complete target environment passed without mutating the runner. */
+  env: Readonly<Record<string, string>>
   /** Runner CRT descriptors carrying target stdin, stdout, and stderr. */
   stdio: CurrentTokenStdioFileDescriptors
 }
@@ -357,10 +373,48 @@ function targetCarrierHandles(
   api: CurrentTokenProcessBindings,
   descriptors: CurrentTokenStdioFileDescriptors,
 ): ProcessStandardHandles {
+  let startupInfo: NativePtr | undefined
+  let table: Buffer
+  try {
+    startupInfo = allocStartupInfo()
+    api.getStartupInfoW(startupInfo)
+    const inherited = decodeStartupInfo(startupInfo)
+    if (isNullPtr(inherited.lpReserved2)) {
+      throw new Error('GetStartupInfoW returned no inherited stdio table')
+    }
+    if (inherited.cbReserved2 < abi.INHERITED_STDIO_COUNT_SIZE) {
+      throw new Error('GetStartupInfoW returned a truncated inherited stdio table')
+    }
+    table = Buffer.from(koffi.view(inherited.lpReserved2, inherited.cbReserved2))
+  } finally {
+    freeNative(startupInfo)
+  }
+  const count = table.readUInt32LE(0)
+  if (count > abi.MAX_INHERITED_STDIO_DESCRIPTORS) {
+    throw new Error(`inherited stdio table declares unsupported descriptor count ${String(count)}`)
+  }
+  const requiredSize = abi.INHERITED_STDIO_COUNT_SIZE
+    + count
+    + count * abi.INHERITED_STDIO_HANDLE_SIZE
+  if (table.length < requiredSize) {
+    throw new Error('GetStartupInfoW returned a truncated inherited stdio table')
+  }
   const get = (fileDescriptor: number, label: string): NativePtr => {
-    const handle = api.getOsfHandle(fileDescriptor)
-    if (handle !== -1 && handle !== -1n) return BigInt(handle) as NativePtr
-    throw new Error(`_get_osfhandle failed for target ${label} fd ${String(fileDescriptor)}`)
+    if (fileDescriptor >= count) {
+      throw new Error(`inherited stdio table is missing target ${label} fd ${String(fileDescriptor)}`)
+    }
+    const flags = table[abi.INHERITED_STDIO_COUNT_SIZE + fileDescriptor] as number
+    if ((flags & abi.CRT_FOPEN) === 0) {
+      throw new Error(`inherited stdio table marks target ${label} fd ${String(fileDescriptor)} closed`)
+    }
+    const handleOffset = abi.INHERITED_STDIO_COUNT_SIZE
+      + count
+      + fileDescriptor * abi.INHERITED_STDIO_HANDLE_SIZE
+    const handle = table.readBigUInt64LE(handleOffset)
+    if (handle === 0n || handle === 0xFFFFFFFFFFFFFFFFn || handle === 0xFFFFFFFFFFFFFFFEn) {
+      throw new Error(`inherited stdio table contains an invalid handle for target ${label} fd ${String(fileDescriptor)}`)
+    }
+    return handle as NativePtr
   }
   return {
     stdin: get(descriptors.stdin, 'stdin'),
@@ -496,15 +550,16 @@ export function spawnCurrentTokenJobProcess(
   options: CurrentTokenProcessSpawnOptions,
 ): SpawnedJobProcess {
   const commandLine = buildCommandLine(options.command, options.args)
+  const environment = encodeWindowsEnvironment(options.env)
   return spawnJobProcess(api, options, () => targetCarrierHandles(api, options.stdio), 'CreateProcessW', (startupInfo, processInfo) =>
     api.createProcessW(
-      options.applicationName ?? null,
+      options.applicationName,
       commandLine,
       null,
       null,
       1,
-      abi.CREATE_SUSPENDED,
-      null,
+      abi.CREATE_SUSPENDED | abi.CREATE_UNICODE_ENVIRONMENT,
+      environment,
       options.cwd,
       startupInfo,
       processInfo,
@@ -516,8 +571,8 @@ export function spawnCurrentTokenJobProcess(
  * @param api - active binding table.
  */
 export function probeCurrentTokenJobSupport(api: CurrentTokenProcessBindings): void {
-  if (typeof api.getOsfHandle !== 'function') {
-    throw new Error('current-token Job support requires UCRT _get_osfhandle')
+  if (typeof api.getStartupInfoW !== 'function') {
+    throw new Error('current-token Job support requires GetStartupInfoW')
   }
   const job = createKillOnCloseJob(api)
   closeHandleChecked(api, job, 'current-token Job capability probe')

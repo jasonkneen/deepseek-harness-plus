@@ -1375,13 +1375,14 @@ const [runtime, target, cwd, targetScript] = process.argv.slice(2)
 const child = spawn(runtime, ['--', target, '-c', targetScript], {
   cwd,
   env: { ...process.env, DSH_SUBPROCESS_RUNNER: 'windows' },
-  stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
+  stdio: ['ignore', 'ignore', 'ignore', 'ipc', 'pipe', 'pipe', 'pipe'],
 })
 const messages = []
 let stdout = ''
 let stderr = ''
-child.stdout.on('data', chunk => { stdout += chunk.toString() })
-child.stderr.on('data', chunk => { stderr += chunk.toString() })
+child.stdio[4].destroy()
+child.stdio[5].on('data', chunk => { stdout += chunk.toString() })
+child.stdio[6].on('data', chunk => { stderr += chunk.toString() })
 child.on('message', message => { messages.push(message) })
 const result = await new Promise((resolve, reject) => {
   child.once('error', reject)
@@ -1416,7 +1417,7 @@ process.stdout.write(JSON.stringify({ ...result, messages, stdout, stderr }))
         expected = {
             "exitCode": 0,
             "signal": None,
-            "messages": [{"type": "target-exit", "exitCode": 7, "signal": None}],
+            "messages": [{"type": "target-exit", "exitCode": 7}],
             "stdout": "",
             "stderr": "",
         }

@@ -111,7 +111,7 @@ export function runnerStdio(
     'ignore',
     'ignore',
     'ipc',
-    targetStdio[0],
+    'pipe',
     spec.stdio.stdout === 'inherit' ? 1 : 'pipe',
     spec.stdio.stderr === 'inherit' ? 2 : 'pipe',
   ]

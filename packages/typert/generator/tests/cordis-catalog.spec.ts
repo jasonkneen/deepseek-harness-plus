@@ -80,8 +80,7 @@ describe('Typert-backed Cordis catalog', () => {
         )
       }
     }
-    const runtimeApi = projector.renderRuntimeApi(model)
-    expect(runtimeApi).toBe(
+    expect(projector.renderRuntimeApi(model)).toBe(
       expected('packages/extensions/tool-cordis/src/api-catalog.ts'),
     )
   })

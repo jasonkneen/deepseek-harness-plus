@@ -18,8 +18,6 @@ export interface Win32BindingContext {
   readonly kernel32: ReturnType<typeof koffi.load>
   /** Token and security APIs. */
   readonly advapi32: ReturnType<typeof koffi.load>
-  /** Universal CRT file-descriptor operations. */
-  readonly ucrtbase: ReturnType<typeof koffi.load>
   /** Bind one stdcall function from a loaded Win32 library. */
   readonly bind: (
     library: ReturnType<typeof koffi.load>,
@@ -53,6 +51,12 @@ export interface ProcessInfoOutput {
   hThread: NativePtr | null
   dwProcessId: number
   dwThreadId: number
+}
+
+/** STARTUPINFOW fields used to recover libuv's inherited descriptor table. */
+export interface StartupInfoOutput {
+  cbReserved2: number
+  lpReserved2: NativePtr | null
 }
 
 /** Generic Win32 calls consumed by restricted-token sandbox process operations. */
@@ -90,7 +94,7 @@ export interface Win32ProcessBindings {
     threadAttributes: null,
     inheritHandles: number,
     creationFlags: number,
-    environment: null,
+    environment: Buffer | null,
     currentDirectory: string | null,
     startupInfo: NativePtr,
     processInfo: NativePtr,
@@ -122,9 +126,9 @@ export interface Win32ProcessBindings {
   getStdHandle(stdHandle: number): NativePtr
 }
 
-/** Generic Win32 calls plus current-process CRT descriptor lookup. */
+/** Generic Win32 calls plus the inherited startup-information reader. */
 export interface CurrentTokenProcessBindings extends Win32ProcessBindings {
-  getOsfHandle(fileDescriptor: number): number | bigint
+  getStartupInfoW(startupInfo: NativePtr): void
 }
 
 /** Koffi STARTUPINFOW layout. */
@@ -219,6 +223,15 @@ export function encodeStartupInfo(startupInfo: NativePtr, fields: StartupInfoInp
 }
 
 /**
+ * Decode the inherited-descriptor fields from STARTUPINFOW.
+ * @param startupInfo - struct filled by GetStartupInfoW.
+ * @returns reserved buffer size and pointer.
+ */
+export function decodeStartupInfo(startupInfo: NativePtr): StartupInfoOutput {
+  return koffi.decode(startupInfo, STARTUPINFOW) as StartupInfoOutput
+}
+
+/**
  * Allocate a zeroed PROCESS_INFORMATION.
  * @returns allocated struct pointer.
  */
@@ -243,20 +256,19 @@ function bindingContext(): Win32BindingContext {
   if (cachedContext !== undefined) return cachedContext
   const kernel32 = koffi.load('kernel32.dll')
   const advapi32 = koffi.load('advapi32.dll')
-  const ucrtbase = koffi.load('ucrtbase.dll')
   const bind = (
     lib: ReturnType<typeof koffi.load>,
     name: string,
     result: Ptr | string,
     args: Array<Ptr | string>,
   ): unknown => lib.func('__stdcall', name, result, args)
-  cachedContext = { kernel32, advapi32, ucrtbase, bind }
+  cachedContext = { kernel32, advapi32, bind }
   return cachedContext
 }
 
 function bindings(): CurrentTokenProcessBindings {
   if (cached !== undefined) return cached
-  const { kernel32, advapi32, ucrtbase, bind } = bindingContext()
+  const { kernel32, advapi32, bind } = bindingContext()
   cached = {
     closeHandle: bind(kernel32, 'CloseHandle', 'int', [PVOID]),
     getLastError: bind(kernel32, 'GetLastError', 'uint32', []),
@@ -289,7 +301,7 @@ function bindings(): CurrentTokenProcessBindings {
     terminateProcess: bind(kernel32, 'TerminateProcess', 'int', [PVOID, 'uint32']),
     terminateJobObject: bind(kernel32, 'TerminateJobObject', 'int', [PVOID, 'uint32']),
     getStdHandle: bind(kernel32, 'GetStdHandle', PVOID, ['int']),
-    getOsfHandle: ucrtbase.func('_get_osfhandle', 'intptr_t', ['int']),
+    getStartupInfoW: bind(kernel32, 'GetStartupInfoW', 'void', [koffi.pointer(STARTUPINFOW)]),
   } as unknown as CurrentTokenProcessBindings
   return cached
 }

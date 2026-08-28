@@ -11,6 +11,10 @@ import {
 } from '../src/index.ts'
 import {
   CREATE_SUSPENDED,
+  CREATE_UNICODE_ENVIRONMENT,
+  CRT_FOPEN,
+  INHERITED_STDIO_COUNT_SIZE,
+  INHERITED_STDIO_HANDLE_SIZE,
   JOBOBJECT_BASIC_ACCOUNTING_ACTIVE_PROCESSES_OFFSET,
   JOBOBJECT_BASIC_ACCOUNTING_SIZE,
   JobObjectBasicAccountingInformation,
@@ -18,11 +22,51 @@ import {
 } from '../src/abi.ts'
 import { PROCESS_INFORMATION, STARTUPINFOW } from '../src/ffi.ts'
 import type {
+  CurrentTokenProcessSpawnOptions,
   CurrentTokenProcessBindings,
   NativePtr,
 } from '../src/index.ts'
 
+function inheritedStdioTable(count = 7): Buffer {
+  const table = Buffer.alloc(
+    INHERITED_STDIO_COUNT_SIZE + count + count * INHERITED_STDIO_HANDLE_SIZE,
+  )
+  table.writeUInt32LE(count, 0)
+  for (let fileDescriptor = 0; fileDescriptor < count; fileDescriptor++) {
+    table[INHERITED_STDIO_COUNT_SIZE + fileDescriptor] = CRT_FOPEN
+    table.writeBigUInt64LE(
+      BigInt(100 + fileDescriptor),
+      INHERITED_STDIO_COUNT_SIZE + count + fileDescriptor * INHERITED_STDIO_HANDLE_SIZE,
+    )
+  }
+  return table
+}
+
+function startupInfo(
+  table: Buffer | null,
+  size = table?.length ?? 0,
+): CurrentTokenProcessBindings['getStartupInfoW'] {
+  return vi.fn((startup: NativePtr) => {
+    koffi.encode(startup, STARTUPINFOW, { cbReserved2: size, lpReserved2: table })
+  })
+}
+
+function options(
+  overrides: Partial<CurrentTokenProcessSpawnOptions> = {},
+): CurrentTokenProcessSpawnOptions {
+  return {
+    command: 'probe.exe',
+    applicationName: 'C:\\resolved\\probe.exe',
+    args: [],
+    cwd: 'C:\\work',
+    env: {},
+    stdio: { stdin: 4, stdout: 5, stderr: 6 },
+    ...overrides,
+  }
+}
+
 function api(overrides: Partial<CurrentTokenProcessBindings> = {}): CurrentTokenProcessBindings {
+  const table = inheritedStdioTable()
   return {
     createJobObjectW: vi.fn(() => 50n),
     setInformationJobObject: vi.fn(() => 1),
@@ -31,7 +75,7 @@ function api(overrides: Partial<CurrentTokenProcessBindings> = {}): CurrentToken
       return 1
     }),
     getStdHandle: vi.fn((selector: number) => BigInt(100 - selector)),
-    getOsfHandle: vi.fn((fileDescriptor: number) => BigInt(67 + fileDescriptor)),
+    getStartupInfoW: startupInfo(table),
     setHandleInformation: vi.fn(() => 1),
     createProcessW: vi.fn((_app, _line, _pa, _ta, _inherit, _flags, _env, _cwd, _startup, info) => {
       koffi.encode(info, PROCESS_INFORMATION, {
@@ -83,25 +127,24 @@ describe('ordinary Job process operations', () => {
       resumeThread: vi.fn(() => { events.push('resume'); return 0 }),
       closeHandle: vi.fn((handle: NativePtr) => { events.push(`close:${handle}`); return 1 }),
     })
-    expect(spawnCurrentTokenJobProcess(bindings, {
-      command: 'probe.exe',
-      applicationName: 'C:\\resolved\\probe.exe',
+    expect(spawnCurrentTokenJobProcess(bindings, options({
       args: ['literal $VALUE', 'a b'],
-      cwd: 'C:\\work',
-      stdio: { stdin: 4, stdout: 5, stderr: 6 },
-    })).toEqual({ pid: 1234, process: 60n, job: 50n })
+      env: { ZED: 'last', '=C:': 'C:\\work', alpha: 'first' },
+    }))).toEqual({ pid: 1234, process: 60n, job: 50n })
+    const environment = createProcessW.mock.calls[0]?.[6] as Buffer
     expect(createProcessW).toHaveBeenCalledWith(
       'C:\\resolved\\probe.exe',
       'probe.exe "literal $VALUE" "a b"',
       null,
       null,
       1,
-      CREATE_SUSPENDED,
-      null,
+      CREATE_SUSPENDED | CREATE_UNICODE_ENVIRONMENT,
+      environment,
       'C:\\work',
       expect.anything(),
       expect.anything(),
     )
+    expect(environment.toString('utf16le')).toBe('=C:=C:\\work\0alpha=first\0ZED=last\0\0')
     expect(events.indexOf('create')).toBeLessThan(events.indexOf('assign'))
     expect(events.indexOf('assign')).toBeLessThan(events.indexOf('resume'))
     expect(events).toContain('close:61')
@@ -111,12 +154,7 @@ describe('ordinary Job process operations', () => {
     const bindings = api({ createProcessW: vi.fn(() => 0) })
     let caught: unknown
     try {
-      spawnCurrentTokenJobProcess(bindings, {
-        command: 'missing.exe',
-        args: [],
-        cwd: 'C:\\work',
-        stdio: { stdin: 4, stdout: 5, stderr: 6 },
-      })
+      spawnCurrentTokenJobProcess(bindings, options({ command: 'missing.exe' }))
     } catch (error) {
       caught = error
     }
@@ -125,10 +163,8 @@ describe('ordinary Job process operations', () => {
 
   it('resolves the target carrier descriptors and restores their handle flags', () => {
     let startup: Record<string, unknown> | undefined
-    const getOsfHandle = vi.fn((fileDescriptor: number) => BigInt(67 + fileDescriptor))
     const setHandleInformation = vi.fn(() => 1)
     const bindings = api({
-      getOsfHandle,
       setHandleInformation,
       createProcessW: vi.fn((_app, _line, _pa, _ta, _inherit, _flags, _env, _cwd, infoPtr, processInfo) => {
         startup = koffi.decode(infoPtr, STARTUPINFOW) as Record<string, unknown>
@@ -141,17 +177,11 @@ describe('ordinary Job process operations', () => {
         return 1
       }),
     })
-    expect(spawnCurrentTokenJobProcess(bindings, {
-      command: 'probe.exe',
-      args: [],
-      cwd: 'C:\\work',
-      stdio: { stdin: 4, stdout: 5, stderr: 6 },
-    })).toEqual({ pid: 1234, process: 60n, job: 50n })
-    expect(getOsfHandle.mock.calls.map(([fileDescriptor]) => fileDescriptor)).toEqual([4, 5, 6])
-    expect(startup).toMatchObject({ hStdInput: 71n, hStdOutput: 72n, hStdError: 73n })
+    expect(spawnCurrentTokenJobProcess(bindings, options())).toEqual({ pid: 1234, process: 60n, job: 50n })
+    expect(startup).toMatchObject({ hStdInput: 104n, hStdOutput: 105n, hStdError: 106n })
     expect(setHandleInformation.mock.calls).toEqual([
-      [71n, 1, 1], [72n, 1, 1], [73n, 1, 1],
-      [71n, 1, 0], [72n, 1, 0], [73n, 1, 0],
+      [104n, 1, 1], [105n, 1, 1], [106n, 1, 1],
+      [104n, 1, 0], [105n, 1, 0], [106n, 1, 0],
     ])
   })
 
@@ -211,19 +241,44 @@ describe('ordinary Job process operations', () => {
     expect(closeHandle).toHaveBeenCalledExactlyOnceWith(50n)
   })
 
-  it('rejects an unavailable carrier descriptor or CRT binding before target creation', () => {
-    const closeHandle = vi.fn(() => 1)
-    const missingDescriptor = api({ closeHandle, getOsfHandle: vi.fn(() => -1) })
-    expect(() => spawnCurrentTokenJobProcess(missingDescriptor, {
-      command: 'probe.exe',
-      args: [],
-      cwd: 'C:\\work',
-      stdio: { stdin: 4, stdout: 5, stderr: 6 },
-    })).toThrow('_get_osfhandle failed for target stdin fd 4')
-    expect(closeHandle).toHaveBeenCalledWith(50n)
+  it('strictly validates the inherited libuv descriptor table before target creation', () => {
+    const expectFailure = (
+      getStartupInfoW: CurrentTokenProcessBindings['getStartupInfoW'],
+      message: string,
+    ): void => {
+      const closeHandle = vi.fn(() => 1)
+      expect(() => spawnCurrentTokenJobProcess(api({ closeHandle, getStartupInfoW }), options()))
+        .toThrow(message)
+      expect(closeHandle).toHaveBeenCalledWith(50n)
+    }
 
-    const missingBinding = api({ getOsfHandle: undefined as never })
+    expectFailure(startupInfo(null), 'no inherited stdio table')
+    expectFailure(startupInfo(Buffer.alloc(3)), 'truncated inherited stdio table')
+
+    const excessive = Buffer.alloc(INHERITED_STDIO_COUNT_SIZE)
+    excessive.writeUInt32LE(257, 0)
+    expectFailure(startupInfo(excessive), 'unsupported descriptor count 257')
+
+    const truncated = Buffer.alloc(INHERITED_STDIO_COUNT_SIZE)
+    truncated.writeUInt32LE(7, 0)
+    expectFailure(startupInfo(truncated), 'truncated inherited stdio table')
+    expectFailure(startupInfo(inheritedStdioTable(6)), 'missing target stderr fd 6')
+
+    const closed = inheritedStdioTable()
+    closed[INHERITED_STDIO_COUNT_SIZE + 4] = 0
+    expectFailure(startupInfo(closed), 'marks target stdin fd 4 closed')
+
+    for (const invalid of [0n, 0xFFFFFFFFFFFFFFFFn, 0xFFFFFFFFFFFFFFFEn]) {
+      const table = inheritedStdioTable()
+      table.writeBigUInt64LE(
+        invalid,
+        INHERITED_STDIO_COUNT_SIZE + 7 + 4 * INHERITED_STDIO_HANDLE_SIZE,
+      )
+      expectFailure(startupInfo(table), 'invalid handle for target stdin fd 4')
+    }
+
+    const missingBinding = api({ getStartupInfoW: undefined as never })
     expect(() => { probeCurrentTokenJobSupport(missingBinding) })
-      .toThrow('current-token Job support requires UCRT _get_osfhandle')
+      .toThrow('current-token Job support requires GetStartupInfoW')
   })
 })

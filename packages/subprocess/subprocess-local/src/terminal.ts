@@ -43,6 +43,7 @@ export class LocalTerminalHandle implements SubprocessTerminalHandle {
   private readonly dataDisposable: IDisposable
   private readonly exitDisposable: IDisposable
   private cleanup: Promise<void> | undefined
+  private managedOwnerCleaned = false
   private exited = false
   private trackedDescendants: ProcessIdentity[] = []
   /** The spawned shell's start identity; scans stop adopting members once the root pid no longer carries it. */
@@ -61,7 +62,6 @@ export class LocalTerminalHandle implements SubprocessTerminalHandle {
     private readonly platform: NodeJS.Platform = process.platform,
     private readonly managedOwner?: BoundProcessOwner,
     private readonly resolveManagedOutcome?: (outcome: SubprocessOutcome) => SubprocessOutcome,
-    private readonly cleanupManagedProtocol?: () => void,
   ) {
     this.pid = terminal.pid
     this.rootIdentity = inspector.snapshot().tree(this.pid).find(member => member.pid === this.pid)
@@ -317,7 +317,7 @@ export class LocalTerminalHandle implements SubprocessTerminalHandle {
         this.dataDisposable.dispose()
         this.exitDisposable.dispose()
       } finally {
-        void this.done.finally(() => { this.cleanupManagedProtocol?.() }).catch(() => {})
+        void this.done.finally(() => { this.cleanupManagedOwner(this.managedOwner as BoundProcessOwner) }).catch(() => {})
       }
       return
     }
@@ -333,6 +333,12 @@ export class LocalTerminalHandle implements SubprocessTerminalHandle {
     this.settleExitIfGone()
     this.dataDisposable.dispose()
     this.exitDisposable.dispose()
+  }
+
+  private cleanupManagedOwner(owner: BoundProcessOwner): void {
+    if (this.managedOwnerCleaned) return
+    this.managedOwnerCleaned = true
+    owner.cleanup?.()
   }
 
   private async closeManagedRange(owner: BoundProcessOwner): Promise<void> {

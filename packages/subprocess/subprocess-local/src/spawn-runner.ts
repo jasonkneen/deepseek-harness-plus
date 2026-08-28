@@ -1,7 +1,6 @@
 /** One-shot Linux exec bootstrap and Windows Job-owning subprocess runner. */
 
 import { closeSync } from 'node:fs'
-import { posix } from 'node:path'
 import {
   closeHandleChecked,
   isJobEmpty,
@@ -67,27 +66,24 @@ const defaultInternals: SpawnRunnerInternals = {
   closeHandleChecked,
 }
 
-function replaceEnvironment(target: NodeJS.ProcessEnv, env: Record<string, string>): void {
-  for (const key of Object.keys(target)) Reflect.deleteProperty(target, key)
-  Object.assign(target, env)
-}
-
 function asSpawnError(error: unknown, program: string, args: readonly string[]): SerializedRunnerError {
   const serialized = serializeRunnerError(error)
-  const code = error instanceof Win32Error
-    ? error.win32Code === 2 || error.win32Code === 3 || error.win32Code === 267
+  const win32Code = error instanceof Win32Error ? error.win32Code : undefined
+  const code = win32Code === undefined
+    ? serialized.code
+    : win32Code === 2 || win32Code === 3 || win32Code === 267
       ? 'ENOENT'
-      : error.win32Code === 5
-        ? 'EACCES'
-        : error.win32Code === 193
+      : win32Code === 5
+        ? 'EPERM'
+        : win32Code === 193
           ? 'EFTYPE'
           : 'UNKNOWN'
-    : serialized.code
   if (code === undefined) return serialized
   return {
     ...serialized,
     message: `spawn ${program} ${code}: ${serialized.message}`,
     code,
+    ...win32Code === 5 ? { errno: -4048 } : {},
     syscall: `spawn ${program}`,
     path: program,
     spawnargs: [...args],
@@ -128,7 +124,10 @@ function execLinuxTarget(
   const path = request.env.PATH ?? '/usr/bin:/bin'
   let permissionFailure: Error | undefined
   for (const directory of path.split(':')) {
-    const candidate = posix.resolve(request.cwd, directory, program)
+    const root = directory.startsWith('/')
+      ? directory
+      : `${request.cwd}${request.cwd.endsWith('/') ? '' : '/'}${directory}`
+    const candidate = `${root}${root.endsWith('/') ? '' : '/'}${program}`
     try {
       return execLinuxFile(candidate, argv, request.env, internals)
     } catch (error) {
@@ -155,7 +154,7 @@ function runLinux(
   try {
     request = consumeLinuxLaunchRequest(files.requestPath)
   } catch (error) {
-    writeLinuxStartupError(files, { type: 'runner-error', error: serializeRunnerError(error) })
+    writeLinuxStartupError(files, { type: 'error', error: serializeRunnerError(error) })
     host.exitCode = 127
     return
   }
@@ -164,7 +163,7 @@ function runLinux(
     execLinuxTarget({ ...request, cwd: host.cwd() }, argv, internals)
   } catch (error) {
     writeLinuxStartupError(files, {
-      type: 'spawn-error',
+      type: 'error',
       error: asSpawnError(error, argv[0] as string, argv.slice(1)),
     })
     host.exitCode = 127
@@ -267,13 +266,13 @@ class WindowsJobRunner {
         undefined,
         { ...this.host.env },
       )
-      replaceEnvironment(this.host.env, request.env)
       this.api = this.internals.loadWin32ProcessBindings()
       const spawned = this.internals.spawnCurrentTokenJobProcess(this.api, {
         command: command as string,
         applicationName,
         args,
         cwd: request.cwd,
+        env: request.env,
         stdio: { stdin: 4, stdout: 5, stderr: 6 },
       })
       this.processHandle = spawned.process
@@ -287,7 +286,7 @@ class WindowsJobRunner {
     } catch (error) {
       if (!this.committed && error instanceof Win32Error && error.api === 'CreateProcessW') {
         await this.publishTerminalResult({
-          type: 'spawn-error',
+          type: 'error',
           error: asSpawnError(error, this.argv[0] as string, this.argv.slice(1)),
         }, 0)
         return
@@ -331,7 +330,7 @@ class WindowsJobRunner {
         if (exitCode !== undefined) {
           this.internals.closeHandleChecked(this.api, this.processHandle, 'ordinary direct process')
           this.processHandle = undefined
-          void this.publishTerminalResult({ type: 'target-exit', exitCode, signal: null })
+          void this.publishTerminalResult({ type: 'target-exit', exitCode })
         }
       }
       if (this.jobHandle !== undefined && this.internals.isJobEmpty(this.api, this.jobHandle)) {
@@ -370,7 +369,7 @@ class WindowsJobRunner {
     if (!this.resultStarted) {
       this.resultStarted = true
       try {
-        await sendMessage(this.host, { type: 'runner-error', error: serializeRunnerError(error) })
+        await sendMessage(this.host, { type: 'error', error: serializeRunnerError(error) })
         this.resultDelivered = true
       } catch {
         // The disconnected parent observes runner infrastructure failure.
@@ -443,7 +442,7 @@ export async function reportSpawnRunnerFailure(
   host: RunnerHost = process,
 ): Promise<void> {
   if (selection === WINDOWS_RUNNER_SELECTION) {
-    try { await sendMessage(host, { type: 'runner-error', error: serializeRunnerError(error) }) } catch { /* No transport remains. */ }
+    try { await sendMessage(host, { type: 'error', error: serializeRunnerError(error) }) } catch { /* No transport remains. */ }
     host.exitCode = 127
     if (host.connected) host.disconnect()
     return
@@ -451,7 +450,7 @@ export async function reportSpawnRunnerFailure(
   if (selection !== undefined) {
     try {
       const files: LinuxLaunchFiles = linuxLaunchFilesFromLocator(selection)
-      writeLinuxStartupError(files, { type: 'runner-error', error: serializeRunnerError(error) })
+      writeLinuxStartupError(files, { type: 'error', error: serializeRunnerError(error) })
     } catch {
       // The parent will report an unconsumed request or missing runner result.
     }

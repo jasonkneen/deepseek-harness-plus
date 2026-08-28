@@ -313,11 +313,19 @@ describe('spawnSubprocess', () => {
     expect(result.signal).toBe(process.platform === 'win32' ? null : 'SIGTERM')
   })
 
-  it('throws when the signal is already aborted before spawn', () => {
-    const controller = new AbortController()
-    controller.abort('too late')
-    expect(() => { validateSubprocessSpec(spec('echo hi', { signal: controller.signal })) })
-      .toThrow(/aborted before spawn: too late/)
+  it('throws the raw signal reason when already aborted before spawn', () => {
+    for (const reason of ['too late', null] as const) {
+      const controller = new AbortController()
+      controller.abort(reason)
+      let thrown = false
+      try {
+        validateSubprocessSpec(spec('echo hi', { signal: controller.signal }))
+      } catch (error) {
+        thrown = true
+        expect(error).toBe(reason)
+      }
+      expect(thrown).toBe(true)
+    }
   })
 
   it('rejects with a spawn error for a nonexistent cwd', async () => {
@@ -778,6 +786,54 @@ describe.skipIf(process.platform === 'win32')('tree-survivor escalation (termina
 })
 
 describe('coverage seams', () => {
+  it('preserves a non-Error managed direct rejection', async () => {
+    const direct = Promise.withResolvers<{ exitCode: number; signal: null }>()
+    const handle = bindManagedProcess(spec('true', {
+      graceMs: 1,
+      stdio: { stdin: 'ignore', stdout: 'inherit', stderr: 'inherit' },
+    }), {
+      stdin: null,
+      stdout: null,
+      stderr: null,
+      direct: direct.promise,
+      owner: {
+        signal: vi.fn(),
+        waitForExit: async () => { throw new Error('range unavailable') },
+        terminateForHostExit: vi.fn(),
+      },
+    })
+
+    direct.reject(null)
+    await expect(handle.done).rejects.toBeNull()
+    await Promise.resolve()
+  })
+
+  it('keeps an infrastructure failure authoritative when it precedes the direct result', async () => {
+    const direct = Promise.withResolvers<{ exitCode: number; signal: null }>()
+    const infrastructureFailure = Promise.withResolvers<never>()
+    const failure = new Error('runner failed before its result')
+    const handle = bindManagedProcess(spec('true', {
+      stdio: { stdin: 'ignore', stdout: 'inherit', stderr: 'inherit' },
+    }), {
+      stdin: null,
+      stdout: null,
+      stderr: null,
+      direct: direct.promise,
+      infrastructureFailure: infrastructureFailure.promise,
+      owner: {
+        signal: vi.fn(),
+        waitForExit: async () => {},
+        terminateForHostExit: vi.fn(),
+      },
+    })
+
+    infrastructureFailure.reject(failure)
+    await expect(handle.done).rejects.toBe(failure)
+    direct.resolve({ exitCode: 0, signal: null })
+    await Promise.resolve()
+    await expect(handle.done).rejects.toBe(failure)
+  })
+
   it('cleans a managed owner after direct settlement and contains a later infrastructure failure', async () => {
     const direct = Promise.withResolvers<{ exitCode: number; signal: null }>()
     const stopped = Promise.withResolvers<undefined>()
@@ -887,7 +943,7 @@ describe('coverage seams', () => {
   })
 
   it('delivers an already-aborted managed spawn reason before target settlement', async () => {
-    const reason = new Error('caller cancelled')
+    const reason = null
     const controller = new AbortController()
     controller.abort(reason)
     const signal = vi.fn()
@@ -1216,17 +1272,21 @@ describe('argv validation', () => {
 })
 
 describe('abort edge cases', () => {
-  it('reports a fallback reason for reason-less pre-aborted signals', () => {
-    // Real AbortControllers always set a DOMException reason; signal-like
-    // objects from other libraries may not — the fallback covers them.
+  it('throws an undefined reason from a reason-less pre-aborted signal unchanged', () => {
     const bare = {
       aborted: true,
       reason: undefined,
       addEventListener() {},
       removeEventListener() {},
     } as unknown as AbortSignal
-    expect(() => { validateSubprocessSpec(spec('echo hi', { signal: bare })) })
-      .toThrow(/aborted before spawn: aborted/)
+    let thrown = false
+    try {
+      validateSubprocessSpec(spec('echo hi', { signal: bare }))
+    } catch (error) {
+      thrown = true
+      expect(error).toBeUndefined()
+    }
+    expect(thrown).toBe(true)
   })
 
   it.skipIf(process.platform === 'win32')('reports the terminating signal of an externally self-killed command', async () => {

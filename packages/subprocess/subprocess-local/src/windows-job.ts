@@ -57,18 +57,22 @@ export function probeWindowsJob(internals: WindowsJobInternals = {}): boolean {
 
 class WindowsJobOwner implements BoundProcessOwner {
   private cancellationReason: unknown
+  private cancellationReasonSet = false
   private terminationSent = false
 
   constructor(
     private readonly runner: RunnerProcess,
     private readonly exited: Promise<void>,
-    private readonly failInfrastructure: (error: Error) => void,
+    private readonly failInfrastructure: (error: unknown) => void,
   ) {
     void this.exited.catch(() => {})
   }
 
   signal(_signal: 'SIGTERM' | 'SIGKILL', cancellationReason?: unknown): void {
-    if (this.cancellationReason === undefined) this.cancellationReason = cancellationReason
+    if (!this.cancellationReasonSet) {
+      this.cancellationReason = cancellationReason
+      this.cancellationReasonSet = true
+    }
     if (this.terminationSent || !this.runner.connected) return
     this.terminationSent = true
     try {
@@ -78,13 +82,15 @@ class WindowsJobOwner implements BoundProcessOwner {
         this.terminateForHostExit()
       })
     } catch (error) {
-      this.failInfrastructure(error instanceof Error ? error : new Error(String(error)))
+      this.failInfrastructure(error)
       this.terminateForHostExit()
     }
   }
 
   startCancellationReason(): unknown {
-    return this.cancellationReason ?? new Error('subprocess target start was cancelled')
+    return this.cancellationReasonSet
+      ? this.cancellationReason
+      : new Error('subprocess target start was cancelled')
   }
 
   async waitForExit(): Promise<void> {
@@ -119,13 +125,15 @@ export function launchWindowsJob(
     env: runnerEnvironment(WINDOWS_RUNNER_SELECTION),
     stdio: runnerStdio(spec, true),
   }) as RunnerProcess
+  const targetStdin = child.stdio[4] as Writable | null
+  if (spec.stdio.stdin === 'ignore') targetStdin?.destroy()
 
   const direct = Promise.withResolvers<SubprocessOutcome>()
   const infrastructure = Promise.withResolvers<never>()
   const rangeExit = Promise.withResolvers<void>()
   let resultSeen = false
   let infrastructureFailed = false
-  const failInfrastructure = (error: Error): void => {
+  const failInfrastructure = (error: unknown): void => {
     if (infrastructureFailed) return
     infrastructureFailed = true
     infrastructure.reject(error)
@@ -144,16 +152,13 @@ export function launchWindowsJob(
     try {
       result = parseWindowsRunnerResult(value)
     } catch (error) {
-      /* v8 ignore next -- the closed parser raises Error instances for every malformed shape;
-       * conversion only defends future internal regressions. */
-      const failure = error instanceof Error ? error : new Error(String(error))
-      failInfrastructure(failure)
+      failInfrastructure(error)
       owner.terminateForHostExit()
       return
     }
     resultSeen = true
     if (result.type === 'target-exit') {
-      direct.resolve({ exitCode: result.exitCode, signal: result.signal })
+      direct.resolve({ exitCode: result.exitCode, signal: null })
     } else if (result.type === 'start-cancelled') {
       direct.reject(owner.startCancellationReason())
     } else {
@@ -194,14 +199,13 @@ export function launchWindowsJob(
       owner.terminateForHostExit()
     })
   } catch (error) {
-    const failure = error instanceof Error ? error : new Error(String(error))
-    failInfrastructure(failure)
-    direct.reject(failure)
+    failInfrastructure(error)
+    direct.reject(error)
     owner.terminateForHostExit()
   }
 
   return {
-    stdin: child.stdio[4] as Writable | null,
+    stdin: spec.stdio.stdin === 'ignore' ? null : targetStdin,
     stdout: child.stdio[5] as Readable | null,
     stderr: child.stdio[6] as Readable | null,
     direct: direct.promise,

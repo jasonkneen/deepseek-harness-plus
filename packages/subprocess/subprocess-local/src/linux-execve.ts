@@ -32,7 +32,7 @@ function systemError(errno: number, syscall: string, path?: string): Error {
   const subject = path === undefined ? syscall : `${syscall} '${path}'`
   const error = Object.assign(new Error(`${code}: ${detail}, ${subject}`), {
     code,
-    errno,
+    errno: uvError,
     syscall,
   })
   return path === undefined ? error : Object.assign(error, { path })

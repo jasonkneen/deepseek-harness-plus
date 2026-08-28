@@ -96,7 +96,6 @@ class FakeReader implements SubprocessOutputReader {
  * abort→terminate escalation.
  */
 class FakeHandle implements SubprocessHandle {
-  readonly pid = 4242
   readonly stdin = undefined
   readonly stdout = undefined
   readonly stderr = undefined

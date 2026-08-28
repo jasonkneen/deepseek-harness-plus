@@ -11,7 +11,7 @@ import {
   unlinkSync,
   writeFileSync,
 } from 'node:fs'
-import { constants as osConstants, tmpdir } from 'node:os'
+import { tmpdir } from 'node:os'
 import { basename, dirname, isAbsolute, join } from 'node:path'
 
 const STARTUP_ERROR_TEMPORARY = '.startup-error.tmp'
@@ -36,8 +36,7 @@ export interface SerializedRunnerError {
 
 /** A Linux pre-exec failure published atomically beside its consumed request. */
 export type LinuxStartupError =
-  | { type: 'spawn-error'; error: SerializedRunnerError }
-  | { type: 'runner-error'; error: SerializedRunnerError }
+  { type: 'error'; error: SerializedRunnerError }
 
 /** The only parent-to-runner start message on Windows. */
 export interface WindowsStartRequest {
@@ -53,9 +52,8 @@ export interface WindowsTerminateRequest {
 
 /** Exactly one direct-result branch is sent by a connected Windows runner. */
 export type WindowsRunnerResult =
-  | { type: 'target-exit'; exitCode: number | null; signal: NodeJS.Signals | null }
-  | { type: 'spawn-error'; error: SerializedRunnerError }
-  | { type: 'runner-error'; error: SerializedRunnerError }
+  | { type: 'target-exit'; exitCode: number }
+  | { type: 'error'; error: SerializedRunnerError }
   | { type: 'start-cancelled' }
 
 /** Private paths owned by one Linux ordinary or PTY spawn. */
@@ -100,10 +98,10 @@ function parseErrorResult(value: Record<string, unknown>): LinuxStartupError {
   if (!hasExactKeys(value, ['type', 'error']) || !isSerializedRunnerError(value.error)) {
     throw new Error('subprocess runner emitted an invalid error result')
   }
-  if (value.type !== 'spawn-error' && value.type !== 'runner-error') {
+  if (value.type !== 'error') {
     throw new Error('subprocess runner emitted an unknown error result')
   }
-  return { type: value.type, error: value.error }
+  return { type: 'error', error: value.error }
 }
 
 /**
@@ -203,7 +201,7 @@ export function isWindowsTerminateRequest(value: unknown): value is WindowsTermi
 }
 
 /**
- * Strictly parse one of the four Windows direct-result branches.
+ * Strictly parse one of the three Windows direct-result branches.
  * @param value - untrusted IPC payload.
  * @returns validated direct-result message.
  */
@@ -215,19 +213,17 @@ export function parseWindowsRunnerResult(value: unknown): WindowsRunnerResult {
     if (!hasExactKeys(value, ['type'])) throw new Error('subprocess runner emitted an invalid start-cancelled result')
     return { type: 'start-cancelled' }
   }
-  if (value.type === 'spawn-error' || value.type === 'runner-error') return parseErrorResult(value)
+  if (value.type === 'error') return parseErrorResult(value)
   if (value.type === 'target-exit') {
-    const validExitCode = value.exitCode === null
-      || (typeof value.exitCode === 'number' && Number.isSafeInteger(value.exitCode) && value.exitCode >= 0)
-    const validSignal = value.signal === null
-      || (typeof value.signal === 'string' && Object.hasOwn(osConstants.signals, value.signal))
-    if (!hasExactKeys(value, ['type', 'exitCode', 'signal']) || !validExitCode || !validSignal) {
+    const validExitCode = typeof value.exitCode === 'number'
+      && Number.isSafeInteger(value.exitCode)
+      && value.exitCode >= 0
+    if (!hasExactKeys(value, ['type', 'exitCode']) || !validExitCode) {
       throw new Error('subprocess runner emitted an invalid target-exit result')
     }
     return {
       type: 'target-exit',
-      exitCode: value.exitCode as number | null,
-      signal: value.signal as NodeJS.Signals | null,
+      exitCode: value.exitCode as number,
     }
   }
   throw new Error(`subprocess runner emitted an unknown Windows result: ${value.type}`)

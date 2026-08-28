@@ -22,17 +22,19 @@ Measured by driving the production `MacProcessInspector` against a real process 
 
 Any command spawning two or more children — a pipeline, `make`, `pnpm`, `git` — saturates the host event loop until it exits.
 
-Teardown has the same structure. `signalProcess` fences each signal against PID reuse by asking liveness itself, so signalling N members costs N table reads.
+Fallback terminal teardown has the same structure. `signalProcess` fences each signal against PID reuse by asking liveness itself, so signalling N observed members costs N table reads.
 
 ## Decision
 
 `ProcessInspector.snapshot()` returns a `ProcessSnapshot`, one observation of the process table that answers `tree(rootPid)`, `session(sessionId)`, and `alive(identity)`. It replaces the three per-question methods; the inspector's remaining surface is `foregroundPgid`, `isStdinWaiting`, `signalGroup`, and `signalProcess`.
 
-Each caller captures one snapshot and answers every question of a single pass from it. `LocalTerminalHandle.descendants()` takes a snapshot, reads the tree and session from it, and filters survivors through the same `alive`, so a readiness poll costs one table read regardless of descendant count. `waitForMembers` captures a fresh snapshot per polling iteration, because its whole purpose is observing change.
+Each caller captures one snapshot and answers every question of a single pass from it. `LocalTerminalHandle.descendants()` takes a snapshot, reads the tree and session from it, and filters survivors through the same `alive`, so a readiness poll costs one table read regardless of descendant count. Fallback `waitForMembers` captures a fresh snapshot per polling iteration, because its whole purpose is observing change.
 
 Signalling does not share that observation. `ProcessInspector.isAlive(identity)` answers current state from the narrowest per-identity source a platform offers — one `/proc/<pid>/stat` read on Linux, one `ps` table on macOS, one process-handle check on Windows — and `signalProcess` takes that fence immediately before delivering the signal. An observation cannot stand in for it: the observation preserves the original PID-to-start-time pairing, so a recycled PID would still match it and take a signal meant for the process that exited. Reading the fence per target also keeps a failed read costing one target instead of the rest of a teardown round, which is what the [synchronous exit-cleanup contract](../bug-fix/2026-08-11-synchronous-subprocess-exit-cleanup.md) requires.
 
 `signalMembers` and `waitForMembers` return before capturing anything when a round has no members, so a command that spawned no descendants pays no table read for its teardown sweeps.
+
+Supported Linux terminal teardown bypasses those observational sweeps after binding a user-systemd scope and waits on manager-owned membership instead. Process-table snapshots remain authoritative for foreground/readiness inspection and for fallback or synchronous host-exit cleanup. The [native-containment decision](2026-08-28-subprocess-native-containment.md) owns that split.
 
 Platform differences live in how a snapshot is built, not in what it promises:
 
@@ -62,7 +64,7 @@ Platform differences live in how a snapshot is built, not in what it promises:
 
 A readiness poll's process-table cost is now constant in descendant count. On macOS one poll performs one full table read plus the small `tpgid` read, which is the 0-descendant cost in the table above for every descendant count.
 
-Teardown keeps its previous per-signal cost: one narrow liveness read per target, which on macOS is one `ps` fork per member. That cost was never the measured problem — a terminal tears down once, while its readiness path polls up to 600 times — so the fix deliberately spends it to keep the fence reading current state.
+Fallback and synchronous host-exit teardown keep the previous per-signal cost: one narrow liveness read per target, which on macOS is one `ps` fork per member. That cost was never the measured problem — a terminal tears down once, while its readiness path polls up to 600 times — so the fix deliberately spends it to keep the fence reading current state. Supported Linux normal teardown uses scope membership instead of this scan.
 
 A snapshot is a point-in-time view, and the type's documentation says so. `waitForMembers` re-captures per iteration because observing change is its purpose, and no signal is ever decided from a captured view.
 

@@ -228,7 +228,7 @@ describe('Linux scope establishment and quiescence', () => {
     const files = linuxLaunchFilesFromLocator(requestPath)
     unlinkSync(requestPath)
     writeLinuxStartupError(files, {
-      type: 'spawn-error',
+      type: 'error',
       error: { name: 'Error', message: 'spawn tool ENOENT', code: 'ENOENT' },
     })
     child.exit(127, null)
@@ -408,7 +408,7 @@ describe('Linux PTY bootstrap reuse', () => {
     const files = linuxLaunchFilesFromLocator(requestPath)
     unlinkSync(requestPath)
     writeLinuxStartupError(files, {
-      type: 'spawn-error', error: { name: 'Error', message: 'bad cwd', code: 'ENOENT' },
+      type: 'error', error: { name: 'Error', message: 'bad cwd', code: 'ENOENT' },
     })
     expect(() => scope.resolveOutcome({ exitCode: 127, signal: null })).toThrow('bad cwd')
     scope.cleanup()
