@@ -196,6 +196,33 @@ describe('agent scope lifecycle', () => {
     expect(after.sections.find(s => s.name === 'deployment:persona')?.text).toBe('You are the deployment.')
   })
 
+  it('keeps the inbox projection until the last owning agent fiber unloads', async () => {
+    const ctx = await harness()
+    let first!: Awaited<ReturnType<typeof ctx.agents.create>>
+    let second!: Awaited<ReturnType<typeof ctx.agents.create>>
+    const firstOwner = await ctx.plugin(Object.assign(async (inner: Context) => {
+      first = await inner.agents.create({
+        sessionId: SessionId('projection-owner-first'),
+        agentOptions: { provider: 'mock', model: 'mock' },
+      })
+    }, { inject: ['agents'] }))
+    const secondOwner = await ctx.plugin(Object.assign(async (inner: Context) => {
+      second = await inner.agents.create({
+        sessionId: SessionId('projection-owner-second'),
+        agentOptions: { provider: 'mock', model: 'mock' },
+      })
+    }, { inject: ['agents'] }))
+
+    expect(ctx.sessionProjections.stateOf(first.agent.session, 'inbox')).toBeDefined()
+    await firstOwner.dispose()
+    expect(ctx.sessionProjections.stateOf(second.agent.session, 'inbox')).toBeDefined()
+    await secondOwner.dispose()
+    expect(ctx.sessionProjections.stateOf(second.agent.session, 'inbox')).toBeUndefined()
+
+    await Promise.all([first.dispose(), second.dispose()])
+    await ctx.fiber.dispose()
+  })
+
   it('agent.ctx listeners hear only their own agent (scoped dispatch end to end)', async () => {
     const ctx = await harness(new MockAdapter([textResponse('one'), textResponse('two')]))
     const a = ctx.agentLoop.create(SessionId('a'), { provider: 'mock', model: 'mock' })

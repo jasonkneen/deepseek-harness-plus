@@ -18,7 +18,6 @@ describe('dsh-agent-loop-testkit', () => {
       systemPrompt: { persona: 'Test persona.' },
       tools: { mode: 'native' },
     })
-    await ctx.plugin(SessionProjectionRegistry)
 
     expect(renderPrompt(await ctx.systemPrompt.assemble())).toContain('Test persona.')
     await expect(ctx.plugin(AgentLoop, { agents: [] })).resolves.toBeDefined()
@@ -29,7 +28,6 @@ describe('dsh-agent-loop-testkit', () => {
   it('provides a session-backed structural Inbox with separate driver claims', async () => {
     const ctx = new Context()
     await mountAgentLoopTestDependencies(ctx)
-    await ctx.plugin(SessionProjectionRegistry)
     const session = ctx.sessions.create(SessionId('agent-loop-testkit-inbox'))
     const fixture = createInboxFixture(ctx.sessionProjections, session)
     const firstTurn = message('first turn')

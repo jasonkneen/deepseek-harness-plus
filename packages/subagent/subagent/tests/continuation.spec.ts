@@ -9,7 +9,6 @@ import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-test
 import { SessionId } from '@deepseek-ai/dsh-session'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
-import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import * as SubagentSpawn from '@deepseek-ai/dsh-subagent-spawn-in-process'
 import * as SubagentFork from '@deepseek-ai/dsh-subagent-fork-in-process'
 import type { GenerateOptions, MessageId, StreamChunk } from '@deepseek-ai/dsh-llm'
@@ -73,9 +72,6 @@ async function setupWith(
 ) {
   const ctx = new Context()
   await mountAgentLoopTestDependencies(ctx)
-  // The registry is a required injection of AgentLoop and SubagentRuntime
-  // (both register projection units on activation).
-  await ctx.plugin(SessionProjectionRegistry)
   let disposePersistence: (() => Promise<void>) | undefined
   let root: string | undefined
   if (options.persistence !== false) {
@@ -459,7 +455,6 @@ describe('SubagentRuntime.startContinuable', () => {
 
     const fresh = new Context()
     await mountAgentLoopTestDependencies(fresh)
-    await fresh.plugin(SessionProjectionRegistry)
     const freshPersistence = await fresh.plugin(JsonlSessionPersistence, { root: root! })
     // This context opened a second handle on the same root; register it so
     // afterEach closes it before removing the root (even on a failure path).
@@ -2517,7 +2512,6 @@ describe('continuable errors', () => {
     const adapter = new GatedAdapter([{ chunks: textResponse('child'), gate: hold.promise }])
     const ctx = new Context()
     await mountAgentLoopTestDependencies(ctx)
-    await ctx.plugin(SessionProjectionRegistry)
     const root = mkdtempSync(join(tmpdir(), 'dsh-subagent-continuation-'))
     const persistenceFiber = await ctx.plugin(JsonlSessionPersistence, { root })
     cleanups.push(async () => {

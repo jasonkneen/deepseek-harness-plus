@@ -140,7 +140,6 @@ class ScriptedAdapter extends LlmAdapter {
 async function loopHarness(adapter: ScriptedAdapter, config: Config = {}): Promise<Context> {
   const ctx = new Context()
   await mountAgentLoopTestDependencies(ctx)
-  await ctx.plugin(SessionProjectionRegistry)
   await ctx.plugin(AgentLoop, { agents: [] })
   await ctx.plugin(timeContext, config)
   ctx.llm.registerAdapter(['mock'], adapter)
