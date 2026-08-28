@@ -31,6 +31,6 @@ if (isExecutedEntry()) {
   if (selection === undefined) {
     process.exitCode = 127
   } else {
-    await runSelectedSubprocessRunner(selection)
+    void runSelectedSubprocessRunner(selection)
   }
 }
