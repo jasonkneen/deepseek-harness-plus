@@ -1,7 +1,6 @@
 /** Typed Win32 process operations over the shared binding table. */
 
 import koffi from 'koffi'
-import { closeSync } from 'node:fs'
 import * as abi from './abi.ts'
 import {
   allocProcessInfo,
@@ -488,34 +487,49 @@ export function probeCurrentTokenJobSupport(api: Win32ProcessBindings): void {
 interface MaterializedStdioStream {
   readonly destroyed: boolean
   destroy(): unknown
-  readonly _handle?: { close(): void } | null
+  _destroy?: unknown
 }
 
 /**
  * Release the runner's Node-owned standard streams after target creation.
- * The target retains its inherited handle copies. Node deliberately makes
- * `process.stdout.destroy()` and `process.stderr.destroy()` leave their libuv
- * handles open, so the runner must close both the descriptors and materialized
- * output handles for parent pipe EOF to follow the target.
+ * The target retains its inherited handle copies. On Windows, libuv duplicates
+ * fd 0/1/2 for its stream owners while Node gives stdout and stderr an own
+ * no-op `_destroy`. Close the raw handles and then restore the real Socket
+ * destruction path so parent pipe EOF can follow the target.
+ * @param api - active binding table used to release raw standard handles.
  * @param streams - stdin, stdout, and stderr used by the current process.
- * @param closeDescriptor - injectable descriptor close used by tests.
  */
 export function closeCurrentProcessStandardStreams(
+  api: Win32ProcessBindings,
   streams: readonly [MaterializedStdioStream, MaterializedStdioStream, MaterializedStdioStream] = [
     process.stdin,
     process.stdout,
     process.stderr,
   ],
-  closeDescriptor: (fd: number) => void = closeSync,
 ): void {
   const failures: Error[] = []
   const recordFailure = (error: unknown): void => {
     failures.push(error instanceof Error ? error : new Error(String(error)))
   }
-  const [stdin, ...outputs] = streams
-  const outputHandles = new Set(outputs.flatMap(stream => stream.destroyed || stream._handle == null
-    ? []
-    : [stream._handle]))
+
+  const handles: NativePtr[] = []
+  for (const selector of [abi.STD_INPUT_HANDLE, abi.STD_OUTPUT_HANDLE, abi.STD_ERROR_HANDLE]) {
+    try {
+      const handle = api.getStdHandle(selector)
+      if (!isNullPtr(handle) && !handles.includes(handle)) handles.push(handle)
+    } catch (error) {
+      recordFailure(error)
+    }
+  }
+  for (const handle of handles) {
+    try {
+      closeHandleChecked(api, handle, 'runner standard handle')
+    } catch (error) {
+      recordFailure(error)
+    }
+  }
+
+  const [stdin, stdout, stderr] = streams
   if (!stdin.destroyed) {
     try {
       stdin.destroy()
@@ -523,16 +537,19 @@ export function closeCurrentProcessStandardStreams(
       recordFailure(error)
     }
   }
-  for (const fd of [0, 1, 2]) {
-    try {
-      closeDescriptor(fd)
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'EBADF') recordFailure(error)
+  for (const output of [stdout, stderr]) {
+    if (output.destroyed) continue
+    if (Object.hasOwn(output, '_destroy')) {
+      try {
+        if (!Reflect.deleteProperty(output, '_destroy')) {
+          throw new Error('deleting runner standard-stream destroy override failed')
+        }
+      } catch (error) {
+        recordFailure(error)
+      }
     }
-  }
-  for (const handle of outputHandles) {
     try {
-      handle.close()
+      output.destroy()
     } catch (error) {
       recordFailure(error)
     }

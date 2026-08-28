@@ -213,49 +213,78 @@ describe('ordinary Job process operations', () => {
     expect(closeHandle).toHaveBeenCalledExactlyOnceWith(50n)
   })
 
-  it('closes each runner descriptor and materialized output handle', () => {
-    const closeDescriptor = vi.fn()
+  it('closes unique raw handles and restores output Socket destruction', () => {
     const input = { destroyed: false, destroy: vi.fn() }
-    const sharedHandle = { close: vi.fn() }
-    const output = { destroyed: false, destroy: vi.fn(), _handle: sharedHandle }
-    const alreadyClosed = { destroyed: true, destroy: vi.fn(), _handle: { close: vi.fn() } }
+    const socketDestroy = vi.fn()
+    const dummyDestroy = vi.fn()
+    const makeOutput = (): {
+      stream: { destroyed: boolean; destroy(): void; _destroy?: () => void }
+      destroy: ReturnType<typeof vi.fn>
+    } => {
+      const destroy = vi.fn(function (this: { _destroy(): void }) { this._destroy() })
+      const stream = Object.assign(Object.create({ _destroy: socketDestroy }), {
+        destroyed: false,
+        destroy,
+        _destroy: dummyDestroy,
+      }) as { destroyed: boolean; destroy(): void; _destroy?: () => void }
+      return { stream, destroy }
+    }
+    const { stream: stdout, destroy: stdoutDestroy } = makeOutput()
+    const { stream: stderr, destroy: stderrDestroy } = makeOutput()
+    const closeHandle = vi.fn(() => 1)
+    const getStdHandle = vi.fn((selector: number) =>
+      (selector === STD_INPUT_HANDLE ? 10n : 11n) as NativePtr)
+    const bindings = api({
+      getStdHandle,
+      closeHandle,
+    })
 
     expect(() => {
-      closeCurrentProcessStandardStreams([input, output, output], closeDescriptor)
+      closeCurrentProcessStandardStreams(bindings, [input, stdout, stderr])
     }).not.toThrow()
+    expect(getStdHandle).toHaveBeenCalledTimes(3)
+    expect(closeHandle.mock.calls).toEqual([[10n], [11n]])
     expect(input.destroy).toHaveBeenCalledOnce()
-    expect(output.destroy).not.toHaveBeenCalled()
-    expect(sharedHandle.close).toHaveBeenCalledOnce()
-    expect(closeDescriptor.mock.calls).toEqual([[0], [1], [2]])
-
-    expect(() => {
-      closeCurrentProcessStandardStreams([alreadyClosed, alreadyClosed, alreadyClosed], closeDescriptor)
-    }).not.toThrow()
-    expect(alreadyClosed.destroy).not.toHaveBeenCalled()
-    expect(alreadyClosed._handle.close).not.toHaveBeenCalled()
+    expect(stdoutDestroy).toHaveBeenCalledOnce()
+    expect(stderrDestroy).toHaveBeenCalledOnce()
+    expect(dummyDestroy).not.toHaveBeenCalled()
+    expect(socketDestroy).toHaveBeenCalledTimes(2)
+    expect(Object.hasOwn(stdout, '_destroy')).toBe(false)
+    expect(Object.hasOwn(stderr, '_destroy')).toBe(false)
   })
 
   it('reports one or several runner standard-stream close failures', () => {
     const closed = { destroyed: true, destroy: vi.fn() }
+    let getStdHandleCalls = 0
+    const getStdHandle = vi.fn(() => {
+      getStdHandleCalls += 1
+      if (getStdHandleCalls === 1) throw new Error('single close failure')
+      return 0n as NativePtr
+    })
+    const singleFailure = api({ getStdHandle })
     expect(() => {
-      closeCurrentProcessStandardStreams([
-        { destroyed: false, destroy: () => { throw new Error('single close failure') } },
+      closeCurrentProcessStandardStreams(singleFailure, [
         closed,
         closed,
-      ], vi.fn((fd: number) => {
-        if (fd === 0) throw Object.assign(new Error('already closed'), { code: 'EBADF' })
-      }))
+        closed,
+      ])
     }).toThrow('single close failure')
+    expect(getStdHandle).toHaveBeenCalledTimes(3)
 
+    const rawCloseFailure = api({ closeHandle: vi.fn(() => 0) })
+    const nonConfigurableDestroy = vi.fn()
+    const nonConfigurable = {
+      destroyed: false,
+      destroy: nonConfigurableDestroy,
+    } as { destroyed: boolean; destroy(): void; _destroy?: unknown }
+    Object.defineProperty(nonConfigurable, '_destroy', { value: vi.fn(), configurable: false })
     let failure: unknown
     try {
-      closeCurrentProcessStandardStreams([
-        closed,
-        { destroyed: false, destroy: vi.fn(), _handle: { close: () => { throw 'raw close failure' } } },
-        { destroyed: false, destroy: vi.fn(), _handle: { close: () => { throw new Error('second close failure') } } },
-      ], (fd) => {
-        if (fd === 1) throw new Error('descriptor close failure')
-      })
+      closeCurrentProcessStandardStreams(rawCloseFailure, [
+        { destroyed: false, destroy: () => { throw 'input close failure' } },
+        nonConfigurable,
+        { destroyed: false, destroy: () => { throw new Error('output close failure') } },
+      ])
     } catch (error) {
       failure = error
     }
@@ -265,9 +294,11 @@ describe('ordinary Job process operations', () => {
     })
     const errors = (failure as { errors: unknown }).errors
     expect(errors).toEqual(expect.arrayContaining([
-      expect.objectContaining({ message: 'raw close failure' }),
-      expect.objectContaining({ message: 'second close failure' }),
-      expect.objectContaining({ message: 'descriptor close failure' }),
+      expect.objectContaining({ api: 'CloseHandle' }),
+      expect.objectContaining({ message: 'input close failure' }),
+      expect.objectContaining({ message: 'deleting runner standard-stream destroy override failed' }),
+      expect.objectContaining({ message: 'output close failure' }),
     ]))
+    expect(nonConfigurableDestroy).toHaveBeenCalledOnce()
   })
 })

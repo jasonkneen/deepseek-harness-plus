@@ -504,7 +504,8 @@ describe('Windows Job runner protocol owner', () => {
     expect(native.spawnCurrentTokenJobProcess).toHaveBeenCalledWith(expect.anything(), {
       command: 'tool.exe', applicationName: 'C:\\resolved\\tool.exe', args: ['literal arg'], cwd: 'C:\\target',
     })
-    expect(native.closeCurrentProcessStandardStreams).toHaveBeenCalledOnce()
+    expect(native.closeCurrentProcessStandardStreams).toHaveBeenCalledTimes(1)
+    expect(native.closeCurrentProcessStandardStreams).toHaveBeenCalledWith(expect.anything())
     expect(native.closeHandleChecked).toHaveBeenCalledWith(expect.anything(), 10n, 'ordinary direct process')
     expect(native.closeHandleChecked).toHaveBeenCalledWith(expect.anything(), 20n, 'ordinary process Job')
     expect(host.sent).toEqual([{ type: 'target-exit', exitCode: 0, signal: null }])

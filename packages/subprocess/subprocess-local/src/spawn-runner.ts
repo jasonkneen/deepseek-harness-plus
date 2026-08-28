@@ -260,7 +260,7 @@ class WindowsJobRunner {
       this.processHandle = spawned.process
       this.jobHandle = spawned.job
       this.committed = true
-      this.internals.closeCurrentProcessStandardStreams()
+      this.internals.closeCurrentProcessStandardStreams(this.api)
       if (this.startCancellationPending()) this.terminateOwnedJob()
       this.pollTimer = setInterval(() => { this.poll() }, 10)
       this.poll()
