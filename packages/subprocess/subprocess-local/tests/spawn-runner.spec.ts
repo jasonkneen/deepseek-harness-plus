@@ -342,6 +342,41 @@ describe('runner launch inputs', () => {
       candidate === 'C:\\target\\tool.exe')).toBe('C:\\target\\tool.exe')
     expect(resolveWindowsExecutable('.\\missing', 'C:\\target', {}, () => false))
       .toBe('C:\\target\\.\\missing')
+
+    expect(resolveWindowsExecutable('tool', 'C:\\target', {
+      PATH: ';;C:\\bin',
+    }, candidate => candidate === 'C:\\bin\\tool.exe')).toBe('C:\\bin\\tool.exe')
+    expect(resolveWindowsExecutable('tool', 'C:\\target', {
+      PATH: '"";C:\\bin',
+    }, candidate => candidate === 'C:\\bin\\tool.exe')).toBe('C:\\bin\\tool.exe')
+    expect(resolveWindowsExecutable('tool', 'C:\\target', {
+      PATH: '"unterminated',
+    }, candidate => candidate === 'C:\\target\\unterminated\\tool.exe'))
+      .toBe('C:\\target\\unterminated\\tool.exe')
+    expect(resolveWindowsExecutable('\\\\server\\share\\tool', 'C:\\target', {}, candidate =>
+      candidate === '\\\\server\\share\\tool.exe')).toBe('\\\\server\\share\\tool.exe')
+    expect(resolveWindowsExecutable('\\tools\\tool', 'C:\\target', {}, candidate =>
+      candidate === 'C:\\tools\\tool.exe')).toBe('C:\\tools\\tool.exe')
+    expect(resolveWindowsExecutable('C:tools\\tool', 'C:\\target', {}, candidate =>
+      candidate === 'C:\\target\\tools\\tool.exe')).toBe('C:\\target\\tools\\tool.exe')
+
+    const noSearchEnvironment = { NoDefaultCurrentDirectoryInExePath: '1' }
+    expect(resolveWindowsExecutable('missing', 'C:\\target', {}, () => false, noSearchEnvironment))
+      .toBe('C:\\target\\missing.exe')
+    expect(resolveWindowsExecutable('missing.cmd', 'C:\\target', {}, () => false, noSearchEnvironment))
+      .toBe('C:\\target\\missing.cmd')
+
+    const directory = mkdtempSync(join(tmpdir(), 'dsh-windows-resolver-'))
+    scratch.push(directory)
+    const executable = join(directory, 'direct.exe')
+    const directoryCandidate = join(directory, 'directory')
+    const missingExecutable = join(directory, 'missing.exe')
+    writeFileSync(executable, '')
+    mkdirSync(`${directoryCandidate}.com`)
+    writeFileSync(`${directoryCandidate}.exe`, '')
+    expect(resolveWindowsExecutable(executable, '', {})).toBe(executable)
+    expect(resolveWindowsExecutable(directoryCandidate, '', {})).toBe(`${directoryCandidate}.exe`)
+    expect(resolveWindowsExecutable(missingExecutable, '', {})).toBe(missingExecutable)
   })
 })
 

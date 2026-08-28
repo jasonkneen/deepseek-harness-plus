@@ -1,6 +1,7 @@
 /** Typed Win32 process operations over the shared binding table. */
 
 import koffi from 'koffi'
+import { closeSync } from 'node:fs'
 import * as abi from './abi.ts'
 import {
   allocProcessInfo,
@@ -484,28 +485,56 @@ export function probeCurrentTokenJobSupport(api: Win32ProcessBindings): void {
   closeHandleChecked(api, job, 'current-token Job capability probe')
 }
 
+interface MaterializedStdioStream {
+  readonly destroyed: boolean
+  destroy(): unknown
+  readonly _handle?: { close(): void } | null
+}
+
 /**
  * Release the runner's Node-owned standard streams after target creation.
- * The target retains its inherited handle copies; destroying the runner's
- * libuv owners permits parent pipe EOF to follow the target rather than the
- * longer-lived runner. Raw `CloseHandle` is insufficient because Node may own
- * a duplicated libuv handle that remains live until its stream is destroyed.
- * @param streams - injectable current-process streams used by tests.
+ * The target retains its inherited handle copies. Node deliberately makes
+ * `process.stdout.destroy()` and `process.stderr.destroy()` leave their libuv
+ * handles open, so the runner must close both the descriptors and materialized
+ * output handles for parent pipe EOF to follow the target.
+ * @param streams - stdin, stdout, and stderr used by the current process.
+ * @param closeDescriptor - injectable descriptor close used by tests.
  */
 export function closeCurrentProcessStandardStreams(
-  streams: ReadonlyArray<{ readonly destroyed: boolean; destroy(): unknown }> = [
+  streams: readonly [MaterializedStdioStream, MaterializedStdioStream, MaterializedStdioStream] = [
     process.stdin,
     process.stdout,
     process.stderr,
   ],
+  closeDescriptor: (fd: number) => void = closeSync,
 ): void {
   const failures: Error[] = []
-  for (const stream of new Set(streams)) {
-    if (stream.destroyed) continue
+  const recordFailure = (error: unknown): void => {
+    failures.push(error instanceof Error ? error : new Error(String(error)))
+  }
+  const [stdin, ...outputs] = streams
+  const outputHandles = new Set(outputs.flatMap(stream => stream.destroyed || stream._handle == null
+    ? []
+    : [stream._handle]))
+  if (!stdin.destroyed) {
     try {
-      stream.destroy()
+      stdin.destroy()
     } catch (error) {
-      failures.push(error instanceof Error ? error : new Error(String(error)))
+      recordFailure(error)
+    }
+  }
+  for (const fd of [0, 1, 2]) {
+    try {
+      closeDescriptor(fd)
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'EBADF') recordFailure(error)
+    }
+  }
+  for (const handle of outputHandles) {
+    try {
+      handle.close()
+    } catch (error) {
+      recordFailure(error)
     }
   }
   if (failures.length === 1) {

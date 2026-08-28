@@ -213,27 +213,49 @@ describe('ordinary Job process operations', () => {
     expect(closeHandle).toHaveBeenCalledExactlyOnceWith(50n)
   })
 
-  it('destroys each unique live runner standard stream', () => {
-    const alreadyClosed = { destroyed: true, destroy: vi.fn() }
-    const live = { destroyed: false, destroy: vi.fn() }
+  it('closes each runner descriptor and materialized output handle', () => {
+    const closeDescriptor = vi.fn()
+    const input = { destroyed: false, destroy: vi.fn() }
+    const sharedHandle = { close: vi.fn() }
+    const output = { destroyed: false, destroy: vi.fn(), _handle: sharedHandle }
+    const alreadyClosed = { destroyed: true, destroy: vi.fn(), _handle: { close: vi.fn() } }
 
-    expect(() => { closeCurrentProcessStandardStreams([alreadyClosed, live, live]) }).not.toThrow()
+    expect(() => {
+      closeCurrentProcessStandardStreams([input, output, output], closeDescriptor)
+    }).not.toThrow()
+    expect(input.destroy).toHaveBeenCalledOnce()
+    expect(output.destroy).not.toHaveBeenCalled()
+    expect(sharedHandle.close).toHaveBeenCalledOnce()
+    expect(closeDescriptor.mock.calls).toEqual([[0], [1], [2]])
+
+    expect(() => {
+      closeCurrentProcessStandardStreams([alreadyClosed, alreadyClosed, alreadyClosed], closeDescriptor)
+    }).not.toThrow()
     expect(alreadyClosed.destroy).not.toHaveBeenCalled()
-    expect(live.destroy).toHaveBeenCalledOnce()
+    expect(alreadyClosed._handle.close).not.toHaveBeenCalled()
   })
 
   it('reports one or several runner standard-stream close failures', () => {
-    expect(() => { closeCurrentProcessStandardStreams([{
-      destroyed: false,
-      destroy: () => { throw new Error('single close failure') },
-    }]) }).toThrow('single close failure')
+    const closed = { destroyed: true, destroy: vi.fn() }
+    expect(() => {
+      closeCurrentProcessStandardStreams([
+        { destroyed: false, destroy: () => { throw new Error('single close failure') } },
+        closed,
+        closed,
+      ], vi.fn((fd: number) => {
+        if (fd === 0) throw Object.assign(new Error('already closed'), { code: 'EBADF' })
+      }))
+    }).toThrow('single close failure')
 
     let failure: unknown
     try {
       closeCurrentProcessStandardStreams([
-        { destroyed: false, destroy: () => { throw 'raw close failure' } },
-        { destroyed: false, destroy: () => { throw new Error('second close failure') } },
-      ])
+        closed,
+        { destroyed: false, destroy: vi.fn(), _handle: { close: () => { throw 'raw close failure' } } },
+        { destroyed: false, destroy: vi.fn(), _handle: { close: () => { throw new Error('second close failure') } } },
+      ], (fd) => {
+        if (fd === 1) throw new Error('descriptor close failure')
+      })
     } catch (error) {
       failure = error
     }
@@ -245,6 +267,7 @@ describe('ordinary Job process operations', () => {
     expect(errors).toEqual(expect.arrayContaining([
       expect.objectContaining({ message: 'raw close failure' }),
       expect.objectContaining({ message: 'second close failure' }),
+      expect.objectContaining({ message: 'descriptor close failure' }),
     ]))
   })
 })
