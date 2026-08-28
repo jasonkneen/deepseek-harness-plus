@@ -46,6 +46,12 @@ Vendored CLIs, build-only and test-only executables, direct in-process plugin mo
 
 The Python SDK follows the same application architecture. Its runtime wheel packages the normal `dsh` CLI as `deepseek-harness-sdk-runtime-<platform>-<arch>`, and the client launches `dsh --profile sdk` with an explicit Harness home by default. The minimal example selects the shipped `sdk-minimal` profile. Python exposes profile selection and ordered patch files rather than a complete Cordis tree; persistent external plugins are installed through `dsh plugin`. The removed private direct-config carrier has no compatibility bin or fallback parser.
 
+## Desktop application
+
+The [Electron desktop application](../apps/desktop/README.md) owns the reserved `$DSH_HOME/profiles/desktop` npm project. Each signed Electron release binds one exact dsh version and carries a first-party offline seed; startup installs that version into the writable profile with the bundled pnpm, while retaining exact desktop-plugin versions from the previous profile. CLI profiles share supported product data under `$DSH_HOME`, but never executable packages, plugin activation, lockfiles, or `node_modules` with Desktop.
+
+Electron starts the installed dsh package under its bundled upstream Node.js process. Unary RPC, Remote streams, and version-matched client assets cross the child-process carrier and the secure `dsh-app://` protocol, so the desktop composition opens no Web server or loopback port. Only shell-owned UI can run plugin transactions through the bundled pnpm and its private `$DSH_HOME/desktop/pnpm/store`.
+
 ## Core packages
 
 Here are some core packages that contribute to the Cordis tree.

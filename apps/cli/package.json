@@ -14,8 +14,16 @@
   "bin": {
     "dsh": "lib/bin.js"
   },
+  "exports": {
+    "./desktop-host": {
+      "types": "./lib/types/desktop-host.d.ts",
+      "default": "./lib/desktop-host.js"
+    },
+    "./package.json": "./package.json"
+  },
   "files": [
-    "lib/*.js"
+    "lib/*.js",
+    "config"
   ],
   "dsh": {
     "configTrees": [
@@ -36,10 +44,14 @@
     "@deepseek-ai/dsh-acp-app": "workspace:^",
     "@deepseek-ai/dsh-agent-instructions": "workspace:^",
     "@deepseek-ai/dsh-agent-tool-presentation": "workspace:^",
+    "@deepseek-ai/dsh-api-gateway": "workspace:^",
     "@deepseek-ai/dsh-app-boot": "workspace:^",
     "@deepseek-ai/dsh-base": "workspace:^",
+    "@deepseek-ai/dsh-client-connection": "workspace:^",
+    "@deepseek-ai/dsh-client-modules": "workspace:^",
     "@deepseek-ai/dsh-client-ui-agent-preset": "workspace:^",
     "@deepseek-ai/dsh-client-ui-cordis": "workspace:^",
+    "@deepseek-ai/dsh-client-ui-directory-picker-native": "workspace:^",
     "@deepseek-ai/dsh-cmdline": "workspace:^",
     "@deepseek-ai/dsh-command-compact": "workspace:^",
     "@deepseek-ai/dsh-command-goal": "workspace:^",
@@ -51,6 +63,8 @@
     "@deepseek-ai/dsh-goal-round-driver": "workspace:^",
     "@deepseek-ai/dsh-headless": "workspace:^",
     "@deepseek-ai/dsh-home-paths": "workspace:^",
+    "@deepseek-ai/dsh-host-directory-picker-native": "workspace:^",
+    "@deepseek-ai/dsh-host-webserver": "workspace:^",
     "@deepseek-ai/dsh-hooks-claude-code": "workspace:^",
     "@deepseek-ai/dsh-hooks-codex": "workspace:^",
     "@deepseek-ai/dsh-jobs-local": "workspace:^",
@@ -91,6 +105,7 @@
     "@deepseek-ai/dsh-tool-web": "workspace:^",
     "@deepseek-ai/dsh-tool-workflow": "workspace:^",
     "@deepseek-ai/dsh-web-app": "workspace:^",
+    "@deepseek-ai/dsh-web-frontend": "workspace:^",
     "@deepseek-ai/dsh-webhook": "workspace:^",
     "@deepseek-ai/dsh-webhook-github": "workspace:^",
     "@deepseek-ai/dsh-workflow-worker-thread": "workspace:^",
