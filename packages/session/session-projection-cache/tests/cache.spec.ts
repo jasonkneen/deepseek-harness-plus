@@ -442,15 +442,17 @@ describe('SessionProjectionCache cold-read seeding', () => {
     // Host-only unit: folded but not served; the refreshed row is written
     // back (fail-soft, fire-and-forget) once the write lands.
     expect(Object.keys(snapshot.values)).not.toContain('cache-test/count')
-    await settle()
-    expect((await storedRows(root, meta.id))?.['cache-test/count']?.seq).toBe(4)
+    await vi.waitFor(async () => {
+      expect((await storedRows(root, meta.id))?.['cache-test/count']?.seq).toBe(4)
+    })
     // No cached row yet: the first cold read folds from init over the full
     // log and creates the cache row (the `?? {}` seed path).
     const fresh = headerOf(SessionId('cold-fresh'), 10)
     cache.coldSnapshot(fresh, events)
     expect(apply).toHaveBeenCalledTimes(7) // 2 tail + 5 full
-    await settle()
-    expect((await storedRows(root, fresh.id))?.['cache-test/count']?.seq).toBe(4)
+    await vi.waitFor(async () => {
+      expect((await storedRows(root, fresh.id))?.['cache-test/count']?.seq).toBe(4)
+    })
   })
 
   it('coldSnapshot write-back is fail-soft: a failed durable write logs and never throws', async () => {
