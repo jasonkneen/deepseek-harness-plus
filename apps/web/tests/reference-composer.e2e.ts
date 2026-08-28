@@ -166,6 +166,12 @@ describe.skipIf(MODE === 'record')('web e2e: file and session references through
     expect(snapshot).not.toContain('text: Subagents')
 
     await input.fill('@reference')
+    // The open menu keeps the previous query's rows while the new one loads
+    // (stale-while-revalidate), and rows are keyed by index, so a click
+    // resolved against a stale row lands on whatever settles into that slot.
+    // `folderx/` matches only the bare '@' query: its disappearance marks the
+    // settled result set.
+    await expect.poll(() => menu.getByRole('option', { name: /folderx/ }).count(), { timeout: 15_000 }).toBe(0)
     await menu.getByRole('option', { name: /reference\.txt/ }).click()
     // The pick lands an atomic chip: a real DOM capsule carrying the domain
     // icon and the label (the canonical reference text lives on the node and
