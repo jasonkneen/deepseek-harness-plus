@@ -872,6 +872,26 @@ export const IconQuestionOutline14 = ({ size = 14, className }: IconProps) => (
   </svg>
 )
 
+/** Alarm clock outline for active scheduled-task indicators. */
+export const IconAlarmClockOutline16 = ({ size = 16, className }: IconProps) => (
+  <svg
+    aria-hidden="true"
+    width={size}
+    height={size}
+    className={className}
+    viewBox="0 0 16 16"
+    fill="none"
+    xmlns="http://www.w3.org/2000/svg"
+  >
+    <path d="M3.5 2.5 1.75 4" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" />
+    <path d="M12.5 2.5 14.25 4" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" />
+    <circle cx="8" cy="8.5" r="4.75" stroke="currentColor" strokeWidth="1.25" />
+    <path d="M8 5.75V8.5L10 9.75" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round" />
+    <path d="m4.75 12.25-1 1.5" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" />
+    <path d="m11.25 12.25 1 1.5" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" />
+  </svg>
+)
+
 /** ic_ds_archive_outline_20 (figma extract): lidded box + label slot. The export's
  *  0.11px stroke ring around the box contour is dropped — it restates the same
  *  contour in the same ink, which currentColor already carries. */
