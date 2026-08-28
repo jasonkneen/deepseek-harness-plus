@@ -64,7 +64,7 @@ function assertImageBodyCapacity(ctx: Context, maxRequestBodyBytes: number): voi
 }
 
 /** Services required before providing Connection. */
-export const inject = ['webServer', 'credentials']
+export const inject = ['credentials']
 
 /** Plugin config: the deployment's non-loopback serving authorities. */
 export interface ConnectionConfig {
@@ -90,9 +90,9 @@ export const Config: z<ConnectionConfig> = z.object({
 })
 
 /**
- * Mounts the API gateway under the browser transport prefix. Every request on
- * the prefix passes the Host/Origin browser-trust fence and persistent browser
- * authentication before dispatch.
+ * Provides carrier-neutral RPC and Fetch registries. When `webServer` is
+ * present, the plugin also mounts the `/api` browser transport with Host/Origin
+ * checks and persistent browser authentication.
  * @param ctx - Host plugin context.
  * @param config - resolved plugin config (schema defaults applied).
  */

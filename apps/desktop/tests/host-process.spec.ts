@@ -50,6 +50,61 @@ process.on('message', message => {
     }
   })
 
+  it('accepts a large canonical base64 response chunk without recursive RegExp validation', async () => {
+    const size = 2 * 1024 * 1024
+    const project = projectWithHost(`
+process.send({ type: 'ready', protocolVersion: 2, dshVersion: 'large-chunk' })
+process.on('message', message => {
+  if (message.type === 'fetch') {
+    process.send({ type: 'response-start', id: message.id, status: 200, headers: [] })
+    process.send({ type: 'response-chunk', id: message.id, chunkBase64: Buffer.alloc(${String(2 * 1024 * 1024)}, 97).toString('base64') })
+    process.send({ type: 'response-end', id: message.id })
+  } else if (message.type === 'shutdown') {
+    process.disconnect()
+  }
+})
+`)
+    const host = new DesktopHostProcess(process.execPath, project)
+    try {
+      const response = await host.fetch(new Request('dsh-app://app/large'))
+      const body = new Uint8Array(await response.arrayBuffer())
+      expect(body).toHaveLength(size)
+      expect(body[0]).toBe(97)
+      expect(body.at(-1)).toBe(97)
+    } finally {
+      await host.stop().catch(() => undefined)
+    }
+  })
+
+  it('ignores a response end that arrives after the renderer cancels its stream', async () => {
+    const project = projectWithHost(`
+process.send({ type: 'ready', protocolVersion: 2, dshVersion: 'cancel-race' })
+process.on('message', message => {
+  if (message.type === 'fetch') {
+    process.send({ type: 'response-start', id: message.id, status: 200, headers: [] })
+    if (message.request.url.endsWith('/after')) {
+      process.send({ type: 'response-chunk', id: message.id, chunkBase64: Buffer.from('alive').toString('base64') })
+      process.send({ type: 'response-end', id: message.id })
+    }
+  } else if (message.type === 'cancel') {
+    process.send({ type: 'response-end', id: message.id })
+  } else if (message.type === 'shutdown') {
+    process.disconnect()
+  }
+})
+`)
+    const host = new DesktopHostProcess(process.execPath, project)
+    try {
+      const canceled = await host.fetch(new Request('dsh-app://app/cancel'))
+      await canceled.body?.cancel()
+      await new Promise(resolve => setTimeout(resolve, 25))
+      const after = await host.fetch(new Request('dsh-app://app/after'))
+      await expect(after.text()).resolves.toBe('alive')
+    } finally {
+      await host.stop().catch(() => undefined)
+    }
+  })
+
   it('rejects an invalid event and a clean exit before readiness', async () => {
     const invalid = new DesktopHostProcess(process.execPath, projectWithHost(`
 process.send({ type: 'ready', protocolVersion: 99, dshVersion: '1.0.0' })

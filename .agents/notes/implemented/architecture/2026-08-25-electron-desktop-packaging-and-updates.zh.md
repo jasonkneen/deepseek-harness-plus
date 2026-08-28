@@ -14,7 +14,7 @@ DeepSeek Harness 需要一个复用 Web UI 的 Electron 桌面应用。该应用
 
 ## 决策
 
-交付一个小型 Electron 壳，其中内置上游 Node.js 可执行文件和固定版本的 pnpm。Electron 把 dsh 作为隔离子进程启动，通过带版本的 JSON IPC 和 Base64 请求／响应消息体承载一元 RPC 与 Remote stream，并通过 `dsh-app://` 提供经过验证的资源；它不会打开监听端口。该线路格式不依赖 Electron 与内置上游 Node.js 之间的 V8 序列化兼容性。该设计沿用 [GUI 分层与 RPC 协议 Agent Note](../../archived/architecture/2026-07-19-gui-layering-and-rpc-protocol.md)中的 Electron 预留。
+交付一个小型 Electron 壳，其中内置上游 Node.js 可执行文件和固定版本的 pnpm。Electron 把 dsh 作为隔离子进程启动，通过带版本的 JSON IPC 和有界 Base64 请求／响应分块承载一元 RPC 与 Remote stream，并通过 `dsh-app://` 提供经过验证的资源；它不会打开监听端口。壳以线性扫描验证 Base64 分块，使大型客户端 bundle 无法耗尽主进程调用栈；取消响应时则先移除记录再通知子进程，使迟到的分块和完成事件保持无效。Connection 插件无需 `webServer` 即可提供与载体无关的 RPC 与 Fetch 注册表，Client Modules 则向 shell-owned carrier 提供与广告内容完全一致的组合 bundle 响应；Web 组合为两者挂载可选 HTTP route。该线路格式不依赖 Electron 与内置上游 Node.js 之间的 V8 序列化兼容性。该设计沿用 [GUI 分层与 RPC 协议 Agent Note](../../archived/architecture/2026-07-19-gui-layering-and-rpc-protocol.md)中的 Electron 预留。
 
 Electron 拥有保留 profile `.dsh/profiles/desktop`。其中精确的 `@deepseek-ai/dsh` 依赖同时提供后端与匹配的 Web UI。dsh 发布及其第一方依赖闭包使用同一次源码构建生成的本地 npm tarball；profile manifest 把每个核心包列为本地 `file:` 依赖，`pnpm-workspace.yaml` 再通过 overrides 重复该映射。桌面插件既是同一 profile 中来自 registry 的其他 npm 依赖，也是有序的 `dsh.profile.bundles` 条目，并从该 profile 唯一的 `node_modules` 解析。
 

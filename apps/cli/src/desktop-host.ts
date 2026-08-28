@@ -211,8 +211,6 @@ function assetHandler(ctx: Context, projectDir: string): ConnectionFetchHandler 
   const require = createRequire(join(projectDir, 'package.json'))
   const distIndex = require.resolve('@deepseek-ai/dsh-web-frontend/dist/index.html')
   const distRoot = realpathSync(dirname(distIndex))
-  const graph = ctx.clientModules.graph()
-  const pluginAssets = new Map(graph.entries.map(entry => [new URL(entry.url, 'http://dsh.internal').href, entry.id]))
   const renderIndex = async (): Promise<Response> => {
     const rows: IndexInjection[] = [{ kind: 'script', placement: 'head', text: DESKTOP_TRANSPORT_SCRIPT }]
     ctx.emit('webserver/index-inject', rows)
@@ -223,15 +221,7 @@ function assetHandler(ctx: Context, projectDir: string): ConnectionFetchHandler 
     async fetch(request): Promise<Response> {
       if (request.method !== 'GET' && request.method !== 'HEAD') return new Response(null, { status: 405 })
       const url = new URL(request.url)
-      const comparable = new URL(`${url.pathname}${url.search}`, 'http://dsh.internal').href
-      const pluginId = pluginAssets.get(comparable)
-      if (pluginId !== undefined) {
-        const clientPath = ctx.clientModules.clientPath(pluginId)
-        if (clientPath === undefined) return new Response(null, { status: 404 })
-        return new Response(request.method === 'HEAD' ? null : await readFile(clientPath), {
-          headers: { 'content-type': MIME['.js'] ?? 'text/javascript; charset=utf-8' },
-        })
-      }
+      if (url.pathname.startsWith('/plugins/')) return ctx.clientModules.fetchBundle(request)
       let pathname: string
       try {
         pathname = decodeURIComponent(url.pathname)
@@ -296,6 +286,8 @@ function remoteStreamHandler(ctx: Context): ConnectionFetchHandler {
     },
   }
 }
+
+const DESKTOP_IPC_CHUNK_BYTES = 64 * 1024
 
 /**
  * Boot one installed desktop npm project.
@@ -380,7 +372,14 @@ export async function runDesktopHost(
         })
         if (response.body !== null) {
           for await (const chunk of response.body) {
-            send({ type: 'response-chunk', id: command.id, chunkBase64: Buffer.from(chunk).toString('base64') })
+            const bytes = Buffer.from(chunk)
+            for (let offset = 0; offset < bytes.byteLength; offset += DESKTOP_IPC_CHUNK_BYTES) {
+              send({
+                type: 'response-chunk',
+                id: command.id,
+                chunkBase64: bytes.subarray(offset, offset + DESKTOP_IPC_CHUNK_BYTES).toString('base64'),
+              })
+            }
           }
         }
         send({ type: 'response-end', id: command.id })

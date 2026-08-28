@@ -19,7 +19,7 @@
   "scripts": {
     "build": "tsx scripts/build.ts",
     "build:official": "tsx scripts/build.ts --profile official",
-    "build:lib": "npm run build:lib:host && npm run build:lib:client",
+    "build:lib": "pnpm run build:lib:host && pnpm run build:lib:client",
     "build:lib:host": "node --max-old-space-size=4096 ./node_modules/typescript/bin/tsc -b tsconfig.host.json && tsdown --env.DSH_BUILD_FACE host",
     "build:lib:client": "tsc -b tsconfig.client.json && tsdown --env.DSH_BUILD_FACE client",
     "build:web": "pnpm --filter @deepseek-ai/dsh-web-frontend run build",

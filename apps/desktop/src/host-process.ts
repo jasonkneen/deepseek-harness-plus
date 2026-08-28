@@ -17,8 +17,19 @@ interface PendingResponse {
 }
 
 function isCanonicalBase64(value: unknown): value is string {
-  return typeof value === 'string' && value.length % 4 === 0
-    && /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/u.test(value)
+  if (typeof value !== 'string' || value.length % 4 !== 0) return false
+  let padding = 0
+  if (value.endsWith('==')) padding = 2
+  else if (value.endsWith('=')) padding = 1
+  const contentLength = value.length - padding
+  for (let index = 0; index < contentLength; index += 1) {
+    const code = value.charCodeAt(index)
+    const isDigit = code >= 48 && code <= 57
+    const isUpper = code >= 65 && code <= 90
+    const isLower = code >= 97 && code <= 122
+    if (!isDigit && !isUpper && !isLower && code !== 43 && code !== 47) return false
+  }
+  return padding === 0 || contentLength > 0
 }
 
 function isDesktopHostEvent(message: unknown): message is DesktopHostEvent {
@@ -188,7 +199,11 @@ export class DesktopHostProcess {
         if (pending === undefined) return
         const body = new ReadableStream<Uint8Array>({
           start: (controller) => { pending.controller = controller },
-          cancel: () => { this.send({ type: 'cancel', id: message.id }) },
+          cancel: () => {
+            pending.removeAbort?.()
+            this.pending.delete(message.id)
+            this.send({ type: 'cancel', id: message.id })
+          },
         })
         pending.resolve(new Response(body, {
           status: message.status,
