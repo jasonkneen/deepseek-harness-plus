@@ -340,7 +340,7 @@ export function prepareLinuxTerminalScope(
     command: internals.systemdRun ?? 'systemd-run',
     args: scopeArgs(unitBase, invocation, spec.argv),
     cwd: process.cwd(),
-    env: runnerEnvironment(files.requestPath),
+    env: runnerEnvironment(files.requestPath, invocation),
     bindOwner: direct => new SystemdScopeOwner(
       `${unitBase}.scope`,
       files,
@@ -384,7 +384,7 @@ export function launchLinuxScope(
       spec.argv,
     ), {
       cwd: process.cwd(),
-      env: runnerEnvironment(files.requestPath),
+      env: runnerEnvironment(files.requestPath, invocation),
       stdio: runnerStdio(spec, false),
       detached: true,
     })

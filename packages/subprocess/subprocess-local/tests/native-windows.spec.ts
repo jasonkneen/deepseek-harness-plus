@@ -97,6 +97,32 @@ describe.skipIf(!windowsNative)('Windows Job native containment', () => {
     expect(readFileSync(output, 'utf8')).toBe('immediate-stdin')
   })
 
+  it('preserves direct Node null-device semantics for ignored stdin', async () => {
+    const script = `
+      const stat = require('node:fs').fstatSync(0)
+      process.stdout.write(JSON.stringify({
+        file: stat.isFile(),
+        directory: stat.isDirectory(),
+        block: stat.isBlockDevice(),
+        character: stat.isCharacterDevice(),
+        fifo: stat.isFIFO(),
+        socket: stat.isSocket(),
+      }))
+    `
+    const direct = spawnSync(process.execPath, ['-e', script], {
+      cwd: scratch,
+      stdio: ['ignore', 'pipe', 'inherit'],
+      encoding: 'utf8',
+    })
+    expect(direct.status).toBe(0)
+
+    const request = spec([process.execPath, '-e', script])
+    const handle = bindManagedProcess(request, launchWindowsJob(request, targetEnvironment(request)))
+    await expect(handle.done).resolves.toEqual({ exitCode: 0, signal: null })
+    await expect(handle.waitForExit()).resolves.toBe(true)
+    expect(handle.collected.stdout?.readFrom(0).text).toBe(direct.stdout)
+  })
+
   it('reports direct exit before terminating its default-inheritance descendant', async () => {
     const pidFile = join(scratch, `job-survivor-${Date.now()}.pid`)
     const factsFile = join(scratch, `job-facts-${Date.now()}.json`)
@@ -167,9 +193,16 @@ describe.skipIf(!windowsNative)('Windows Job native containment', () => {
     await expect(missingHandle.done).rejects.toMatchObject({ code: 'ENOENT' })
     await expect(missingHandle.waitForExit()).resolves.toBe(true)
 
+    const expectedAccessDenied = await directSpawnFailure([scratch])
     const accessDenied = spec([scratch])
     const accessDeniedHandle = bindManagedProcess(accessDenied, launchWindowsJob(accessDenied, targetEnvironment(accessDenied)))
-    await expect(accessDeniedHandle.done).rejects.toMatchObject({ code: 'EACCES' })
+    await expect(accessDeniedHandle.done).rejects.toMatchObject({
+      code: expectedAccessDenied.code,
+      errno: expectedAccessDenied.errno,
+      syscall: expectedAccessDenied.syscall,
+      path: expectedAccessDenied.path,
+      spawnargs: expectedAccessDenied.spawnargs,
+    })
     await expect(accessDeniedHandle.waitForExit()).resolves.toBe(true)
 
     const missingCwd = join(scratch, `missing-cwd-${Date.now()}`)

@@ -483,7 +483,6 @@ export function bindManagedProcess(
   let graceTimer: ReturnType<typeof setTimeout> | undefined
   let rangeExitObserved = false
   let rangeExitObservation: Promise<void> | undefined
-  let directResultLatched = false
   let settled = false
 
   const scheduleOwnerCleanup = (): boolean => {
@@ -564,7 +563,6 @@ export function bindManagedProcess(
       resolve(outcome)
     }
     const fail = (error: unknown): void => {
-      if (settled || directResultLatched) return
       settled = true
       terminate()
       stopCollectors()
@@ -573,10 +571,7 @@ export function bindManagedProcess(
       // oxlint-disable-next-line typescript/prefer-promise-reject-errors -- Exact cancellation reason is the contract.
       reject(error)
     }
-    void launch.infrastructureFailure?.catch(fail)
     launch.direct.then((outcome) => {
-      if (settled) return
-      directResultLatched = true
       if (stdoutClosed === undefined && stderrClosed === undefined) {
         settle(outcome)
         return

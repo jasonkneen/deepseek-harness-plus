@@ -808,43 +808,10 @@ describe('coverage seams', () => {
     await Promise.resolve()
   })
 
-  it('keeps an infrastructure failure authoritative when it precedes the direct result', async () => {
-    const direct = Promise.withResolvers<{ exitCode: number; signal: null }>()
-    const infrastructureFailure = Promise.withResolvers<never>()
-    const failure = new Error('runner failed before its result')
-    const handle = bindManagedProcess(spec('true', {
-      stdio: { stdin: 'ignore', stdout: 'inherit', stderr: 'inherit' },
-    }), {
-      stdin: null,
-      stdout: null,
-      stderr: null,
-      direct: direct.promise,
-      infrastructureFailure: infrastructureFailure.promise,
-      owner: {
-        signal: vi.fn(),
-        waitForExit: async () => {},
-        terminateForHostExit: vi.fn(),
-      },
-    })
-
-    infrastructureFailure.reject(failure)
-    await expect(handle.done).rejects.toBe(failure)
-    direct.resolve({ exitCode: 0, signal: null })
-    await Promise.resolve()
-    await expect(handle.done).rejects.toBe(failure)
-  })
-
-  it('cleans a managed owner after direct settlement and contains a later infrastructure failure', async () => {
+  it('contains a managed-owner cleanup failure after direct and range settlement', async () => {
     const direct = Promise.withResolvers<{ exitCode: number; signal: null }>()
     const stopped = Promise.withResolvers<undefined>()
-    const infrastructureFailure = Promise.withResolvers<never>()
     const cleanup = vi.fn(() => { throw new Error('protocol cleanup failed') })
-    const owner = {
-      signal: vi.fn(),
-      waitForExit: vi.fn(() => stopped.promise),
-      terminateForHostExit: vi.fn(),
-      cleanup,
-    }
     const handle = bindManagedProcess(spec('true', {
       stdio: { stdin: 'ignore', stdout: 'inherit', stderr: 'inherit' },
     }), {
@@ -852,22 +819,21 @@ describe('coverage seams', () => {
       stdout: null,
       stderr: null,
       direct: direct.promise,
-      infrastructureFailure: infrastructureFailure.promise,
-      owner,
+      owner: {
+        signal: vi.fn(),
+        waitForExit: () => stopped.promise,
+        terminateForHostExit: vi.fn(),
+        cleanup,
+      },
     })
 
     const waiting = handle.waitForExit()
     stopped.resolve(undefined)
     await expect(waiting).resolves.toBe(true)
     expect(cleanup).not.toHaveBeenCalled()
-
     direct.resolve({ exitCode: 0, signal: null })
     await expect(handle.done).resolves.toEqual({ exitCode: 0, signal: null })
     await vi.waitFor(() => { expect(cleanup).toHaveBeenCalledOnce() })
-
-    infrastructureFailure.reject(new Error('late runner failure'))
-    await Promise.resolve()
-    await expect(handle.done).resolves.toEqual({ exitCode: 0, signal: null })
   })
 
   it('retries an early range read but cleans and retains a terminal range failure', async () => {

@@ -22,8 +22,6 @@ export interface ManagedProcessLaunch {
   stderr: Readable | null
   direct: Promise<SubprocessOutcome>
   owner: BoundProcessOwner
-  /** Rejects if runner ownership is lost before `.done` completes its stdio barrier. */
-  infrastructureFailure?: Promise<never>
 }
 
 /**

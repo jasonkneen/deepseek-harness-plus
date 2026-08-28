@@ -39,7 +39,7 @@ async function executePosix(invocation: RunnerInvocation): Promise<{ status: num
       '--eval',
       `process.stdout.write(process.argv[0]+'|'+process.cwd()+'|'+process.env.${SUBPROCESS_RUNNER_ENV})`,
     ], {
-      env: runnerEnvironment(files.requestPath),
+      env: runnerEnvironment(files.requestPath, invocation),
       stdio: ['ignore', 'pipe', 'pipe'],
     })
     let stdout = ''

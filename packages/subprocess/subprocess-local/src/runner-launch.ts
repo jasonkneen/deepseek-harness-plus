@@ -17,6 +17,8 @@ export const WINDOWS_RUNNER_SELECTION = 'windows' as const
 /** Non-empty command tuple used to launch the private runner entry. */
 export type RunnerInvocation = [string, ...string[]]
 
+const SOURCE_TSCONFIG_PATH = fileURLToPath(new URL('../../../../tsconfig.base.json', import.meta.url))
+
 /**
  * Resolve the source, built, or packaged entry that calls the same runner core.
  * @returns executable and arguments for the active runtime form.
@@ -57,12 +59,18 @@ export function runnerInvocationAvailable(invocation: RunnerInvocation = spawnRu
 /**
  * Build the bootstrap-safe environment; target overrides arrive through request/IPC.
  * @param selection - private runner selector or Linux launch-request locator.
+ * @param invocation - resolved runner invocation whose source form needs the workspace paths map.
  * @returns environment for the runner before target state is restored.
  */
-export function runnerEnvironment(selection: string): NodeJS.ProcessEnv {
+export function runnerEnvironment(
+  selection: string,
+  invocation?: RunnerInvocation,
+): NodeJS.ProcessEnv {
+  const entry = invocation?.at(-1)
   return childEnv({
     [SUBPROCESS_RUNNER_ENV]: selection,
     SYSTEMD_LOG_TARGET: 'null',
+    ...entry?.endsWith('.ts') === true ? { TSX_TSCONFIG_PATH: SOURCE_TSCONFIG_PATH } : {},
   })
 }
 
@@ -94,11 +102,13 @@ export function parseRunnerTargetArgv(argv: readonly string[]): string[] {
  * on fd 3 and target carriers on fd 4 through fd 6.
  * @param spec - ordinary subprocess request whose stdio modes are preserved.
  * @param ipc - whether to isolate the runner and add its private Node IPC descriptor.
+ * @param stdinCarrier - runner fd 4 carrier; Windows ignore passes an opened null-device fd.
  * @returns child-process stdio options for the runner.
  */
 export function runnerStdio(
   spec: SubprocessSpawnSpec,
   ipc: boolean,
+  stdinCarrier: 'pipe' | number = 'pipe',
 ): StdioOptions {
   const targetStdio: StdioOptions = [
     spec.stdio.stdin === 'ignore' ? 'ignore' : 'pipe',
@@ -111,7 +121,7 @@ export function runnerStdio(
     'ignore',
     'ignore',
     'ipc',
-    'pipe',
+    stdinCarrier,
     spec.stdio.stdout === 'inherit' ? 1 : 'pipe',
     spec.stdio.stderr === 'inherit' ? 2 : 'pipe',
   ]

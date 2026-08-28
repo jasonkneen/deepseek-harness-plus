@@ -1,6 +1,8 @@
 /** Windows parent-side launch and ownership for the private Job runner. */
 
 import { spawn } from 'node:child_process'
+import { closeSync, openSync } from 'node:fs'
+import { devNull } from 'node:os'
 import type { Readable, Writable } from 'node:stream'
 import type { SubprocessOutcome, SubprocessSpawnSpec } from '@deepseek-ai/dsh-subprocess'
 import {
@@ -77,7 +79,7 @@ class WindowsJobOwner implements BoundProcessOwner {
     this.terminationSent = true
     try {
       this.runner.send?.({ type: 'terminate' }, (error) => {
-        if (error === null) return
+        if (error === null || !this.runner.connected) return
         this.failInfrastructure(error)
         this.terminateForHostExit()
       })
@@ -116,29 +118,32 @@ export function launchWindowsJob(
 ): ManagedProcessLaunch {
   const invocation = internals.runnerInvocation ?? spawnRunnerInvocation()
   const [command, ...prefix] = invocation
-  const child = (internals.spawn ?? spawn)(command, [
-    ...prefix,
-    '--',
-    ...spec.argv,
-  ], {
-    cwd: process.cwd(),
-    env: runnerEnvironment(WINDOWS_RUNNER_SELECTION),
-    stdio: runnerStdio(spec, true),
-  }) as RunnerProcess
+  const ignoredStdinFd = spec.stdio.stdin === 'ignore' ? openSync(devNull, 'r') : undefined
+  let child: RunnerProcess
+  try {
+    child = (internals.spawn ?? spawn)(command, [
+      ...prefix,
+      '--',
+      ...spec.argv,
+    ], {
+      cwd: process.cwd(),
+      env: runnerEnvironment(WINDOWS_RUNNER_SELECTION, invocation),
+      stdio: runnerStdio(spec, true, ignoredStdinFd ?? 'pipe'),
+    }) as RunnerProcess
+  } finally {
+    if (ignoredStdinFd !== undefined) closeSync(ignoredStdinFd)
+  }
   const targetStdin = child.stdio[4] as Writable | null
-  if (spec.stdio.stdin === 'ignore') targetStdin?.destroy()
 
   const direct = Promise.withResolvers<SubprocessOutcome>()
-  const infrastructure = Promise.withResolvers<never>()
   const rangeExit = Promise.withResolvers<void>()
   let resultSeen = false
   let infrastructureFailed = false
   const failInfrastructure = (error: unknown): void => {
-    if (infrastructureFailed) return
     infrastructureFailed = true
-    infrastructure.reject(error)
+    direct.reject(error)
+    rangeExit.reject(error)
   }
-  void infrastructure.promise.catch(() => {})
 
   const owner = new WindowsJobOwner(child, rangeExit.promise, failInfrastructure)
   child.on('message', (value: unknown) => {
@@ -167,8 +172,6 @@ export function launchWindowsJob(
   })
   child.once('error', (error) => {
     failInfrastructure(error)
-    direct.reject(error)
-    rangeExit.reject(error)
   })
   child.once('close', (exitCode, signal) => {
     const clean = exitCode === 0 && signal === null && resultSeen && !infrastructureFailed
@@ -185,8 +188,6 @@ export function launchWindowsJob(
       `subprocess-local: Windows Job runner exited with ${status} before proving its managed range empty`,
     )
     failInfrastructure(error)
-    if (!resultSeen) direct.reject(error)
-    rangeExit.reject(error)
   })
 
   const start: WindowsStartRequest = { type: 'start', cwd: spec.cwd, env: targetEnv }
@@ -195,12 +196,10 @@ export function launchWindowsJob(
     child.send(start, (error) => {
       if (error === null) return
       failInfrastructure(error)
-      direct.reject(error)
       owner.terminateForHostExit()
     })
   } catch (error) {
     failInfrastructure(error)
-    direct.reject(error)
     owner.terminateForHostExit()
   }
 
@@ -210,6 +209,5 @@ export function launchWindowsJob(
     stderr: child.stdio[6] as Readable | null,
     direct: direct.promise,
     owner,
-    infrastructureFailure: infrastructure.promise,
   }
 }

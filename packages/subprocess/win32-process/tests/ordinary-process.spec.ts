@@ -276,9 +276,5 @@ describe('ordinary Job process operations', () => {
       )
       expectFailure(startupInfo(table), 'invalid handle for target stdin fd 4')
     }
-
-    const missingBinding = api({ getStartupInfoW: undefined as never })
-    expect(() => { probeCurrentTokenJobSupport(missingBinding) })
-      .toThrow('current-token Job support requires GetStartupInfoW')
   })
 })

@@ -571,9 +571,6 @@ export function spawnCurrentTokenJobProcess(
  * @param api - active binding table.
  */
 export function probeCurrentTokenJobSupport(api: CurrentTokenProcessBindings): void {
-  if (typeof api.getStartupInfoW !== 'function') {
-    throw new Error('current-token Job support requires GetStartupInfoW')
-  }
   const job = createKillOnCloseJob(api)
   closeHandleChecked(api, job, 'current-token Job capability probe')
 }

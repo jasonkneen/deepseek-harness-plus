@@ -12,7 +12,7 @@ import {
   writeFileSync,
 } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join, posix } from 'node:path'
+import { join, posix, resolve } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Win32Error } from '@deepseek-ai/dsh-win32-process'
 import type {
@@ -246,9 +246,13 @@ describe('runner launch inputs', () => {
 
   it('keeps target state out of the bootstrap environment and consumes its selector', () => {
     const env = runnerEnvironment('/tmp/request')
+    const sourceEnv = runnerEnvironment('/tmp/request', [process.execPath, '/repo/bin.ts'])
+    const builtEnv = runnerEnvironment('/tmp/request', [process.execPath, '/repo/runner.js'])
     expect(env[SUBPROCESS_RUNNER_ENV]).toBe('/tmp/request')
     expect(env.SYSTEMD_LOG_TARGET).toBe('null')
     expect(env.EXPLICIT).toBeUndefined()
+    expect(sourceEnv.TSX_TSCONFIG_PATH).toBe(resolve(import.meta.dirname, '../../../..', 'tsconfig.base.json'))
+    expect(builtEnv.TSX_TSCONFIG_PATH).toBe(env.TSX_TSCONFIG_PATH)
     expect(consumeRunnerSelection(env)).toBe('/tmp/request')
     expect(env[SUBPROCESS_RUNNER_ENV]).toBeUndefined()
     expect(consumeRunnerSelection({})).toBeUndefined()
@@ -265,7 +269,7 @@ describe('runner launch inputs', () => {
     expect(runnerStdio({
       ...spec,
       stdio: { stdin: 'ignore', stdout: 'inherit', stderr: 'pipe' },
-    }, true)).toEqual(['ignore', 'ignore', 'ignore', 'ipc', 'pipe', 1, 'pipe'])
+    }, true, 17)).toEqual(['ignore', 'ignore', 'ignore', 'ipc', 17, 1, 'pipe'])
   })
 
   it('validates every Node-baseline NUL location before launch', () => {
@@ -310,7 +314,7 @@ describe('runner launch inputs', () => {
     const directory = mkdtempSync(join(tmpdir(), 'dsh-runner-cwd-'))
     scratch.push(directory)
     const invocation = spawnRunnerInvocation()
-    const env = runnerEnvironment('unused')
+    const env = runnerEnvironment('unused', invocation)
     Reflect.deleteProperty(env, SUBPROCESS_RUNNER_ENV)
     const launched = spawnSync(invocation[0], invocation.slice(1), {
       cwd: directory,
@@ -461,7 +465,7 @@ describe('Linux one-shot exec bootstrap', () => {
     expect(rootExecve).toHaveBeenCalledWith('/tool', ['tool'], { PATH: '' })
   })
 
-  it('preserves symlink-sensitive parent traversal in PATH candidates', async () => {
+  it.skipIf(process.platform === 'win32')('preserves symlink-sensitive parent traversal in PATH candidates', async () => {
     const root = mkdtempSync(join(tmpdir(), 'dsh-linux-path-symlink-'))
     scratch.push(root)
     const cwd = join(root, 'cwd')
