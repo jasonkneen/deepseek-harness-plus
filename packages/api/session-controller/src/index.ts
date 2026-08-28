@@ -3,9 +3,10 @@
 import { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import { errorChain } from '@deepseek-ai/dsh-llm'
+import { canOpenNativePath, openNativePath } from '@deepseek-ai/dsh-native-command'
 import type { SessionEvent, SessionHeader, SessionId } from '@deepseek-ai/dsh-session'
 import type { SessionObservation } from '@deepseek-ai/dsh-session-query'
-import { Remote, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
+import { Remote, TypertRemoteFailure, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
 import {
   ApiSessionAgentController,
   inspectApiSession,
@@ -14,9 +15,13 @@ import {
 import { SessionCommandController } from './commands.ts'
 import { SessionControlController } from './control.ts'
 import { SessionHistoryController } from './history.ts'
+import { SessionFileReferences } from './file-references.ts'
 import { ApiSessionList, DEFAULT_COLD_BLANK_PROBE_MAX_BYTES } from './list.ts'
+import { buildModelCatalog } from './catalog.ts'
 import { installModelSelectionProjection } from './model-selection-projection.ts'
+import { SessionSkillCatalog } from './skill-catalog.ts'
 import type {
+  ModelCatalog,
   SessionAttachmentRequest,
   SessionAttachmentValue,
   SessionCancelRequest,
@@ -30,6 +35,8 @@ import type {
   SessionForkValue,
   SessionListRequest,
   SessionListValue,
+  SessionOpenWorkspacePathRequest,
+  SessionOpenWorkspacePathValue,
   SessionPage,
   SessionPageRequest,
   SessionPromptRequest,
@@ -46,6 +53,8 @@ import type {
 
 export type * from './types.ts'
 export { ApiSessionNotFound } from './agent.ts'
+export { SessionFileReferences } from './file-references.ts'
+export { SessionSkillCatalog } from './skill-catalog.ts'
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
@@ -58,6 +67,16 @@ declare module '@deepseek-ai/cordis' {
 export interface Config {
   /** Maximum cold Session artifact size eligible for one full projection observation. */
   readonly coldBlankProbeMaxBytes?: number
+  /** Override platform desktop-opener detection. */
+  readonly nativeOpen?: boolean
+}
+
+/** Host integrations replaceable by direct unit tests. */
+export interface SessionControllerInternals {
+  /** Native default-application handoff. */
+  readonly openPath?: (path: string, signal: AbortSignal) => Promise<void>
+  /** Native handoff availability probe. */
+  readonly canOpenPath?: () => boolean
 }
 
 /** Host service backing the generated `ctx.remote.session` namespace. */
@@ -76,6 +95,7 @@ export class SessionController extends TypertRemoteService {
 
   static Config: z<Config> = z.object({
     coldBlankProbeMaxBytes: z.natural().default(DEFAULT_COLD_BLANK_PROBE_MAX_BYTES),
+    nativeOpen: z.boolean(),
   })
 
   private readonly agents: ApiSessionAgentController
@@ -83,13 +103,15 @@ export class SessionController extends TypertRemoteService {
   private readonly controlState: SessionControlController
   private readonly history: SessionHistoryController
   private readonly listState: ApiSessionList
+  private readonly openPath: (path: string, signal: AbortSignal) => Promise<void>
+  private readonly canOpenPath: () => boolean
   private readonly promotions = new Set<Promise<void>>()
 
   /**
    * @param ctx - Host context containing the Session capability assembly.
    * @param config - cold-list observation policy.
    */
-  constructor(ctx: Context, config: Config) {
+  constructor(ctx: Context, config: Config, internals: SessionControllerInternals = {}) {
     super(ctx, 'sessionController', { namespace: 'session' })
     installModelSelectionProjection(ctx)
     this.agents = new ApiSessionAgentController(ctx)
@@ -105,6 +127,11 @@ export class SessionController extends TypertRemoteService {
       ctx,
       config.coldBlankProbeMaxBytes ?? DEFAULT_COLD_BLANK_PROBE_MAX_BYTES,
     )
+    this.openPath = internals.openPath ?? openNativePath
+    this.canOpenPath = internals.canOpenPath
+      ?? (() => config.nativeOpen ?? (internals.openPath !== undefined || canOpenNativePath()))
+    ctx.plugin(SessionFileReferences)
+    ctx.plugin(SessionSkillCatalog)
 
     ctx.on('session/created', (session) => {
       ctx.emit('api-session/added', this.listState.summaryFor(session))
@@ -215,6 +242,61 @@ export class SessionController extends TypertRemoteService {
   }
 
   /**
+   * Describe every currently routable model for Host-generation selectors.
+   * @returns provider-grouped models, the deployment default, and isolated provider failures.
+   */
+  @Remote('modelCatalog')
+  modelCatalog(): Promise<ModelCatalog> {
+    return buildModelCatalog(this.ctx)
+  }
+
+  /**
+   * Report whether this deployment can hand a Session workspace path to a native desktop.
+   * @returns true when the matching open operation is available.
+   */
+  @Remote
+  canOpenWorkspacePath(): boolean {
+    return this.canOpenPath()
+  }
+
+  /**
+   * Open one path prepared by a Session-aware caller on the Host desktop.
+   * @param request - path after best-effort Session workspace resolution.
+   * @param signal - caller lifetime; abort terminates the native command.
+   * @returns confirmation after the native opener accepts the path.
+   * @throws TypertRemoteFailure when the request is invalid, cancelled, or the opener fails.
+   */
+  @Remote('openWorkspacePath')
+  async openWorkspacePath(
+    request: SessionOpenWorkspacePathRequest,
+    signal: AbortSignal,
+  ): Promise<SessionOpenWorkspacePathValue> {
+    if (request.path.length === 0) {
+      throw new TypertRemoteFailure({
+        code: 'bad-request',
+        message: 'session.openWorkspacePath requires a non-empty path',
+        details: {},
+      })
+    }
+    signal.throwIfAborted()
+    try {
+      await this.openPath(request.path, signal)
+      return { opened: true }
+    } catch (error: unknown) {
+      if (signal.aborted) {
+        throw new TypertRemoteFailure({
+          code: 'cancelled', message: 'path open was aborted', details: {},
+        })
+      }
+      throw new TypertRemoteFailure({
+        code: 'internal',
+        message: `path open failed: ${error instanceof Error ? error.message : String(error)}`,
+        details: {},
+      })
+    }
+  }
+
+  /**
    * Rename one Session after explicitly resuming it.
    * @param request - Session identity and proposed title.
    * @returns the accepted title and durable event sequence.
@@ -310,5 +392,5 @@ export class SessionController extends TypertRemoteService {
 
 }
 
-export { buildModelCatalog } from './catalog.ts'
+export { buildModelCatalog }
 export default SessionController

@@ -9,7 +9,7 @@ kind: "package-reference"
 
 ## 概述
 
-宿主驱动 UI 使用 `dsh-file-reference` 提供 `@file` 补全：UI 为指定 agent 请求路径候选，模型输入 `@path` 或 `@"path with spaces"`，选中候选后，匹配的 mention 作为普通提示词文本插入。seam 本身不拥有文件系统访问——具体提供方（如 `@deepseek-ai/dsh-file-reference-local`）负责提供候选、排序、缓存与失效。选中候选绝不读取或附带文件内容；模型必须调用文件系统工具才能查看文件。浏览器消费方无需 API Proxy 路由，即可通过远程 `fileReferences/list` 方法调用同一发现能力。
+宿主驱动 UI 使用 `dsh-file-reference` 提供 `@file` 补全：UI 为指定 agent 请求路径候选，模型输入 `@path` 或 `@"path with spaces"`，选中候选后，匹配的 mention 作为普通提示词文本插入。seam 本身不拥有文件系统访问——具体提供方（如 `@deepseek-ai/dsh-file-reference-local`）负责提供候选、排序、缓存与失效。选中候选绝不读取或附带文件内容；模型必须调用文件系统工具才能查看文件。Session Controller 通过 `fileReferences/list` Remote 向浏览器消费方暴露同一发现能力。
 
 ## 目录
 
@@ -33,7 +33,7 @@ kind: "package-reference"
 
 ### 获取候选
 
-`ctx.fileReferences.list(agent, query, signal)` 返回指定 agent 工作目录中仅含路径的文件与目录候选，由提供方确定性地排序。目录 mention 呈现时带尾随 `/`，使补全可以继续深入下一层。浏览器消费方通过 `ctx.remote.fileReferences.list` 调用同一发现能力；保留的末位 signal 参数可取消慢速自动补全。
+`ctx.fileReferences.list(agent, query, signal)` 返回指定 agent 工作目录中仅含路径的文件与目录候选，由提供方确定性地排序。目录 mention 呈现时带尾随 `/`，使补全可以继续深入下一层。浏览器消费方通过 Session Controller adapter 的 `ctx.remote.fileReferences.list` 调用同一发现能力；末位 signal 参数可取消慢速自动补全。
 
 ### 搭配提供方
 
@@ -51,13 +51,13 @@ kind: "package-reference"
 
 ### 设计理念
 
-本包建立在一个分离上：抽象发现服务加共享、浏览器安全的 mention 语法，由提供方负责命名空间访问、排序、缓存与失效。该服务是 `TypertRemoteService`，其 `list` 约定可通过一元 `fileReferences/list` 方法远程调用，因此同一 seam 同时服务进程内与浏览器消费方。
+本包把抽象发现服务与共享、浏览器安全的 mention 语法分开，由提供方负责命名空间访问、排序、缓存与失效。该服务保持 wire 中立；`dsh-api-session-controller` 持有 `fileReferences/list` Remote adapter，并在解析 Agent 后委派给当前 provider。
 
 ### 源码地图
 
 | 文件 | 职责 |
 |---|---|
-| [`src/index.ts`](src/index.ts) | 抽象 `FileReferenceService`、`FILE_REFERENCE_PROMPT`、远程 `list` 面 |
+| [`src/index.ts`](src/index.ts) | 抽象 `FileReferenceService` 与 `FILE_REFERENCE_PROMPT` |
 | [`src/grammar.ts`](src/grammar.ts) | `activeAtToken` 识别与 `formatFileMention` 渲染 |
 | [`src/types.ts`](src/types.ts) | 仅含路径的结果类型 `FileReferenceCandidate` |
 | [`src/invariant.ts`](src/invariant.ts) | 发现约定的不变式伴生插件 |

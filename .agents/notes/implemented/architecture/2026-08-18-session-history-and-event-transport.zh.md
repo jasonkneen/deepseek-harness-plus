@@ -62,21 +62,23 @@ API Proxy 不拥有 Session 或 Workspace Remote namespace，也不拥有 Host �
 
 浏览器的 Client Remote 插件激活时幂等启动 `RemoteStreamMuxClient`，并立即连接 `/api/remote.mux`。没有业务 logical stream 时物理 WebSocket 仍保持常驻。
 
+Host 按配置的 `websocketHeartbeatIntervalMs` 间隔（默认 30 秒）向每条已打开的 mux socket 发送一个 RFC 6455 Ping 控制帧；浏览器在协议层回复 Pong。两种控制帧都不进入 Remote stream JSON union，也不改变 Connection generation 状态。Host 不设置 Pong deadline，因此半开检测仍由 TCP 与网络中间层承担。
+
 首次建连失败或已连接 socket 丢失后，mux 使用有上限的抖动退避重建物理连接。尚未打开的 logical stream 共享该重连循环；已经打开的 stream 以 `RemoteStreamCarrierError` 结束当前物理 generation。
 
 进程内 `connection.rpc.open` 使用同一 logical endpoint 语义，但绕过浏览器 WebSocket mux。
 
 Gateway 内部 `$events` logical stream 是 `ConnectionHandle` 唯一的 generation source。它不依赖是否已有业务 `$on` 订阅，因此连接健康状态不会随 UI listener 数量变化。
 
-Host event source 在返回首帧前同步安装增量 listener。Gateway 随后发送带 `clientId` 的 `{ type: 'ready' }`，该帧证明当前 generation 已经能够接收增量。
+Host event source 在返回首帧前同步安装增量 listener。Gateway 随后发送 `{ type: 'ready', clientId, host: { home } }`；该 frame 证明当前 generation 已经能够接收增量，并携带稳定的 Host 路径显示信息。
 
-`ConnectionController` 并行等待 `$events` ready 与 `host.describe`。两者都完成后才发布 `connected`，所以 Session 或 Workspace baseline 不会在 Host 增量 listener 就绪前开始读取。
+`ConnectionController` 只有在 `$events` ready 后才发布 `connected`，所以 Session 或 Workspace baseline 不会在 Host 增量 listener 就绪前开始读取。
 
-`$events` 正常意外结束、Host 错误、畸形首帧或 carrier 失败都会结束当前 Connection generation。Connection 撤回 `hostDescription`，退避后重新建立 `$events` 与 `host.describe`。
+`$events` 正常意外结束、Host 错误、畸形首帧或 carrier 失败都会结束当前 Connection generation。Connection 撤回该 generation，退避后重新建立 `$events`。
 
 Gateway stream、Connection generation 与 Session 业务 open epoch 是三个独立计数：前者表示某条 logical stream 的物理替换，第二个表示 Host 可用性握手，最后一个防止已淘汰的 Session open 写回当前状态。
 
-插件销毁会停止退避，取消候选与活动 socket，终止 logical stream，并等待后台循环和 consumer 静默退出。
+Host 插件销毁会停止心跳定时器、终止 mux socket，并等待活跃 iterator 完成。Client 插件销毁会停止退避，取消候选与活动 socket，终止 logical stream，并等待后台循环和 consumer 完全停稳。
 
 ### 通用 Remote stream 模型
 
@@ -134,7 +136,7 @@ repair 期间旧 window 保持可读；page 与期间积累的 live entries 拼�
 
 `packages/api/session-controller` 提供 Host `ctx.sessionController` 与生成的 `ctx.remote.session` namespace。
 
-它拥有 Session list、search、create、selectModel、rename、fork、prompt、attachment、updateQueue、cancel、page、follow 与 control。Host generation 的 model catalog 通过独立的 `llm.models` 公开，因为它不属于特定 Session。
+它拥有 Session list、search、create、selectModel、rename、fork、prompt、attachment、updateQueue、cancel、page、follow 与 control。Host generation 的 model catalog 通过独立的 `session/modelCatalog` 公开，因为它不属于特定 Session。
 
 包内的 agent、commands、control、history 与 list controller 分开实现，但 Session 身份解析、激活策略、subagent ownership 和 Remote 错误投影只有一个公开 owner。
 
@@ -320,15 +322,17 @@ API Proxy 只承接自身拥有的独立业务 API，不是 Session、Workspace�
 
 **给 Remote Event 使用独立物理 WebSocket 或 duplex stream。** Gateway mux 已提供认证升级、复用、取消、错误映射和重连；下行 `$events` 加上 HTTP `$events/result` 足以表达 request／response，不需要第三条连接。
 
+**发送应用层 JSON 心跳帧。** 这会扩展严格的 Remote stream message union，并要求浏览器处理没有业务含义的流量。WebSocket Ping/Pong 无需改变 logical stream 语义即可保持 carrier 活跃。
+
 **继续保留 API Proxy 的 Host mux。** 这会保留手写 union、schema、响应 envelope 和第二套 stream 生命周期，并使 Session 与 Workspace Controller 不能独立拥有自己的数据协议。
 
 **从聚合 `session/event` 更新 Session 列表时间。** 列表正确性会依赖浏览器正在消费哪些 Session，并把任意插件事件误判为用户活跃；持久 `lastPromptAt` 投影直接表达排序事实。
 
 ## 验证
 
-Gateway mux 测试固定无 logical stream 时建连、空闲常驻、初始失败与断线重连、活动 stream carrier failure、取消和 dispose 后不再重连。
+Gateway mux 测试固定无 logical stream 时建连、空闲常驻、可配置且不产生应用消息的 Ping/Pong、初始失败与断线重连、活动 stream carrier failure、取消和 dispose 后不再重连。
 
-Connection 测试固定 generation source 缺失、重复注册、撤回、`$events` ready 与 `host.describe` 的竞争，以及 generation 失败后的 description 撤回和重建。
+Connection 测试固定 generation source 缺失、重复注册、撤回、ready 超时，以及 generation 失败后的撤回和重建。
 
 `RemoteStream` 测试固定单 consumer、opening acceptance 后清零 retry、`restart()` 只替换 generation、terminal error 不重试和 dispose quiescence。
 
@@ -364,6 +368,8 @@ Remote Event Client 测试固定实例私有 key、Cordis 注册顺序、Agent C
 
 Gateway 只拥有 transport、generation、pending waterfall 和严格 wire 校验，不拥有 Session 或 Workspace 业务字段。领域 Controller 只提供 opener、cursor 规则、baseline reducer 和错误呈现。
 
+每条常驻浏览器连接会按配置间隔增加一次空载荷 Ping/Pong 交换。面对更严格的空闲超时，部署方可缩短间隔，而无需改变 Remote stream 协议或浏览器代码。
+
 Session 与 Workspace 的 Host API、stream adapter 和 Client 数据模型各有明确 owner；API Proxy 不再是它们之间的中介。
 
 通用 stream 对象增加了三个明确层级，但删除了每个 Controller 各自复制的 retry、cancel、generation、baseline 和 gap-repair 外壳。
@@ -372,4 +378,4 @@ Remote waterfall 保留多 Client 首个 claim、全体 `next` 后继续 Host ch
 
 本决定扩展[Remote 事件投递](2026-08-10-remote-event-delivery.zh.md)的 allowlist 与单一 Cordis 签名设计：普通通知继续使用 `emit`，Agent-scoped async waterfall 使用同一 `ctx.remote.$on` 面和显式 `waterfall` mode；不建立第二套 invocation map。
 
-本决定接管[简单一元 API Proxy 迁移](../../proposed/architecture/2026-08-10-unary-apiproxy-remote-migration.zh.md)中保留的 Session、Workspace 与 Host event carrier，并保留[后台任务展示](../feature/2026-08-08-web-background-job-display.zh.md)所要求的完整 jobs snapshot、进程内生命周期和“观察不恢复 Agent”语义。
+本决定接管[简单一元 API Proxy 迁移](2026-08-10-unary-apiproxy-remote-migration.zh.md)中保留的 Session、Workspace 与 Host event carrier，并保留[后台任务展示](../feature/2026-08-08-web-background-job-display.zh.md)所要求的完整 jobs snapshot、进程内生命周期和“观察不恢复 Agent”语义。

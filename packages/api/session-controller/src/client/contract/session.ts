@@ -12,9 +12,37 @@ import type { MessageId } from '@deepseek-ai/dsh-llm/brand'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { RemoteResult } from '@deepseek-ai/dsh-typert-protocol'
 import type { ObservableSnapshot } from '@deepseek-ai/dsh-client-store'
-import type { PromptContentPart, QueueAction } from '../../types.ts'
+import type { PromptContentPart, QueueAction, SessionRequestId } from '../../types.ts'
 import type { ClientResult } from './result.ts'
-import type { SessionSnapshot } from './snapshot.ts'
+import type { PendingSubmissionImage, SessionSnapshot } from './snapshot.ts'
+
+/**
+ * Why a local submission echo left the snapshot: `observed` when its durable
+ * `user/message` event or host queue occurrence arrived (with the admitted
+ * image references in prompt order), `failed` when the prompt was rejected,
+ * threw, or was aborted before acceptance.
+ */
+export type PendingSubmissionRetirement =
+  | { readonly reason: 'observed'; readonly attachments: readonly ImageAttachmentRef[] }
+  | { readonly reason: 'failed' }
+
+/** Input registering one local submission echo ahead of its prompt call. */
+export interface BeginSubmissionInput {
+  /** Prompt text exactly as the upcoming prompt will send it. */
+  readonly text: string
+  /** Ordered image previews matching the upcoming prompt's image parts. */
+  readonly images: readonly PendingSubmissionImage[]
+  /** Settlement callback fired exactly once when the echo retires. */
+  readonly onRetire?: (retirement: PendingSubmissionRetirement) => void
+}
+
+/** One registered submission echo: the identity its prompt must carry, and the pre-prompt escape hatch. */
+export interface SubmissionHandle {
+  /** The prompt RPC identity; pass it to {@link ISession.prompt}. */
+  readonly requestId: SessionRequestId
+  /** Retire the echo as failed when the caller cannot reach prompt() (serialization failure); no-op after any other settlement. */
+  abandon(): void
+}
 
 /** Key-addressed projection read face (the useProjection resolution path; see ProjectionValueStore). */
 export interface ProjectionsFace {
@@ -34,15 +62,28 @@ export interface ISession {
   /** Host-computed projection values by key (the useProjection seat). */
   readonly projections: ProjectionsFace
   /**
+   * Register one local submission echo in `snapshot.pendingSubmissions`,
+   * synchronously, before the caller serializes and sends the prompt. The
+   * echo retires when a durable `user/message` event or queue occurrence
+   * carrying the returned identity arrives, or when the identified prompt
+   * call fails.
+   * @param input - echo content and the optional settlement callback.
+   * @returns the minted identity for {@link prompt} plus the pre-prompt abandon path.
+   */
+  beginSubmission(input: BeginSubmissionInput): SubmissionHandle
+  /**
    * Send a prompt into the session.
    * @param content - text plus browser-owned temporary image uploads.
    * @param mode - 'queue' appends a turn; 'steer' interrupts the running one.
+   * @param signal - optional caller cancellation for the complete admission round-trip.
+   * @param requestId - identity from {@link beginSubmission}; a failed identified prompt retires its echo.
    * @returns acceptance, or the business error (also mirrored into snapshot.promptError).
    */
   prompt(
     content: PromptContentPart[],
     mode: 'queue' | 'steer',
     signal?: AbortSignal,
+    requestId?: SessionRequestId,
   ): Promise<ClientResult<{ accepted: true }>>
   /**
    * Resolve one durable image referenced by this session.

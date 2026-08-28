@@ -22,9 +22,11 @@ import type {
 } from '../../types.ts'
 import type { ClientFailure, ClientResult } from '../contract/result.ts'
 import { transportResult } from '../contract/result.ts'
-import type { SessionFace } from '../contract/session.ts'
 import type {
-  OpenState, PromptError, SessionSnapshot,
+  BeginSubmissionInput, PendingSubmissionRetirement, SessionFace, SubmissionHandle,
+} from '../contract/session.ts'
+import type {
+  OpenState, PendingSubmission, PromptError, SessionSnapshot,
 } from '../contract/snapshot.ts'
 import { MutableSessionEventSource } from '../contract/events.ts'
 import type {
@@ -99,6 +101,14 @@ export class Session implements SessionFace {
   private removed = false
   private promptError: PromptError | null = null
   private lastAgentError: string | null = null
+  /** Local submission echoes, insertion-ordered (see SessionSnapshot.pendingSubmissions). */
+  private pendingSubmissions: readonly PendingSubmission[] = []
+  /** Per-echo settlement state; `retiring` latches the first observation so a
+   *  queue frame and its durable event cannot both retire one echo. */
+  private readonly submissionSettlements = new Map<SessionRequestId, {
+    readonly onRetire?: ((retirement: PendingSubmissionRetirement) => void) | undefined
+    retiring: boolean
+  }>()
   /** Owns the addressed page/follow lifecycle while this Session is open. */
   private events: SessionEventStream | undefined
 
@@ -169,15 +179,41 @@ export class Session implements SessionFace {
   // ---- Operations ----
 
   /**
+   * Register one local submission echo (see the ISession declaration).
+   * Synchronous through markDirty: the echo is in the very next snapshot, so
+   * the conversation can paint it before the caller starts serializing.
+   * @param input - echo content and the optional settlement callback.
+   * @returns the minted identity for {@link prompt} plus the pre-prompt abandon path.
+   */
+  beginSubmission(input: BeginSubmissionInput): SubmissionHandle {
+    const requestId = randomUUID() as SessionRequestId
+    this.pendingSubmissions = [...this.pendingSubmissions, {
+      requestId,
+      time: Date.now(),
+      text: input.text,
+      images: input.images,
+    }]
+    this.submissionSettlements.set(requestId, { onRetire: input.onRetire, retiring: false })
+    // The blank → engaging edge flips here, ahead of prompt(): the composer
+    // docks and the echo renders on the click's own frame.
+    this.promptAttempted = true
+    this.notifier.markDirty()
+    return { requestId, abandon: () => { this.retireFailedSubmission(requestId) } }
+  }
+
+  /**
    * Send (queue/steer passed through 1:1); failures land in the snapshot's promptError.
    * @param content - text plus browser-owned temporary image uploads.
    * @param mode - queue appends after the current turn; steer interrupts it.
+   * @param signal - optional caller cancellation for the complete admission round-trip.
+   * @param requestId - identity from {@link beginSubmission}; a failed identified prompt retires its echo.
    * @returns the prompt result (also mirrored into promptError on failure).
    */
   async prompt(
     content: PromptContentPart[],
     mode: 'queue' | 'steer',
     signal?: AbortSignal,
+    requestId?: SessionRequestId,
   ): Promise<ClientResult<{ accepted: true }>> {
     this.promptError = null
     this.lastAgentError = null
@@ -192,7 +228,7 @@ export class Session implements SessionFace {
       if (this.address === undefined) {
         const clientTimeZone = resolvedClientTimeZone()
         result = toSessionResult(await this.remote.session.prompt({
-          requestId: randomUUID() as SessionRequestId,
+          requestId: requestId ?? randomUUID() as SessionRequestId,
           sessionId: this.sessionId,
           mode,
           content,
@@ -235,6 +271,7 @@ export class Session implements SessionFace {
       result = transportResult(error)
     }
     if (!result.ok) {
+      if (requestId !== undefined) this.retireFailedSubmission(requestId)
       this.promptError = { op: 'send', error: result.error }
       this.notifier.markDirty()
       return result
@@ -437,6 +474,7 @@ export class Session implements SessionFace {
    */
   replaceControl(queue: readonly SessionQueuedItem[]): void {
     this.queueMirror.replace(queue)
+    this.observeSubmissionQueue(queue)
     this.notifier.markDirty()
   }
 
@@ -446,6 +484,7 @@ export class Session implements SessionFace {
    */
   handleControlFrame(frame: Extract<SessionControlFrame, { type: 'queue' }>): void {
     this.queueMirror.replace(frame.items)
+    this.observeSubmissionQueue(frame.items)
     this.notifier.markDirty()
   }
 
@@ -526,6 +565,12 @@ export class Session implements SessionFace {
    * @returns when the Remote iterator has completed teardown.
    */
   async dispose(): Promise<void> {
+    // Unsettled echoes retire as failed so their owners can restore or
+    // release browser resources; echoes already scheduled as observed keep
+    // that settlement.
+    for (const requestId of [...this.submissionSettlements.keys()]) {
+      this.retireFailedSubmission(requestId)
+    }
     this.openGeneration++
     const events = this.events
     this.events = undefined
@@ -584,6 +629,7 @@ export class Session implements SessionFace {
     if (entries.some(entry => entry.event.type === 'turn/start')) this.firstPromptPendingTurn = false
     if (projections !== undefined) this.projections.seed(projections)
     this.eventSource.replace(entries, hasMore)
+    for (const entry of entries) this.observeSubmissionEvent(entry.event)
     this.notifier.markDirty()
   }
 
@@ -601,7 +647,68 @@ export class Session implements SessionFace {
     if (event.type === 'turn/start') this.firstPromptPendingTurn = false
     const queueChanged = this.queueMirror.acceptDurable(event)
     this.eventSource.append(entry)
+    // After the feed append: the conversation assembly's animation frame is
+    // registered by the feed subscribers above, so the echo-retirement frame
+    // scheduled here always runs after the durable node became renderable.
+    this.observeSubmissionEvent(event)
     return queueChanged || awaitingFirstTurn !== this.firstPromptPendingTurn
+  }
+
+  /** Retire the matching echo when a durable browser-prompt `user/message` becomes visible. */
+  private observeSubmissionEvent(event: { readonly type: string; readonly data?: unknown }): void {
+    if (this.submissionSettlements.size === 0 || event.type !== 'user/message') return
+    // Structural read: window entries may be compact history records, so the
+    // fields are narrowed rather than trusted (same posture as Conversation
+    // assembly matchers).
+    const data = event.data as { readonly source?: unknown; readonly content?: unknown } | undefined
+    const source = data?.source as { readonly kind?: unknown; readonly rpcId?: unknown } | undefined
+    if (source?.kind !== 'user' || typeof source.rpcId !== 'string') return
+    this.scheduleObservedRetirement(source.rpcId as SessionRequestId, imageRefsIn(data?.content))
+  }
+
+  /** Retire echoes whose prompts landed in the host inbox instead of the log (running-turn submissions). */
+  private observeSubmissionQueue(items: readonly SessionQueuedItem[]): void {
+    if (this.submissionSettlements.size === 0) return
+    for (const item of items) {
+      if (item.rpcId !== undefined) {
+        this.scheduleObservedRetirement(item.rpcId, imageRefsIn(item.message.content))
+      }
+    }
+  }
+
+  /**
+   * Latch one observed settlement and remove the echo an animation frame
+   * later. The delay keeps the echo in the snapshot until the frame in which
+   * the durable node (whose assembly frame was registered first) is
+   * renderable; the render-time rpcId dedupe hides the one-frame overlap.
+   */
+  private scheduleObservedRetirement(
+    requestId: SessionRequestId,
+    attachments: readonly ImageAttachmentRef[],
+  ): void {
+    const settlement = this.submissionSettlements.get(requestId)
+    if (settlement === undefined || settlement.retiring) return
+    settlement.retiring = true
+    scheduleFrame(() => { this.finishSubmission(requestId, { reason: 'observed', attachments }) })
+  }
+
+  /** Remove one unsettled echo immediately (prompt rejection, abort, or disposal). */
+  private retireFailedSubmission(requestId: SessionRequestId): void {
+    const settlement = this.submissionSettlements.get(requestId)
+    if (settlement === undefined || settlement.retiring) return
+    settlement.retiring = true
+    this.finishSubmission(requestId, { reason: 'failed' })
+  }
+
+  /** Single removal point: drop the echo, publish, then notify the owner. */
+  private finishSubmission(requestId: SessionRequestId, retirement: PendingSubmissionRetirement): void {
+    const settlement = this.submissionSettlements.get(requestId)
+    /* v8 ignore next -- retiring latches before every schedule, so one settlement never finishes twice. */
+    if (settlement === undefined) return
+    this.submissionSettlements.delete(requestId)
+    this.pendingSubmissions = this.pendingSubmissions.filter(echo => echo.requestId !== requestId)
+    this.notifier.markDirty()
+    settlement.onRetire?.(retirement)
   }
 
   /** Publish a terminal background failure only while this stream still owns the Session. */
@@ -620,6 +727,7 @@ export class Session implements SessionFace {
     return {
       sessionId: this.sessionId,
       queue: this.queueMirror.snapshot(),
+      pendingSubmissions: this.pendingSubmissions,
       running: this.running,
       subagent: this.address === undefined
         ? null
@@ -645,6 +753,26 @@ export class Session implements SessionFace {
       ? { kind: 'session', sessionId: this.sessionId }
       : { kind: 'subagent', ...this.address }
   }
+}
+
+/** Run one callback on the next animation frame, or a macrotask where no frame clock exists. */
+function scheduleFrame(fn: () => void): void {
+  if (typeof requestAnimationFrame === 'function') requestAnimationFrame(() => { fn() })
+  else setTimeout(fn, 0)
+}
+
+/** Image attachment references in one structurally-read content block list, in block order. */
+function imageRefsIn(content: unknown): readonly ImageAttachmentRef[] {
+  if (!Array.isArray(content)) return []
+  const refs: ImageAttachmentRef[] = []
+  for (const block of content) {
+    if (typeof block !== 'object' || block === null) continue
+    const candidate = block as { readonly type?: unknown; readonly attachment?: unknown }
+    if (candidate.type === 'image' && typeof candidate.attachment === 'object' && candidate.attachment !== null) {
+      refs.push(candidate.attachment as ImageAttachmentRef)
+    }
+  }
+  return refs
 }
 
 /** Convert a terminal Session stream failure to the Client error vocabulary. */

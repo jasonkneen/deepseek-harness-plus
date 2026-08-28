@@ -30,6 +30,12 @@ async function bench(isLoopback = true, settings?: object, services: object = {}
       set: vi.fn(),
       unset: vi.fn(),
     },
+    llm: {
+      listProviders: vi.fn(() => Promise.resolve({ ok: true, value: [] })),
+      listConfigurableProviders: vi.fn(() => Promise.resolve({ ok: true, value: [] })),
+      discoverModels: vi.fn(() => Promise.resolve({ ok: true, value: [] })),
+      ...services,
+    },
     // Without a settings face the mirror's reads fail and stay contained; the
     // Models join itself never fetches until a section actually loads. The real
     // ui-settings apply also provides the settingsSchema service.
@@ -56,7 +62,7 @@ function declare(slots: SlotRegistry): () => void {
 describe('ui-settings-models apply', () => {
   it('declares the services it uses', () => {
     expect(inject).toEqual([
-      'slots', 'locale', 'connection', 'remote', 'remote.credentials', 'remote.settings',
+      'slots', 'locale', 'remote', 'remote.credentials', 'remote.llm', 'remote.settings',
       'settingsScope', 'settingsSchema',
     ])
   })
@@ -302,11 +308,8 @@ describe('pushed invalidations', () => {
         }],
       },
     }))
-    const providers = vi.fn(() => Promise.resolve({
-      rpcId: 'apply-models-providers' as never,
-      result: { ok: true as const, value: { providers: [] } },
-    }))
-    const b = await bench(true, { describe }, { llm: { providers } })
+    const listProviders = vi.fn(() => Promise.resolve({ ok: true as const, value: [] }))
+    const b = await bench(true, { describe }, { listProviders })
     declare(b.slots)
     await b.ctx.plugin({ inject: [...inject], apply }).await()
     const entry = b.slots.entries('settings.section')

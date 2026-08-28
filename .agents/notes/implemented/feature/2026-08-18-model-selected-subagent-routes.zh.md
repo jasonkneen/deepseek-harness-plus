@@ -12,15 +12,15 @@ Status: implemented
 
 ## 决策
 
-只有实例启用 `enableModelSelection`，或其 Agent 作用域的 `modelSelectionSettings` 实例解析出已启用的 Session 决定，且绑定的 subagent 提供方声明 `SubagentCapabilities.agentOptions` 时，`dsh-tool-subagent` 才公开可选的 `provider`、`model` 与 `reasoning_effort` 字段，不要求配置路由允许列表。已注册的 LLM 提供方路由都可供子级选择；本工具不会在部署的 LLM 注册表之上增加第二套授权策略。禁用的实例会省略并拒绝面向模型的选择，而配置的 `Config.agentOptions` 仍是部署方所有的默认值。如果提供方缺少该能力，任一种选择模式都会使插件挂载失败。
+只有 Agent 作用域的 `modelSelectionSettings` 实例解析出 Session 策略，且绑定的 subagent 提供方声明 `SubagentCapabilities.agentOptions` 时，`dsh-tool-subagent` 才公开可选的 `provider`、`model` 与 `reasoning_effort` 字段。该策略使用[用户授权的 subagent 模型路由](2026-08-24-user-authorized-subagent-model-routes.zh.md)所拥有的精确用户授权；不存在无限制静态模式。禁用的实例会省略并拒绝面向模型的选择，而配置的 `Config.agentOptions` 仍是部署方所有的默认值。如果 settings 已启用的实例缺少该提供方能力，插件挂载会失败。
 
 提供方与模型共同组成一条路由，必须一起提供。如果配置值、父级值或提供方持有的路由默认值能够提供生效路由，则可以只提供推理强度。静态的 `provider.agentRouteDefaults` 在存在时构成 provider／model 基线；`Config.agentOptions` 与模型参数会在路由相关强度清除之前覆盖它。没有静态默认值的提供方会使用父 Agent 最新记录请求中的兼容字段，首个请求之前由创建选项提供回退，并保留其中配置的输出 token 上限。推理强度 ID 仍由 adapter 所有。只有所选基线的路由不变时才会继承省略的强度；更换提供方或模型但没有指定强度时，会清除下层路由自有的值，使所选模型解析自己的默认值。`AgentOptions` 把结果强度传入子级循环，其请求 header 会记录生效值。可继续描述符会把它与解析后的提供方和模型一同记录，使尚未写入首个请求的子级能以相同选择冷恢复。
 
 显式或配置的提供方、模型或强度会在提供方基线与请求优先级完成后，通过 `ctx.llm.resolveCallConfig()` 解析。具有静态路由默认值的提供方会在请求省略强度时禁止继承父级强度，从而保留所选模型的默认值。LLM 查询负责提供方注册、精确模型元数据、推理强度校验和 adapter 默认值。异步查询完成后、创建子级或后台 job 之前，工具会再次检查取消状态，并确认同一个提供方实例仍处于注册状态，因此 HMR 不会把一个提供方的默认值与另一个提供方的进程组合。既没有面向模型的选择、也没有配置路由字段的调用会保留原有提供方路径，不要求可选 LLM 服务存在。
 
-启用的定义会注册 `list_subagent_models`。无参数调用列出已注册提供方；提供 `provider` 时调用该适配器的建议性模型目录；同时提供 `provider` 与 `model` 时解析精确模型，并返回其推理强度和默认值。因为发现工具使用全局名称，一个工具作用域最多由一个实例启用选择。随附产品组合在 Agent 作用域的主 `subagent` 实例上设置 `modelSelectionSettings: true`，并注册默认 `enabled: false` 的 Host 自有 `subagent-model-selection` settings namespace。新的顶层 Session 会在组合期间读取该偏好，并在任何模型请求之前把启用决定记录为 `subagent/model-selection-enabled`。子 Session 继承在线父级的决定；恢复的 Session 使用已有标记，而不是当前偏好。因此，设置修改只影响之后组合的顶层 Session。即使缺少可选 LLM 服务，固定发现定义仍保持可用；发现调用和所选路由调用会在该服务出现前失败。只要适配器接受某个未列出的模型 ID，仍可选择该模型。
+启用的定义会注册 `list_subagent_models`。无参数调用列出已授权且已注册的提供方；提供 `provider` 时先授权，再调用该适配器的建议性模型目录；同时提供 `provider` 与 `model` 时会先授权精确路由，再解析其推理强度和默认值。因为发现工具使用全局名称，一个工具作用域最多由一个实例启用选择。随附产品组合在 Agent 作用域的主 `subagent` 实例上设置 `modelSelectionSettings: true`，并注册 Host 自有的 `subagent-model-selection` 设置，其中包含默认关闭的显式 `enabled` 开关与 `allowedModels` 列表。Plugins 设置页会原子保存两个字段。设置启用时，新的顶层 Session 会在任何模型请求之前，把路由策略快照记录为 `subagent/model-selection-policy`。子 Session 继承在线父级的策略；恢复的 Session 使用已记录事件，而不是当前设置。因此，设置修改只影响之后组合的顶层 Session。即使缺少可选 LLM 服务，固定发现定义仍保持可用；发现调用和所选路由调用会在该服务出现前失败。发现会列出实时目录与已记录策略的交集，执行器会拒绝策略之外的显式路由。
 
-随附的 `subagent_fork` 实例不会启用 `enableModelSelection`，即使进程内 fork 提供方支持 `agentOptions` 也是如此。fork 会继承父级生效的提供方与模型，使复制的对话前缀仍可供提供方侧 KV Cache 复用。更改任一路由组件都会要求新路由重新预填充继承的历史，而这项重算成本可能超过委派任务本身。该限制与发现工具的全局名称无关：分离发现工具的持有权可以让配置生效，却无法保留复用。只有在路由变化仍能保留前缀复用，或调用方可以显式限制并接受重算成本时，才重新考虑 fork 路由选择。
+随附的 `subagent_fork` 实例不会读取模型选择设置，即使进程内 fork 提供方支持 `agentOptions` 也是如此。fork 会继承父级生效的提供方与模型，使复制的对话前缀仍可供提供方侧 KV Cache 复用。更改任一路由组件都会要求新路由重新预填充继承的历史，而这项重算成本可能超过委派任务本身。该限制与发现工具的全局名称无关：分离发现工具的持有权可以让配置生效，却无法保留复用。只有在路由变化仍能保留前缀复用，或调用方可以显式限制并接受重算成本时，才重新考虑 fork 路由选择。
 
 委派定义不会随 adapter 注册和目录变化而改变，因此实时拓扑既不会扩大每个父级请求，也不会使缓存前缀失效。只有调用发现工具时，目录结果才进入 transcript。自定义的上下文继承实例如果启用选择，其描述会警告，更改提供方或模型可能阻止提供方复用继承的对话前缀。
 
@@ -28,7 +28,7 @@ Status: implemented
 
 ## 考虑过的替代方案
 
-**保留部署配置的路由允许列表。** 不采用，因为它重复实时 LLM 注册表，要求先配置才能让模型使用已经注册的路由，并为客户端增加第二套策略编辑界面。需要限制 LLM 访问的部署应控制所注册的提供方路由。
+**要求静态启用配置部署路由允许列表。** 不采用，因为它会重复实时 LLM 注册表，并要求自定义组合先配置才能使用已经注册的路由。随附的用户自有偏好属于另一项授权决定，由[用户授权的 subagent 模型路由](2026-08-24-user-authorized-subagent-model-routes.zh.md)记录。
 
 **在每一份委派描述中渲染实时 adapter 目录。** 不采用，因为一个提供方可能公布数百个模型，从而扩大每次请求，而且目录变化会改写缓存前缀中的早期定义。按需目录让可变数据留在固定 schema 之外。
 
@@ -48,8 +48,8 @@ Status: implemented
 
 ## 结果
 
-- 启用的委派工具无需部署选择器配置，即可选择任意实时子级 LLM 路由；禁用的实例会省略并拒绝面向模型的路由字段。
-- 主委派工具实例默认关闭选择，为新 Session 提供 Models 页面 opt-in，并且只在持久决定已启用的 Session 中注册 `list_subagent_models`；其目录条目不会限制委派。
+- settings 已启用的 Session 只能选择其记录的精确子级 LLM 路由；禁用的 Session 会省略并拒绝面向模型的路由字段。
+- 主委派工具实例默认关闭选择，为新 Session 提供 Plugins 页面精确路由 opt-in，并且只在持久策略存在的 Session 中注册 `list_subagent_models`；发现与显式选择都受该策略限制。
 - 随附 fork 工具会继承父级的提供方与模型，并省略面向模型的路由字段，使继承的对话前缀仍可供 KV Cache 复用。
 - 省略选择时保留配置默认值，并使用静态提供方路由默认值或来自父级最新记录请求的兼容继承；改变路由但不显式指定强度时，使用所选模型的默认值。
 - adapter 目录和拓扑变化不会改变委派定义及其 prompt 缓存前缀。

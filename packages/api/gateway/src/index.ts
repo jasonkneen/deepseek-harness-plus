@@ -9,6 +9,8 @@ import { randomUUID } from 'node:crypto'
 import { Context, Service, symbols } from '@deepseek-ai/cordis'
 import type { ConnectionRpcHandler } from '@deepseek-ai/dsh-client-connection'
 import type { WebUpgradeRoute } from '@deepseek-ai/dsh-host-webserver'
+import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
+import z from '@deepseek-ai/schemastery'
 import {
   remoteMethods,
   TypertLookupFailure,
@@ -46,6 +48,7 @@ import {
   type RemoteEventCancellationFrame,
   type RemoteEventClientId,
   type RemoteEventEmitFrame,
+  type RemoteEventHostInfo,
   type RemoteEventId,
   type RemoteEventInvocationFrame,
   type RemoteEventReadyFrame,
@@ -64,6 +67,7 @@ export type {
   TypertRemoteEventOutcome,
   TypertRemoteEventSource,
 } from './types.ts'
+export type { RemoteEventHostInfo } from './stream-protocol.ts'
 
 interface GatewayErrorOptions {
   readonly cause?: unknown
@@ -86,6 +90,7 @@ interface PreparedInvocation {
 interface RegisteredRemoteEventSource {
   readonly lifetime: AbortController
   readonly done: Promise<void>
+  readonly host: RemoteEventHostInfo
 }
 
 interface RemoteEventClient {
@@ -106,6 +111,17 @@ interface PendingRemoteEvent {
 type ConnectionRpcResult = Awaited<ReturnType<ConnectionRpcHandler>>
 type ConnectionRpcError = Extract<ConnectionRpcResult, { readonly ok: false }>['error']
 const NEVER_ABORTED_SIGNAL = new AbortController().signal
+const DEFAULT_WEBSOCKET_HEARTBEAT_INTERVAL_MS = 30_000
+
+/** Gateway transport configuration. */
+export interface Config {
+  /** WebSocket Ping interval from 1 through 2,147,483,647 milliseconds. @default 30000 */
+  readonly websocketHeartbeatIntervalMs?: number
+}
+
+interface ResolvedConfig extends Config {
+  readonly websocketHeartbeatIntervalMs: number
+}
 
 /** Dispatch failure produced outside the invoked business method. */
 export class TypertGatewayError extends Error {
@@ -156,6 +172,10 @@ class RemoteInvocationCancelled extends Error {
  */
 export class TypertGatewayService extends Service implements TypertGateway {
   static inject = ['typert']
+  static Config: z<Config> = z.object({
+    websocketHeartbeatIntervalMs: z.number().step(1).min(1).max(MAX_TIMER_DELAY_MS)
+      .default(DEFAULT_WEBSOCKET_HEARTBEAT_INTERVAL_MS),
+  })
 
   /** Carrier adapter shared by the WebSocket mux and local Host transports. */
   readonly wireStream: TypertGatewayWireStream = {
@@ -171,9 +191,11 @@ export class TypertGatewayService extends Service implements TypertGateway {
   /**
    * Register the Gateway against the active Typert registry.
    * @param ctx - owning Host Context with Typert registry access.
+   * @param config - validated Gateway transport configuration.
    */
-  constructor(ctx: Context) {
+  constructor(ctx: Context, config: Config) {
     super(ctx, 'typertGateway')
+    const resolved = config as ResolvedConfig
     ctx.on('internal/service', () => {
       this.srcClaims = undefined
     })
@@ -188,6 +210,7 @@ export class TypertGatewayService extends Service implements TypertGateway {
       const mux = new RemoteStreamMuxServer(
         (endpoint, payload, signal) => this.openWireStream(endpoint, payload, signal),
         this.wireStream.failure,
+        resolved.websocketHeartbeatIntervalMs,
       )
       webCtx.effect(() => {
         const route: WebUpgradeRoute = {
@@ -213,9 +236,13 @@ export class TypertGatewayService extends Service implements TypertGateway {
   /**
    * Register the sole application-selected forwarded-event source.
    * @param source - stream factory installed by the Remote assembly.
+   * @param host - stable Host facts included in each Client generation's opening frame.
    * @returns disposer removing this source and cancelling its active streams.
    */
-  registerRemoteEvents(source: TypertRemoteEventSource): () => Promise<void> {
+  registerRemoteEvents(
+    source: TypertRemoteEventSource,
+    host: RemoteEventHostInfo,
+  ): () => Promise<void> {
     if (this.remoteEvents !== undefined) {
       throw new Error('typert gateway: forwarded Remote event source is already registered')
     }
@@ -227,7 +254,7 @@ export class TypertGatewayService extends Service implements TypertGateway {
       this.remoteEvents = undefined
       lifetime.abort(error)
     })
-    const registration: RegisteredRemoteEventSource = { lifetime, done }
+    const registration: RegisteredRemoteEventSource = { lifetime, done, host: { home: host.home } }
     this.remoteEvents = registration
     return async () => {
       if (this.remoteEvents === registration) {
@@ -397,7 +424,7 @@ export class TypertGatewayService extends Service implements TypertGateway {
     this.remoteEventClients.set(clientId, client)
     for (const pending of this.pendingRemoteEvents.values()) this.deliverRemoteEvent(pending, client)
     try {
-      yield { ...REMOTE_EVENT_STREAM_READY, clientId }
+      yield { ...REMOTE_EVENT_STREAM_READY, clientId, host: registration.host }
       yield* client.queue.iterate(lifetime)
     } finally {
       this.removeRemoteEventClient(client)

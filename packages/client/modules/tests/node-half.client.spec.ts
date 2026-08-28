@@ -7,8 +7,8 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { runInNewContext } from 'node:vm'
-import { Context } from '@deepseek-ai/cordis'
-import { afterEach, describe, expect, it } from 'vitest'
+import { Context, type Fiber } from '@deepseek-ai/cordis'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { renderIndexInjections, type WebServer, type WebRoute } from '@deepseek-ai/dsh-host-webserver'
 import * as modulesClient from '../src/client/index.ts'
 import { ClientModuleRegistry, bootInjections, orderByModuleGraph } from '../src/index.ts'
@@ -58,13 +58,26 @@ function writeBuiltPackage(packageName: string, client: Record<string, unknown>)
 }
 
 /** Construct the node-half service and capture its plugin-bundle route. */
-function constructWithRoute(packageNames: string[]): { service: ClientModuleRegistry; route: WebRoute } {
+function constructWithRoute(
+  packageNames: string[],
+  options: {
+    contextBaseUrl?: string
+    entryBaseUrl?: string
+    internal?: NonNullable<Context['loader']['internal']>
+  } = {},
+): { context: Context; service: ClientModuleRegistry; route: WebRoute } {
   const ctx = new Context()
-  ctx.baseUrl = pathToFileURL(root!).href + '/'
+  ctx.baseUrl = options.contextBaseUrl ?? pathToFileURL(root!).href + '/'
   ctx.provide('loader', {
+    internal: options.internal,
     *entries() {
       for (const packageName of packageNames) {
-        yield { options: { name: packageName }, fiber: {}, disabled: false }
+        yield {
+          options: { name: packageName },
+          fiber: {},
+          disabled: false,
+          parent: { tree: { ctx: { baseUrl: options.entryBaseUrl ?? ctx.baseUrl } } },
+        }
       }
     },
   })
@@ -80,7 +93,7 @@ function constructWithRoute(packageNames: string[]): { service: ClientModuleRegi
   ctx.provide('webServer', webServer as WebServer)
   const service = new ClientModuleRegistry(ctx)
   if (route === undefined) throw new Error('client bundle route was not registered')
-  return { service, route }
+  return { context: ctx, service, route }
 }
 
 /** Construct the node-half service over the enabled fixture entries. */
@@ -227,6 +240,171 @@ describe('HTML bootstrap facade', () => {
 })
 
 describe('client bundle activation', () => {
+  it.each(['v1', 'v2'] as const)(
+    'resolves %s package metadata from the owning entry tree',
+    (version) => {
+      const packageName = `@fixture/entry-base-${version}`
+      const clientPath = writePackage(packageName)
+      const hostPath = join(dirname(clientPath), 'index.js')
+      mkdirSync(dirname(hostPath), { recursive: true })
+      writeFileSync(hostPath, 'export default {}\n')
+      writeFileSync(clientPath, 'module.exports = {}\n')
+      const contextBaseUrl = pathToFileURL(join(root!, 'profile')).href + '/'
+      const entryBaseUrl = pathToFileURL(join(root!, 'overlay')).href + '/'
+      const calls: unknown[][] = []
+      const resolveSync = (...args: unknown[]) => {
+        calls.push(args)
+        return { format: 'module' as const, url: pathToFileURL(hostPath).href }
+      }
+      const internal = { version, resolveSync }
+
+      const { service } = constructWithRoute([packageName], {
+        contextBaseUrl,
+        entryBaseUrl,
+        internal: internal as NonNullable<Context['loader']['internal']>,
+      })
+
+      expect(calls).toEqual(version === 'v2'
+        ? [[entryBaseUrl, { specifier: packageName, attributes: {} }]]
+        : [[packageName, entryBaseUrl, {}]])
+      expect(service.clientPath(packageName)).toBe(clientPath)
+      expect(service.graph().entries.map(entry => entry.id)).toEqual([packageName])
+    },
+  )
+
+  it('derives the browser module id from a file entry owning manifest', () => {
+    const packageName = '@fixture/file-entry'
+    const clientPath = writePackage(packageName)
+    const hostPath = join(dirname(clientPath), 'index.js')
+    mkdirSync(dirname(hostPath), { recursive: true })
+    writeFileSync(hostPath, 'export default {}\n')
+    writeFileSync(clientPath, 'module.exports = {}\n')
+
+    const service = construct([pathToFileURL(hostPath).href])
+
+    expect(service.clientPath(packageName)).toBe(clientPath)
+    expect(service.graph().entries.map(entry => entry.id)).toEqual([packageName])
+  })
+
+  it.each(['relative', 'absolute'] as const)(
+    'finds the owning manifest through the %s-path fallback without Node loader internals',
+    (kind) => {
+      const packageName = `@fixture/${kind}-fallback-entry`
+      const clientPath = writePackage(packageName)
+      const packageRoot = dirname(dirname(clientPath))
+      const hostPath = join(packageRoot, 'index.js')
+      mkdirSync(dirname(clientPath), { recursive: true })
+      writeFileSync(hostPath, 'export default {}\n')
+      writeFileSync(clientPath, 'module.exports = {}\n')
+      const loaderName = kind === 'relative' ? './index.js' : hostPath
+
+      const { service } = constructWithRoute([loaderName], {
+        entryBaseUrl: pathToFileURL(packageRoot).href + '/',
+      })
+
+      expect(service.clientPath(packageName)).toBe(clientPath)
+      expect(service.graph().entries.map(entry => entry.id)).toEqual([packageName])
+    },
+  )
+
+  it.each(['v1', 'v2', 'worker'] as const)(
+    'derives a file entry package id through the %s Loader resolver',
+    (version) => {
+      const packageName = `@fixture/file-entry-${version}`
+      const clientPath = writePackage(packageName)
+      const hostPath = join(dirname(clientPath), 'index.js')
+      mkdirSync(dirname(hostPath), { recursive: true })
+      writeFileSync(hostPath, 'export default {}\n')
+      writeFileSync(clientPath, 'module.exports = {}\n')
+      const loaderName = pathToFileURL(hostPath).href
+      const entryBaseUrl = pathToFileURL(join(root!, 'overlay')).href + '/'
+      const calls: unknown[][] = []
+      const resolveSync = (...args: unknown[]) => {
+        calls.push(args)
+        return { format: 'module' as const, url: loaderName }
+      }
+      const internal = { version, resolveSync }
+
+      const { service } = constructWithRoute([loaderName], {
+        entryBaseUrl,
+        internal: internal as NonNullable<Context['loader']['internal']>,
+      })
+
+      expect(calls).toEqual(version === 'v2'
+        ? [[entryBaseUrl, { specifier: loaderName, attributes: {} }]]
+        : [[loaderName, entryBaseUrl, {}]])
+      expect(service.graph().entries.map(entry => entry.id)).toEqual([packageName])
+    },
+  )
+
+  it('rejects distinct active Loader sources for one browser package', () => {
+    const packageName = '@fixture/duplicate-source'
+    const clientPath = writePackage(packageName)
+    const hostPath = join(dirname(clientPath), 'index.js')
+    mkdirSync(dirname(hostPath), { recursive: true })
+    writeFileSync(hostPath, 'export default {}\n')
+    writeFileSync(clientPath, 'module.exports = {}\n')
+    const alias = './duplicate-source.js'
+    const internal = {
+      version: 'v2' as const,
+      resolveSync: () => ({ format: 'module' as const, url: pathToFileURL(hostPath).href }),
+    }
+
+    expect(() => constructWithRoute([packageName, alias], {
+      internal: internal as unknown as NonNullable<Context['loader']['internal']>,
+    })).toThrow(
+      `client-modules: package ${packageName} resolves from multiple active Loader sources:`,
+    )
+  })
+
+  it('promotes the remaining Loader source after the selected alias unloads', async () => {
+    const packageName = '@fixture/duplicate-source-recovery'
+    const clientPath = writePackage(packageName)
+    const hostPath = join(dirname(clientPath), 'index.js')
+    mkdirSync(dirname(hostPath), { recursive: true })
+    writeFileSync(hostPath, 'export default {}\n')
+    writeFileSync(clientPath, 'module.exports = {}\n')
+    const alias = './duplicate-source-recovery.js'
+    const entries = [packageName]
+    const internal = {
+      version: 'v2' as const,
+      resolveSync: () => ({ format: 'module' as const, url: pathToFileURL(hostPath).href }),
+    }
+    const { context, service } = constructWithRoute(entries, {
+      internal: internal as unknown as NonNullable<Context['loader']['internal']>,
+    })
+    const firstRevision = service.graph().entries[0]!.rev
+    const warning = vi.spyOn(context.logger, 'warn').mockImplementation(() => undefined)
+
+    entries.push(alias)
+    emitLoaderEntryChange(context, alias)
+    await Promise.resolve()
+    expect(warning).toHaveBeenCalledWith(expect.objectContaining({
+      message: expect.stringContaining(`package ${packageName} resolves from multiple active Loader sources`) as string,
+    }))
+    expect(service.graph().entries[0]!.rev).toBe(firstRevision)
+
+    entries.splice(entries.indexOf(packageName), 1)
+    emitLoaderEntryChange(context, packageName)
+    await Promise.resolve()
+    expect(service.graph().entries.map(entry => entry.id)).toEqual([packageName])
+    expect(service.graph().entries[0]!.rev).not.toBe(firstRevision)
+    expect(service.clientPath(packageName)).toBe(clientPath)
+  })
+
+  it('uses owning-tree package resolution for an import-only Worker module loader', () => {
+    const packageName = '@fixture/worker-loader'
+    writeBuiltPackage(packageName, {})
+    const internal = {
+      version: 'worker',
+      import: async () => ({}),
+    } as unknown as NonNullable<Context['loader']['internal']>
+
+    const { service } = constructWithRoute([packageName], { internal })
+
+    expect(service.graph().entries.map(entry => entry.id)).toEqual([packageName])
+  })
+
   it('allows sibling dsh roles', () => {
     const currentName = '@fixture/current-client-field'
     const clientPath = writePackage(currentName, {
@@ -563,6 +741,12 @@ describe('client bundle activation', () => {
     expect(consumer.findEntry(2, 0)).toMatchObject({ originalSource: '/packages/demo/mapped.ts' })
   })
 })
+
+function emitLoaderEntryChange(context: Context, name: string): void {
+  context.emit('internal/plugin', {
+    entry: { options: { name } },
+  } as unknown as Fiber)
+}
 
 describe('shared module declarations', () => {
   it('accepts external requests and carries them onto the graph row', () => {

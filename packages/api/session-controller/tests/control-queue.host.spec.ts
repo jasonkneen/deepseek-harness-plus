@@ -114,6 +114,30 @@ describe('Session control queue projection', () => {
     await iterator.next()
   })
 
+  it('projects the prompt rpcId from a user-rpc source and omits it elsewhere', async () => {
+    const { control, inbox } = await harness()
+    const identified = createUserMessage({
+      content: [{ type: 'text', text: 'browser prompt' }],
+      source: { kind: 'user', rpcId: 'req-42' as never },
+    })
+    inbox.append('next-turn', identified)
+    inbox.append('next-step', message('plain steering'))
+
+    const abort = new AbortController()
+    const iterator = control.control(abort.signal)[Symbol.asyncIterator]()
+    const opened = await iterator.next()
+    if (opened.done || opened.value.type !== 'baseline') throw new Error('missing baseline')
+    const items = opened.value.value.queues['queue-session' as SessionId] ?? []
+    expect(items.map(item => ({ id: item.id, placement: item.placement, rpcId: item.rpcId }))).toEqual([
+      { id: identified.id, placement: 'queued', rpcId: 'req-42' },
+      { id: items[1]?.id, placement: 'steering', rpcId: undefined },
+    ])
+    expect('rpcId' in (items[1] ?? {})).toBe(false)
+
+    abort.abort()
+    await iterator.next()
+  })
+
   it('ignores inbox events without the exact live Agent session', async () => {
     const { ctx, control, agent, inbox } = await harness()
     const abort = new AbortController()

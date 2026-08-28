@@ -25,6 +25,31 @@ afterEach(async () => {
 })
 
 describe('Remote stream mux server carrier lifecycle', () => {
+  it('sends WebSocket Ping control frames without application messages', async () => {
+    const entry = await startMux(async (_endpoint, _payload, signal) => waitForAbort(signal), 20)
+    const client = await connect(entry.url)
+    const serverSocket = acceptedSocket(entry.mux)
+    const messages = vi.fn()
+    client.on('message', messages)
+
+    const ping = once(client, 'ping')
+    const pong = once(serverSocket, 'pong')
+    expect((await ping)[0]).toEqual(Buffer.alloc(0))
+    expect((await pong)[0]).toEqual(Buffer.alloc(0))
+    expect(messages).not.toHaveBeenCalled()
+
+    const closingPing = vi.spyOn(serverSocket, 'ping')
+    client.pause()
+    serverSocket.close()
+    expect(serverSocket.readyState).toBe(WebSocket.CLOSING)
+    await new Promise<void>((resolve) => { setTimeout(resolve, 25) })
+    expect(closingPing).not.toHaveBeenCalled()
+
+    const closed = once(client, 'close')
+    client.resume()
+    await closed
+  })
+
   it('rejects binary, malformed, and duplicate logical-stream messages', async () => {
     const entry = await startMux(async (_endpoint, _payload, signal) => waitForAbort(signal))
 
@@ -168,8 +193,8 @@ const mapFailure: RemoteStreamFailureMapper = error => ({
   details: {},
 })
 
-async function startMux(open: RemoteStreamOpener): Promise<RunningMux> {
-  const mux = new RemoteStreamMuxServer(open, mapFailure)
+async function startMux(open: RemoteStreamOpener, heartbeatIntervalMs = 30_000): Promise<RunningMux> {
+  const mux = new RemoteStreamMuxServer(open, mapFailure, heartbeatIntervalMs)
   const http = createServer()
   http.on('upgrade', (request, socket, head) => { mux.handleUpgrade(request, socket, head) })
   await new Promise<void>((resolve, reject) => {

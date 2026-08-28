@@ -34,7 +34,7 @@ This uses the normal system-prompt registration mechanism rather than a second p
 
 ### Tool filtering is one live global-view rule
 
-The tool filter controls capability visibility and executable lookup together. An in-process provider installs `ToolRuntime.restrict()` in the child's scope before publication, and the registry's single resolver applies the same result to wire tool schemas, lookup, execution, and Code Mode SDK generation. Independently registered system-prompt sections are outside `ToolRuntime`, so filtering a tool does not remove that plugin's standalone guidance.
+The tool filter controls capability visibility and executable lookup together. An in-process provider installs `ToolRuntime.restrict()` in the child's scope before publication, and the registry's single resolver applies the same result to wire tool schemas, lookup, execution, and PTC mode SDK generation. Independently registered system-prompt sections are outside `ToolRuntime`, so filtering a tool does not remove that plugin's standalone guidance.
 
 Resolution follows these rules:
 
@@ -85,7 +85,7 @@ A security design would need a separate authority representation, propagation ru
 
 **Snapshot allowed global tools at child creation.** A frozen allow-set makes future registration uniformly unavailable, but it changes hot-registration semantics and starts an authorization design. The implemented filter stays a live registry predicate and documents allow-versus-deny behavior directly.
 
-**Hide only tool schemas.** Presentation-only filtering lets the model execute a tool that the prompt says does not exist through Code Mode or a forged call. One resolver governs both presentation and execution instead.
+**Hide only tool schemas.** Presentation-only filtering lets the model execute a tool that the prompt says does not exist through PTC mode or a forged call. One resolver governs both presentation and execution instead.
 
 **Encode the depth cap as an automatic tool filter.** A creation-time filter snapshots a decision that may depend on runtime state, affects only one configured tool name, and does not protect direct service callers or alternate delegation tools. The provider instead enforces the absolute cap at every start.
 

@@ -25,21 +25,23 @@ import type { SubagentProvider, SubagentResult, SubagentRun } from '@deepseek-ai
 import type { JobOutcome } from '@deepseek-ai/dsh-jobs'
 import { FIRST_PARTY_SECTION_ORDER } from '@deepseek-ai/dsh-system-prompt'
 import {
+  assertAllowedModelSelection,
   hasConfiguredLlmSelection,
   hasDelegationModelRequest,
   preflightChildLlmRoute,
   requestedAgentOptions,
 } from './model-selection.ts'
-import type { DelegationModelRequest } from './model-selection.ts'
+import type { DelegationModelRequest, ModelSelectionPolicy } from './model-selection.ts'
 import { registerListSubagentModels } from './list-models.ts'
 import type {} from './model-selection-settings.ts'
 import {
-  hasSubagentModelSelection,
   recordSubagentModelSelection,
+  subagentModelSelectionProjectionDefinition,
+  subagentModelSelectionPolicy,
 } from './model-selection-state.ts'
 
 export const name = 'tool-subagent'
-export const inject = ['tools', 'subagents', 'systemPrompt']
+export const inject = ['tools', 'subagents', 'systemPrompt', 'sessionProjections']
 
 /** Prompt order after bounded delegation policy and before child reporting. */
 const SUBAGENT_SECTION_ORDER = FIRST_PARTY_SECTION_ORDER.TOOL_SUBAGENT
@@ -53,12 +55,9 @@ export interface Config {
    * a distinct name.
    */
   toolName?: string
-  /** Let the model discover and select the child LLM route (default false). */
-  enableModelSelection?: boolean
   /**
    * Sample the Host `subagent-model-selection` user setting for each new
-   * top-level session and inherit that decision in its child sessions. Mutually
-   * exclusive with `enableModelSelection`.
+   * top-level session and inherit that decision in its child sessions.
    */
   modelSelectionSettings?: boolean
   /**
@@ -108,7 +107,6 @@ export interface Config {
 export const Config: z<Config> = z.object({
   provider: z.string().required(),
   toolName: z.string().default('subagent'),
-  enableModelSelection: z.boolean().default(false),
   modelSelectionSettings: z.boolean().default(false),
   enableRunInBackground: z.boolean().default(true),
   backgroundMode: z.union(['one-shot', 'continuable'] as const).default('one-shot'),
@@ -316,14 +314,12 @@ export function apply(ctx: Context, config: Config): void {
   if (config.toolFilter !== undefined && config.toolFilter.allow === undefined && config.toolFilter.deny === undefined) {
     throw new Error('tool-subagent: `toolFilter` is configured but names neither `allow` nor `deny` — remove the key or fill the filter')
   }
-  if (config.enableModelSelection === true && config.modelSelectionSettings === true) {
-    throw new Error('tool-subagent: `enableModelSelection` and `modelSelectionSettings` are mutually exclusive')
-  }
   const backgroundEnabled = config.enableRunInBackground !== false
   const continuable = (config.backgroundMode ?? 'one-shot') === 'continuable'
   const toolName = config.toolName ?? 'subagent'
 
-  const modelSelectionCapable = config.enableModelSelection === true || config.modelSelectionSettings === true
+  const modelSelectionCapable = config.modelSelectionSettings === true
+  ctx.sessionProjections.register(subagentModelSelectionProjectionDefinition)
 
   const assertSubagentProviderConfiguration = (subagentProvider: SubagentProvider): void => {
     if (typeof config.maxDepth === 'number' && !subagentProvider.capabilities.depthLimit) {
@@ -357,8 +353,9 @@ export function apply(ctx: Context, config: Config): void {
   const initialProvider = ctx.subagents.getProvider(config.provider)
   if (initialProvider !== undefined) assertSubagentProviderConfiguration(initialProvider)
 
-  const install = (runtimeCtx: Context, modelSelectionEnabled: boolean): void => {
-    if (modelSelectionEnabled) registerListSubagentModels(runtimeCtx)
+  const install = (runtimeCtx: Context, modelSelectionPolicy: ModelSelectionPolicy | undefined): void => {
+    const modelSelectionEnabled = modelSelectionPolicy !== undefined
+    if (modelSelectionPolicy !== undefined) registerListSubagentModels(runtimeCtx, modelSelectionPolicy)
     // Load order and HMR replacement can change provider availability while
     // this fiber remains active.
     let mounted: { subagentProvider: SubagentProvider; disposeTool: () => void } | undefined
@@ -487,6 +484,12 @@ export function apply(ctx: Context, config: Config): void {
             modelRequest,
             modelSelectionEnabled,
           )
+          assertAllowedModelSelection(
+            modelSelectionPolicy,
+            parentOptions,
+            requestedChildAgentOptions,
+            modelRequest,
+          )
           if (requiresRoutePreflight) {
             const llm = runtimeCtx.get('llm')
             if (llm === undefined) {
@@ -599,7 +602,7 @@ export function apply(ctx: Context, config: Config): void {
   }
 
   if (config.modelSelectionSettings !== true) {
-    install(ctx, config.enableModelSelection === true)
+    install(ctx, undefined)
     return
   }
 
@@ -615,21 +618,26 @@ export function apply(ctx: Context, config: Config): void {
     throw new Error('tool-subagent: `modelSelectionSettings` requires an Agent or preset scope')
   }
 
-  const selectForAgent = (agent: NonNullable<Context['agent']>): boolean => {
-    let enabled = hasSubagentModelSelection(agent.session)
-    if (!enabled) {
+  const selectForAgent = (agent: NonNullable<Context['agent']>): ModelSelectionPolicy | undefined => {
+    let allowedModels = subagentModelSelectionPolicy(ctx.sessionProjections, agent.session)
+    if (allowedModels === undefined) {
       const parentId = agent.session.header.origin === 'subagent'
         ? agent.session.header.parentSession
         : undefined
       if (parentId !== undefined) {
         const parent = ctx.get('agents')?.get(parentId)
-        enabled = parent !== undefined && hasSubagentModelSelection(parent.session)
+        allowedModels = parent === undefined
+          ? undefined
+          : subagentModelSelectionPolicy(ctx.sessionProjections, parent.session)
       } else if (agent.session.firstLiveSeq === 0) {
-        enabled = settings.currentEnabled()
+        const current = settings.current()
+        allowedModels = current.enabled ? current.allowedModels : undefined
       }
     }
-    if (enabled) recordSubagentModelSelection(agent.session)
-    return enabled
+    if (allowedModels !== undefined) {
+      recordSubagentModelSelection(ctx.sessionProjections, agent.session, allowedModels)
+    }
+    return allowedModels === undefined ? undefined : { routes: allowedModels }
   }
 
   const agent = ctx.agent
@@ -649,11 +657,15 @@ export function apply(ctx: Context, config: Config): void {
     // Reserve before the injected fiber runs: tool registration emits
     // `tools/change` synchronously, which re-enters the reconciliation below.
     installing.add(candidate)
-    const enabled = selectForAgent(candidate)
-    const fiber = candidate.ctx.inject(['tools', 'subagents', 'systemPrompt'], (runtimeCtx) => {
-      install(runtimeCtx, enabled)
-    })
-    installing.delete(candidate)
+    let fiber: ReturnType<Context['inject']>
+    try {
+      const policy = selectForAgent(candidate)
+      fiber = candidate.ctx.inject(['tools', 'subagents', 'systemPrompt'], (runtimeCtx) => {
+        install(runtimeCtx, policy)
+      })
+    } finally {
+      installing.delete(candidate)
+    }
     scopedInstalls.set(candidate, fiber)
   }
   const removeScoped = (candidate: Agent): void => {

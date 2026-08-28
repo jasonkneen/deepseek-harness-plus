@@ -5,8 +5,8 @@ import agentPresetsRemote from '@deepseek-ai/dsh-agent-presets/remote'
 import commandsRemote from '@deepseek-ai/dsh-commands/remote'
 import settingsControllerRemote from '@deepseek-ai/dsh-api-settings-controller/remote'
 import goalsRemote from '@deepseek-ai/dsh-goal/remote'
+import llmRemote from '@deepseek-ai/dsh-llm/remote'
 import dynamicRemote from '@deepseek-ai/dsh-cordis-host-runner/remote'
-import fileReferencesRemote from '@deepseek-ai/dsh-file-reference/remote'
 import pluginInventoryRemote from '@deepseek-ai/dsh-host-plugin-inventory/remote'
 import messageFeedbackRemote from '@deepseek-ai/dsh-message-feedback/remote'
 import sessionReferencesRemote from '@deepseek-ai/dsh-session-reference/remote'
@@ -20,8 +20,8 @@ export type { PluginInventorySnapshot } from '@deepseek-ai/dsh-host-plugin-inven
 export type {} from '@deepseek-ai/dsh-agent-presets/remote'
 export type {} from '@deepseek-ai/dsh-commands/remote'
 export type {} from '@deepseek-ai/dsh-api-settings-controller/remote'
-export type {} from '@deepseek-ai/dsh-file-reference/remote'
 export type {} from '@deepseek-ai/dsh-goal/remote'
+export type {} from '@deepseek-ai/dsh-llm/remote'
 export type {} from '@deepseek-ai/dsh-host-plugin-inventory/remote'
 export type {} from '@deepseek-ai/dsh-message-feedback/remote'
 export type {} from '@deepseek-ai/dsh-session-reference/remote'
@@ -54,11 +54,10 @@ export type {} from '@deepseek-ai/dsh-api-session-controller/types'
  * the carrier's runtime values stay behind their own module edge.
  */
 export type {
-  ConfigurableProviderView, ConnectionHandle, ConnectionSinks, ContentBlock,
-  DiscoveredModelView, IApiClient,
-  MessageId, ModelCatalog, ModelCatalogFailure, ModelProviderGroup, ModelReasoningEffort, ModelSelection,
+  ConnectionHandle, ConnectionSinks, ContentBlock,
+  MessageId,
   RpcError, RpcId, RpcRequest, RpcResponse, RpcResult, SessionId,
-  SkillEntry, StreamChunk,
+  StreamChunk,
 } from '@deepseek-ai/dsh-client-connection/client'
 export type {} from '@deepseek-ai/dsh-api-gateway/client'
 export type {} from '@deepseek-ai/dsh-cordis-host-runner/remote'
@@ -111,6 +110,11 @@ export type { CredentialInfo } from '@deepseek-ai/dsh-credentials/types'
 export type {
   SettingsDescribeValue, SettingsNamespaceView, SettingsPathOpView, SettingsSecretView,
 } from '@deepseek-ai/dsh-settings/types'
+// Provider registry and discovery vocabulary for the llm namespace.
+export type {
+  LlmConfigurableProvider, LlmDiscoveredModel, LlmModelDiscoveryError,
+  LlmModelDiscoveryRequest, LlmProviderInfo,
+} from '@deepseek-ai/dsh-llm/types'
 // Reference-discovery result vocabulary for the fileReferences and
 // sessionReferenceResolver namespaces.
 export type { FileReferenceCandidate } from '@deepseek-ai/dsh-file-reference/types'
@@ -123,6 +127,7 @@ export type ClientFailure =
   | import('@deepseek-ai/dsh-api-session-controller/types').SessionError
   | import('@deepseek-ai/dsh-api-settings-controller/types').CredentialError
   | import('@deepseek-ai/dsh-api-settings-controller/types').SettingsError
+  | import('@deepseek-ai/dsh-llm/types').LlmModelDiscoveryError
   | import('@deepseek-ai/dsh-subagent/client').SubagentControlError
   | import('@deepseek-ai/dsh-api-workspace-controller/types').WorkspaceError
 
@@ -150,8 +155,7 @@ export async function apply(ctx: Context): Promise<() => Promise<void>> {
   const disposers: Array<() => Promise<void>> = []
   try {
     for (const contribution of [
-      agentPresetsRemote, commandsRemote, settingsControllerRemote, goalsRemote, dynamicRemote,
-      fileReferencesRemote,
+      agentPresetsRemote, commandsRemote, settingsControllerRemote, goalsRemote, llmRemote, dynamicRemote,
       pluginInventoryRemote, messageFeedbackRemote, sessionReferencesRemote,
       subagentsRemote, sessionRemote, workspaceRemote,
     ]) {

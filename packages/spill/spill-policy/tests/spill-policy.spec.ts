@@ -186,11 +186,11 @@ describe('oversized plain-text replacement', () => {
   })
 })
 
-describe('outer Code Mode failure capture', () => {
+describe('outer PTC mode failure capture', () => {
   it('spills the bounded output-limit diagnostic through the ordinary outer-result policy', async () => {
     const ctx = new Context()
     await ctx.plugin(SystemPrompt)
-    await ctx.plugin(ToolRuntime, { mode: 'code' })
+    await ctx.plugin(ToolRuntime, { mode: 'ptc' })
     await ctx.plugin(StubStore)
     await ctx.plugin(SpillPolicy, { maxInlineBytes: 200 })
     await ctx.plugin(WorkerThreadCodeRuntime, { maxOutputBytes: 500 })
@@ -239,7 +239,7 @@ describe('the durable dispatch-log arm', () => {
   async function runCodeWith(program: string, maxInlineBytes: number, extraTools: ToolDefinition[] = []) {
     const ctx = new Context()
     await ctx.plugin(SystemPrompt)
-    await ctx.plugin(ToolRuntime, { mode: 'code' })
+    await ctx.plugin(ToolRuntime, { mode: 'ptc' })
     await ctx.plugin(StubStore)
     await ctx.plugin(SpillPolicy, { maxInlineBytes })
     await ctx.plugin(WorkerThreadCodeRuntime, {})
@@ -313,7 +313,7 @@ describe('the durable dispatch-log arm', () => {
   it('a slow spill backend never delays the program value or a later dispatch slot', async () => {
     const ctx = new Context()
     await ctx.plugin(SystemPrompt)
-    await ctx.plugin(ToolRuntime, { mode: 'code' })
+    await ctx.plugin(ToolRuntime, { mode: 'ptc' })
     await ctx.plugin(StubStore)
     await ctx.plugin(SpillPolicy, { maxInlineBytes: 100 })
     await ctx.plugin(WorkerThreadCodeRuntime, {})
@@ -377,7 +377,7 @@ describe('the durable dispatch-log arm', () => {
     // lane holds inside the second commit, so the THIRD dispatch cannot start
     // until a pending save drains — the bound is observable as its missing
     // start event.
-    await ctx.plugin(ToolRuntime, { mode: 'code', maxParallelSubCalls: 1 })
+    await ctx.plugin(ToolRuntime, { mode: 'ptc', maxParallelSubCalls: 1 })
     await ctx.plugin(StubStore)
     await ctx.plugin(SpillPolicy, { maxInlineBytes: 100 })
     await ctx.plugin(WorkerThreadCodeRuntime, {})
@@ -430,7 +430,7 @@ describe('the durable dispatch-log arm', () => {
   it('a saveText failure keeps the complete content in the durable log (best-effort)', async () => {
     const ctx = new Context()
     await ctx.plugin(SystemPrompt)
-    await ctx.plugin(ToolRuntime, { mode: 'code' })
+    await ctx.plugin(ToolRuntime, { mode: 'ptc' })
     await ctx.plugin(StubStore)
     await ctx.plugin(SpillPolicy, { maxInlineBytes: 100 })
     await ctx.plugin(WorkerThreadCodeRuntime, {})

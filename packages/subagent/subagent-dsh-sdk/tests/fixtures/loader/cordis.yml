@@ -25,12 +25,19 @@
       DSH_TELEMETRY_DISABLED: '1'
       DSH_TEST_CHILD_FAILURE: !!js String(process.env.DSH_TEST_CHILD_FAILURE ?? '')
 
+- id: subagent-model-selection-settings
+  name: '@deepseek-ai/dsh-tool-subagent/model-selection-settings'
+  config:
+    enabled: true
+    allowedModels:
+      - provider: mock
+        model: mock-routed
+
 - id: tool-subagent
-  name: '@deepseek-ai/dsh-tool-subagent'
+  name: './scoped-tool-subagent.ts'
   config:
     provider: dsh-sdk
     toolName: subagent
-    enableModelSelection: true
     agentOptions:
       maxTokens: 777
     # The SDK backend advertises no depthLimit: the child harness owns its own

@@ -1,5 +1,5 @@
 // Keyless assembled-browser coverage for the goal bar over the shipped Web
-// bundles and FixtureApiClient wire. The command creates a real projected
+// bundles and the fixture Connection RPC. The command creates a real projected
 // goal in the fixture session; the golden pins the active strip, while the
 // clear gesture proves the acknowledged tombstone leaves neither stale chrome
 // nor a duplicate-mutation error.

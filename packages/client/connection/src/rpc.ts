@@ -1,5 +1,20 @@
 /** Generic unary RPC contracts shared by the Host and Client Connection halves. */
 
+import type { Branded } from '@deepseek-ai/dsh-brand'
+import type { SessionId } from '@deepseek-ai/dsh-session/types'
+
+/** Correlation id minted by a caller and echoed by the Connection response. */
+export type RpcId = Branded<'rpc-id'>
+
+/**
+ * Brand one validated string as a Connection correlation id.
+ * @param id - validated wire identity.
+ * @returns the same string with the correlation-id brand.
+ */
+export function RpcId(id: string): RpcId {
+  return id as RpcId
+}
+
 /** Carrier-neutral failure returned by one logical RPC endpoint. */
 export interface ConnectionRpcFailure {
   readonly code: string
@@ -11,6 +26,81 @@ export interface ConnectionRpcFailure {
 export type ConnectionRpcResult<T> =
   | { readonly ok: true; readonly value: T }
   | { readonly ok: false; readonly error: ConnectionRpcFailure }
+
+/** Typed failure details used by Client Session adapters. */
+export interface RpcErrorDetailsMap {
+  'bad-request': { issues: object[] }
+  'cancelled': {}
+  'session-not-found': { sessionId: SessionId }
+  'invalid-time-zone': { value: string }
+  'agent-preset-read-only': { agentPreset: string; reason: string }
+  'agent-preset-locked': { sessionId: SessionId; agentPreset: string }
+  'agent-preset-not-found': { agentPreset: string; available: readonly string[] }
+  'agent-preset-invalid': { agentPreset: string; reason: string }
+  'agent-busy': { reason: string }
+  'internal': {}
+}
+
+/** Error codes used by Client Session adapters. */
+export type RpcErrorCode = keyof RpcErrorDetailsMap
+
+/** Typed failure used by Client Session adapters. */
+export type RpcError = {
+  [Code in RpcErrorCode]: {
+    readonly code: Code
+    readonly message: string
+    readonly details: RpcErrorDetailsMap[Code]
+  }
+}[RpcErrorCode]
+
+/** Historical short name for a generic Connection result. */
+export type RpcResult<T> = ConnectionRpcResult<T>
+
+/**
+ * Convert a rejected transport operation into a generic failure result.
+ * @param error - rejected transport value.
+ * @returns an `internal` failure preserving the available message.
+ */
+export function transportError<T>(error: unknown): RpcResult<T> {
+  return {
+    ok: false,
+    error: {
+      code: 'internal',
+      message: error instanceof Error ? error.message : String(error),
+      details: {},
+    },
+  }
+}
+
+/** Narrow request form used by direct fixture adapters. */
+export interface RpcRequest<P> {
+  readonly rpcId: RpcId
+  readonly payload: P
+}
+
+/** Narrow response form used by direct fixture adapters. */
+export interface RpcResponse<T> {
+  readonly rpcId: RpcId
+  readonly result: RpcResult<T>
+}
+
+/** Full request envelope carried by Connection RPC transports. */
+export interface ClientRequest {
+  readonly type: 'client-request'
+  readonly rpcId: RpcId
+  readonly method: string
+  readonly payload: unknown
+}
+
+/** Full response envelope carried by Connection RPC transports. */
+export interface ServerResponse {
+  readonly type: 'server-response'
+  readonly rpcId: RpcId
+  readonly result: ConnectionRpcResult<unknown>
+}
+
+/** Complete Connection RPC envelope union. */
+export type RpcMessage = ClientRequest | ServerResponse
 
 /** HTTP request facts consumed by browser trust and authentication. */
 export interface ConnectionTrustRequest {
@@ -43,6 +133,29 @@ export type ConnectionRpcHandler = (
 /** Synchronous ownership test for one endpoint on a shared RPC channel. */
 export type ConnectionRpcEndpointMatcher = (endpoint: string) => boolean
 
+/** HTTP methods supported by exact Fetch routes on the shared API channel. */
+export type ConnectionFetchMethod = 'GET' | 'HEAD'
+
+/** One exact, transport-independent Fetch route owned by a Host feature. */
+export interface ConnectionFetchRoute {
+  /** Absolute path below `/api`; query parameters remain available on the request URL. */
+  readonly path: string
+  /** Methods this route owns. Other methods continue through normal shared-channel dispatch. */
+  readonly methods: readonly ConnectionFetchMethod[]
+  /** Handle one request after the physical carrier has applied its trust and authentication policy. */
+  readonly fetch: (request: Request) => Promise<Response>
+}
+
+/** Host registry for exact Fetch routes that cannot use JSON Remote invocation. */
+export interface HostConnectionFetch {
+  /**
+   * Register one exact route on the shared API channel.
+   * @param route - path, methods, and Fetch-shaped implementation.
+   * @returns asynchronous disposer removing this exact contribution.
+   */
+  register(route: ConnectionFetchRoute): () => Promise<void>
+}
+
 /** Host registry for logical RPC channels carried by the current transport. */
 export interface HostConnectionRpc {
   /**
@@ -74,6 +187,15 @@ export interface HostConnectionRpc {
 export interface HostConnectionHandle {
   /** Generic RPC channel registry. */
   readonly rpc: HostConnectionRpc
+  /** Exact Fetch routes for streaming or browser-native responses. */
+  readonly fetch: HostConnectionFetch
+
+  /**
+   * Compose exact Fetch routes and the shared-channel RPC interceptor.
+   * @param channel - shared channel mounted by Connection.
+   * @returns Fetch handler for trusted, authenticated requests.
+   */
+  createSharedFetchHandler(channel: '/api'): ConnectionFetchHandler
 
   /**
    * Apply Connection's Host/Origin checks and browser authentication to
@@ -97,6 +219,16 @@ export interface HostConnectionHandle {
    * @returns root URL accepted by {@link authorizeIndex} for initial login.
    */
   authenticatedUrl(baseUrl: string): string
+}
+
+/** Transport-independent Fetch handler used by HTTP and worker carriers. */
+export interface ConnectionFetchHandler {
+  /**
+   * Dispatch one already-authenticated request.
+   * @param request - Fetch request below the shared channel.
+   * @returns the registered response or a 404 response.
+   */
+  fetch(request: Request): Promise<Response>
 }
 
 /** Client caller for logical RPC channels carried by the current transport. */

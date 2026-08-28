@@ -289,7 +289,7 @@ export interface LaunchOptions {
    * yml default. The code runtime row is always in the tree, so no extra
    * insertion is needed.
    */
-  toolsMode?: 'native' | 'code' | 'both'
+  toolsMode?: 'native' | 'ptc' | 'both'
   /**
    * Insert the opt-in model-facing Cordis tool provider into the shipped tree.
    * Record and replay use the same tool surface, so captured request headers
@@ -329,12 +329,14 @@ export interface LaunchOptions {
     default: string
   }
   /**
-   * Mount the shipped telemetry row in FULL mode against this exporter URL
-   * instead of disabling it. Used to pin a real backend disclosure in
-   * assembled coverage; point the URL at a local dead endpoint so no record
-   * leaves the process.
+   * Mount the shipped telemetry row against this exporter URL instead of
+   * disabling it. Used to pin a real backend disclosure in assembled
+   * coverage; point the URL at a local endpoint (a dead port, or a scenario's
+   * own mock collector) so no record leaves the machine.
    */
   telemetryUrl?: string
+  /** Uploading mode for the mounted telemetry row. Defaults to `FULL`. */
+  telemetryMode?: 'FULL' | 'FEEDBACK_ONLY'
   /**
    * Browse through a trusted non-loopback hostname that the browser resolves
    * to loopback (for example `*.localhost`). The test server stays bound to
@@ -497,7 +499,7 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
       : {
         id: 'session-telemetry-otel',
         config: {
-          mode: 'FULL',
+          mode: options.telemetryMode ?? 'FULL',
           exporter: { url: options.telemetryUrl },
           shutdownTimeoutMillis: 1_000,
         },
@@ -1094,11 +1096,23 @@ async function persistSeedSession(
  * on one machine (measured 69 → 70 tok/s) and swings wildly on a fast replay
  * (26333 tok/s for a 3 ms stream).
  */
-function normalizeAria(snapshot: string, workspaceCwd: string): string {
+/**
+ * Relative-time buckets rendered by a dated row, in both dictionaries.
+ *
+ * Opt-in per capture: a session-tree golden asserts its own literal age (a
+ * fresh row reads `now`, an older one does not), so collapsing the vocabulary
+ * everywhere would delete that assertion. A region whose rows are dated from
+ * live wall-clock state asks for it instead. Anchored on an aria label's
+ * closing quote, where the bucket is always last.
+ */
+const ARIA_AGE =
+  /(?:now|\d+min|\d+h|\d+d|\d+mo|\d+y|刚刚|\d+分钟|\d+小时|\d+天|\d+个月|\d+年)(?=")/g
+
+function normalizeAria(snapshot: string, workspaceCwd: string, age: boolean): string {
   // The session heading renders the workspace's basename, not the full
   // path, so both spellings must collapse to the token.
   const base = workspaceCwd.split('/').pop()!
-  return snapshot
+  return (age ? snapshot.replace(ARIA_AGE, '{{age}}') : snapshot)
     .split(workspaceCwd).join('{{cwd}}')
     .split(base).join('{{workspace}}')
     .replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi, '{{uuid}}')
@@ -1133,18 +1147,59 @@ function normalizeAria(snapshot: string, workspaceCwd: string): string {
  * @param page - the page under test.
  * @param selector - the region locator selector.
  * @param workspaceCwd - normalization input.
+ * @param options - `normalizeAge` collapses relative-time buckets to `{{age}}`
+ *   for a region whose rows are dated from live wall-clock state.
  * @returns the stable normalized snapshot.
  */
-export async function captureStableAria(page: Page, selector: string, workspaceCwd: string): Promise<string> {
+export async function captureStableAria(
+  page: Page,
+  selector: string,
+  workspaceCwd: string,
+  options: { normalizeAge?: boolean } = {},
+): Promise<string> {
   const region = page.locator(selector).first()
-  let previous = normalizeAria(await region.ariaSnapshot(), workspaceCwd)
+  const age = options.normalizeAge === true
+  let previous = normalizeAria(await region.ariaSnapshot(), workspaceCwd, age)
   await expect.poll(async () => {
-    const current = normalizeAria(await region.ariaSnapshot(), workspaceCwd)
+    const current = normalizeAria(await region.ariaSnapshot(), workspaceCwd, age)
     const stable = current === previous
     previous = current
     return stable
   }, { timeout: 5_000, message: 'aria snapshot did not stabilize' }).toBe(true)
   return previous
+}
+
+/**
+ * Capture a stable aria snapshot with every eligible Turn process expanded,
+ * then restore the controls that were closed before the capture.
+ * @param page - the page under test.
+ * @param selector - the region locator selector.
+ * @param workspaceCwd - normalization input.
+ * @returns the stable normalized expanded snapshot.
+ */
+export async function captureExpandedTurnProcessAria(
+  page: Page,
+  selector: string,
+  workspaceCwd: string,
+): Promise<string> {
+  const controls = page.locator('[data-turn-process]')
+  const count = await controls.count()
+  expect(count).toBeGreaterThan(0)
+  const opened: number[] = []
+  for (let index = 0; index < count; index++) {
+    const control = controls.nth(index)
+    if (!await control.isVisible() || await control.getAttribute('aria-expanded') === 'true') continue
+    await control.click()
+    opened.push(index)
+  }
+  try {
+    return await captureStableAria(page, selector, workspaceCwd)
+  } finally {
+    for (const index of opened.reverse()) {
+      const control = controls.nth(index)
+      if (await control.getAttribute('aria-expanded') === 'true') await control.click()
+    }
+  }
 }
 
 /**

@@ -36,17 +36,15 @@ import type {
 } from '../src/types.ts'
 
 const AVAILABLE_CONNECTION = {
-  hostDescription: {
-    getSnapshot: () => ({
-      version: 'fixture', cwd: '/fixture', attachedSessions: 0, home: '/home/fixture', canOpenPath: true,
-    }),
+  generation: {
+    getSnapshot: () => ({ id: 1, host: { home: '/home/fixture' } }),
     subscribe: () => () => {},
   },
 }
 
 function workspaceClient(
   remote: WorkspaceRemote,
-  connection: Pick<ConnectionHandle, 'hostDescription'> = AVAILABLE_CONNECTION,
+  connection: Pick<ConnectionHandle, 'generation'> = AVAILABLE_CONNECTION,
 ) {
   return {
     workspace: remote,
@@ -199,18 +197,8 @@ async function waitFor(check: () => void): Promise<void> {
 
 function provideClientServices(ctx: Context, remote: WorkspaceRemote): void {
   const connection: ConnectionHandle = {
-    api: {} as ConnectionHandle['api'],
     isLoopback: true,
-    hostDescription: {
-      getSnapshot: () => ({
-        version: 'fixture',
-        cwd: '/fixture',
-        attachedSessions: 0,
-        home: '/home/fixture',
-        canOpenPath: true,
-      }),
-      subscribe: () => () => {},
-    },
+    generation: AVAILABLE_CONNECTION.generation,
     rpc: {
       call: () => Promise.reject(new Error('unexpected generic RPC call')),
     },

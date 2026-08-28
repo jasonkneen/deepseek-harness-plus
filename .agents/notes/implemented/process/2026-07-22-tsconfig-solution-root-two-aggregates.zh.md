@@ -6,7 +6,7 @@ Status: implemented
 
 ## 问题
 
-GUI 拆分引入了第二个聚合 program（`tsconfig.client.json`，见[分层 RFC](../architecture/2026-07-19-gui-layering-and-rpc-protocol.zh.md)），根 `tsconfig.json` 则继续兼任宿主侧聚合，`tsconfig.build.json` 还是第三份手工维护的全量 emit 图。三处账本并行，造成四个具体的不对称：
+GUI 拆分引入了第二个聚合 program（`tsconfig.client.json`，见[已归档的分层 RFC](../../archived/architecture/2026-07-19-gui-layering-and-rpc-protocol.md)），根 `tsconfig.json` 则继续兼任宿主侧聚合，`tsconfig.build.json` 还是第三份手工维护的全量 emit 图。三处账本并行，造成四个具体的不对称：
 
 - 类型检查与构建的 references 列表逐渐脱节（`packages/goal/command-goal` 在类型检查图里，构建图里却没有）。
 - lefthook 的 pre-push 钩子只运行 `tsc -b tsconfig.json`，客户端侧的类型破坏因此通过本地检查点，直到 CI 才暴露。

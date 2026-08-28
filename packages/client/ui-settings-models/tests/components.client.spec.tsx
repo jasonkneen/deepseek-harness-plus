@@ -4,11 +4,10 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testi
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import Schema from '@deepseek-ai/schemastery'
 import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-test-runtime'
-import type { JsonValue, RpcResponse, SettingsNamespaceView } from '@deepseek-ai/dsh-api-remotes/client'
+import type { JsonValue, SettingsNamespaceView } from '@deepseek-ai/dsh-api-remotes/client'
 import {
   ModelsSection, needsSetup, providerCopy, providerTargetLabel, removeProviderProfile,
 } from '../src/client/ModelsSection.tsx'
-import { SubagentModelSelectionCard } from '../src/client/SubagentModelSelectionCard.tsx'
 import type { ModelsSectionInjected, ModelsSectionProps } from '../src/client/ModelsSection.tsx'
 import { pathOps } from '../src/client/ProviderEditor.tsx'
 import {
@@ -134,16 +133,6 @@ function wireNamespaces(): SettingsNamespaceView[] {
   ]
 }
 
-let nextRpc = 0
-function ok<T>(value: T): RpcResponse<T> {
-  return { rpcId: `r-${nextRpc++}` as never, result: { ok: true, value } }
-}
-function fail<T>(message: string, code = 'settings-rejected'): RpcResponse<T> {
-  return {
-    rpcId: `r-${nextRpc++}` as never,
-    result: { ok: false, error: { code, message, details: { ns: 'x' } } as never },
-  }
-}
 /** Credentials answers over the Remote carrier, which has no envelope. */
 function remoteOk<T>(value: T) {
   return { ok: true as const, value }
@@ -165,17 +154,19 @@ function scriptedFace(overrides: {
   const unset = overrides.unset ?? vi.fn(() => Promise.resolve(remoteOk(undefined)))
   const face = {
     llm: {
-      providers: vi.fn(() => Promise.resolve(ok({
-        providers: [
-          { provider: 'deepseek-official', displayName: 'DeepSeek', settingsNs: 'llm-deepseek', settingsPath: [], active: true },
-          { provider: 'openai', displayName: 'openai', settingsNs: 'llm-pi-ai', settingsPath: ['providers', 'openai'], active: true },
-          { provider: 'anthropic', displayName: 'anthropic', settingsNs: 'llm-pi-ai', settingsPath: ['providers', 'anthropic'], active: false },
-          { provider: 'zombie', displayName: 'zombie', settingsNs: 'llm-pi-ai', settingsPath: ['providers', 'zombie'], active: false },
-          { provider: 'broken', displayName: 'broken', settingsNs: 'llm-pi-ai', settingsPath: ['nope', 'x'], active: false },
-          { provider: 'plain', displayName: 'plain', settingsNs: 'llm-plain', settingsPath: ['profiles', 'plain'], active: false },
-        ],
-      }))),
-      models: vi.fn(() => Promise.resolve(ok({ groups: [], failures: [] }))),
+      listProviders: vi.fn(() => Promise.resolve(remoteOk([
+        { id: 'deepseek-official', name: 'DeepSeek' },
+        { id: 'openai', name: 'openai' },
+      ]))),
+      listConfigurableProviders: vi.fn(() => Promise.resolve(remoteOk([
+        { provider: 'deepseek-official', displayName: 'DeepSeek', settingsNs: 'llm-deepseek', settingsPath: [], active: true },
+        { provider: 'openai', displayName: 'openai', settingsNs: 'llm-pi-ai', settingsPath: ['providers', 'openai'], active: true },
+        { provider: 'anthropic', displayName: 'anthropic', settingsNs: 'llm-pi-ai', settingsPath: ['providers', 'anthropic'], active: false },
+        { provider: 'zombie', displayName: 'zombie', settingsNs: 'llm-pi-ai', settingsPath: ['providers', 'zombie'], active: false },
+        { provider: 'broken', displayName: 'broken', settingsNs: 'llm-pi-ai', settingsPath: ['nope', 'x'], active: false },
+        { provider: 'plain', displayName: 'plain', settingsNs: 'llm-plain', settingsPath: ['profiles', 'plain'], active: false },
+      ].map(({ active: _active, ...entry }) => entry)))),
+      discoverModels: vi.fn(() => Promise.resolve(remoteOk([]))),
     },
     settings: {
       describe: vi.fn(() => Promise.resolve(remoteOk({ writable: true, hasDocument: false, namespaces: wireNamespaces() }))),
@@ -316,84 +307,17 @@ describe('ModelsSection', () => {
   it('skips the draft seat when a refresh drops the dormant row', async () => {
     const { renderSlot, face, controller } = await mountSection()
     fireEvent.click(screen.getByRole('button', { name: en.add }))
-    face.llm.providers.mockImplementation(() => Promise.resolve(ok({
-      providers: [
-        { provider: 'deepseek-official', displayName: 'DeepSeek', settingsNs: 'llm-deepseek', settingsPath: [], active: true },
-        { provider: 'openai', displayName: 'openai', settingsNs: 'llm-pi-ai', settingsPath: ['providers', 'openai'], active: true },
-      ],
-    })))
+    const directory = [
+      { provider: 'deepseek-official', displayName: 'DeepSeek', settingsNs: 'llm-deepseek', settingsPath: [], active: true },
+      { provider: 'openai', displayName: 'openai', settingsNs: 'llm-pi-ai', settingsPath: ['providers', 'openai'], active: true },
+    ].map(({ active: _active, ...entry }) => entry)
+    face.llm.listConfigurableProviders.mockImplementation(() => Promise.resolve(remoteOk(directory)))
     renderSlot.mockClear()
     await act(async () => { await controller.load() })
     // The draft card is still open while its row is gone from the directory.
     expect(screen.getByLabelText(en.keyInput)).toBeTruthy()
     expect(cardSeatCalls(renderSlot).some(([provider]) => provider === 'anthropic')).toBe(false)
   })
-
-  it('persists the default-off subagent model-selection switch for new sessions', async () => {
-    const enabledNamespace: SettingsNamespaceView = {
-      ...wireNamespaces().find(view => view.ns === 'subagent-model-selection')!,
-      value: { enabled: true },
-      user: { enabled: true },
-      revision: 5,
-    }
-    const update = vi.fn(() => Promise.resolve(remoteOk(enabledNamespace)))
-    await mountSection({ update })
-
-    const toggle = screen.getByRole('switch', { name: en.subagentModelSelectionToggle })
-    expect(toggle.getAttribute('aria-checked')).toBe('false')
-    fireEvent.click(toggle)
-
-    await waitFor(() => { expect(toggle.getAttribute('aria-checked')).toBe('true') })
-    expect(update).toHaveBeenCalledWith(
-      'subagent-model-selection',
-      { enabled: true },
-      4,
-    )
-    expect(screen.getByRole('status').textContent).toBe(en.subagentModelSelectionSaved)
-  })
-
-  it('reports rejected subagent model-selection updates and permits a retry', async () => {
-    const update = vi.fn()
-      .mockResolvedValueOnce(remoteFail('revision changed', 'settings-rejected'))
-      .mockResolvedValueOnce(remoteOk({
-        ...wireNamespaces().find(view => view.ns === 'subagent-model-selection')!,
-        value: { enabled: true },
-        revision: 5,
-      }))
-    await mountSection({ update })
-
-    const toggle = screen.getByRole('switch', { name: en.subagentModelSelectionToggle })
-    fireEvent.click(toggle)
-    expect((await screen.findByRole('alert')).textContent).toBe('revision changed')
-
-    fireEvent.click(toggle)
-    await waitFor(() => { expect(toggle.getAttribute('aria-checked')).toBe('true') })
-    expect(screen.queryByRole('alert')).toBeNull()
-  })
-
-  it('keeps malformed and read-only subagent preferences off', () => {
-    const namespace = {
-      ...wireNamespaces().find(view => view.ns === 'subagent-model-selection')!,
-      value: null,
-    } as unknown as SettingsNamespaceView
-    const mutate = vi.fn()
-    render(
-      <SubagentModelSelectionCard
-        namespace={namespace}
-        writable={false}
-        api={{ settings: { mutate } } as never}
-        controller={{ acceptNamespace: vi.fn(), load: vi.fn() } as never}
-        t={t}
-      />,
-    )
-
-    const toggle = screen.getByRole('switch', { name: en.subagentModelSelectionToggle })
-    expect(toggle.getAttribute('aria-checked')).toBe('false')
-    expect((toggle as HTMLButtonElement).disabled).toBe(true)
-    fireEvent.click(toggle)
-    expect(mutate).not.toHaveBeenCalled()
-  })
-
   it('renders the unkeyed whole-section provider as an open setup card in the first-run posture', async () => {
     await mountFirstRun()
     // Nothing is reachable yet, and DeepSeek has no configured credential and
@@ -515,7 +439,7 @@ describe('ModelsSection', () => {
     expect(mutate).not.toHaveBeenCalled()
     // The saved key re-loads the join; the settings answer rides the shared
     // mirror, so the reload shows as a directory read rather than a describe.
-    await waitFor(() => { expect(face.llm.providers.mock.calls.length).toBeGreaterThan(1) })
+    await waitFor(() => { expect(face.llm.listProviders.mock.calls.length).toBeGreaterThan(1) })
     expect((await screen.findByRole('status')).textContent).toBe(
       providerCopy(en.savedProvider, { provider: 'deepseek-official', displayName: 'DeepSeek' }),
     )
@@ -1321,7 +1245,7 @@ describe('ModelsSection', () => {
 
   it('renders the load failure with a retry control', async () => {
     const face = scriptedFace()
-    face.face.llm.providers = vi.fn(() => Promise.resolve(fail('directory down', 'internal'))) as never
+    face.face.llm.listProviders = vi.fn(() => Promise.resolve(remoteFail('directory down', 'internal'))) as never
     const controller = new ModelsSettingsStore(
       face.face as unknown as WireFace, settingsSchema, new SettingsDescribeMirror(face.face as never))
     await controller.load()

@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-08-25-sparse-first-party-prompt-section-orders.md
-2026-08-25-sparse-first-party-prompt-section-orders.md: 2bf2e7441b449a6cfbd5b845f1d7e97b3fab09ae
-2026-08-25-sparse-first-party-prompt-section-orders.zh.md: 624ed51f4d40848c72091097900ef05ec35fdd2e
+2026-08-25-sparse-first-party-prompt-section-orders.md: 4b2568f18d104a77d00f91bb98f64047ecd85fa9
+2026-08-25-sparse-first-party-prompt-section-orders.zh.md: 4dfb0d0bd87ff5f245c28f3dbab6a48ba898f924

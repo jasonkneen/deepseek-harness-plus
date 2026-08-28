@@ -48,7 +48,7 @@ export class RemoteStream<Item> implements AsyncIterable<RemoteStreamItem<Item>>
    * @param options - domain stream opener, end classification, and diagnostics.
    */
   constructor(
-    private readonly connection: Pick<ConnectionHandle, 'hostDescription'>,
+    private readonly connection: Pick<ConnectionHandle, 'generation'>,
     private readonly options: RemoteStreamOptions<Item>,
   ) {}
 
@@ -157,13 +157,13 @@ export class RemoteStream<Item> implements AsyncIterable<RemoteStreamItem<Item>>
 }
 
 async function waitForRemoteStreamRetry(
-  connection: Pick<ConnectionHandle, 'hostDescription'>,
+  connection: Pick<ConnectionHandle, 'generation'>,
   error: RemoteStreamCarrierError,
   attempt: number,
   signal: AbortSignal,
 ): Promise<void> {
   signal.throwIfAborted()
-  if (connection.hostDescription.getSnapshot() !== undefined) {
+  if (connection.generation.getSnapshot() !== undefined) {
     if (attempt === 1) return
     throw error
   }
@@ -181,12 +181,12 @@ async function waitForRemoteStreamRetry(
       else reject(failure)
     }
     const inspect = (): void => {
-      if (connection.hostDescription.getSnapshot() !== undefined) finish()
+      if (connection.generation.getSnapshot() !== undefined) finish()
     }
     const aborted = (): void => {
       finish(new Error('Remote stream retry aborted', { cause: signal.reason }))
     }
-    const dispose = connection.hostDescription.subscribe(inspect)
+    const dispose = connection.generation.subscribe(inspect)
     subscription.dispose = dispose
     if (subscription.finished) dispose()
     signal.addEventListener('abort', aborted, { once: true })

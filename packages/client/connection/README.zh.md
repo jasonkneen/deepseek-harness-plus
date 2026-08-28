@@ -1,5 +1,5 @@
 ---
-description: "面向用户与维护者的浏览器-宿主线层说明：共享 API 客户端、带重连的事件流投递、/api HTTP 桥与浏览器信任栅栏，用于组合或排查连接。"
+description: "Web GUI 的浏览器-Host 线层：Remote RPC、带重连的事件流投递、精确 Fetch 路由、/api HTTP 桥与浏览器信任栅栏。"
 kind: "package-reference"
 ---
 
@@ -9,7 +9,7 @@ kind: "package-reference"
 
 ## 概述
 
-协议与连接世代层：Client 插件挂载 `ctx.connection`，包含共享 API 客户端、当前页面的 loopback 状态、按 generation 生效的可观察 `hostDescription`、通用 RPC carrier，以及单一 generation source 与连接循环的注册面。每个 generation 只在 source 已就绪且 `host.describe` 成功后发布 `hostDescription` 并调用 `onConnected`；source 结束、失败、被撤回或显式 stop 都会清空该值，再由 `ConnectionController` 退避重连。
+本包承载浏览器到 Host 的 Remote 调用、精确 Fetch 响应与 connection generation。Client 插件挂载 `ctx.connection`，其中包含当前页面的 loopback 状态、通用 RPC carrier、当前 generation 及其 Host 信息，以及单一 generation source 的注册点。source 报告 ready 后 generation 才可见；source 结束、失败、被撤回或显式 stop 都会清空它，再由 `ConnectionController` 退避重连。
 
 ## 目录
 
@@ -25,7 +25,7 @@ kind: "package-reference"
 <a id="use-this-package"></a>
 ## 使用本包
 
-浏览器通过 HTTP POST 执行 API Proxy 一元调用与通用 Remote 一元调用；API Gateway 自己拥有 `/api/remote.mux` WebSocket 及其逻辑流。进程内组合通过 `connection.rpc.open` 提供等价的 Remote 流，不打开 WebSocket。Host half 拥有唯一 `/api` route、Fetch bridge、浏览器认证与 Host/Origin 校验；Typert Gateway 先认领自己的 Remote endpoint，未认领的请求再回退 API Proxy。Loopback hostname 判定只供浏览器侧当前页面状态使用，留在包内。
+浏览器通过 HTTP POST 执行 Remote 一元调用；API Gateway 自己拥有 `/api/remote.mux` WebSocket 及其逻辑流。进程内组合通过 `connection.rpc.open` 提供等价的 Remote 流，不打开 WebSocket。Host half 拥有唯一 `/api` route、Fetch bridge、浏览器认证、Host/Origin 校验与精确 `GET`/`HEAD` 路由注册表。Typert Gateway 认领生成的 Remote endpoint，功能包注册 Session 日志下载等非 JSON 响应，未认领的请求返回 404。Loopback hostname 判定只供浏览器侧当前页面状态使用，留在包内。
 
 -----
 
@@ -41,9 +41,9 @@ cookie 签名密钥是 `ctx.credentials` 中由 `client-connection/browser-sessi
 <a id="connection-generation"></a>
 ## Connection generation
 
-API Gateway Client 把内部 `$events` logical stream 注册为唯一 generation source，与有无 `$on` 订阅无关。Host 在 API Remotes source factory 同步挂好所有增量 listener 后，先发送唯一 `{ type: 'ready' }` 项，再发送事件。`ConnectionController` 并行等待该 ready 与 `host.describe`；只有两者都成功才允许 `onConnected` 启动 baseline 读取，因此 baseline 不会跑在增量 listener 前面。
+API Gateway Client 把内部 `$events` logical stream 注册为唯一 generation source，与有无 `$on` 订阅无关。Host 在 API Remotes source factory 同步挂好所有增量 listener 后，先发送唯一 `{ type: 'ready', clientId, host: { home } }` 项，再发送事件。`ConnectionController` 仅在收到该 ready 项后发布 generation 并调用 `onConnected`，因此 baseline 不会跑在增量 listener 前面。
 
-`$events` 结束、返回 Remote stream error、收到非 ready 首项或畸形事件项，都会使当前 generation 失效。Controller 立即撤回 `hostDescription`、发布 `reconnecting`，并在退避后重建 `$events` 与 `host.describe` 握手。Gateway mux 自己负责重建底层 WebSocket；Connection 世代负责重建 logical stream 与 baseline 起点。
+`$events` 结束、返回 Remote stream error、收到非 ready 首项或畸形事件项，都会使当前 generation 失效。Controller 立即撤回 generation、发布 `reconnecting`，并在退避后重开 `$events`。Gateway mux 自己负责重建底层 WebSocket；Connection generation 负责重开 logical stream 并建立下一次 baseline 起点。
 
 <a id="model-experience"></a>
 ## 模型体验

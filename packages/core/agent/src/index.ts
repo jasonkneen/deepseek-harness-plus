@@ -20,6 +20,7 @@ import type { AgentOptions } from './runtime-types.ts'
 
 export * from './runtime-types.ts'
 export * from './types.ts'
+export type * from './projection.ts'
 export * from './consumed-work.ts'
 export * from './model-selection.ts'
 export { agentCarrier, agentEvents, assembleContextFor, emitAgentEvent } from './dispatch.ts'

@@ -1,9 +1,8 @@
 /** Trajectory view: compact summary over a turn-aware event ledger. */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import type {
-  AssistantBlock, AssistantMessageNode, ConvViewProps, RenderMessageImages,
+  AssistantBlock, AssistantMessageNode, ConvViewProps, MessageImageLoader, RenderMessageImages,
 } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type { InjectFace, PropsLocale, PropsRenderSlots } from '@deepseek-ai/dsh-client-ui-slots'
 import type { SnapshotStore } from '@deepseek-ai/dsh-client-store'
@@ -70,7 +69,7 @@ export interface TrajectoryViewInjected {
     duration: SnapshotStore<boolean>
   }
   loadOlder: () => Promise<boolean>
-  loadImage: (attachment: ImageAttachmentRef) => Promise<string>
+  loadImage: MessageImageLoader
   setActualDuration: (actualDuration: boolean) => void
 }
 

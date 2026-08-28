@@ -33,6 +33,10 @@
           - text: Agent 循环 Agent 如何派发工具调用。
           - img
       - listitem:
+        - 'button "展开设置: Subagent"':
+          - text: Subagent 控制 Agent 为 Subagent 选择模型的权限。
+          - img
+      - listitem:
         - 'button "展开设置: 网页搜索"':
           - text: 网页搜索 DeepSeek 搜索提供方。
           - img

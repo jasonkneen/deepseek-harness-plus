@@ -2,7 +2,7 @@
   // Client-side typecheck aggregate: packages/client tests (.ts and .tsx).
   // Split from the host aggregate because both sides merge cordis Context
   // under the same keys (sessions, loader) with different services; shared
-  // leaves (session/llm/tools/apiproxy/...) build once and are referenced by
+  // leaves (session/llm/tools/...) build once and are referenced by
   // both programs through each client package's own references.
   "extends": "./tsconfig.base.client.json",
   "compilerOptions": {
@@ -51,6 +51,7 @@
     { "path": "./packages/client/ui-attachment" },
     { "path": "./packages/client/ui-primitives" },
     { "path": "./packages/client/modules" },
+    { "path": "./packages/experimental/inspector/tsconfig.client.json" },
     { "path": "./packages/client/hmr" },
     { "path": "./packages/client/connection/tsconfig.client.json" },
     { "path": "./packages/typert/registry" },
@@ -89,7 +90,7 @@
     { "path": "./packages/client/ui-settings-plugins" },
     { "path": "./packages/client/ui-user-questions" },
     { "path": "./packages/client/ui-trajectory" },
-    { "path": "./packages/session-query/session-log-export" },
+    { "path": "./packages/session-query/session-log-export/tsconfig.client.json" },
     { "path": "./packages/client/ui-theme" },
     { "path": "./packages/client/ui-settings" },
     { "path": "./packages/client/ui-settings-general" },
@@ -99,6 +100,7 @@
     { "path": "./packages/client/ui-renderer" },
     { "path": "./packages/client/ui-session" },
     { "path": "./packages/client/web" },
+    { "path": "./packages/context/file-reference" },
     { "path": "./apps/web" }
   ]
 }

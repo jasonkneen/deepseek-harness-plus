@@ -3,13 +3,11 @@
 import { Context, Service } from '@deepseek-ai/cordis'
 import type { WebRoute } from '@deepseek-ai/dsh-host-webserver'
 import {
-  clientRequestSchema,
   RpcId,
   type ClientRequest,
-  type RpcError,
-  type RpcErrorDetailsMap,
   type RpcId as RpcIdType,
-} from '@deepseek-ai/dsh-host-apiproxy/api'
+} from './rpc.ts'
+import { clientRequestSchema } from './rpc-schema.ts'
 import { bridge, type FetchHandler } from './http-bridge.ts'
 import { isTrustedApiRequest } from './api-request-trust.ts'
 import { API_PATH } from './api-path.ts'
@@ -17,7 +15,11 @@ import type { BrowserAuth } from './browser-auth.ts'
 import type {
   ConnectionIndexRequest,
   ConnectionIndexResponse,
+  ConnectionFetchRoute,
+  ConnectionFetchHandler,
+  HostConnectionFetch,
   ConnectionRpcEndpointMatcher,
+  ConnectionRpcFailure,
   ConnectionRpcHandler,
   ConnectionRpcResult,
   ConnectionRequestRejection,
@@ -33,6 +35,11 @@ const ENDPOINT_SEGMENT_PATTERN = /^[A-Za-z0-9_$.-]+$/
 interface ConnectionRpcInterceptor {
   readonly matches: ConnectionRpcEndpointMatcher
   readonly fetchHandler: FetchHandler
+}
+
+interface RegisteredFetchRoute {
+  readonly methods: ReadonlySet<string>
+  readonly fetch: ConnectionFetchRoute['fetch']
 }
 
 interface ConnectionServerResponse {
@@ -51,6 +58,7 @@ declare module '@deepseek-ai/cordis' {
 /** Host Connection service whose channel registrations belong to the caller fiber. */
 export class HostConnectionService extends Service implements HostConnectionHandle {
   private readonly interceptors = new Map<string, ConnectionRpcInterceptor>()
+  private readonly fetchRoutes = new Map<string, RegisteredFetchRoute>()
 
   /**
    * Provide the Host half over the active HTTP server.
@@ -76,6 +84,14 @@ export class HostConnectionService extends Service implements HostConnectionHand
     }
   }
 
+  /** Exact Fetch-route registry scoped to the Context reading this service. */
+  get fetch(): HostConnectionFetch {
+    const owner = this.ctx
+    return {
+      register: route => this.registerFetchRoute(owner, route),
+    }
+  }
+
   /** Apply the configured Host/Origin fence, then browser authentication. */
   requestRejection(request: ConnectionTrustRequest): ConnectionRequestRejection {
     if (!isTrustedApiRequest(request, this.trustedHosts)) return 403
@@ -93,25 +109,44 @@ export class HostConnectionService extends Service implements HostConnectionHand
   }
 
   /**
-   * Compose one shared-channel Fetch handler from its interceptor and fallback.
+   * Compose one shared-channel Fetch handler from exact routes and its interceptor.
    * @param channel - shared channel mounted by Connection.
-   * @param fallback - handler for endpoints not claimed by the interceptor.
-   * @returns Fetch handler that selects exactly one target for each request.
+   * @returns Fetch handler that selects one owner or returns 404.
    */
   createSharedFetchHandler(
     channel: '/api',
-    fallback: FetchHandler,
-  ): FetchHandler {
+  ): ConnectionFetchHandler {
     return {
       fetch: (request) => {
-        const endpoint = endpointFromPath(channel, new URL(request.url).pathname)
+        const pathname = new URL(request.url).pathname
+        const route = this.fetchRoutes.get(pathname)
+        if (route?.methods.has(request.method) === true) return route.fetch(request)
+        const endpoint = endpointFromPath(channel, pathname)
         const interceptor = this.interceptors.get(channel)
         if (endpoint === undefined || interceptor === undefined || !interceptor.matches(endpoint)) {
-          return fallback.fetch(request)
+          return Promise.resolve(new Response('not found', { status: 404 }))
         }
         return interceptor.fetchHandler.fetch(request)
       },
     }
+  }
+
+  private registerFetchRoute(
+    owner: Context,
+    route: ConnectionFetchRoute,
+  ): () => Promise<void> {
+    assertFetchRoute(route)
+    const registered: RegisteredFetchRoute = {
+      methods: new Set(route.methods),
+      fetch: route.fetch,
+    }
+    return owner.effect(() => {
+      if (this.fetchRoutes.has(route.path)) {
+        throw new Error(`connection: exact Fetch route ${JSON.stringify(route.path)} is already registered`)
+      }
+      this.fetchRoutes.set(route.path, registered)
+      return () => { this.fetchRoutes.delete(route.path) }
+    }, `client-connection: ${route.path} Fetch route`)
   }
 
   private register(
@@ -211,7 +246,7 @@ function rpcFetchHandler(
   }
 }
 
-function invalidEnvelopeResponse(body: unknown, issues: RpcErrorDetailsMap['bad-request']['issues']): Response {
+function invalidEnvelopeResponse(body: unknown, issues: readonly object[]): Response {
   const rawId = (body as { rpcId?: unknown } | null)?.rpcId
   const rpcId = typeof rawId === 'string' ? RpcId(rawId) : INVALID_REQUEST_RPC_ID
   return errorResponse(rpcId, {
@@ -232,7 +267,7 @@ function endpointFromPath(channel: string, pathname: string): string | undefined
   return endpoint
 }
 
-function errorResponse(rpcId: RpcIdType, error: RpcError): Response {
+function errorResponse(rpcId: RpcIdType, error: ConnectionRpcFailure): Response {
   return fullResponse(rpcId, { ok: false, error })
 }
 
@@ -244,5 +279,18 @@ function fullResponse(rpcId: RpcIdType, result: ConnectionRpcResult<unknown>): R
 function assertChannel(channel: string): void {
   if (!CHANNEL_PATTERN.test(channel) || channel === '/api') {
     throw new Error(`connection: invalid or reserved RPC channel ${JSON.stringify(channel)}`)
+  }
+}
+
+function assertFetchRoute(route: ConnectionFetchRoute): void {
+  if (endpointFromPath(API_PATH, route.path) === undefined) {
+    throw new Error(`connection: invalid exact Fetch route ${JSON.stringify(route.path)}`)
+  }
+  if (route.methods.length === 0) {
+    throw new Error(`connection: exact Fetch route ${JSON.stringify(route.path)} declares no methods`)
+  }
+  const methods = new Set(route.methods)
+  if (methods.size !== route.methods.length) {
+    throw new Error(`connection: exact Fetch route ${JSON.stringify(route.path)} repeats a method`)
   }
 }

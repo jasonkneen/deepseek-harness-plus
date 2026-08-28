@@ -1,5 +1,5 @@
 import {
-  useId, useState, type CSSProperties, type MouseEvent, type PointerEvent,
+  memo, useId, useState, type CSSProperties, type MouseEvent, type PointerEvent,
 } from 'react'
 import type { ChatViewSlotProps } from '../contract/slots.ts'
 import type { TurnNavigationItem } from '../contract/snapshot.ts'
@@ -53,8 +53,7 @@ function itemAtPointer(
   return items[Math.round(ratio * (items.length - 1))]
 }
 
-/** Compact rail of the currently loaded Turns with hover and focus previews. */
-export function TurnNavigator({ items, activeTurn, onNavigate, t }: TurnNavigatorProps) {
+function TurnNavigatorRail({ items, activeTurn, onNavigate, t }: TurnNavigatorProps) {
   const [previewTurn, setPreviewTurn] = useState<number | null>(null)
   const previewId = useId()
   if (items.length < 2) return null
@@ -116,3 +115,14 @@ export function TurnNavigator({ items, activeTurn, onNavigate, t }: TurnNavigato
     </div>
   )
 }
+
+/**
+ * Compact rail of the currently loaded Turns with hover and focus previews.
+ *
+ * Memoized because it renders two host elements per loaded Turn while the
+ * enclosing view re-renders on every streaming delta: without the guard a long
+ * session rebuilds hundreds of marks per commit for a rail that only changes
+ * when a Turn is added, removed, or becomes active. Its props must therefore
+ * stay referentially stable across those commits.
+ */
+export const TurnNavigator = memo(TurnNavigatorRail)

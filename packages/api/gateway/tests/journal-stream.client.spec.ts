@@ -42,10 +42,8 @@ interface Generation {
 type PageSource = Page | Promise<Page> | ((signal: AbortSignal) => Promise<Page>)
 
 const AVAILABLE_CONNECTION = {
-  hostDescription: {
-    getSnapshot: () => ({
-      version: 'fixture', cwd: '/fixture', attachedSessions: 0, home: '/home/fixture', canOpenPath: true,
-    }),
+  generation: {
+    getSnapshot: () => ({ id: 1, host: { home: '/home/fixture' } }),
     subscribe: () => () => {},
   },
 }

@@ -1,117 +1,52 @@
-/**
- * ConnectionController: strict readiness handshake (describe + incremental
- * source ready), generation
- * abort on loss, backoff reconnection, state transitions, and sink-exception
- * isolation. Real (short) timers — the timeout and backoff are configurable,
- * so tests run them at millisecond scale.
- */
+/** Connection generation readiness, loss, retry, and sink isolation. */
 
 import { describe, expect, it, vi } from 'vitest'
-import type { ConnectionState } from '../src/client/connection.ts'
+import type { ConnectionGenerationSource, ConnectionState } from '../src/client/connection.ts'
 import { ConnectionController } from '../src/client/connection.ts'
-import { FakeApiClient, deferred, ok } from './fake-api.client.ts'
+import { FakeGenerationSource } from './fake-generation.client.ts'
 
 const FAST = { backoffBaseMs: 10, backoffFactor: 1, backoffMaxMs: 10, generationReadyTimeoutMs: 500 }
 
 describe('connection lifecycle', () => {
-  it('announces connected after describe plus generation readiness', async () => {
-    const api = new FakeApiClient()
-    const descriptions: boolean[] = []
-    let connected = 0
-    const controller = new ConnectionController(api, api.generation, {
-      onConnected: (description) => {
-        connected++
-        descriptions.push(description.canOpenPath)
-      },
+  it('announces connected with the Host facts from generation readiness', async () => {
+    const source = new FakeGenerationSource()
+    const homes: string[] = []
+    const controller = new ConnectionController(source.source, {
+      onConnected: (host) => { homes.push(host.home) },
     }, FAST)
     controller.start()
     try {
-      await vi.waitFor(() => { expect(connected).toBe(1) })
-      expect(api.callsOf('host.describe')).toHaveLength(1)
-      expect(descriptions).toEqual([true])
+      await vi.waitFor(() => { expect(homes).toEqual(['/h']) })
     } finally {
       controller.stop()
     }
   })
 
   it('reconnects with a fresh generation when its source fails, and stop() ends the loop', async () => {
-    const api = new FakeApiClient()
+    const source = new FakeGenerationSource()
     let connected = 0
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
-    const controller = new ConnectionController(api, api.generation, { onConnected: () => { connected++ } }, FAST)
+    const controller = new ConnectionController(source.source, { onConnected: () => { connected++ } }, FAST)
     controller.start()
     try {
       await vi.waitFor(() => { expect(connected).toBe(1) })
-      api.failStreams(new Error('stream torn'))
-      await vi.waitFor(() => { expect(connected).toBe(2) }) // new generation after backoff
-      expect(api.openGenerationCount).toBe(1)
+      source.fail(new Error('stream torn'))
+      await vi.waitFor(() => { expect(connected).toBe(2) })
+      expect(source.activeCount).toBe(1)
     } finally {
       controller.stop()
       warnSpy.mockRestore()
     }
-    // stop() aborts the live generation and no reconnect follows.
-    await vi.waitFor(() => { expect(api.openGenerationCount).toBe(0) })
+    await vi.waitFor(() => { expect(source.activeCount).toBe(0) })
     await new Promise(resolve => setTimeout(resolve, 40))
-    expect(api.openGenerationCount).toBe(0)
-  })
-
-  it('treats describe failure as generation failure and retries', async () => {
-    const api = new FakeApiClient()
-    const gate = deferred<Awaited<ReturnType<FakeApiClient['onDescribe']>>>()
-    let describeCalls = 0
-    api.onDescribe = () => {
-      describeCalls++
-      return describeCalls === 1 ? Promise.reject(new Error('host down')) : gate.promise
-    }
-    let connected = 0
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
-    const controller = new ConnectionController(api, api.generation, { onConnected: () => { connected++ } }, FAST)
-    controller.start()
-    try {
-      await vi.waitFor(() => { expect(describeCalls).toBe(2) }) // retried after backoff
-      expect(connected).toBe(0) // never announced during the failed generation
-      gate.resolve(ok({ version: '0', cwd: '/f', attachedSessions: 0, home: '/h', canOpenPath: true }))
-      await vi.waitFor(() => { expect(connected).toBe(1) })
-    } finally {
-      controller.stop()
-      warnSpy.mockRestore()
-    }
-  })
-
-  it('treats a host.describe business error as generation failure', async () => {
-    const api = new FakeApiClient()
-    let describeCalls = 0
-    api.onDescribe = () => {
-      describeCalls += 1
-      if (describeCalls === 1) {
-        return Promise.resolve({
-          rpcId: 'bad-describe' as never,
-          result: {
-            ok: false as const,
-            error: { code: 'internal' as const, message: 'not ready', details: {} },
-          },
-        })
-      }
-      return Promise.resolve(ok({ version: '0', cwd: '/f', attachedSessions: 0, home: '/h', canOpenPath: true }))
-    }
-    let connected = 0
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
-    const controller = new ConnectionController(api, api.generation, { onConnected: () => { connected++ } }, FAST)
-    controller.start()
-    try {
-      await vi.waitFor(() => { expect(describeCalls).toBe(2) })
-      await vi.waitFor(() => { expect(connected).toBe(1) })
-    } finally {
-      controller.stop()
-      warnSpy.mockRestore()
-    }
+    expect(source.activeCount).toBe(0)
   })
 
   it('isolates a connected sink exception from the generation', async () => {
-    const api = new FakeApiClient()
+    const source = new FakeGenerationSource()
     let connected = 0
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
-    const controller = new ConnectionController(api, api.generation, {
+    const controller = new ConnectionController(source.source, {
       onConnected: () => {
         connected++
         throw new Error('business layer bug')
@@ -120,7 +55,7 @@ describe('connection lifecycle', () => {
     controller.start()
     try {
       await vi.waitFor(() => { expect(connected).toBe(1) })
-      expect(api.openGenerationCount).toBe(1)
+      expect(source.activeCount).toBe(1)
       expect(errorSpy).toHaveBeenCalledWith('[connection] connection sink threw:', expect.any(Error))
     } finally {
       controller.stop()
@@ -128,47 +63,75 @@ describe('connection lifecycle', () => {
     }
   })
 
-  it('holds onConnected until the incremental source is ready after describe succeeds', async () => {
-    const api = new FakeApiClient()
-    api.holdGenerationReady = true
+  it('holds onConnected until the incremental source reports ready', async () => {
+    const source = new FakeGenerationSource()
+    source.holdReady = true
     let connected = 0
-    const controller = new ConnectionController(api, api.generation, { onConnected: () => { connected++ } }, FAST)
+    const controller = new ConnectionController(source.source, { onConnected: () => { connected++ } }, FAST)
     controller.start()
     try {
-      await vi.waitFor(() => { expect(api.callsOf('host.describe')).toHaveLength(1) })
+      await vi.waitFor(() => { expect(source.activeCount).toBe(1) })
       await new Promise(resolve => setTimeout(resolve, 30))
-      expect(connected).toBe(0) // describe alone must not announce
-      api.releaseGenerationReady()
+      expect(connected).toBe(0)
+      source.releaseReady()
       await vi.waitFor(() => { expect(connected).toBe(1) })
     } finally {
       controller.stop()
     }
   })
 
-  it('rejects a generation whose source ends during readiness and retries', async () => {
-    const api = new FakeApiClient()
-    const firstDescribe = deferred<Awaited<ReturnType<FakeApiClient['onDescribe']>>>()
-    let describeCalls = 0
-    api.onDescribe = () => {
-      describeCalls++
-      return describeCalls === 1
-        ? firstDescribe.promise
-        : Promise.resolve(ok({ version: '0', cwd: '/f', attachedSessions: 0, home: '/h', canOpenPath: true }))
+  it('accepts only the first readiness report from one generation', async () => {
+    const homes: string[] = []
+    const source: ConnectionGenerationSource = (signal, ready) => {
+      ready({ home: '/first' })
+      ready({ home: '/duplicate' })
+      return new Promise<void>((resolve) => {
+        signal.addEventListener('abort', () => { resolve() }, { once: true })
+      })
     }
+    const controller = new ConnectionController(source, {
+      onConnected: (host) => { homes.push(host.home) },
+    }, FAST)
+    controller.start()
+    try {
+      await vi.waitFor(() => { expect(homes).toEqual(['/first']) })
+    } finally {
+      controller.stop()
+    }
+  })
+
+  it('does not announce readiness after a stop queued from the ready callback', async () => {
+    const owner: { controller?: ConnectionController } = {}
+    let sourceCalls = 0
+    const connected = vi.fn()
+    const source: ConnectionGenerationSource = (signal, ready) => new Promise<void>((resolve) => {
+      sourceCalls++
+      ready({ home: '/h' })
+      queueMicrotask(() => { owner.controller?.stop() })
+      signal.addEventListener('abort', () => { resolve() }, { once: true })
+    })
+    const controller = new ConnectionController(source, { onConnected: connected }, FAST)
+    owner.controller = controller
+    controller.start()
+    await vi.waitFor(() => { expect(sourceCalls).toBe(1) })
+    expect(connected).not.toHaveBeenCalled()
+  })
+
+  it('rejects a generation whose source ends during readiness and retries', async () => {
+    const source = new FakeGenerationSource()
+    source.holdReady = true
     const states: ConnectionState[] = []
     let connected = 0
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
-    const controller = new ConnectionController(api, api.generation, {
+    const controller = new ConnectionController(source.source, {
       onConnected: () => { connected++ },
       onStateChange: state => states.push(state),
     }, FAST)
     controller.start()
     try {
-      await vi.waitFor(() => { expect(api.openGenerationCount).toBe(1) })
-      api.endStreams()
-      firstDescribe.resolve(ok({ version: '0', cwd: '/f', attachedSessions: 0, home: '/h', canOpenPath: true }))
-
-      await vi.waitFor(() => { expect(describeCalls).toBe(2) })
+      await vi.waitFor(() => { expect(source.activeCount).toBe(1) })
+      source.holdReady = false
+      source.end()
       await vi.waitFor(() => { expect(connected).toBe(1) })
       expect(states).toEqual(['reconnecting', 'connected'])
     } finally {
@@ -181,22 +144,22 @@ describe('connection lifecycle', () => {
     { label: 'ends normally', fail: () => Promise.resolve() },
     {
       label: 'rejects with a non-Error reason',
-      // oxlint-disable-next-line typescript/prefer-promise-reject-errors -- non-Error source normalization is the scenario.
+      // oxlint-disable-next-line typescript/prefer-promise-reject-errors -- the non-Error rejection is the scenario under test
       fail: () => Promise.reject('fixture offline'),
     },
   ])('retries when the generation source $label before reporting ready', async ({ fail }) => {
-    const api = new FakeApiClient()
     let sourceCalls = 0
     let connected = 0
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
-    const controller = new ConnectionController(api, (signal, ready) => {
+    const source: ConnectionGenerationSource = (signal, ready) => {
       sourceCalls++
       if (sourceCalls === 1) return fail()
-      ready()
+      ready({ home: '/h' })
       return new Promise<void>((resolve) => {
         signal.addEventListener('abort', () => { resolve() }, { once: true })
       })
-    }, { onConnected: () => { connected++ } }, FAST)
+    }
+    const controller = new ConnectionController(source, { onConnected: () => { connected++ } }, FAST)
     controller.start()
     try {
       await vi.waitFor(() => { expect(sourceCalls).toBe(2) })
@@ -208,19 +171,19 @@ describe('connection lifecycle', () => {
   })
 
   it('rejects and retries a generation whose source never reports ready', async () => {
-    const api = new FakeApiClient()
-    api.suppressGenerationReady = true
+    const source = new FakeGenerationSource()
+    source.suppressReady = true
     let connected = 0
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
     const controller = new ConnectionController(
-      api,
-      api.generation,
+      source.source,
       { onConnected: () => { connected++ } },
       { ...FAST, generationReadyTimeoutMs: 20 },
     )
     controller.start()
     try {
-      await vi.waitFor(() => { expect(api.callsOf('host.describe').length).toBeGreaterThan(1) })
+      await vi.waitFor(() => { expect(source.activeCount).toBeGreaterThan(0) })
+      await new Promise(resolve => setTimeout(resolve, 45))
       expect(connected).toBe(0)
     } finally {
       controller.stop()
@@ -229,11 +192,11 @@ describe('connection lifecycle', () => {
   })
 
   it('emits deduplicated connected/reconnecting state transitions', async () => {
-    const api = new FakeApiClient()
+    const source = new FakeGenerationSource()
     const states: ConnectionState[] = []
     let connected = 0
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
-    const controller = new ConnectionController(api, api.generation, {
+    const controller = new ConnectionController(source.source, {
       onConnected: () => { connected++ },
       onStateChange: state => states.push(state),
     }, FAST)
@@ -241,7 +204,7 @@ describe('connection lifecycle', () => {
     try {
       await vi.waitFor(() => { expect(connected).toBe(1) })
       expect(states).toEqual(['connected'])
-      api.failStreams(new Error('torn'))
+      source.fail(new Error('torn'))
       await vi.waitFor(() => { expect(connected).toBe(2) })
       expect(states).toEqual(['connected', 'reconnecting', 'connected'])
     } finally {
@@ -251,10 +214,10 @@ describe('connection lifecycle', () => {
   })
 
   it('does not announce a generation stopped synchronously by its connected state sink', async () => {
-    const api = new FakeApiClient()
+    const source = new FakeGenerationSource()
     const states: ConnectionState[] = []
     let connected = 0
-    const controller = new ConnectionController(api, api.generation, {
+    const controller = new ConnectionController(source.source, {
       onConnected: () => { connected++ },
       onStateChange: (state) => {
         states.push(state)
@@ -264,59 +227,58 @@ describe('connection lifecycle', () => {
 
     controller.start()
     await vi.waitFor(() => { expect(states).toEqual(['connected']) })
-    await vi.waitFor(() => { expect(api.openGenerationCount).toBe(0) })
+    await vi.waitFor(() => { expect(source.activeCount).toBe(0) })
     expect(connected).toBe(0)
   })
 
   it('deduplicates consecutive reconnecting emissions across two straight failures', async () => {
-    const api = new FakeApiClient()
-    const gate = deferred<Awaited<ReturnType<FakeApiClient['onDescribe']>>>()
-    let describeCalls = 0
-    api.onDescribe = () => {
-      describeCalls++
-      return describeCalls <= 2 ? Promise.reject(new Error('down')) : gate.promise
-    }
+    let sourceCalls = 0
     const states: ConnectionState[] = []
     let connected = 0
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
-    const controller = new ConnectionController(api, api.generation, {
+    const source: ConnectionGenerationSource = (signal, ready) => {
+      sourceCalls++
+      if (sourceCalls <= 2) return Promise.reject(new Error('down'))
+      ready({ home: '/h' })
+      return new Promise<void>((resolve) => {
+        signal.addEventListener('abort', () => { resolve() }, { once: true })
+      })
+    }
+    const controller = new ConnectionController(source, {
       onConnected: () => { connected++ },
       onStateChange: state => states.push(state),
     }, FAST)
     controller.start()
     try {
-      await vi.waitFor(() => { expect(describeCalls).toBe(3) })
-      gate.resolve(ok({ version: '0', cwd: '/f', attachedSessions: 0, home: '/h', canOpenPath: true }))
+      await vi.waitFor(() => { expect(sourceCalls).toBe(3) })
       await vi.waitFor(() => { expect(connected).toBe(1) })
-      expect(states).toEqual(['reconnecting', 'connected']) // two failures, one reconnecting emission
+      expect(states).toEqual(['reconnecting', 'connected'])
     } finally {
       controller.stop()
       warnSpy.mockRestore()
     }
   })
 
-  it('runs with no sinks at all (every callback slot optional)', async () => {
-    const api = new FakeApiClient()
-    const controller = new ConnectionController(api, api.generation, {}, FAST)
+  it('runs with no sinks at all', async () => {
+    const source = new FakeGenerationSource()
+    const controller = new ConnectionController(source.source, {}, FAST)
     controller.start()
     try {
-      await vi.waitFor(() => { expect(api.callsOf('host.describe')).toHaveLength(1) })
-      await new Promise(resolve => setTimeout(resolve, 20))
+      await vi.waitFor(() => { expect(source.activeCount).toBe(1) })
     } finally {
       controller.stop()
     }
   })
 
-  it('start() is idempotent (one loop, one stream set)', async () => {
-    const api = new FakeApiClient()
+  it('start() is idempotent', async () => {
+    const source = new FakeGenerationSource()
     let connected = 0
-    const controller = new ConnectionController(api, api.generation, { onConnected: () => { connected++ } }, FAST)
+    const controller = new ConnectionController(source.source, { onConnected: () => { connected++ } }, FAST)
     controller.start()
     controller.start()
     try {
       await vi.waitFor(() => { expect(connected).toBe(1) })
-      expect(api.openGenerationCount).toBe(1)
-      expect(api.callsOf('host.describe')).toHaveLength(1)
+      expect(source.activeCount).toBe(1)
     } finally {
       controller.stop()
     }

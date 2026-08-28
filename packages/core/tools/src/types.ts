@@ -7,8 +7,8 @@
 import type { ToolCallId } from '@deepseek-ai/dsh-llm/brand'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm/types'
 
-/** Payload recorded when one nested Code Mode Tool dispatch starts. */
-export interface CodeDispatchStartEventData {
+/** Payload recorded when one nested PTC mode Tool dispatch starts. */
+export interface PtcDispatchStartEventData {
   rootCallId: ToolCallId
   parentCallId: ToolCallId
   subCallId: ToolCallId
@@ -16,8 +16,8 @@ export interface CodeDispatchStartEventData {
   arguments: unknown
 }
 
-/** Payload recorded when one nested Code Mode Tool dispatch settles. */
-export interface CodeDispatchEventData extends CodeDispatchStartEventData {
+/** Payload recorded when one nested PTC mode Tool dispatch settles. */
+export interface PtcDispatchEventData extends PtcDispatchStartEventData {
   isError: boolean
   content: ContentBlock[]
 }
@@ -37,7 +37,7 @@ declare module '@deepseek-ai/dsh-session/types' {
      * with `tool/code-dispatch` by `subCallId` (timing = the two events'
      * `time` fields).
      */
-    'tool/code-dispatch-start': CodeDispatchStartEventData
+    'tool/code-dispatch-start': PtcDispatchStartEventData
     /**
      * One bridged sub-dispatch SETTLING: the pairing ids (matching the
      * `tool/code-dispatch-start` with the same `subCallId`), the tool `name`
@@ -53,6 +53,6 @@ declare module '@deepseek-ai/dsh-session/types' {
      * before returning), so its execution-enclosure relation holds by
      * construction.
      */
-    'tool/code-dispatch': CodeDispatchEventData
+    'tool/code-dispatch': PtcDispatchEventData
   }
 }

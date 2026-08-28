@@ -3,6 +3,7 @@
 import type { Context } from '@deepseek-ai/cordis'
 import type {
   ConnectionGenerationSource,
+  ConnectionHostInfo,
   ConnectionHandle,
 } from '@deepseek-ai/dsh-client-connection/client'
 import type {
@@ -118,7 +119,10 @@ export class ClientRemoteEvents {
   }
 
   /** Run one Connection generation over the forwarded-event logical stream. */
-  private async pumpEvents(signal: AbortSignal, ready: () => void): Promise<void> {
+  private async pumpEvents(
+    signal: AbortSignal,
+    ready: (host: ConnectionHostInfo) => void,
+  ): Promise<void> {
     let clientId: RemoteEventClientId | undefined
     const failed = new AbortController()
     const generationSignal = AbortSignal.any([signal, failed.signal])
@@ -134,8 +138,9 @@ export class ClientRemoteEvents {
     try {
       for await (const value of source) {
         if (clientId === undefined) {
-          clientId = parseRemoteEventReady(value)
-          ready()
+          const opening = parseRemoteEventReady(value)
+          clientId = opening.clientId
+          ready(opening.host)
           continue
         }
         const frame = parseRemoteEventFrame(value)
@@ -251,15 +256,21 @@ export class ClientRemoteEvents {
   }
 }
 
-/** Validate and return the Client identity from one generation's opening item. */
-function parseRemoteEventReady(value: unknown): RemoteEventClientId {
+/** Validate and return one generation's Client identity and Host facts. */
+function parseRemoteEventReady(value: unknown): {
+  readonly clientId: RemoteEventClientId
+  readonly host: ConnectionHostInfo
+} {
   if (!isRemoteEventRecord(value)
-    || !hasExactRemoteEventKeys(value, ['type', 'clientId'])
+    || !hasExactRemoteEventKeys(value, ['type', 'clientId', 'host'])
     || value.type !== 'ready'
-    || !isRemoteEventClientId(value.clientId)) {
+    || !isRemoteEventClientId(value.clientId)
+    || !isRemoteEventRecord(value.host)
+    || !hasExactRemoteEventKeys(value.host, ['home'])
+    || typeof value.host.home !== 'string') {
     throw new TypeError('client api: forwarded Remote event stream did not begin with ready')
   }
-  return value.clientId
+  return { clientId: value.clientId, host: { home: value.host.home } }
 }
 
 /** Validate one untrusted value from the Gateway-internal forwarded-event stream. */

@@ -43,6 +43,7 @@ export class SessionQueueMirror {
         id: item.id,
         messageId: item.message.id,
         placement: item.placement,
+        ...(item.rpcId === undefined ? {} : { rpcId: item.rpcId }),
         content,
         preview: previewOf(content),
         text: textOf(content),

@@ -4,7 +4,7 @@
 // reach a surface only the built bundles expose; this one asserts that the
 // graph assembles at all — staged activation across the immediately tier and
 // the inject layers, per-plugin CSS injection, and a rendered journey reaching
-// chat content from the keyless FixtureApiClient transport.
+// chat content from the keyless fixture Connection RPC.
 //
 // Component behavior remains owned by per-package suites (SlotTestRuntime
 // benches over src). This smoke additionally pins the resident interaction

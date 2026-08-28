@@ -20,7 +20,7 @@ import {
 import { renderWrapupContext } from './wrapup.ts'
 
 export const name = 'tool-goal'
-export const inject = ['agents', 'goals', 'tools', 'systemPrompt']
+export const inject = ['agents', 'goals', 'tools', 'systemPrompt', 'sessionProjections']
 
 /** Model policy and hard lower bounds for goal-state updates. */
 export interface Config {

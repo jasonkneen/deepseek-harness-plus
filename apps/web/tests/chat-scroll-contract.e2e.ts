@@ -20,7 +20,7 @@ import {
   webSnapshotMode,
   type WebScaffold,
 } from './scaffold.ts'
-import { newEnglishPage, saveFailureShot } from './support.ts'
+import { expandOwningTurnProcess, newEnglishPage, saveFailureShot } from './support.ts'
 
 const MODE = webSnapshotMode()
 const HISTORY_SESSION_ID = 'chat-scroll-history-e2e'
@@ -355,7 +355,7 @@ async function wheelUntilVisible(page: Page, selector: string, deltaY: number): 
 
 function visibleFlowAnchor(page: Page): Promise<FlowAnchor> {
   return page.locator('[data-conversation-scroll]').evaluate((host) => {
-    const rows = [...host.querySelectorAll<HTMLElement>('[data-chat-anchor-key]')]
+    const rows = [...host.querySelectorAll<HTMLElement>('[data-chat-anchor-key]:not([hidden])')]
     const viewport = host.getBoundingClientRect()
     const composer = host.querySelector<HTMLElement>('[data-composer-seat]')
     const visibleBottom = composer?.getBoundingClientRect().top ?? viewport.bottom
@@ -431,12 +431,19 @@ async function expectMarkerAboveComposer(page: Page, marker: string): Promise<vo
 async function loadEarlierWithAnchor(page: Page): Promise<void> {
   await wheelToHistoryStart(page)
   const older = page.getByRole('button', { name: 'Load earlier', exact: true })
+  const loading = page.getByRole('button', { name: 'Loading…', exact: true })
   await older.waitFor({ timeout: 10_000 })
   const anchor = await visibleFlowAnchor(page)
   const before = await loadedFlowRows(page)
   await older.click()
-  await expect.poll(() => loadedFlowRows(page), { timeout: 30_000 }).toBeGreaterThan(before)
+  await expect.poll(async () => (
+    await loadedFlowRows(page) > before && await loading.count() === 0
+  ), { timeout: 30_000 }).toBe(true)
   await nextPaint(page)
+  if (await page.getByRole('button', { name: 'Load earlier', exact: true }).count() === 0) {
+    expect(await page.locator('[data-turn-process][aria-expanded="false"]').count()).toBeGreaterThan(0)
+    return
+  }
   await expectSameFlowTop(page, anchor)
 }
 
@@ -614,6 +621,7 @@ describe('web e2e: long Chat scroll contract', () => {
 
       const liveRowSelector = `[data-chat-call-id="${LIVE_TOOL_CALL_ID}"] [data-sample="bash"]`
       const liveRow = world.page.locator(liveRowSelector)
+      await expandOwningTurnProcess(world.page, liveRow)
       await wheelUntilVisible(world.page, liveRowSelector, -300)
       const toolAnchor = await liveRow.evaluate((row) => {
         const flow = row.closest<HTMLElement>('[data-chat-anchor-key]')
@@ -762,6 +770,7 @@ describe('web e2e: long Chat scroll contract', () => {
       const lastToolRow = world.page.locator(
         `[data-chat-call-id="chat-scroll-${String(INPUTS_FIXTURE.turns).padStart(3, '0')}-1"] [data-sample="bash"]`,
       )
+      await expandOwningTurnProcess(world.page, lastToolRow)
       await lastToolRow.focus()
       await world.page.keyboard.press('End')
       await expectBottom(world.page)

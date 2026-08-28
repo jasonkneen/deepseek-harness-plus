@@ -3,7 +3,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import Schema from '@deepseek-ai/schemastery'
-import type { JsonValue, RpcResponse, SettingsNamespaceView } from '@deepseek-ai/dsh-api-remotes/client'
+import type { JsonValue, SettingsNamespaceView } from '@deepseek-ai/dsh-api-remotes/client'
 import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-test-runtime'
 import { DeepSeekOnboardingDialog } from '../src/client/DeepSeekOnboardingDialog.tsx'
 import type { DeepSeekOnboardingDialogProps } from '../src/client/DeepSeekOnboardingDialog.tsx'
@@ -17,10 +17,6 @@ afterEach(() => {
   document.getElementById('root')?.remove()
 })
 
-let nextRpc = 0
-function ok<T>(value: T): RpcResponse<T> {
-  return { rpcId: `onboarding-${nextRpc++}` as never, result: { ok: true, value } }
-}
 /** Credentials answers over the Remote carrier, which has no envelope. */
 function remoteOk<T>(value: T) {
   return { ok: true as const, value }
@@ -91,20 +87,25 @@ function harness(options: {
   })
   const face = {
     llm: {
-      providers: () => {
+      listProviders: () => {
         if (options.providersReject === true) return Promise.reject(new Error('provider transport unavailable'))
-        return Promise.resolve(ok({
-          providers: options.provider === false
+        return Promise.resolve(remoteOk(
+          options.provider === false || options.providerActive === false
             ? []
-            : [{
-              provider: 'deepseek-official',
-              displayName: 'DeepSeek',
-              settingsNs: options.providerSettingsNs ?? 'llm-deepseek',
-              settingsPath: [],
-              active: options.providerActive ?? true,
-            }],
-        }))
+            : [{ id: 'deepseek-official', name: 'DeepSeek' }],
+        ))
       },
+      listConfigurableProviders: () => Promise.resolve(remoteOk(
+        options.provider === false
+          ? []
+          : [{
+            provider: 'deepseek-official',
+            displayName: 'DeepSeek',
+            settingsNs: options.providerSettingsNs ?? 'llm-deepseek',
+            settingsPath: [],
+          }],
+      )),
+      discoverModels: () => Promise.resolve(remoteOk([])),
     },
     settings: {
       describe: () => Promise.resolve(remoteOk({

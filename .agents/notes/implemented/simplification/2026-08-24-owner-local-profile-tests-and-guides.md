@@ -14,7 +14,7 @@ There is no top-level `examples/` tree. Named `dsh` profiles are the only Node a
 
 Optional user overlays are shipped assets under `apps/cli/config/examples/`, where their bare plugin names resolve through the CLI application manifest. The GitHub review, Schedule, memory MCP, and runtime Cordis guides live under `docs/user/` and link those assets. The runnable Python SDK program and minimal overlay live under `python/sdk/examples/`.
 
-The `demo:acp` and `demo:cordis` scripts are absent. ACP starts through `dsh --profile acp`; the Cordis guide starts `dsh web` with its explicit overlay. `demo:code-mode` remains as a thin wrapper over `dsh --profile headless` with `DSH_TOOLS_MODE=code`.
+The `demo:acp` and `demo:cordis` scripts are absent. ACP starts through `dsh --profile acp`; the Cordis guide starts `dsh web` with its explicit overlay. `demo:ptc` remains as a thin wrapper over `dsh --profile headless` with `DSH_TOOLS_MODE=ptc`.
 
 ## Alternatives considered
 

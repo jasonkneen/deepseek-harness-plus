@@ -18,7 +18,7 @@ The drill affordance on the highlighted folder row is the library `IconChevronRi
 
 A token still carrying its trigger character is editable text, not a settled chip: the text-ref decoration colors it and nothing more, and the domain icon belongs exclusively to the settled `ReferenceChipNode`. The former appearance channel (scan `appearance` field, `TextRefNode.__appearance`, `data-ref-appearance` DOM attribute, CSS `::before` icon) is deleted end to end.
 
-Composer placeholders advertise both triggers (`描述你想要构建的内容… / 调用指令 @ 文件或会话` / `Describe what you want to build... / commands, @ files or sessions`), and the zh copy for commands is unified from 命令 to 指令 across `ui-chat`, `ui-conversation`, `ui-goal`, and `ui-input-trigger`.
+Composer placeholders advertise both triggers (`描述你想要构建的内容… / 调用指令 @ 文件或对话` / `Describe what you want to build... / commands, @ files or sessions`), and the zh copy for commands is unified from 命令 to 指令 across `ui-chat`, `ui-conversation`, `ui-goal`, and `ui-input-trigger`.
 
 ## Alternatives considered
 
@@ -32,4 +32,4 @@ Composer placeholders advertise both triggers (`描述你想要构建的内容�
 
 ## Consequences
 
-The kind information every row used to spell in text now rides the icon and section title; a future candidate kind must extend `InputTriggerCandidateIcon` and pick an icon rather than pass an arbitrary string. Pointer motion round-trips through the reducer (`hover` is a no-op for the already-highlighted row, so mousemove storms do not churn state). Drill discoverability rests on the highlight: an idle folder row shows only its chevron until hovered or reached by keys. Deferred follow-ups — settle-on-space for exact-match tokens, candidate description content, back navigation after a drill, `name` vs `name/` labels, and reference search latency — are tracked in [#3154](https://github.com/deepseek-harness/deepseek-harness/issues/3154).
+The kind information every row used to spell in text now rides the icon and section title; a future candidate kind must extend `InputTriggerCandidateIcon` and pick an icon rather than pass an arbitrary string. Pointer motion round-trips through the reducer (`hover` is a no-op for the already-highlighted row, so mousemove storms do not churn state). Drill discoverability rests on the highlight: an idle folder row shows only its chevron until hovered or reached by keys. Deferred follow-ups — settle-on-space for exact-match tokens and `name` vs `name/` labels — remain tracked in [#3154](https://github.com/deepseek-harness/deepseek-harness/issues/3154); candidate description content, back navigation after a drill, and reference search latency are settled by the [@ mention discovery and row content note](2026-08-27-web-at-mention-discovery-and-row-content.md).

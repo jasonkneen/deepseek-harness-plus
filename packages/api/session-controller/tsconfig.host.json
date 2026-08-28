@@ -14,9 +14,11 @@
     "src/catalog.ts",
     "src/commands.ts",
     "src/control.ts",
+    "src/file-references.ts",
     "src/history.ts",
     "src/list.ts",
-    "src/model-selection-projection.ts"
+    "src/model-selection-projection.ts",
+    "src/skill-catalog.ts"
   ],
   "references": [
     { "path": "../../../vendor/cordis" },
@@ -25,10 +27,12 @@
     { "path": "../../core/agent-default-model" },
     { "path": "../../core/scope" },
     { "path": "../../core/session" },
+    { "path": "../../context/file-reference" },
     { "path": "../../attachment/attachment" },
     { "path": "../../interaction/permission-presets" },
     { "path": "../../jobs/jobs" },
     { "path": "../../llm/llm" },
+    { "path": "../../util/native-command" },
     { "path": "../../preset/agent-presets" },
     { "path": "../../runtime-diagnostics/invariants" },
     { "path": "../../session/session-persistence" },
@@ -36,6 +40,7 @@
     { "path": "../../session/session-projection-cache" },
     { "path": "../../session/session-title" },
     { "path": "../../session-query/session-query" },
+    { "path": "../../skill/skill" },
     { "path": "../../subagent/subagent" },
     { "path": "../../typert/protocol" },
     { "path": "../../typert/registry" },

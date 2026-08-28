@@ -94,7 +94,7 @@ This section explains how the service realizes the behavior above; the observabl
 - **Compare-and-set mutations.** `ctx.goals` accepts only the exact live `Agent` registered under its id. `get()` returns a detached `GoalView`; mutations take a `GoalRef { id, revision }` and reject stale refs. Creation resolves the deployment default internally before committing.
 - **Activation is process-local.** `armed` and `disarmed` live in a per-session cache and are never persisted. A fresh cache and every `agent/session-start` edge disarm continuation even when replay finds an active durable phase; `disarm()` removes authority without writing a revision or emitting a mutation.
 - **Strict replay.** The fold derives lifecycle mutations only from `goal/change` and rejects malformed shapes, discontinuous revisions, illegal phase transitions, non-monotonic per-goal timestamps, and non-sequential admitted rounds. Positive rounds advance only on admitted goal-sourced `user/message` events, and mutation timestamps clamp against the preceding update when wall time moves backward.
-- **Projection unit.** The package registers a last-wins `goal` projection (the whole current goal, or `null`) that activates only when a projection registry is composed.
+- **Projection unit.** The package registers a last-wins `goal` projection (the whole current goal, or `null`) that activates only when a projection registry is composed. `GoalService` reads this unit and fails on the first dependent access if the registry or key is absent.
 
 ### Source map
 

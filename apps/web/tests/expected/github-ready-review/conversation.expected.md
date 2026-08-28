@@ -24,14 +24,9 @@
   - img
   - img
   - text: System prompt
-- button "Context injection webhook github webhook handled by review-pr-when-ready":
+- button "Thought for a while":
+  - text: Thought for a while
   - img
-  - img
-  - text: Context injection webhook github webhook handled by review-pr-when-ready
-- button "Context injection @deepseek-ai/dsh-system-prompt":
-  - img
-  - img
-  - text: Context injection @deepseek-ai/dsh-system-prompt
 - paragraph: "Review complete: no actionable findings."
 - button "Copy":
   - img

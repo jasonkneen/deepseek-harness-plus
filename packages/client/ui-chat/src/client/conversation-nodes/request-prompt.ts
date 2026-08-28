@@ -1,7 +1,8 @@
 import type { Context } from '@deepseek-ai/cordis'
 import type {
-  ConversationMatch, ConversationNodeDefinition, RequestPromptInspector,
+  ConversationMatch, ConversationNodeContext, ConversationNodeDefinition, RequestPromptInspector,
 } from '@deepseek-ai/dsh-client-ui-conversation/client'
+import type { ChatNode } from '../contract/chat-nodes.ts'
 import { chatNode } from './common.ts'
 
 declare module '../contract/chat-nodes.ts' {
@@ -33,6 +34,19 @@ function requestPromptAnchor(
     : match.location.step.start?.seq ?? match.event.seq
 }
 
+/** Keep an already rendered prompt at its page-lifetime presentation anchor. */
+function stableRequestPromptAnchor(
+  context: ConversationNodeContext<RequestPromptState>,
+  match: ConversationMatch,
+  previous: Readonly<RequestPromptState> | undefined,
+  isInitial: boolean,
+): number {
+  const current = context.current.get('chat') as ChatNode | null | undefined
+  return current?.kind === 'system-prompt'
+    ? current.anchorSeq
+    : requestPromptAnchor(match, previous, isInitial)
+}
+
 /**
  * Request-header prompt Definition for the Chat target.
  * @param inspect - the shared prompt interpretation, supplied by the
@@ -46,7 +60,7 @@ export function requestPromptDefinition(inspect: RequestPromptInspector): Conver
     match: event => event.type === 'request/header'
       ? { id: String(event.seq), role: 'start' }
       : null,
-    start: (_context, match, reader) => {
+    start: (context, match, reader) => {
       if (match.event.type !== 'request/header') {
         throw new Error('request-prompt start requires request/header')
       }
@@ -57,7 +71,12 @@ export function requestPromptDefinition(inspect: RequestPromptInspector): Conver
       const inspection = inspect(previous?.prompt, match.event)
       const change = inspection.change?.kind
       return {
-        anchorSeq: requestPromptAnchor(match, previous, match.event.data.reason === 'initial'),
+        anchorSeq: stableRequestPromptAnchor(
+          context,
+          match,
+          previous,
+          match.event.data.reason === 'initial',
+        ),
         showsPrompt: previous === undefined
           || match.event.data.reason !== 'change'
           || match.event.data.startsSeries === true

@@ -121,8 +121,9 @@ describe('matrix row: plain', () => {
     expect(shell.snapshot.claim).toBeUndefined()
     fireEvent.keyDown(textarea, { key: 'Enter' })
     expect(sink).toHaveBeenCalledWith('普通消息', [], 'queue', expect.any(AbortSignal))
-    expect(shell.snapshot.phase).toBe('submitting')
-    await vi.waitFor(() => { expect(shell.snapshot.phase).toBe('plain') })
+    // The detached default send never freezes the composer.
+    expect(shell.snapshot.phase).toBe('plain')
+    expect(shell.snapshot.draft).toBe('')
     expect(shell.snapshot.claim).toBeUndefined()
   })
 })

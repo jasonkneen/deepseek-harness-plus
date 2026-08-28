@@ -147,13 +147,22 @@ describe.skipIf(MODE === 'record')('web e2e: file and session references through
 
     await input.fill('@')
     await expect.poll(() => menu.getByRole('option').count(), { timeout: 15_000 }).toBeGreaterThanOrEqual(2)
-    const snapshot = await captureStableAria(page, '[role="listbox"]', scaffold.workspaceCwd)
+    // Session rows are dated from the live Host list, so their age bucket
+    // advances while the suite runs.
+    const snapshot = await captureStableAria(
+      page, '[role="listbox"]', scaffold.workspaceCwd, { normalizeAge: true },
+    )
     await compareOrRefreshGolden(MENU_EXPECTED, snapshot, MODE)
     expect(snapshot).toContain('Files & folders')
     expect(snapshot).toContain('Sessions')
     expect(snapshot).not.toContain('text: reference Files & folders')
     expect(snapshot).toContain('reference.txt')
-    expect(snapshot).toContain('Research notes')
+    // A seed reaches disk as a log alone, and the Host labels a session from
+    // its projections: no checkpoint, so the row is its id. The fixture's own
+    // title (`Research notes`) is unreachable here by construction, and the
+    // package suite owns the titled paths.
+    expect(snapshot).toContain(SOURCE_SESSION_ID)
+    expect(snapshot).not.toContain('Research notes')
     expect(snapshot).not.toContain('text: Subagents')
 
     await input.fill('@reference')
@@ -166,12 +175,12 @@ describe.skipIf(MODE === 'record')('web e2e: file and session references through
     await expect.poll(() => fileReference.locator('svg').count()).toBe(1)
     await expect.poll(() => input.textContent()).toBe('reference.txt ')
 
-    await input.fill('@Research')
-    await menu.getByRole('option', { name: /Research notes/ }).click()
+    await input.fill('@reference-source')
+    await menu.getByRole('option', { name: new RegExp(SOURCE_SESSION_ID) }).click()
     const sessionReference = page.locator('[data-composer-chip]').last()
-    await expect.poll(() => sessionReference.textContent()).toBe('Research notes')
+    await expect.poll(() => sessionReference.textContent()).toBe(SOURCE_SESSION_ID)
     await expect.poll(() => sessionReference.locator('svg').count()).toBe(1)
-    await expect.poll(() => input.textContent()).toBe('Research notes ')
+    await expect.poll(() => input.textContent()).toBe(`${SOURCE_SESSION_ID} `)
 
     expect(tripwire.pageErrors).toEqual([])
     expect(tripwire.warnings).toEqual([])
@@ -191,16 +200,16 @@ describe.skipIf(MODE === 'record')('web e2e: file and session references through
     await input.click()
     await page.keyboard.press('ControlOrMeta+A')
     await page.keyboard.press('ArrowLeft')
-    await page.keyboard.type('@Research')
-    await menu.getByRole('option', { name: /Research notes/ }).click()
+    await page.keyboard.type('@reference-source')
+    await menu.getByRole('option', { name: new RegExp(SOURCE_SESSION_ID) }).click()
 
     // Both chips survive the boundary insert: the session chip lands ahead of
     // the intact file chip.
     const chips = input.locator('[data-composer-chip]')
     await expect.poll(() => chips.count()).toBe(2)
-    await expect.poll(() => chips.first().textContent()).toBe('Research notes')
+    await expect.poll(() => chips.first().textContent()).toBe(SOURCE_SESSION_ID)
     await expect.poll(() => chips.last().textContent()).toBe('reference.txt')
-    await expect.poll(() => input.textContent()).toBe('Research notes reference.txt ')
+    await expect.poll(() => input.textContent()).toBe(`${SOURCE_SESSION_ID} reference.txt `)
 
     expect(tripwire.pageErrors).toEqual([])
     expect(tripwire.warnings).toEqual([])
@@ -272,6 +281,42 @@ describe.skipIf(MODE === 'record')('web e2e: file and session references through
     await row.getByRole('button', { name: 'Browse folder' }).click()
     await expect.poll(() => input.textContent()).toBe('@folderx/')
     await menu.getByRole('option', { name: /child\.txt/ }).waitFor()
+    await page.keyboard.press('Escape')
+
+    expect(tripwire.pageErrors).toEqual([])
+    expect(tripwire.warnings).toEqual([])
+  })
+
+  it('a drilled listing carries a breadcrumb back to the workspace root', async () => {
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-reference-breadcrumb'))
+    const input = page.locator('[data-composer-input]').first()
+    const menu = page.getByRole('listbox', { name: 'Trigger suggestions' })
+    const crumbs = page.getByRole('navigation', { name: 'Folder navigation' })
+
+    // A path the user typed carries its own context: no header.
+    await writeComposerDraft(page, input, '@folderx/')
+    await menu.getByRole('option', { name: /child\.txt/ }).waitFor({ timeout: 60_000 })
+    await expect.poll(() => crumbs.count()).toBe(0)
+
+    // The same listing reached by drilling owes the user the way back.
+    await writeComposerDraft(page, input, '@folderx')
+    await menu.getByRole('option', { name: /^folderx\// }).waitFor()
+    await page.keyboard.press('Tab')
+    await menu.getByRole('option', { name: /child\.txt/ }).waitFor()
+    await crumbs.waitFor()
+    await expect.poll(() => crumbs.getByRole('button').allTextContents())
+      .toEqual(['Workspace', 'folderx'])
+    // The listed folder is where the menu already is: its crumb is inert, and
+    // the rows drop the location the header now carries.
+    await expect.poll(() => crumbs.getByRole('button', { name: 'folderx' }).isDisabled()).toBe(true)
+    await expect.poll(() => menu.getByRole('option', { name: /child\.txt/ }).textContent())
+      .toBe('child.txt')
+
+    // Clicking the root crumb rewrites the token back to a bare trigger.
+    await crumbs.getByRole('button', { name: 'Workspace' }).click()
+    await expect.poll(() => input.textContent()).toBe('@')
+    await expect.poll(() => crumbs.count()).toBe(0)
+    await menu.getByRole('option', { name: /^folderx\// }).waitFor()
     await page.keyboard.press('Escape')
 
     expect(tripwire.pageErrors).toEqual([])

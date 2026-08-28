@@ -64,7 +64,7 @@ The smallest working setup mounts the bundle with a workspace-context budget, pl
 | `includeRuntimeContext` | `true` | whether the agent's history includes dynamic runtime-context snapshots |
 | `persona` | `''` | the deployment persona text in the system prompt |
 | `toolOrder` | lexicographic | the order the model sees tools in |
-| `tools` | `{ mode: 'native' }` | how tools reach the model: native schemas, Code Mode, or both |
+| `tools` | `{ mode: 'native' }` | how tools reach the model: native schemas, PTC mode, or both |
 | `dshHome` | `$DSH_HOME` or `~/.dsh` | the harness home used for the bash environment and local skill folders |
 | `sessionTitle` | example limits | fallback title limits: 5 words, 40 fallback bytes, 80 accepted bytes |
 | `workspaceContext` | required | byte budget for loading workspace files into context, or `false` |

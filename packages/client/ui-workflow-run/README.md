@@ -85,7 +85,7 @@ None; this package neither assembles nor sends a provider request.
 
 These limits define which runs produce records and what the node exposes; they are current package constraints.
 
-- **Only top-level calls through `dsh-tool-workflow` produce these records** — nested Code Mode calls and direct `WorkflowEngine` consumers do not.
+- **Only top-level calls through `dsh-tool-workflow` produce these records** — nested PTC mode calls and direct `WorkflowEngine` consumers do not.
 - **Navigation is intentionally live-only** — terminal members remain visible for review but never expose a cold-session opener from this node.
 - **The node shows run, phase, member identity, and status only** — scripts, outputs, errors, logs, usage, static topology, and controls remain outside this surface.
 

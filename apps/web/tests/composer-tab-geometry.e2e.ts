@@ -130,7 +130,7 @@ function measureTab(page: Page): Promise<TabMetrics> {
 async function showTab(page: Page, tab: 'Chat' | 'Trajectory'): Promise<void> {
   await page.getByRole('tab', { name: tab, exact: true }).click()
   if (tab === 'Trajectory') await page.getByLabel('Trajectory timeline').waitFor({ timeout: 30_000 })
-  else await page.locator('[data-conversation-scroll] [data-chat-anchor-key]').first().waitFor({ timeout: 30_000 })
+  else await page.locator('[data-conversation-scroll] [data-chat-anchor-key]:visible').first().waitFor({ timeout: 30_000 })
   // Both measurements are taken after a paint, so a rectangle read mid-transition
   // cannot be reported as a shift the cascade did not cause.
   await page.evaluate(() => new Promise<void>((settle) => {

@@ -247,8 +247,22 @@ export interface LlmModelDiscoveryRequest {
   api?: string
   /** Credential for this interrogation alone; the harness never stores it. */
   apiKey?: string
+}
+
+/** Provider-side discovery request with operation-local cancellation attached. */
+export interface LlmModelDiscoveryOperation extends LlmModelDiscoveryRequest {
   /** Caller cancellation; implementations must settle promptly after it aborts. */
   signal?: AbortSignal
+}
+
+/** Stable failure returned by the `llm/discoverModels` Remote method. */
+export interface LlmModelDiscoveryError {
+  readonly code: 'model-discovery-failed'
+  readonly message: string
+  readonly details: {
+    readonly settingsNs: string
+    readonly baseURL?: string
+  }
 }
 
 /**

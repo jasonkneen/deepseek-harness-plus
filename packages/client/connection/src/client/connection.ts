@@ -1,4 +1,16 @@
-import type { HostDescription, IApiClient } from './api.ts'
+/** Stable Host facts delivered by one established Remote event generation. */
+export interface ConnectionHostInfo {
+  /** Host account home used only to abbreviate displayed filesystem paths. */
+  readonly home: string
+}
+
+/** One successfully established Host generation. */
+export interface ConnectionGeneration {
+  /** Monotone generation number within this Client runtime. */
+  readonly id: number
+  /** Host facts carried by this generation's opening frame. */
+  readonly host: ConnectionHostInfo
+}
 
 /** Reconnect/backoff tunables (deployment-varying — no hardcoded tunables; these become the
  *  future `ctx.connection` plugin's Config). All fields optional; defaults below. */
@@ -38,8 +50,8 @@ export type ConnectionState = 'connected' | 'reconnecting'
 
 /** Connection-generation callbacks owned by API Gateway. */
 export interface ConnectionSinks {
-  /** After the generation source is ready and host.describe succeeds, first connect included. */
-  onConnected?: (description: HostDescription) => void
+  /** After the generation source reports ready, first connect included. */
+  onConnected?: (host: ConnectionHostInfo) => void
   /** Coarse state transitions (deduplicated: fires only on change). The initial pre-connect
    *  span reports nothing — the UI treats "no state yet" as connecting, not as an outage. */
   onStateChange?: (state: ConnectionState) => void
@@ -55,7 +67,7 @@ export interface ConnectionSinks {
  */
 export type ConnectionGenerationSource = (
   signal: AbortSignal,
-  ready: () => void,
+  ready: (host: ConnectionHostInfo) => void,
 ) => Promise<void>
 
 /**
@@ -72,7 +84,6 @@ export class ConnectionController {
   private readonly config: Required<ConnectionConfig>
 
   constructor(
-    private readonly api: IApiClient,
     private readonly source: ConnectionGenerationSource,
     private readonly sinks: ConnectionSinks = {},
     config: ConnectionConfig = {},
@@ -117,19 +128,20 @@ export class ConnectionController {
       this.current = ac
 
       let sourceReady = false
-      let resolveReady!: () => void
+      let resolveReady!: (host: ConnectionHostInfo) => void
       let rejectReady!: (error: Error) => void
       let rejectSourceLost!: (error: Error) => void
-      const ready = new Promise<void>((resolve, reject) => {
+      const ready = new Promise<ConnectionHostInfo>((resolve, reject) => {
         resolveReady = resolve
         rejectReady = reject
       })
       const sourceLost = new Promise<never>((_resolve, reject) => {
         rejectSourceLost = reject
       })
-      const reportReady = (): void => {
+      const reportReady = (host: ConnectionHostInfo): void => {
+        if (sourceReady) return
         sourceReady = true
-        resolveReady()
+        resolveReady(host)
       }
 
       const failed = new Promise<void>((resolve) => {
@@ -158,27 +170,16 @@ export class ConnectionController {
       })
 
       try {
-        // The source reports ready only after its incremental listeners exist;
-        // describe may complete in parallel, but consumers see neither result
-        // until both sides of the baseline-plus-increment handshake are ready.
-        const [description] = await Promise.race([
-          Promise.all([
-            this.api.host.describe({}, ac.signal),
-            waitForReady(ready, this.config.generationReadyTimeoutMs, ac.signal),
-          ]),
+        const host = await Promise.race([
+          waitForReady(ready, this.config.generationReadyTimeoutMs, ac.signal),
           sourceLost,
         ])
-        const descriptionResult = description.result
-        if (!descriptionResult.ok) {
-          throw new Error(`host.describe failed: ${descriptionResult.error.code}: ${descriptionResult.error.message}`)
-        }
         if (ac.signal.aborted) throw new Error('generation aborted during readiness handshake')
         this.attempt = 0
         this.emitState('connected')
-        // A state sink may synchronously stop this controller. Do not publish
-        // a description for a generation that no longer exists afterward.
+        // A state sink may synchronously stop this controller.
         if (this.isGenerationActive(ac)) {
-          this.callSink(() => { this.sinks.onConnected?.(descriptionResult.value) })
+          this.callSink(() => { this.sinks.onConnected?.(host) })
         }
       } catch {
         // Transport failure: treat as generation failure, fall through to the shared backoff.
@@ -213,28 +214,28 @@ export class ConnectionController {
 }
 
 /** Await source readiness without letting a stalled carrier wedge startup forever. */
-function waitForReady(ready: Promise<void>, timeoutMs: number, signal: AbortSignal): Promise<void> {
-  return new Promise<void>((resolve, reject) => {
+function waitForReady<T>(ready: Promise<T>, timeoutMs: number, signal: AbortSignal): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
     let settled = false
     const timeout = setTimeout(() => {
-      finish(new Error(`connection generation was not ready within ${String(timeoutMs)}ms`))
+      finish({ error: new Error(`connection generation was not ready within ${String(timeoutMs)}ms`) })
     }, timeoutMs)
     const aborted = (): void => {
-      finish(new Error('connection generation aborted', { cause: signal.reason }))
+      finish({ error: new Error('connection generation aborted', { cause: signal.reason }) })
     }
-    const finish = (error?: Error): void => {
+    const finish = (outcome: { readonly value: T } | { readonly error: Error }): void => {
       if (settled) return
       settled = true
       clearTimeout(timeout)
       signal.removeEventListener('abort', aborted)
-      if (error === undefined) resolve()
-      else reject(error)
+      if ('error' in outcome) reject(outcome.error)
+      else resolve(outcome.value)
     }
     signal.addEventListener('abort', aborted, { once: true })
     void ready.then(
-      () => { finish() },
+      (value) => { finish({ value }) },
       (error: unknown) => {
-        finish(error as Error)
+        finish({ error: error as Error })
       },
     )
   })

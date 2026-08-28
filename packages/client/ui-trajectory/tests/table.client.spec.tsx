@@ -13,7 +13,10 @@ import { t, tZh } from './locale.client.ts'
 const renderImagesStub: RenderMessageImages = ({ images }) => (
   <div data-testid="record-images" data-count={images.length}>
     {images.map((image, index) => (
-      <span key={index} data-attachment-id={image.attachment.attachmentId} />
+      <span
+        key={index}
+        data-attachment-id={'attachment' in image ? image.attachment.attachmentId : image.preview.url}
+      />
     ))}
   </div>
 )

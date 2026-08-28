@@ -336,14 +336,16 @@ export interface InputState {
 
 /**
  * One in-flight submission attempt: the ONLY id concept in the submit plane.
- * Created on enter; carried by adjudicated/submit-settled events; stale
- * attempts are dropped (anti-backwash). release/session teardown aborts the
- * current attempt, keeping the promise bounded.
+ * Created on enter; carried by adjudicated/submit-settled/sink-settled
+ * events; stale attempts are dropped (anti-backwash). Command attempts hold
+ * the single frozen in-flight slot; default-sink attempts run detached and
+ * concurrently. release/session teardown aborts them all, keeping every
+ * promise bounded.
  */
 export interface SubmitAttempt {
   readonly seq: number
   readonly signal: AbortSignal
-  /** Clipboard-projection draft at enter time; settlement clears it only after acceptance. */
+  /** Clipboard-projection draft captured before an optimistic default-send commit. */
   readonly draftSnapshot: string
   /** Default-message delivery intent retained while slash adjudication is pending. */
   readonly mode: InputSubmitMode
@@ -365,6 +367,8 @@ export type InputEvent =
   | { readonly type: 'adjudication-failed'; readonly attempt: SubmitAttempt; readonly message: string }
   /** Settlement carries the live clipboard projection for suffix-retention and claim re-entry decisions. */
   | { readonly type: 'submit-settled'; readonly attempt: SubmitAttempt; readonly ok: boolean; readonly draft: string; readonly outcome?: SubmitOutcome; readonly message?: string }
+  /** Settlement of one optimistic default send, independent of the frozen command slot. */
+  | { readonly type: 'sink-settled'; readonly attempt: SubmitAttempt; readonly ok: boolean; readonly outcome?: SubmitOutcome; readonly message?: string }
   /** Commit an image-only send whose empty draft did not need an attempt. */
   | { readonly type: 'send-committed' }
   | { readonly type: 'release' }
@@ -376,7 +380,13 @@ export type InputEvent =
 export type InputEffect =
   | { readonly type: 'adjudicate'; readonly attempt: SubmitAttempt; readonly draft: string }
   | { readonly type: 'begin-submit'; readonly attempt: SubmitAttempt; readonly claim: CommandClaim; readonly args: string }
-  | { readonly type: 'default-sink'; readonly attempt: SubmitAttempt; readonly draft: string; readonly mode: InputSubmitMode }
+  /** Detached default send; the shell captures its editor projection before the following commit effect. */
+  | {
+    readonly type: 'default-sink'
+    readonly attempt: SubmitAttempt
+    readonly draft: string
+    readonly mode: InputSubmitMode
+  }
   | { readonly type: 'notice'; readonly level: 'info' | 'error'; readonly text: string }
   /**
    * Clear the committed draft in the editor and cut undo history. A string

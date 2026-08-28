@@ -4,6 +4,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import type LlmRuntime from '@deepseek-ai/dsh-llm'
 import type { LlmProviderInfo } from '@deepseek-ai/dsh-llm'
 import { defineTool } from '@deepseek-ai/dsh-tools'
+import type { ModelSelectionPolicy } from './model-selection.ts'
 
 interface ListSubagentModelsRequest {
   readonly provider?: string
@@ -11,11 +12,18 @@ interface ListSubagentModelsRequest {
 }
 
 /** Resolve one registered provider with a model-correctable diagnostic. */
-function registeredProvider(llm: LlmRuntime, providerId: string): LlmProviderInfo {
+function registeredProvider(
+  llm: LlmRuntime,
+  policy: ModelSelectionPolicy,
+  providerId: string,
+): LlmProviderInfo {
   const providers = llm.listProviders()
   const provider = providers.find(candidate => candidate.id === providerId)
   if (provider !== undefined) return provider
-  const available = providers.map(candidate => candidate.id).join(', ') || '(none)'
+  const available = providers
+    .filter(candidate => policy.routes.some(route => route.provider === candidate.id))
+    .map(candidate => candidate.id)
+    .join(', ') || '(none)'
   throw new Error(`LLM provider "${providerId}" is not registered; available providers: ${available}`)
 }
 
@@ -27,6 +35,7 @@ function modelLine(provider: string, model: { id: string; name: string; descript
 /** Read the requested provider, advertised models, or exact-model efforts. */
 async function listSubagentModels(
   ctx: Context,
+  policy: ModelSelectionPolicy,
   request: ListSubagentModelsRequest,
   signal: AbortSignal,
 ): Promise<string> {
@@ -39,19 +48,28 @@ async function listSubagentModels(
   }
   if (request.provider === undefined) {
     const providers = llm.listProviders()
+      .filter(provider => policy.routes.some(route => route.provider === provider.id))
     return providers.length === 0
       ? '(no LLM providers)'
       : providers.map(provider => `${provider.id} — ${provider.name}`).join('\n')
   }
   if (request.provider.length === 0) throw new Error('`provider` must be non-empty')
-  const provider = registeredProvider(llm, request.provider)
+  const allowedRoutes = policy.routes.filter(route => route.provider === request.provider)
+  if (allowedRoutes.length === 0) {
+    throw new Error(`LLM provider "${request.provider}" is not allowed for this Session`)
+  }
+  const provider = registeredProvider(llm, policy, request.provider)
   if (request.model === undefined) {
-    const models = await llm.listModels(provider.id)
+    const models = (await llm.listModels(provider.id))
+      .filter(model => allowedRoutes.some(route => route.model === model.id))
     return models.length === 0
       ? `(no advertised models for ${provider.id})`
       : models.map(model => modelLine(provider.id, model)).join('\n')
   }
   if (request.model.length === 0) throw new Error('`model` must be non-empty')
+  if (!allowedRoutes.some(route => route.model === request.model)) {
+    throw new Error(`child LLM route "${provider.id}/${request.model}" is not allowed for this Session`)
+  }
   const model = await llm.resolveModelInfo(provider.id, request.model, signal)
   const efforts = model.reasoning?.efforts.map(effort => (
     `${effort.id}${model.reasoning?.defaultEffort === effort.id ? ' (default)' : ''} — ${effort.name}`
@@ -63,8 +81,9 @@ async function listSubagentModels(
 /**
  * Register `list_subagent_models` for one owning delegation-tool instance.
  * @param ctx - Context whose tool registry owns the fixed discovery definition.
+ * @param policy - Route policy captured for this Session.
  */
-export function registerListSubagentModels(ctx: Context): void {
+export function registerListSubagentModels(ctx: Context, policy: ModelSelectionPolicy): void {
   ctx.tools.register(defineTool({
     name: 'list_subagent_models',
     description:
@@ -88,7 +107,7 @@ export function registerListSubagentModels(ctx: Context): void {
       render: (_args, result) => [{ type: 'text', text: result }],
     },
     execute(args, exec) {
-      return listSubagentModels(ctx, args, exec.signal)
+      return listSubagentModels(ctx, policy, args, exec.signal)
     },
   }))
 }

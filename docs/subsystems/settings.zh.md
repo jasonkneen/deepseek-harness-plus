@@ -161,6 +161,10 @@ interface SettingsDescribeOptions {
 type SettingsUpdateSource = 'update' | 'provider'
 ```
 
+## 原生文档操作
+
+`SettingsDocumentOpenValue` 确认 `settings/openSettingsDocument` 已准备好 provider 持有的文档，并将其交给原生文本编辑器。`AgentPresetDirectoryOpenValue` 报告已完成的原生交接，或在桌面打开不可用时返回解析后的用户 preset 目录。两项操作都不接受由浏览器选择的 Host 路径。
+
 <!-- BEGIN GENERATED cordis-surface (gen-cordis-catalog.ts) — do not edit between markers -->
 
 <a id="cordis-surface"></a>
@@ -270,6 +274,12 @@ Host service backing the generated `ctx.remote.settings` namespace. Every remote
 @Remote describe(): SettingsDescribeValue
 
 /**
+ * Report whether this deployment can open an authored Agent preset directory natively.
+ * @returns true when the matching open operation is available.
+ */
+@Remote canOpenAgentPresetDirectory(): boolean
+
+/**
  * Merge a patch into one namespace's stored user section.
  * @param ns - namespace key to write.
  * @param patch - fields to merge into the user section.
@@ -300,6 +310,23 @@ Host service backing the generated `ctx.remote.settings` namespace. Every remote
  * @throws TypertRemoteFailure when the request is invalid, no provider is mounted, or the provider refuses the write.
  */
 @Remote async mutate( ns: string, ops: SettingsPathOpView[], expectedRevision: number | undefined, ): Promise<SettingsNamespaceView>
+
+/**
+ * Materialize the provider-owned settings document and open it in a native text editor.
+ * @param signal - caller lifetime; abort terminates preparation or the native command.
+ * @returns confirmation after the native opener accepts the document.
+ * @throws TypertRemoteFailure when no document exists, preparation fails, or opening fails.
+ */
+@Remote async openSettingsDocument(signal: AbortSignal): Promise<SettingsDocumentOpenValue>
+
+/**
+ * Open one user-authored Agent preset directory or return its path when no native opener exists.
+ * @param agentPreset - preset id resolved against Host-owned roots.
+ * @param signal - caller lifetime; abort terminates the native command.
+ * @returns an opened confirmation or the resolved directory for text display.
+ * @throws TypertRemoteFailure when the preset is missing, read-only, invalid, or cannot be opened.
+ */
+@Remote async openAgentPresetDirectory( agentPreset: string, signal: AbortSignal, ): Promise<AgentPresetDirectoryOpenValue>
 ```
 
 Source: [`packages/api/settings-controller/src/index.ts`](../../packages/api/settings-controller/src/index.ts)

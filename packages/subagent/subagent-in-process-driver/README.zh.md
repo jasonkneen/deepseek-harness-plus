@@ -65,7 +65,7 @@ kind: "package-library"
 
 ### 结构化输出
 
-`attachStructuredRuntime(childCtx, schema)` 会在子 agent 作用域中安装完整约定：`structured_output` 工具按请求的 schema 校验并暂存模型值；位于末尾、first-party 顺序为 9900 的系统提示词段告诉子 agent 该工具调用就是终态答案；`tools/result` 观察器只在该次执行的权威最终工具结果成功后提交暂存值，包括 Code Mode 子分派外层的 `run_code` 结果；单调工具防护会在捕获后阻止后续调用。正常结束却始终未提交必需值的轮次会报告 `error`；驱动器不会重新提示。所有注册都附着于子 agent fiber，并随其一同消失。
+`attachStructuredRuntime(childCtx, schema)` 会在子 agent 作用域中安装完整约定：`structured_output` 工具按请求的 schema 校验并暂存模型值；位于末尾、first-party 顺序为 9900 的系统提示词段告诉子 agent 该工具调用就是终态答案；`tools/result` 观察器只在该次执行的权威最终工具结果成功后提交暂存值，包括 PTC mode 子分派外层的 `run_code` 结果；单调工具防护会在捕获后阻止后续调用。正常结束却始终未提交必需值的轮次会报告 `error`；驱动器不会重新提示。所有注册都附着于子 agent fiber，并随其一同消失。
 
 ### 源码地图
 
@@ -98,7 +98,7 @@ kind: "package-library"
 
 #### 模型看到什么
 
-共享驱动器把任务逐字作为子 agent 的用户消息发送；若有请求，还会在未发布子 agent 的全新作用域中遮蔽 persona，并限制全局工具 schema、查找、执行与 Code Mode SDK 绑定。父级限制不会被继承，独立的工具指导段仍会保留。spawn 不提供历史；fork 提供其已配平的初始内容。
+共享驱动器把任务逐字作为子 agent 的用户消息发送；若有请求，还会在未发布子 agent 的全新作用域中遮蔽 persona，并限制全局工具 schema、查找、执行与 PTC mode SDK 绑定。父级限制不会被继承，独立的工具指导段仍会保留。spawn 不提供历史；fork 提供其已配平的初始内容。
 
 #### Token 影响
 

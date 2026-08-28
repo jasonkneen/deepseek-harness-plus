@@ -86,7 +86,7 @@ async function harness(config: { defaultMaxGoalRounds?: number } = {}) {
   await ctx.plugin(SessionProjectionRegistry)
   await ctx.plugin(AgentRegistry)
   await ctx.plugin(GoalService, config)
-  const stub = stubAgent(`goal-test-${Math.random()}`)
+  const stub = stubAgent(`goal-test-${Math.random()}`, undefined, ctx)
   ctx.agents.register(stub.agent)
   return { ctx, ...stub }
 }
@@ -103,6 +103,15 @@ function appendRound(session: Session, ref: GoalRef, round: number): void {
 }
 
 describe('GoalService creation and replay', () => {
+  it('fails on first state access when the projection registry is absent', async () => {
+    const ctx = new Context()
+    await ctx.plugin(AgentRegistry)
+    await ctx.plugin(GoalService)
+    const stub = stubAgent('goal-missing-projections')
+    ctx.agents.register(stub.agent)
+    expect(() => ctx.goals.get(stub.agent)).toThrow('goal: session projection registry is unavailable')
+  })
+
   it('applies the configured default and writes one durable goal change', async () => {
     vi.useFakeTimers()
     vi.setSystemTime(1_700_000_000_000)
@@ -156,9 +165,12 @@ describe('GoalService creation and replay', () => {
   it('also resolves the default when constructed directly without Cordis config normalization', async () => {
     const ctx = new Context()
     await ctx.plugin(AgentRegistry)
-    const goals = new GoalService(ctx)
+    await ctx.plugin(SessionProjectionRegistry)
     const stub = stubAgent('goal-direct-construction')
     ctx.agents.register(stub.agent)
+    const goals = new GoalService(ctx)
+    expect(() => goals.get(stub.agent)).toThrow('goal projection is not registered')
+    await new Promise(resolve => setImmediate(resolve))
     expect(goals.create(stub.agent, { objective: 'direct' })).toMatchObject({
       objective: 'direct', maxGoalRounds: 256,
     })
@@ -167,6 +179,7 @@ describe('GoalService creation and replay', () => {
   it('rejects invalid direct configuration', async () => {
     const ctx = new Context()
     await ctx.plugin(AgentRegistry)
+    await ctx.plugin(SessionProjectionRegistry)
     await expect(ctx.plugin(GoalService, { defaultMaxGoalRounds: -1 })).rejects.toThrow(expect.objectContaining({
       code: 'GOAL_INVALID_MAX_ROUNDS',
     }))
@@ -180,6 +193,7 @@ describe('GoalService creation and replay', () => {
 
     const ctx = new Context()
     await ctx.plugin(AgentRegistry)
+    await ctx.plugin(SessionProjectionRegistry)
     await ctx.plugin(GoalService)
     const resumed = stubAgent('seeded-goal', first.session.events)
     ctx.agents.register(resumed.agent)
@@ -238,19 +252,19 @@ describe('GoalService creation and replay', () => {
     expect(ctx.goals.resume(agent, goal)).toMatchObject({ revision: 2, activation: 'armed' })
   })
 
-  it('removes the service and its session-start listener with the providing fiber', async () => {
+  it('removes the service and projection with the providing fiber', async () => {
     const ctx = new Context()
     await ctx.plugin(AgentRegistry)
+    await ctx.plugin(SessionProjectionRegistry)
     const fiber = await ctx.plugin(GoalService)
     const first = ctx.goals
     const stub = stubAgent('goal-hmr')
     ctx.agents.register(stub.agent)
-    const goal = first.create(stub.agent, { objective: 'survive service reload' })
+    const goal = ctx.goals.create(stub.agent, { objective: 'survive service reload' })
 
     await fiber.dispose()
     expect(ctx.get('goals')).toBeUndefined()
-    agentEvents(ctx, stub.agent).emit('agent/session-start', { source: 'resume' })
-    expect(first.get(stub.agent)).toMatchObject({ id: goal.id, activation: 'armed' })
+    expect(ctx.sessionProjections.stateOf(stub.session, 'goal')).toBeUndefined()
 
     await ctx.plugin(GoalService)
     expect(ctx.goals).not.toBe(first)
@@ -468,6 +482,7 @@ describe('GoalService mutations', () => {
   it('does not delegate goal persistence to agent injection', async () => {
     const ctx = new Context()
     await ctx.plugin(AgentRegistry)
+    await ctx.plugin(SessionProjectionRegistry)
     await ctx.plugin(GoalService)
     const stub = stubAgent('goal-independent-injection')
     stub.agent.inject = () => { throw new Error('injection must not be called') }
@@ -481,23 +496,24 @@ describe('GoalService mutations', () => {
     expect(stub.session.events.map(event => event.type)).toEqual(['goal/change'])
   })
 
-  it('observes a valid goal snapshot appended after an empty cache was established', async () => {
+  it('observes an external goal change and disarms local activation', async () => {
     const { ctx, agent, session } = await harness()
-    expect(ctx.goals.get(agent)).toBeUndefined()
+    const created = ctx.goals.create(agent, { objective: 'before external edit', maxGoalRounds: 4 })
+    expect(created.activation).toBe('armed')
     const change: GoalSnapshotChangeMeta = {
       kind: 'goal/change',
       version: 1,
-      operation: 'create',
+      operation: 'edit',
       goal: {
-        id: GoalId('goal-external'),
-        revision: 1,
+        id: created.id,
+        revision: created.revision + 1,
         objective: 'observe external append',
         phase: 'active',
         maxGoalRounds: 4,
       },
-      roundsStarted: 0,
-      createdAt: 12,
-      updatedAt: 12,
+      roundsStarted: created.roundsStarted,
+      createdAt: created.createdAt,
+      updatedAt: created.updatedAt,
     }
     session.append('goal/change', change)
 

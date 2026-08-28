@@ -81,8 +81,12 @@ describe('apply', () => {
       ctx.sessions.scope(sid('a'))!,
     )
     expect(injected.menu).toBe(controller.menu)
+    expect(injected.headers).toBe(controller.headers)
     // The pick face routes into the controller pipeline (closed menu → no-op).
     injected.onPick('command', 0)
+    expect(controller.menu.getSnapshot().open).toBe(false)
+    // The crumb face routes into the controller too (closed menu → no-op).
+    injected.onCrumb('command', 0)
     expect(controller.menu.getSnapshot().open).toBe(false)
     // The hover face routes into the controller too (closed menu → no-op).
     injected.onHover('command', 0)

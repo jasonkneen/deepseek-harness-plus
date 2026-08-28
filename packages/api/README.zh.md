@@ -32,19 +32,18 @@ kind: "package-group"
 | [`settings-controller/`](settings-controller/README.zh.md) | 拥有 settings 域各 seam 之上的配置界面读写。 | `ctx.settingsController`、`ctx.credentialsController` / `ctx.remote.settings`、`ctx.remote.credentials` |
 | [`workspace-controller/`](workspace-controller/README.zh.md) | 拥有 Workspace 变更与完整 Client Workspace 投影。 | `ctx.workspaceController` / `ctx.remote.workspace` |
 
-Remote 调用沿 Client → Host 方向运行在应用共享的 Connection 之上。API Gateway 拥有 Remote 传输，各 controller 包分别拥有 Session、配置界面与 Workspace 行为。没有 Remote 定义的 endpoint 会回退到应用的 API Proxy。
+Remote 调用沿 Client → Host 方向运行在应用共享的 Connection 之上。API Gateway 拥有 Remote 传输，各 controller 包分别拥有 Session、配置界面与 Workspace 行为。流式下载等不适合 Remote 调用的响应由功能包注册精确的 Connection Fetch 路由。
 
 -----
 
 <a id="related-documentation"></a>
 ## 相关文档
 
-先读 API Gateway 参考以端到端了解 Remote 模型，再读 Typert 子系统页了解共享定义，以及载体与回退包了解调用如何传输、没有 Remote 定义的 endpoint 如何被服务。
+先读 API Gateway 参考以端到端了解 Remote 模型，再读 Typert 子系统页了解共享定义，并通过 Connection 了解物理载体。
 
 - [API Gateway 参考](../../docs/api-gateway.zh.md)——Typert API Gateway 的现状参考：编程模型、生成流水线与运行时调用。
 - [Typert 子系统参考](../../docs/subsystems/typert.zh.md)——protocol、Gateway 与消费方装配共享的公共约定。
 - [Connection](../client/connection/README.zh.md)——每次 Remote 调用背后的 RPC 载体、`/api` 信任围栏与响应封装。
-- [API Proxy](../host/apiproxy/README.zh.md)——没有 Remote 描述符的 endpoint 的回退路径。
 
 <a id="dev-note"></a>
 ## 开发备注

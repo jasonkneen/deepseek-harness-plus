@@ -9,7 +9,7 @@ kind: "package-reference"
 
 ## 概述
 
-agent（智能体）及其宿主 UI 获得 `@file` mention 的排序路径候选，范围限定在各自 agent 的工作区，并有界以保证大型仓库依然响应迅速。`dsh-file-reference-local` 在本地文件系统上实现 `ctx.fileReferences`：它为每个 agent 维护一个可复用的搜索索引，在工具结果后使索引失效，让补全反映工作区变化，且从不跟随目录符号链接。当指定 agent 可以调用 `read` 时，它还会向系统提示词安装一句稳定指引。当 agent 的 `read` 工具作用于 Harness 宿主文件系统时选择它；远程或虚拟命名空间需要发现能力与工具一致的提供方。
+agent（智能体）及其宿主 UI 获得 `@file` mention 的排序路径候选，范围限定在各自 agent 的工作区，并有界以保证大型仓库依然响应迅速。`dsh-file-reference-local` 在本地文件系统上实现 `ctx.fileReferences`：它为每个 agent 维护一个可复用的搜索索引，在工具结果后于后台重建索引，让补全反映工作区变化而不发生停顿，且从不跟随目录符号链接。当指定 agent 可以调用 `read` 时，它还会向系统提示词安装一句稳定指引。当 agent 的 `read` 工具作用于 Harness 宿主文件系统时选择它；远程或虚拟命名空间需要发现能力与工具一致的提供方。
 
 ## 目录
 
@@ -39,15 +39,15 @@ agent（智能体）及其宿主 UI 获得 `@file` mention 的排序路径候选
 
 ### 你能得到什么
 
-在宿主 UI 中输入 `@` 会为指定 agent 返回至多 `maxResults` 个排序路径候选。包含 `/` 的查询直接列出匹配目录的条目；裸查询对有界递归索引做模糊排序。目录候选以尾斜杠保持 mention 开放。任何工具结果之后，该 agent 的可复用索引都会失效，后续补全因此能观察到工作区变化；未变化的 agent 会在多次查询间保留其索引。
+在宿主 UI 中输入 `@` 会为指定 agent 返回至多 `maxResults` 个排序路径候选。包含 `/` 的查询直接列出匹配目录的条目；裸查询对有界递归索引做模糊排序。目录候选以尾斜杠保持 mention 开放。任何工具结果之后，该 agent 的索引会被标记为陈旧：下一次查询仍由它作答，其替代品在后台构建，因此重建不会挡在光标前面。
 
 ### 配置
 
 | 字段 | 默认值 | 含义 |
 |---|---|---|
 | `maxResults` | `20` | 单次查询返回的排序候选最大数量 |
-| `maxEntries` | `10000` | 每个 agent 工作区建立索引的文件与目录最大数量 |
-| `excludedDirectories` | `['.git', 'node_modules']` | 遍历与候选中排除的目录基名 |
+| `maxEntries` | `50000` | 每个 agent 工作区建立索引的文件与目录最大数量 |
+| `excludedDirectories` | `['.git', 'node_modules', 'dist', 'build', 'out', 'coverage', 'target', '.next', '.nuxt', '.turbo', '.venv', '__pycache__', '.pytest_cache', '.mypy_cache', '.gradle']` | 遍历与候选中排除的目录基名 |
 
 所有数值都必须是正的安全整数，所有排除名都必须是不含 `/` 或 `\` 的非空基名。
 
@@ -63,19 +63,19 @@ agent（智能体）及其宿主 UI 获得 `@file` mention 的排序路径候选
 
 ### 设计理念
 
-提供方为每个 agent 维护一个可复用的 `WorkspaceFileSearch`，以该会话的 `cwd` 为根。目录范围查询（`a/b/...`）列出实时目录状态，裸模糊查询共享一次有界递归遍历，直到 `@` 交互结束或 `tool/result` 事件使其失效。模型指引是按 agent 的提示词段，仅在指定 agent 拥有 `read` 工具时贡献；agent 释放时会同时释放索引与提示词 fiber。
+提供方为每个 agent 维护一个可复用的 `WorkspaceFileSearch`，以该会话的 `cwd` 为根。目录范围查询（`a/b/...`）列出实时目录状态，裸模糊查询共享一次有界递归遍历。只有一个工作区的首次裸查询会等待该遍历；`tool/result` 事件把已完成的条目标记为陈旧，下一次裸查询在替代品构建期间继续由它作答。模型指引是按 agent 的提示词段，仅在指定 agent 拥有 `read` 工具时贡献；agent 释放时会同时释放索引与提示词 fiber。
 
 ### 源码地图
 
 | 文件 | 职责 |
 |---|---|
 | [`src/index.ts`](src/index.ts) | `LocalFileReferenceService`：配置校验、按 agent 搜索、提示词安装 |
-| [`src/search.ts`](src/search.ts) | `WorkspaceFileSearch`：遍历、排序、排除、失效 |
+| [`src/search.ts`](src/search.ts) | `WorkspaceFileSearch`：遍历、排序、排除、陈旧标记与后台重建 |
 | [`src/invariant.ts`](src/invariant.ts) | 发现约定的不变式伴生插件 |
 
 ### 主要流程
 
-`list(agent, query, signal)` 要么列出某个目录的条目，要么等待共享的有界索引，对候选排序（精确、前缀、子串，再到子序列得分，目录有加成），并按确定性顺序返回至多 `maxResults` 个。`tool/result` 事件使指定 agent 的索引失效，下一次裸查询因此观察到全新目录树；不可读或已排除的子目录不贡献候选。
+`list(agent, query, signal)` 要么列出某个目录的条目，要么读取共享的有界索引，对候选排序（精确、前缀、子串，再到子序列得分，目录有加成），并按确定性顺序返回至多 `maxResults` 个。`tool/result` 事件把指定 agent 的索引标记为陈旧，之后的裸查询因此观察到全新目录树。不可读或已排除的子目录不贡献候选，而不可读的根目录则让该次遍历失败：一次瞬时故障不得用空索引覆盖仍然有效的条目。
 
 </details>
 
@@ -114,7 +114,7 @@ Tokens prefixed with @ are workspace paths the user explicitly referenced, relat
 
 #### KV Cache 影响
 
-该稳定句子会加入系统提示词前缀。挂载或移除此提供方，或者改变 `read` 是否可见，都会改变该前缀；查询、候选项和索引失效不会改变前缀。
+该稳定句子会加入系统提示词前缀。挂载或移除此提供方，或者改变 `read` 是否可见，都会改变该前缀；查询、候选项和索引陈旧标记不会改变前缀。
 
 ## 已知限制与延期工作
 
@@ -124,7 +124,8 @@ Tokens prefixed with @ are workspace paths the user explicitly referenced, relat
 这些限制说明该提供方何时不合适。它们是当前包约束。
 
 - **宿主本地命名空间**：提供方扫描 Harness 宿主的文件系统，因此远程或虚拟 `read` 实现需要使用命名空间与该工具一致的提供方。
-- **有界的提示性索引**：超大型工作区可能省略 `maxEntries` 之后的路径；被排除或无法读取的目录不会出现。
+- **有界的提示性索引**：超大型工作区可能省略 `maxEntries` 之后的路径；被排除或无法读取的目录不会出现。默认排除项只列没有任何生态用作源码目录的构建产物；`lib` 被刻意排除在外，因此构建进 `lib` 的工作区需通过 `excludedDirectories` 自行加上。
+- **一次失效的陈旧窗口**：紧接工具结果之后的模糊查询反映的是上一次遍历时的目录树；下一次查询才看到重建结果。
 - **没有忽略文件语义**：`.gitignore` 和其他项目忽略文件不会影响发现；系统只排除已配置的目录基名。
 
 <a id="dev-note"></a>

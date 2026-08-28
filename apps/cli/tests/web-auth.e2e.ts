@@ -119,19 +119,19 @@ async function stopWeb(running: RunningWeb): Promise<void> {
   clearTimeout(forced)
 }
 
-/** POST one real API Proxy envelope while controlling the wire Host header. */
-function describeHost(port: number, host: string, cookie?: string): Promise<HttpResult> {
+/** POST one real Remote envelope while controlling the wire Host header. */
+function describeSettings(port: number, host: string, cookie?: string): Promise<HttpResult> {
   const body = JSON.stringify({
     type: 'client-request',
     rpcId: 'web-auth-real-cli',
-    method: 'host.describe',
-    payload: {},
+    method: 'settings/describe',
+    payload: { args: {} },
   })
   return new Promise((resolve, reject) => {
     const req = httpRequest({
       hostname: '127.0.0.1',
       port,
-      path: '/api/host.describe',
+      path: '/api/settings/describe',
       method: 'POST',
       headers: {
         host,
@@ -165,7 +165,7 @@ describe('dsh web authentication through the real CLI', () => {
       expect(firstUrl.pathname).toBe('/')
       expect(firstUrl.searchParams.get('token')).toMatch(/^[A-Za-z0-9_-]{43}$/u)
 
-      expect(await describeHost(port, `localhost:${String(port)}`)).toEqual({
+      expect(await describeSettings(port, `localhost:${String(port)}`)).toEqual({
         status: 401,
         body: 'unauthorized',
       })
@@ -180,13 +180,13 @@ describe('dsh web authentication through the real CLI', () => {
       expect(setCookie).not.toContain('Secure')
       const cookie = setCookie.split(';', 1)[0]!
 
-      const authenticated = await describeHost(port, firstUrl.host, cookie)
+      const authenticated = await describeSettings(port, firstUrl.host, cookie)
       expect(authenticated.status).toBe(200)
       const authenticatedBody = JSON.parse(authenticated.body) as unknown
       expect(authenticatedBody).toMatchObject({
         type: 'server-response',
         rpcId: 'web-auth-real-cli',
-        result: { ok: true, value: { version: expect.any(String) as unknown } },
+        result: { ok: true, value: { namespaces: expect.any(Array) as unknown } },
       })
 
       await stopWeb(first)
@@ -194,7 +194,7 @@ describe('dsh web authentication through the real CLI', () => {
       second = await startWeb(root, dshHome, port)
       const secondUrl = new URL(second.launchUrl)
       expect(secondUrl.searchParams.get('token')).not.toBe(firstUrl.searchParams.get('token'))
-      expect((await describeHost(port, secondUrl.host, cookie)).status).toBe(200)
+      expect((await describeSettings(port, secondUrl.host, cookie)).status).toBe(200)
 
       const credentialMode = (await stat(join(dshHome, '.credentials.yaml'))).mode & 0o777
       expect(credentialMode).toBe(0o600)

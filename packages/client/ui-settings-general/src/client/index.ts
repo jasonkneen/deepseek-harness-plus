@@ -55,7 +55,7 @@ const NS = 'settings'
  * ui-settings' apply, whose activation order relative to this one is NOT
  * constrained; registrations depend on their slots through `slots.inject()`.
  */
-export const inject = ['slots', 'locale', 'connection', 'settingsScope']
+export const inject = ['slots', 'locale', 'connection', 'remote', 'remote.settings', 'settingsScope']
 
 /**
  * Register the `settings` dictionaries, the chrome content, and the General
@@ -72,7 +72,7 @@ export function apply(ctx: ClientContext): void {
   const connection = ctx.get('connection') as ConnectionHandle
   // The shared SettingsScope mirror updates after document commits and reconnects.
   const documentController = connection.isLoopback
-    ? new SettingsDocumentStore(connection.api, ctx.settingsScope.describe())
+    ? new SettingsDocumentStore(ctx.remote, ctx.settingsScope.describe())
     : undefined
   const documentInjected = documentController === undefined
     ? undefined

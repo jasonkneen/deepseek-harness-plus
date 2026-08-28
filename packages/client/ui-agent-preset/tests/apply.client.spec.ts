@@ -74,6 +74,7 @@ async function bench() {
   // The row reads `describe` to learn whether this browser may write at all,
   // and its default write is the one op this spec records.
   const settings = {
+    canOpenAgentPresetDirectory: () => Promise.resolve({ ok: true as const, value: true }),
     describe: () => Promise.resolve({
       ok: true as const,
       value: { writable: true, hasDocument: true, namespaces: [] },
@@ -81,6 +82,10 @@ async function bench() {
     update: (_ns: string, patch: unknown) => {
       calls.push(`settings:${JSON.stringify(patch)}`)
       return Promise.resolve({ ok: true as const, value: {} })
+    },
+    openAgentPresetDirectory: (agentPreset: string) => {
+      calls.push(`openAgentPresetDirectory:${agentPreset}`)
+      return Promise.resolve({ ok: true as const, value: { opened: true as const } })
     },
   }
   const remote = new TestRemote(ctx, { settings })
@@ -110,22 +115,7 @@ async function bench() {
   }
   ctx.provide('remote.agentPresets', agentPresets as never)
   Object.assign(remote, { agentPresets })
-  ctx.provide('connection', {
-    api: {
-      host: {
-        describe: () => Promise.resolve({
-          rpcId: 'r',
-          result: { ok: true as const, value: { canOpenPath: true } },
-        }),
-      },
-      agentPresets: {
-        openDocument: (payload: { agentPreset: string }) => {
-          calls.push(`openDocument:${payload.agentPreset}`)
-          return Promise.resolve({ rpcId: 'r', result: { ok: true as const, value: { opened: true as const } } })
-        },
-      },
-    },
-  } as never)
+  ctx.provide('connection', { isLoopback: true } as never)
   await ctx.plugin({ inject: [...settingsInject], apply: settingsApply }).await()
   return { ctx, slots: ctx.get('slots') as SlotRegistry, calls, moveDefault, remote }
 }
@@ -187,7 +177,7 @@ function sessionsDouble(state: {
 describe('ui-agent-preset apply', () => {
   it('declares the services it uses', () => {
     expect(inject).toEqual([
-      'slots', 'locale', 'connection', 'remote', 'remote.agentPresets', 'remote.settings', 'settingsScope',
+      'slots', 'locale', 'remote', 'remote.agentPresets', 'remote.settings', 'settingsScope',
     ])
   })
 
@@ -257,7 +247,7 @@ describe('ui-agent-preset apply', () => {
     // one the roster re-read reflects, and the delete the section confirmed
     // is the one its remove() sees.
     expect(calls).toContain('copy:mine')
-    expect(calls.filter(call => call === 'openDocument:mine').length).toBeGreaterThan(0)
+    expect(calls.filter(call => call === 'openAgentPresetDirectory:mine').length).toBeGreaterThan(0)
     expect(section.hooks.agentPresetSection.getSnapshot().rows).toHaveLength(2)
   })
 

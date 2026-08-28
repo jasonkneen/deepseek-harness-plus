@@ -5,7 +5,8 @@
  * rows, pending groups as two skeleton rows; pointer picks route back through
  * the service (combobox pattern — focus never leaves the textarea, so rows
  * are mousedown-handled and the highlight is exposed via
- * aria-activedescendant on the listbox).
+ * aria-activedescendant on the listbox). A source publishing crumbs gets a
+ * breadcrumb header pinned above the scrolling list.
  */
 import { Fragment, useEffect, useRef, useSyncExternalStore } from 'react'
 import clsx from 'clsx'
@@ -31,10 +32,14 @@ function optionId(source: string, index: number): string {
  * @param props - injected face (the menu store and the pick route); `t` rides the standard locale seat.
  * @returns the dropdown while open; null while closed.
  */
-export function MenuView({ menu, onPick, onHover, onDismiss, t }: MenuViewProps) {
+export function MenuView({ menu, headers, onPick, onCrumb, onHover, onDismiss, t }: MenuViewProps) {
   const state = useSyncExternalStore(
     fn => menu.subscribe(fn),
     () => menu.getSnapshot(),
+  )
+  const crumbs = useSyncExternalStore(
+    fn => headers.subscribe(fn),
+    () => headers.getSnapshot(),
   )
   const listRef = useRef<HTMLDivElement>(null)
   // The list is bottom-anchored above the composer; clamp the design cap to
@@ -65,15 +70,40 @@ export function MenuView({ menu, onPick, onHover, onDismiss, t }: MenuViewProps)
   }, [state.open, onDismiss])
   if (!state.open) return null
   return (
-    <div
-      ref={listRef}
-      className={css.menu}
-      style={{ maxHeight }}
-      role="listbox"
-      aria-label={t('suggestions.aria')}
-      aria-activedescendant={highlight !== null ? optionId(highlight.source, highlight.index) : undefined}
-    >
-      <div className={css.viewport}>
+    // The listbox role sits on the scrolling viewport, not this shell: a
+    // breadcrumb header is not an option, and a listbox may not carry one.
+    <div ref={listRef} className={css.menu} style={{ maxHeight }} data-trigger-menu="">
+      {state.groups.map((group) => {
+        const trail = crumbs.get(group.source)
+        return trail === undefined ? null : (
+          <nav key={group.source} className={css.crumbs} aria-label={t('crumbs.aria')}>
+            {trail.map((crumb, index) => (
+              <Fragment key={`${String(index)}-${crumb.value}`}>
+                {index > 0 && <span className={css.crumbSeparator} aria-hidden><IconChevronRightOutline14 /></span>}
+                <button
+                  type="button"
+                  className={clsx(css.crumb, crumb.current === true && css.crumbCurrent)}
+                  aria-current={crumb.current === true ? 'location' : undefined}
+                  disabled={crumb.current === true}
+                  // mousedown, not click: the composer keeps focus, same as a row.
+                  onMouseDown={(ev) => {
+                    ev.preventDefault()
+                    onCrumb(group.source, index)
+                  }}
+                >
+                  {crumb.label}
+                </button>
+              </Fragment>
+            ))}
+          </nav>
+        )
+      })}
+      <div
+        className={css.viewport}
+        role="listbox"
+        aria-label={t('suggestions.aria')}
+        aria-activedescendant={highlight !== null ? optionId(highlight.source, highlight.index) : undefined}
+      >
         {state.groups.map(group => (group.status === 'ready' && group.items.length === 0)
           ? null
           : (

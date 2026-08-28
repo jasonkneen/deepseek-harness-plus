@@ -45,6 +45,13 @@ export type Resolution =
   | { readonly kind: 'static'; readonly specifier: string; readonly factory: StaticModuleFactory }
   | { readonly kind: 'file'; readonly path: string }
 
+/** Node-loader-compatible resolution returned through the Cordis internal seam. */
+export interface WorkerInternalResolution {
+  readonly format: 'builtin' | 'commonjs' | 'json'
+  /** File URL for VFS modules; the original bare specifier for builtins. */
+  readonly url: string
+}
+
 interface ModuleRecord {
   readonly module: { exports: unknown }
 }
@@ -121,6 +128,8 @@ export class WorkerModuleLoader {
   readonly internal: {
     readonly version: 'worker'
     import(specifier: string, parentURL?: string, attributes?: unknown): Promise<unknown>
+    resolve(specifier: string, parentURL?: string, attributes?: unknown): Promise<WorkerInternalResolution>
+    resolveSync(specifier: string, parentURL?: string, attributes?: unknown): WorkerInternalResolution
   }
 
   constructor(options: WorkerModuleLoaderOptions) {
@@ -133,12 +142,23 @@ export class WorkerModuleLoader {
       .sort(([left], [right]) => right.length - left.length)
     this.conditions = new Set(options.conditions ?? DEFAULT_CONDITIONS)
     this.als = createAlsRuntime(options.alsCausality)
+    const resolveInternal = (specifier: string, parentURL?: string): WorkerInternalResolution => {
+      const from = parentURL === undefined ? this.root : this.baseDirectoryOf(parentURL)
+      const resolution = this.resolve(specifier, from)
+      if (resolution.kind === 'static') return { format: 'builtin', url: resolution.specifier }
+      return {
+        format: resolution.path.endsWith('.json') ? 'json' : 'commonjs',
+        url: pathToFileUrl(resolution.path),
+      }
+    }
     this.internal = {
       version: 'worker',
       import: async (specifier: string, parentURL?: string): Promise<unknown> => {
         const from = parentURL === undefined ? this.root : this.baseDirectoryOf(parentURL)
         return this.load(this.resolve(specifier, from))
       },
+      resolve: async (specifier: string, parentURL?: string) => resolveInternal(specifier, parentURL),
+      resolveSync: resolveInternal,
     }
   }
 

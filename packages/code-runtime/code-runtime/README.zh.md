@@ -9,7 +9,7 @@ kind: "package-reference"
 
 ## 概述
 
-`dsh-code-runtime` 定义代码运行时做什么：针对一组宿主提供的异步函数运行一段模型编写的程序，并报告 `{ value, logs, error? }`——不规定任何后端如何实现。在组合中与一个后端一起加载它，服务即可作为 `ctx.codeRuntime` 使用；随后 `dsh-tools` 中的 Code Mode 即可运行组合工具的模型程序。每次请求只运行一次，运行之间不保留状态；每个程序结果——包括失败——都以结果字段 resolve，而不是 reject。运行时不了解工具或会话：调用方只向它提供程序与具名绑定，所有与工具有关的内容都留在 Consumer。
+`dsh-code-runtime` 定义代码运行时做什么：针对一组宿主提供的异步函数运行一段模型编写的程序，并报告 `{ value, logs, error? }`——不规定任何后端如何实现。在组合中与一个后端一起加载它，服务即可作为 `ctx.codeRuntime` 使用；随后 `dsh-tools` 中的 PTC mode 即可运行组合工具的模型程序。每次请求只运行一次，运行之间不保留状态；每个程序结果——包括失败——都以结果字段 resolve，而不是 reject。运行时不了解工具或会话：调用方只向它提供程序与具名绑定，所有与工具有关的内容都留在 Consumer。
 
 ## 目录
 
@@ -25,11 +25,11 @@ kind: "package-reference"
 <a id="use-this-package"></a>
 ## 使用本包
 
-当你要组合一个执行模型程序的部署、直接消费 `ctx.codeRuntime`，或构建运行程序的后端时，选择本包。在已发布的组合中，`dsh-tools` 里的 Code Mode 是消费方：只有程序打印和返回的内容重新进入对话。
+当你要组合一个执行模型程序的部署、直接消费 `ctx.codeRuntime`，或构建运行程序的后端时，选择本包。在已发布的组合中，`dsh-tools` 里的 PTC mode 是消费方：只有程序打印和返回的内容重新进入对话。
 
 ### 运行一个程序
 
-向运行时提供程序源码与一个或多个绑定命名空间。每个命名空间会成为程序内的一个全局异步函数对象——Code Mode 在 `tools` 下传入一个。程序作为异步函数的函数体运行，因此顶层 `await`／`return` 可用；无损 JSON 完成值成为 `result.value`，输出的文本按顺序进入 `result.logs`，任何失败都以 `result.error` 报告并带有可分支的 kind。运行时绝不会因程序失败而 reject——reject 意味着你误用了 seam，例如在 dispose（资源释放）后提交运行。
+向运行时提供程序源码与一个或多个绑定命名空间。每个命名空间会成为程序内的一个全局异步函数对象——PTC mode 在 `tools` 下传入一个。程序作为异步函数的函数体运行，因此顶层 `await`／`return` 可用；无损 JSON 完成值成为 `result.value`，输出的文本按顺序进入 `result.logs`，任何失败都以 `result.error` 报告并带有可分支的 kind。运行时绝不会因程序失败而 reject——reject 意味着你误用了 seam，例如在 dispose（资源释放）后提交运行。
 
 ```text
 const result = await ctx.codeRuntime.run({
@@ -63,7 +63,7 @@ binding-global 与 error-class 名称是语言可移植的：必须匹配 `[A-Za
 
 ### 设计理念
 
-本包是代码执行能力 seam 的 Service Definition 角色（[能力 seam](../../../.agents/notes/implemented/architecture/2026-06-13-capability-seams.zh.md)）：一个注册为 `ctx.codeRuntime` 的抽象 `CodeRuntime extends Service`，加上两个后端与消费方共享的词汇。提供方继承 `CodeRuntime`、实现 `run` 并注册服务；消费方（`dsh-tools` 中的 Code Mode）生成面向模型的 SDK 并桥接工具分发。按约定，运行时不了解工具与会话：它接收程序与具名异步绑定，返回 `{ value, logs, error? }`。
+本包是代码执行能力 seam 的 Service Definition 角色（[能力 seam](../../../.agents/notes/implemented/architecture/2026-06-13-capability-seams.zh.md)）：一个注册为 `ctx.codeRuntime` 的抽象 `CodeRuntime extends Service`，加上两个后端与消费方共享的词汇。提供方继承 `CodeRuntime`、实现 `run` 并注册服务；消费方（`dsh-tools` 中的 PTC mode）生成面向模型的 SDK 并桥接工具分发。按约定，运行时不了解工具与会话：它接收程序与具名异步绑定，返回 `{ value, logs, error? }`。
 
 ### 服务 API
 
@@ -94,9 +94,9 @@ binding-global 与 error-class 名称是语言可移植的：必须匹配标识�
 <a id="further-exploration"></a>
 ## 进一步探索
 
-当包级约定不够用时阅读以下内容。它们从 Code Mode 消费方进入已发布的后端与能力 seam 模型。
+当包级约定不够用时阅读以下内容。它们从 PTC mode 消费方进入已发布的后端与能力 seam 模型。
 
-- [Code Mode Agent Note](../../../.agents/notes/implemented/feature/2026-06-15-code-mode.zh.md)——工具注册表如何消费 `ctx.codeRuntime` 并把 `run_code` 呈现给模型。
+- [PTC mode Agent Note](../../../.agents/notes/implemented/feature/2026-06-15-ptc.zh.md)——工具注册表如何消费 `ctx.codeRuntime` 并把 `run_code` 呈现给模型。
 - [Worker 线程后端](../code-runtime-worker-thread/README.zh.md)——已发布的 TypeScript 执行后端。
 - [Python 协议包](../code-runtime-python/README.zh.md)——CPython 后端的协议格式。
 - [代码运行时子系统参考](../../../docs/subsystems/code-runtime.zh.md)——请求／结果词汇、绑定与 `ctx.codeRuntime` 的 cordis 接口面。
@@ -107,7 +107,7 @@ binding-global 与 error-class 名称是语言可移植的：必须匹配标识�
 <a id="model-experience"></a>
 ## 模型体验
 
-通过 `dsh-tools` 中的 Code Mode 间接提供；后者公开 `run_code`，并将程序日志、值或失败作为保留的工具结果 token 返回。
+通过 `dsh-tools` 中的 PTC mode 间接提供；后者公开 `run_code`，并将程序日志、值或失败作为保留的工具结果 token 返回。
 
 #### KV Cache 影响
 

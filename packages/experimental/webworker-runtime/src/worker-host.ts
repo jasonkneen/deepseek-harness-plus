@@ -23,6 +23,7 @@
  */
 import { setActiveModuleLoader, WorkerModuleLoader, type StaticModuleFactory } from './module-system/module-loader.ts'
 import type { TypertGateway } from '@deepseek-ai/dsh-api-gateway'
+import type { HostConnectionHandle } from '@deepseek-ai/dsh-client-connection'
 import type { AlsCausality } from './polyfill/async-context/als-runtime.ts'
 import { dirname, join } from './module-system/posix-path.ts'
 import { installProcessGlobal } from './node/globals/process.ts'
@@ -242,19 +243,15 @@ export function createWorkerHost(options: WorkerHostOptions): WorkerHost {
       })
       context = ctx
 
-      const apiProxy = ctx.get('apiProxy')
-      if (apiProxy === undefined) throw new Error('webworker host: the tree activated without an apiProxy service')
+      const connection = ctx.get('connection') as HostConnectionHandle | undefined
+      if (connection === undefined) throw new Error('webworker host: the tree activated without a Connection service')
       const typertGateway = ctx.get('typertGateway') as TypertGateway | undefined
       if (typertGateway === undefined) {
         throw new Error('webworker host: the tree activated without a typertGateway service')
       }
-      const { toFetchHandler } = require('@deepseek-ai/dsh-host-apiproxy') as {
-        toFetchHandler: (api: unknown) => { fetch(request: Request): Promise<Response> }
-      }
-      const shared = ctx.get('connection') !== undefined
-      const handler = directFetchHandler(ctx, toFetchHandler(apiProxy))
+      const handler = connection.createSharedFetchHandler('/api')
       const usage = loader.usage()
-      console.info(`webworker host: tree active (modules=${String(usage.modules)}, data overlays=${String(overlays.length)}, preset root overlay=${presetOverlay ? 'applied' : 'already in roster'}, direct lane=${shared ? 'connection.createSharedFetchHandler (interceptors kept)' : 'api surface only'}, als causality=${options.alsCausality === undefined ? 'inert' : 'snapshot/restore'}, image lowering=${LOWERING_VERSION})`)
+      console.info(`webworker host: tree active (modules=${String(usage.modules)}, data overlays=${String(overlays.length)}, preset root overlay=${presetOverlay ? 'applied' : 'already in roster'}, direct lane=connection.createSharedFetchHandler, als causality=${options.alsCausality === undefined ? 'inert' : 'snapshot/restore'}, image lowering=${LOWERING_VERSION})`)
 
       tunnel.serve({
         directFetch: (request: Request) => handler.fetch(request),
@@ -347,33 +344,6 @@ function requireLoweredImage(vfs: MemoryVfs, path: string): void {
   if (lowered !== LOWERING_VERSION) {
     throw new Error(`webworker host: image was lowered by ${String(lowered)}, this build runs ${LOWERING_VERSION}; rebuild the image`)
   }
-}
-
-/**
- * Build the tunnel's direct API entry.
- *
- * The core API surface alone is not the whole `/api` channel: Typert RPC
- * endpoints (`/api/<service>/<method>`) are served by an interceptor the gateway
- * registers on the Connection service, and answer 404 from the core routes. The
- * Connection service composes both halves in `createSharedFetchHandler`, whose
- * fallback — not the composition — carries network authentication and trust, so
- * composing it here keeps every interceptor while leaving out the fences the
- * worker-local direct lane exists to bypass.
- * @param ctx - Booted host context.
- * @param core - Fetch handler over the API surface.
- * @returns Handler covering interceptors and the core surface.
- */
-function directFetchHandler(
-  ctx: HostContext,
-  core: { fetch(request: Request): Promise<Response> },
-): { fetch(request: Request): Promise<Response> } {
-  const connection = ctx.get('connection') as {
-    createSharedFetchHandler(
-      channel: '/api',
-      fallback: { fetch(request: Request): Promise<Response> },
-    ): { fetch(request: Request): Promise<Response> }
-  } | undefined
-  return connection?.createSharedFetchHandler('/api', core) ?? core
 }
 
 /**

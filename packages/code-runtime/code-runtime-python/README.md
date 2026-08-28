@@ -94,7 +94,7 @@ Read these when the protocol contract is not enough. They move from the seam def
 <a id="model-experience"></a>
 ## Model Experience
 
-Indirectly, through Code Mode in `dsh-tools`, which renders the program's completion value or failure into a retained `run_code` result.
+Indirectly, through PTC mode in `dsh-tools`, which renders the program's completion value or failure into a retained `run_code` result.
 
 #### KV Cache effect
 

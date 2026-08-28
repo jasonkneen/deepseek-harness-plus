@@ -1,13 +1,11 @@
 /**
  * SubmitMachine: the pure per-session submit-plane state machine.
- * Events in, effects out; zero React / DOM / cordis. Package-private — the
- * SessionInput shell is the only caller and the sole executor of the
- * returned effects.
+ * Events in, effects out; zero React / DOM / cordis. Package-private; the
+ * SessionInput shell owns editor state and executes the returned effects.
  *
- * The machine owns phase, claim, and the in-flight SubmitAttempt; it never
- * holds the draft. Text truth lives in the shell's Lexical editor, and every
- * decision that needs the draft reads it from the event payload (claim
- * integrity watch, enter snapshots, settlement suffix/re-entry decisions).
+ * Claimed commands occupy the frozen in-flight slot. Ordinary messages detach
+ * at Enter, so the editor can clear immediately and accept another message
+ * while earlier admissions remain in flight.
  */
 import type { InputSubmitMode } from '../contract/composer-submission.ts'
 import type { CommandClaim, InputEffect, InputEvent, InputState, SubmitAttempt } from '../contract/input.ts'
@@ -17,13 +15,7 @@ function unreachable(value: never): never {
   throw new Error(`unreachable input event: ${JSON.stringify(value)}`)
 }
 
-/**
- * Strip the claim token off a draft to yield submit args. Leading whitespace
- * (incl. newlines — leading-trigger trim) is tolerated; a bare `/name`
- * missing the token's trailing separator yields empty args. Exactly one
- * separator char is consumed; the remainder — newlines included — stays
- * verbatim (`/goal x\ny` → `x\ny`).
- */
+/** Strip a claimed command token from its submit-time draft. */
 function argsAfter(draft: string, token: string): string {
   const s = draft.trimStart()
   if (s.startsWith(token)) return s.slice(token.length)
@@ -41,14 +33,7 @@ export interface SubmitSnapshot {
   readonly claim?: InputState['claim']
 }
 
-/**
- * Pure submit machine, one instance per session (per-session isolation is by
- * construction). The machine constructs one AbortController per SubmitAttempt
- * at enter time and aborts it itself on release; the shell never aborts, it
- * only observes attempt.signal on its adjudicate/submit promises. Stale
- * attempts (any adjudicated / adjudication-failed / submit-settled whose seq
- * is not the in-flight one) are dropped: same state, zero effects.
- */
+/** Pure phase, claim, and attempt owner for one Session input. */
 export class SubmitMachine {
   private phase: InputState['phase'] = 'plain'
   private claim: CommandClaim | undefined
@@ -57,6 +42,8 @@ export class SubmitMachine {
     readonly attempt: SubmitAttempt
     readonly controller: AbortController
   } | undefined
+  /** Ordinary sends detached from the editor, retained for settlement validation and cancellation. */
+  private readonly detached = new Map<number, AbortController>()
 
   /** Read-only snapshot of the submit-plane state. */
   get state(): SubmitSnapshot {
@@ -77,8 +64,8 @@ export class SubmitMachine {
 
   /**
    * Feed one event through the machine.
-   * @param ev - Input event; the single write path for all submit-plane state.
-   * @returns Effects for the shell to execute in order; empty on no-ops, locks, and dropped stale events.
+   * @param ev - submit-plane event.
+   * @returns effects for the SessionInput shell, in execution order.
    */
   dispatch(ev: InputEvent): readonly InputEffect[] {
     switch (ev.type) {
@@ -88,14 +75,15 @@ export class SubmitMachine {
       case 'adjudicated': return this.onAdjudicated(ev.attempt, ev.outcome)
       case 'adjudication-failed': return this.onAdjudicationFailed(ev.attempt, ev.message)
       case 'submit-settled': return this.onSubmitSettled(ev)
+      case 'sink-settled': return this.onSinkSettled(ev)
       case 'send-committed': return this.onSendCommitted()
       case 'release': return this.onRelease()
       default: return unreachable(ev)
     }
   }
 
-  /** Claimed integrity watch: any draft that breaks the token prefix releases the claim. */
-  private onDraftChanged(draft: string): InputEffect[] {
+  /** Claimed integrity watch: a draft that breaks the token prefix releases the claim. */
+  private onDraftChanged(draft: string): readonly InputEffect[] {
     if (this.phase === 'claimed' && this.claim !== undefined && !draft.startsWith(this.claim.token)) {
       this.phase = 'plain'
       this.claim = undefined
@@ -103,26 +91,52 @@ export class SubmitMachine {
     return []
   }
 
-  /** The editor applied a claim-token replacement: enter claimed (busy phases refuse). */
-  private onClaim(claim: CommandClaim): InputEffect[] {
+  /** The editor applied a claim-token replacement; busy phases refuse another claim. */
+  private onClaim(claim: CommandClaim): readonly InputEffect[] {
     if (this.phase !== 'plain' && this.phase !== 'claimed') return []
     this.claim = claim
     this.phase = 'claimed'
     return []
   }
 
-  // ---- submit plane ----
-
-  /** Mint the next SubmitAttempt and take the in-flight slot. */
-  private beginAttempt(mode: InputSubmitMode, draft: string): SubmitAttempt {
+  /** Mint an attempt and controller without assigning its lifecycle owner. */
+  private mintAttempt(mode: InputSubmitMode, draft: string): {
+    readonly attempt: SubmitAttempt
+    readonly controller: AbortController
+  } {
     const controller = new AbortController()
     this.seq += 1
-    const attempt: SubmitAttempt = { seq: this.seq, signal: controller.signal, draftSnapshot: draft, mode }
-    this.inflight = { attempt, controller }
-    return attempt
+    return {
+      attempt: { seq: this.seq, signal: controller.signal, draftSnapshot: draft, mode },
+      controller,
+    }
   }
 
-  private onEnter(mode: InputSubmitMode, draft: string): InputEffect[] {
+  /** Mint the frozen command/adjudication attempt. */
+  private beginAttempt(mode: InputSubmitMode, draft: string): SubmitAttempt {
+    const flight = this.mintAttempt(mode, draft)
+    this.inflight = flight
+    return flight.attempt
+  }
+
+  /** Mint an ordinary send that leaves the phase plain. */
+  private beginDetached(mode: InputSubmitMode, draft: string): SubmitAttempt {
+    const flight = this.mintAttempt(mode, draft)
+    this.detached.set(flight.attempt.seq, flight.controller)
+    this.claim = undefined
+    this.phase = 'plain'
+    return flight.attempt
+  }
+
+  /** Default-send effects capture the sink input before the editor commit. */
+  private detachedEffects(attempt: SubmitAttempt): readonly InputEffect[] {
+    return [
+      { type: 'default-sink', attempt, draft: attempt.draftSnapshot, mode: attempt.mode },
+      { type: 'commit-draft', retainSuffixOf: attempt.draftSnapshot },
+    ]
+  }
+
+  private onEnter(mode: InputSubmitMode, draft: string): readonly InputEffect[] {
     if (this.phase === 'adjudicating' || this.phase === 'submitting') return []
     if (this.phase === 'claimed' && this.claim !== undefined) {
       const attempt = this.beginAttempt(mode, draft)
@@ -136,12 +150,13 @@ export class SubmitMachine {
       this.phase = 'adjudicating'
       return [{ type: 'adjudicate', attempt, draft }]
     }
-    const attempt = this.beginAttempt(mode, draft)
-    this.phase = 'submitting'
-    return [{ type: 'default-sink', attempt, draft, mode }]
+    return this.detachedEffects(this.beginDetached(mode, draft))
   }
 
-  private onAdjudicated(attempt: SubmitAttempt, outcome: Extract<InputEvent, { type: 'adjudicated' }>['outcome']): InputEffect[] {
+  private onAdjudicated(
+    attempt: SubmitAttempt,
+    outcome: Extract<InputEvent, { type: 'adjudicated' }>['outcome'],
+  ): readonly InputEffect[] {
     const flight = this.inflight
     if (this.phase !== 'adjudicating' || flight === undefined || flight.attempt.seq !== attempt.seq) return []
     if (outcome !== undefined && outcome !== 'handled' && 'claim' in outcome) {
@@ -154,31 +169,22 @@ export class SubmitMachine {
         args: argsAfter(attempt.draftSnapshot, outcome.claim.token),
       }]
     }
-    // 'handled' (source dealt internally), {insert}/{text} (no enter-time span
-    // semantics), or a miss: all land plain; only the miss flows to the sink.
-    if (outcome === undefined) {
-      this.phase = 'submitting'
-      return [{
-        type: 'default-sink',
-        attempt,
-        draft: attempt.draftSnapshot,
-        mode: attempt.mode,
-      }]
-    }
     this.inflight = undefined
     this.phase = 'plain'
-    return []
+    if (outcome !== undefined) return []
+    this.detached.set(attempt.seq, flight.controller)
+    return this.detachedEffects(attempt)
   }
 
-  private onAdjudicationFailed(attempt: SubmitAttempt, message: string): InputEffect[] {
+  private onAdjudicationFailed(attempt: SubmitAttempt, message: string): readonly InputEffect[] {
     if (this.phase !== 'adjudicating' || this.inflight?.attempt.seq !== attempt.seq) return []
     this.inflight = undefined
     this.phase = 'plain'
-    // Draft retained: warmup failure never silently downgrades to a prompt.
     return [{ type: 'notice', level: 'error', text: message }]
   }
 
-  private onSubmitSettled(ev: Extract<InputEvent, { type: 'submit-settled' }>): InputEffect[] {
+  /** Claimed command settlement retains the frozen transaction semantics. */
+  private onSubmitSettled(ev: Extract<InputEvent, { type: 'submit-settled' }>): readonly InputEffect[] {
     const flight = this.inflight
     if (this.phase !== 'submitting' || flight === undefined || flight.attempt.seq !== ev.attempt.seq) return []
     this.inflight = undefined
@@ -192,10 +198,6 @@ export class SubmitMachine {
       return effects
     }
     const text = ev.message ?? ev.outcome?.text
-    // Keep the same command claim only while the live draft still equals the
-    // enter-time draft; user input typed during flight wins.
-    // Claimed re-entry additionally requires the watch to hold — an
-    // enter-path snapshot may carry leading whitespace the token never had.
     if (ev.draft === flight.attempt.draftSnapshot
       && this.claim !== undefined && ev.draft.startsWith(this.claim.token)) {
       this.phase = 'claimed'
@@ -206,18 +208,28 @@ export class SubmitMachine {
     return text === undefined ? [] : [{ type: 'notice', level: 'error', text }]
   }
 
-  /** Clear the draft after an accepted image-only send (no suffix retention: there was no draft). */
-  private onSendCommitted(): InputEffect[] {
+  /** Settle one ordinary send independently of current phase and other detached sends. */
+  private onSinkSettled(ev: Extract<InputEvent, { type: 'sink-settled' }>): readonly InputEffect[] {
+    if (!this.detached.delete(ev.attempt.seq)) return []
+    const text = ev.message ?? ev.outcome?.text
+    if (text === undefined) return []
+    return [{ type: 'notice', level: ev.ok && ev.outcome?.kind !== 'error' ? 'info' : 'error', text }]
+  }
+
+  /** Clear after an accepted image-only send; it has no text suffix to retain. */
+  private onSendCommitted(): readonly InputEffect[] {
     if (this.phase !== 'plain') return []
     this.claim = undefined
     return [{ type: 'commit-draft', retainSuffixOf: null }]
   }
 
-  private onRelease(): InputEffect[] {
+  private onRelease(): readonly InputEffect[] {
     if (this.inflight !== undefined) {
       this.inflight.controller.abort()
       this.inflight = undefined
     }
+    for (const controller of this.detached.values()) controller.abort()
+    this.detached.clear()
     this.phase = 'plain'
     this.claim = undefined
     return []

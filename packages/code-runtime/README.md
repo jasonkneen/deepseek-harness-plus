@@ -35,10 +35,10 @@ These three packages together provide program execution; each README describes w
 <a id="related-documentation"></a>
 ## Related documentation
 
-Start with the subsystem reference for the service contract, then the Code Mode design that consumes this capability and the capability-seam model it follows.
+Start with the subsystem reference for the service contract, then the PTC mode design that consumes this capability and the capability-seam model it follows.
 
 - [Code runtime subsystem reference](../../docs/subsystems/code-runtime.md) — request/result vocabulary, bindings, and the `ctx.codeRuntime` cordis surface.
-- [Code Mode Agent Note](../../.agents/notes/implemented/feature/2026-06-15-code-mode.md) — how the tool registry presents `run_code` to the model.
+- [PTC mode Agent Note](../../.agents/notes/implemented/feature/2026-06-15-ptc.md) — how the tool registry presents `run_code` to the model.
 - [Capability seams](../../docs/capability-seams.md) — the Service Definition / Service Provider / Consumer split this family follows.
 
 <a id="dev-note"></a>

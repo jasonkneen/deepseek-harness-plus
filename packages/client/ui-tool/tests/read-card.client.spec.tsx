@@ -361,9 +361,7 @@ describe('DetailsPanel Output section (read)', () => {
   it('abbreviates a leftover POSIX home path on the read card label', () => {
     const view = mount(snapshot({
       nodes: [settled({ meta: readMeta({ path: '/Users/u/notes.md' }) })],
-    }), target, '/tmp/ws', {
-      version: '0', cwd: '/tmp', attachedSessions: 0, home: '/Users/u', canOpenPath: false,
-    })
+    }), target, '/tmp/ws', { id: 1, host: { home: '/Users/u' } })
     expect(view.getByText('~/notes.md')).toBeTruthy()
   })
 

@@ -104,7 +104,7 @@ export class SettingsScopeController<T> implements SettingsScope<T> {
    * @returns settlement after the write and any latest-write recovery read.
    */
   set(field: string, value: unknown): Promise<void> {
-    return this.write({ op: 'set', path: [field], value: value as JsonValue })
+    return this.mutate([{ op: 'set', path: [field], value: value as JsonValue }])
   }
 
   /**
@@ -114,16 +114,23 @@ export class SettingsScopeController<T> implements SettingsScope<T> {
    * @returns settlement after the clear and any latest-write recovery read.
    */
   unset(field: string): Promise<void> {
-    return this.write({ op: 'unset', path: [field] })
+    return this.mutate([{ op: 'unset', path: [field] }])
   }
 
-  private write(op: SettingsPathOpView): Promise<void> {
+  /**
+   * Queue one atomic namespace mutation; see {@link SettingsScope.mutate}.
+   * @param ops - ordered field operations copied when queued.
+   * @param expectedRevision - optional fixed revision read by the domain editor.
+   * @returns settlement after the mutation and any latest-write recovery read.
+   */
+  mutate(ops: readonly SettingsPathOpView[], expectedRevision?: number): Promise<void> {
+    const ownedOps = structuredClone(ops) as SettingsPathOpView[]
     const generation = ++this.writeGeneration
     return this.enqueue(async () => {
-      const revision = this.pendingRevision ?? this.getSnapshot().revision
+      const revision = expectedRevision ?? this.pendingRevision ?? this.getSnapshot().revision
       let response: Awaited<ReturnType<SettingsFace['settings']['mutate']>>
       try {
-        response = await this.api.settings.mutate(this.spec.namespace, [op], revision)
+        response = await this.api.settings.mutate(this.spec.namespace, ownedOps, revision)
       } catch (_settingsWriteFailure) {
         await this.recover(generation)
         return

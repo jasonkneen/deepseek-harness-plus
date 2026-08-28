@@ -13,6 +13,7 @@ import type {
 } from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import type { SessionEvent, SessionEventMap } from '@deepseek-ai/dsh-session'
+import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import type { LlmRetryEventData } from '@deepseek-ai/dsh-llm-retry/types'
 import { defineContentToolFixture } from '@deepseek-ai/dsh-tools'
 import type { Agent, RequestErrorAction } from '@deepseek-ai/dsh-agent'
@@ -1020,14 +1021,20 @@ describe('provider-routed retry policy', () => {
   it('rejects retry policy configured on the executor instead of a provider', () => {
     expectTypeOf<{}>().toExtend<retry.Config>()
     expectTypeOf<{ retryPolicy: { mode: 'always' } }>().not.toExtend<retry.Config>()
+    const ctx = new Context()
+    // `apply` registers its projection unit first; the registry is a required
+    // injection, so the direct-apply path must carry it too.
+    new SessionProjectionRegistry(ctx)
     expect(() => {
-      retry.apply(new Context(), { retryPolicy: { mode: 'always' } } as unknown as retry.Config)
+      retry.apply(ctx, { retryPolicy: { mode: 'always' } } as unknown as retry.Config)
     }).toThrow(/retryPolicy belongs under each provider/)
   })
 
   it('rejects unknown executor config', () => {
+    const ctx = new Context()
+    new SessionProjectionRegistry(ctx)
     expect(() => {
-      retry.apply(new Context(), { retryPolciy: {} } as unknown as retry.Config)
+      retry.apply(ctx, { retryPolciy: {} } as unknown as retry.Config)
     }).toThrow(/unknown key "retryPolciy"/)
   })
 })

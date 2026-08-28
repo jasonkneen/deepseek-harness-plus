@@ -10,7 +10,7 @@ agent-preset 设置页带着一个网页 YAML 编辑器：`agentPreset.write` �
 
 ## 决策
 
-创作改为宿主端复制，文件就是编辑器。`agentPreset.write` 变为 `agentPreset.copy { from, agentPreset, name? }`：两个由宿主对照自身根目录解析的 id 加一个可选显示名，整目录 `cp`（符号链接解引用，权限收紧为仅属主并保留属主执行位），元数据重写为保留来源描述、但绝不保留其名称与 `order`。页面变为：随附组装的只读查看器、作为唯一创建入口的复制对话框（不再有空白「新建预设」——从零手写 YAML 不是人会做的事）、自定义行的删除，以及通向文件的位置操作——`agentPreset.openDocument { agentPreset }` 在宿主端解析目录并原生打开，部署没有桌面时回答 `{ opened: false, path }` 供该行以文本形式展示（`list` 上的 `hasDocument`；在 `canOpenNativePath` 平台探测会失真处由网关的 `nativeOpen` 配置钉死，例如 e2e 与容器）。
+创作改为宿主端复制，文件就是编辑器。`agentPreset.write` 变为 `agentPreset.copy { from, agentPreset, name? }`：两个由宿主对照自身根目录解析的 id 加一个可选显示名，整目录 `cp`（符号链接解引用，权限收紧为仅属主并保留属主执行位），元数据重写为保留来源描述、但绝不保留其名称或 `order`。页面包含随附组装的只读查看器、作为唯一创建入口的复制对话框（不提供空白「新建预设」）、自定义行的删除，以及通向文件的位置操作。`settings/openAgentPresetDirectory { agentPreset }` 在 Host 侧解析目录并原生打开，部署没有桌面时回答 `{ opened: false, path }` 供该行以文本形式展示；`settings/canOpenAgentPresetDirectory` 控制该行是否显示，Settings Controller 的 `nativeOpen` 则在平台探测可能误判时固定服务端行为。
 
 ## 后果
 
@@ -27,4 +27,4 @@ agent-preset 设置页带着一个网页 YAML 编辑器：`agentPreset.write` �
 
 ## 考虑过的替代方案
 
-保留 write 换个更好的编辑器（CodeMirror 等）：传输层上仍是任意能力，仍是竞态来源，而且仍不如用户自己的编辑器。带 patch 语义的副本（「standard 加这点 diff」）：bundle 面之下没有这样的层，仓库自己的随附 preset 也刻意选了完整副本。浏览器端拿返回路径调 `host.openPath`：路径一旦成为请求参数，就打破了 README 的「不可选中任意目标」不变量。
+保留 write 换个更好的编辑器（CodeMirror 等）：传输层上仍是任意能力，仍是竞态来源，而且仍不如用户自己的编辑器。带 patch 语义的副本（「standard 加这点 diff」）：bundle 面之下没有这样的层，仓库自己的随附 preset 也刻意选了完整副本。浏览器端拿返回路径调 `session/openWorkspacePath`：路径一旦成为请求参数，就打破了 README 的「不可选中任意目标」不变量。

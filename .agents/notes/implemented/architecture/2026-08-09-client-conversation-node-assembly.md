@@ -359,7 +359,7 @@ Conversation tests cover every built-in Chat Definition, Assistant Step data, Tu
 
 Slot type/runtime tests pin required parent-provided common inject, the `hookContext` type, Hook isolation across Node contexts, stable factory/Hook identity, and the absence of business-renderer rerenders for unrelated Session publications. Existing entry-owned Observable Hook tests continue to pin the path that does not use a contextual factory.
 
-Assembled Web snapshots, GUI tests, and browser scenarios cover the real plugin graph. Browser evidence compares Assistant streaming→settled, Bash running→settled, and Code Mode root + nested subcalls against master layout.
+Assembled Web snapshots, GUI tests, and browser scenarios cover the real plugin graph. Browser evidence compares Assistant streaming→settled, Bash running→settled, and PTC mode root + nested subcalls against master layout.
 
 History-path tests cover complete replace, non-overlapping prepend, complete-range deduplication, partial-overlap rejection, empty-page `hasMore` convergence, and scalar live append. Scalar and packed representations of the same Assistant history produce equal Chat and Trajectory State, timing boundaries, and final Nodes; one packed run remains one Match through replace, prepend, Location replay, and registry rebuild.
 

@@ -35,7 +35,7 @@ async function createRuntime(): Promise<SlotTestRuntime> {
   const runtime = await SlotTestRuntime.create()
   runtime.releaseWorkspaceSource()
   runtime.ctx.provide('connection', {
-    hostDescription: { getSnapshot: () => undefined, subscribe: () => () => {} },
+    generation: { getSnapshot: () => undefined, subscribe: () => () => {} },
   })
   // The rename flow never picks a directory; the namespace only has to be there
   // for ui-workspace's inject to settle.

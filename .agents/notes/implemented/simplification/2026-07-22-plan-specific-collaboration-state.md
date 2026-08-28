@@ -14,7 +14,7 @@ Plan mode also needs a durable stance, a reviewable plan artifact, an explicit h
 
 ## Decision
 
-Plan mode owns a plan-specific product package: `@deepseek-ai/dsh-plan-mode` at `packages/plan/plan-mode/`. The durable fact is `plan/mode: { active: boolean }`, folded by `foldPlanMode(events)` with `false` as the empty-log value. `ctx.planMode.get(agent)` returns `{ active, pending? }`, and `set(agent, active)` records the boundary-applied selection. The pre-step, retry, append-failure, and disposal fences preserve the same state-transition ownership.
+Plan mode owns a plan-specific product package: `@deepseek-ai/dsh-plan-mode` at `packages/plan/plan-mode/`. The durable fact is `plan/mode: { active: boolean }`, folded by the package's `plan` projection unit — `planProjectionDefinition.apply` over committed events, with the empty log folding to inactive (`active: false`) — and every projection unit is now persisted uniformly, the `persist` option having been removed. Host logic reads the fold through `ctx.sessionProjections.stateOf(session, 'plan')`; the client view is `{ active, pending }`. `ctx.planMode.get(agent)` returns `{ active, pending? }`, and `set(agent, active)` records the boundary-applied selection. The pre-step, retry, append-failure, and disposal fences preserve the same state-transition ownership.
 
 Configuration is exactly `{ section: string }`. The package registers the fixed `plan:policy` section, `/plan [message]`, the exact `/plan off` direct-exit form, and `exit_plan_mode` itself. Bare `/plan` selects active; another non-empty argument selects it first and then sends the trimmed text through `agent.steer()`, making the text an ordinary logged user message in the affected step. `/plan off` selects inactive without model input and can cancel an entry that is still pending at the boundary. The exit tool remains registered while plan mode is inactive so the request tool catalog stays stable.
 
@@ -26,7 +26,7 @@ Sandbox mode and approval policy remain separate enforcement axes. Plan mode nei
 
 `plan/mode` is log-only and non-surface, so resume, fork, and compaction recover the state without a live mirror. A spawned agent begins inactive because there is no creation-time plan option. Pending user selections flush before the affected request assembly at initial or continuation pre-step, or on a request-recovery retry; a failed durable append leaves the intent pending for a later boundary.
 
-The active state contributes the deployment's section at first-party prompt order 500. Inactive state contributes no section, while `exit_plan_mode` remains registered in both states, so a transition changes the logged request header but not native tool schemas or the Code Mode SDK. A user-driven transition appends one plugin-sourced notice only when the last request header described the opposite state; a pre-first-request or net-zero selection adds none, and an approved tool exit relies on its tool result instead of a second notice.
+The active state contributes the deployment's section at first-party prompt order 500. Inactive state contributes no section, while `exit_plan_mode` remains registered in both states, so a transition changes the logged request header but not native tool schemas or the PTC mode SDK. A user-driven transition appends one plugin-sourced notice only when the last request header described the opposite state; a pre-first-request or net-zero selection adds none, and an approved tool exit relies on its tool result instead of a second notice.
 
 ### Reviewed exit
 
@@ -59,7 +59,7 @@ The tool renders the submitted plan as a generic card titled by its first headin
 
 ## Verification
 
-- Package tests retain boundary ordering, retry, append-failure, HMR disposal, prompt assembly, stable native and Code Mode schemas, review outcomes, and invariant coverage through the boolean service.
+- Package tests retain boundary ordering, retry, append-failure, HMR disposal, prompt assembly, stable native and PTC mode schemas, review outcomes, and invariant coverage through the boolean service.
 - Command tests cover bare `/plan`, `/plan <message>`, active `/plan off`, pending-entry cancellation, inactive idempotence, absence of `/mode` and `/review`, and effect-scoped removal.
 - The keyless TUI scenarios enter through `/plan <message>`, leave through `/plan off`, and prove that each committed `plan/mode` precedes the request header it changes, the entry message is logged under plan guidance, and the post-exit request omits that guidance.
 - The complete `exit_plan_mode` review arc is package-tested but has no assembled-application snapshot after the interactive ACP scenarios were retired; current keyless TUI scenarios cover command entry and direct exit only.

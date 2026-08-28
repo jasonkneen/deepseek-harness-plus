@@ -8,7 +8,8 @@ import { bytesToBase64 } from '@deepseek-ai/dsh-util-crypto'
 interface ImageUrlEntry {
   readonly sessionId: SessionId
   readonly generation: number
-  readonly pending: Promise<string>
+  current?: string
+  pending: Promise<string>
 }
 
 /** Resolve durable Conversation images and release their browser URLs with Session scope. */
@@ -35,7 +36,7 @@ export class HistoricalImageCache {
    */
   resolve(sessionId: SessionId, attachment: ImageAttachmentRef): Promise<string> {
     if (this.disposed) return Promise.reject(new Error('ui-conversation image cache is disposed'))
-    const key = `${sessionId}:${attachment.attachmentId}`
+    const key = this.key(sessionId, attachment)
     const cached = this.entries.get(key)
     if (cached !== undefined) return cached.pending
     const binding = this.sessions.binding(sessionId)
@@ -43,28 +44,105 @@ export class HistoricalImageCache {
       return Promise.reject(new Error(`ui-conversation: unknown session "${sessionId}"`))
     }
     this.bindScope(sessionId, binding.ctx)
-    const generation = this.generations.get(sessionId) ?? 0
-    const pending = binding.session.readAttachment(attachment.attachmentId)
+    const entry: ImageUrlEntry = {
+      sessionId,
+      generation: this.generations.get(sessionId) ?? 0,
+      pending: Promise.resolve(''),
+    }
+    this.entries.set(key, entry)
+    entry.pending = this.loadCanonical(key, entry, attachment)
+    return entry.pending
+  }
+
+  /**
+   * Return an already-displayable URL without starting a read.
+   * @param sessionId - Session authorization and lifetime scope.
+   * @param attachment - Durable image reference.
+   * @returns current preview or canonical URL when cached.
+   */
+  peek(sessionId: SessionId, attachment: ImageAttachmentRef): string | undefined {
+    return this.entries.get(this.key(sessionId, attachment))?.current
+  }
+
+  /**
+   * Adopt a submission preview while fetching the durable admitted bytes.
+   * The preview is available synchronously, then replaced and revoked when
+   * the canonical attachment read completes.
+   * @param sessionId - Session authorization and lifetime scope.
+   * @param attachment - Durable image reference the URL temporarily displays.
+   * @param url - browser URL to adopt.
+   * @returns whether the cache took ownership.
+   */
+  seed(sessionId: SessionId, attachment: ImageAttachmentRef, url: string): boolean {
+    if (this.disposed) return false
+    const key = this.key(sessionId, attachment)
+    if (this.entries.has(key)) return false
+    const binding = this.sessions.binding(sessionId)
+    if (binding === undefined) return false
+    this.bindScope(sessionId, binding.ctx)
+    const entry: ImageUrlEntry = {
+      sessionId,
+      generation: this.generations.get(sessionId) ?? 0,
+      current: url,
+      pending: Promise.resolve(url),
+    }
+    this.urls.add(url)
+    this.entries.set(key, entry)
+    entry.pending = this.loadCanonical(key, entry, attachment).catch((error: unknown) => {
+      if (this.entries.get(key) === entry && entry.current === url) {
+        this.entries.delete(key)
+        this.releaseUrl(url)
+      }
+      throw error
+    })
+    // Seed begins the durable read before a transcript image necessarily
+    // mounts. Keep that legitimate no-consumer path from becoming an
+    // unhandled rejection; resolve() still returns the rejecting promise.
+    void entry.pending.catch(() => {})
+    return true
+  }
+
+  private key(sessionId: SessionId, attachment: ImageAttachmentRef): string {
+    return `${sessionId}:${attachment.attachmentId}`
+  }
+
+  private loadCanonical(
+    key: string,
+    entry: ImageUrlEntry,
+    attachment: ImageAttachmentRef,
+  ): Promise<string> {
+    const binding = this.sessions.binding(entry.sessionId)
+    if (binding === undefined) return Promise.reject(new Error(`ui-conversation: unknown session "${entry.sessionId}"`))
+    return binding.session.readAttachment(attachment.attachmentId)
       .then((result) => {
         if (!result.ok) throw new Error(`${result.error.code}: ${result.error.message}`)
-        if (this.disposed) throw new Error('ui-conversation image cache was disposed before loading completed')
-        if ((this.generations.get(sessionId) ?? 0) !== generation) {
-          throw new Error('ui-conversation image scope was released before loading completed')
-        }
+        this.assertLive(key, entry)
+        let url: string
         if (typeof URL.createObjectURL !== 'function') {
-          return `data:${result.value.attachment.mediaType};base64,${bytesToBase64(result.value.data)}`
+          url = `data:${result.value.attachment.mediaType};base64,${bytesToBase64(result.value.data)}`
+        } else {
+          const bytes = Uint8Array.from(result.value.data)
+          url = URL.createObjectURL(new Blob([bytes.buffer], { type: result.value.attachment.mediaType }))
         }
-        const bytes = Uint8Array.from(result.value.data)
-        const url = URL.createObjectURL(new Blob([bytes.buffer], { type: result.value.attachment.mediaType }))
+        this.assertLive(key, entry)
         this.urls.add(url)
+        const previous = entry.current
+        entry.current = url
+        if (previous !== undefined && previous !== url) this.releaseUrl(previous)
         return url
       })
       .catch((error: unknown) => {
-        if (this.entries.get(key)?.generation === generation) this.entries.delete(key)
+        if (this.entries.get(key) === entry && entry.current === undefined) this.entries.delete(key)
         throw error
       })
-    this.entries.set(key, { sessionId, generation, pending })
-    return pending
+  }
+
+  private assertLive(key: string, entry: ImageUrlEntry): void {
+    if (this.disposed) throw new Error('ui-conversation image cache was disposed before loading completed')
+    if (this.entries.get(key) !== entry
+      || (this.generations.get(entry.sessionId) ?? 0) !== entry.generation) {
+      throw new Error('ui-conversation image scope was released before loading completed')
+    }
   }
 
   private bindScope(sessionId: SessionId, scope: Context): void {
@@ -81,13 +159,13 @@ export class HistoricalImageCache {
     for (const [key, entry] of this.entries) {
       if (entry.sessionId !== sessionId) continue
       this.entries.delete(key)
-      void entry.pending.then((url) => {
-        if (!this.urls.delete(url)) return
-        revokeUrl(url)
-      }, () => {
-        // Failed and invalidated loads create no browser URL.
-      })
+      if (entry.current !== undefined) this.releaseUrl(entry.current)
     }
+  }
+
+  private releaseUrl(url: string): void {
+    if (!this.urls.delete(url)) return
+    revokeUrl(url)
   }
 
   private dispose(): void {

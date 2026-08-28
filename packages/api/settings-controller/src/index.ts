@@ -7,7 +7,20 @@
  * @module @deepseek-ai/dsh-api-settings-controller
  */
 
+import { dirname } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
+import Schema from '@deepseek-ai/schemastery'
+import {
+  InvalidPresetIdError,
+  PresetExistsError,
+  PresetNotWritableError,
+  UnknownPresetError,
+} from '@deepseek-ai/dsh-agent-presets'
+import {
+  canOpenNativePath,
+  openNativePath,
+  openNativeTextFile,
+} from '@deepseek-ai/dsh-native-command'
 import { SettingsConflictError, settingsNamespace } from '@deepseek-ai/dsh-settings'
 import type { SettingsDescriptor, SettingsPathOp, SettingsProvider } from '@deepseek-ai/dsh-settings'
 import type {
@@ -17,11 +30,30 @@ import type { JsonValue } from '@deepseek-ai/dsh-session/types'
 import { Remote, TypertRemoteFailure, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
 import { z } from 'zod'
 import { CredentialsController } from './credentials.ts'
+import type { AgentPresetDirectoryOpenValue, SettingsDocumentOpenValue } from './types.ts'
 
 export { CredentialsController } from './credentials.ts'
 export type * from './types.ts'
 
 const settingsNamespaceRequestSchema = z.object({ ns: z.string().min(1) })
+
+/** Native document-opening policy. */
+export interface Config {
+  /** Override platform desktop-opener detection. */
+  readonly nativeOpen?: boolean
+}
+
+/** Read abort state afresh after an awaited provider or opener call. */
+function isAborted(signal: AbortSignal): boolean {
+  return signal.aborted
+}
+
+/** Host integrations replaceable by direct unit tests. */
+export interface SettingsControllerInternals {
+  readonly openPath?: (path: string, signal: AbortSignal) => Promise<void>
+  readonly openTextFile?: (path: string, signal: AbortSignal) => Promise<void>
+  readonly canOpenPath?: () => boolean
+}
 
 /**
  * Project one redacted descriptor onto its wire view, field by field. The
@@ -59,14 +91,24 @@ declare module '@deepseek-ai/cordis' {
  * `settings-conflict` or `settings-rejected` with the service's message.
  */
 export class SettingsController extends TypertRemoteService {
+  static Config: Schema<Config> = Schema.object({ nativeOpen: Schema.boolean() })
+
+  private readonly openPath: (path: string, signal: AbortSignal) => Promise<void>
+  private readonly openTextFile: (path: string, signal: AbortSignal) => Promise<void>
+  private readonly canOpenPath: () => boolean
+
   /**
    * Register the settings namespace and mount the credentials namespace beside
    * it. Both namespaces stay registered when a provider is absent so calls can
    * return the configuration API's actionable missing-provider diagnostic.
    * @param ctx - Host context where settings and credential providers may be mounted.
    */
-  constructor(ctx: Context) {
+  constructor(ctx: Context, config: Config = {}, internals: SettingsControllerInternals = {}) {
     super(ctx, 'settingsController', { namespace: 'settings' })
+    this.openPath = internals.openPath ?? openNativePath
+    this.openTextFile = internals.openTextFile ?? openNativeTextFile
+    this.canOpenPath = internals.canOpenPath
+      ?? (() => config.nativeOpen ?? (internals.openPath !== undefined || canOpenNativePath()))
     ctx.plugin(CredentialsController)
   }
 
@@ -84,6 +126,15 @@ export class SettingsController extends TypertRemoteService {
       hasDocument: settings.documentPath !== undefined,
       namespaces: settings.describe({ redactSecrets: true }).map(namespaceView),
     }
+  }
+
+  /**
+   * Report whether this deployment can open an authored Agent preset directory natively.
+   * @returns true when the matching open operation is available.
+   */
+  @Remote
+  canOpenAgentPresetDirectory(): boolean {
+    return this.canOpenPath()
   }
 
   /**
@@ -137,6 +188,81 @@ export class SettingsController extends TypertRemoteService {
     expectedRevision: number | undefined,
   ): Promise<SettingsNamespaceView> {
     return this.write(ns, 'mutate', ops, expectedRevision)
+  }
+
+  /**
+   * Materialize the provider-owned settings document and open it in a native text editor.
+   * @param signal - caller lifetime; abort terminates preparation or the native command.
+   * @returns confirmation after the native opener accepts the document.
+   * @throws TypertRemoteFailure when no document exists, preparation fails, or opening fails.
+   */
+  @Remote
+  async openSettingsDocument(signal: AbortSignal): Promise<SettingsDocumentOpenValue> {
+    const settings = this.provider()
+    if (isAborted(signal)) throw cancelled('settings document open was aborted')
+    let path: string | undefined
+    try {
+      path = await settings.prepareDocument()
+    } catch (error: unknown) {
+      if (isAborted(signal)) throw cancelled('settings document preparation was aborted')
+      throw internal(`settings document preparation failed: ${messageOf(error)}`)
+    }
+    if (path === undefined) {
+      throw internal('settings provider has no local document to open')
+    }
+    if (isAborted(signal)) throw cancelled('settings document open was aborted')
+    try {
+      await this.openTextFile(path, signal)
+      return { opened: true }
+    } catch (error: unknown) {
+      if (isAborted(signal)) throw cancelled('settings document open was aborted')
+      throw internal(`path open failed: ${messageOf(error)}`)
+    }
+  }
+
+  /**
+   * Open one user-authored Agent preset directory or return its path when no native opener exists.
+   * @param agentPreset - preset id resolved against Host-owned roots.
+   * @param signal - caller lifetime; abort terminates the native command.
+   * @returns an opened confirmation or the resolved directory for text display.
+   * @throws TypertRemoteFailure when the preset is missing, read-only, invalid, or cannot be opened.
+   */
+  @Remote
+  async openAgentPresetDirectory(
+    agentPreset: string,
+    signal: AbortSignal,
+  ): Promise<AgentPresetDirectoryOpenValue> {
+    if (agentPreset.length === 0) {
+      throw new TypertRemoteFailure({
+        code: 'bad-request', message: 'agent preset id must not be empty', details: {},
+      })
+    }
+    const presets = this.ctx.get('agentPresets')
+    if (presets === undefined) {
+      throw new TypertRemoteFailure({
+        code: 'agent-preset-not-found',
+        message: 'this deployment composes no agent presets',
+        details: { agentPreset, available: [] },
+      })
+    }
+    let directory: string
+    try {
+      const preset = await presets.resolve(agentPreset)
+      if (preset.trust !== 'user') {
+        throw new PresetNotWritableError(preset.id, 'it ships with the deployment')
+      }
+      directory = dirname(preset.path)
+    } catch (error: unknown) {
+      throw presetFailure(agentPreset, error)
+    }
+    if (!this.canOpenPath()) return { opened: false, path: directory }
+    try {
+      await this.openPath(directory, signal)
+      return { opened: true }
+    } catch (error: unknown) {
+      if (signal.aborted) throw cancelled('path open was aborted')
+      throw internal(`path open failed: ${messageOf(error)}`)
+    }
   }
 
   private async write(
@@ -194,6 +320,44 @@ export class SettingsController extends TypertRemoteService {
     }
     return settings
   }
+}
+
+function messageOf(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
+}
+
+function internal(message: string): TypertRemoteFailure {
+  return new TypertRemoteFailure({ code: 'internal', message, details: {} })
+}
+
+function cancelled(message: string): TypertRemoteFailure {
+  return new TypertRemoteFailure({ code: 'cancelled', message, details: {} })
+}
+
+function presetFailure(agentPreset: string, error: unknown): TypertRemoteFailure {
+  if (error instanceof UnknownPresetError) {
+    return new TypertRemoteFailure({
+      code: 'agent-preset-not-found',
+      message: error.message,
+      details: { agentPreset: error.presetId, available: [...error.available] },
+    })
+  }
+  if (error instanceof PresetNotWritableError) {
+    return new TypertRemoteFailure({
+      code: 'agent-preset-read-only',
+      message: error.message,
+      details: { agentPreset, reason: error.message },
+    })
+  }
+  if (error instanceof InvalidPresetIdError || error instanceof PresetExistsError) {
+    return new TypertRemoteFailure({
+      code: 'agent-preset-invalid',
+      message: error.message,
+      details: { agentPreset, reason: error.message },
+    })
+  }
+  if (error instanceof TypertRemoteFailure) return error
+  return internal(`agent preset "${agentPreset}": ${String(error)}`)
 }
 
 /**

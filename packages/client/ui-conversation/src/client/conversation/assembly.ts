@@ -215,6 +215,29 @@ export class UiConversation extends Service {
   }
 
   /**
+   * Read a cached durable image URL synchronously when one is available.
+   * @param sessionId - Session authorization and lifetime scope.
+   * @param attachment - Durable image reference from a session event.
+   * @returns current preview or canonical URL, if cached.
+   */
+  peekImageUrl(sessionId: SessionId, attachment: ImageAttachmentRef): string | undefined {
+    return this.images.peek(sessionId, attachment)
+  }
+
+  /**
+   * Adopt an already-displayable URL for one durable reference (see
+   * HistoricalImageCache.seed): the transcript node then renders it without a
+   * byte round-trip.
+   * @param sessionId - Session authorization and lifetime scope.
+   * @param attachment - Durable image reference the URL displays.
+   * @param url - browser URL to adopt.
+   * @returns whether the cache took URL ownership.
+   */
+  seedImageUrl(sessionId: SessionId, attachment: ImageAttachmentRef, url: string): boolean {
+    return this.images.seed(sessionId, attachment, url)
+  }
+
+  /**
    * Canonicalize one `request/header` event against the previous prompt state.
    *
    * A pure interpretation shared by the Chat and Trajectory Definitions, exposed

@@ -3,6 +3,7 @@
  * slot without defining a service.
  */
 import type { Context } from '@deepseek-ai/cordis'
+import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import type { SessionBinding } from '@deepseek-ai/dsh-api-session-controller/client'
 import type { ObservableSnapshot } from '@deepseek-ai/dsh-client-store'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
@@ -95,7 +96,10 @@ export function apply(ctx: Context): void {
           await session.loadOlder()
           return trajectory.getSnapshot() !== before
         },
-        loadImage: attachment => ctx.uiConversation.imageUrl(sessionId, attachment),
+        loadImage: Object.assign(
+          (attachment: ImageAttachmentRef) => ctx.uiConversation.imageUrl(sessionId, attachment),
+          { peek: (attachment: ImageAttachmentRef) => ctx.uiConversation.peekImageUrl(sessionId, attachment) },
+        ),
         setActualDuration: (value) => { duration.set(value) },
       }
     },

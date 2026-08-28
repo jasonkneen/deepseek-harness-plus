@@ -153,7 +153,7 @@ declare module '@deepseek-ai/cordis' {
  * and a preset deleted underneath a picker disappears from the next read.
  */
 export class AgentPresets extends TypertRemoteService {
-  static inject = ['loader']
+  static inject = ['loader', 'sessionProjections']
 
   /** Runtime schema for the preset roster. */
   static Config = z.object({
@@ -253,9 +253,7 @@ export class AgentPresets extends TypertRemoteService {
       }, 'agentPresets.settings()')
     })
 
-    ctx.inject(['sessionProjections'], (projectionCtx) => {
-      projectionCtx.sessionProjections.register(agentPresetProjectionDefinition)
-    })
+    ctx.sessionProjections.register(agentPresetProjectionDefinition)
 
     // Advisory, not fatal: a synchronous `agent/created` listener that throws
     // VETOES publication, and this service must not, because composing an agent
@@ -716,7 +714,9 @@ export class AgentPresets extends TypertRemoteService {
     // conversation may have started, since this call was queued. A turn is one
     // model-loop execution; standalone plugin events never open one, so a
     // session that has only run commands is still blank.
-    if (agent.session.events.some(event => event.type === 'turn/start')) {
+    const boundary = this.selfCtx.sessionProjections.stateOf(agent.session, 'turnBoundary')
+    if (boundary !== undefined
+      && (boundary.openTurnStartSeq !== null || boundary.lastTurn > 0)) {
       throw new PresetLockedError(agent.id, agentPreset)
     }
     const preset = await this.recompose(agent.ctx, agentPreset)

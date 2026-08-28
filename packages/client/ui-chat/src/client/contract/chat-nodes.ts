@@ -97,6 +97,19 @@ export interface TurnTailChatData {
   readonly tokenUsage?: TurnTokenUsage
 }
 
+/** Turn-level process disclosure projected before the finalized answer. */
+export interface TurnProcessChatData {
+  readonly turn: number
+  readonly controlAnchorSeq: number
+  readonly processStartSeq: number
+  readonly answerAnchorSeq: number | null
+  readonly answerStep: number | null
+  readonly inlineReasoning: boolean
+  readonly messageCount: number
+  readonly toolCallCount: number
+  readonly subagentCount: number
+}
+
 /**
  * Test whether a Tool root has settled.
  * @param block - Tool root lifecycle value.

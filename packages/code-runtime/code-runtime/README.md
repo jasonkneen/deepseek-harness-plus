@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-`dsh-code-runtime` defines what a code runtime does: run one model-written program against a set of host-provided async functions and report `{ value, logs, error? }` — without dictating how any backend implements it. Load it in a composition with a backend and the service is available as `ctx.codeRuntime`; Code Mode in `dsh-tools` then runs model-written programs that compose tools. Every request runs once with no state carried between runs, and every program outcome — including failures — resolves as a result field rather than a rejection. The runtime knows nothing about tools or sessions: it is handed a program and named bindings, and everything tool-shaped stays with the consumer.
+`dsh-code-runtime` defines what a code runtime does: run one model-written program against a set of host-provided async functions and report `{ value, logs, error? }` — without dictating how any backend implements it. Load it in a composition with a backend and the service is available as `ctx.codeRuntime`; PTC mode in `dsh-tools` then runs model-written programs that compose tools. Every request runs once with no state carried between runs, and every program outcome — including failures — resolves as a result field rather than a rejection. The runtime knows nothing about tools or sessions: it is handed a program and named bindings, and everything tool-shaped stays with the consumer.
 
 ## Table of Contents
 
@@ -25,11 +25,11 @@ English | [中文](README.zh.md)
 <a id="use-this-package"></a>
 ## Use this package
 
-Choose this package when you compose a deployment that executes model-written programs, consume `ctx.codeRuntime` directly, or build a backend that runs programs. In the shipped composition, Code Mode in `dsh-tools` is the consumer: only what the program printed and returned re-enters the conversation.
+Choose this package when you compose a deployment that executes model-written programs, consume `ctx.codeRuntime` directly, or build a backend that runs programs. In the shipped composition, PTC mode in `dsh-tools` is the consumer: only what the program printed and returned re-enters the conversation.
 
 ### Run a program
 
-Give the runtime a program source and one or more binding namespaces. Each namespace becomes one global object of async functions inside the program — Code Mode passes one under `tools`. The program runs as the body of an async function, so top-level `await` and `return` work; a lossless-JSON completion becomes `result.value`, emitted text arrives in order as `result.logs`, and any failure is reported in `result.error` with a kind you can branch on. The runtime never rejects for a program failure — rejection means you misused the seam, for example by submitting a run after disposal.
+Give the runtime a program source and one or more binding namespaces. Each namespace becomes one global object of async functions inside the program — PTC mode passes one under `tools`. The program runs as the body of an async function, so top-level `await` and `return` work; a lossless-JSON completion becomes `result.value`, emitted text arrives in order as `result.logs`, and any failure is reported in `result.error` with a kind you can branch on. The runtime never rejects for a program failure — rejection means you misused the seam, for example by submitting a run after disposal.
 
 ```text
 const result = await ctx.codeRuntime.run({
@@ -63,7 +63,7 @@ This section explains the design behind the seam; observable behavior is fully c
 
 ### Design concept
 
-The package is the Service Definition role of the code-execution capability seam ([capability seams](../../../.agents/notes/implemented/architecture/2026-06-13-capability-seams.md)): an abstract `CodeRuntime extends Service` registered as `ctx.codeRuntime`, plus the vocabulary both backends and the consumer share. Providers subclass `CodeRuntime`, implement `run`, and register the service; the consumer (Code Mode in `dsh-tools`) generates the model-facing SDK and bridges tool dispatch. The runtime stays ignorant of tools and sessions by contract: it receives a program and named async bindings and returns `{ value, logs, error? }`.
+The package is the Service Definition role of the code-execution capability seam ([capability seams](../../../.agents/notes/implemented/architecture/2026-06-13-capability-seams.md)): an abstract `CodeRuntime extends Service` registered as `ctx.codeRuntime`, plus the vocabulary both backends and the consumer share. Providers subclass `CodeRuntime`, implement `run`, and register the service; the consumer (PTC mode in `dsh-tools`) generates the model-facing SDK and bridges tool dispatch. The runtime stays ignorant of tools and sessions by contract: it receives a program and named async bindings and returns `{ value, logs, error? }`.
 
 ### Service API
 
@@ -94,9 +94,9 @@ Binding-global and error-class names are language-portable: they must match the 
 <a id="further-exploration"></a>
 ## Further Exploration
 
-Read these when the package-level contract is not enough. They move from the Code Mode consumer to the shipped backends and the capability-seam model.
+Read these when the package-level contract is not enough. They move from the PTC mode consumer to the shipped backends and the capability-seam model.
 
-- [Code Mode Agent Note](../../../.agents/notes/implemented/feature/2026-06-15-code-mode.md) — how the tool registry consumes `ctx.codeRuntime` and presents `run_code` to the model.
+- [PTC mode Agent Note](../../../.agents/notes/implemented/feature/2026-06-15-ptc.md) — how the tool registry consumes `ctx.codeRuntime` and presents `run_code` to the model.
 - [Worker-thread backend](../code-runtime-worker-thread/README.md) — the shipped TypeScript execution backend.
 - [Python protocol package](../code-runtime-python/README.md) — the wire protocol for the CPython backend.
 - [Code runtime subsystem reference](../../../docs/subsystems/code-runtime.md) — request/result vocabulary, bindings, and the `ctx.codeRuntime` cordis surface.
@@ -107,7 +107,7 @@ Read these when the package-level contract is not enough. They move from the Cod
 <a id="model-experience"></a>
 ## Model Experience
 
-Indirectly, through Code Mode in `dsh-tools`, which exposes `run_code` and returns program logs, values, or failures as retained tool-result tokens.
+Indirectly, through PTC mode in `dsh-tools`, which exposes `run_code` and returns program logs, values, or failures as retained tool-result tokens.
 
 #### KV Cache effect
 

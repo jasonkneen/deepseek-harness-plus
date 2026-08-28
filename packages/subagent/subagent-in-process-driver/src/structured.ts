@@ -4,7 +4,7 @@
  * scope, so concurrent runs do not interact and disposal leaves no global residue. The prompt
  * contribution is ordinary reconstructed request state.
  *
- * Capture commits only after the authoritative `tools/result` succeeds; Code Mode capture also
+ * Capture commits only after the authoritative `tools/result` succeeds; PTC mode capture also
  * waits for the enclosing `run_code` result. The terminal result marker and monotonic tool
  * guard prevent later calls from reopening a completed structured run.
  * @module @deepseek-ai/dsh-subagent-in-process-driver/structured
@@ -124,7 +124,7 @@ export function attachStructuredRuntime(childCtx: Context, schema: ObjectJsonSch
         /* v8 ignore else -- sequential agent-loop dispatch lets the guard block every later supported call */
         if (captured === undefined) captured = { value: entry.value }
       } else {
-        /* v8 ignore else -- Code Mode serializes sub-dispatches, so the guard blocks every later supported call */
+        /* v8 ignore else -- PTC mode serializes sub-dispatches, so the guard blocks every later supported call */
         if (captured === undefined && pending === undefined) {
           pending = { parent: exec.parent, value: entry.value }
         }
@@ -135,7 +135,7 @@ export function attachStructuredRuntime(childCtx: Context, schema: ObjectJsonSch
     const entry = pending
     pending = undefined
     if (result.isError) return
-    /* v8 ignore else -- Code Mode serializes outer executions, so the guard blocks every later supported call */
+    /* v8 ignore else -- PTC mode serializes outer executions, so the guard blocks every later supported call */
     if (captured === undefined) captured = { value: entry.value }
   })
 

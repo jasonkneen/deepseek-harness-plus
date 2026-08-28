@@ -90,7 +90,7 @@ The following are deliberately out of scope for the first filesystem schema pass
 - Directory listing, glob, grep, and search tools.
 - Binary-safe read/write operations.
 - PDF/image/multimodal `read`.
-- Code Mode projection values for filesystem tools.
+- PTC mode projection values for filesystem tools.
 - A canonical edit diff format.
 
 ## Testing

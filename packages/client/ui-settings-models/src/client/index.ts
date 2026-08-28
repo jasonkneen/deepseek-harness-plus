@@ -7,7 +7,6 @@
  * packages/client/AGENTS.md.
  */
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
-import type { ConnectionHandle } from '@deepseek-ai/dsh-api-remotes/client'
 // Type-only: pulls the shell's SlotMap merge (the 'settings.section' entry).
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 // Type-only: pulls the locale plugin's Context merge (ctx.locale).
@@ -42,7 +41,9 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
 
 /** Dictionary namespace owned by this plugin. */
 const NS = 'settings.models'
-export type { ModelsCredentials, ModelsSettingsState, ModelsWire, ProviderRow } from './store.ts'
+export type {
+  ModelsCredentials, ModelsLlm, ModelsSettingsState, ModelsWire, ProviderDirectoryEntry, ProviderRow,
+} from './store.ts'
 
 /**
  * Refetch the page snapshot only after its first load: an unopened Models
@@ -60,7 +61,7 @@ export function refreshIfLoaded(controller: ModelsSettingsStore): void {
  * constrained; registration depends on each slot through `slots.inject()`.
  */
 export const inject = [
-  'slots', 'locale', 'connection', 'remote', 'remote.credentials', 'remote.settings',
+  'slots', 'locale', 'remote', 'remote.credentials', 'remote.llm', 'remote.settings',
   'settingsScope', 'settingsSchema',
 ]
 
@@ -73,14 +74,11 @@ export const inject = [
 export function apply(ctx: ClientContext): void {
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'ui-settings-models: copy dictionaries')
 
-  const connection = ctx.get('connection') as ConnectionHandle
   const schema = createSettingsSchemaOperations(ctx.settingsSchema)
-  // The page's two carriers under one face: model discovery and the catalog
-  // still ride the unary API, while settings and credentials are Remote
-  // namespaces.
+  // Every configuration operation rides its owning Remote namespace.
   const wire: ModelsWire = {
-    ...connection.api,
     credentials: ctx.remote.credentials,
+    llm: ctx.remote.llm,
     settings: ctx.remote.settings,
   }
   const controller = new ModelsSettingsStore(wire, schema, ctx.settingsScope.describe())

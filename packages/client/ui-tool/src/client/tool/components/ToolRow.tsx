@@ -13,8 +13,10 @@ import {
 import {
   diffBlockLabels, readBlockLabels, searchBlockLabels, webBlockLabels,
 } from '../models/primitive-labels.ts'
+import type { AskQuestionCardModel } from '../models/ask-question-card-model.ts'
 import type { ToolRowState, ToolRowVariant } from '../models/tool-call-model.ts'
 import type { WebCardModelProps } from '../models/web-card-model.ts'
+import { AskQuestionCard } from './AskQuestionCard.tsx'
 import css from './ToolRow.module.css'
 
 export interface ToolRowProps {
@@ -37,6 +39,8 @@ export interface ToolRowProps {
   body: string | null
   /** Flattened result text for the expanded Output section; null/absent = no output section. */
   output?: string | null | undefined
+  /** Ask-user transcript card; card fields are mutually exclusive and replace text sections. */
+  askQuestion?: AskQuestionCardModel | null | undefined
   /** Error first line shown as the collapsed summary on an error row; null/absent = keep `summary`. */
   errorSummary?: string | null | undefined
   /** Terminal card; card fields are mutually exclusive and replace text sections. */
@@ -91,6 +95,7 @@ export function ToolRow({
   summarySuffix,
   body,
   output,
+  askQuestion,
   errorSummary,
   terminal,
   diff,
@@ -115,8 +120,9 @@ export function ToolRow({
   const readBody = read ?? null
   const searchBody = search ?? null
   const webBody = web ?? null
+  const askQuestionBody = askQuestion ?? null
   const outputText = output ?? null
-  const card = terminalBody ?? diffBody ?? readBody ?? searchBody ?? webBody
+  const card = askQuestionBody ?? terminalBody ?? diffBody ?? readBody ?? searchBody ?? webBody
   const expandable = body !== null || outputText !== null || card !== null
   const open = expanded && expandable
   const status = stateStatus(state, t)
@@ -183,67 +189,69 @@ export function ToolRow({
         )}
       >
         <div className={css.bodyWrap}>
-          {terminalBody !== null
-            ? (
-              <TerminalBlock
-                {...terminalBody.card}
-                maxLines={Infinity}
-                labels={terminalLabels}
-                className={css.terminalBody}
-              />
-            )
-            : diffBody !== null
-              ? <DiffBlock {...diffBody.card} labels={diffLabels} maxLines={CHAT_DIFF_MAX_LINES} className={css.diffBody} />
-              : readBody !== null
-                ? <ReadBlock {...readBody} labels={readLabels} maxLines={CHAT_READ_MAX_LINES} className={css.readBody} />
-                : searchBody !== null
-                  ? (
-                    <>
-                      <SearchBlock
-                        {...searchBody.card}
-                        labels={searchLabels}
-                        maxLines={CHAT_SEARCH_MAX_LINES}
-                        className={css.searchBody}
-                      />
-                      {/* A capped search's recovery locator lives only in the result
-                          text; show it below the card so the dropped rows survive. */}
-                      {searchBody.recovery !== undefined && (
-                        <div className={css.searchRecovery}>{searchBody.recovery}</div>
-                      )}
-                    </>
-                  )
-                  : webBody !== null
-                    ? <WebBlock {...webBody} labels={webLabels} className={css.webBody} />
-                    : (
+          {askQuestionBody !== null
+            ? <AskQuestionCard card={askQuestionBody} />
+            : terminalBody !== null
+              ? (
+                <TerminalBlock
+                  {...terminalBody.card}
+                  maxLines={Infinity}
+                  labels={terminalLabels}
+                  className={css.terminalBody}
+                />
+              )
+              : diffBody !== null
+                ? <DiffBlock {...diffBody.card} labels={diffLabels} maxLines={CHAT_DIFF_MAX_LINES} className={css.diffBody} />
+                : readBody !== null
+                  ? <ReadBlock {...readBody} labels={readLabels} maxLines={CHAT_READ_MAX_LINES} className={css.readBody} />
+                  : searchBody !== null
+                    ? (
                       <>
-                        {variant === 'code' && body !== null && (
-                          <div className={css.bodyScroll}>
-                            <CodeBlock code={body} lang="typescript" copyLabel={t('copy')} copiedLabel={t('copied')} className={css.codeBody} />
-                          </div>
-                        )}
-                        {(cardBody !== null || outputText !== null) && (
-                          <div className={css.ioCard}>
-                            {cardBody !== null && (
-                              <div className={css.ioSection}>
-                                <span className={css.ioLabel}>{t('row.input')}</span>
-                                <span className={css.ioText}>{cardBody}</span>
-                              </div>
-                            )}
-                            {cardBody !== null && outputText !== null && (
-                              <span className={css.ioDivider} aria-hidden />
-                            )}
-                            {outputText !== null && (
-                              <div className={css.ioSection}>
-                                <span className={css.ioLabel}>{t('row.output')}</span>
-                                <span className={css.ioText} data-error={state === 'error' || undefined}>
-                                  {outputText}
-                                </span>
-                              </div>
-                            )}
-                          </div>
+                        <SearchBlock
+                          {...searchBody.card}
+                          labels={searchLabels}
+                          maxLines={CHAT_SEARCH_MAX_LINES}
+                          className={css.searchBody}
+                        />
+                        {/* A capped search's recovery locator lives only in the result
+                          text; show it below the card so the dropped rows survive. */}
+                        {searchBody.recovery !== undefined && (
+                          <div className={css.searchRecovery}>{searchBody.recovery}</div>
                         )}
                       </>
-                    )}
+                    )
+                    : webBody !== null
+                      ? <WebBlock {...webBody} labels={webLabels} className={css.webBody} />
+                      : (
+                        <>
+                          {variant === 'code' && body !== null && (
+                            <div className={css.bodyScroll}>
+                              <CodeBlock code={body} lang="typescript" copyLabel={t('copy')} copiedLabel={t('copied')} className={css.codeBody} />
+                            </div>
+                          )}
+                          {(cardBody !== null || outputText !== null) && (
+                            <div className={css.ioCard}>
+                              {cardBody !== null && (
+                                <div className={css.ioSection}>
+                                  <span className={css.ioLabel}>{t('row.input')}</span>
+                                  <span className={css.ioText}>{cardBody}</span>
+                                </div>
+                              )}
+                              {cardBody !== null && outputText !== null && (
+                                <span className={css.ioDivider} aria-hidden />
+                              )}
+                              {outputText !== null && (
+                                <div className={css.ioSection}>
+                                  <span className={css.ioLabel}>{t('row.output')}</span>
+                                  <span className={css.ioText} data-error={state === 'error' || undefined}>
+                                    {outputText}
+                                  </span>
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </>
+                      )}
           {inspect !== undefined && (
             <button
               type="button"

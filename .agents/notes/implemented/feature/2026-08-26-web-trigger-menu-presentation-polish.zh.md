@@ -18,7 +18,7 @@ Web composer 的 `/` 与 `@` 触发菜单存在多处呈现缺陷，使引用流
 
 仍带触发符的 token 是可编辑文本而非 settled chip：text-ref 装饰只做染色，领域图标专属于 settled 的 `ReferenceChipNode`。原有的 appearance 通道（扫描的 `appearance` 字段、`TextRefNode.__appearance`、`data-ref-appearance` DOM 属性、CSS `::before` 图标）端到端删除。
 
-composer placeholder 同时提示两个触发符（`描述你想要构建的内容… / 调用指令 @ 文件或会话` / `Describe what you want to build... / commands, @ files or sessions`），并将 `ui-chat`、`ui-conversation`、`ui-goal`、`ui-input-trigger` 中命令的中文文案统一为"指令"。
+composer placeholder 同时提示两个触发符（`描述你想要构建的内容… / 调用指令 @ 文件或对话` / `Describe what you want to build... / commands, @ files or sessions`），并将 `ui-chat`、`ui-conversation`、`ui-goal`、`ui-input-trigger` 中命令的中文文案统一为"指令"。
 
 ## Alternatives considered
 
@@ -32,4 +32,4 @@ composer placeholder 同时提示两个触发符（`描述你想要构建的内�
 
 ## Consequences
 
-过去每行用文字拼写的类型信息现在由图标和 section 标题承载；未来新增候选类型必须扩展 `InputTriggerCandidateIcon` 并选定图标，而非传任意字符串。指针移动经 reducer 往返（`hover` 对已高亮行是 no-op，mousemove 风暴不会搅动状态）。下钻的可发现性依赖高亮：空闲文件夹行在被悬停或键盘到达前只显示 chevron。延后的跟进项——精确匹配 token 的空格 settle、候选 description 内容、下钻后的回退导航、`name` 与 `name/` 标签、引用搜索延迟——记录在 [#3154](https://github.com/deepseek-harness/deepseek-harness/issues/3154)。
+过去每行用文字拼写的类型信息现在由图标和 section 标题承载；未来新增候选类型必须扩展 `InputTriggerCandidateIcon` 并选定图标，而非传任意字符串。指针移动经 reducer 往返（`hover` 对已高亮行是 no-op，mousemove 风暴不会搅动状态）。下钻的可发现性依赖高亮：空闲文件夹行在被悬停或键盘到达前只显示 chevron。延后的跟进项——精确匹配 token 的空格 settle、`name` 与 `name/` 标签——仍记录在 [#3154](https://github.com/deepseek-harness/deepseek-harness/issues/3154)；候选 description 内容、下钻后的回退导航与引用搜索延迟由 [@ mention 发现与行内容笔记](2026-08-27-web-at-mention-discovery-and-row-content.zh.md) 结清。

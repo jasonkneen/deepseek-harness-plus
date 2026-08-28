@@ -99,9 +99,12 @@ describe('reference submission', () => {
     })
 
     shell.submit('queue')
-    expect(shell.snapshot.phase).toBe('submitting')
+    // Optimistic commit: the composer clears at enter and stays unlocked
+    // while the detached flight runs.
+    expect(shell.snapshot.phase).toBe('plain')
+    expect(shell.snapshot.draft).toBe('')
     await vi.waitFor(() => {
-      expect(shell.snapshot.phase).toBe('plain')
+      expect(shell.snapshot.draft).toBe(`${mention} `)
     })
     expect(sink).toHaveBeenNthCalledWith(1, mention, [], 'queue', expect.any(AbortSignal))
     expect(shell.snapshot).toMatchObject({
@@ -114,10 +117,10 @@ describe('reference submission', () => {
     })
 
     shell.submit('queue')
+    expect(shell.snapshot.draft).toBe('')
     await vi.waitFor(() => {
-      expect(shell.snapshot.draft).toBe('')
+      expect(sink).toHaveBeenNthCalledWith(2, mention, [], 'queue', expect.any(AbortSignal))
     })
-    expect(sink).toHaveBeenNthCalledWith(2, mention, [], 'queue', expect.any(AbortSignal))
     expect(shell.snapshot.occurrences).toEqual([])
     expect(serializeReference).toHaveBeenCalledTimes(2)
   })
@@ -137,11 +140,11 @@ describe('reference submission', () => {
     })
     chip(shell)
     shell.submit()
+    // The serializer rejection restores the optimistic commit with its chip.
     await vi.waitFor(() => {
-      expect(shell.snapshot.phase).toBe('plain')
+      expect(shell.snapshot.draft).toBe(`${mention} `)
     })
     expect(sink).not.toHaveBeenCalled()
-    expect(shell.snapshot.draft).toBe(`${mention} `)
     expect(shell.snapshot.occurrences).toHaveLength(1)
     expect(shell.notices.getSnapshot()).toMatchObject({
       level: 'error',
@@ -165,7 +168,9 @@ describe('reference submission', () => {
     shell.dispose()
     expect(signal?.aborted).toBe(true)
     expect(shell.snapshot.phase).toBe('plain')
-    expect(shell.snapshot.draft).toBe('send this')
+    // The optimistic commit stands: disposal drops the settlement, so the
+    // sent draft is not restored into the dying composer.
+    expect(shell.snapshot.draft).toBe('')
   })
 
   it('retains a rejected default message without duplicating its prompt error notice', async () => {
@@ -181,6 +186,25 @@ describe('reference submission', () => {
     })
     expect(shell.snapshot.draft).toBe('retry this')
     expect(shell.notices.getSnapshot()).toBeNull()
+  })
+
+  it('restores concurrent failed messages in submission order', async () => {
+    const settlements: Array<(outcome: SubmitOutcome) => void> = []
+    const shell = new SessionInputShell({
+      actx: {} as Context,
+      defaultSink: () => new Promise<SubmitOutcome>((resolve) => { settlements.push(resolve) }),
+      commandImages,
+    })
+    shell.setDraft('first')
+    shell.submit()
+    shell.setDraft('second')
+    shell.submit()
+    expect(shell.snapshot.draft).toBe('')
+
+    settlements[0]?.({ kind: 'error' })
+    await vi.waitFor(() => { expect(shell.snapshot.draft).toBe('first') })
+    settlements[1]?.({ kind: 'error' })
+    await vi.waitFor(() => { expect(shell.snapshot.draft).toBe('first\n\nsecond') })
   })
 })
 
@@ -221,6 +245,24 @@ describe('submit transaction hardening', () => {
     await Promise.resolve()
     expect(shell.snapshot.imageIds).toEqual([imageId])
     expect(shell.notices.getSnapshot()).toBeNull()
+  })
+
+  it('aborts an unsettled image-only send and returns its image id at disposal', () => {
+    let signal: AbortSignal | undefined
+    const imageId = 'img-flight' as DraftAttachmentId
+    const shell = new SessionInputShell({
+      actx: {} as Context,
+      defaultSink: (_text, _ids, _mode, received) => {
+        signal = received
+        return new Promise<SubmitOutcome>(() => {})
+      },
+      commandImages,
+    })
+    shell.addImages([imageId])
+    shell.submit()
+    expect(signal?.aborted).toBe(false)
+    expect(shell.dispose()).toEqual([imageId])
+    expect(signal?.aborted).toBe(true)
   })
 
   it('re-tracks at the caret when an insert-text splice lands (directory descent reopens the menu)', () => {

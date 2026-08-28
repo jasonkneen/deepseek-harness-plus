@@ -71,8 +71,7 @@ describe('GeneralSection', () => {
 describe('SettingsDocumentAction', () => {
   it('appears only for a file-backed provider and requests its Host-owned document', async () => {
     const openDocument = vi.fn(() => Promise.resolve({
-      rpcId: 'document-open' as never,
-      result: { ok: true as const, value: { opened: true as const } },
+      ok: true as const, value: { opened: true as const },
     }))
     const controller = derivedDocumentStore({
       settings: {
@@ -80,7 +79,7 @@ describe('SettingsDocumentAction', () => {
           ok: true as const,
           value: { writable: true, hasDocument: true, namespaces: [] },
         })),
-        openDocument,
+        openSettingsDocument: openDocument,
       },
     })
     render(<SettingsDocumentAction
@@ -91,14 +90,14 @@ describe('SettingsDocumentAction', () => {
     />)
     const action = await screen.findByRole('button', { name: 'Open configuration file' })
     fireEvent.click(action)
-    await waitFor(() => { expect(openDocument).toHaveBeenCalledWith({}) })
+    await waitFor(() => { expect(openDocument).toHaveBeenCalledWith() })
   })
 
   it('stays absent without a document and follows a mirror refresh to available', async () => {
     const describe = vi.fn()
       .mockResolvedValueOnce({ ok: true as const, value: { writable: true, hasDocument: false, namespaces: [] } })
       .mockResolvedValueOnce({ ok: true as const, value: { writable: true, hasDocument: true, namespaces: [] } })
-    const wire = { settings: { describe, openDocument: vi.fn() } } as never
+    const wire = { settings: { describe, openSettingsDocument: vi.fn() } } as never
     const mirror = new SettingsDescribeMirror(wire)
     const controller = new SettingsDocumentStore(wire, mirror)
     const first = render(<SettingsDocumentAction
@@ -132,9 +131,9 @@ describe('SettingsDocumentAction', () => {
           ok: true as const,
           value: { writable: true, hasDocument: true, namespaces: [] },
         })),
-        openDocument: vi.fn(() => Promise.resolve({
-          rpcId: 'document-open-failed' as never,
-          result: { ok: false as const, error: { code: 'internal' as const, message: 'xdg-open missing', details: {} } },
+        openSettingsDocument: vi.fn(() => Promise.resolve({
+          ok: false as const,
+          error: { code: 'internal' as const, message: 'xdg-open missing', details: {} },
         })),
       },
     })

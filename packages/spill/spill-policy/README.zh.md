@@ -84,7 +84,7 @@ kind: "package-reference"
 
 ### 两条分支
 
-`tools/post-execute` waterfall（瀑布式事件）监听器（以 `prepend` 注册、通过 `next()` 委托）约束面向模型的结果；`tools/code-dispatch-log` 监听器约束每个 `run_code` 子调用的持久日志副本。两者共享同一个替换辅助函数，因此两个投影字节一致。post-execute 分支跳过 `read` 以避免 read → spill → read 循环；dispatch-log 分支约束 `read` 子调用，因为日志副本不是模型上下文。
+`tools/post-execute` waterfall（瀑布式事件）监听器（以 `prepend` 注册、通过 `next()` 委托）约束面向模型的结果；`tools/ptc-dispatch-log` 监听器约束每个 `run_code` 子调用的持久日志副本。两者共享同一个替换辅助函数，因此两个投影字节一致。post-execute 分支跳过 `read` 以避免 read → spill → read 循环；dispatch-log 分支约束 `read` 子调用，因为日志副本不是模型上下文。
 
 ### 源码地图
 
@@ -111,7 +111,7 @@ kind: "package-reference"
 - [dsh-spill-local](../spill-local/README.zh.md)——保存 spill 文本的本地后端。
 - [dsh-output-retention](../../util/output-retention/README.zh.md)——策略组合的预览机制（`TextRetainer`）。
 - [工具输出 spill 决策](../../../.agents/notes/implemented/architecture/2026-07-08-tool-output-spill-files.zh.md)——能力边界与设计依据。
-- [代码 dispatch-log spill 决策](../../../.agents/notes/implemented/feature/2026-07-26-code-dispatch-log-spill.zh.md)——为何持久日志副本同样设界。
+- [PTC dispatch-log spill 决策](../../../.agents/notes/implemented/feature/2026-07-26-ptc-dispatch-log-spill.zh.md)——为何持久日志副本同样设界。
 
 -----
 

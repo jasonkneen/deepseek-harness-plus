@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 // The command image-attachment envelope over the BUILT client graph (real
-// bundles via AppWebEntry, keyless FixtureApiClient transport): an enter
+// bundles via AppWebEntry, keyless fixture Connection RPC): an enter
 // submission carrying composer images resolves only through a command whose
 // descriptor declares `input.images`. A non-declaring command refuses with
 // one composer error banner and everything retained; a declaring command

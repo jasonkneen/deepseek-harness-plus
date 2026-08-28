@@ -30,7 +30,7 @@ DeepSeek Harness 在 TUI 和 Headless coding agent 之外，还提供了两个�
 
 TUI 与 Headless 的 Loader 覆盖以源码和构建产物两种模式运行真实 app 包。由 PTY 驱动的子进程覆盖仅用于 TUI 生命周期；其他入口冒烟测试使用单次管道协议。Headless 验证任务/结果约定和工具调用约定。生成图谱与仓库搜索会拒绝陈旧的包、命令、叶节点、SDK 接口、`createStdioChat` 和 `StdioRuntime` 引用。
 
-构建后的 `dsh` 可执行文件会在 Loader 启动前拒绝通过管道启动 TUI，并指向 `dsh --profile headless`；`apps/cli/tests/built-bin.e2e.ts` 在普通 Node 下固定产品的一次性入口，包括输出和无效参数。`apps/cli/tests/profiles/headless/tests/headless.expected.e2e.ts` 固定产品持久化，`apps/cli/tests/headless-shutdown.e2e.ts` 则负责有界信号升级。headless 预期输出测试保留组装后的规范事件，而不会创建第二套 CLI（命令行界面）约定。Code Mode 通过 headless profile 的 `DSH_TOOLS_MODE=code` 组合运行。时间上下文集成通过包自有 Loader 组合执行两个有序轮次，而更细粒度的耗时行为由时间上下文的包级测试负责。
+构建后的 `dsh` 可执行文件会在 Loader 启动前拒绝通过管道启动 TUI，并指向 `dsh --profile headless`；`apps/cli/tests/built-bin.e2e.ts` 在普通 Node 下固定产品的一次性入口，包括输出和无效参数。`apps/cli/tests/profiles/headless/tests/headless.expected.e2e.ts` 固定产品持久化，`apps/cli/tests/headless-shutdown.e2e.ts` 则负责有界信号升级。headless 预期输出测试保留组装后的规范事件，而不会创建第二套 CLI（命令行界面）约定。PTC mode 通过 headless profile 的 `DSH_TOOLS_MODE=ptc` 组合运行。时间上下文集成通过包自有 Loader 组合执行两个有序轮次，而更细粒度的耗时行为由时间上下文的包级测试负责。
 
 ## 曾考虑的替代方案
 

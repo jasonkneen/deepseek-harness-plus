@@ -1,6 +1,6 @@
 // Shared scaffolding for the assembled-jsdom snapshots: the real built
 // workspace `lib/client.js` artifacts booted through AppWebEntry's
-// ModuleLoader path (loadBundle) against the keyless FixtureApiClient
+// ModuleLoader path (loadBundle) against the keyless fixture Connection RPC
 // transport. Every file that mounts this graph needs the same boot entry list,
 // the same bundle map, the same jsdom globals, and the same mount call, and
 // differs only in what it asserts afterwards, so the scaffolding lives here.

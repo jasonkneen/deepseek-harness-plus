@@ -223,6 +223,28 @@ export type SessionError = {
   }
 }[keyof SessionErrorDetailsMap]
 
+/** Session-addressed request for the human-invocable skill catalog. */
+export interface SkillListRequest {
+  readonly sessionId: SessionId
+}
+
+/** One skill available to the Session's human-facing composer. */
+export interface SkillEntry {
+  /** Kebab-case identifier referenced as `/name`. */
+  readonly name: string
+  /** Short routing description. */
+  readonly description: string
+  /** Optional extra routing guidance. */
+  readonly whenToUse?: string
+  /** Whether the same skill is also advertised to the model. */
+  readonly modelInvocable: boolean
+}
+
+/** Human-invocable skills visible through one Session's composition. */
+export interface SkillListValue {
+  readonly skills: readonly SkillEntry[]
+}
+
 /** Session list request. */
 export interface SessionListRequest {
   readonly cursor?: string
@@ -340,6 +362,17 @@ export interface SessionCancelValue {
   readonly accepted: true
 }
 
+/** Request to open one path prepared by a Session-aware caller on the Host desktop. */
+export interface SessionOpenWorkspacePathRequest {
+  /** Path after best-effort Session workspace resolution, in Host filesystem syntax. */
+  readonly path: string
+}
+
+/** Confirmation that the Host handed a workspace path to its native opener. */
+export interface SessionOpenWorkspacePathValue {
+  readonly opened: true
+}
+
 /** Client-minted prompt identity used to reconcile optimistic and durable messages. */
 export type SessionRequestId = Branded<'session-request-id'>
 
@@ -432,6 +465,8 @@ export type SessionFollowFrame =
 export interface SessionQueuedItem {
   readonly id: MessageId
   readonly placement: 'queued' | 'steering' | 'context'
+  /** Prompt-RPC identity from the queued message's user source; clients retire the matching local submission echo on it. */
+  readonly rpcId?: SessionRequestId
   /** JSON-safe message fields consumed by pending-queue presentation. */
   readonly message: {
     readonly id: MessageId

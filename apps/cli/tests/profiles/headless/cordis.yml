@@ -124,7 +124,6 @@
   config:
     provider: spawn
     toolName: subagent
-    enableModelSelection: true
     backgroundMode: continuable
     maxDepth: 1
 

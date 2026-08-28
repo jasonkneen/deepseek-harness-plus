@@ -1,4 +1,4 @@
-# Add Code Mode and Cordis tools to the base spawn/workflow stack, exercising
+# Add PTC mode and Cordis tools to the base spawn/workflow stack, exercising
 # all four boundaries in one ACP snapshot.
 - id: agent-default-model
   name: '@deepseek-ai/dsh-agent-default-model'

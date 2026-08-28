@@ -10,12 +10,10 @@
  */
 import { IMAGE_FILE_NAME } from '../image-layout.ts'
 import { PREVIEW_FIXTURE_MANIFEST_FILE } from '../fixture-manifest.ts'
-import { WorkerApiClient } from './api-client.ts'
 import { WorkerTunnel, type TunnelFetch } from './client.ts'
 import { applyIndexInjections } from './apply-injections.ts'
 import { choosePreviewSource } from './source-chooser.ts'
 
-export { WorkerApiClient } from './api-client.ts'
 export { WorkerTunnel, type TunnelFetch } from './client.ts'
 export { applyIndexInjections } from './apply-injections.ts'
 export { IMAGE_FILE_NAME } from '../image-layout.ts'
@@ -27,7 +25,6 @@ export {
 /** Transport global the connection plugin reads instead of building an HTTP carrier. */
 interface ClientTransportGlobal {
   __DSH_TRANSPORT__?: {
-    createApiClient: () => WorkerApiClient
     fetch: TunnelFetch
     openStream: (endpoint: string, payload: unknown, signal: AbortSignal) => AsyncIterable<unknown>
     loadBundle: (url: string) => Promise<void>
@@ -147,7 +144,6 @@ export async function connectWorkerHost(worker: Worker, options?: WorkerHostConn
     )
     const payload = await tunnel.bootPayload()
     ;(globalThis as ClientTransportGlobal).__DSH_TRANSPORT__ = {
-      createApiClient: () => new WorkerApiClient(tunnel),
       fetch: (input, init) => tunnel.fetch(input, init),
       openStream: (endpoint, payload, signal) => tunnel.open(endpoint, payload, signal),
       loadBundle: (url: string) => tunnel.loadBundle(url),

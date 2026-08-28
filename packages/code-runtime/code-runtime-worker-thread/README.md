@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-`dsh-code-runtime-worker-thread` executes TypeScript programs for the [`dsh-code-runtime`](../code-runtime/README.md) seam: each program runs in one fresh Node worker thread with host-provided bindings callable as ordinary async functions, and the run returns `{ value, logs, error? }`. It is the shipped backend for Code Mode in `dsh-tools`, so mounting it is what makes model-written TypeScript execution work in a composition. The runtime contains a program without isolating it: the trust posture is bash-equivalent, with an empty environment, a heap cap, measured busy-time and wall-clock budgets, and hard termination. Programs run once per request with no state carried between runs, and every failure — syntax error, budget expiry, abort, OOM exit, or output overflow — comes back as a result field.
+`dsh-code-runtime-worker-thread` executes TypeScript programs for the [`dsh-code-runtime`](../code-runtime/README.md) seam: each program runs in one fresh Node worker thread with host-provided bindings callable as ordinary async functions, and the run returns `{ value, logs, error? }`. It is the shipped backend for PTC mode in `dsh-tools`, so mounting it is what makes model-written TypeScript execution work in a composition. The runtime contains a program without isolating it: the trust posture is bash-equivalent, with an empty environment, a heap cap, measured busy-time and wall-clock budgets, and hard termination. Programs run once per request with no state carried between runs, and every failure — syntax error, budget expiry, abort, OOM exit, or output overflow — comes back as a result field.
 
 ## Table of Contents
 
@@ -25,7 +25,7 @@ English | [中文](README.zh.md)
 <a id="use-this-package"></a>
 ## Use this package
 
-Mount this backend with the code-runtime seam when a composition should execute model-written TypeScript programs; Code Mode in `dsh-tools` then drives it through `ctx.codeRuntime` whenever the model calls `run_code`. Every execution cap is validated config, so you can size the runtime for your deployment from `cordis.yml`.
+Mount this backend with the code-runtime seam when a composition should execute model-written TypeScript programs; PTC mode in `dsh-tools` then drives it through `ctx.codeRuntime` whenever the model calls `run_code`. Every execution cap is validated config, so you can size the runtime for your deployment from `cordis.yml`.
 
 ### Minimal configuration
 
@@ -50,7 +50,7 @@ Every field is validated and defaulted at load; there are no other tunables. The
 
 ### What a run returns
 
-A successful run returns the program's lossless-JSON completion value as `result.value` and the text it printed, in order, as `result.logs`. Top-level `await` and `return` work, and the program can call the host-provided binding functions (Code Mode exposes one `tools` object) as ordinary async calls.
+A successful run returns the program's lossless-JSON completion value as `result.value` and the text it printed, in order, as `result.logs`. Top-level `await` and `return` work, and the program can call the host-provided binding functions (PTC mode exposes one `tools` object) as ordinary async calls.
 
 ### Containment, not a security boundary
 
@@ -72,7 +72,7 @@ This section explains the design behind the backend; observable behavior is full
 
 ### Design concept
 
-The backend rests on one separation: **containment, not a security boundary**. Model code has bash-equivalent trust (the [Code Mode Agent Note](../../../.agents/notes/implemented/feature/2026-06-15-code-mode.md) Trust posture), so the design optimizes for reconstructability and bounded resource use rather than for a hard multi-tenant boundary — that awaits a container-class backend. Each run gets one fresh worker, so a program's world dies with its worker: no cross-run state exists to leak or to log, and a run is reconstructable from the session log alone.
+The backend rests on one separation: **containment, not a security boundary**. Model code has bash-equivalent trust (the [PTC mode Agent Note](../../../.agents/notes/implemented/feature/2026-06-15-ptc.md) Trust posture), so the design optimizes for reconstructability and bounded resource use rather than for a hard multi-tenant boundary — that awaits a container-class backend. Each run gets one fresh worker, so a program's world dies with its worker: no cross-run state exists to leak or to log, and a run is reconstructable from the session log alone.
 
 ### Execution flow
 
@@ -116,7 +116,7 @@ Source mode loads erasable-only `src/worker.ts` through Node's native type strip
 Read these when the backend contract is not enough. They move from the seam definition to the consumer and the configuration surface.
 
 - [Code runtime seam](../code-runtime/README.md) — the abstract contract this backend implements.
-- [Code Mode Agent Note](../../../.agents/notes/implemented/feature/2026-06-15-code-mode.md) — how `dsh-tools` consumes `ctx.codeRuntime` and presents `run_code`.
+- [PTC mode Agent Note](../../../.agents/notes/implemented/feature/2026-06-15-ptc.md) — how `dsh-tools` consumes `ctx.codeRuntime` and presents `run_code`.
 - [Code runtime subsystem reference](../../../docs/subsystems/code-runtime.md) — request/result vocabulary, bindings, and failure taxonomy.
 - [Generated configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-code-runtime-worker-thread) — every accepted config field and its source declaration.
 
@@ -125,7 +125,7 @@ Read these when the backend contract is not enough. They move from the seam defi
 <a id="model-experience"></a>
 ## Model Experience
 
-Indirectly, through Code Mode in `dsh-tools`, which renders the exact outer value when it fits or an explicit `invalid-output` / `output-limit` failure, while only the outer `run_code` result enters model context under its ordinary spill policy and binding traffic plus intermediate values remain execution-local.
+Indirectly, through PTC mode in `dsh-tools`, which renders the exact outer value when it fits or an explicit `invalid-output` / `output-limit` failure, while only the outer `run_code` result enters model context under its ordinary spill policy and binding traffic plus intermediate values remain execution-local.
 
 #### KV Cache effect
 

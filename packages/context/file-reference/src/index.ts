@@ -4,9 +4,8 @@
  * @module @deepseek-ai/dsh-file-reference
  */
 
-import type { Context } from '@deepseek-ai/cordis'
+import { Service, type Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
-import { Remote, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
 
 import type { FileReferenceCandidate } from './types.ts'
 
@@ -24,7 +23,7 @@ declare module '@deepseek-ai/cordis' {
 }
 
 /** Host capability for cancellable file-reference discovery. */
-export abstract class FileReferenceService extends TypertRemoteService {
+export abstract class FileReferenceService extends Service {
   constructor(ctx: Context) {
     super(ctx, 'fileReferences')
   }
@@ -41,23 +40,6 @@ export abstract class FileReferenceService extends TypertRemoteService {
     query: string,
     signal: AbortSignal,
   ): Promise<FileReferenceCandidate[]>
-
-  /**
-   * Remote face of {@link list}; the decorator cannot mark the abstract
-   * member, so this concrete adapter carries the identical contract.
-   * @param agent - target agent whose session cwd bounds discovery.
-   * @param query - path text following `@` or `@"`.
-   * @param signal - caller cancellation.
-   * @returns deterministic path-only candidates.
-   */
-  @Remote('list')
-  remoteExportList(
-    agent: Agent,
-    query: string,
-    signal: AbortSignal,
-  ): Promise<FileReferenceCandidate[]> {
-    return this.list(agent, query, signal)
-  }
 }
 
 export default FileReferenceService

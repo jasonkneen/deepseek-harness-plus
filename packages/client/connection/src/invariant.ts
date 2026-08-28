@@ -18,8 +18,8 @@ export const inject = ['invariants']
  * No runtime invariant: browser-session verification reads the credential
  * record asynchronously at the request that authorizes work, while the
  * credentials companion owns record commit-event lifetime. Stream/reconnect
- * sequencing is exercised directly by behavior specs, rpcId round-trip
- * discipline belongs to apiproxy, and route register/dispose symmetry is
+ * sequencing and rpcId round-trip discipline are exercised directly by
+ * behavior specs, and route register/dispose symmetry is
  * audited by the webserver companion.
  */
 const install: InvariantInstaller = () => {}

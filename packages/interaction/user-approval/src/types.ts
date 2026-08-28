@@ -1,6 +1,6 @@
 /**
  * Wire-safe approval identifiers and outcome vocabulary, free of
- * cordis/service imports so browser type chains (apiproxy api → client) can
+ * cordis/service imports so browser type chains can
  * consume them without loading this package's Context augmentation.
  * @module @deepseek-ai/dsh-user-approval/types
  */

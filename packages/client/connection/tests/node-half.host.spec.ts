@@ -6,11 +6,9 @@ import { Context } from '@deepseek-ai/cordis'
 import { describe, expect, it } from 'vitest'
 import type { AddressInfo } from 'node:net'
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import type { ApiProxy } from '@deepseek-ai/dsh-host-apiproxy/api'
 import type { AttachmentStore } from '@deepseek-ai/dsh-attachment'
-import { RpcId, type ClientRequest } from '@deepseek-ai/dsh-host-apiproxy/api'
 import type { WebServer, WebRoute, WebUpgradeRoute } from '@deepseek-ai/dsh-host-webserver'
-import { API_PATH, apply, inject, type HostConnectionHandle } from '../src/index.ts'
+import { API_PATH, RpcId, apply, inject, type ClientRequest, type HostConnectionHandle } from '../src/index.ts'
 import { DEFAULT_MAX_REQUEST_BODY_BYTES } from '../src/http-bridge.ts'
 import { provideBrowserCredentials } from './browser-credentials.ts'
 
@@ -94,7 +92,6 @@ async function mounted(config?: { trustedHosts?: string[] }): Promise<{
   const upgrades: WebUpgradeRoute[] = []
   provideBrowserCredentials(ctx)
   ctx.provide('webServer', fakeHttpServer(routes, upgrades) as WebServer)
-  ctx.provide('apiProxy', {} as unknown as ApiProxy)
   const fiber = ctx.plugin({ inject: [...inject], apply }, config)
   await fiber.await()
   return {
@@ -131,7 +128,6 @@ describe('connection node half', () => {
     ctx.provide('attachments', {
       imageLimits: { maxMessageImageBytes: 20 * 1024 * 1024 },
     } as AttachmentStore)
-    ctx.provide('apiProxy', {} as ApiProxy)
     await expect(apply(ctx, { maxRequestBodyBytes: 1024 }))
       .rejects.toThrow(/must be at least .* aggregate image limit/)
     expect(routes).toHaveLength(0)
@@ -143,7 +139,6 @@ describe('connection node half', () => {
     const ctx = new Context()
     provideBrowserCredentials(ctx)
     ctx.provide('webServer', fakeHttpServer(routes, upgrades) as WebServer)
-    ctx.provide('apiProxy', {} as unknown as ApiProxy)
     const fiber = ctx.plugin({ inject: [...inject], apply }, { trustedHosts: ['harness.internal/path'] })
     await expect(fiber).rejects.toThrow(/not a bare host\[:port\] authority/)
     expect(routes).toHaveLength(0)
@@ -174,8 +169,8 @@ describe('connection node half', () => {
   it('requires the same browser session for every method on every trusted authority', async () => {
     const { routes, connection, dispose } = await mounted({ trustedHosts: ['harness.example'] })
     const methods = [
-      'host.openPath',
-      'llm.discoverModels', 'llm.models', 'agentPreset.openDocument',
+      'session/openWorkspacePath',
+      'llm/discoverModels', 'skills/list', 'settings/openAgentPresetDirectory',
     ]
     for (const method of methods) {
       const denied = fakeResponse()
@@ -243,7 +238,7 @@ describe('connection node half', () => {
     await dispose()
   })
 
-  it('provides a disposable dedicated RPC channel without requiring apiProxy', async () => {
+  it('provides a disposable dedicated RPC channel', async () => {
     const ctx = new Context()
     const routes: WebRoute[] = []
     provideBrowserCredentials(ctx)
@@ -292,12 +287,11 @@ describe('connection node half', () => {
     expect(routes).toHaveLength(0)
   })
 
-  it('dispatches claimed /api endpoints before the API Proxy fallback and withdraws the claim', async () => {
+  it('dispatches claimed /api endpoints and withdraws the claim', async () => {
     const ctx = new Context()
     const routes: WebRoute[] = []
     provideBrowserCredentials(ctx)
     ctx.provide('webServer', fakeHttpServer(routes, []) as WebServer)
-    ctx.provide('apiProxy', {} as unknown as ApiProxy)
     const fiber = ctx.plugin({ inject: [...inject], apply }, { trustedHosts: ['harness.example'] })
     await fiber.await()
     const connection = ctx.get('connection') as HostConnectionHandle
@@ -500,17 +494,17 @@ describe('connection node half over a real HTTP server', () => {
     const { port, close } = await serve(routes)
     try {
       const methods = [
-        'settings.openDocument',
-        'host.openPath',
-        'llm.discoverModels',
-        'agentPreset.openDocument',
-        'llm.providers', 'llm.models',
+        'settings/openSettingsDocument',
+        'session/openWorkspacePath',
+        'llm/discoverModels', 'skills/list',
+        'settings/openAgentPresetDirectory',
+        'llm/listProviders', 'session/modelCatalog',
       ]
       for (const method of methods) {
         expect([method, await call(port, method, 'localhost')]).toEqual([method, 401])
         expect([method, await call(port, method, 'harness.example')]).toEqual([method, 401])
       }
-      expect(await call(port, 'settings.openDocument', 'other.example')).toBe(403)
+      expect(await call(port, 'settings/openSettingsDocument', 'other.example')).toBe(403)
 
       const declaredCookie = browserCookie(connection, 'harness.example')
       for (const method of methods) {
@@ -519,7 +513,7 @@ describe('connection node half over a real HTTP server', () => {
       const loopbackAuthority = `127.0.0.1:${String(port)}`
       expect(await call(
         port,
-        'settings.openDocument',
+        'settings/openSettingsDocument',
         loopbackAuthority,
         browserCookie(connection, loopbackAuthority),
       )).toBe(404)

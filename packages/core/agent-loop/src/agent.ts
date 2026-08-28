@@ -31,6 +31,7 @@ import type { EpochHeader, RequestContext, Session, SessionId, TurnEndReason, Us
 import { canonicalHeader, headerEquals } from '@deepseek-ai/dsh-session'
 import { joinContextSections, renderContextSections, renderPrompt } from '@deepseek-ai/dsh-system-prompt'
 import type { PromptAssembly } from '@deepseek-ai/dsh-system-prompt'
+import type {} from '@deepseek-ai/dsh-session-projection'
 import type { Context } from '@deepseek-ai/cordis'
 import { ProjectedInbox } from './inbox.ts'
 import { RuntimeContextProjection } from './runtime-context.ts'
@@ -93,7 +94,8 @@ export class ReactLoopAgent implements Agent {
   ) {
     this.dispatch = agentEvents(loopCtx, this)
     this.inbox = new ProjectedInbox(loopCtx.sessionProjections, session, this.dispatch)
-    const lastTurn = session.events.findLast(event => event.type === 'turn/start')?.data.turn ?? 0
+    /* v8 ignore next -- the loop registers its own turnBoundary unit, so the key is always present */
+    const lastTurn = this.loopCtx.sessionProjections.stateOf(session, 'turnBoundary')?.lastTurn ?? 0
     this.phase = { kind: 'idle', lastTurn }
     this.scope = createScope(loopCtx, this)
     this.ctx = this.scope.ctx.extend({ agent: this })

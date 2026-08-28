@@ -14,8 +14,7 @@
  * more than the row it targeted.
  */
 
-import type { ClientRemote, IApiClient } from '@deepseek-ai/dsh-api-remotes/client'
-import type { SettingsWireFace } from '@deepseek-ai/dsh-client-ui-settings/client'
+import type { ClientRemote } from '@deepseek-ai/dsh-api-remotes/client'
 import { createSnapshotStore, type SnapshotStore } from '@deepseek-ai/dsh-client-store'
 import { beginRosterRead, messageOf, writeDefaultPreset } from './settings-store.ts'
 
@@ -134,8 +133,7 @@ export class AgentPresetSectionController {
   readonly store: SnapshotStore<AgentPresetSectionState> = createSnapshotStore(INITIAL)
 
   constructor(
-    private readonly api: SettingsWireFace & Pick<IApiClient, 'agentPresets' | 'host'>,
-    private readonly remote: Pick<ClientRemote, 'agentPresets'>,
+    private readonly remote: Pick<ClientRemote, 'agentPresets' | 'settings'>,
     /**
      * Called after this page changes the roster DIRECTORY, so the other
      * surfaces reading the same roster re-read it. A settings field moving is
@@ -169,13 +167,13 @@ export class AgentPresetSectionController {
     // Issued together: one round trip decides the page, and a load that waited
     // for them in turn would hold the section in `loading` twice as long,
     // where a concurrent reload silently returns instead of refreshing.
-    const opener = this.api.host.describe({})
+    const opener = this.remote.settings.canOpenAgentPresetDirectory()
     const roster = await beginRosterRead(this.remote, this.store)
     // A refused describe leaves the reveal-the-path path, which needs no opener.
     const described = await opener.catch(() => undefined)
     if (roster === undefined) return
     const { presets, authorable } = roster
-    const hasDocument = described?.result.ok === true && described.result.value.canOpenPath
+    const hasDocument = described?.ok === true && described.value
     if (presets.length === 0) {
       // Nothing to manage leaves nothing to keep a dialog open over.
       this.set({ status: 'unavailable', rows: [], authorable, hasDocument, copy: null, view: null })
@@ -296,13 +294,13 @@ export class AgentPresetSectionController {
    */
   async openLocation(id: string): Promise<void> {
     try {
-      const response = await this.api.agentPresets.openDocument({ agentPreset: id })
-      if (!response.result.ok) {
-        this.set({ error: response.result.error.message })
+      const result = await this.remote.settings.openAgentPresetDirectory(id)
+      if (!result.ok) {
+        this.set({ error: result.error.message })
         return
       }
-      if (response.result.value.opened) return
-      const { path } = response.result.value
+      if (result.value.opened) return
+      const { path } = result.value
       this.set({ revealedPaths: { ...this.store.getSnapshot().revealedPaths, [id]: path } })
     } catch (error) {
       this.set({ error: messageOf(error) })
@@ -350,7 +348,7 @@ export class AgentPresetSectionController {
    * @returns once the write settled and the roster was re-read.
    */
   async makeDefault(id: string): Promise<void> {
-    const failure = await writeDefaultPreset(this.api, id)
+    const failure = await writeDefaultPreset(this.remote, id)
     if (failure !== undefined) {
       this.set({ error: failure })
       return

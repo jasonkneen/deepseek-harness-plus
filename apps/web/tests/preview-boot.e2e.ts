@@ -315,12 +315,8 @@ async function bootPreview(origin: string, browser: Browser): Promise<void> {
 
     const exercised = await page.evaluate(async () => {
       type Result<T> = { result: { ok: true; value: T } | { ok: false; error: { code: string; message: string } } }
-      interface PreviewApi {
-        skills: { list(payload: { sessionId: string }): Promise<Result<{ skills: unknown[] }>> }
-      }
       interface PreviewTransport {
         fetch(input: string, init: RequestInit): Promise<Response>
-        createApiClient(): PreviewApi
       }
       const transport = (globalThis as typeof globalThis & { __DSH_TRANSPORT__?: PreviewTransport }).__DSH_TRANSPORT__
       if (transport === undefined) throw new Error('preview transport is absent after boot')
@@ -352,14 +348,15 @@ async function bootPreview(origin: string, browser: Browser): Promise<void> {
         if (!body.result.ok) throw new Error(`${endpoint} failed: ${body.result.error.message}`)
         return body.result.value
       }
-      const api = transport.createApiClient()
-      const skills = await api.skills.list({ sessionId })
-      if (!skills.result.ok) throw new Error(`skill.list failed: ${skills.result.error.message}`)
+      const skills = await remote<{ skills: Array<{ name: string }> }>(
+        'skills/list', { request: { sessionId } },
+      )
       const createDirectory = async (path: string, name: string): Promise<void> => {
         await remote<string>('directoryPicker/createDirectory', { path, name })
         await new Promise((resolve) => { setTimeout(resolve, 250) })
-        const refreshed = await api.skills.list({ sessionId })
-        if (!refreshed.result.ok) throw new Error(`skill.list refresh failed: ${refreshed.result.error.message}`)
+        await remote<{ skills: Array<{ name: string }> }>(
+          'skills/list', { request: { sessionId } },
+        )
       }
       await createDirectory('/dsh/workspace/.agents/skills', 'runtime-created')
       // Settings and credentials both answer over the Remote carrier, so this
@@ -383,7 +380,7 @@ async function bootPreview(origin: string, browser: Browser): Promise<void> {
       await remote('credentials/unset', { ref: 'PREVIEW_TEST_SECRET' })
       await new Promise((resolve) => { setTimeout(resolve, 250) })
       return {
-        skillCount: skills.result.value.skills.length,
+        skillCount: skills.skills.length,
         credentialConfigured: credentials.PREVIEW_TEST_SECRET?.configured,
       }
     })

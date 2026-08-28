@@ -13,7 +13,9 @@ import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
 import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
 import { zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/zh.ts'
 import { zh } from '../src/client/locales.ts'
-import type { MenuState, TriggerHit } from '@deepseek-ai/dsh-client-ui-input-trigger/client'
+import type {
+  InputTriggerCrumb, MenuState, TriggerHit,
+} from '@deepseek-ai/dsh-client-ui-input-trigger/client'
 import { MenuView } from '../src/client/MenuView.tsx'
 
 const hit: TriggerHit = {
@@ -57,13 +59,32 @@ afterEach(() => {
 // unknown source comes back verbatim (its raw name).
 const t = makeTranslate(zh, commonZh)
 
-function mount(state: MenuState) {
+function mount(state: MenuState, crumbs: ReadonlyMap<string, readonly InputTriggerCrumb[]> = new Map()) {
   const menu = createSnapshotStore<MenuState>(state)
+  const headers = createSnapshotStore<ReadonlyMap<string, readonly InputTriggerCrumb[]>>(crumbs)
   const onPick = vi.fn()
+  const onCrumb = vi.fn()
   const onHover = vi.fn()
   const onDismiss = vi.fn()
-  const view = render(<MenuView menu={menu} onPick={onPick} onHover={onHover} onDismiss={onDismiss} t={t} />)
-  return { menu, onPick, onHover, onDismiss, view }
+  const view = render(
+    <MenuView
+      menu={menu}
+      headers={headers}
+      onPick={onPick}
+      onCrumb={onCrumb}
+      onHover={onHover}
+      onDismiss={onDismiss}
+      t={t}
+    />,
+  )
+  return { menu, headers, onPick, onCrumb, onHover, onDismiss, view }
+}
+
+/** The bounded menu shell: it owns the height clamp, the listbox scrolls inside it. */
+function menuShell(): HTMLElement {
+  const shell = document.querySelector('[data-trigger-menu]')
+  if (!(shell instanceof HTMLElement)) throw new Error('menu shell is not rendered')
+  return shell
 }
 
 /** The non-interactive group title rows (role=presentation), in document order. */
@@ -188,23 +209,23 @@ describe('MenuView', () => {
   it('caps the list height at the design maximum when the composer sits low enough', () => {
     vi.spyOn(Element.prototype, 'getBoundingClientRect').mockReturnValue({ bottom: 800 } as DOMRect)
     mount(openState())
-    expect(screen.getByRole('listbox').style.maxHeight).toBe('320px')
+    expect(menuShell().style.maxHeight).toBe('320px')
   })
 
   it('clamps the list height to the space above the composer minus the safe margin', () => {
     vi.spyOn(Element.prototype, 'getBoundingClientRect').mockReturnValue({ bottom: 200 } as DOMRect)
     mount(openState())
-    expect(screen.getByRole('listbox').style.maxHeight).toBe('188px')
+    expect(menuShell().style.maxHeight).toBe('188px')
   })
 
   it('re-fits the height when the window resizes', () => {
     const rect = vi.spyOn(Element.prototype, 'getBoundingClientRect')
     rect.mockReturnValue({ bottom: 800 } as DOMRect)
     mount(openState())
-    expect(screen.getByRole('listbox').style.maxHeight).toBe('320px')
+    expect(menuShell().style.maxHeight).toBe('320px')
     rect.mockReturnValue({ bottom: 100 } as DOMRect)
     act(() => { window.dispatchEvent(new Event('resize')) })
-    expect(screen.getByRole('listbox').style.maxHeight).toBe('88px')
+    expect(menuShell().style.maxHeight).toBe('88px')
   })
 
   it('pointerdown outside the menu (no composer card ancestor) dismisses', () => {
@@ -224,7 +245,15 @@ describe('MenuView', () => {
     const onDismiss = vi.fn()
     render(
       <div data-composer-card="">
-        <MenuView menu={menu} onPick={vi.fn()} onHover={vi.fn()} onDismiss={onDismiss} t={t} />
+        <MenuView
+          menu={menu}
+          headers={createSnapshotStore<ReadonlyMap<string, readonly InputTriggerCrumb[]>>(new Map())}
+          onPick={vi.fn()}
+          onCrumb={vi.fn()}
+          onHover={vi.fn()}
+          onDismiss={onDismiss}
+          t={t}
+        />
         <button type="button" data-testid="composer-button" />
       </div>,
     )
@@ -267,5 +296,37 @@ describe('MenuView', () => {
     // Index 0 already holds the highlight: no hover round-trip.
     fireEvent.mouseMove(options[0]!)
     expect(onHover).not.toHaveBeenCalled()
+  })
+
+  it('renders a source header as a breadcrumb above the list, current step last', () => {
+    mount(openState(), new Map([['command', [
+      { label: 'Workspace', value: 'root' },
+      { label: 'src', value: 'src' },
+      { label: 'module1', value: 'module1', current: true },
+    ]]]))
+    const nav = screen.getByRole('navigation', { name: '目录导航' })
+    expect([...nav.querySelectorAll('button')].map(button => button.textContent))
+      .toEqual(['Workspace', 'src', 'module1'])
+    // The listbox holds options alone; the header is its sibling, not a row.
+    expect(screen.getByRole('listbox').contains(nav)).toBe(false)
+  })
+
+  it('mousedown on a crumb routes (source, index) without stealing focus; the current step is inert', () => {
+    const { onCrumb } = mount(openState(), new Map([['command', [
+      { label: 'Workspace', value: 'root' },
+      { label: 'src', value: 'src', current: true },
+    ]]]))
+    const crumbs = screen.getByRole('navigation', { name: '目录导航' }).querySelectorAll('button')
+    expect(fireEvent.mouseDown(crumbs[0]!)).toBe(false)
+    expect(onCrumb).toHaveBeenCalledWith('command', 0)
+    onCrumb.mockClear()
+    expect(crumbs[1]!.disabled).toBe(true)
+    fireEvent.mouseDown(crumbs[1]!)
+    expect(onCrumb).not.toHaveBeenCalled()
+  })
+
+  it('renders no header for a source that published no crumbs', () => {
+    mount(openState())
+    expect(screen.queryByRole('navigation')).toBeNull()
   })
 })

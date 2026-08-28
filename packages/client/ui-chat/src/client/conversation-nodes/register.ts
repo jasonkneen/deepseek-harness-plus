@@ -11,6 +11,7 @@ import { registerRetryConversationNode } from './retry.ts'
 import { registerToolConversationNode } from './tool.ts'
 import { registerTurnErrorConversationNode } from './turn-error.ts'
 import { registerTurnMaxTokensConversationNode } from './turn-max-tokens.ts'
+import { registerTurnProcess } from './turn-process.ts'
 import { registerTurnTailConversationNode } from './turn-tail.ts'
 
 /**
@@ -22,6 +23,7 @@ export function registerConversationNodes(ctx: Context): void {
   registerMessageConversationNode(ctx)
   registerRequestPromptConversationNode(ctx)
   registerAssistantConversationNode(ctx)
+  registerTurnProcess(ctx)
   registerToolConversationNode(ctx)
   registerCommandConversationNode(ctx)
   registerCompactionConversationNode(ctx)

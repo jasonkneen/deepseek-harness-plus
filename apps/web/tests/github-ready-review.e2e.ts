@@ -11,6 +11,7 @@ import type { GenerateOptions, StreamChunk } from '@deepseek-ai/dsh-llm'
 import { LlmAdapter } from '@deepseek-ai/dsh-llm'
 import type {} from '@deepseek-ai/dsh-webhook'
 import {
+  captureExpandedTurnProcessAria,
   captureStableAria,
   compareOrRefreshGolden,
   launchWebScaffold,
@@ -23,6 +24,9 @@ import { saveFailureShot } from './support.ts'
 const MODE = webSnapshotMode()
 const OVERLAY = fileURLToPath(new URL('../../cli/config/examples/github-review/cordis.yml', import.meta.url))
 const EXPECTED = fileURLToPath(new URL('./expected/github-ready-review/conversation.expected.md', import.meta.url))
+const EXPANDED_EXPECTED = fileURLToPath(
+  new URL('./expected/github-ready-review/conversation-expanded.expected.md', import.meta.url),
+)
 const PROVIDER = 'github-webhook-review-test'
 const MODEL = 'reply'
 const SECRET = 'github-webhook-review-secret'
@@ -157,6 +161,12 @@ describe.skipIf(MODE === 'record')('web e2e: GitHub ready-for-review', () => {
     const tree = await captureStableAria(page, '[role="tree"][aria-label="Sessions"]', scaffold.workspaceCwd)
     const conversation = await captureStableAria(page, '[class*="centerCol"]', scaffold.workspaceCwd)
     await compareOrRefreshGolden(EXPECTED, `${tree}\n\n---\n\n${conversation}`, MODE)
+    const expanded = await captureExpandedTurnProcessAria(
+      page,
+      '[class*="centerCol"]',
+      scaffold.workspaceCwd,
+    )
+    await compareOrRefreshGolden(EXPANDED_EXPECTED, `${tree}\n\n---\n\n${expanded}`, MODE)
     expect(tripwire.pageErrors).toEqual([])
     expect(tripwire.warnings).toEqual([])
   }, 60_000)

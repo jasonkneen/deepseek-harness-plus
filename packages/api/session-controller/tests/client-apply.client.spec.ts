@@ -1,8 +1,8 @@
 import { Context } from '@deepseek-ai/cordis'
 import type { Fiber } from '@deepseek-ai/cordis'
 import type {
+  ConnectionGeneration,
   ConnectionHandle,
-  HostDescription,
 } from '@deepseek-ai/dsh-client-connection/client'
 import {
   RemoteStreamCarrierError,
@@ -16,13 +16,7 @@ import * as SessionClient from '../src/client/index.ts'
 import { ClientSessions } from '../src/client/sessions/service.ts'
 import { FakeApiClient, fakeRemote } from './fake-api.client.ts'
 
-const DESCRIPTION: HostDescription = {
-  version: 'fixture',
-  cwd: '/fixture',
-  attachedSessions: 0,
-  home: '/home/fixture',
-  canOpenPath: true,
-}
+const GENERATION: ConnectionGeneration = { id: 1, host: { home: '/home/fixture' } }
 
 const sid = (value: string): SessionId => value as SessionId
 
@@ -34,7 +28,7 @@ interface Bench {
   readonly fiber: Fiber
   readonly sessions: ClientSessions
   dispatch(event: string, ...args: unknown[]): void
-  publishHost(description: HostDescription | undefined): void
+  publishGeneration(generation: ConnectionGeneration | undefined): void
 }
 
 const contexts = new Set<Context>()
@@ -45,23 +39,22 @@ afterEach(async () => {
   contexts.clear()
 })
 
-async function mount(initialHost?: HostDescription): Promise<Bench> {
+async function mount(initialGeneration?: ConnectionGeneration): Promise<Bench> {
   const ctx = new Context()
   contexts.add(ctx)
   await ctx.plugin(TypertRegistry)
   const api = new FakeApiClient()
   const remote = fakeRemote(api)
   const listeners = new Map<string, Set<RemoteListener>>()
-  const hostListeners = new Set<() => void>()
-  let host = initialHost
+  const generationListeners = new Set<() => void>()
+  let generation = initialGeneration
   const connection: ConnectionHandle = {
-    api,
     isLoopback: true,
-    hostDescription: {
-      getSnapshot: () => host,
+    generation: {
+      getSnapshot: () => generation,
       subscribe: (listener) => {
-        hostListeners.add(listener)
-        return () => { hostListeners.delete(listener) }
+        generationListeners.add(listener)
+        return () => { generationListeners.delete(listener) }
       },
     },
     rpc: {
@@ -97,9 +90,9 @@ async function mount(initialHost?: HostDescription): Promise<Bench> {
     dispatch: (event, ...args) => {
       for (const listener of listeners.get(event) ?? []) listener(...args as never[])
     },
-    publishHost: (description) => {
-      host = description
-      for (const listener of [...hostListeners]) listener()
+    publishGeneration: (next) => {
+      generation = next
+      for (const listener of [...generationListeners]) listener()
     },
   }
 }
@@ -148,7 +141,7 @@ describe('Session Controller Client apply', () => {
   it('accepts the control baseline, retries a carrier generation, and reports terminal protocol failure', async () => {
     const accept = vi.spyOn(ClientSessions.prototype, 'handleControlFrame')
     const logged = vi.spyOn(console, 'error').mockImplementation(() => {})
-    const bench = await mount(DESCRIPTION)
+    const bench = await mount(GENERATION)
     await flush()
 
     expect(accept).toHaveBeenCalledWith({
@@ -180,7 +173,7 @@ describe('Session Controller Client apply', () => {
   })
 
   it('projects Agent Context identity in both directions and withdraws the adapter on disposal', async () => {
-    const bench = await mount(DESCRIPTION)
+    const bench = await mount(GENERATION)
     await flush()
     expect(bench.sessions.list.getSnapshot().phase).toBe('ready')
 
@@ -212,7 +205,7 @@ describe('Session Controller Client apply', () => {
     await flush()
     expect(accept.mock.calls.filter(([frame]) => frame.type === 'baseline')).toHaveLength(1)
 
-    bench.publishHost(DESCRIPTION)
+    bench.publishGeneration(GENERATION)
     await flush()
     expect(accept.mock.calls.filter(([frame]) => frame.type === 'baseline')).toHaveLength(2)
   })

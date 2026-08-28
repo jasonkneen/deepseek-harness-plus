@@ -60,6 +60,23 @@ describe('the replacement table', () => {
 })
 
 describe('module identity through the loader', () => {
+  it('exposes async and synchronous resolution through the Cordis internal seam', async () => {
+    const vfs = new MemoryVfs()
+    vfs.seedDirectory('/dsh/node_modules/example')
+    vfs.writeFileSync('/dsh/node_modules/example/package.json', JSON.stringify({ main: 'index.js' }))
+    vfs.writeFileSync('/dsh/node_modules/example/index.js', 'module.exports = {}\n')
+    const loader = new WorkerModuleLoader({ vfs, root: '/dsh', staticModules: createNodeBuiltins() })
+
+    expect(loader.internal.resolveSync('example', 'file:///dsh/app.js')).toEqual({
+      format: 'commonjs',
+      url: 'file:///dsh/node_modules/example/index.js',
+    })
+    await expect(loader.internal.resolve('node:fs', 'file:///dsh/app.js')).resolves.toEqual({
+      format: 'builtin',
+      url: 'node:fs',
+    })
+  })
+
   it('hands the same instance to two requires of one specifier', () => {
     const require = loaderRequire()
     expect(require('node:events')).toBe(require('node:events'))

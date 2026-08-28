@@ -17,7 +17,7 @@ import { presentation } from './presentation.ts'
 export const name = 'tool-session-query'
 
 /** Capability services required by the model-facing consumer. */
-export const inject = ['tools', 'systemPrompt', 'sessionQuery']
+export const inject = ['tools', 'systemPrompt', 'sessionQuery', 'sessionProjections']
 
 /** Default maximum number of authorized search hits returned by one call. */
 export const DEFAULT_MAX_SEARCH_RESULTS = 100

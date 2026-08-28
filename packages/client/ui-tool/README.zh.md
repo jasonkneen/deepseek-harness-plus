@@ -43,7 +43,7 @@ owner 载荷为 `ToolCallOwnerProps`：`callId`、`toolName`、冻结的 `block`
 
 ### 内置视图
 
-本包拥有 generic fallback，以及 shell/pwsh、read、write/edit、running `str_replace_editor` `create`／`str_replace`、grep/glob、web、todo、question 与 Code Dispatch 的内置展示。结构化卡片直接从第一方原始 event 字段派生；Host `presentCall` 与 `presentResult` 值不会进入 Client。前台一次性 shell 结果使用 terminal 卡片。已完成的持久 shell 结果使用可展开的 generic 输入／输出卡片，因为 reset 与部分输出诊断不一定描述单个进程的退出状态；后台启动回执保持折叠。不受支持或格式错误的输入回退为压平的工具结果文本。`ui-skill` 展示了业务包自行拥有的 `skill` 注册项。
+本包拥有 generic fallback，以及 shell/pwsh、read、write/edit、running `str_replace_editor` `create`／`str_replace`、grep/glob、web、todo、question 与 Code Dispatch 的内置展示。结构化卡片直接从第一方原始 event 字段派生；Host `presentCall` 与 `presentResult` 值不会进入 Client。前台一次性 shell 结果使用 terminal 卡片。已完成的持久 shell 结果使用可展开的 generic 输入／输出卡片，因为 reset 与部分输出诊断不一定描述单个进程的退出状态；后台启动回执保持折叠。成功的问题行按稳定 id 配对调用中的问题与结果中的回答，展开后显示可读的问答行。已取消或已中断的问题行显示其裁决与原始问题，不虚构回答。不受支持、格式错误或含糊的输入回退为压平的工具输入／结果文本。`ui-skill` 展示了业务包自行拥有的 `skill` 注册项。
 
 -----
 
@@ -61,7 +61,7 @@ owner 载荷为 `ToolCallOwnerProps`：`callId`、`toolName`、冻结的 `block`
 
 ### 详情与卡片
 
-本包通过 `ToolDetails` 填充 `conversation.details.tool`。行 renderer 与 Details renderer 分别为 terminal、read、diff、search 和 web 卡片复用同一个纯 card model。这些 model 校验原始调用参数、结果内容、失败状态、持久 metadata、Code Dispatch `parentCallId` 与 Session 路径事实。不受支持或格式错误的输入使用压平的工具结果文本。各类卡片的上限与 fallback 规则仍由对应的 [terminal](../../../.agents/notes/implemented/feature/2026-07-28-web-terminal-card.zh.md)、[diff](../../../.agents/notes/implemented/feature/2026-07-30-web-diff-card.zh.md)、[read](../../../.agents/notes/implemented/feature/2026-07-30-web-read-card-frontend.zh.md)、[search](../../../.agents/notes/implemented/feature/2026-07-30-web-search-card.zh.md) 与 [web](../../../.agents/notes/implemented/feature/2026-07-30-web-result-card-frontend.zh.md) 笔记负责。
+本包通过 `ToolDetails` 填充 `conversation.details.tool`。行 renderer 与 Details renderer 分别为 terminal、read、diff、search 和 web 卡片复用同一个纯 card model。这些 model 校验原始调用参数、结果内容、失败状态、持久 metadata、Code Dispatch `parentCallId` 与 Session 路径事实。不受支持或格式错误的输入使用压平的工具结果文本。各类卡片的上限与 fallback 规则仍由对应的 [terminal](../../../.agents/notes/implemented/feature/2026-07-28-web-terminal-card.zh.md)、[diff](../../../.agents/notes/implemented/feature/2026-07-30-web-diff-card.zh.md)、[read](../../../.agents/notes/implemented/feature/2026-07-30-web-read-card-frontend.zh.md)、[search](../../../.agents/notes/implemented/feature/2026-07-30-web-search-card.zh.md)、[web](../../../.agents/notes/implemented/feature/2026-07-30-web-result-card-frontend.zh.md) 与 [question](../../../.agents/notes/implemented/feature/2026-07-29-ask-question-web-presentation.zh.md) 笔记负责。
 
 </details>
 
@@ -96,7 +96,7 @@ owner 载荷为 `ToolCallOwnerProps`：`callId`、`toolName`、冻结的 `block`
 
 这些限制定义分派深度与视图归属；它们是当前包约束。
 
-- **Host 不把 `run_code` 暴露为 Code Mode 程序 binding**：生产事件只产生一层分发；递归的运行时/UI 约定支持嵌套。
+- **Host 不把 `run_code` 暴露为 PTC mode 程序 binding**：生产事件只产生一层分发；递归的运行时/UI 约定支持嵌套。
 - **第一方工具视图集中在本包**：它们可以通过 keyed slot 独立迁移到各自所属的业务包。
 - **工具文案复用 `ui-conversation` locale namespace**：工具标题、行 chrome 与无 Cordis 的 primitive label 使用该字典；presenter model 保留 locale key 或数据，而不是已渲染文案。
 
