@@ -11,7 +11,7 @@ import {
   writeFileSync,
 } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, posix } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Win32Error } from '@deepseek-ai/dsh-win32-process'
 import type { NativePtr, Win32ProcessBindings } from '@deepseek-ai/dsh-win32-process'
@@ -69,7 +69,7 @@ class FakeRunnerHost extends EventEmitter {
   sendThrown: unknown
 
   cwd(): string { return this.directory }
-  chdir(path: string): void { this.directory = path }
+  chdir(path: string): void { this.directory = posix.resolve(this.directory, path) }
   disconnect(): void {
     if (!this.connected) return
     this.connected = false
@@ -405,6 +405,39 @@ describe('Linux one-shot exec bootstrap', () => {
     })
   })
 
+  it('resolves relative PATH entries from the cwd after chdir', async () => {
+    const files = track(createLinuxLaunchFiles({ cwd: 'work', env: { PATH: 'bin:' } }))
+    const host = new FakeRunnerHost()
+    host.directory = '/base'
+    const execve = vi.fn(() => { throw Object.assign(new Error('not found'), { code: 'ENOENT' }) })
+    await runSpawnRunner(files.requestPath, ['--', 'tool'], hostArgument(host), internals({ execve }))
+    expect(host.directory).toBe('/base/work')
+    expect(execve.mock.calls.map(call => call[0])).toEqual([
+      '/base/work/bin/tool',
+      '/base/work/tool',
+    ])
+  })
+
+  it('retries ENOEXEC through /bin/sh with the resolved file and original arguments', async () => {
+    const files = track(createLinuxLaunchFiles({ cwd: '/work', env: { PATH: 'bin' } }))
+    const execve = vi.fn()
+      .mockImplementationOnce(() => { throw Object.assign(new Error('exec format'), { code: 'ENOEXEC' }) })
+      .mockImplementationOnce(() => { throw Object.assign(new Error('shell failed'), { code: 'EIO' }) })
+    await runSpawnRunner(
+      files.requestPath,
+      ['--', 'tool', 'literal arg'],
+      hostArgument(new FakeRunnerHost()),
+      internals({ execve: execve as never }),
+    )
+    expect(execve.mock.calls).toEqual([
+      ['/work/bin/tool', ['tool', 'literal arg'], { PATH: 'bin' }],
+      ['/bin/sh', ['/bin/sh', '/work/bin/tool', 'literal arg'], { PATH: 'bin' }],
+    ])
+    expect(readLinuxStartupError(files.startupErrorPath)).toMatchObject({
+      type: 'spawn-error', error: { code: 'EIO', path: 'tool' },
+    })
+  })
+
   it('uses the default PATH and stops on a non-search error', async () => {
     const files = track(createLinuxLaunchFiles({ cwd: '/work', env: {} }))
     const execve = vi.fn((_file: string) => { throw Object.assign(new Error('denied'), { code: 'EACCES' }) })
@@ -511,6 +544,39 @@ describe('Windows Job runner protocol owner', () => {
     expect(host.sent).toEqual([{ type: 'target-exit', exitCode: 0, signal: null }])
     expect(host.exitCode).toBe(0)
     expect(host.env).toEqual({ TARGET: 'yes', dsh_subprocess_runner: 'restored' })
+  })
+
+  it('lets asynchronous runner stdio close before the first Windows poll', async () => {
+    let tick: (() => void) | undefined
+    const interval = vi.spyOn(globalThis, 'setInterval').mockImplementation((callback: () => void) => {
+      tick = callback
+      return 1 as unknown as ReturnType<typeof setInterval>
+    })
+    try {
+      const events: string[] = []
+      let closeComplete = false
+      const host = new FakeRunnerHost()
+      const native = internals({
+        closeCurrentProcessStandardStreams: vi.fn(() => {
+          events.push('close-start')
+          queueMicrotask(() => {
+            closeComplete = true
+            events.push('close-complete')
+            tick?.()
+          })
+        }),
+        pollProcessExit: vi.fn(() => {
+          events.push(`poll:${String(closeComplete)}`)
+          return 0
+        }),
+      })
+      await runWindows(host, native)
+      expect(events).toEqual(['close-start', 'close-complete', 'poll:true'])
+      expect(host.sent).toEqual([{ type: 'target-exit', exitCode: 0, signal: null }])
+      expect(host.exitCode).toBe(0)
+    } finally {
+      interval.mockRestore()
+    }
   })
 
   it('exhausts spawn-error, runner-error, and payload-free start-cancelled', async () => {
@@ -691,22 +757,32 @@ describe('Windows Job runner protocol owner', () => {
   })
 
   it('cleans a direct handle after the Job identity was already cleared', async () => {
-    const host = new FakeRunnerHost()
-    const native = internals({ pollProcessExit: vi.fn(() => undefined), isJobEmpty: vi.fn(() => true) })
-    const running = runSpawnRunner(
-      WINDOWS_RUNNER_SELECTION,
-      ['--', 'tool.exe'],
-      hostArgument(host),
-      native,
-    )
-    host.emit('message', { type: 'start', cwd: 'C:\\target', env: {} })
-    await new Promise<void>((resolveImmediate) => { setImmediate(resolveImmediate) })
-    host.emit('message', { type: 'terminate' })
-    host.disconnect()
-    await running
-    expect(native.closeHandleChecked).toHaveBeenCalledWith(
-      expect.anything(), 10n, 'ordinary direct process cleanup',
-    )
+    let tick: (() => void) | undefined
+    const interval = vi.spyOn(globalThis, 'setInterval').mockImplementation((callback: () => void) => {
+      tick = callback
+      return 1 as unknown as ReturnType<typeof setInterval>
+    })
+    try {
+      const host = new FakeRunnerHost()
+      const native = internals({ pollProcessExit: vi.fn(() => undefined), isJobEmpty: vi.fn(() => true) })
+      const running = runSpawnRunner(
+        WINDOWS_RUNNER_SELECTION,
+        ['--', 'tool.exe'],
+        hostArgument(host),
+        native,
+      )
+      host.emit('message', { type: 'start', cwd: 'C:\\target', env: {} })
+      await new Promise<void>((resolveImmediate) => { setImmediate(resolveImmediate) })
+      tick?.()
+      host.emit('message', { type: 'terminate' })
+      host.disconnect()
+      await running
+      expect(native.closeHandleChecked).toHaveBeenCalledWith(
+        expect.anything(), 10n, 'ordinary direct process cleanup',
+      )
+    } finally {
+      interval.mockRestore()
+    }
   })
 
   it('fails closed for malformed or duplicate start messages and disconnected reporting', async () => {

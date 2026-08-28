@@ -485,10 +485,19 @@ export function bindManagedProcess(
   let rangeExitObservation: Promise<void> | undefined
   let settled = false
 
+  const scheduleOwnerCleanup = (): boolean => {
+    if (launch.owner.cleanup === undefined) return false
+    queueMicrotask(() => { void done.finally(() => { launch.owner.cleanup?.() }).catch(() => {}) })
+    return true
+  }
+
   /**
-   * Start or reuse the handle's managed-range exit observer. A failed read can
-   * be retried; the first confirmed absence is the permanent no-more-signals
-   * boundary and cancels pending escalation before stale identity can be used.
+   * Start or reuse the handle's managed-range exit observer. A failed read
+   * before direct settlement can be retried. Once direct settlement permits
+   * cleanup, retain a failed observation because removing its private evidence
+   * must not turn a later wait into a false success. The first confirmed
+   * absence is the permanent no-more-signals boundary and cancels pending
+   * escalation before stale identity can be used.
    */
   const observeRangeExit = (): Promise<void> => {
     rangeExitObservation ??= (async () => {
@@ -497,11 +506,9 @@ export function bindManagedProcess(
       if (graceTimer !== undefined) clearTimeout(graceTimer)
       graceTimer = undefined
       spec.signal?.removeEventListener('abort', onAbort)
-      if (launch.owner.cleanup !== undefined) {
-        queueMicrotask(() => { void done.finally(() => { launch.owner.cleanup?.() }).catch(() => {}) })
-      }
+      scheduleOwnerCleanup()
     })().catch((error: unknown) => {
-      rangeExitObservation = undefined
+      if (!settled || !scheduleOwnerCleanup()) rangeExitObservation = undefined
       throw error
     })
     return rangeExitObservation

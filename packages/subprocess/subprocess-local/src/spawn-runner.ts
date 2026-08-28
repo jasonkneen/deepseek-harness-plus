@@ -100,19 +100,33 @@ function linuxPathNotFoundError(program: string): NodeJS.ErrnoException {
   })
 }
 
+function execLinuxFile(
+  file: string,
+  argv: string[],
+  env: Record<string, string>,
+  internals: SpawnRunnerInternals,
+): never {
+  try {
+    return internals.execve(file, argv, env)
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOEXEC') throw error
+    return internals.execve('/bin/sh', ['/bin/sh', file, ...argv.slice(1)], env)
+  }
+}
+
 function execLinuxTarget(
   request: { cwd: string; env: Record<string, string> },
   argv: string[],
   internals: SpawnRunnerInternals,
 ): never {
   const program = argv[0] as string
-  if (program.includes('/')) return internals.execve(program, argv, request.env)
+  if (program.includes('/')) return execLinuxFile(program, argv, request.env, internals)
   const path = request.env.PATH ?? '/usr/bin:/bin'
   let permissionFailure: Error | undefined
   for (const directory of path.split(':')) {
     const candidate = posix.resolve(request.cwd, directory, program)
     try {
-      return internals.execve(candidate, argv, request.env)
+      return execLinuxFile(candidate, argv, request.env, internals)
     } catch (error) {
       const code = (error as NodeJS.ErrnoException).code
       if (code === 'EACCES') {
@@ -143,7 +157,7 @@ function runLinux(
   }
   try {
     host.chdir(request.cwd)
-    execLinuxTarget(request, argv, internals)
+    execLinuxTarget({ ...request, cwd: host.cwd() }, argv, internals)
   } catch (error) {
     writeLinuxStartupError(files, {
       type: 'spawn-error',
@@ -263,7 +277,6 @@ class WindowsJobRunner {
       this.internals.closeCurrentProcessStandardStreams(this.api)
       if (this.startCancellationPending()) this.terminateOwnedJob()
       this.pollTimer = setInterval(() => { this.poll() }, 10)
-      this.poll()
     } catch (error) {
       if (!this.committed && error instanceof Win32Error && error.api === 'CreateProcessW') {
         await this.publishTerminalResult({

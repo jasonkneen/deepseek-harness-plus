@@ -814,6 +814,41 @@ describe('coverage seams', () => {
     await expect(handle.done).resolves.toEqual({ exitCode: 0, signal: null })
   })
 
+  it('retries an early range read but cleans and retains a terminal range failure', async () => {
+    const direct = Promise.withResolvers<{ exitCode: number; signal: null }>()
+    const earlyFailure = new Error('temporary range read failure')
+    const terminalFailure = new Error('scope ended before launch request consumption')
+    const waitForExit = vi.fn()
+      .mockRejectedValueOnce(earlyFailure)
+      .mockRejectedValueOnce(terminalFailure)
+    const cleanup = vi.fn()
+    const handle = bindManagedProcess(spec('true', {
+      stdio: { stdin: 'ignore', stdout: 'inherit', stderr: 'inherit' },
+    }), {
+      stdin: null,
+      stdout: null,
+      stderr: null,
+      direct: direct.promise,
+      owner: {
+        signal: vi.fn(),
+        waitForExit,
+        terminateForHostExit: vi.fn(),
+        cleanup,
+      },
+    })
+
+    await expect(handle.waitForExit()).rejects.toBe(earlyFailure)
+    expect(cleanup).not.toHaveBeenCalled()
+
+    direct.resolve({ exitCode: 0, signal: null })
+    await expect(handle.done).resolves.toEqual({ exitCode: 0, signal: null })
+    await expect(handle.waitForExit()).rejects.toBe(terminalFailure)
+    await vi.waitFor(() => { expect(cleanup).toHaveBeenCalledOnce() })
+
+    await expect(handle.waitForExit()).rejects.toBe(terminalFailure)
+    expect(waitForExit).toHaveBeenCalledTimes(2)
+  })
+
   it('does not deliver a stale escalation after range exit wins the timer race', async () => {
     vi.useFakeTimers()
     const clearTimer = vi.spyOn(globalThis, 'clearTimeout').mockImplementation(() => {})
