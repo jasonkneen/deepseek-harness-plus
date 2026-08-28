@@ -402,12 +402,10 @@ describe('E2BSubprocessHandle', () => {
         KEEP: undefined,
       },
     }), '/workspace/.dsh-e2b/processes/one')
-    expect(handle.pid).toBeUndefined()
     handle.stdin!.write('hello')
     handle.stdin!.end()
     fake.releaseStart()
     await flush()
-    expect(handle.pid).toBeUndefined()
     expect(fake.handle.sent.map(value => String(value))).toEqual(['hello'])
     expect(fake.handle.closes).toBe(1)
     const controlEnvs = fake.startOptions?.envs
@@ -1166,7 +1164,6 @@ describe('E2BSubprocessHandle', () => {
     fake.backgroundError = new Error('start failed')
     const handle = testHandle(runtime(fake), spec(), '/runtime/fail')
     await expect(handle.done).rejects.toThrow('start failed')
-    expect(handle.pid).toBeUndefined()
     expect(fake.removed).toContain('/runtime/fail/environment')
     expect(fake.removed).toContain('/runtime/fail')
     await expect(handle.waitForExit()).resolves.toBe(true)
@@ -1407,6 +1404,17 @@ describe('E2BSubprocessHandle', () => {
     await expect(absent.waitForExit()).resolves.toBe(true)
   })
 
+  it('keeps polling while a running command has not published its process group yet', async () => {
+    const fake = new FakeSandbox()
+    fake.processGroupReads.push('', '4242\n')
+    const handle = testHandle(runtime(fake), spec(), '/runtime/delayed-group-publication', 1)
+
+    await vi.waitFor(() => { expect(fake.processGroupReads).toEqual([]) })
+    fake.finish()
+    await expect(handle.done).resolves.toEqual({ exitCode: 0, signal: null })
+    await expect(handle.waitForExit()).resolves.toBe(true)
+  })
+
   it('preserves publication failure and reports cleanup that cannot be verified', async () => {
     const fake = new FakeSandbox()
     fake.processGroupId = 'not-a-pid\n'
@@ -1447,16 +1455,6 @@ describe('E2BSubprocessHandle', () => {
     await expect(observed.done).rejects.toThrow('process-group publication failed')
     naturallyGone.alive = false
     await expect(observed.waitForExit()).resolves.toBe(true)
-  })
-
-  it('keeps the public pid unavailable after delayed private process-group publication', async () => {
-    const fake = new FakeSandbox()
-    fake.processGroupReads.push('', '4242\n')
-    const handle = testHandle(runtime(fake), spec(), '/runtime/delayed-group')
-    await vi.waitFor(() => { expect(fake.processGroupReads).toHaveLength(0) })
-    expect(handle.pid).toBeUndefined()
-    fake.finish()
-    await expect(handle.done).resolves.toEqual({ exitCode: 0, signal: null })
   })
 
   it('handles output backpressure and contains a stderr sink failure', async () => {

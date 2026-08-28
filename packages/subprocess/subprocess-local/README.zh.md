@@ -50,7 +50,7 @@ kind: "package-reference"
 
 ### 关闭行为
 
-正常 dispose 会终止每个仍在运行的受管范围与终端会话并等待其完全停稳。在 JavaScript 可观察的宿主退出期间——直接 `process.exit()`、默认未捕获异常、默认未处理 rejection——同步最终清理会请求 Linux scope 终止其成员，让 Windows Job 所有权随 runner 的父连接关闭，并为 fallback 使用既有 PGID、`taskkill` 或已捕获身份操作。它不创建 Promise 或定时器，也不声称已经完全停稳。未处理的 `SIGTERM`/`SIGINT`/`SIGHUP`、`SIGKILL`、fatal OOM、native crash 与断电需要外部 supervisor。
+正常 dispose 会终止每个仍在运行的受管范围与终端会话并等待其完全停稳。在 JavaScript 可观察的宿主退出期间——直接 `process.exit()`、默认未捕获异常、默认未处理 rejection——同步最终清理会请求 Linux scope 终止其成员，同步终止每个 Windows runner 以关闭其唯一 Job handle，并为 fallback 使用既有 PGID、`taskkill` 或已捕获身份操作。它不创建 Promise 或定时器，也不声称已经完全停稳。未处理的 `SIGTERM`/`SIGINT`/`SIGHUP`、`SIGKILL`、fatal OOM、native crash 与断电需要外部 supervisor。
 
 ### 可能出错的地方
 
@@ -80,9 +80,8 @@ kind: "package-reference"
 | [`src/linux-scope.ts`](src/linux-scope.ts) | Linux user-systemd 能力检查、scope 启动、信号发送与完全停稳 |
 | [`src/windows-job.ts`](src/windows-job.ts) | Windows Job 能力检查与 helper 启动 |
 | [`src/runner-launch.ts`](src/runner-launch.ts) | source、built 与 packaged 私有 runner 选择 |
-| [`src/spawn-runner.ts`](src/spawn-runner.ts) | Linux 普通命令 target runner 与 Windows Job runner |
-| [`src/runner-protocol.ts`](src/runner-protocol.ts) | 每次 spawn 的私有启动与结果事实 |
-| [`src/windows-stdio.ts`](src/windows-stdio.ts) | Windows 普通命令 stdio 的 parent 侧 named-pipe endpoint |
+| [`src/spawn-runner.ts`](src/spawn-runner.ts) | Linux 一次性 exec bootstrap 与 Windows Job runner |
+| [`src/runner-protocol.ts`](src/runner-protocol.ts) | 严格的 Linux 启动／错误文件与 Windows IPC 消息 |
 | [`src/terminal.ts`](src/terminal.ts) | `node-pty` 终端句柄：Linux scope 绑定、前台检查与 fallback 清理 |
 | [`src/process-inspector.ts`](src/process-inspector.ts) | POSIX 进程树与会话检查 |
 | [`src/windows-inspector.ts`](src/windows-inspector.ts) | 经 koffi 的 Windows Toolhelp32 进程表检查 |
@@ -90,7 +89,7 @@ kind: "package-reference"
 
 ### 主流程
 
-一次 spawn 会构建清理后的子进程环境，在用户命令可能运行前选择 containment，并在无需等待 native target 发布的情况下返回句柄。Linux 与 Windows 普通 runner 会发布真实 target PID、Node 风格启动失败与 direct outcome；在 target 事实出现前，`pid` 保持 `undefined`。`done` 会在有界的非继承输出排空后结算直接命令，`waitForExit()` 则分别等待所选 scope、Job、进程组或已观察 session 变空。Linux 终端启动把 scoped argv 直接交给 `node-pty`，不增加 runner。
+一次 spawn 会同步校验最终 argv、cwd 与环境，在用户命令可能运行前选择 containment，并在目标身份保持私有的情况下返回句柄。Linux 普通命令与终端启动使用私有的一次性请求；scope 内的 bootstrap 会恢复目标 cwd 与环境，再用目标程序替换自身。Windows 普通命令使用同一条 IPC 通道传递启动请求、终止命令与严格的直接结果；runner 以 suspended 状态创建目标，将其加入 Job 后才恢复运行。`done` 会在直接命令及其 stdio 屏障结算后完成，`waitForExit()` 则分别等待所选 scope、Job、进程组或已观察 session 变空。
 
 ### 安全不变式
 
@@ -130,7 +129,7 @@ spill 文件以 `0600` 权限、`O_EXCL` 与随机名称在 `0700` 每进程目�
 这些限制说明本提供方何时不合适，或何时需要特别的运维注意。它们是当前包约束，不是通用平台对比或任务积压。
 
 - **native ownership 有明确宿主要求**——Linux 需要可读的 user manager 与 `systemd-run --expand-environment=no`；旧版 systemd 使用带告警的 PGID fallback。macOS 因没有受支持的公开 persistent owner，始终使用该 fallback。
-- **native 选择具有有界的探测与 runner 成本**——Linux 会在每次符合条件的普通命令或终端 spawn 前重新检查存活的 user manager。稳定的 systemd scope 与普通 runner 探测只在成功后按提供方生命周期缓存，失败探测会重试，而且终端选择绝不会探测普通 runner。Windows 同样只缓存成功的 Job runner 探测。每条同步探测命令的上限为 5 秒，并在用户命令可能运行前完成。native 普通句柄会在 target 发布前返回：`pid` 起初为 `undefined`，随后由异步轮询的 runner 事件更新；`done` 则承载 target 启动失败或 direct outcome。target 发布没有单独的超时；runner 如果保持存活却始终没有终态事件，`pid` 会保持为 `undefined`，`done` 也会保持待定，直到 runner 退出或该范围被终止。每条受支持的 native 普通命令都会保留一个 runner 进程，直到 OS 所有的范围为空；Windows 还会创建私有的每次 spawn named-pipe endpoint。Linux 终端启动会把 scoped argv 直接交给 `node-pty`，不增加 runner。runner 事件每 100 ms、Linux scope 状态每 200 ms 异步轮询。
+- **native 选择具有有界的每次 spawn 成本**——Linux 会在每次符合条件的普通命令或终端 spawn 前重新检查 bootstrap 入口、存活的 user manager 与 literal-argv scope 支持；Windows 会在每次普通 spawn 前重新检查 runner 入口、bindings 与当前 Job 支持。跨 spawn 只保留 fallback 告警。所有探测都会在用户命令可能运行前完成，子进程探测的超时为 5 秒。每次 Linux 启动都会创建私有请求目录，并在 scope 状态尚未确定时轮询；Windows 普通命令会保留一个 runner 与一条 IPC 通道，直到 Job 报告活动进程数为零。目标会直接继承标准句柄，不使用 named-pipe stdio 或结果文件。
 - **Windows Job inheritance 有明确排除项**——普通后代默认继承 Job，但 breakaway 进程不在保证范围。目标只在 Job 分配后启动；runner 若在 create-to-assignment 极窄区间遭外力终止，可能留下 suspended target。
 - **Windows 终端信号是控制台级的**——SIGINT 以 `\x03` Ctrl-C 输入写入投递，由 conhost 转为控制台级 CTRL_C 事件；SIGTSTP 与 SIGHUP 被拒绝（不可用）；不带 `/F` 的 `taskkill` 无法终止控制台进程，因此拆卸的 TERM 档是 `/F` 升级前的宽限等待。Windows 就绪没有精确的 stdin-wait 档：prompt-marker 快路径把 shell pid 作为伪前台进程组比较，其余由静默与计时档覆盖。
 - **fallback 终端 ownership 仍依赖观察**——在 macOS 或缺少可用 user-systemd 的 Linux 上，子进程如果在任何前台检查快照之前重新设定父进程，或离开自有终端 session，就可能逃出进程表扫描。本地提供方不会新增持续进程表监视器；受支持的 Linux native 模式改由 scope membership 持有这些后代。

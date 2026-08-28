@@ -18,7 +18,7 @@ const root = resolve(import.meta.dirname, '..')
 /** The closure manifest whose dependencies define the executable. */
 const DEPLOY_ROOT_PACKAGE = 'dsh-python-runtime-closure'
 /** The sole application launcher inside the deployed closure. */
-const ENTRY_BIN = 'node_modules/@deepseek-ai/dsh/lib/bin.js'
+const ENTRY_BIN = 'node_modules/@deepseek-ai/dsh/lib/runtime-bootstrap.js'
 /** Python-visible executable basename. */
 const OUTPUT_BASENAME = 'deepseek-harness-sdk-runtime'
 /** Default Node major; SEA mode requires at least Node 22. */

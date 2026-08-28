@@ -10,6 +10,7 @@ import importlib.metadata
 import json
 import os
 import queue
+import shutil
 import subprocess
 import sys
 import sysconfig
@@ -1330,52 +1331,97 @@ def smoke_packaged_runner(executable: Path) -> None:
     """Exercise the private subprocess runner through the single-file entry."""
     with tempfile.TemporaryDirectory(prefix="dsh-packaged-runner-") as temporary:
         root = Path(temporary).resolve()
-        request_path = root / "request.json"
-        events_path = root / "events.ndjson"
-        probe = subprocess.run(
-            [str(executable), "--dsh-internal-subprocess-runner", "--mode", "probe-node"],
-            cwd=root,
-            capture_output=True,
-            text=True,
-            timeout=30,
-            check=False,
+        target_script = (
+            "import os,sys; "
+            "ok = (os.getcwd() == os.environ['PACKAGED_RUNNER_EXPECTED_CWD'] "
+            "and os.environ.get('DSH_SUBPROCESS_RUNNER') == 'target-collision-restored'); "
+            "sys.exit(7 if ok else 9)"
         )
-        if probe.returncode != 0:
-            raise AssertionError(f"packaged runner probe failed: {probe.stderr}")
-
-        request_path.write_text(json.dumps({
-            "argv": [sys.executable, "-c", "import sys; sys.exit(7)"],
-            "cwd": str(root),
-            "env": {},
-        }))
-        result = subprocess.run(
-            [
-                str(executable),
-                "--dsh-internal-subprocess-runner",
-                "--mode",
-                "node",
-                "--request",
-                str(request_path),
-                "--events",
-                str(events_path),
-            ],
-            cwd=root,
-            capture_output=True,
-            text=True,
-            timeout=30,
-            check=False,
-        )
-        if result.returncode != 7:
-            raise AssertionError(
-                f"packaged runner returned {result.returncode}, expected 7; stderr: {result.stderr}"
+        if not IS_WINDOWS:
+            request_path = root / "launch-request.json"
+            target_env = dict(os.environ)
+            target_env["DSH_SUBPROCESS_RUNNER"] = "target-collision-restored"
+            target_env["PACKAGED_RUNNER_EXPECTED_CWD"] = str(root)
+            request_path.write_text(
+                json.dumps({"cwd": str(root), "env": target_env}),
+                encoding="utf-8",
             )
-        events = [json.loads(line) for line in events_path.read_text().splitlines()]
-        if len(events) != 2 or events[0].get("type") != "started" or events[1] != {
-            "type": "exit",
-            "exitCode": 7,
+            request_path.chmod(0o600)
+            environment = dict(os.environ)
+            environment["DSH_SUBPROCESS_RUNNER"] = str(request_path)
+            result = subprocess.run(
+                [str(executable), "--", sys.executable, "-c", target_script],
+                cwd=root,
+                env=environment,
+                capture_output=True,
+                text=True,
+                timeout=30,
+                check=False,
+            )
+            if result.returncode != 7 or request_path.exists() or (root / "startup-error.json").exists():
+                raise AssertionError(
+                    "packaged POSIX runner failed: "
+                    f"exit={result.returncode}; stdout={result.stdout!r}; stderr={result.stderr!r}"
+                )
+            return
+
+        node = shutil.which("node")
+        if node is None:
+            raise AssertionError("packaged Windows runner smoke requires node on PATH")
+        helper = root / "windows-runner-smoke.mjs"
+        helper.write_text(
+            """import { spawn } from 'node:child_process'
+const [runtime, target, cwd, targetScript] = process.argv.slice(2)
+const child = spawn(runtime, ['--', target, '-c', targetScript], {
+  cwd,
+  env: { ...process.env, DSH_SUBPROCESS_RUNNER: 'windows' },
+  stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
+})
+const messages = []
+let stdout = ''
+let stderr = ''
+child.stdout.on('data', chunk => { stdout += chunk.toString() })
+child.stderr.on('data', chunk => { stderr += chunk.toString() })
+child.on('message', message => { messages.push(message) })
+const result = await new Promise((resolve, reject) => {
+  child.once('error', reject)
+  child.once('spawn', () => {
+    child.send({
+      type: 'start',
+      cwd,
+      env: {
+        ...process.env,
+        DSH_SUBPROCESS_RUNNER: 'target-collision-restored',
+        PACKAGED_RUNNER_EXPECTED_CWD: cwd,
+      },
+    }, error => { if (error) reject(error) })
+  })
+  child.once('close', (exitCode, signal) => { resolve({ exitCode, signal }) })
+})
+process.stdout.write(JSON.stringify({ ...result, messages, stdout, stderr }))
+""",
+            encoding="utf-8",
+        )
+        helper_result = subprocess.run(
+            [node, str(helper), str(executable), sys.executable, str(root), target_script],
+            cwd=root,
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        )
+        if helper_result.returncode != 0:
+            raise AssertionError(f"packaged Windows runner helper failed: {helper_result.stderr}")
+        observed = json.loads(helper_result.stdout)
+        expected = {
+            "exitCode": 0,
             "signal": None,
-        }:
-            raise AssertionError(f"packaged runner emitted unexpected events: {events}")
+            "messages": [{"type": "target-exit", "exitCode": 7, "signal": None}],
+            "stdout": "",
+            "stderr": "",
+        }
+        if observed != expected:
+            raise AssertionError(f"packaged Windows runner returned unexpected facts: {observed}")
 
 
 def is_idle_notification(message: dict[str, object]) -> bool:

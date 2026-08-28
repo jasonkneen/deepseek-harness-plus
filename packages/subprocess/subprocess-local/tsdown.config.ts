@@ -4,7 +4,7 @@ export default defineConfig({
   entry: {
     index: 'lib/types/index.js',
     invariant: 'lib/types/invariant.js',
-    'spawn-runner': 'lib/types/bin.js',
+    runner: 'lib/types/bin.js',
   },
   outDir: 'lib',
   format: ['esm'],

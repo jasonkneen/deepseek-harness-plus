@@ -225,11 +225,6 @@ export class E2BSubprocessHandle implements SubprocessHandle {
     if (spec.signal?.aborted === true) this.terminate()
   }
 
-  /** E2B does not expose the requested target process identity. */
-  get pid(): number | undefined {
-    return undefined
-  }
-
   /** @inheritdoc */
   terminate(): void {
     if (this.quiescenceProven || this.terminationAttempt !== undefined) return

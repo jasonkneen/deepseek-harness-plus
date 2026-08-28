@@ -168,10 +168,10 @@ const packageFileExtras: Readonly<Record<string, readonly string[]>> = {
   ],
   '@deepseek-ai/dsh-skill-badge': ['assets'],
   // Ordinary native containment ships a path-loaded runner and its shared
-  // result-protocol chunk beside the existing node-pty permission repair.
+  // runner chunk beside the existing node-pty permission repair.
   '@deepseek-ai/dsh-subprocess-local': [
-    'lib/spawn-runner.js',
-    'lib/runner-protocol-*.js',
+    'lib/runner.js',
+    'lib/runner-*.js',
     'scripts/ensure-spawn-helper.mjs',
   ],
   // tsdown shares the repository/pack code between the lib entry and the bin

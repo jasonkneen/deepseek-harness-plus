@@ -132,7 +132,7 @@ interface SubprocessSpawnSpec {
 
 ## 句柄：流、读取器与 managed-range 终止
 
-spawn 会同步返回活动句柄；provider 可以稍后发布其进程标识。收集模式的读取器接受全流字节偏移量且从不消费，因此独立读取器不会抢走彼此的增量；管道化的流归调用方所有。`terminate()` 启动 provider 记录的终止过程，`waitForExit()` 观察同一个 provider-managed range；分阶段 provider 可以使用 `graceMs`，立即终止的 provider 不会等待。消费方可以在这两项操作上构建自己的分级清理流程；ACP 后端先关闭 stdin 的 `disposeAcpChild` 是参考实现。
+spawn 会同步返回活动句柄，目标与受管范围标识则保留在 provider 内部。收集模式的读取器接受全流字节偏移量且从不消费，因此独立读取器不会抢走彼此的增量；管道化的流归调用方所有。`terminate()` 启动 provider 记录的终止过程，`waitForExit()` 观察同一个 provider-managed range；分阶段 provider 可以使用 `graceMs`，立即终止的 provider 不会等待。消费方可以在这两项操作上构建自己的分级清理流程；ACP 后端先关闭 stdin 的 `disposeAcpChild` 是参考实现。
 
 ```ts type-equiv
 /**
@@ -140,12 +140,10 @@ spawn 会同步返回活动句柄；provider 可以稍后发布其进程标识�
  * remains readable after exit; piped streams belong to the caller.
  *
  * Termination and {@link SubprocessHandle.waitForExit} use the same managed
- * range. Each provider documents the process identity and range it can
- * observe.
+ * range. Each provider documents the range it can observe and its signalling
+ * and observation limits.
  */
 interface SubprocessHandle {
-  /** Provider-published target process identifier, or undefined until it is available. */
-  readonly pid: number | undefined
   /** The child's stdin, present iff spawned with `stdin: 'pipe'`. */
   readonly stdin: Writable | undefined
   /** The child's raw stdout, present iff spawned with `stdout: 'pipe'`. */
@@ -282,9 +280,9 @@ Abstract subprocess service. Subclass, implement spawn, and load the subclass as
 Implementations must honor these semantics:
 
 - Executable paths belong to one execution world shared with the mounted filesystem provider.
-- spawn returns a live handle synchronously. Its pid is provider-owned and may remain unavailable during asynchronous startup. `done` resolves with the spawned command's exit facts and may reject for spawn or provider failures.
+- spawn returns a live handle synchronously. Target identity remains provider-private; `done` resolves with the spawned command's exit facts and may reject for spawn or provider failures.
 - Collect-mode readers are offset-based and non-consuming, so independent readers never consume one another's output; lossy reads report truncation and the spill file holding the complete stream when one exists. Piped streams are handed to the caller raw and never buffered here.
-- SubprocessHandle.terminate (and the spec's abort signal) starts the provider's documented procedure against its managed range. SubprocessHandle.waitForExit observes that same range so a consumer-owned teardown ladder can hold each tier on real quiescence; each provider documents its identity, signalling, and observability limits.
+- SubprocessHandle.terminate (and the spec's abort signal) starts the provider's documented procedure against its managed range. SubprocessHandle.waitForExit observes that same range so a consumer-owned teardown ladder can hold each tier on real quiescence; each provider documents its signalling and observability limits.
 - Disposal of the service terminates all still-running managed processes and awaits their exit.
 - spawnTerminal owns terminal allocation, text transport, foreground groups, signalling, and whole-session quiescence behind one awaited termination method; readiness and persistent-shell policy stay in the PTY consumer. Its output stream ends after queued terminal output when the top-level process exits.
 

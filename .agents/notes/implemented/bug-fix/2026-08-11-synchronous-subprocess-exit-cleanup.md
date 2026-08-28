@@ -17,7 +17,7 @@ The public subprocess seam correctly promises awaited quiescence during normal d
 The listener uses local-only final operations that are absent from the public `SubprocessHandle` and `SubprocessTerminalHandle` interfaces:
 
 - An ordinary handle synchronously signals its bound native scope or Job runner when available; the disclosed fallback sends SIGKILL to its detached POSIX process group or runs `taskkill /PID <pid> /T /F` on Windows.
-- A terminal handle with a native Linux owner synchronously signals that scope with SIGKILL. A fallback terminal instead signals every captured and currently observable descendant, kills the PTY root, then rescans once for members that became observable during that boundary.
+- A terminal handle synchronously signals every captured and currently observable descendant, kills the PTY root, then rescans once for members that became observable during that boundary. A native Linux handle then also signals its exact scope with SIGKILL; a fallback terminal ends after the observational sequence.
 - The service contains each target's failure and continues with the remaining handles. The callback creates no promise or timer, writes no diagnostic, and does not change the original exit code or error.
 
 Normal disposal remains the [subprocess seam's](../architecture/2026-07-26-subprocess-seam.md) terminate-and-join path: POSIX ordinary ranges receive TERM, the configured grace, then KILL; Windows ordinary ranges terminate immediately; and every ordinary or terminal cleanup is awaited to quiescence. The synchronous path requests final termination but does not publish a completion result or claim the OS range is already gone when the callback returns. Remote providers retain their own sandbox ownership and do not inherit a local Node listener.
@@ -48,4 +48,4 @@ Unit evidence pins synchronous native-owner and fallback delivery, native termin
 
 Each active local subprocess service contributes one process-global exit listener. Successful disposal removes it with the service effect; failed disposal retains it with the targets that still require final termination. Fatal exit gives up grace, output draining, and an in-process quiescence proof in exchange for issuing the strongest available local termination before the host disappears. Normal disposal keeps those guarantees and costs unchanged.
 
-The listener cannot cover failures that do not execute JavaScript. Supported Linux terminals signal the scope described by the [containment decision](2026-08-20-subprocess-native-containment.md); fallback terminals still cannot discover a descendant that escaped before the provider observed it.
+The listener cannot cover failures that do not execute JavaScript. Supported Linux terminals signal the scope described by the [native-containment decision](../architecture/2026-08-28-subprocess-native-containment.md); fallback terminals still cannot discover a descendant that escaped before the provider observed it.

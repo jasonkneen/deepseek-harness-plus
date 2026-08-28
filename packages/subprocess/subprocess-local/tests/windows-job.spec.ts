@@ -1,322 +1,277 @@
-import { spawn, spawnSync } from 'node:child_process'
-import type { ChildProcess } from 'node:child_process'
 import { EventEmitter } from 'node:events'
 import { PassThrough } from 'node:stream'
-import { fileURLToPath } from 'node:url'
 import { describe, expect, it, vi } from 'vitest'
-import type { SubprocessSpawnSpec } from '@deepseek-ai/dsh-subprocess'
-import { appendRunnerEvent } from '../src/runner-protocol.ts'
-import { launchWindowsJob, probeWindowsJob } from '../src/windows-job.ts'
-import type { WindowsStdioBridge } from '../src/windows-stdio.ts'
+import {
+  launchWindowsJob,
+  probeWindowsJob,
+} from '../src/windows-job.ts'
+import { bindManagedProcess } from '../src/spawn.ts'
 
-const fixture = fileURLToPath(new URL('fixtures/fake-job-runner.ts', import.meta.url))
-const invocation: [string, ...string[]] = [process.execPath, '--import', 'tsx/esm', fixture]
+class FakeChild extends EventEmitter {
+  pid: number | undefined = 432
+  connected = true
+  stdin = new PassThrough()
+  stdout = new PassThrough()
+  stderr = new PassThrough()
+  sent: unknown[] = []
+  killed: NodeJS.Signals[] = []
+  sendError: Error | undefined
+  throwOnSendCall: number | undefined
+  sendThrown: unknown = new Error('send threw')
+  private sendCalls = 0
 
-function spec(argv: string[]): SubprocessSpawnSpec {
-  return {
-    argv,
-    cwd: process.cwd(),
-    stdio: { stdin: 'ignore', stdout: 'inherit', stderr: 'inherit' },
-    graceMs: 100,
+  send(message: unknown, callback?: (error: Error | null) => void): boolean {
+    this.sendCalls += 1
+    if (this.sendCalls === this.throwOnSendCall) throw this.sendThrown
+    this.sent.push(message)
+    queueMicrotask(() => { callback?.(this.sendError ?? null) })
+    return true
+  }
+  kill(signal: NodeJS.Signals): boolean {
+    this.killed.push(signal)
+    return true
   }
 }
 
-describe('Windows Job runner adapter', () => {
-  it('probes the runner before a user command is selected', () => {
-    const runSync = vi.fn(() => ({ status: 0, error: undefined })) as unknown as typeof spawnSync
-    expect(probeWindowsJob({ spawnSync: runSync, runnerInvocation: invocation })).toBe(true)
-    expect(runSync).toHaveBeenCalledWith(
-      process.execPath,
-      [...invocation.slice(1), '--mode', 'probe-win32'],
-      expect.objectContaining({ stdio: 'ignore' }),
-    )
-    expect(probeWindowsJob({
-      spawnSync: vi.fn(() => ({ status: 1, error: undefined })) as unknown as typeof spawnSync,
-      runnerInvocation: invocation,
-    })).toBe(false)
-    expect(probeWindowsJob({
-      spawnSync: vi.fn(() => ({ status: 0, error: new Error('probe failed') })) as unknown as typeof spawnSync,
-      runnerInvocation: invocation,
-    })).toBe(false)
+const spec = {
+  argv: ['tool.exe', 'literal arg'],
+  cwd: 'C:\\target',
+  env: { TARGET: 'yes' },
+  stdio: { stdin: 'pipe', stdout: 'pipe', stderr: 'inherit' },
+  graceMs: 100,
+} as const
+
+function launch(child = new FakeChild()) {
+  const spawn = vi.fn(() => child)
+  const result = launchWindowsJob(spec, { TARGET: 'yes' }, {
+    spawn: spawn as never,
+    runnerInvocation: ['C:\\node.exe', 'C:\\runner.js'],
   })
+  return { child, result, spawn }
+}
 
-  it('reports direct outcome separately from runner settlement', async () => {
-    const launch = launchWindowsJob(spec(['fake-target', '7']), {
-      spawn,
-      runnerInvocation: invocation,
-    })
-    expect(launch.pid).toBeUndefined()
-    await vi.waitFor(() => { expect(launch.pid).toBeGreaterThan(0) })
-    await expect(launch.direct).resolves.toEqual({ exitCode: 7, signal: null })
-    await expect(launch.owner.waitForExit()).resolves.toBeUndefined()
-  })
-
-  it('signals the Job runner and waits for its managed range to stop', async () => {
-    const launch = launchWindowsJob(spec(['fake-target']), {
-      spawn,
-      runnerInvocation: invocation,
-    })
-    launch.owner.signal('SIGTERM')
-    await expect(launch.direct).resolves.toEqual({ exitCode: 1, signal: null })
-    await expect(launch.owner.waitForExit()).resolves.toBeUndefined()
-    launch.owner.signal('SIGKILL')
-  })
-
-  it.each([
-    { exitCode: 127, signal: null, status: 'exit code 127' },
-    { exitCode: null, signal: 'SIGTERM' as NodeJS.Signals, status: 'signal SIGTERM' },
-    { exitCode: null, signal: null, status: 'without an exit status' },
-  ])('rejects range settlement when the runner exits with $status', async ({ exitCode, signal, status }) => {
-    const child = new EventEmitter() as ChildProcess
-    const kill = vi.fn(() => true)
-    Object.assign(child, { pid: 432, connected: false, kill })
-    let eventsPath = ''
-    const run = vi.fn((_command: string, args: readonly string[]) => {
-      eventsPath = args[args.indexOf('--events') + 1] as string
-      appendRunnerEvent(eventsPath, { type: 'started', pid: 432 })
-      return child
-    }) as unknown as typeof spawn
-    const launch = launchWindowsJob(spec(['fake-target']), { spawn: run, runnerInvocation: ['fake-runner'] })
-    const directFailure = launch.direct.catch((error: unknown) => error)
-
-    child.emit('close', exitCode, signal)
-
-    await expect(launch.owner.waitForExit()).rejects.toThrow(
-      `Windows Job runner exited with ${status} before proving its managed range empty`,
-    )
-    await expect(directFailure).resolves.toBeInstanceOf(Error)
-    launch.owner.signal('SIGKILL')
-    expect(kill).not.toHaveBeenCalled()
-  })
-
-  it('uses runner exit status as the managed-range settlement fact after startup failure', async () => {
-    const child = new EventEmitter() as ChildProcess
-    const kill = vi.fn(() => true)
-    const send = vi.fn()
-    Object.assign(child, { pid: 432, connected: true, kill, send })
-    const run = vi.fn((_command: string, args: readonly string[]) => {
-      const eventsPath = args[args.indexOf('--events') + 1] as string
-      appendRunnerEvent(eventsPath, {
-        type: 'spawn-error',
-        error: { name: 'Error', message: 'spawn missing ENOENT', code: 'ENOENT' },
-      })
-      return child
-    }) as unknown as typeof spawn
-    const launch = launchWindowsJob(spec(['missing-target']), { spawn: run, runnerInvocation: ['fake-runner'] })
-
-    launch.owner.signal('SIGTERM')
-    await expect(launch.direct).rejects.toMatchObject({ code: 'ENOENT' })
-    expect(send).toHaveBeenCalledExactlyOnceWith({ type: 'terminate' }, expect.any(Function))
-    expect(kill).not.toHaveBeenCalled()
-    child.emit('close', 0, null)
-    await expect(launch.owner.waitForExit()).resolves.toBeUndefined()
-  })
-
-  it('treats a wrapper that never started as an empty managed range', async () => {
-    const child = new EventEmitter() as ChildProcess
-    const kill = vi.fn(() => true)
-    Object.assign(child, { pid: undefined, connected: false, kill })
-    const run = vi.fn(() => child) as unknown as typeof spawn
-    const launch = launchWindowsJob(spec(['fake-target']), { spawn: run, runnerInvocation: ['missing-runner'] })
-
-    child.emit('error', new Error('spawn missing-runner ENOENT'))
-    child.emit('close', -2, null)
-    await expect(launch.direct).rejects.toThrow('runner failed to start')
-    launch.owner.signal('SIGTERM')
-    expect(kill).not.toHaveBeenCalled()
-    await expect(launch.owner.waitForExit()).resolves.toBeUndefined()
-  })
-
-  it('waits for a runner that disconnects before its clean close', async () => {
-    const child = new EventEmitter() as ChildProcess
-    const kill = vi.fn(() => true)
-    const send = vi.fn()
-    Object.assign(child, { pid: 321, connected: false, kill, send })
-    let eventsPath = ''
-    const run = vi.fn((_command: string, args: readonly string[]) => {
-      eventsPath = args[args.indexOf('--events') + 1] as string
-      appendRunnerEvent(eventsPath, { type: 'started', pid: 321 })
-      return child
-    }) as unknown as typeof spawn
-    const launch = launchWindowsJob(spec(['fake-target']), { spawn: run, runnerInvocation: ['fake-runner'] })
-
-    launch.owner.signal('SIGTERM')
-    expect(send).not.toHaveBeenCalled()
-    expect(kill).not.toHaveBeenCalled()
-
-    appendRunnerEvent(eventsPath, { type: 'exit', exitCode: 0, signal: null })
-    child.emit('close', 0, null)
-    await expect(launch.direct).resolves.toEqual({ exitCode: 0, signal: null })
-    await expect(launch.owner.waitForExit()).resolves.toBeUndefined()
-  })
-
-  it('kills the runner only when IPC delivery fails while still connected', async () => {
-    for (const mode of ['callback-error', 'callback-disconnect', 'throw', 'throw-disconnect'] as const) {
-      const child = new EventEmitter() as ChildProcess
-      const kill = vi.fn(() => true)
-      const send = vi.fn((_message: unknown, callback: (error: Error | null) => void) => {
-        if (mode === 'callback-disconnect' || mode === 'throw-disconnect') {
-          Object.assign(child, { connected: false })
-        }
-        if (mode === 'throw' || mode === 'throw-disconnect') throw new Error('send threw')
-        callback(new Error('send failed'))
-        return true
-      })
-      Object.assign(child, {
-        pid: 321,
-        connected: true,
-        kill,
-        send,
-      })
-      let eventsPath = ''
-      const run = vi.fn((_command: string, args: readonly string[]) => {
-        eventsPath = args[args.indexOf('--events') + 1] as string
-        appendRunnerEvent(eventsPath, { type: 'started', pid: 321 })
-        return child
-      }) as unknown as typeof spawn
-      const launch = launchWindowsJob(spec(['fake-target']), { spawn: run, runnerInvocation: ['fake-runner'] })
-
-      launch.owner.signal('SIGTERM')
-      const shouldKill = mode === 'callback-error' || mode === 'throw'
-      expect(kill).toHaveBeenCalledTimes(shouldKill ? 1 : 0)
-
-      appendRunnerEvent(eventsPath, { type: 'exit', exitCode: 0, signal: null })
-      child.emit('close', shouldKill ? null : 0, shouldKill ? 'SIGTERM' : null)
-      await expect(launch.direct).resolves.toEqual({ exitCode: 0, signal: null })
-      if (shouldKill) {
-        await expect(launch.owner.waitForExit()).rejects.toThrow('before proving its managed range empty')
-      } else {
-        await expect(launch.owner.waitForExit()).resolves.toBeUndefined()
-      }
-      const sends = send.mock.calls.length
-      const kills = kill.mock.calls.length
-      launch.owner.signal('SIGKILL')
-      expect(send).toHaveBeenCalledTimes(sends)
-      expect(kill).toHaveBeenCalledTimes(kills)
-    }
-
-    const child = new EventEmitter() as ChildProcess
-    const kill = vi.fn(() => true)
-    const send = vi.fn((_message: unknown, callback: (error: Error | null) => void) => {
-      callback(null)
-      return true
-    })
-    Object.assign(child, { pid: 654, connected: true, kill, send })
-    let eventsPath = ''
-    const run = vi.fn((_command: string, args: readonly string[]) => {
-      eventsPath = args[args.indexOf('--events') + 1] as string
-      appendRunnerEvent(eventsPath, { type: 'started', pid: 654 })
-      return child
-    }) as unknown as typeof spawn
-    const launch = launchWindowsJob(spec(['fake-target']), { spawn: run, runnerInvocation: ['fake-runner'] })
-    launch.owner.signal('SIGTERM')
-    expect(send).toHaveBeenCalledOnce()
-    expect(kill).not.toHaveBeenCalled()
-    appendRunnerEvent(eventsPath, { type: 'exit', exitCode: 0, signal: null })
-    child.emit('close', 0, null)
-    await launch.direct
-    await launch.owner.waitForExit()
-  })
-
-  it('uses production runner defaults', async () => {
-    const child = new EventEmitter() as ChildProcess
-    Object.assign(child, {
-      pid: 987,
-      connected: true,
-      kill: vi.fn(() => true),
-      send: vi.fn(),
-    })
-    let eventsPath = ''
-    const run = vi.fn((_command: string, args: readonly string[]) => {
-      eventsPath = args[args.indexOf('--events') + 1] as string
-      appendRunnerEvent(eventsPath, { type: 'started', pid: 987 })
-      return child
-    })
-    const runSync = vi.fn(() => ({ status: 0, error: undefined }))
+describe('Windows Job capability', () => {
+  it('uses the production dependency paths by default', async () => {
     vi.resetModules()
+    const child = new FakeChild()
+    const spawn = vi.fn(() => child)
+    const load = vi.fn(() => ({ bindings: true }) as never)
+    const probe = vi.fn()
     vi.doMock('node:child_process', async importOriginal => ({
       ...await importOriginal<typeof import('node:child_process')>(),
-      spawn: run,
-      spawnSync: runSync,
+      spawn,
     }))
-    try {
-      const defaults = await import('../src/windows-job.ts')
-      expect(defaults.probeWindowsJob()).toBe(true)
-      const launch = defaults.launchWindowsJob(spec(['fake-target']))
-      appendRunnerEvent(eventsPath, { type: 'exit', exitCode: 0, signal: null })
-      child.emit('close', 0, null)
-      await expect(launch.direct).resolves.toEqual({ exitCode: 0, signal: null })
-      await expect(launch.owner.waitForExit()).resolves.toBeUndefined()
-      expect(run).toHaveBeenCalledOnce()
-      expect(runSync).toHaveBeenCalledOnce()
-    } finally {
-      vi.doUnmock('node:child_process')
-      vi.resetModules()
-    }
-  })
-
-  it('cleans synchronous setup failures and leaves collected-stream settlement to common binding', async () => {
-    const bridgeFailure = new Error('bridge failed')
-    const spawnFailure = new Error('spawn threw')
-    const bridges: Array<WindowsStdioBridge & { dispose: ReturnType<typeof vi.fn>; closeInput: ReturnType<typeof vi.fn> }> = []
-    vi.resetModules()
-    vi.doMock('../src/windows-stdio.ts', async importOriginal => ({
-      ...await importOriginal<typeof import('../src/windows-stdio.ts')>(),
-      createWindowsStdioBridge: vi.fn((request: SubprocessSpawnSpec): WindowsStdioBridge => {
-        if (request.argv[0] === 'bridge-failure') throw bridgeFailure
-        const stdout = typeof request.stdio.stdout === 'object' ? new PassThrough() : null
-        const stderr = typeof request.stdio.stderr === 'object' ? new PassThrough() : null
-        const bridge = {
-          stdin: null,
-          stdout,
-          stderr,
-          runnerArgs: [],
-          runnerStdio: ['ignore', 'ignore', 'ignore', 'ipc'],
-          closeInput: vi.fn(),
-          dispose: vi.fn(() => {
-            stdout?.destroy()
-            stderr?.destroy()
-          }),
-        } satisfies WindowsStdioBridge
-        bridges.push(bridge)
-        return bridge
-      }),
+    vi.doMock('@deepseek-ai/dsh-win32-process', () => ({
+      loadWin32ProcessBindings: load,
+      probeCurrentTokenJobSupport: probe,
     }))
     try {
       const isolated = await import('../src/windows-job.ts')
-      expect(() => isolated.launchWindowsJob(spec(['bridge-failure']), { runnerInvocation: ['fake-runner'] }))
-        .toThrow(bridgeFailure)
+      expect(isolated.probeWindowsJob()).toBe(true)
+      expect(load).toHaveBeenCalledOnce()
+      expect(probe).toHaveBeenCalledOnce()
 
-      expect(() => isolated.launchWindowsJob(spec(['spawn-failure']), {
-        spawn: vi.fn(() => { throw spawnFailure }) as unknown as typeof spawn,
-        runnerInvocation: ['fake-runner'],
-      })).toThrow(spawnFailure)
-      expect(bridges.at(-1)?.dispose).toHaveBeenCalledOnce()
-
-      const child = new EventEmitter() as ChildProcess
-      Object.assign(child, { pid: 432, connected: true, kill: vi.fn(), send: vi.fn() })
-      const run = vi.fn((_command: string, args: readonly string[]) => {
-        const eventsPath = args[args.indexOf('--events') + 1] as string
-        appendRunnerEvent(eventsPath, { type: 'started', pid: 432 })
-        appendRunnerEvent(eventsPath, { type: 'exit', exitCode: 0, signal: null })
-        setImmediate(() => { child.emit('close', 0, null) })
-        return child
-      }) as unknown as typeof spawn
-      const request = {
-        ...spec(['collect']),
-        stdio: {
-          stdin: 'ignore',
-          stdout: { maxBytes: 1024 },
-          stderr: { maxBytes: 1024 },
-        },
-      } satisfies SubprocessSpawnSpec
-      const launch = isolated.launchWindowsJob(request, { spawn: run, runnerInvocation: ['fake-runner'] })
-      await expect(launch.direct).resolves.toEqual({ exitCode: 0, signal: null })
-      await expect(launch.owner.waitForExit()).resolves.toBeUndefined()
-      expect(bridges.at(-1)?.closeInput).toHaveBeenCalledOnce()
+      const result = isolated.launchWindowsJob(spec, { TARGET: 'yes' })
+      expect(spawn).toHaveBeenCalledOnce()
+      child.emit('message', { type: 'target-exit', exitCode: 0, signal: null })
+      child.connected = false
+      child.emit('close', 0, null)
+      await expect(result.direct).resolves.toEqual({ exitCode: 0, signal: null })
+      await expect(result.owner.waitForExit()).resolves.toBeUndefined()
     } finally {
-      vi.doUnmock('../src/windows-stdio.ts')
+      vi.doUnmock('node:child_process')
+      vi.doUnmock('@deepseek-ai/dsh-win32-process')
       vi.resetModules()
     }
+  })
+
+  it('rechecks runner and empty Job support on every eligible spawn', () => {
+    const runnerAvailable = vi.fn(() => true)
+    const load = vi.fn(() => ({ bindings: true }) as never)
+    const probe = vi.fn()
+    const inputs = {
+      runnerInvocation: ['C:\\node.exe', 'C:\\runner.js'] as [string, ...string[]],
+      runnerAvailable,
+      loadWin32ProcessBindings: load,
+      probeCurrentTokenJobSupport: probe,
+    }
+    expect(probeWindowsJob(inputs)).toBe(true)
+    expect(probeWindowsJob(inputs)).toBe(true)
+    expect(runnerAvailable).toHaveBeenCalledTimes(2)
+    expect(load).toHaveBeenCalledTimes(2)
+    expect(probe).toHaveBeenCalledTimes(2)
+  })
+
+  it('falls back when either runner or current Job capability is unavailable', () => {
+    expect(probeWindowsJob({
+      resolveRunnerInvocation: () => { throw new Error('runner resolution failed') },
+    })).toBe(false)
+    expect(probeWindowsJob({ runnerInvocation: ['/missing'], runnerAvailable: () => false })).toBe(false)
+    expect(probeWindowsJob({
+      runnerInvocation: ['C:\\node.exe'],
+      runnerAvailable: () => true,
+      loadWin32ProcessBindings: () => { throw new Error('bindings missing') },
+    })).toBe(false)
+  })
+})
+
+describe('Windows parent runner contract', () => {
+  it('launches with real stdio plus IPC and sends cwd/env through the strict start message', () => {
+    const { child, result, spawn } = launch()
+    expect(spawn).toHaveBeenCalledWith('C:\\node.exe', [
+      'C:\\runner.js', '--', 'tool.exe', 'literal arg',
+    ], expect.objectContaining({
+      cwd: process.cwd(),
+      stdio: ['pipe', 'pipe', 'inherit', 'ipc'],
+    }))
+    expect(child.sent).toEqual([{ type: 'start', cwd: 'C:\\target', env: { TARGET: 'yes' } }])
+    expect(result.stdin).toBe(child.stdin)
+    expect(result.stdout).toBe(child.stdout)
+    expect(result.stderr).toBe(child.stderr)
+  })
+
+  it('maps target-exit to direct outcome and clean close to range quiescence', async () => {
+    const { child, result } = launch()
+    child.emit('message', { type: 'target-exit', exitCode: 7, signal: null })
+    await expect(result.direct).resolves.toEqual({ exitCode: 7, signal: null })
+    child.connected = false
+    child.emit('close', 0, null)
+    await expect(result.owner.waitForExit()).resolves.toBeUndefined()
+  })
+
+  it('rejects done when runner failure precedes stdio settlement', async () => {
+    const { child, result } = launch()
+    const handle = bindManagedProcess(spec, result)
+    child.emit('message', { type: 'target-exit', exitCode: 7, signal: null })
+    await Promise.resolve()
+    child.connected = false
+    child.emit('close', 127, null)
+    await expect(handle.done).rejects.toThrow('exit code 127')
+  })
+
+  it('maps spawn-error and start-cancelled without requiring public target identity', async () => {
+    const spawned = launch()
+    spawned.child.emit('message', {
+      type: 'spawn-error', error: { name: 'Error', message: 'missing', code: 'ENOENT' },
+    })
+    await expect(spawned.result.direct).rejects.toMatchObject({ code: 'ENOENT' })
+    spawned.child.connected = false
+    spawned.child.emit('close', 0, null)
+    await expect(spawned.result.owner.waitForExit()).resolves.toBeUndefined()
+
+    const cancelled = launch()
+    const reason = new Error('caller aborted')
+    cancelled.result.owner.signal('SIGTERM', reason)
+    expect(cancelled.child.sent.at(-1)).toEqual({ type: 'terminate' })
+    cancelled.child.emit('message', { type: 'start-cancelled' })
+    await expect(cancelled.result.direct).rejects.toBe(reason)
+    cancelled.child.connected = false
+    cancelled.child.emit('close', 0, null)
+    await expect(cancelled.result.owner.waitForExit()).resolves.toBeUndefined()
+
+    const implicit = launch()
+    implicit.child.emit('message', { type: 'start-cancelled' })
+    await expect(implicit.result.direct).rejects.toThrow('target start was cancelled')
+    implicit.child.connected = false
+    implicit.child.emit('close', 0, null)
+    await expect(implicit.result.owner.waitForExit()).resolves.toBeUndefined()
+  })
+
+  it('rejects direct and wait for runner-error or abnormal runner exit', async () => {
+    const failed = launch()
+    failed.child.emit('message', {
+      type: 'runner-error', error: { name: 'Error', message: 'Job assignment failed' },
+    })
+    await expect(failed.result.direct).rejects.toThrow('Job assignment failed')
+    failed.child.connected = false
+    failed.child.emit('close', 127, null)
+    await expect(failed.result.owner.waitForExit()).rejects.toThrow('exit code 127')
+    await expect(failed.result.infrastructureFailure).rejects.toThrow('exit code 127')
+
+    const missing = launch()
+    missing.child.connected = false
+    missing.child.emit('close', null, 'SIGKILL')
+    await expect(missing.result.direct).rejects.toThrow('signal SIGKILL')
+
+    const statusless = launch()
+    statusless.child.connected = false
+    statusless.child.emit('close', null, null)
+    await expect(statusless.result.direct).rejects.toThrow('without an exit status')
+  })
+
+  it('fails closed on malformed/duplicate result, runner spawn error, and start-send error', async () => {
+    const malformed = launch()
+    malformed.child.emit('message', { type: 'target-exit', exitCode: -1, signal: null })
+    expect(malformed.child.killed).toEqual(['SIGKILL'])
+    await expect(malformed.result.infrastructureFailure).rejects.toThrow('invalid target-exit')
+
+    const duplicate = launch()
+    duplicate.child.emit('message', { type: 'target-exit', exitCode: 0, signal: null })
+    duplicate.child.emit('message', { type: 'target-exit', exitCode: 0, signal: null })
+    await expect(duplicate.result.infrastructureFailure).rejects.toThrow('more than one direct result')
+    duplicate.child.connected = false
+    duplicate.child.emit('close', 127, null)
+    await expect(duplicate.result.owner.waitForExit()).rejects.toThrow('exit code 127')
+
+    const errored = launch()
+    const spawnError = new Error('runner executable missing')
+    errored.child.emit('error', spawnError)
+    await expect(errored.result.direct).rejects.toBe(spawnError)
+    await expect(errored.result.owner.waitForExit()).rejects.toBe(spawnError)
+
+    const sendFailedChild = new FakeChild()
+    sendFailedChild.sendError = new Error('IPC send failed')
+    const sendFailed = launch(sendFailedChild)
+    await expect(sendFailed.result.direct).rejects.toThrow('IPC send failed')
+    await expect(sendFailed.result.infrastructureFailure).rejects.toThrow('IPC send failed')
+    expect(sendFailedChild.killed).toEqual(['SIGKILL'])
+
+    const noIpc = new FakeChild()
+    Object.defineProperty(noIpc, 'send', { value: undefined })
+    const noIpcResult = launch(noIpc).result
+    await expect(noIpcResult.direct).rejects.toThrow('has no IPC channel')
+    await expect(noIpcResult.infrastructureFailure).rejects.toThrow('has no IPC channel')
+
+    const nonError = new FakeChild()
+    nonError.throwOnSendCall = 1
+    nonError.sendThrown = 'start send failed'
+    const nonErrorResult = launch(nonError).result
+    await expect(nonErrorResult.direct).rejects.toThrow('start send failed')
+    await expect(nonErrorResult.infrastructureFailure).rejects.toThrow('start send failed')
+  })
+
+  it('fails infrastructure and kills the runner when termination delivery fails', async () => {
+    const callback = launch()
+    await Promise.resolve()
+    callback.child.sendError = new Error('terminate callback failed')
+    callback.result.owner.signal('SIGTERM')
+    await expect(callback.result.infrastructureFailure).rejects.toThrow('terminate callback failed')
+    expect(callback.child.killed).toEqual(['SIGKILL'])
+    callback.child.connected = false
+    callback.child.emit('close', 127, null)
+    await expect(callback.result.direct).rejects.toThrow('exit code 127')
+
+    const throwingChild = new FakeChild()
+    throwingChild.throwOnSendCall = 2
+    throwingChild.sendThrown = 'terminate send threw'
+    const throwing = launch(throwingChild)
+    throwing.result.owner.signal('SIGTERM')
+    await expect(throwing.result.infrastructureFailure).rejects.toThrow('terminate send threw')
+    expect(throwing.child.killed).toEqual(['SIGKILL'])
+
+    const errorChild = new FakeChild()
+    errorChild.throwOnSendCall = 2
+    const error = launch(errorChild)
+    error.result.owner.signal('SIGTERM')
+    await expect(error.result.infrastructureFailure).rejects.toThrow('send threw')
+  })
+
+  it('uses synchronous runner termination for host exit and isolates repeated control', () => {
+    const { child, result } = launch()
+    result.owner.signal('SIGTERM', new Error('first'))
+    result.owner.signal('SIGKILL', new Error('second'))
+    expect(child.sent.filter(message => (message as { type?: string }).type === 'terminate')).toHaveLength(1)
+    result.owner.terminateForHostExit()
+    expect(child.killed).toEqual(['SIGKILL'])
   })
 })

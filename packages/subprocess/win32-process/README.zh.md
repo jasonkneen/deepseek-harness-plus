@@ -28,8 +28,8 @@ kind: "package-library"
 - **restricted-token 创建** — `RestrictedProcessSpawnOptions` 要求 sandbox 的 primary token，并使用 `CreateProcessAsUserW`。pipe 与 inherited-stdio 路径共用命令行引用、cwd、继承环境块、返回值检查与句柄清理。
 - **管道进程原语** — `spawnPipedProcess()` 创建匿名 stdin/stdout/stderr 管道，立即关闭 stdin，并返回两个读取端；调用方负责等待进程与排空管道。任一局部失败都会关闭该操作已经拥有的句柄，并在各自 Win32 生命周期结束后释放每个 Koffi 输出槽与结构体分配。
 - **继承 stdio 的 Job 原语** — `spawnInheritedJobProcess()` 创建一个 kill-on-close Job，临时把当前 stdio 句柄设为可继承，以 suspended 状态创建 restricted child，把它分配给 Job，再恢复初始线程。目标代码不会在 Job 分配前运行；受控的分配或恢复失败会终止 suspended child，或在释放全部已拥有句柄前关闭已分配的 Job。
-- **named-pipe stdio 原语** — `openNamedPipeForStdio()` 打开 parent-owned endpoint，并只申请该流 target 侧需要的 read 或 write access。`spawnCurrentTokenJobProcess()` 接受这些显式 handle，在创建目标期间临时启用继承；未显式提供的流继续使用 runner 继承的标准句柄。
-- **ordinary Job runner 原语** — `spawnCurrentTokenJobProcess()` 通过 `CreateProcessW` 应用 suspended-create、Job-assignment 与 resume 生命周期，并把原始 process handle 与 unnamed Job 返回给同一个 runner。process 的 zero-time wait 单独发布 direct exit，`QueryInformationJobObject(JobObjectBasicAccountingInformation)` 则让该 runner 一直存活到 `ActiveProcesses` 归零。
+- **ordinary Job runner 原语** — `spawnCurrentTokenJobProcess()` 临时把 runner 的标准句柄设为可继承，通过 `STARTF_USESTDHANDLES` 传入这些准确句柄，再以 suspended 状态通过 `CreateProcessW` 创建 target、把它分配给 unnamed kill-on-close Job，并只在分配后恢复。它把 direct-process handle 与 Job 返回给同一个 runner；`closeCurrentProcessStandardHandles()` 随后关闭 runner 的副本，使 target 退出可以在 parent 产生 EOF。
+- **ordinary 停稳操作** — `pollProcessExit()` 单独发布 direct exit，`isJobEmpty()` 则读取 `QueryInformationJobObject(JobObjectBasicAccountingInformation)`，直到 `ActiveProcesses` 归零。带检查的 Job 终止与 handle 关闭使 runner 保持唯一 native owner。
 - **显式结算归属** — `waitForProcessExit()` 等待并关闭 sandbox process handle；ordinary runner 的 process polling、Job accounting 与 checked Job termination/closure 是独立操作。`drainPipe()` 在排空期间复用一个 native count slot，释放该分配并关闭管道读取句柄。每个调用方拥有自己的 result 组合与返回 handle。
 
 Windows ACL 沙箱在这些原语上增加 SID、DACL、grant、workspace 与公共 child policy。
@@ -37,7 +37,7 @@ Windows ACL 沙箱在这些原语上增加 SID、DACL、grant、workspace 与公
 <a id="header-verification"></a>
 ## 头部验证
 
-process、named-pipe、stdio 与 Job 的常量以及选定结构体的大小和偏移由 [`verify/abi-probe.cpp`](verify/abi-probe.cpp) 对照 MinGW Windows 头文件检查：
+process、stdio 与 Job 的常量以及选定结构体的大小和偏移由 [`verify/abi-probe.cpp`](verify/abi-probe.cpp) 对照 MinGW Windows 头文件检查：
 
 ```sh
 g++ -std=c++20 -municode -O2 -o abi-probe.exe verify/abi-probe.cpp && ./abi-probe.exe

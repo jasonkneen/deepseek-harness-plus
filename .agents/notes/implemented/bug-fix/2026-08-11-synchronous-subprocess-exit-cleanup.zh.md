@@ -17,7 +17,7 @@ Status: implemented
 该 listener使用本地实现私有的最终操作；公共 `SubprocessHandle`和 `SubprocessTerminalHandle`接口不包含这些操作：
 
 - 普通 handle在可用时同步向绑定的 native scope 或 Job runner 发信号；已披露的 fallback 会向 detached POSIX进程组发送 SIGKILL，或在 Windows运行 `taskkill /PID <pid> /T /F`。
-- 具有 native Linux owner 的 terminal handle 会同步向该 scope 发送 SIGKILL。fallback terminal 则向全部已捕获及当前可观察的后代发送信号，终止 PTY root，然后再扫描一次并终止在该边界期间变得可观察的成员。
+- terminal handle 会同步向全部已捕获及当前可观察的后代发送信号，终止 PTY root，然后再扫描一次并终止在该边界期间变得可观察的成员。具有 native Linux owner 的 handle 随后还会向其准确 scope 发送 SIGKILL；fallback terminal 则在观察序列后结束。
 - 服务分别包含每个目标的失败并继续处理其余 handle。回调不会创建 Promise或 timer，不写诊断，也不改变原始退出码或错误。
 
 正常 dispose继续使用[subprocess seam](../architecture/2026-07-26-subprocess-seam.zh.md)的先终止再等待退出路径：POSIX ordinary range 先接收 TERM，经过配置的宽限期后再接收 KILL；Windows ordinary range 立即终止；每个 ordinary 或 terminal 清理都会等待完全停稳。同步路径只请求最终终止，不发布完成结果，也不声称回调返回时 OS range 已经消失。远程 provider继续由其 sandbox独立拥有，不继承本地 Node listener。
@@ -48,4 +48,4 @@ Status: implemented
 
 每个有效的本地 subprocess service都会贡献一个进程全局 exit listener。成功的 dispose会随服务 effect移除它；失败的 dispose会让它与仍需最终终止的目标一起保留。致命退出放弃宽限、输出排空与进程内停稳证明，以换取宿主消失前发出本地可用的最强终止操作。正常 dispose的保证与成本保持不变。
 
-listener 无法覆盖不执行 JavaScript 的故障。受支持的 Linux terminal 会向[containment decision](2026-08-20-subprocess-native-containment.zh.md)所述的 scope 发出信号；fallback terminal 仍无法发现 provider 首次观察前已经逃逸的后代。
+listener 无法覆盖不执行 JavaScript 的故障。受支持的 Linux terminal 会向[原生收容决策](../architecture/2026-08-28-subprocess-native-containment.zh.md)所述的 scope 发出信号；fallback terminal 仍无法发现 provider 首次观察前已经逃逸的后代。

@@ -2,30 +2,34 @@ import koffi from 'koffi'
 import { describe, expect, it, vi } from 'vitest'
 import {
   closeHandleChecked,
+  closeCurrentProcessStandardHandles,
   isJobEmpty,
-  openNamedPipeForStdio,
   pollProcessExit,
+  probeCurrentTokenJobSupport,
   spawnCurrentTokenJobProcess,
   terminateJob,
   Win32Error,
 } from '../src/index.ts'
 import {
   CREATE_SUSPENDED,
-  GENERIC_READ,
-  GENERIC_WRITE,
   JOBOBJECT_BASIC_ACCOUNTING_ACTIVE_PROCESSES_OFFSET,
   JOBOBJECT_BASIC_ACCOUNTING_SIZE,
   JobObjectBasicAccountingInformation,
-  OPEN_EXISTING,
+  STD_ERROR_HANDLE,
+  STD_INPUT_HANDLE,
+  STD_OUTPUT_HANDLE,
   WAIT_TIMEOUT,
 } from '../src/abi.ts'
 import { PROCESS_INFORMATION, STARTUPINFOW } from '../src/ffi.ts'
 import type { NativePtr, Win32ProcessBindings } from '../src/index.ts'
 
+function nativePtr(value: bigint): NativePtr {
+  return value as NativePtr
+}
+
 function api(overrides: Partial<Win32ProcessBindings> = {}): Win32ProcessBindings {
   return {
     createJobObjectW: vi.fn(() => 50n),
-    createFileW: vi.fn(() => 70n),
     setInformationJobObject: vi.fn(() => 1),
     queryInformationJobObject: vi.fn((_job: NativePtr, _cls: number, information: Buffer) => {
       information.writeUInt32LE(0, JOBOBJECT_BASIC_ACCOUNTING_ACTIVE_PROCESSES_OFFSET)
@@ -116,11 +120,18 @@ describe('ordinary Job process operations', () => {
     expect(caught).toMatchObject({ api: 'CreateProcessW', win32Code: 5 })
   })
 
-  it('passes explicit target stdio handles without reading caller stdio', () => {
+  it('inherits the runner standard handles and restores their flags', () => {
     let startup: Record<string, unknown> | undefined
-    const getStdHandle = vi.fn(() => 99n as NativePtr)
+    const handles = new Map([
+      [STD_INPUT_HANDLE, 71n as NativePtr],
+      [STD_OUTPUT_HANDLE, 72n as NativePtr],
+      [STD_ERROR_HANDLE, 73n as NativePtr],
+    ])
+    const getStdHandle = vi.fn((selector: number) => handles.get(selector) as NativePtr)
+    const setHandleInformation = vi.fn(() => 1)
     const bindings = api({
       getStdHandle,
+      setHandleInformation,
       createProcessW: vi.fn((_app, _line, _pa, _ta, _inherit, _flags, _env, _cwd, infoPtr, processInfo) => {
         startup = koffi.decode(infoPtr, STARTUPINFOW) as Record<string, unknown>
         koffi.encode(processInfo, PROCESS_INFORMATION, {
@@ -136,43 +147,17 @@ describe('ordinary Job process operations', () => {
       command: 'probe.exe',
       args: [],
       cwd: 'C:\\work',
-    }, {
-      stdin: 71n as NativePtr,
-      stdout: 72n as NativePtr,
-      stderr: 73n as NativePtr,
     })).toEqual({ pid: 1234, process: 60n, job: 50n })
-    expect(getStdHandle).not.toHaveBeenCalled()
+    expect(getStdHandle.mock.calls.map(([selector]) => selector)).toEqual([
+      STD_INPUT_HANDLE,
+      STD_OUTPUT_HANDLE,
+      STD_ERROR_HANDLE,
+    ])
     expect(startup).toMatchObject({ hStdInput: 71n, hStdOutput: 72n, hStdError: 73n })
-  })
-
-  it('opens private named-pipe clients with stream-specific access', () => {
-    const createFileW = vi.fn(() => 70n as NativePtr)
-    const bindings = api({ createFileW })
-    expect(openNamedPipeForStdio(bindings, '\\\\.\\pipe\\dsh-stdin', 'read')).toBe(70n)
-    expect(openNamedPipeForStdio(bindings, '\\\\.\\pipe\\dsh-stdout', 'write')).toBe(70n)
-    expect(createFileW).toHaveBeenNthCalledWith(
-      1,
-      '\\\\.\\pipe\\dsh-stdin',
-      GENERIC_READ,
-      0,
-      null,
-      OPEN_EXISTING,
-      0,
-      null,
-    )
-    expect(createFileW).toHaveBeenNthCalledWith(
-      2,
-      '\\\\.\\pipe\\dsh-stdout',
-      GENERIC_WRITE,
-      0,
-      null,
-      OPEN_EXISTING,
-      0,
-      null,
-    )
-
-    const invalid = api({ createFileW: vi.fn(() => -1n as NativePtr) })
-    expect(() => openNamedPipeForStdio(invalid, '\\\\.\\pipe\\missing', 'read')).toThrow(Win32Error)
+    expect(setHandleInformation.mock.calls).toEqual([
+      [71n, 1, 1], [72n, 1, 1], [73n, 1, 1],
+      [71n, 1, 0], [72n, 1, 0], [73n, 1, 0],
+    ])
   })
 
   it('polls direct exit and Job emptiness without blocking', () => {
@@ -222,5 +207,66 @@ describe('ordinary Job process operations', () => {
 
     const closeFailure = api({ closeHandle: vi.fn(() => 0) })
     expect(() => { closeHandleChecked(closeFailure, 50n as NativePtr, 'test Job') }).toThrow(Win32Error)
+  })
+
+  it('probes an unnamed Job and closes its handle', () => {
+    const closeHandle = vi.fn(() => 1)
+    const bindings = api({ closeHandle })
+    expect(() => { probeCurrentTokenJobSupport(bindings) }).not.toThrow()
+    expect(closeHandle).toHaveBeenCalledExactlyOnceWith(50n)
+  })
+
+  it('closes unique non-null inherited standard handles', () => {
+    const getStdHandle = vi.fn((_selector: number): NativePtr => nativePtr(0n))
+      .mockReturnValueOnce(nativePtr(0n))
+      .mockReturnValueOnce(nativePtr(72n))
+      .mockReturnValueOnce(nativePtr(72n))
+    const closeHandle = vi.fn(() => 1)
+    const bindings = api({ getStdHandle, closeHandle })
+
+    expect(() => { closeCurrentProcessStandardHandles(bindings) }).not.toThrow()
+    expect(getStdHandle.mock.calls.map(([selector]) => selector)).toEqual([
+      STD_INPUT_HANDLE,
+      STD_OUTPUT_HANDLE,
+      STD_ERROR_HANDLE,
+    ])
+    expect(closeHandle).toHaveBeenCalledExactlyOnceWith(72n)
+  })
+
+  it('reports one or several inherited standard-handle close failures', () => {
+    const singleFailure = api({
+      getStdHandle: vi.fn()
+        .mockReturnValueOnce(nativePtr(71n))
+        .mockReturnValueOnce(nativePtr(72n))
+        .mockReturnValueOnce(nativePtr(73n)),
+      closeHandle: vi.fn((handle: NativePtr) => handle === 72n ? 0 : 1),
+    })
+    expect(() => { closeCurrentProcessStandardHandles(singleFailure) }).toThrow(Win32Error)
+
+    const severalFailures = api({
+      getStdHandle: vi.fn()
+        .mockReturnValueOnce(nativePtr(71n))
+        .mockReturnValueOnce(nativePtr(72n))
+        .mockReturnValueOnce(nativePtr(73n)),
+      closeHandle: vi.fn((handle: NativePtr) => {
+        if (handle === 71n) throw 'raw close failure'
+        return handle === 72n ? 0 : 1
+      }),
+    })
+    let failure: unknown
+    try {
+      closeCurrentProcessStandardHandles(severalFailures)
+    } catch (error) {
+      failure = error
+    }
+    expect(failure).toMatchObject({
+      name: 'AggregateError',
+      message: 'closing runner standard handles failed',
+    })
+    const errors = (failure as { errors: unknown }).errors
+    expect(errors).toEqual(expect.arrayContaining([
+      expect.objectContaining({ message: 'raw close failure' }),
+      expect.any(Win32Error),
+    ]))
   })
 })

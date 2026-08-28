@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-Any composition that runs child processes can start a fully specified child process or a real terminal session through `ctx.subprocess`, receive a live handle with streams, a target PID when available, and direct exit facts, then terminate and wait for the provider-managed range. The service provides executable lookup, the shared environment scrub, and bounded output capture, while every default — argv, deadlines, shell semantics — stays explicit on the request, so the consuming capability seams decide what a process means. A composition mounts one provider implementation (such as `dsh-subprocess-local`) that registers the service; the seam package itself is an abstract contract, not a loadable plugin. Nothing here reaches a model directly: process output and lifecycle are rendered by the consuming tools.
+Any composition that runs child processes can start a fully specified child process or a real terminal session through `ctx.subprocess`, receive a live handle with streams and direct exit facts, then terminate and wait for the provider-managed range. The service provides executable lookup, the shared environment scrub, and bounded output capture, while every default — argv, deadlines, shell semantics — stays explicit on the request, so the consuming capability seams decide what a process means. A composition mounts one provider implementation (such as `dsh-subprocess-local`) that registers the service; the seam package itself is an abstract contract, not a loadable plugin. Nothing here reaches a model directly: process output and lifecycle are rendered by the consuming tools.
 
 ## Table of Contents
 
@@ -38,7 +38,7 @@ One provider registers `ctx.subprocess` per composition; load it beside the cons
 
 ### Starting a managed process
 
-The request is fully explicit: the program and arguments, the working directory, one stdio disposition per stream, a termination grace, an optional abort signal, and optional environment overrides. The provider publishes `pid` only when a real target PID is available; `undefined` means unavailable or not yet published and never encodes failure. `done` resolves with the direct command's exit facts (`exitCode` and `signal`) and rejects for spawn or provider failures; collected output stays readable after exit.
+The request is fully explicit: the program and arguments, the working directory, one stdio disposition per stream, a termination grace, an optional abort signal, and optional environment overrides. Target and managed-range identities remain provider-private. `done` resolves with the direct command's exit facts (`exitCode` and `signal`) and rejects for spawn or provider failures; collected output stays readable after exit.
 
 ```text
 const executable = await ctx.subprocess.resolveExecutable('bash')
@@ -100,7 +100,7 @@ The seam is built on one separation: the service owns process coordinates and li
 
 ### Data model and flow
 
-A spawn returns a live handle immediately. Its `pid` can remain `undefined` until the provider has a real target identity, while `done` independently reports the direct command outcome or failure and `waitForExit()` reports managed-range quiescence. The request's abort signal drives the same termination procedure as `terminate()`. Collected readers are cursor-free: offsets are whole-stream byte coordinates the caller owns, so independent readers cannot consume one another's output, and a read whose offset slid out of the in-memory tail is `lossy` and points at the spill file when one exists. `spawnTerminal` is one deep primitive because ordinary pipes cannot allocate a controlling terminal or clean terminal-session members.
+A spawn returns a live handle immediately without exposing target identity. `done` independently reports the direct command outcome or failure, while `waitForExit()` reports managed-range quiescence. The request's abort signal drives the same termination procedure as `terminate()`. Collected readers are cursor-free: offsets are whole-stream byte coordinates the caller owns, so independent readers cannot consume one another's output, and a read whose offset slid out of the in-memory tail is `lossy` and points at the spill file when one exists. `spawnTerminal` is one deep primitive because ordinary pipes cannot allocate a controlling terminal or clean terminal-session members.
 
 ### Lifecycle and invariants
 

@@ -100,7 +100,6 @@ function errorCause(value: unknown): Error | undefined {
 }
 
 interface FakeChildOptions {
-  readonly pid?: number | undefined
   readonly exitOnTerminate?: boolean
   readonly waitForExitError?: Error
   readonly doneError?: Error
@@ -169,7 +168,6 @@ function fakeChild(options: FakeChildOptions = {}): FakeChild {
     })
   })
   const handle: SubprocessHandle = {
-    pid: Object.hasOwn(options, 'pid') ? options.pid : 1234,
     stdin,
     stdout,
     stderr: undefined,
@@ -829,7 +827,7 @@ describe('official spawn projection', () => {
   })
 
   it('emits spawn errors', async () => {
-    const child = fakeChild({ pid: undefined })
+    const child = fakeChild()
     const process = new ManagedClaudeCodeProcess(child.handle)
     const errorListener = vi.fn()
     const removed = vi.fn()
@@ -1480,7 +1478,6 @@ describe('run publication, cancellation, and settlement', () => {
       { code: 'EACCES', path: '/sdk/claude' },
     )
     const failedSpawn = fakeChild({
-      pid: undefined,
       doneError: spawnError,
     })
     const failed = fakeRun([], undefined, failedSpawn)
@@ -1495,7 +1492,6 @@ describe('run publication, cancellation, and settlement', () => {
 
     const failedSpawnAbort = new AbortController()
     const cancelledFailedSpawn = fakeChild({
-      pid: undefined,
       doneError: spawnError,
     })
     const cancelledFailedClose = vi.fn()
@@ -1515,7 +1511,6 @@ describe('run publication, cancellation, and settlement', () => {
       throw cancelledFailedSpawnCloseError
     })
     const cancelledFailedSpawnWithCloseFailure = fakeChild({
-      pid: undefined,
       doneError: spawnError,
     })
     const failedSpawnAbortWithCloseFailure = new AbortController()
@@ -1548,7 +1543,6 @@ describe('run publication, cancellation, and settlement', () => {
     const failedSpawnCloseError = new Error('query close failed')
     const failedSpawnClose = vi.fn(() => { throw failedSpawnCloseError })
     const failedSpawnWithCloseFailure = fakeChild({
-      pid: undefined,
       doneError: spawnError,
     })
     queryMock.mockImplementationOnce(({ options }) => {
@@ -1602,7 +1596,7 @@ describe('run publication, cancellation, and settlement', () => {
       new Error('spawn /sdk/claude ENOENT'),
       { code: 'ENOENT', path: '/sdk/claude' },
     )
-    const child = fakeChild({ pid: undefined })
+    const child = fakeChild()
     const close = vi.fn()
     queryMock.mockImplementationOnce(({ options }) => {
       options.spawnClaudeCodeProcess!(sdkSpawnOptions())

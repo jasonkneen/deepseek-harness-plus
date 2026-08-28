@@ -19,10 +19,11 @@ export type {
 } from './ffi.ts'
 export {
   closeHandleChecked,
+  closeCurrentProcessStandardHandles,
   drainPipe,
   isJobEmpty,
-  openNamedPipeForStdio,
   pollProcessExit,
+  probeCurrentTokenJobSupport,
   spawnInheritedJobProcess,
   spawnCurrentTokenJobProcess,
   spawnPipedProcess,
@@ -30,7 +31,6 @@ export {
   waitForProcessExit,
 } from './process.ts'
 export type {
-  ChildStdioHandles,
   CurrentTokenProcessSpawnOptions,
   SpawnedJobProcess,
   SpawnedPipedProcess,

@@ -6,6 +6,7 @@ import { Context } from '@deepseek-ai/cordis'
 import type { SubprocessSpawnSpec, SubprocessTerminalHandle } from '@deepseek-ai/dsh-subprocess'
 import LocalSubprocessRuntime from '../src/index.ts'
 import { launchLinuxScope, probeLinuxScope } from '../src/linux-scope.ts'
+import { targetEnvironment } from '../src/runner-launch.ts'
 import { bindManagedProcess } from '../src/spawn.ts'
 
 const scratch = mkdtempSync(join(tmpdir(), 'dsh-native-containment-'))
@@ -135,7 +136,8 @@ describe.skipIf(!linuxNative)('Linux user-systemd native containment', () => {
   it('terminates a setsid descendant and waits for the scope to become empty', async () => {
     const pidFile = join(scratch, `setsid-${Date.now()}.pid`)
     const command = `setsid sh -c 'echo $$ > "$1"; trap "" TERM; while :; do sleep 60; done' sh ${JSON.stringify(pidFile)} & wait`
-    const handle = bindManagedProcess(spec(['bash', '-c', command], 80), launchLinuxScope(spec(['bash', '-c', command], 80)))
+    const request = spec(['bash', '-c', command], 80)
+    const handle = bindManagedProcess(request, launchLinuxScope(request, targetEnvironment(request)))
     const descendant = await waitForPid(pidFile)
     handle.terminate()
     await handle.done
@@ -145,14 +147,14 @@ describe.skipIf(!linuxNative)('Linux user-systemd native containment', () => {
 
   it('preserves Node-shaped ENOENT and EACCES spawn failures without replay', async () => {
     const missing = spec([`missing-native-target-${Date.now()}`])
-    const missingHandle = bindManagedProcess(missing, launchLinuxScope(missing))
+    const missingHandle = bindManagedProcess(missing, launchLinuxScope(missing, targetEnvironment(missing)))
     await expect(missingHandle.done).rejects.toMatchObject({ code: 'ENOENT' })
 
     const deniedPath = join(scratch, `not-executable-${Date.now()}`)
     writeFileSync(deniedPath, '#!/bin/sh\nexit 0\n', { mode: 0o600 })
     chmodSync(deniedPath, 0o600)
     const denied = spec([deniedPath])
-    const deniedHandle = bindManagedProcess(denied, launchLinuxScope(denied))
+    const deniedHandle = bindManagedProcess(denied, launchLinuxScope(denied, targetEnvironment(denied)))
     await expect(deniedHandle.done).rejects.toMatchObject({ code: 'EACCES' })
   })
 

@@ -60,6 +60,8 @@ export class LocalTerminalHandle implements SubprocessTerminalHandle {
     private readonly graceMs: number,
     private readonly platform: NodeJS.Platform = process.platform,
     private readonly managedOwner?: BoundProcessOwner,
+    private readonly resolveManagedOutcome?: (outcome: SubprocessOutcome) => SubprocessOutcome,
+    private readonly cleanupManagedProtocol?: () => void,
   ) {
     this.pid = terminal.pid
     this.rootIdentity = inspector.processTree(this.pid).find(member => member.pid === this.pid)
@@ -69,10 +71,15 @@ export class LocalTerminalHandle implements SubprocessTerminalHandle {
       if (this.exited) return
       this.exited = true
       this.output.end()
-      this.outcome.resolve({
+      const outcome = {
         exitCode: exitSignal === undefined || exitSignal === 0 ? exitCode : null,
         signal: signalName(exitSignal),
-      })
+      }
+      try {
+        this.outcome.resolve(this.resolveManagedOutcome?.(outcome) ?? outcome)
+      } catch (error) {
+        this.outcome.reject(error)
+      }
     })
   }
 
@@ -138,13 +145,10 @@ export class LocalTerminalHandle implements SubprocessTerminalHandle {
    * event. This does not claim quiescence and does not replace terminate().
    */
   terminateForHostExit(): void {
-    if (this.managedOwner !== undefined) {
-      this.managedOwner.signal('SIGKILL')
-      return
-    }
     this.forceStopDescendants()
     this.forceStopShell()
     this.forceStopDescendants()
+    this.managedOwner?.terminateForHostExit()
   }
 
   private forceStopShell(): void {
@@ -304,9 +308,13 @@ export class LocalTerminalHandle implements SubprocessTerminalHandle {
 
   private async closeOnce(): Promise<void> {
     if (this.managedOwner !== undefined) {
-      await this.closeManagedRange(this.managedOwner)
-      this.dataDisposable.dispose()
-      this.exitDisposable.dispose()
+      try {
+        await this.closeManagedRange(this.managedOwner)
+        this.dataDisposable.dispose()
+        this.exitDisposable.dispose()
+      } finally {
+        void this.done.finally(() => { this.cleanupManagedProtocol?.() }).catch(() => {})
+      }
       return
     }
     let survivors = await this.stopDescendants()

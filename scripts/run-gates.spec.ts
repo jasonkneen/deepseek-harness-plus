@@ -463,10 +463,6 @@ describe('Node 24 lane ownership', () => {
         'packages/experimental/agent-team/tests/built-lib.e2e.ts',
       ]),
     )
-    expect(subject.find(item => item.id === 'built-bin-smoke')?.env).toEqual({
-      DSH_EXAMPLE_MODE: 'lib',
-      DSH_REQUIRE_BUILT_SUBPROCESS_RUNNER: '1',
-    })
     expect(subject.find(item => item.id === 'web-snapshot')).toMatchObject({
       displayCommand: 'DSH_SNAPSHOT=replay pnpm run test:web:built',
       env: { DSH_SNAPSHOT: 'replay' },

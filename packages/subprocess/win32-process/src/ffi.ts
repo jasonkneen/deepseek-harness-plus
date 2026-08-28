@@ -67,15 +67,6 @@ export interface Win32ProcessBindings {
     args: null,
   ): number
   createPipe(readHandle: NativePtr, writeHandle: NativePtr, attributes: null, size: number): number
-  createFileW(
-    path: string,
-    desiredAccess: number,
-    shareMode: number,
-    securityAttributes: null,
-    creationDisposition: number,
-    flagsAndAttributes: number,
-    templateFile: null,
-  ): NativePtr
   setHandleInformation(handle: NativePtr, mask: number, flags: number): number
   createProcessAsUserW(
     token: NativePtr,
@@ -265,9 +256,6 @@ function bindings(): Win32ProcessBindings {
       'uint32', PVOID, 'uint32', 'uint32', PVOID, 'uint32', PVOID,
     ]),
     createPipe: bind(kernel32, 'CreatePipe', 'int', [PPVOID, PPVOID, PVOID, 'uint32']),
-    createFileW: bind(kernel32, 'CreateFileW', PVOID, [
-      'str16', 'uint32', 'uint32', PVOID, 'uint32', 'uint32', PVOID,
-    ]),
     setHandleInformation: bind(kernel32, 'SetHandleInformation', 'int', [PVOID, 'uint32', 'uint32']),
     createProcessAsUserW: bind(advapi32, 'CreateProcessAsUserW', 'int', [
       PVOID, 'str16', 'str16', PVOID, PVOID, 'int', 'uint32', PVOID, 'str16',

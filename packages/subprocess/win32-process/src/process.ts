@@ -63,13 +63,6 @@ export interface CurrentTokenProcessSpawnOptions {
   cwd: string
 }
 
-/** Optional explicit target standard handles; omitted entries use the caller's standard handle. */
-export interface ChildStdioHandles {
-  stdin?: NativePtr
-  stdout?: NativePtr
-  stderr?: NativePtr
-}
-
 /** Restricted-token process creation inputs owned by the Windows ACL sandbox. */
 export interface RestrictedProcessSpawnOptions extends CurrentTokenProcessSpawnOptions {
   /** Restricted primary token supplied by sandbox policy. */
@@ -327,38 +320,10 @@ function createKillOnCloseJob(api: Win32ProcessBindings): NativePtr {
   return job
 }
 
-/**
- * Open one private named-pipe client for target stdio.
- * @param api - active binding table.
- * @param path - unique parent-owned named-pipe path.
- * @param access - target-side read access for stdin or write access for output.
- * @returns caller-owned connected pipe handle.
- */
-export function openNamedPipeForStdio(
-  api: Win32ProcessBindings,
-  path: string,
-  access: 'read' | 'write',
-): NativePtr {
-  const handle = api.createFileW(
-    path,
-    access === 'read' ? abi.GENERIC_READ : abi.GENERIC_WRITE,
-    0,
-    null,
-    abi.OPEN_EXISTING,
-    0,
-    null,
-  )
-  if (isNullPtr(handle) || (handle as bigint) === -1n || (handle as bigint) === 0xFFFFFFFFFFFFFFFFn) {
-    throwLastError(api, 'CreateFileW', path)
-  }
-  return handle
-}
-
 /** Shared suspended-create, Job-assignment, and resume lifecycle. */
 function spawnJobProcess(
   api: Win32ProcessBindings,
   options: CurrentTokenProcessSpawnOptions,
-  stdio: ChildStdioHandles,
   createName: 'CreateProcessAsUserW' | 'CreateProcessW',
   create: (startupInfo: NativePtr, processInfo: NativePtr) => number,
 ): SpawnedJobProcess {
@@ -370,9 +335,9 @@ function spawnJobProcess(
     api.closeHandle(job)
     throwWin32(api, 'GetStdHandle', win32Code, `null ${label} handle`)
   }
-  const stdIn = stdio.stdin ?? getStdHandle(abi.STD_INPUT_HANDLE, 'stdin')
-  const stdOut = stdio.stdout ?? getStdHandle(abi.STD_OUTPUT_HANDLE, 'stdout')
-  const stdErr = stdio.stderr ?? getStdHandle(abi.STD_ERROR_HANDLE, 'stderr')
+  const stdIn = getStdHandle(abi.STD_INPUT_HANDLE, 'stdin')
+  const stdOut = getStdHandle(abi.STD_OUTPUT_HANDLE, 'stdout')
+  const stdErr = getStdHandle(abi.STD_ERROR_HANDLE, 'stderr')
   const enabled: NativePtr[] = []
   let startupInfo: NativePtr | undefined
   let processInfo: NativePtr | undefined
@@ -468,7 +433,7 @@ export function spawnInheritedJobProcess(
   options: RestrictedProcessSpawnOptions,
 ): SpawnedJobProcess {
   const commandLine = buildCommandLine(options.command, options.args)
-  return spawnJobProcess(api, options, {}, 'CreateProcessAsUserW', (startupInfo, processInfo) =>
+  return spawnJobProcess(api, options, 'CreateProcessAsUserW', (startupInfo, processInfo) =>
     createRestrictedProcess(
       api,
       options,
@@ -483,16 +448,14 @@ export function spawnInheritedJobProcess(
  * Spawn an ordinary process suspended, assign its Job, then resume it.
  * @param api - active binding table.
  * @param options - command, cwd, and argv.
- * @param stdio - optional explicit handles opened for this target.
  * @returns caller-owned process and Job handles after successful resume.
  */
 export function spawnCurrentTokenJobProcess(
   api: Win32ProcessBindings,
   options: CurrentTokenProcessSpawnOptions,
-  stdio: ChildStdioHandles = {},
 ): SpawnedJobProcess {
   const commandLine = buildCommandLine(options.command, options.args)
-  return spawnJobProcess(api, options, stdio, 'CreateProcessW', (startupInfo, processInfo) =>
+  return spawnJobProcess(api, options, 'CreateProcessW', (startupInfo, processInfo) =>
     api.createProcessW(
       null,
       commandLine,
@@ -505,6 +468,42 @@ export function spawnCurrentTokenJobProcess(
       startupInfo,
       processInfo,
     ))
+}
+
+/**
+ * Verify that an unnamed kill-on-close Job can be created and released now.
+ * @param api - active binding table.
+ */
+export function probeCurrentTokenJobSupport(api: Win32ProcessBindings): void {
+  const job = createKillOnCloseJob(api)
+  closeHandleChecked(api, job, 'current-token Job capability probe')
+}
+
+/**
+ * Close the runner's inherited standard-handle copies after target creation.
+ * The target retains its inherited copies; closing these permits parent pipe
+ * EOF to follow the target rather than the longer-lived runner.
+ * @param api - active binding table.
+ */
+export function closeCurrentProcessStandardHandles(api: Win32ProcessBindings): void {
+  const handles: NativePtr[] = []
+  for (const selector of [abi.STD_INPUT_HANDLE, abi.STD_OUTPUT_HANDLE, abi.STD_ERROR_HANDLE]) {
+    const handle = api.getStdHandle(selector)
+    if (isNullPtr(handle) || handles.includes(handle)) continue
+    handles.push(handle)
+  }
+  const failures: Error[] = []
+  for (const handle of handles) {
+    try {
+      closeHandleChecked(api, handle, 'runner standard handle')
+    } catch (error) {
+      failures.push(error instanceof Error ? error : new Error(String(error)))
+    }
+  }
+  if (failures.length === 1) {
+    for (const failure of failures) throw failure
+  }
+  if (failures.length > 1) throw new AggregateError(failures, 'closing runner standard handles failed')
 }
 
 /**

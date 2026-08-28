@@ -110,6 +110,7 @@ describe('LocalTerminalHandle', () => {
         }
       },
       waitForExit: () => stopped.promise,
+      terminateForHostExit: vi.fn(),
     }
     const handle = new LocalTerminalHandle(pty.asPty(), inspector, 10, 'linux', owner)
 
@@ -134,6 +135,7 @@ describe('LocalTerminalHandle', () => {
         }
       },
       waitForExit: () => stopped.promise,
+      terminateForHostExit: vi.fn(),
     }
     const handle = new LocalTerminalHandle(pty.asPty(), inspector, 10, 'linux', owner)
 
@@ -154,6 +156,7 @@ describe('LocalTerminalHandle', () => {
     const owner: BoundProcessOwner = {
       signal: (signal) => { signals.push(signal) },
       waitForExit,
+      terminateForHostExit: vi.fn(),
     }
     const handle = new LocalTerminalHandle(pty.asPty(), new FakeInspector(), 10, 'linux', owner)
 
@@ -172,6 +175,7 @@ describe('LocalTerminalHandle', () => {
       waitForExit: vi.fn()
         .mockRejectedValueOnce(firstFailure)
         .mockRejectedValueOnce(finalFailure),
+      terminateForHostExit: vi.fn(),
     }
     const handle = new LocalTerminalHandle(pty.asPty(), new FakeInspector(), 10, 'linux', owner)
 
@@ -186,19 +190,50 @@ describe('LocalTerminalHandle', () => {
     const pty = new FakePty()
     const inspector = new FakeInspector()
     const signal = vi.fn()
-    const owner: BoundProcessOwner = { signal, waitForExit: async () => {} }
+    const terminateForHostExit = vi.fn()
+    const owner: BoundProcessOwner = { signal, waitForExit: async () => {}, terminateForHostExit }
     const handle = new LocalTerminalHandle(pty.asPty(), inspector, 10, 'linux', owner)
 
     handle.terminateForHostExit()
 
-    expect(signal).toHaveBeenCalledExactlyOnceWith('SIGKILL')
+    expect(signal).not.toHaveBeenCalled()
+    expect(terminateForHostExit).toHaveBeenCalledOnce()
     expect(inspector.processes).toEqual([])
     expect(pty.kills).toEqual([])
   })
 
+  it('rejects managed outcome conversion and cleans its protocol after exit', async () => {
+    const pty = new FakePty()
+    const failure = new Error('invalid bootstrap outcome')
+    const cleanupManagedProtocol = vi.fn()
+    const owner: BoundProcessOwner = {
+      signal: vi.fn(),
+      waitForExit: async () => {},
+      terminateForHostExit: vi.fn(),
+    }
+    const handle = new LocalTerminalHandle(
+      pty.asPty(),
+      new FakeInspector(),
+      10,
+      'linux',
+      owner,
+      () => { throw failure },
+      cleanupManagedProtocol,
+    )
+
+    pty.emitExit()
+    await expect(handle.done).rejects.toBe(failure)
+    await expect(handle.terminate()).resolves.toBeUndefined()
+    await vi.waitFor(() => { expect(cleanupManagedProtocol).toHaveBeenCalledOnce() })
+  })
+
   it('waits for the node-pty exit event after the managed range becomes empty', async () => {
     const pty = new FakePty()
-    const owner: BoundProcessOwner = { signal: vi.fn(), waitForExit: async () => {} }
+    const owner: BoundProcessOwner = {
+      signal: vi.fn(),
+      waitForExit: async () => {},
+      terminateForHostExit: vi.fn(),
+    }
     const handle = new LocalTerminalHandle(pty.asPty(), new FakeInspector(), 100, 'linux', owner)
     let settled = false
 
@@ -217,6 +252,7 @@ describe('LocalTerminalHandle', () => {
     const owner: BoundProcessOwner = {
       signal: (signal) => { signals.push(signal) },
       waitForExit: async () => {},
+      terminateForHostExit: vi.fn(),
     }
     const handle = new LocalTerminalHandle(pty.asPty(), new FakeInspector(), 10, 'linux', owner)
 

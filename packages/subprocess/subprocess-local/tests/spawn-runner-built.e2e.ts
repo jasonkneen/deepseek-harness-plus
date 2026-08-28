@@ -1,42 +1,69 @@
-import { spawnSync } from 'node:child_process'
+import { spawn } from 'node:child_process'
+import type { Buffer } from 'node:buffer'
 import { existsSync } from 'node:fs'
-import { fileURLToPath } from 'node:url'
+import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { cleanupRunnerFiles, createRunnerFiles, readRunnerEventsAsync } from '../src/runner-protocol.ts'
+import {
+  cleanupLinuxLaunchFiles,
+  createLinuxLaunchFiles,
+} from '../src/runner-protocol.ts'
+import { runnerEnvironment, SUBPROCESS_RUNNER_ENV } from '../src/runner-launch.ts'
 
-const builtEntry = fileURLToPath(new URL(
-  './lib/spawn-runner.js',
-  import.meta.resolve('@deepseek-ai/dsh-subprocess-local/package.json'),
-))
-const required = process.env.DSH_REQUIRE_BUILT_SUBPROCESS_RUNNER === '1'
+const repoRoot = resolve(import.meta.dirname, '../../../..')
+const sourceRunner = resolve(repoRoot, 'packages/subprocess/subprocess-local/src/bin.ts')
+const builtRunner = resolve(repoRoot, 'packages/subprocess/subprocess-local/lib/runner.js')
 
-describe.skipIf(!existsSync(builtEntry) && !required)('built subprocess runner entry', () => {
-  it('reports the direct target outcome through the built private entry', async () => {
-    if (!existsSync(builtEntry)) throw new Error(`required built subprocess runner is missing: ${builtEntry}`)
-    const files = createRunnerFiles({
-      argv: [process.execPath, '-e', 'process.exit(11)'],
-      cwd: process.cwd(),
-      env: {},
+function targetEnv(): Record<string, string> {
+  return {
+    ...Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined)),
+    [SUBPROCESS_RUNNER_ENV]: 'target-collision-restored',
+  }
+}
+
+async function execute(invocation: string[]): Promise<{ status: number | null; stdout: string; stderr: string }> {
+  const files = createLinuxLaunchFiles({ cwd: repoRoot, env: targetEnv() })
+  try {
+    const child = spawn(invocation[0] as string, [
+      ...invocation.slice(1),
+      '--',
+      process.execPath,
+      '--input-type=module',
+      '--eval',
+      `process.stdout.write(process.argv[0]+'|'+process.cwd()+'|'+process.env.${SUBPROCESS_RUNNER_ENV})`,
+    ], {
+      env: runnerEnvironment(files.requestPath),
+      stdio: ['ignore', 'pipe', 'pipe'],
     })
-    try {
-      const result = spawnSync(process.execPath, [
-        builtEntry,
-        '--mode',
-        'node',
-        '--request',
-        files.requestPath,
-        '--events',
-        files.eventsPath,
-      ], { encoding: 'utf8', timeout: 10_000 })
-      expect(result.error).toBeUndefined()
-      const events = await readRunnerEventsAsync(files.eventsPath)
-      expect(events).toHaveLength(2)
-      expect(events[0]?.type).toBe('started')
-      if (events[0]?.type !== 'started') throw new Error('expected started event')
-      expect(events[0].pid).toBeGreaterThan(0)
-      expect(events[1]).toEqual({ type: 'exit', exitCode: 11, signal: null })
-    } finally {
-      cleanupRunnerFiles(files)
-    }
+    let stdout = ''
+    let stderr = ''
+    child.stdout.on('data', (chunk: Buffer) => { stdout += chunk.toString() })
+    child.stderr.on('data', (chunk: Buffer) => { stderr += chunk.toString() })
+    const status = await new Promise<number | null>((resolveExit, rejectExit) => {
+      child.once('error', rejectExit)
+      child.once('exit', resolveExit)
+    })
+    return { status, stdout, stderr }
+  } finally {
+    cleanupLinuxLaunchFiles(files)
+  }
+}
+
+describe('subprocess-local runner artifacts', () => {
+  it('executes the source entry through the provider-owned core', async () => {
+    const result = await execute([process.execPath, '--import', 'tsx/esm', sourceRunner])
+    expect(result).toEqual({
+      status: 0,
+      stdout: `${process.execPath}|${repoRoot}|target-collision-restored`,
+      stderr: '',
+    })
+  })
+
+  it.skipIf(!existsSync(builtRunner))('executes the built ./runner subpath through the same core', async () => {
+    const result = await execute([process.execPath, builtRunner])
+    expect(result).toEqual({
+      status: 0,
+      stdout: `${process.execPath}|${repoRoot}|target-collision-restored`,
+      stderr: '',
+    })
   })
 })

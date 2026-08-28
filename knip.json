@@ -306,12 +306,7 @@
     },
     "packages/subprocess/subprocess-local": {
       "entry": [
-        "tests/**/*.spec.ts",
         "tests/**/*.e2e.ts"
-      ],
-      "project": [
-        "src/**/*.ts",
-        "tests/**/*.ts"
       ]
     },
     "packages/session/session-telemetry-otel": {
@@ -682,6 +677,7 @@
     },
     "apps/cli": {
       "entry": [
+        "src/runtime-bootstrap.ts",
         "tests/**/*.spec.ts",
         "tests/**/*.e2e.ts",
         "tests/profiles/**/fixtures/**/*.{ts,mjs}",

@@ -1,13 +1,15 @@
 import { defineConfig } from 'tsdown'
 
 /**
- * The dsh CLI ships one entry: the `bin` referenced by package.json `bin`.
- * The root tsdown builds only `lib/types/index.js`, so this override points at
- * `lib/types/bin.js` instead; its reachable mode modules bundle with it.
+ * The public package bin remains `bin`; `runtime-bootstrap` is selected only
+ * by the Python single-file packaging pipeline.
  * Declarations come from `tsc -b` (dts: false), matching every package.
  */
 export default defineConfig({
-  entry: ['lib/types/bin.js'],
+  entry: {
+    bin: 'lib/types/bin.js',
+    'runtime-bootstrap': 'lib/types/runtime-bootstrap.js',
+  },
   outDir: 'lib',
   format: ['esm'],
   platform: 'node',

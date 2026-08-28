@@ -140,7 +140,6 @@ class ProtocolPeer {
 }
 
 interface FakeChildOptions {
-  readonly pid?: number | undefined
   readonly exitOnTerminate?: boolean
   readonly doneError?: Error
   readonly waitForExitError?: Error
@@ -212,7 +211,6 @@ function fakeChild(options: FakeChildOptions = {}): FakeChild {
     })
   })
   const handle: SubprocessHandle = {
-    pid: Object.hasOwn(options, 'pid') ? options.pid : 1234,
     stdin: toChild,
     stdout: fromChild,
     stderr,
@@ -1891,7 +1889,6 @@ describe('run lifecycle and quiescence', () => {
     await expect(spawnFailure).rejects.not.toThrow('SECRET_TOKEN')
 
     const asyncSpawnFailureChild = fakeChild({
-      pid: undefined,
       doneError: new Error('SECRET_TOKEN async spawn failure'),
     })
     const asyncSpawnFailure = startCodexRun(
@@ -2277,9 +2274,8 @@ describe('disposeCodexChild', () => {
       .resolves.toBeUndefined()
   })
 
-  it('still runs idempotent cleanup when the target pid was never published', async () => {
+  it('still runs idempotent cleanup when target startup rejects', async () => {
     const child = fakeChild({
-      pid: undefined,
       doneError: new Error('spawn failed'),
     })
     const wire = defaultWire(child)

@@ -132,7 +132,7 @@ interface SubprocessSpawnSpec {
 
 ## Handles: streams, readers, and managed-range termination
 
-A spawn returns a live handle synchronously; the provider may publish its process identity later. Collect-mode readers take whole-stream byte offsets and never consume, so independent readers cannot steal one another's deltas; piped streams belong to the caller. `terminate()` starts the provider's documented procedure, and `waitForExit()` observes the same provider-managed range; staged providers may use `graceMs`, while immediate providers do not delay. Consumers can build their own teardown ladders over those two operations (the ACP backend's stdin-EOF-first `disposeAcpChild` is the template).
+A spawn returns a live handle synchronously while target and managed-range identities remain provider-private. Collect-mode readers take whole-stream byte offsets and never consume, so independent readers cannot steal one another's deltas; piped streams belong to the caller. `terminate()` starts the provider's documented procedure, and `waitForExit()` observes the same provider-managed range; staged providers may use `graceMs`, while immediate providers do not delay. Consumers can build their own teardown ladders over those two operations (the ACP backend's stdin-EOF-first `disposeAcpChild` is the template).
 
 ```ts type-equiv
 /**
@@ -140,12 +140,10 @@ A spawn returns a live handle synchronously; the provider may publish its proces
  * remains readable after exit; piped streams belong to the caller.
  *
  * Termination and {@link SubprocessHandle.waitForExit} use the same managed
- * range. Each provider documents the process identity and range it can
- * observe.
+ * range. Each provider documents the range it can observe and its signalling
+ * and observation limits.
  */
 interface SubprocessHandle {
-  /** Provider-published target process identifier, or undefined until it is available. */
-  readonly pid: number | undefined
   /** The child's stdin, present iff spawned with `stdin: 'pipe'`. */
   readonly stdin: Writable | undefined
   /** The child's raw stdout, present iff spawned with `stdout: 'pipe'`. */
@@ -282,9 +280,9 @@ Abstract subprocess service. Subclass, implement spawn, and load the subclass as
 Implementations must honor these semantics:
 
 - Executable paths belong to one execution world shared with the mounted filesystem provider.
-- spawn returns a live handle synchronously. Its pid is provider-owned and may remain unavailable during asynchronous startup. `done` resolves with the spawned command's exit facts and may reject for spawn or provider failures.
+- spawn returns a live handle synchronously. Target identity remains provider-private; `done` resolves with the spawned command's exit facts and may reject for spawn or provider failures.
 - Collect-mode readers are offset-based and non-consuming, so independent readers never consume one another's output; lossy reads report truncation and the spill file holding the complete stream when one exists. Piped streams are handed to the caller raw and never buffered here.
-- SubprocessHandle.terminate (and the spec's abort signal) starts the provider's documented procedure against its managed range. SubprocessHandle.waitForExit observes that same range so a consumer-owned teardown ladder can hold each tier on real quiescence; each provider documents its identity, signalling, and observability limits.
+- SubprocessHandle.terminate (and the spec's abort signal) starts the provider's documented procedure against its managed range. SubprocessHandle.waitForExit observes that same range so a consumer-owned teardown ladder can hold each tier on real quiescence; each provider documents its signalling and observability limits.
 - Disposal of the service terminates all still-running managed processes and awaits their exit.
 - spawnTerminal owns terminal allocation, text transport, foreground groups, signalling, and whole-session quiescence behind one awaited termination method; readiness and persistent-shell policy stay in the PTY consumer. Its output stream ends after queued terminal output when the top-level process exits.
 

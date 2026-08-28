@@ -1,148 +1,151 @@
-/** Parent-side launch and direct-result transport for native runners. */
+/** Parent-side invocation and bootstrap state for the private native runner. */
 
-import type { ChildProcess, StdioOptions } from 'node:child_process'
-import { extname } from 'node:path'
+import type { StdioOptions } from 'node:child_process'
+import { accessSync, constants as fsConstants } from 'node:fs'
+import { extname, isAbsolute } from 'node:path'
+import { inspect } from 'node:util'
 import { fileURLToPath } from 'node:url'
-import { setTimeout as sleepMs } from 'node:timers/promises'
-import type { SubprocessOutcome, SubprocessSpawnSpec } from '@deepseek-ai/dsh-subprocess'
-import {
-  cleanupRunnerFiles,
-  createRunnerFiles,
-  deserializeSpawnError,
-  readRunnerEventsAsync,
-} from './runner-protocol.ts'
-import type { RunnerEvent, RunnerFiles, RunnerRequest } from './runner-protocol.ts'
-import { DirectResultUnavailableError } from './managed-owner.ts'
+import type { SubprocessSpawnSpec, SubprocessTerminalSpawnSpec } from '@deepseek-ai/dsh-subprocess'
 import { childEnv } from './spawn.ts'
 
-const RUNNER_EVENT_POLL_MS = 100
-const PACKAGED_RUNNER_ARG = '--dsh-internal-subprocess-runner'
+/** The one private environment variable consumed before target state is restored. */
+export const SUBPROCESS_RUNNER_ENV = 'DSH_SUBPROCESS_RUNNER' as const
 
-/** Non-empty command tuple used to launch the private native runner. */
+/** Sentinel used by the packaged bootstrap for the Windows IPC runner. */
+export const WINDOWS_RUNNER_SELECTION = 'windows' as const
+
+/** Non-empty command tuple used to launch the private runner entry. */
 export type RunnerInvocation = [string, ...string[]]
 
 /**
- * Resolve the runner entry from the current module's source or built plane.
- * @returns Node executable and runner argv prefix.
+ * Resolve the source, built, or packaged entry that calls the same runner core.
+ * @returns executable and arguments for the active runtime form.
  */
 export function spawnRunnerInvocation(): RunnerInvocation {
-  if ('pkg' in process) return [process.execPath, PACKAGED_RUNNER_ARG]
-  /* v8 ignore start -- source-plane coverage cannot execute the bundled module;
-     the required built-runner smoke executes its private built entry. */
+  if ('pkg' in process) return [process.execPath]
+  /* v8 ignore next -- built-artifact smoke imports the emitted JavaScript runner entry;
+   * source-unit coverage cannot change import.meta.url. */
   if (extname(fileURLToPath(import.meta.url)) !== '.ts') {
-    const builtEntry = fileURLToPath(new URL('./spawn-runner.js', import.meta.url))
-    return [process.execPath, builtEntry]
+    return [process.execPath, fileURLToPath(import.meta.resolve('@deepseek-ai/dsh-subprocess-local/runner'))]
   }
-  /* v8 ignore stop */
-  const sourceEntry = fileURLToPath(import.meta.resolve('@deepseek-ai/dsh-subprocess-local/src/bin.ts'))
-  return [process.execPath, '--import', 'tsx/esm', sourceEntry]
-}
-
-/**
- * Build wrapper stdio corresponding to the public target dispositions.
- * @param spec - target stdio request.
- * @returns child-process stdio configuration.
- */
-export function runnerStdio(spec: SubprocessSpawnSpec): StdioOptions {
   return [
-    spec.stdio.stdin === 'ignore' ? 'ignore' : 'pipe',
-    spec.stdio.stdout === 'inherit' ? 'inherit' : 'pipe',
-    spec.stdio.stderr === 'inherit' ? 'inherit' : 'pipe',
+    process.execPath,
+    '--import',
+    'tsx/esm',
+    fileURLToPath(new URL('./bin.ts', import.meta.url)),
   ]
 }
 
 /**
- * Materialize the exact target request without undefined environment tombstones.
- * @param spec - target argv, cwd, and explicit environment.
- * @returns private request and event paths.
+ * Check the concrete runner executable and entry paths without executing a probe mode.
+ * @param invocation - resolved executable and runner-entry arguments.
+ * @returns whether every concrete executable or entry path is accessible.
  */
-export function runnerFiles(spec: SubprocessSpawnSpec): RunnerFiles {
+export function runnerInvocationAvailable(invocation: RunnerInvocation = spawnRunnerInvocation()): boolean {
+  try {
+    if (isAbsolute(invocation[0])) accessSync(invocation[0], fsConstants.X_OK)
+    const entry = invocation.at(-1)
+    if (entry !== undefined && entry !== invocation[0] && isAbsolute(entry)) {
+      accessSync(entry, fsConstants.R_OK)
+    }
+    return true
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Build the bootstrap-safe environment; target overrides arrive through request/IPC.
+ * @param selection - private runner selector or Linux launch-request locator.
+ * @returns environment for the runner before target state is restored.
+ */
+export function runnerEnvironment(selection: string): NodeJS.ProcessEnv {
+  return childEnv({
+    [SUBPROCESS_RUNNER_ENV]: selection,
+    SYSTEMD_LOG_TARGET: 'null',
+  })
+}
+
+/**
+ * Read and delete the private selector before importing or restoring target state.
+ * @param env - mutable environment containing the private selector.
+ * @returns the consumed selector, or undefined when no runner was requested.
+ */
+export function consumeRunnerSelection(env: NodeJS.ProcessEnv = process.env): string | undefined {
+  const selection = env[SUBPROCESS_RUNNER_ENV]
+  Reflect.deleteProperty(env, SUBPROCESS_RUNNER_ENV)
+  return selection
+}
+
+/**
+ * Require the private argv delimiter and at least one target argv entry.
+ * @param argv - private runner arguments.
+ * @returns copied target argv after the private delimiter.
+ */
+export function parseRunnerTargetArgv(argv: readonly string[]): string[] {
+  if (argv[0] !== '--' || argv.length < 2) {
+    throw new Error('subprocess runner requires target argv after a private -- delimiter')
+  }
+  return [...argv.slice(1)]
+}
+
+/**
+ * Build the stdio inherited unchanged by the target, optionally with Node IPC on fd 3.
+ * @param spec - ordinary subprocess request whose stdio modes are preserved.
+ * @param ipc - whether to append the private Node IPC descriptor.
+ * @returns child-process stdio options for the runner.
+ */
+export function runnerStdio(
+  spec: SubprocessSpawnSpec,
+  ipc: boolean,
+): StdioOptions {
+  const stdio: StdioOptions = [
+    spec.stdio.stdin === 'ignore' ? 'ignore' : 'pipe',
+    spec.stdio.stdout === 'inherit' ? 'inherit' : 'pipe',
+    spec.stdio.stderr === 'inherit' ? 'inherit' : 'pipe',
+  ]
+  if (ipc) (stdio as Array<string>).push('ipc')
+  return stdio
+}
+
+function throwNullByteError(property: string, value: string, argument: boolean): never {
+  const subject = argument ? `The argument '${property}'` : `The property '${property}'`
+  const error = new TypeError(`${subject} must be a string without null bytes. Received ${inspect(value)}`)
+  Object.assign(error, { code: 'ERR_INVALID_ARG_VALUE' })
+  throw error
+}
+
+function validateNoNullByte(property: string, value: string, argument = false): void {
+  if (value.includes('\0')) throwNullByteError(property, value, argument)
+}
+
+/**
+ * Materialize and synchronously validate the final target environment.
+ * @param spec - final target argv, cwd, and environment overrides.
+ * @returns complete target environment after Node-equivalent validation.
+ */
+export function targetEnvironment(
+  spec: Pick<SubprocessSpawnSpec, 'argv' | 'cwd' | 'env'>,
+): Record<string, string> {
+  spec.argv.forEach((value, index) => {
+    validateNoNullByte(index === 0 ? 'file' : `args[${String(index - 1)}]`, value, true)
+  })
+  validateNoNullByte('options.cwd', spec.cwd)
   const env = Object.fromEntries(
     Object.entries(childEnv(spec.env)).filter((entry): entry is [string, string] => entry[1] !== undefined),
   )
-  const request: RunnerRequest = { argv: [...spec.argv], cwd: spec.cwd, env }
-  return createRunnerFiles(request)
-}
-
-function directTerminalResult(
-  events: readonly RunnerEvent[],
-): { outcome: SubprocessOutcome } | { error: Error } | undefined {
-  for (const event of events) {
-    if (event.type === 'exit') {
-      return { outcome: { exitCode: event.exitCode, signal: event.signal } }
-    }
-    if (event.type === 'spawn-error' || event.type === 'runner-error') {
-      return { error: deserializeSpawnError(event.error) }
-    }
+  for (const [key, value] of Object.entries(env)) {
+    validateNoNullByte(`options.env['${key}']`, key)
+    validateNoNullByte(`options.env['${key}']`, value)
   }
-  return undefined
-}
-
-async function waitForDirectResult(
-  child: ChildProcess,
-  files: RunnerFiles,
-  exited: Promise<void>,
-  publishPid: (pid: number) => void,
-): Promise<SubprocessOutcome> {
-  let seen = 0
-  const wrapperState = { exited: false }
-  void exited.then(() => { wrapperState.exited = true })
-  for (;;) {
-    // A read started before exit may return a stale snapshot after exit has
-    // become visible. Only a read started after exit can prove no terminal
-    // event was written before the runner exited.
-    const exitedBeforeRead = wrapperState.exited
-    const events = await readRunnerEventsAsync(files.eventsPath)
-    const added = events.slice(seen)
-    for (const event of added) {
-      if (event.type === 'started') publishPid(event.pid)
-    }
-    const terminal = directTerminalResult(added)
-    if (terminal !== undefined) {
-      if ('error' in terminal) throw terminal.error
-      return terminal.outcome
-    }
-    seen = Math.max(seen, events.length)
-    if (exitedBeforeRead) {
-      if (child.pid === undefined) throw new Error('native subprocess runner failed to start')
-      throw new DirectResultUnavailableError('native subprocess runner exited without a direct-command result')
-    }
-    await sleepMs(RUNNER_EVENT_POLL_MS)
-  }
+  return env
 }
 
 /**
- * Bind asynchronous runner events into one direct result and target-pid getter.
- * @param child - native wrapper process.
- * @param files - private request and result paths.
- * @param exited - wrapper exit/error observation attached before event polling.
- * @returns a live target-pid view plus the direct result.
+ * Validate Linux PTY target strings before creating its request or terminal.
+ * @param spec - terminal subprocess request to validate.
+ * @returns complete validated target environment.
  */
-export function runnerDirectResult(
-  child: ChildProcess,
-  files: RunnerFiles,
-  exited: Promise<void>,
-): {
-  readonly pid: number | undefined
-  direct: Promise<SubprocessOutcome>
-} {
-  let pid: number | undefined
-  return {
-    get pid() { return pid },
-    direct: waitForDirectResult(child, files, exited, (published) => { pid = published }),
-  }
-}
-
-/**
- * Remove request/result files after their reader settles and writer closes.
- * @param files - private request and result paths.
- * @param direct - target result promise.
- * @param closed - runner close observation.
- */
-export function cleanupAfterRunner(
-  files: RunnerFiles,
-  direct: Promise<SubprocessOutcome>,
-  closed: Promise<void>,
-): void {
-  void Promise.allSettled([direct, closed]).then(() => { cleanupRunnerFiles(files) })
+export function validateTerminalTarget(spec: SubprocessTerminalSpawnSpec): Record<string, string> {
+  return targetEnvironment(spec)
 }

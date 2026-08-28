@@ -131,11 +131,6 @@ export class LspConnection {
     this.handle.stdout.on('data', (chunk: Buffer) => { this.onStdout(chunk) })
   }
 
-  /** The child's published pid, or undefined while the provider has none available. */
-  get pid(): number | undefined {
-    return this.handle.pid
-  }
-
   /** The retained stderr tail, for diagnostics on a failed server. */
   get stderrTail(): string {
     /* v8 ignore next -- the collect disposition always exposes a stderr reader; defensive. */

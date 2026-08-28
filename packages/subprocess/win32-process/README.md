@@ -28,8 +28,8 @@ This low-level Win32 process library is consumed by the Windows ACL sandbox and 
 - **Restricted-token creation** — `RestrictedProcessSpawnOptions` requires the sandbox's primary token and uses `CreateProcessAsUserW`. Piped and inherited-stdio paths share command-line quoting, cwd, the inherited environment block, checked return values, and handle cleanup.
 - **Piped process primitive** — `spawnPipedProcess()` creates anonymous stdin/stdout/stderr pipes, closes stdin immediately, returns the two read ends, and leaves process waiting and pipe draining to the caller. Every partial failure closes the handles already owned by the operation, and every Koffi out-parameter or struct allocation is freed after its Win32 lifetime.
 - **Inherited-stdio Job primitive** — `spawnInheritedJobProcess()` creates one kill-on-close Job, temporarily marks the current stdio handles inheritable, creates the restricted child suspended, assigns it to the Job, and then resumes its initial thread. Target code cannot run before Job assignment; controlled assignment or resume failures terminate the suspended child or close the assigned Job before releasing every owned handle.
-- **Named-pipe stdio primitive** — `openNamedPipeForStdio()` opens a parent-owned endpoint with only the target-side read or write access required by that stream. `spawnCurrentTokenJobProcess()` accepts those explicit handles, temporarily enables inheritance for target creation, and otherwise uses the runner's inherited standard handle.
-- **Ordinary Job runner primitive** — `spawnCurrentTokenJobProcess()` applies the suspended-create, Job-assignment, and resume lifecycle through `CreateProcessW` and returns the original process handle plus the unnamed Job to the same runner. A zero-time process wait publishes direct exit separately, while `QueryInformationJobObject(JobObjectBasicAccountingInformation)` keeps that runner alive until `ActiveProcesses` reaches zero.
+- **Ordinary Job runner primitive** — `spawnCurrentTokenJobProcess()` temporarily marks the runner's standard handles inheritable, passes those exact handles through `STARTF_USESTDHANDLES`, creates the target suspended through `CreateProcessW`, assigns it to an unnamed kill-on-close Job, and resumes it only after assignment. It returns the direct-process handle and Job to the same runner; `closeCurrentProcessStandardHandles()` then closes the runner's copies so target exit can produce EOF at the parent.
+- **Ordinary settlement operations** — `pollProcessExit()` publishes direct exit separately, while `isJobEmpty()` reads `QueryInformationJobObject(JobObjectBasicAccountingInformation)` until `ActiveProcesses` reaches zero. Checked Job termination and handle closure keep the runner as the only native owner.
 - **Explicit settlement ownership** — `waitForProcessExit()` waits and closes a sandbox process handle; ordinary runner process polling, Job accounting, and checked Job termination/closure remain separate operations. `drainPipe()` reuses one native count slot while draining, frees it, and closes the pipe read handle. Each caller owns its result composition and returned handles.
 
 The Windows ACL sandbox adds SID, DACL, grant, workspace, and public child policy above these primitives.
@@ -37,7 +37,7 @@ The Windows ACL sandbox adds SID, DACL, grant, workspace, and public child polic
 <a id="header-verification"></a>
 ## Header verification
 
-The process, named-pipe, stdio, and Job constants plus selected structure sizes and offsets are checked against the MinGW Windows headers by [`verify/abi-probe.cpp`](verify/abi-probe.cpp):
+The process, stdio, and Job constants plus selected structure sizes and offsets are checked against the MinGW Windows headers by [`verify/abi-probe.cpp`](verify/abi-probe.cpp):
 
 ```sh
 g++ -std=c++20 -municode -O2 -o abi-probe.exe verify/abi-probe.cpp && ./abi-probe.exe

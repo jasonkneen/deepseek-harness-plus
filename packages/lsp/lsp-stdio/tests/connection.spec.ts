@@ -1,10 +1,8 @@
 import { afterEach, describe, expect, it } from 'vitest'
-import { PassThrough } from 'node:stream'
 import { fileURLToPath } from 'node:url'
 import { LspConnection } from '@deepseek-ai/dsh-lsp-stdio'
 import type { ConnectionWriter } from '@deepseek-ai/dsh-lsp-stdio/src/connection.ts'
 import { scrubbedParentEnv } from '@deepseek-ai/dsh-subprocess'
-import type { SubprocessHandle, SubprocessOutcome } from '@deepseek-ai/dsh-subprocess'
 import { spawnSubprocess } from '@deepseek-ai/dsh-subprocess-local/src/spawn.ts'
 
 const fixtureServer = fileURLToPath(new URL('./fixture-server.ts', import.meta.url))
@@ -46,39 +44,10 @@ function connect(
 }
 
 describe('LspConnection', () => {
-  it('completes an initialize request/response round-trip and exposes a pid', async () => {
+  it('completes an initialize request/response round-trip', async () => {
     const conn = connect({})
     const result = await conn.request('initialize', { capabilities: {} })
     expect(result).toMatchObject({ capabilities: { hoverProvider: true } })
-    expect(conn.pid).toBeGreaterThan(0)
-  })
-
-  it('projects an unavailable subprocess pid as undefined', async () => {
-    const direct = Promise.withResolvers<SubprocessOutcome>()
-    const handle: SubprocessHandle = {
-      pid: undefined,
-      stdin: new PassThrough(),
-      stdout: new PassThrough(),
-      stderr: undefined,
-      collected: {},
-      done: direct.promise,
-      terminate: () => {},
-      waitForExit: async () => true,
-    }
-    const conn = new LspConnection({
-      command: 'language-server',
-      args: [],
-      cwd: process.cwd(),
-      env: {},
-      maxMessageBytes: 1_000,
-      maxStderrBytes: 1_000,
-      killGraceMs: 100,
-      configuration: null,
-    }, () => handle, () => Promise.resolve(null))
-
-    expect(conn.pid).toBeUndefined()
-    direct.resolve({ exitCode: 0, signal: null })
-    await conn.closed
   })
 
   it('forwards explicit DSH_* env entries to the child', async () => {

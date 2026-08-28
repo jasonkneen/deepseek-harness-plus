@@ -161,12 +161,10 @@ export interface SubprocessCollectedOutputs {
  * remains readable after exit; piped streams belong to the caller.
  *
  * Termination and {@link SubprocessHandle.waitForExit} use the same managed
- * range. Each provider documents the process identity and range it can
- * observe.
+ * range. Each provider documents the range it can observe and its signalling
+ * and observation limits.
  */
 export interface SubprocessHandle {
-  /** Provider-published target process identifier, or undefined until it is available. */
-  readonly pid: number | undefined
   /** The child's stdin, present iff spawned with `stdin: 'pipe'`. */
   readonly stdin: Writable | undefined
   /** The child's raw stdout, present iff spawned with `stdout: 'pipe'`. */

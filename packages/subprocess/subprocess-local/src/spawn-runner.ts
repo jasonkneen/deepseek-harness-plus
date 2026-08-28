@@ -1,102 +1,72 @@
-/** Native managed-range runner for ordinary local subprocesses. */
+/** One-shot Linux exec bootstrap and Windows Job-owning subprocess runner. */
 
-import { spawn } from 'node:child_process'
+import { delimiter, resolve } from 'node:path'
 import {
+  closeCurrentProcessStandardHandles,
   closeHandleChecked,
   isJobEmpty,
   loadWin32ProcessBindings,
-  openNamedPipeForStdio,
   pollProcessExit,
   spawnCurrentTokenJobProcess,
   terminateJob,
-  waitForProcessExit,
   Win32Error,
 } from '@deepseek-ai/dsh-win32-process'
-import type { ChildStdioHandles, NativePtr } from '@deepseek-ai/dsh-win32-process'
+import type { NativePtr, Win32ProcessBindings } from '@deepseek-ai/dsh-win32-process'
 import {
-  appendRunnerEvent,
-  consumeRunnerRequest,
-  serializeSpawnError,
+  consumeLinuxLaunchRequest,
+  isWindowsTerminateRequest,
+  linuxLaunchFilesFromLocator,
+  parseWindowsStartRequest,
+  serializeRunnerError,
+  writeLinuxStartupError,
 } from './runner-protocol.ts'
-import type { RunnerRequest, SerializedSpawnError } from './runner-protocol.ts'
+import type {
+  LinuxLaunchFiles,
+  SerializedRunnerError,
+  WindowsRunnerResult,
+  WindowsStartRequest,
+} from './runner-protocol.ts'
+import {
+  parseRunnerTargetArgv,
+  SUBPROCESS_RUNNER_ENV,
+  WINDOWS_RUNNER_SELECTION,
+} from './runner-launch.ts'
 
-type RunnerArgs =
-  | { mode: 'probe-node' }
-  | { mode: 'probe-win32' }
-  | { mode: 'node'; requestPath: string; eventsPath: string }
-  | {
-    mode: 'win32'
-    requestPath: string
-    eventsPath: string
-    stdinPipe?: string
-    stdoutPipe?: string
-    stderrPipe?: string
-  }
+type RunnerHost = Pick<NodeJS.Process, 'env' | 'exitCode' | 'connected' | 'cwd' | 'chdir' | 'on' | 'off' | 'once' | 'disconnect'> & {
+  send?: NodeJS.Process['send']
+}
 
-type RunnerHost = Pick<
-  NodeJS.Process,
-  'env' | 'exitCode' | 'connected' | 'cwd' | 'chdir' | 'on' | 'off' | 'disconnect'
->
-
-interface RunnerInternals {
-  spawn: typeof spawn
-  loadWin32ProcessBindings: typeof loadWin32ProcessBindings
-  openNamedPipeForStdio: typeof openNamedPipeForStdio
+/** Injectable operations used by the protocol-owner tests. */
+export interface SpawnRunnerInternals {
+  execve(file: string, argv: string[], env: Record<string, string>): never
+  loadWin32ProcessBindings(): Win32ProcessBindings
   spawnCurrentTokenJobProcess: typeof spawnCurrentTokenJobProcess
+  closeCurrentProcessStandardHandles: typeof closeCurrentProcessStandardHandles
   pollProcessExit: typeof pollProcessExit
   isJobEmpty: typeof isJobEmpty
   terminateJob: typeof terminateJob
-  waitForProcessExit: typeof waitForProcessExit
   closeHandleChecked: typeof closeHandleChecked
 }
 
-const defaultRunnerInternals: RunnerInternals = {
-  spawn,
+const defaultInternals: SpawnRunnerInternals = {
+  /* v8 ignore next -- source/built/packaged subprocess smoke executes this only in a replaceable child process. */
+  execve: (file, argv, env) => (process.execve as NonNullable<typeof process.execve>)(file, argv, env),
   loadWin32ProcessBindings,
-  openNamedPipeForStdio,
   spawnCurrentTokenJobProcess,
+  closeCurrentProcessStandardHandles,
   pollProcessExit,
   isJobEmpty,
   terminateJob,
-  waitForProcessExit,
   closeHandleChecked,
 }
 
-function parseArgs(argv: string[]): RunnerArgs {
-  let mode: string | undefined
-  let requestPath: string | undefined
-  let eventsPath: string | undefined
-  let stdinPipe: string | undefined
-  let stdoutPipe: string | undefined
-  let stderrPipe: string | undefined
-  for (let index = 0; index < argv.length; index += 2) {
-    const key = argv[index]
-    const value = argv[index + 1]
-    if (value === undefined) throw new Error(`subprocess runner missing value after ${String(key)}`)
-    if (key === '--mode') mode = value
-    else if (key === '--request') requestPath = value
-    else if (key === '--events') eventsPath = value
-    else if (key === '--stdin-pipe') stdinPipe = value
-    else if (key === '--stdout-pipe') stdoutPipe = value
-    else if (key === '--stderr-pipe') stderrPipe = value
-    else throw new Error(`subprocess runner unknown argument: ${String(key)}`)
-  }
-  if (mode === 'probe-node' || mode === 'probe-win32') return { mode }
-  if (mode !== 'node' && mode !== 'win32') throw new Error(`subprocess runner unknown mode: ${String(mode)}`)
-  if (requestPath === undefined || eventsPath === undefined) throw new Error('subprocess runner requires request and event paths')
-  if (mode === 'node') return { mode, requestPath, eventsPath }
-  return {
-    mode,
-    requestPath,
-    eventsPath,
-    ...stdinPipe === undefined ? {} : { stdinPipe },
-    ...stdoutPipe === undefined ? {} : { stdoutPipe },
-    ...stderrPipe === undefined ? {} : { stderrPipe },
-  }
+function replaceEnvironment(target: NodeJS.ProcessEnv, env: Record<string, string>): void {
+  for (const key of Object.keys(target)) Reflect.deleteProperty(target, key)
+  Object.assign(target, env)
 }
 
-function win32SpawnError(error: unknown, request: RunnerRequest): SerializedSpawnError {
-  const serialized = serializeSpawnError(error)
+function asSpawnError(error: unknown, program: string, args: readonly string[]): SerializedRunnerError {
+  const serialized = serializeRunnerError(error)
   const code = error instanceof Win32Error
     ? error.win32Code === 2 || error.win32Code === 3 || error.win32Code === 267
       ? 'ENOENT'
@@ -107,264 +77,353 @@ function win32SpawnError(error: unknown, request: RunnerRequest): SerializedSpaw
           : 'UNKNOWN'
     : serialized.code
   if (code === undefined) return serialized
-  const program = request.argv[0] as string
   return {
     ...serialized,
     message: `spawn ${program} ${code}: ${serialized.message}`,
     code,
     syscall: `spawn ${program}`,
     path: program,
-    spawnargs: request.argv.slice(1),
+    spawnargs: [...args],
   }
 }
 
-async function runNode(
-  request: RunnerRequest,
-  eventsPath: string,
-  host: RunnerHost,
-  internals: RunnerInternals,
-): Promise<void> {
-  const ignoreScopeSignal = (): void => { /* The target receives the scope signal; the runner reports its outcome. */ }
-  for (const signal of ['SIGTERM', 'SIGINT', 'SIGHUP'] as const) {
-    host.on(signal, ignoreScopeSignal)
-  }
-  const [program, ...args] = request.argv
-  const child = internals.spawn(program as string, args, {
-    cwd: request.cwd,
-    env: request.env,
-    stdio: 'inherit',
-    detached: true,
+function linuxPathNotFoundError(program: string): NodeJS.ErrnoException {
+  return Object.assign(new Error(`spawn ${program} ENOENT`), {
+    code: 'ENOENT',
+    errno: -2,
+    syscall: `spawn ${program}`,
+    path: program,
+    spawnargs: [] as string[],
   })
-  await new Promise<void>((resolve) => {
-    let started = false
-    let failed = false
-    let settled = false
-    const finish = (): void => {
-      if (settled) return
-      settled = true
-      for (const signal of ['SIGTERM', 'SIGINT', 'SIGHUP'] as const) host.off(signal, ignoreScopeSignal)
-      resolve()
-    }
-    child.once('spawn', () => {
-      started = true
-      appendRunnerEvent(eventsPath, { type: 'started', pid: child.pid as number })
-    })
-    child.once('error', (error) => {
-      failed = true
-      if (!started) appendRunnerEvent(eventsPath, { type: 'spawn-error', error: serializeSpawnError(error) })
-      else appendRunnerEvent(eventsPath, { type: 'runner-error', error: serializeSpawnError(error) })
-      host.exitCode = 127
-      finish()
-    })
-    child.once('exit', (exitCode, signal) => {
-      if (!failed) {
-        appendRunnerEvent(eventsPath, { type: 'exit', exitCode, signal })
-        host.exitCode = exitCode ?? 1
+}
+
+function execLinuxTarget(
+  request: { cwd: string; env: Record<string, string> },
+  argv: string[],
+  internals: SpawnRunnerInternals,
+): never {
+  const program = argv[0] as string
+  if (program.includes('/')) return internals.execve(program, argv, request.env)
+  const path = request.env.PATH ?? '/usr/bin:/bin'
+  let permissionFailure: Error | undefined
+  for (const directory of path.split(delimiter)) {
+    const candidate = resolve(request.cwd, directory, program)
+    try {
+      return internals.execve(candidate, argv, request.env)
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code
+      if (code === 'EACCES') {
+        permissionFailure ??= error as Error
+        continue
       }
-      finish()
-    })
-  })
-}
-
-function replaceEnvironment(target: NodeJS.ProcessEnv, env: Record<string, string>): void {
-  for (const key of Object.keys(target)) Reflect.deleteProperty(target, key)
-  Object.assign(target, env)
-}
-
-function closeStdioHandles(
-  api: ReturnType<typeof loadWin32ProcessBindings>,
-  handles: Array<{ handle: NativePtr; label: string }>,
-  reportFailure: boolean,
-  internals: RunnerInternals,
-): void {
-  let failure: Error | undefined
-  for (const owned of handles.splice(0)) {
-    try {
-      internals.closeHandleChecked(api, owned.handle, owned.label)
-    } catch (error) {
-      handles.push(owned)
-      failure ??= error instanceof Error ? error : new Error(serializeSpawnError(error).message)
-    }
-  }
-  if (reportFailure && failure !== undefined) throw failure
-}
-
-async function runWin32(
-  request: RunnerRequest,
-  eventsPath: string,
-  pipes: Pick<Extract<RunnerArgs, { mode: 'win32' }>, 'stdinPipe' | 'stdoutPipe' | 'stderrPipe'>,
-  host: RunnerHost,
-  internals: RunnerInternals,
-): Promise<void> {
-  replaceEnvironment(host.env, request.env)
-  const api = internals.loadWin32ProcessBindings()
-  let processHandle: NativePtr | undefined
-  let jobHandle: NativePtr | undefined
-  const openedStdio: Array<{ handle: NativePtr; label: string }> = []
-  try {
-    const stdio: ChildStdioHandles = {}
-    for (const [key, path, access] of [
-      ['stdin', pipes.stdinPipe, 'read'],
-      ['stdout', pipes.stdoutPipe, 'write'],
-      ['stderr', pipes.stderrPipe, 'write'],
-    ] as const) {
-      if (path === undefined) continue
-      const handle = internals.openNamedPipeForStdio(api, path, access)
-      stdio[key] = handle
-      openedStdio.push({ handle, label: `ordinary target ${key} pipe` })
-    }
-    // Match Node's cwd-relative executable lookup and spawn-error attribution.
-    const runnerCwd = host.cwd()
-    host.chdir(request.cwd)
-    const [command, ...args] = request.argv
-    let spawned: ReturnType<RunnerInternals['spawnCurrentTokenJobProcess']>
-    try {
-      spawned = internals.spawnCurrentTokenJobProcess(
-        api,
-        { command: command as string, args, cwd: host.cwd() },
-        stdio,
-      )
-    } catch (error) {
-      try { host.chdir(runnerCwd) } catch { /* Preserve the target startup failure. */ }
+      if (code === 'ENOENT' || code === 'ENOTDIR') continue
       throw error
     }
-    try {
-      processHandle = spawned.process
-      jobHandle = spawned.job
-      appendRunnerEvent(eventsPath, { type: 'started', pid: spawned.pid })
-    } finally {
-      host.chdir(runnerCwd)
-    }
-    closeStdioHandles(api, openedStdio, true, internals)
-
-    await new Promise<void>((resolve, reject) => {
-      let settled = false
-      let terminationRequested = false
-      const settle = (error?: unknown): void => {
-        if (settled) return
-        settled = true
-        clearInterval(timer)
-        host.off('message', onMessage)
-        host.off('disconnect', onDisconnect)
-        if (error === undefined) resolve()
-        else reject(error instanceof Error ? error : new Error(serializeSpawnError(error).message))
-      }
-      const terminate = (): void => {
-        if (terminationRequested || jobHandle === undefined) return
-        terminationRequested = true
-        try {
-          internals.terminateJob(api, jobHandle, 1)
-        } catch (error) {
-          settle(error)
-        }
-      }
-      const onMessage = (message: unknown): void => {
-        if (message !== null && typeof message === 'object' && (message as { type?: unknown }).type === 'terminate') {
-          terminate()
-        }
-      }
-      const onDisconnect = (): void => { terminate() }
-      host.on('message', onMessage)
-      host.on('disconnect', onDisconnect)
-      const timer = setInterval(() => {
-        try {
-          if (processHandle !== undefined) {
-            const exitCode = internals.pollProcessExit(api, processHandle)
-            if (exitCode !== undefined) {
-              appendRunnerEvent(eventsPath, { type: 'exit', exitCode, signal: null })
-              internals.closeHandleChecked(api, processHandle, 'ordinary direct process')
-              processHandle = undefined
-            }
-          }
-          if (processHandle === undefined && jobHandle !== undefined && internals.isJobEmpty(api, jobHandle)) {
-            internals.closeHandleChecked(api, jobHandle, 'ordinary process Job')
-            jobHandle = undefined
-            settle()
-          }
-        } catch (error) {
-          settle(error)
-        }
-      }, 10)
-    })
-  } catch (error) {
-    const targetSpawnFailed = (error instanceof Win32Error && error.api === 'CreateProcessW')
-      || (processHandle === undefined
-        && error instanceof Error
-        && (error as NodeJS.ErrnoException).syscall === 'chdir')
-    appendRunnerEvent(eventsPath, {
-      type: targetSpawnFailed ? 'spawn-error' : 'runner-error',
-      error: targetSpawnFailed ? win32SpawnError(error, request) : serializeSpawnError(error),
-    })
-    if (!targetSpawnFailed) host.exitCode = 127
-  } finally {
-    closeStdioHandles(api, openedStdio, false, internals)
-    if (processHandle !== undefined) {
-      try { internals.closeHandleChecked(api, processHandle, 'ordinary direct process cleanup') } catch { /* best effort after reported failure */ }
-    }
-    if (jobHandle !== undefined) {
-      try { internals.closeHandleChecked(api, jobHandle, 'ordinary process Job cleanup') } catch { /* best effort after reported failure */ }
-    }
   }
+  throw permissionFailure ?? linuxPathNotFoundError(program)
 }
 
-function probeWin32Job(host: RunnerHost, internals: RunnerInternals): void {
-  const command = host.env.ComSpec ?? host.env.COMSPEC
-  if (command === undefined) throw new Error('subprocess runner cannot probe a Windows Job without ComSpec')
-  const api = internals.loadWin32ProcessBindings()
-  const spawned = internals.spawnCurrentTokenJobProcess(api, {
-    command,
-    args: ['/d', '/s', '/c', 'exit 0'],
-    cwd: host.cwd(),
-  })
-  try {
-    const exitCode = internals.waitForProcessExit(api, spawned.process)
-    if (exitCode !== 0) throw new Error(`subprocess Windows Job probe exited with code ${String(exitCode)}`)
-  } finally {
-    internals.closeHandleChecked(api, spawned.job, 'subprocess Windows Job probe')
-  }
-}
-
-/**
- * Execute one parsed private-runner request.
- * @param argv - runner arguments after the executable and entry path.
- * @param host - process operations; tests provide an isolated host facade.
- * @param internals - platform operations; tests replace native Win32 calls.
- * @returns after the requested probe or target lifecycle completes.
- */
-export async function runSpawnRunner(
+function runLinux(
+  locator: string,
   argv: string[],
-  host: RunnerHost = process,
-  internals: RunnerInternals = defaultRunnerInternals,
-): Promise<void> {
-  const args = parseArgs(argv)
-  if (args.mode === 'probe-node') return
-  if (args.mode === 'probe-win32') {
-    probeWin32Job(host, internals)
+  host: RunnerHost,
+  internals: SpawnRunnerInternals,
+): void {
+  const files = linuxLaunchFilesFromLocator(locator)
+  let request: ReturnType<typeof consumeLinuxLaunchRequest>
+  try {
+    request = consumeLinuxLaunchRequest(files.requestPath)
+  } catch (error) {
+    writeLinuxStartupError(files, { type: 'runner-error', error: serializeRunnerError(error) })
+    host.exitCode = 127
     return
   }
-  const request = consumeRunnerRequest(args.requestPath)
-  if (args.mode === 'node') await runNode(request, args.eventsPath, host, internals)
-  else {
-    try {
-      await runWin32(request, args.eventsPath, args, host, internals)
-    } finally {
-      if (host.connected) host.disconnect()
+  try {
+    host.chdir(request.cwd)
+    execLinuxTarget(request, argv, internals)
+  } catch (error) {
+    writeLinuxStartupError(files, {
+      type: 'spawn-error',
+      error: asSpawnError(error, argv[0] as string, argv.slice(1)),
+    })
+    host.exitCode = 127
+  }
+}
+
+function sendMessage(host: RunnerHost, result: WindowsRunnerResult): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (!host.connected || host.send === undefined) {
+      reject(new Error('subprocess runner IPC is not connected'))
+      return
     }
+    try {
+      host.send(result, (error) => {
+        if (error === null) resolve()
+        else reject(error)
+      })
+    } catch (error) {
+      /* v8 ignore next -- process.send throws Error instances. */
+      const failure = error instanceof Error ? error : new Error(String(error))
+      reject(failure)
+    }
+  })
+}
+
+class WindowsJobRunner {
+  private api: Win32ProcessBindings | undefined
+  private processHandle: NativePtr | undefined
+  private jobHandle: NativePtr | undefined
+  private pollTimer: ReturnType<typeof setInterval> | undefined
+  private startSeen = false
+  private committed = false
+  private terminateRequested = false
+  private resultStarted = false
+  private resultDelivered = false
+  private jobEmpty = false
+  private finished = false
+  private readonly completion = Promise.withResolvers<void>()
+
+  constructor(
+    private readonly argv: string[],
+    private readonly host: RunnerHost,
+    private readonly internals: SpawnRunnerInternals,
+  ) {}
+
+  run(): Promise<void> {
+    if (!this.host.connected || this.host.send === undefined) {
+      this.finish(127)
+      return this.completion.promise
+    }
+    this.host.on('message', this.onMessage)
+    this.host.once('disconnect', this.onDisconnect)
+    return this.completion.promise
+  }
+
+  private readonly onMessage = (value: unknown): void => {
+    if (this.finished) return
+    if (isWindowsTerminateRequest(value)) {
+      this.requestTermination()
+      return
+    }
+    if (this.startSeen) {
+      void this.runnerFailure(new Error('subprocess runner received more than one Windows start request'))
+      return
+    }
+    let request: WindowsStartRequest
+    try {
+      request = parseWindowsStartRequest(value)
+    } catch (error) {
+      void this.runnerFailure(error)
+      return
+    }
+    this.startSeen = true
+    void this.start(request)
+  }
+
+  private readonly onDisconnect = (): void => {
+    if (this.finished) return
+    this.releaseOwnedJob()
+    this.finish(127, false)
+  }
+
+  private async start(request: WindowsStartRequest): Promise<void> {
+    if (this.terminateRequested) {
+      await this.publishTerminalResult({ type: 'start-cancelled' }, 0)
+      return
+    }
+    await new Promise<void>((resolveImmediate) => { setImmediate(resolveImmediate) })
+    if (this.finished) return
+    if (this.startCancellationPending()) {
+      await this.publishTerminalResult({ type: 'start-cancelled' }, 0)
+      return
+    }
+    try {
+      replaceEnvironment(this.host.env, request.env)
+      this.api = this.internals.loadWin32ProcessBindings()
+      const [command, ...args] = this.argv
+      const spawned = this.internals.spawnCurrentTokenJobProcess(this.api, {
+        command: command as string,
+        args,
+        cwd: request.cwd,
+      })
+      this.processHandle = spawned.process
+      this.jobHandle = spawned.job
+      this.committed = true
+      this.internals.closeCurrentProcessStandardHandles(this.api)
+      if (this.startCancellationPending()) this.terminateOwnedJob()
+      this.pollTimer = setInterval(() => { this.poll() }, 10)
+      this.poll()
+    } catch (error) {
+      if (!this.committed && error instanceof Win32Error && error.api === 'CreateProcessW') {
+        await this.publishTerminalResult({
+          type: 'spawn-error',
+          error: asSpawnError(error, this.argv[0] as string, this.argv.slice(1)),
+        }, 0)
+        return
+      }
+      await this.runnerFailure(error)
+    }
+  }
+
+  private requestTermination(): void {
+    if (this.terminateRequested) return
+    this.terminateRequested = true
+    if (this.committed) {
+      try {
+        this.terminateOwnedJob()
+      } catch (error) {
+        void this.runnerFailure(error)
+      }
+    }
+  }
+
+  private startCancellationPending(): boolean {
+    return this.terminateRequested
+  }
+
+  private terminateOwnedJob(): void {
+    const job = this.jobHandle
+    if (job === undefined) return
+    /* v8 ignore next -- a Job handle is assigned only after the bindings are loaded;
+     * the guard above is the only reachable empty-owner state. */
+    if (this.api === undefined) return
+    this.internals.terminateJob(this.api, job, 1)
+  }
+
+  private poll(): void {
+    if (this.finished) return
+    /* v8 ignore next -- poll is installed only after start() stores the bindings; retained as a defensive invariant guard. */
+    if (this.api === undefined) return
+    try {
+      if (this.processHandle !== undefined) {
+        const exitCode = this.internals.pollProcessExit(this.api, this.processHandle)
+        if (exitCode !== undefined) {
+          this.internals.closeHandleChecked(this.api, this.processHandle, 'ordinary direct process')
+          this.processHandle = undefined
+          void this.publishTerminalResult({ type: 'target-exit', exitCode, signal: null })
+        }
+      }
+      if (this.jobHandle !== undefined && this.internals.isJobEmpty(this.api, this.jobHandle)) {
+        this.internals.closeHandleChecked(this.api, this.jobHandle, 'ordinary process Job')
+        this.jobHandle = undefined
+        this.jobEmpty = true
+        if (this.resultDelivered) this.finish(0)
+      }
+    } catch (error) {
+      void this.runnerFailure(error)
+    }
+  }
+
+  private async publishTerminalResult(result: WindowsRunnerResult, exitCode?: number): Promise<void> {
+    /* v8 ignore next -- each state transition has a single result call site; the guard contains only re-entrant internal defects. */
+    if (this.finished || this.resultStarted) return
+    this.resultStarted = true
+    try {
+      await sendMessage(this.host, result)
+      this.resultDelivered = true
+    } catch {
+      this.releaseOwnedJob()
+      this.finish(127, false)
+      return
+    }
+    if (exitCode !== undefined) {
+      this.finish(exitCode)
+      return
+    }
+    if (this.jobEmpty) this.finish(0)
+  }
+
+  private async runnerFailure(error: unknown): Promise<void> {
+    /* v8 ignore next -- callers stop/detach on finish; this guard contains only an already-queued internal callback. */
+    if (this.finished) return
+    if (!this.resultStarted) {
+      this.resultStarted = true
+      try {
+        await sendMessage(this.host, { type: 'runner-error', error: serializeRunnerError(error) })
+        this.resultDelivered = true
+      } catch {
+        // The disconnected parent observes runner infrastructure failure.
+      }
+    }
+    this.releaseOwnedJob()
+    this.finish(127)
+  }
+
+  private releaseOwnedJob(): void {
+    if (this.pollTimer !== undefined) clearInterval(this.pollTimer)
+    this.pollTimer = undefined
+    const api = this.api
+    if (api === undefined) return
+    if (this.jobHandle !== undefined) {
+      try { this.internals.terminateJob(api, this.jobHandle, 1) } catch { /* Continue to kill-on-close. */ }
+      try { this.internals.closeHandleChecked(api, this.jobHandle, 'ordinary process Job cleanup') } catch { /* Best effort after failure. */ }
+      this.jobHandle = undefined
+    }
+    if (this.processHandle !== undefined) {
+      try { this.internals.closeHandleChecked(api, this.processHandle, 'ordinary direct process cleanup') } catch { /* Best effort after failure. */ }
+      this.processHandle = undefined
+    }
+  }
+
+  private finish(exitCode: number, disconnect = true): void {
+    if (this.finished) return
+    this.finished = true
+    if (this.pollTimer !== undefined) clearInterval(this.pollTimer)
+    this.pollTimer = undefined
+    this.host.off('message', this.onMessage)
+    this.host.off('disconnect', this.onDisconnect)
+    this.host.exitCode = exitCode
+    if (disconnect && this.host.connected) this.host.disconnect()
+    this.completion.resolve()
   }
 }
 
 /**
- * Publish an infrastructure failure when runner arguments still identify an event file.
- * @param argv - original runner arguments.
- * @param error - uncaught runner failure.
+ * Execute the selected Linux bootstrap or Windows Job runner.
+ * @param selection - Windows sentinel or Linux launch-request locator.
+ * @param argv - private runner arguments beginning with the target delimiter.
+ * @param host - process transport and lifecycle host.
+ * @param internals - native and filesystem operations used by the runner.
  */
-export function reportSpawnRunnerFailure(argv: string[], error: unknown): void {
-  try {
-    const args = parseArgs(argv)
-    if (args.mode !== 'probe-node' && args.mode !== 'probe-win32') {
-      appendRunnerEvent(args.eventsPath, { type: 'runner-error', error: serializeSpawnError(error) })
-    }
-  } catch {
-    // No trustworthy transport remains; the parent reports the missing result.
+export async function runSpawnRunner(
+  selection: string,
+  argv: readonly string[],
+  host: RunnerHost = process,
+  internals: SpawnRunnerInternals = defaultInternals,
+): Promise<void> {
+  Reflect.deleteProperty(host.env, SUBPROCESS_RUNNER_ENV)
+  const targetArgv = parseRunnerTargetArgv(argv)
+  if (selection === WINDOWS_RUNNER_SELECTION) {
+    await new WindowsJobRunner(targetArgv, host, internals).run()
+    return
   }
+  runLinux(selection, targetArgv, host, internals)
+}
+
+/**
+ * Best-effort reporting for failures before the selected runner established its owner.
+ * @param selection - Windows sentinel, Linux launch-request locator, or no selection.
+ * @param error - failure raised before normal runner settlement.
+ * @param host - process transport and lifecycle host.
+ */
+export async function reportSpawnRunnerFailure(
+  selection: string | undefined,
+  error: unknown,
+  host: RunnerHost = process,
+): Promise<void> {
+  if (selection === WINDOWS_RUNNER_SELECTION) {
+    try { await sendMessage(host, { type: 'runner-error', error: serializeRunnerError(error) }) } catch { /* No transport remains. */ }
+    host.exitCode = 127
+    if (host.connected) host.disconnect()
+    return
+  }
+  if (selection !== undefined) {
+    try {
+      const files: LinuxLaunchFiles = linuxLaunchFilesFromLocator(selection)
+      writeLinuxStartupError(files, { type: 'runner-error', error: serializeRunnerError(error) })
+    } catch {
+      // The parent will report an unconsumed request or missing runner result.
+    }
+  }
+  host.exitCode = 127
 }

@@ -1,0 +1,80 @@
+# Agent Note: Native owners contain escaped subprocess descendants
+
+Status: implemented
+
+English | [中文](2026-08-28-subprocess-native-containment.zh.md)
+
+## Problem
+
+Detached POSIX process groups, Windows direct-parent traversal, and PTY descendant scans describe only members that remain observable through one process relationship. A child can call `setsid`, reparent, or outlive its direct parent and leave those ranges, so terminating the apparent tree can return while work, ports, or files remain active. A direct target result also does not prove that every descendant has stopped.
+
+The ordinary subprocess handle cannot solve this gap by publishing a PID. Linux scope setup and the Windows Job runner establish target identity asynchronously, a PID does not name the complete managed range, and consumers would be forced to infer whether startup committed. The public result, range ownership, private startup protocol, and packaged entry therefore need separate owners.
+
+## Decision
+
+`LocalSubprocessRuntime` selects one provider-private managed-range owner before a target can execute. Eligible Linux ordinary and PTY launches enter a transient user-systemd scope; eligible Windows ordinary launches enter an unnamed kill-on-close Job owned by a private runner. Unsupported hosts use the existing weaker fallback with one provider-lifetime warning. The provider never replays a target after a selected native path may have executed it.
+
+An ordinary `SubprocessHandle` has no PID or public startup state. `.done` reports the direct target result or startup/provider failure, `terminate()` signals the selected range, and `waitForExit()` succeeds only after that same range is proven empty. `SubprocessTerminalHandle.pid` remains part of the terminal contract because PTY identity and foreground inspection require it.
+
+### Linux scope and one-shot bootstrap
+
+Every eligible Linux ordinary or PTY spawn rechecks the exact runner entry, `process.execve()`, the readable user manager, and literal-argv transient-scope support. A positive result is not cached. Once selected, a scope, protocol, state-query, or pre-exec failure is reported through that launch and never switches to fallback.
+
+The parent creates one 0700 directory with a complete 0600 `launch-request.json` containing the final target cwd and environment. The private `DSH_SUBPROCESS_RUNNER` value locates that request while the runner starts from the provider cwd and a bootstrap-safe environment. `systemd-run --user --scope --quiet --collect --expand-environment=no` registers its process in the scope, then the one-shot bootstrap removes and validates the request, changes to the target cwd, restores the complete target environment, resolves a bare executable with the target PATH rules, and calls `execve()` with the original argv. The bootstrap becomes the target in place; it does not remain as a supervisor.
+
+Request consumption or a manager observation of the unit establishes scope ownership. Unit absence before either fact remains unresolved; direct-child exit with an unconsumed request is establishment failure. After establishment, an inactive, failed, or collected-away unit proves the range empty. Unknown states and unreadable manager results reject `waitForExit()` instead of claiming quiescence. A strict sibling `startup-error.json` carries only request/bootstrap or target pre-exec failure, and the parent removes this spawn's private paths at observable lifecycle completion.
+
+The ordinary target result still comes from the same child process. The PTY path uses the same request and bootstrap without a resident runner, so the `node-pty` PID, process group, session leader, controlling terminal, foreground `inputWaiting`, `/dev/tty`, readiness, and direct terminal outcome retain their existing meanings while scope membership covers `setsid` and reparented descendants.
+
+### Windows runner and Job
+
+The Windows parent starts the provider runner from a bootstrap cwd and environment, gives it the original target argv after a private `--` delimiter, and uses Node IPC for exactly one start request, idempotent terminate control, and exactly one direct-result branch. Target stdin, stdout, and stderr remain real Node-created standard handles: the runner temporarily makes its inherited handles inheritable, creates the target with `STARTF_USESTDHANDLES`, and closes its own copies after target creation. User bytes never pass through IPC.
+
+The runner is the sole owner of the target process handle and unnamed Job handle. `spawnCurrentTokenJobProcess` creates the target suspended, assigns it to a kill-on-close Job that disallows active breakaway, and resumes it only after assignment. The runner polls the direct process for the target exit code and the Job for active-process count. It exits successfully only after the direct result has been delivered through the IPC send callback and the Job has reported zero active processes; the parent maps only that clean exit to successful `waitForExit()`.
+
+The parent settles `.done` only after a strict direct-result message and the existing stdout/stderr close or bounded-drain barrier. A later Job query or range-settlement failure rejects only `waitForExit()`. IPC loss before that `.done` barrier rejects `.done` as runner infrastructure failure; IPC loss afterward leaves the completed direct result unchanged but still rejects range settlement. On disconnect or result-send failure, the runner stops protocol work, terminates and closes its only Job handle, and exits nonzero. Closing the last Job handle kills remaining members but does not convert the disconnected path into a successful quiescence proof.
+
+### Private dispatch and protocol
+
+Source launches execute the package runner entry through the TypeScript source launcher, built launches resolve the `@deepseek-ai/dsh-subprocess-local/runner` export, and the Python SDK single-file executable enters through `@deepseek-ai/dsh`'s packaging-owned `runtime-bootstrap.js`. That bootstrap imports the public CLI when the private selector is absent; otherwise it removes the selector and dispatches to the same subprocess runner core. The public `dsh` argument parser has no hidden runner mode, and packaging ships no second Node executable.
+
+The selector is a per-spawn locator or sentinel, not a credential or persistent format. Linux uses one strict request plus one optional strict startup-error file; Windows uses one IPC channel with closed start, terminate, `target-exit`, `spawn-error`, `runner-error`, and `start-cancelled` messages. Errors carry only bounded Node-shaped fields. Missing, extra, mistyped, or unknown fields fail closed. Target environments may contain the selector name, including Windows case variants, because the provider transmits target state separately and restores it only after private selection is consumed.
+
+### Fallback and cleanup
+
+Linux falls back before target execution when the exact bootstrap, modern readable user-systemd manager, or literal-argv scope is unavailable. Windows ordinary launch falls back when the runner entry, Win32 bindings, or current-token Job probe is unavailable. macOS ordinary launch, Windows ConPTY, and other unsupported hosts retain their existing PGID, `taskkill /T`, or identity-fenced PTY observation. The warning states that descendants escaping those observable relationships are not guaranteed to terminate or delay `waitForExit()`.
+
+Normal Cordis disposal starts direct-result and range observation independently, requests termination, and waits for every owned range. Consumer teardown does not inspect an ordinary PID; it retains the original operation or startup error while attempting terminate and final wait, and preserves cleanup failures in the consumer's existing error order. A confirmed empty range permanently disables later signalling against stale identities.
+
+During a JavaScript-observable host exit, `LocalSubprocessRuntime` synchronously force-terminates every still-live handle without promises or timers. Linux sends the existing direct fallback kill and the exact scope kill; Windows kills the runner so its only Job handle closes; PTY fallback scans remain best effort. Per-handle failures are contained and do not change the host's exit result. Termination modes in which JavaScript cannot run remain outside this listener's guarantee.
+
+## Existing decisions and supersession
+
+This note owns the current native-containment mechanism. It partially updates the provider and no-PID facts in the [subprocess seam](2026-07-26-subprocess-seam.md), the Linux teardown facts in [persistent PTY sessions](../feature/2026-07-16-persistent-pty-sessions.md), the native targets used by [synchronous host-exit cleanup](../bug-fix/2026-08-11-synchronous-subprocess-exit-cleanup.md), the ordinary consumer of [shared Win32 process primitives](2026-08-19-shared-win32-process-primitives.md), and the private entry selected by the [Python SDK profile runtime](2026-08-23-python-sdk-dsh-profile-runtime.md). Each note retains its other decision and remains active.
+
+## Verification
+
+- Provider and protocol suites pin synchronous NUL rejection before launch side effects, strict request/result decoding, target cwd and complete environment restoration, private-variable collision, Linux PATH lookup with preserved argv, pre-exec error ownership, the three scope-establishment states, all four Windows result branches, start cancellation, result-send and IPC-disconnect failures, stdio settlement, active-process quiescence, and unique handle cleanup.
+- Real Linux user-systemd tests run one ordinary and one `node-pty` `setsid`/reparent scenario through the production entry. They prove scope signalling and collection, bare executable lookup, escaped-descendant termination, range settlement, and unchanged PTY PID, session, controlling-terminal, foreground-input, `/dev/tty`, readiness, and startup-failure semantics.
+- Native Windows tests prove suspended creation, Job assignment before resume, inherited stdio, default descendant inheritance, direct result, termination, active-process zero, abnormal/disconnected runner cleanup, kill-on-close, and synchronous host-exit termination. Source, built, and Python packaged smokes enter the same runner core.
+- Public seam types, local and E2B providers, LSP and subagent consumers, shell fixtures, READMEs, the Cordis catalog, and the keyless subprocess API snapshot contain no ordinary PID; terminal PID remains.
+
+## Alternatives considered
+
+**Keep PID, make it optional, or add a public `started` promise.** Rejected because each representation exposes an asynchronous provider identity that does not name the managed range and invites consumers to infer startup or quiescence from the wrong fact.
+
+**Extend process-group, session, parent-tree, or PID scanning.** Rejected because a process can leave each observed relationship; broader SID signalling can also reach unrelated processes when a PTY helper shares a launcher session. Native OS membership is persistent and independently queryable.
+
+**Let the parent own or reopen the Windows Job.** Rejected because copied handles, named Jobs, `OpenJobObject`, process-handle handoff, and completion ports create multiple lifecycle owners without improving the direct-result contract. One runner can own target creation, Job membership, result production, and final handle closure.
+
+**Carry control or results through target stdio or files on Windows.** Rejected because user bytes and EOF must remain authoritative to existing Node streams, while result files or polling introduce a second result owner. One IPC channel separates control from target stdio.
+
+**Parse a hidden runner argument in the public CLI or ship another Node executable.** Rejected because either choice expands the public application grammar or distribution surface. A packaging-only bootstrap keeps one physical executable and two private logical entries.
+
+**Cache successful native probes or recover a failed native launch by replaying the command.** Rejected because user-manager, entry, and Job availability can change between spawns, while replay can execute a command twice after an ambiguous failure.
+
+## Consequences
+
+Supported Linux ordinary and PTY launches and Windows ordinary launches retain descendants through process-group escape and direct-parent exit, while direct target results remain independent from range quiescence. The cost is a per-spawn Linux scope/request or Windows runner/IPC/Job lifecycle, plus explicit failure when the selected owner cannot prove settlement.
+
+Fallback hosts continue to run commands but carry a visible weaker guarantee. Windows ConPTY, macOS native containment, active breakaway descendants, old or absent user-systemd environments, target replay, persistent runner recovery, and termination paths where JavaScript cannot execute remain outside this decision.

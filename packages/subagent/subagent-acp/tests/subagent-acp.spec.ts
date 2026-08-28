@@ -84,7 +84,6 @@ async function waitForFile(file: string, timeoutMs = 5000): Promise<void> {
 
 function rejectFinalExitWait(child: SubprocessHandle, message: string): SubprocessHandle {
   return {
-    pid: child.pid,
     stdin: child.stdin,
     stdout: child.stdout,
     stderr: child.stderr,
@@ -108,7 +107,6 @@ function rejectFinalExitWaitAfterExit(child: SubprocessHandle, message: string):
 
 function tapBoundedExitWait(child: SubprocessHandle, onWait: () => void): SubprocessHandle {
   return {
-    pid: child.pid,
     stdin: child.stdin,
     stdout: child.stdout,
     stderr: child.stderr,
@@ -130,7 +128,6 @@ function replaceProtocolStreams(
   if (child.stdin === undefined) throw new Error('expected piped child stdin')
   stdin.pipe(child.stdin)
   return {
-    pid: child.pid,
     stdin,
     stdout,
     stderr: child.stderr,
@@ -168,25 +165,11 @@ function closeProtocolOnPrompt(child: SubprocessHandle, onClose: () => void = ()
 
 function replaceProcessOutcome(child: SubprocessHandle, outcome: SubprocessOutcome): SubprocessHandle {
   return {
-    pid: child.pid,
     stdin: child.stdin,
     stdout: child.stdout,
     stderr: child.stderr,
     collected: child.collected,
     done: child.done.then(() => outcome),
-    terminate: () => { child.terminate() },
-    waitForExit: (signal?: AbortSignal) => child.waitForExit(signal),
-  }
-}
-
-function hideProcessPid(child: SubprocessHandle): SubprocessHandle {
-  return {
-    pid: undefined,
-    stdin: child.stdin,
-    stdout: child.stdout,
-    stderr: child.stderr,
-    collected: child.collected,
-    done: child.done,
     terminate: () => { child.terminate() },
     waitForExit: (signal?: AbortSignal) => child.waitForExit(signal),
   }
@@ -323,7 +306,6 @@ describe('disposeAcpChild (the backend-owned teardown ladder over seam verbs)', 
       .mockResolvedValueOnce(true)
     const terminate = vi.fn()
     const child: SubprocessHandle = {
-      pid: undefined,
       stdin: new PassThrough(),
       stdout: undefined,
       stderr: undefined,
@@ -345,7 +327,6 @@ describe('disposeAcpChild (the backend-owned teardown ladder over seam verbs)', 
       .mockRejectedValueOnce(initialFailure)
       .mockRejectedValueOnce(finalFailure)
     const child: SubprocessHandle = {
-      pid: undefined,
       stdin: new PassThrough(),
       stdout: undefined,
       stderr: undefined,
@@ -372,7 +353,6 @@ describe('disposeAcpChild (the backend-owned teardown ladder over seam verbs)', 
     const stdin = new PassThrough()
     const stdout = new PassThrough()
     const child: SubprocessHandle = {
-      pid: undefined,
       stdin,
       stdout,
       stderr: undefined,
@@ -747,7 +727,7 @@ describe('dsh-subagent-acp', () => {
       env: { MOCK_CRASH_ON_INITIALIZE: '1' },
       disposeEofGraceMs: DEFAULT_DISPOSE_EOF_GRACE_MS,
       disposeGraceMs: DEFAULT_DISPOSE_GRACE_MS,
-      spawn: spec => hideProcessPid(spawnSubprocess(spec)),
+      spawn: spec => spawnSubprocess(spec),
     }).catch((cause: unknown) => cause)
     expect(error).toBeInstanceOf(Error)
     expect((error as Error).message).toBe(
@@ -764,7 +744,7 @@ describe('dsh-subagent-acp', () => {
       env: {},
       disposeEofGraceMs: 50,
       disposeGraceMs: 50,
-      spawn: spec => closeProtocolImmediately(hideProcessPid(spawnSubprocess(spec))),
+      spawn: spec => closeProtocolImmediately(spawnSubprocess(spec)),
     }).catch((cause: unknown) => cause)
     expect(error).toBeInstanceOf(Error)
     expect((error as Error).message).toBe(
@@ -785,7 +765,6 @@ describe('dsh-subagent-acp', () => {
       disposeEofGraceMs: 50,
       disposeGraceMs: 50,
       spawn: () => ({
-        pid: undefined,
         stdin,
         stdout,
         stderr: undefined,
@@ -1196,7 +1175,7 @@ describe('dsh-subagent-acp', () => {
       env: { MOCK_TEXT: 'partial answer', MOCK_CRASH_AFTER_CHUNK: '1' },
       disposeEofGraceMs: DEFAULT_DISPOSE_EOF_GRACE_MS,
       disposeGraceMs: DEFAULT_DISPOSE_GRACE_MS,
-      spawn: spec => hideProcessPid(spawnSubprocess(spec)),
+      spawn: spec => spawnSubprocess(spec),
     })
     const result = await run.result
     expect(result).toEqual({
@@ -1224,7 +1203,6 @@ describe('dsh-subagent-acp', () => {
         const child = spawnSubprocess(spec)
         realChild = child
         return closeProtocolOnPrompt({
-          pid: undefined,
           stdin: child.stdin,
           stdout: child.stdout,
           stderr: child.stderr,

@@ -772,10 +772,7 @@ function builtBinSmokeGate(needs: string[] = ['build']): Gate {
   ], {
     label: 'built-bin smoke',
     needs,
-    env: {
-      DSH_EXAMPLE_MODE: 'lib',
-      DSH_REQUIRE_BUILT_SUBPROCESS_RUNNER: '1',
-    },
+    env: { DSH_EXAMPLE_MODE: 'lib' },
   })
 }
 

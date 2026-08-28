@@ -2,9 +2,9 @@ import { spawn, spawnSync } from 'node:child_process'
 import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { pathToFileURL } from 'node:url'
 import { afterAll, describe, expect, it } from 'vitest'
 import type { SubprocessSpawnSpec } from '@deepseek-ai/dsh-subprocess'
+import { targetEnvironment } from '../src/runner-launch.ts'
 import { bindManagedProcess } from '../src/spawn.ts'
 import { launchWindowsJob, probeWindowsJob } from '../src/windows-job.ts'
 
@@ -73,7 +73,7 @@ function directSpawnFailure(argv: string[], cwd = scratch): Promise<SpawnFailure
 const windowsNative = process.platform === 'win32' && probeWindowsJob()
 
 describe.skipIf(!windowsNative)('Windows Job native containment', () => {
-  it('keeps raw stdin writable before target pid publication', async () => {
+  it('keeps raw stdin writable while the runner starts the target', async () => {
     const output = join(scratch, `stdin-${Date.now()}.txt`)
     const script = `
       const { writeFileSync } = require('node:fs')
@@ -86,15 +86,15 @@ describe.skipIf(!windowsNative)('Windows Job native containment', () => {
       ...spec([process.execPath, '-e', script]),
       stdio: { stdin: 'pipe', stdout: 'inherit', stderr: 'inherit' } as const,
     }
-    const handle = bindManagedProcess(request, launchWindowsJob(request))
+    const handle = bindManagedProcess(request, launchWindowsJob(request, targetEnvironment(request)))
     if (handle.stdin === undefined) throw new Error('expected piped stdin')
     await new Promise<void>((resolve, reject) => {
       handle.stdin?.once('error', reject)
-      handle.stdin?.end('before-publication', resolve)
+      handle.stdin?.end('immediate-stdin', resolve)
     })
     await expect(handle.done).resolves.toEqual({ exitCode: 0, signal: null })
     await expect(handle.waitForExit()).resolves.toBe(true)
-    expect(readFileSync(output, 'utf8')).toBe('before-publication')
+    expect(readFileSync(output, 'utf8')).toBe('immediate-stdin')
   })
 
   it('reports direct exit before terminating its default-inheritance descendant', async () => {
@@ -119,7 +119,7 @@ describe.skipIf(!windowsNative)('Windows Job native containment', () => {
       cwd: targetCwd,
       stdio: { stdin: 'ignore', stdout: 'pipe', stderr: 'pipe' } as const,
     }
-    const handle = bindManagedProcess(request, launchWindowsJob(request))
+    const handle = bindManagedProcess(request, launchWindowsJob(request, targetEnvironment(request)))
     if (handle.stdout === undefined) throw new Error('expected piped stdout')
     if (handle.stderr === undefined) throw new Error('expected piped stderr')
     handle.stdout.resume()
@@ -154,62 +154,21 @@ describe.skipIf(!windowsNative)('Windows Job native containment', () => {
     }
   })
 
-  it('publishes target identity before reporting cwd restoration failure', async () => {
-    const preload = join(scratch, `fail-runner-cwd-restore-${Date.now()}.mjs`)
-    writeFileSync(preload, `
-      const originalChdir = process.chdir.bind(process)
-      let calls = 0
-      process.chdir = (path) => {
-        calls += 1
-        if (calls === 2) {
-          const error = new Error('injected runner cwd restoration failure')
-          error.code = 'ENOENT'
-          error.syscall = 'chdir'
-          throw error
-        }
-        originalChdir(path)
-      }
-    `)
-    const previousNodeOptions = process.env.NODE_OPTIONS
-    process.env.NODE_OPTIONS = [previousNodeOptions, `--import=${pathToFileURL(preload).href}`]
-      .filter((value): value is string => value !== undefined && value.length > 0)
-      .join(' ')
-    try {
-      const command = process.env.ComSpec ?? process.env.COMSPEC
-      if (command === undefined) throw new Error('expected ComSpec for the Windows runner test')
-      const request = spec([command, '/d', '/s', '/c', 'exit 0'])
-      const launch = launchWindowsJob(request)
-      expect(launch.pid).toBeUndefined()
-      const failure = await launch.direct.catch((error: unknown) => error)
-      expect(launch.pid).toBeGreaterThan(0)
-      expect(failure).toMatchObject({
-        message: 'injected runner cwd restoration failure',
-        code: 'ENOENT',
-        syscall: 'chdir',
-      })
-      expect(failure).not.toHaveProperty('path')
-      await expect(launch.owner.waitForExit()).rejects.toThrow('before proving its managed range empty')
-    } finally {
-      if (previousNodeOptions === undefined) Reflect.deleteProperty(process.env, 'NODE_OPTIONS')
-      else process.env.NODE_OPTIONS = previousNodeOptions
-    }
-  })
-
   it('preserves missing-target and invalid-executable rejection errors', async () => {
     const relativeExecutable = `relative-node-${String(Date.now())}.exe`
     copyFileSync(process.execPath, join(scratch, relativeExecutable))
     const relative = spec([relativeExecutable, '-e', 'process.exit(17)'])
-    const relativeHandle = bindManagedProcess(relative, launchWindowsJob(relative))
+    const relativeHandle = bindManagedProcess(relative, launchWindowsJob(relative, targetEnvironment(relative)))
     await expect(relativeHandle.done).resolves.toEqual({ exitCode: 17, signal: null })
     await expect(relativeHandle.waitForExit()).resolves.toBe(true)
 
     const missing = spec([`missing-native-target-${Date.now()}.exe`])
-    const missingHandle = bindManagedProcess(missing, launchWindowsJob(missing))
+    const missingHandle = bindManagedProcess(missing, launchWindowsJob(missing, targetEnvironment(missing)))
     await expect(missingHandle.done).rejects.toMatchObject({ code: 'ENOENT' })
     await expect(missingHandle.waitForExit()).resolves.toBe(true)
 
     const accessDenied = spec([scratch])
-    const accessDeniedHandle = bindManagedProcess(accessDenied, launchWindowsJob(accessDenied))
+    const accessDeniedHandle = bindManagedProcess(accessDenied, launchWindowsJob(accessDenied, targetEnvironment(accessDenied)))
     await expect(accessDeniedHandle.done).rejects.toMatchObject({ code: 'EACCES' })
     await expect(accessDeniedHandle.waitForExit()).resolves.toBe(true)
 
@@ -217,7 +176,7 @@ describe.skipIf(!windowsNative)('Windows Job native containment', () => {
     const cwdArgv = [process.execPath, '-e', 'process.exit(0)']
     const expectedCwd = await directSpawnFailure(cwdArgv, missingCwd)
     const invalidCwd = { ...spec(cwdArgv), cwd: missingCwd }
-    const invalidCwdHandle = bindManagedProcess(invalidCwd, launchWindowsJob(invalidCwd))
+    const invalidCwdHandle = bindManagedProcess(invalidCwd, launchWindowsJob(invalidCwd, targetEnvironment(invalidCwd)))
     await expect(invalidCwdHandle.done).rejects.toMatchObject({
       code: expectedCwd.code,
       syscall: expectedCwd.syscall,
@@ -230,7 +189,7 @@ describe.skipIf(!windowsNative)('Windows Job native containment', () => {
     writeFileSync(invalidExecutable, 'not a Windows executable\r\n')
     const directError = await directSpawnFailure([invalidExecutable])
     const invalid = spec([invalidExecutable])
-    const invalidHandle = bindManagedProcess(invalid, launchWindowsJob(invalid))
+    const invalidHandle = bindManagedProcess(invalid, launchWindowsJob(invalid, targetEnvironment(invalid)))
     await expect(invalidHandle.done).rejects.toMatchObject({ code: directError.code })
     await expect(invalidHandle.waitForExit()).resolves.toBe(true)
   })

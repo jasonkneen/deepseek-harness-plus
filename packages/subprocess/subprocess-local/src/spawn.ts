@@ -59,6 +59,10 @@ export interface SpawnInternals {
   platform?: NodeJS.Platform
   /** Linux process-group member probe (defaults to `/proc` inspection). */
   linuxProcessGroupHasLiveMembers?: (processGroupId: number) => boolean | undefined
+  /** Test seam for the per-spawn Linux native prerequisite check. */
+  linuxNativeAvailable?: () => boolean
+  /** Test seam for the per-spawn Windows native prerequisite check. */
+  windowsNativeAvailable?: () => boolean
 }
 
 /**
@@ -416,6 +420,10 @@ function fallbackOwner(
       })()
       await observation
     },
+    terminateForHostExit: () => {
+      if (stopped) return
+      signalTree(platform, pid, 'SIGKILL', child, taskkill)
+    },
   }
 }
 
@@ -489,6 +497,9 @@ export function bindManagedProcess(
       if (graceTimer !== undefined) clearTimeout(graceTimer)
       graceTimer = undefined
       spec.signal?.removeEventListener('abort', onAbort)
+      if (launch.owner.cleanup !== undefined) {
+        queueMicrotask(() => { void done.finally(() => { launch.owner.cleanup?.() }).catch(() => {}) })
+      }
     })().catch((error: unknown) => {
       rangeExitObservation = undefined
       throw error
@@ -496,30 +507,35 @@ export function bindManagedProcess(
     return rangeExitObservation
   }
 
-  const kill = (sig: 'SIGTERM' | 'SIGKILL'): void => {
+  const kill = (sig: 'SIGTERM' | 'SIGKILL', cancellationReason?: unknown): void => {
     if (rangeExitObserved) return
-    launch.owner.signal(sig)
+    launch.owner.signal(sig, cancellationReason)
   }
 
-  const terminate = (): void => {
+  const terminateWithReason = (cancellationReason: unknown): void => {
     if (rangeExitObserved || graceTimer !== undefined) return
     // Keep the shared observation rejection available to waitForExit() without
     // leaking an unhandled rejection when a caller only invokes terminate().
     void observeRangeExit().catch(() => {})
-    kill('SIGTERM')
+    kill('SIGTERM', cancellationReason)
     graceTimer = setTimeout(() => {
       graceTimer = undefined
       kill('SIGKILL')
     }, spec.graceMs)
   }
 
+  const terminate = (): void => {
+    terminateWithReason(new Error('subprocess terminated before target start'))
+  }
+
   const terminateForHostExit = (): void => {
-    kill('SIGKILL')
+    launch.owner.terminateForHostExit()
   }
 
   // The caller owns timeout classification; this layer only reacts to abort.
-  const onAbort = (): void => { terminate() }
+  const onAbort = (): void => { terminateWithReason(spec.signal?.reason) }
   spec.signal?.addEventListener('abort', onAbort, { once: true })
+  if (spec.signal?.aborted === true) onAbort()
 
   // Batch stdin is written and closed up front; process exit and captured
   // output remain authoritative, so write errors (EPIPE) are best-effort.
@@ -539,6 +555,17 @@ export function bindManagedProcess(
       cleanup()
       resolve(outcome)
     }
+    const fail = (error: unknown): void => {
+      if (settled) return
+      settled = true
+      terminate()
+      stopCollectors()
+      cleanup()
+      /* v8 ignore next -- managed launch promises reject with Error instances. */
+      const failure = error instanceof Error ? error : new Error(String(error))
+      reject(failure)
+    }
+    void launch.infrastructureFailure?.catch(fail)
     launch.direct.then((outcome) => {
       if (stdoutClosed === undefined && stderrClosed === undefined) {
         settle(outcome)
@@ -546,15 +573,7 @@ export function bindManagedProcess(
       }
       pipeDrainTimer = setTimeout(() => { settle(outcome) }, spec.graceMs)
       void outputStreamsClosed.then(() => { settle(outcome) })
-    }, (error: unknown) => {
-      /* v8 ignore next -- one Promise cannot reject after its fulfillment path has settled this handle. */
-      if (settled) return
-      settled = true
-      terminate()
-      stopCollectors()
-      cleanup()
-      reject(error instanceof Error ? error : new Error(String(error)))
-    })
+    }, fail)
     function cleanup(): void {
       // graceTimer deliberately NOT cleared: forced termination must still
       // reach range survivors after the spawned command settles.
@@ -568,7 +587,6 @@ export function bindManagedProcess(
   }
 
   return {
-    get pid() { return launch.pid },
     /* v8 ignore start -- pipe-mode streams exist on every conforming launch;
        the null-coalesces guard an internal adapter defect only. */
     stdin: stdinMode === 'pipe' ? stdin ?? undefined : undefined,
@@ -620,7 +638,6 @@ export function spawnSubprocess(spec: SubprocessSpawnSpec, internals: SpawnInter
     stdin: child.stdin,
     stdout: child.stdout,
     stderr: child.stderr,
-    pid,
     direct,
     owner,
   }, binding)

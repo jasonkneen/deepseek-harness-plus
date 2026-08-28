@@ -80,10 +80,9 @@ declare module '@deepseek-ai/cordis' {
  * Implementations must honor these semantics:
  * - Executable paths belong to one execution world shared with the mounted
  *   filesystem provider.
- * - {@link spawn} returns a live handle synchronously. Its pid is provider-owned
- *   and may remain unavailable during asynchronous startup. `done` resolves with
- *   the spawned command's exit facts and may reject for spawn or provider
- *   failures.
+ * - {@link spawn} returns a live handle synchronously. Target identity remains
+ *   provider-private; `done` resolves with the spawned command's exit facts and
+ *   may reject for spawn or provider failures.
  * - Collect-mode readers are offset-based and non-consuming, so independent
  *   readers never consume one another's output; lossy reads report truncation
  *   and the spill file holding the complete stream when one exists. Piped
@@ -92,7 +91,7 @@ declare module '@deepseek-ai/cordis' {
  *   provider's documented procedure against its managed range.
  *   {@link SubprocessHandle.waitForExit} observes that same range so a
  *   consumer-owned teardown ladder can hold each tier on real quiescence; each
- *   provider documents its identity, signalling, and observability limits.
+ *   provider documents its signalling and observability limits.
  * - Disposal of the service terminates all still-running managed processes
  *   and awaits their exit.
  * - {@link spawnTerminal} owns terminal allocation, text transport,
