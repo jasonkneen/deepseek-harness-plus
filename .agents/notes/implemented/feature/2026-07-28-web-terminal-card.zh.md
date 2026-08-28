@@ -51,7 +51,7 @@ Web client 却对它视而不见。`packages/client/ui-tool/src/client/tool/mode
 
 `TerminalBlock` 只读取 terminal 视图携带的字段，因此它始终是渲染意图内容的纯函数——不查会话状态，与产出该视图的 presenter 一样可安全回放。不具备终端能力的 UI 仍从桥接层拿到围栏式回退；工具的结果形态未作任何改动。
 
-在当前已交付的 wire 上，`run_code` 子派发不会得到终端卡片：`session.ts` 把 `tool/code-dispatch(-start)` 折叠为 `callView: null`／`resultView: null`，而 host 的 `viewFor` 只呈现顶层的 `tool/call`／`tool/result`，因此嵌套的 bash 调用保持通用的压平形式。两条分支都已钉住——注入视图后的解析路径，以及 wire 实际投递的无视图形态——因此这个缺口是被记录下来的，而非暗含的。把 presenter 视图贯穿 code-dispatch wire 属于该边界自身的改动。
+在当前已交付的 wire 上，`run_code` 子派发不会得到终端卡片：`session.ts` 把 `tool/code-dispatch(-start)` 折叠为 `callView: null`／`resultView: null`，而 host 的 `viewFor` 只呈现顶层的 `tool/call`／`tool/result`，因此嵌套的 bash 调用保持通用的压平形式。两条分支都已钉住——注入视图后的解析路径，以及 wire 实际投递的无视图形态——因此这个缺口是被记录下来的，而非暗含的。把 presenter 视图贯穿 ptc-dispatch wire 属于该边界自身的改动。
 
 内嵌渲染的许可仅授予 terminal 意图。将来想要内嵌的意图需要有自己的边界与自己的决定，且需针对此处记录的理由来论证，而不是仅针对「只在面板」这条约定本身。
 

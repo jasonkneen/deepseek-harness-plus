@@ -23,14 +23,17 @@ export type RemoteStreamFailureMapper = (error: unknown) => RemoteStreamFailure
 export class RemoteStreamMuxServer {
   private readonly server = new WebSocketServer({ noServer: true })
   private readonly connections = new Set<Promise<void>>()
+  private heartbeatTimer: NodeJS.Timeout | undefined
 
   /**
    * @param open - Gateway stream dispatcher.
    * @param failure - Gateway error-to-wire mapper.
+   * @param heartbeatIntervalMs - interval between WebSocket Ping control frames.
    */
   constructor(
     private readonly open: RemoteStreamOpener,
     private readonly failure: RemoteStreamFailureMapper,
+    private readonly heartbeatIntervalMs: number,
   ) {}
 
   /**
@@ -41,6 +44,7 @@ export class RemoteStreamMuxServer {
    */
   handleUpgrade(req: IncomingMessage, socket: Duplex, head: Buffer): void {
     this.server.handleUpgrade(req, socket, head, (websocket) => {
+      this.startHeartbeat()
       const connection = new RemoteStreamMuxConnection(websocket, this.open, this.failure)
       const done = connection.run()
       this.connections.add(done)
@@ -50,6 +54,8 @@ export class RemoteStreamMuxServer {
 
   /** Terminate all sockets and wait until every iterator has returned. */
   async close(): Promise<void> {
+    clearInterval(this.heartbeatTimer)
+    this.heartbeatTimer = undefined
     for (const socket of this.server.clients) socket.terminate()
     const closed = Promise.withResolvers<void>()
     this.server.close((error) => {
@@ -58,6 +64,17 @@ export class RemoteStreamMuxServer {
     })
     await closed.promise
     await Promise.all(this.connections)
+  }
+
+  /** Start one `unref()` timer after the first upgrade; it spans empty-client periods until close(). */
+  private startHeartbeat(): void {
+    if (this.heartbeatTimer !== undefined) return
+    this.heartbeatTimer = setInterval(() => {
+      for (const socket of this.server.clients) {
+        if (socket.readyState === WebSocket.OPEN) socket.ping()
+      }
+    }, this.heartbeatIntervalMs)
+    this.heartbeatTimer.unref()
   }
 }
 

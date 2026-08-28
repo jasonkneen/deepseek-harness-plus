@@ -1,7 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type {
-  ModelSelection,
-  RpcMessage,
   RpcRequest,
   RpcResponse,
   RpcResult,
@@ -12,13 +10,16 @@ import { RpcId } from '../src/client/api.ts'
 import { decodeStorageRecord } from '@deepseek-ai/dsh-session/chunk-rows'
 import type { ChunkRow } from '@deepseek-ai/dsh-session/chunk-rows'
 import {
-  FixtureApiClient,
+  createFixtureConnectionRpc,
   createFixtureFaces,
   type FixtureOptions,
 } from '../src/client/fixture.ts'
 import type {
-  ClientConnectionRpc,
+  ClientConnectionRpc, ConnectionRpcResult,
 } from '../src/rpc.ts'
+import type { DirectoryListing } from '@deepseek-ai/dsh-host-directory-picker/types'
+import type { ModelCatalog } from '@deepseek-ai/dsh-api-session-controller/types'
+import type { ModelSelection } from '@deepseek-ai/dsh-api-session-controller/types'
 
 const sid = (id: string): SessionId => id as SessionId
 type WorkspaceId = string & { readonly __fixtureWorkspaceId: 'WorkspaceId' }
@@ -174,6 +175,7 @@ type FixtureSessionClient = {
 }
 
 interface FixtureSessionRemote {
+  modelCatalog(): Promise<ConnectionRpcResult<ModelCatalog>>
   follow(sessionId: SessionId, signal: AbortSignal): AsyncIterable<FixtureFollowFrame>
   control(signal: AbortSignal): AsyncIterable<FixtureControlFrame>
 }
@@ -285,27 +287,80 @@ interface FixtureRemoteEventStream extends AsyncIterable<FixtureRemoteEventFrame
   readonly clientId: Promise<string>
 }
 
-type FixtureTestApi = ReturnType<typeof createFixtureFaces>['api'] & {
+type FixtureTestApi = {
+  /** The directory-picking Remote namespace as the fixture serves it. */
+  readonly directoryPickerRemote: {
+    pick: () => Promise<ConnectionRpcResult<string | null>>
+    list: (path?: string) => Promise<ConnectionRpcResult<DirectoryListing>>
+    createDirectory: (path: string, name: string) => Promise<ConnectionRpcResult<string>>
+  }
   readonly sessions: FixtureSessionApi
   readonly sessionRemote: FixtureSessionRemote
   readonly workspace: FixtureWorkspaceApi
   readonly workspaceRemote: FixtureWorkspaceRemote
+  readonly credentialRemote: FixtureCredentialRemote
+  readonly settingsRemote: FixtureSettingsRemote
   readonly remoteEvents: (signal: AbortSignal) => FixtureRemoteEventStream
   readonly answerRemoteEvent: (result: FixtureRemoteEventResult) => Promise<unknown>
 }
 
 /** Keep existing fixture assertions compact while driving only the new Session Remote endpoints. */
 function createFixtureApi(options: FixtureOptions = {}): FixtureTestApi {
-  const { api, rpc } = createFixtureFaces(options)
-  return Object.assign(api, {
+  const { rpc } = createFixtureFaces(options)
+  return {
+    directoryPickerRemote: {
+      pick: () => rpc.call('/api', 'directoryPicker/pick', { args: {} }) as
+        Promise<ConnectionRpcResult<string | null>>,
+      list: (path?: string) => rpc.call('/api', 'directoryPicker/list', { args: { path } }) as
+        Promise<ConnectionRpcResult<DirectoryListing>>,
+      createDirectory: (path: string, name: string) =>
+        rpc.call('/api', 'directoryPicker/createDirectory', { args: { path, name } }) as
+          Promise<ConnectionRpcResult<string>>,
+    },
     sessions: createSessionApi(rpc),
     sessionRemote: createSessionRemote(rpc),
     workspace: createWorkspaceApi(rpc),
     workspaceRemote: createWorkspaceRemote(rpc),
+    credentialRemote: createCredentialRemote(rpc),
+    settingsRemote: createSettingsRemote(rpc),
     remoteEvents: (signal: AbortSignal) => openFixtureRemoteEvents(rpc, signal),
     answerRemoteEvent: (result: FixtureRemoteEventResult) =>
       rpc.call('/api', '$events/result', { args: result }),
-  })
+  }
+}
+
+/** The fixture's Credentials Remote endpoints over the shared RPC carrier. */
+interface FixtureCredentialRemote {
+  describe(refs: readonly string[]): Promise<ConnectionRpcResult<unknown>>
+  set(ref: string, value: string): Promise<ConnectionRpcResult<unknown>>
+  unset(ref: string): Promise<ConnectionRpcResult<unknown>>
+}
+
+/** The settings Remote reads the fixture serves, addressed like the credential half. */
+interface FixtureSettingsRemote {
+  describe(): Promise<ConnectionRpcResult<unknown>>
+  update(ns: string, patch: unknown, expectedRevision?: number): Promise<ConnectionRpcResult<unknown>>
+  replace(ns: string, section: unknown, expectedRevision?: number): Promise<ConnectionRpcResult<unknown>>
+}
+
+function createSettingsRemote(rpc: ClientConnectionRpc): FixtureSettingsRemote {
+  return {
+    describe: () => rpc.call('/api', 'settings/describe', { args: {} }),
+    update: (ns, patch, expectedRevision) => rpc.call('/api', 'settings/update', {
+      args: { ns, patch, expectedRevision },
+    }),
+    replace: (ns, section, expectedRevision) => rpc.call('/api', 'settings/replace', {
+      args: { ns, section, expectedRevision },
+    }),
+  }
+}
+
+function createCredentialRemote(rpc: ClientConnectionRpc): FixtureCredentialRemote {
+  return {
+    describe: refs => rpc.call('/api', 'credentials/describe', { args: { refs } }),
+    set: (ref, value) => rpc.call('/api', 'credentials/set', { args: { ref, value } }),
+    unset: ref => rpc.call('/api', 'credentials/unset', { args: { ref } }),
+  }
 }
 
 function openFixtureRemoteEvents(
@@ -392,6 +447,8 @@ function createSessionRemote(rpc: ClientConnectionRpc): FixtureSessionRemote {
     return stream as AsyncIterable<F>
   }
   return {
+    modelCatalog: () => rpc.call('/api', 'session/modelCatalog', { args: {} }) as
+      Promise<ConnectionRpcResult<ModelCatalog>>,
     follow: (sessionId, signal) => open<FixtureFollowFrame>('session/follow', {
       request: { address: { kind: 'session', sessionId } },
     }, signal),
@@ -678,10 +735,10 @@ describe('createFixtureApi', () => {
   it('serves grouped models and keeps a selection for later history and fixture requests', async () => {
     const api = createFixtureApi()
     const sessionId = sid('fx-alpha')
-    const catalog = await api.llm.models(req({}))
-    if (!catalog.result.ok) throw new Error('models failed')
-    expect(catalog.result.value.groups.map(group => group.name)).toEqual(['DeepSeek', 'OpenAI'])
-    expect(catalog.result.value.groups[0]?.models.map(model => model.id))
+    const catalog = await api.sessionRemote.modelCatalog()
+    if (!catalog.ok) throw new Error('models failed')
+    expect(catalog.value.groups.map(group => group.name)).toEqual(['DeepSeek', 'OpenAI'])
+    expect(catalog.value.groups[0]?.models.map(model => model.id))
       .toEqual(['deepseek-v4-flash', 'deepseek-v4-pro'])
 
     const selected = await api.sessions.selectModel(req({
@@ -708,32 +765,40 @@ describe('createFixtureApi', () => {
 
   it('serves configured DeepSeek readiness and keeps credential values write-only', async () => {
     const api = createFixtureApi()
-    const settings = await api.settings.describe(req({}))
-    if (!settings.result.ok) throw new Error('settings describe failed')
-    expect(settings.result.value.namespaces).toMatchObject([{
+    const settings = await api.settingsRemote.describe()
+    if (!settings.ok) throw new Error('settings describe failed')
+    expect((settings.value as { namespaces: unknown[] }).namespaces).toMatchObject([{
       ns: 'llm-deepseek',
       value: { apiKeyEnv: 'DEEPSEEK_API_KEY' },
       secrets: [{ path: ['apiKey'], set: false }],
     }])
+    for (const result of [
+      await api.settingsRemote.update('llm-deepseek', {}, undefined),
+      await api.settingsRemote.replace('llm-deepseek', {}, undefined),
+    ]) {
+      expect(result).toMatchObject({
+        ok: false,
+        error: { code: 'settings-rejected', message: 'fixture: the minimal readiness settings descriptor is read-only' },
+      })
+    }
 
-    const initial = await api.credentials.describe(req({ refs: ['DEEPSEEK_API_KEY', 'TEST_API_KEY'] }))
-    if (!initial.result.ok) throw new Error('credential describe failed')
-    expect(initial.result.value.credentials).toEqual({
+    const describe = async (refs: readonly string[]): Promise<Record<string, unknown>> => {
+      const result = await api.credentialRemote.describe(refs)
+      if (!result.ok) throw new Error('credential describe failed')
+      return result.value as Record<string, unknown>
+    }
+    expect(await describe(['DEEPSEEK_API_KEY', 'TEST_API_KEY'])).toEqual({
       DEEPSEEK_API_KEY: { configured: true, source: 'file', writable: true },
       TEST_API_KEY: { configured: false, writable: true },
     })
-    await api.credentials.set(req({ ref: 'TEST_API_KEY', value: 'write-only-fixture-secret' }))
-    const configured = await api.credentials.describe(req({ refs: ['TEST_API_KEY'] }))
-    if (!configured.result.ok) throw new Error('credential describe failed')
-    expect(configured.result.value.credentials.TEST_API_KEY).toEqual({
+    await api.credentialRemote.set('TEST_API_KEY', 'write-only-fixture-secret')
+    expect((await describe(['TEST_API_KEY'])).TEST_API_KEY).toEqual({
       configured: true,
       source: 'file',
       writable: true,
     })
-    await api.credentials.unset(req({ ref: 'TEST_API_KEY' }))
-    const cleared = await api.credentials.describe(req({ refs: ['TEST_API_KEY'] }))
-    if (!cleared.result.ok) throw new Error('credential describe failed')
-    expect(cleared.result.value.credentials.TEST_API_KEY).toEqual({ configured: false, writable: true })
+    await api.credentialRemote.unset('TEST_API_KEY')
+    expect((await describe(['TEST_API_KEY'])).TEST_API_KEY).toEqual({ configured: false, writable: true })
   })
 
   it('emits the todo/write snapshot at the real tool boundary: between tool/call and tool/result, timestamps monotonic', async () => {
@@ -1037,30 +1102,20 @@ describe('createFixtureApi', () => {
     expect(remaining.map(frame => frame.event)).toEqual(['user-questions/request'])
   })
 
-  it('describe answers the fixture identity', async () => {
-    const api = createFixtureApi()
-    const response = await api.host.describe(req({}))
-    expect(response.result).toMatchObject({
-      ok: true, value: { version: '0.0.0-fixture', attachedSessions: 1, home: '/home/fixture' },
-    })
-    const empty = await createFixtureApi({ empty: true }).host.describe(req({}))
-    expect(empty.result).toMatchObject({ ok: true, value: { attachedSessions: 0 } })
-  })
-
   it('createDirectory under the root mints /name whose listing and crumbs share the identity', async () => {
     const api = createFixtureApi()
-    const created = await api.host.createDirectory(req({ path: '/', name: 'srv' }))
-    if (!created.result.ok) throw new Error('create failed')
-    expect(created.result.value.path).toBe('/srv')
-    const listed = await api.host.listDirectory(req({ path: '/srv' }), new AbortController().signal)
-    if (!listed.result.ok) throw new Error('list failed')
-    expect(listed.result.value.crumbs).toEqual([
+    const created = await api.directoryPickerRemote.createDirectory('/', 'srv')
+    if (!created.ok) throw new Error('create failed')
+    expect(created.value).toBe('/srv')
+    const listed = await api.directoryPickerRemote.list('/srv')
+    if (!listed.ok) throw new Error('list failed')
+    expect(listed.value.crumbs).toEqual([
       { name: '/', path: '/', hidden: false },
       { name: 'srv', path: '/srv', hidden: false },
     ])
-    const root = await api.host.listDirectory(req({ path: '/' }), new AbortController().signal)
-    if (!root.result.ok) throw new Error('root list failed')
-    expect(root.result.value.entries).toContainEqual({ name: 'srv', path: '/srv', hidden: false })
+    const root = await api.directoryPickerRemote.list('/')
+    if (!root.ok) throw new Error('root list failed')
+    expect(root.value.entries).toContainEqual({ name: 'srv', path: '/srv', hidden: false })
   })
 
   it('workspace/follow serves the resident baseline and create reuses on path collision', async () => {
@@ -1547,38 +1602,16 @@ describe('createFixtureApi', () => {
   })
 })
 
-describe('FixtureApiClient (protocol-level fake carrier)', () => {
+describe('fixture Connection RPC', () => {
   afterEach(() => {
     vi.restoreAllMocks()
     vi.unstubAllGlobals()
   })
 
-  it('doFetch is an unreachable tripwire (all protocol paths overridden)', () => {
-    const client = new FixtureApiClient()
-    // Protected at compile time only; reach it directly to pin the tripwire message.
-    expect(() => (client as unknown as { doFetch(): Promise<Response> }).doFetch()).toThrow(/doFetch must be unreachable/)
-  })
-
-  it('mints request ids and taps unary request/response envelopes without touching doFetch', async () => {
-    const client = new FixtureApiClient()
-    const tapped: RpcMessage[] = []
-    client.subscribeEnvelopes(batch => tapped.push(...batch))
-    const response = await client.host.describe({})
-    expect(response.result.ok).toBe(true)
-    await vi.waitFor(() => {
-      const kinds = tapped.map(m => m.type)
-      expect(kinds).toContain('client-request')
-      expect(kinds).toContain('server-response')
-    })
-    const request = tapped.find(m => m.type === 'client-request')
-    const reply = tapped.find(m => m.type === 'server-response')
-    expect(request?.rpcId).toBe(reply?.rpcId) // echo discipline holds through the fake carrier
-  })
-
-  it('covers the whole unary dispatch table', async () => {
-    const client = new FixtureApiClient()
-    const sessions = createSessionClient(client.rpc)
-    const workspaces = createWorkspaceClient(client.rpc)
+  it('covers the migrated Remote dispatch table', async () => {
+    const rpc = createFixtureConnectionRpc()
+    const sessions = createSessionClient(rpc)
+    const workspaces = createWorkspaceClient(rpc)
     expect((await sessions.search(
       { query: 'fixture' },
       new AbortController().signal,
@@ -1589,8 +1622,7 @@ describe('FixtureApiClient (protocol-level fake carrier)', () => {
     expect((await sessions.history({ sessionId: id })).result.ok).toBe(true)
     expect((await sessions.prompt({ sessionId: id, mode: 'queue', content: [{ type: 'text', text: '嗨' }] })).result.ok).toBe(true)
     expect((await sessions.cancel({ sessionId: id })).result.ok).toBe(true)
-    expect((await client.host.describe({})).result.ok).toBe(true)
-    expect((await readWorkspaceBaseline(createWorkspaceRemote(client.rpc))).items).not.toHaveLength(0)
+    expect((await readWorkspaceBaseline(createWorkspaceRemote(rpc))).items).not.toHaveLength(0)
     const workspace = await workspaces.create({ path: '/tmp/fixture-workspaces/via-client' })
     if (!workspace.result.ok) throw new Error('workspace create failed')
     expect(workspace.result.value.workspace.title).toBe('via-client')
@@ -1606,13 +1638,13 @@ describe('FixtureApiClient (protocol-level fake carrier)', () => {
   })
 
   it('folds the goal lifecycle over the Goal Remotes', async () => {
-    const client = new FixtureApiClient()
-    const sessions = createSessionClient(client.rpc)
+    const rpc = createFixtureConnectionRpc()
+    const sessions = createSessionClient(rpc)
     const created = await sessions.create({})
     if (!created.result.ok) throw new Error('create failed')
     const id = created.result.value.sessionId
     const goal = (endpoint: string, args: Record<string, unknown>) =>
-      client.rpc.call('/api', endpoint, { args: { agentId: id, ...args } })
+      rpc.call('/api', endpoint, { args: { agentId: id, ...args } })
 
     // create → edit → pause → resume → complete → clear; each mutation advances the CAS
     // revision by one (state rides the projection frames).
@@ -1651,17 +1683,17 @@ describe('FixtureApiClient (protocol-level fake carrier)', () => {
     vi.stubGlobal('location', {
       search: '?fixture=empty&fixturePrompt=reject&fixtureFrames=workspace-first',
     })
-    const client = new FixtureApiClient()
-    const sessions = createSessionClient(client.rpc)
-    const workspaces = createWorkspaceClient(client.rpc)
-    const workspaceRemote = createWorkspaceRemote(client.rpc)
+    const rpc = createFixtureConnectionRpc()
+    const sessions = createSessionClient(rpc)
+    const workspaces = createWorkspaceClient(rpc)
+    const workspaceRemote = createWorkspaceRemote(rpc)
     await expect(sessions.list({})).resolves.toMatchObject({ result: { ok: true, value: { items: [] } } })
     const made = await workspaces.create({ path: '/tmp/fixture-workspaces/query-workspace' })
     if (!made.result.ok) throw new Error('workspace create failed')
     const hostAbort = new AbortController()
     const workspaceAbort = new AbortController()
     const hostFrames = collectValues(
-      openFixtureRemoteEvents(client.rpc, hostAbort.signal),
+      openFixtureRemoteEvents(rpc, hostAbort.signal),
       hostAbort,
       frames => frames.length === 1,
     )
@@ -1695,8 +1727,8 @@ describe('FixtureApiClient (protocol-level fake carrier)', () => {
 
   it('maps attach-failure and dropped-response query scenarios', async () => {
     vi.stubGlobal('location', { search: '?fixture&fixtureAttach=fail' })
-    const partial = new FixtureApiClient()
-    const partialResult = await createSessionClient(partial.rpc).create({
+    const partial = createFixtureConnectionRpc()
+    const partialResult = await createSessionClient(partial).create({
       workspaceId: 'fx-ws-fixture' as WorkspaceId,
       sessionId: sid('fx-query-partial'),
     })
@@ -1706,8 +1738,8 @@ describe('FixtureApiClient (protocol-level fake carrier)', () => {
     })
 
     vi.stubGlobal('location', { search: '?fixture&fixtureSessionCreate=drop-response' })
-    const dropped = new FixtureApiClient()
-    await expect(createSessionClient(dropped.rpc).create({
+    const dropped = createFixtureConnectionRpc()
+    await expect(createSessionClient(dropped).create({
       workspaceId: 'fx-ws-fixture' as WorkspaceId,
       sessionId: sid('fx-query-dropped'),
     })).rejects.toThrow(/dropped session\.create response/)

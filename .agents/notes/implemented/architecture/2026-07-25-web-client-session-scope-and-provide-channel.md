@@ -107,7 +107,7 @@ Slot scope is the closed set `root | session-maybe | session`:
 
 - The summary `blank` column and the `host/session-added` frame's `blank` field (see the blank bit above).
 - The SSE frame `host/commands-changed` (a pure invalidation signal); the client routes it into the typed events `commands/changed` and `connection/reset` (broadcast after each connection generation is established; wire-derived caches uniformly treat prior state as stale). The commands frame and its typed client event were later replaced by verbatim forwarding of `commands/change` through `ctx.remote.$on` ([forwarded Remote events](2026-08-10-remote-event-delivery.md)); `connection/reset` is unchanged, and the invalidation-not-diffing contract this bullet states still holds.
-- `command.list/execute` and `skill.list` are uniformly single-addressed by `sessionId` (a session always has an Agent; `agentFor`'s resume semantics come ready-made); the command-surface narrative lives in the [command surfaces note](2026-07-25-web-command-surfaces-and-assembly.md).
+- `command.list/execute` and `skills/list` are uniformly single-addressed by `sessionId` (a session always has an Agent; `agentFor`'s resume semantics come ready-made); the command-surface narrative lives in the [command surfaces note](2026-07-25-web-command-surfaces-and-assembly.md).
 - The `session.create` request shape: workspaceId/cwd as either-or, plus an optional caller-preallocated sessionId (a same-id same-cwd retry is idempotent; a different cwd reports `session-conflict`).
 
 ## Alternatives considered

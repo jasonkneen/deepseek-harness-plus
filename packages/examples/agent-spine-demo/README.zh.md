@@ -64,7 +64,7 @@ kind: "package-reference"
 | `includeRuntimeContext` | `true` | agent 历史是否包含动态运行时上下文快照 |
 | `persona` | `''` | 系统提示词中的部署 persona 文本 |
 | `toolOrder` | 字典序 | 模型看到工具的顺序 |
-| `tools` | `{ mode: 'native' }` | 工具如何到达模型：native schema、Code Mode 或两者 |
+| `tools` | `{ mode: 'native' }` | 工具如何到达模型：native schema、PTC mode 或两者 |
 | `dshHome` | `$DSH_HOME` 或 `~/.dsh` | bash 环境与本地 skill 目录使用的 harness 主目录 |
 | `sessionTitle` | 示例限制 | 后备标题限制：5 个词、40 个后备字节、80 个可接受字节 |
 | `workspaceContext` | 必填 | 加载工作区文件进上下文的字节预算，或 `false` |

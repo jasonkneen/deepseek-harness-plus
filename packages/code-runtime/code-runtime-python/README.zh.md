@@ -94,7 +94,7 @@ host 侧校验会静默丢弃垃圾，因此格式错误或伪造的帧绝不会
 <a id="model-experience"></a>
 ## 模型体验
 
-通过 `dsh-tools` 中的 Code Mode 间接提供；后者把程序的完成值或失败渲染进一个保留的 `run_code` 结果。
+通过 `dsh-tools` 中的 PTC mode 间接提供；后者把程序的完成值或失败渲染进一个保留的 `run_code` 结果。
 
 #### KV Cache 影响
 

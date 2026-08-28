@@ -8,7 +8,7 @@ import {
   apply as applyChat, inject as injectChat, type ToolResultNode,
 } from '@deepseek-ai/dsh-client-ui-chat/client'
 import type { PropsRenderSlots } from '@deepseek-ai/dsh-client-ui-slots'
-import { SlotTestRuntime, stubSettingsScope } from '@deepseek-ai/dsh-client-test-runtime'
+import { SlotTestRuntime, TestRemote, stubSettingsScope } from '@deepseek-ai/dsh-client-test-runtime'
 import { LocaleRuntime } from '@deepseek-ai/dsh-client-locale/client'
 import { apply as applyConversation, inject as injectConversation } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import { apply as applyTool, inject as injectTool } from '@deepseek-ai/dsh-client-ui-tool/client'
@@ -60,20 +60,16 @@ const LAYOUT_CHILDREN = {
 async function bench(nodes: ToolResultNode[]) {
   const runtime = await SlotTestRuntime.create()
   runtime.ctx.provide('connection', {
-    api: { settings: {} },
     isLoopback: false,
-    hostDescription: { getSnapshot: () => undefined, subscribe: () => () => {} },
+    generation: { getSnapshot: () => undefined, subscribe: () => () => {} },
   })
-  // ui-theme's Appearance row binds a durable scope through these two.
-  runtime.ctx.provide('remote', { $on: () => () => {} })
+  const openWorkspacePath = vi.fn(async () => ({ ok: true, value: { opened: true } }))
+  new TestRemote(runtime.ctx, { session: { openWorkspacePath } })
   runtime.ctx.provide('settingsScope', { bind: () => stubSettingsScope().scope } as never)
   const layout = { openDetails: vi.fn(), closeDetails: vi.fn() }
   runtime.ctx.provide('layout', layout)
   runtime.ctx.provide('uiWorkspace', {
     connectWorkspace: vi.fn(async () => SID),
-    openPath: async (path: string) => {
-      runtime.workspaces.calls.push({ method: 'openPath', args: [path] })
-    },
   } as never)
   const locale = new LocaleRuntime(runtime.ctx)
   runtime.ctx.provide('locale', locale)
@@ -91,7 +87,7 @@ async function bench(nodes: ToolResultNode[]) {
   await runtime.mount({ inject: [...injectConversation], apply: applyConversation })
   await runtime.mount({ inject: [...injectChat], apply: applyChat })
   await runtime.mount({ inject: [...injectTool], apply: applyTool })
-  return { runtime, slots: runtime.slots, layout }
+  return { runtime, slots: runtime.slots, layout, openWorkspacePath }
 }
 
 describe('keyed toolview hole through the real machinery', () => {
@@ -134,13 +130,13 @@ describe('keyed toolview hole through the real machinery', () => {
     await b.runtime.dispose()
   })
 
-  it('file-path clicks travel owner openFile → chat inject → workspaces.openPath', async () => {
+  it('file-path clicks travel owner openFile → chat inject → session.openWorkspacePath', async () => {
     const b = await bench([toolResult(3, 'c1', 'read', '{"path":"src/a.ts"}')])
     const view = b.runtime.renderRoot()
     view.getByText('src/a.ts').click()
     expect(b.layout.openDetails).not.toHaveBeenCalled()
     await vi.waitFor(() => {
-      expect(b.runtime.workspaces.calls).toContainEqual({ method: 'openPath', args: ['src/a.ts'] })
+      expect(b.openWorkspacePath).toHaveBeenCalledWith({ path: 'src/a.ts' })
     })
     await b.runtime.dispose()
   })
@@ -150,7 +146,7 @@ describe('keyed toolview hole through the real machinery', () => {
     const view = b.runtime.renderRoot()
     view.getByText('Build').click()
     expect(b.layout.openDetails).not.toHaveBeenCalled()
-    expect(b.runtime.workspaces.calls.some(c => c.method === 'openPath')).toBe(false)
+    expect(b.openWorkspacePath).not.toHaveBeenCalled()
     await b.runtime.dispose()
   })
 
@@ -210,17 +206,18 @@ describe('registrant declaration injection', () => {
   it('runs a registrant before ui-tool and waits on the actual toolview declaration', async () => {
     const runtime = await SlotTestRuntime.create()
     runtime.ctx.provide('connection', {
-      api: { settings: {} },
       isLoopback: false,
-      hostDescription: { getSnapshot: () => undefined, subscribe: () => () => {} },
+      generation: { getSnapshot: () => undefined, subscribe: () => () => {} },
     })
-    // ui-theme's Appearance row binds a durable scope through these two.
-    runtime.ctx.provide('remote', { $on: () => () => {} })
+    new TestRemote(runtime.ctx, {
+      session: {
+        openWorkspacePath: vi.fn(async () => ({ ok: true, value: { opened: true } })),
+      },
+    })
     runtime.ctx.provide('settingsScope', { bind: () => stubSettingsScope().scope } as never)
     runtime.ctx.provide('layout', { openDetails: vi.fn(), closeDetails: vi.fn() })
     runtime.ctx.provide('uiWorkspace', {
       connectWorkspace: vi.fn(async () => SID),
-      openPath: vi.fn(async () => {}),
     } as never)
     const locale = new LocaleRuntime(runtime.ctx)
     runtime.ctx.provide('locale', locale)

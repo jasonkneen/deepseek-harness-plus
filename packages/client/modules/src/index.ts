@@ -15,21 +15,23 @@
  * against the live loader entries. The activation pass seeds the same dirty
  * set with all current entries and flushes synchronously, so first scan and
  * steady state share one implementation. Package metadata (including the
- * negative "not a client package" verdict) is cached per name and never
- * expires — plugin-set changes take effect on restart; bundle content
- * changes reach the graph only through
+ * negative "not a client package" verdict) is cached per Loader specifier and
+ * owning-tree base URL until restart. The manifest package name identifies
+ * the browser module; distinct active Loader sources for that package are a
+ * composition error. Bundle content changes reach the graph only through
  * {@link ClientModuleRegistry.rebuilt}.
  * @module @deepseek-ai/dsh-client-modules
  */
 
 import { createHash, randomBytes } from 'node:crypto'
-import { readFileSync, statSync } from 'node:fs'
+import { existsSync, readFileSync, statSync } from 'node:fs'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { createRequire } from 'node:module'
-import { dirname, join } from 'node:path'
+import { dirname, isAbsolute, join } from 'node:path'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { Service } from '@deepseek-ai/cordis'
 import type { Context } from '@deepseek-ai/cordis'
-import type {} from '@deepseek-ai/cordis-plugin-loader'
+import type { Entry } from '@deepseek-ai/cordis-plugin-loader'
 import type { IndexInjection } from '@deepseek-ai/dsh-host-webserver'
 import { optionalStringArray, stripClientSuffix } from './client/manifest.ts'
 import type { WebBootBatch, WebBootBatchPhase, WebBootEntry, WebBootGraph } from './client/manifest.ts'
@@ -80,9 +82,24 @@ export interface ClientArtifactBaseline {
   readonly size: number
 }
 
-/** Resolved package metadata for one `dsh.client` package (cached per name, never expires). */
+/** Resolved metadata cached for one Loader specifier and owning-tree base URL until restart. */
 interface PkgMeta extends WebBootRowFields {
   clientPath: string
+}
+
+interface ResolvedPkgMeta {
+  packageName: string
+  meta: PkgMeta
+}
+
+/** One active Loader source and the browser package manifest it resolves to. */
+interface ClientPackageSource extends ResolvedPkgMeta {
+  /** Loader specifier from the active row. */
+  loaderName: string
+  /** Resolution base of the config tree that owns the row. */
+  baseUrl: string
+  /** Stable cache and contribution key for this source. */
+  sourceKey: string
 }
 
 /** Recovery instruction shared by grouped startup and steady-state bundle diagnostics. */
@@ -129,6 +146,10 @@ class ClientPackageCompositionError extends AggregateError {
 /** One composed table row: the wire entry plus the resolved package metadata behind it. */
 interface WebPluginRecord {
   entry: WebBootEntry
+  /** Loader specifier whose active row contributes this browser module. */
+  loaderName: string
+  /** Loader resolution input that selected this package instance. */
+  sourceKey: string
   meta: PkgMeta
   /** Exact build artifact included in the startup batches. */
   bundle: Buffer
@@ -166,6 +187,15 @@ const COMBO_REVISION_PLACEHOLDER = '0'.repeat(HASH_REVISION_LENGTH)
 const SOURCE_MAP_TRAILER = /(?:\r?\n)?\/\/# sourceMappingURL=[^\r\n]*(?:\r?\n)?$/
 /** Debugger source name appended to page bundles in the WebWorker image. */
 const SOURCE_URL_TRAILER = /(?:\r?\n)?\/\/# sourceURL=([^\r\n]+)(?:\r?\n)?$/
+
+/** Return a bare package-root specifier, excluding package subpaths and path-like entries. */
+function exactPackageSpecifier(specifier: string): string | undefined {
+  if (specifier.startsWith('@')) {
+    const parts = specifier.split('/')
+    return parts.length === 2 && parts.every(Boolean) ? specifier : undefined
+  }
+  return specifier.length > 0 && !specifier.includes('/') ? specifier : undefined
+}
 
 /** Narrow an unknown parsed JSON value to the `dsh.client` declaration, throwing on malformed fields. */
 function parseDshClient(pkgName: string, value: unknown): DshClientDeclaration | undefined {
@@ -504,14 +534,13 @@ export class ClientModuleRegistry extends Service {
   static inject = ['webServer', 'loader']
 
   private readonly table = new Map<string, WebPluginRecord>()
-  // Negative verdicts (unresolvable specifier — builtins like cordis:include,
-  // subpath rows — or a package without a web `dsh.client` declaration) are
-  // cached as null and never expire: plugin-set changes take effect on restart.
-  private readonly pkgMeta = new Map<string, PkgMeta | null>()
+  private readonly sources = new Map<string, ClientPackageSource>()
+  // Resolution is entry-local: the same specifier can resolve differently in
+  // separate config trees. Negative verdicts remain stable until restart.
+  private readonly pkgMeta = new Map<string, ResolvedPkgMeta | null>()
   private readonly rebuildListeners = new Set<(id: string, rev: string) => void>()
   private readonly graphListeners = new Set<() => void>()
   private readonly dirty = new Set<string>()
-  private readonly resolvePkgJson: (spec: string) => string
   private readonly initialRevisionNonce = randomBytes(8).toString('hex')
   private nextInitialRevision = 0
   private responses = new Map<string, { body: Buffer; contentType: string }>()
@@ -527,16 +556,6 @@ export class ClientModuleRegistry extends Service {
    */
   constructor(ctx: Context) {
     super(ctx, 'clientModules')
-    // Resolution anchor: the config tree's baseUrl (the cordis.yml directory,
-    // whose package declares every composed plugin as a dependency). The
-    // modules package's own URL would miss sibling packages under pnpm's
-    // isolated node_modules.
-    if (ctx.baseUrl === undefined) {
-      throw new Error('client-modules: ctx.baseUrl is unset — the node half needs the config-tree anchor to resolve plugin packages')
-    }
-    const require = createRequire(ctx.baseUrl)
-    this.resolvePkgJson = spec => require.resolve(`${spec}/package.json`)
-
     // Subscribe before seeding so a fiber arriving mid-activation lands in the
     // same dirty set (Set idempotence makes the overlap harmless). An entry-less
     // fiber is a child plugin or a manual mount — never a loader row; O(1) drop.
@@ -716,31 +735,31 @@ export class ClientModuleRegistry extends Service {
     }
   }
 
-  private resolveMeta(pkgName: string): PkgMeta | null {
-    const cached = this.pkgMeta.get(pkgName)
+  private resolveMeta(loaderName: string, baseUrl: string): ResolvedPkgMeta | null {
+    const sourceKey = this.sourceKey(loaderName, baseUrl)
+    const cached = this.pkgMeta.get(sourceKey)
     if (cached !== undefined) return cached
-    let pkgPath: string
-    try {
-      pkgPath = this.resolvePkgJson(pkgName)
-    } catch {
+    const located = this.locatePkgJson(loaderName, baseUrl)
+    if (located === undefined) {
       // Not a resolvable package root: loader builtins (cordis:include) and
       // subpath entries (…/gateway) land here — permanently not a client row.
-      this.pkgMeta.set(pkgName, null)
+      this.pkgMeta.set(sourceKey, null)
       return null
     }
+    const { packageName, path: pkgPath } = located
     const pkg = JSON.parse(readFileSync(pkgPath, 'utf8')) as Record<string, unknown>
     const dsh = pkg.dsh
     const decl = parseDshClient(
-      pkgName,
+      packageName,
       dsh !== null && typeof dsh === 'object' ? (dsh as Record<string, unknown>).client : undefined,
     )
     if (decl === undefined || decl.platform !== 'web') {
-      this.pkgMeta.set(pkgName, null)
+      this.pkgMeta.set(sourceKey, null)
       return null
     }
-    const clientRel = clientExportOf(pkgName, pkg.exports)
+    const clientRel = clientExportOf(packageName, pkg.exports)
     if (clientRel === undefined) {
-      throw new Error(`client-modules: ${pkgName} declares dsh.client but exports no "./client" bundle`)
+      throw new Error(`client-modules: ${packageName} declares dsh.client but exports no "./client" bundle`)
     }
     const meta: PkgMeta = {
       clientPath: join(dirname(pkgPath), clientRel),
@@ -748,8 +767,87 @@ export class ClientModuleRegistry extends Service {
       external: decl.external ?? [],
       immediately: decl.immediately === true,
     }
-    this.pkgMeta.set(pkgName, meta)
-    return meta
+    const resolved = { packageName, meta }
+    this.pkgMeta.set(sourceKey, resolved)
+    return resolved
+  }
+
+  /**
+   * Locate the manifest of the package the Loader mounts for a row. The row's
+   * module location is authoritative: the specifier resolves through the same
+   * Loader resolution that imported the row's host half — including any
+   * active ESM hooks — and the nearest ancestor manifest declaring the name
+   * owns the module. Tree-anchored `require` resolution remains only for
+   * runtimes without Node internals.
+   * @param loaderName - module specifier of the loader row.
+   * @param baseUrl - resolution base of the tree that owns the row.
+   * @returns the manifest path, or `undefined` when the name resolves to no package root.
+   */
+  private locatePkgJson(loaderName: string, baseUrl: string): { path: string; packageName: string } | undefined {
+    if (loaderName.startsWith('cordis:')) return undefined
+    const pathLike = loaderName.startsWith('.') || loaderName.startsWith('file:') || isAbsolute(loaderName)
+    const expectedPackageName = pathLike ? undefined : exactPackageSpecifier(loaderName)
+    if (!pathLike && expectedPackageName === undefined) return undefined
+    const internal = this.ctx.loader.internal
+    if (internal === undefined || typeof Reflect.get(internal, 'resolveSync') !== 'function') {
+      if (expectedPackageName === undefined) {
+        const moduleUrl = loaderName.startsWith('file:')
+          ? loaderName
+          : isAbsolute(loaderName) ? pathToFileURL(loaderName).href : new URL(loaderName, baseUrl).href
+        return this.nearestPackage(moduleUrl)
+      }
+      try {
+        return {
+          path: createRequire(baseUrl).resolve(`${expectedPackageName}/package.json`),
+          packageName: expectedPackageName,
+        }
+      } catch {
+        // Without Node internals the owning tree is the only resolver; an
+        // unresolvable name is classified exactly as below.
+        return undefined
+      }
+    }
+    let moduleUrl: string
+    try {
+      moduleUrl = internal.version === 'v2'
+        ? internal.resolveSync(baseUrl, { specifier: loaderName, attributes: {} }).url
+        : internal.resolveSync(loaderName, baseUrl, {}).url
+    } catch {
+      // The Loader cannot resolve the name: its row cannot have imported, so
+      // the name is permanently not a client row.
+      return undefined
+    }
+    return this.nearestPackage(moduleUrl, expectedPackageName)
+  }
+
+  private nearestPackage(
+    moduleUrl: string,
+    expectedPackageName?: string,
+  ): { path: string; packageName: string } | undefined {
+    if (!moduleUrl.startsWith('file:')) return undefined
+    let dir = dirname(fileURLToPath(moduleUrl))
+    while (true) {
+      const candidate = join(dir, 'package.json')
+      if (existsSync(candidate)) {
+        try {
+          const name = (JSON.parse(readFileSync(candidate, 'utf8')) as { name?: unknown }).name
+          if (typeof name === 'string' && (expectedPackageName === undefined || name === expectedPackageName)) {
+            return { path: candidate, packageName: name }
+          }
+        } catch {
+          // An unreadable or malformed intermediate manifest cannot own the
+          // module; keep walking toward the declaring package root.
+        }
+      }
+      const parent = dirname(dir)
+      if (parent === dir) break
+      dir = parent
+    }
+    return undefined
+  }
+
+  private sourceKey(loaderName: string, baseUrl: string): string {
+    return `${baseUrl}\0${loaderName}`
   }
 
   /** Capture the bundle stats before reading its bytes. */
@@ -800,26 +898,72 @@ export class ClientModuleRegistry extends Service {
     }
   }
 
-  /** Reconcile one entry name against the live loader entries. @returns whether the table changed. */
-  private processOne(entryName: string): boolean {
-    let qualifies = false
+  /** Reconcile one entry name against the live Loader sources. @returns whether the table changed. */
+  private processOne(entryName: string, onError: (err: Error) => void): boolean {
+    const nextSources = new Map<string, ClientPackageSource>()
     for (const entry of this.ctx.loader.entries()) {
-      if (entry.options.name === entryName && entry.fiber !== undefined && !entry.disabled) {
-        qualifies = true
-        break
+      if (entry.options.name !== entryName || entry.fiber === undefined || entry.disabled) continue
+      const source = this.resolveSource(entry)
+      if (source !== undefined) nextSources.set(source.sourceKey, source)
+    }
+
+    const affectedPackages = new Set<string>()
+    for (const [sourceKey, source] of this.sources) {
+      if (source.loaderName !== entryName) continue
+      affectedPackages.add(source.packageName)
+      if (!nextSources.has(sourceKey)) this.sources.delete(sourceKey)
+    }
+    for (const [sourceKey, source] of nextSources) {
+      affectedPackages.add(source.packageName)
+      this.sources.set(sourceKey, source)
+    }
+    let changed = false
+    for (const packageName of affectedPackages) {
+      try {
+        if (this.reconcilePackage(packageName)) changed = true
+      } catch (error) {
+        onError(error instanceof Error ? error : new Error(String(error)))
       }
     }
-    if (!qualifies) return this.table.delete(entryName)
-    if (this.table.has(entryName)) return false
-    const meta = this.resolveMeta(entryName)
-    if (meta === null) return false
+    return changed
+  }
+
+  private resolveSource(entry: Entry): ClientPackageSource | undefined {
+    const loaderName = entry.options.name
+    const baseUrl = entry.parent.tree.ctx.baseUrl
+    if (baseUrl === undefined) {
+      throw new Error(`client-modules: loader entry ${loaderName} has no resolution base URL`)
+    }
+    const resolved = this.resolveMeta(loaderName, baseUrl)
+    if (resolved === null) return undefined
+    return { ...resolved, loaderName, baseUrl, sourceKey: this.sourceKey(loaderName, baseUrl) }
+  }
+
+  private reconcilePackage(packageName: string): boolean {
+    const sources: ClientPackageSource[] = []
+    for (const source of this.sources.values()) {
+      if (source.packageName === packageName) sources.push(source)
+    }
+    if (sources.length > 1) {
+      const locations = sources
+        .map(source => `${JSON.stringify(source.loaderName)} from ${source.baseUrl}`)
+        .join(', ')
+      throw new Error(
+        `client-modules: package ${packageName} resolves from multiple active Loader sources: ${locations}; remove one entry`,
+      )
+    }
+    const source = sources[0]
+    if (source === undefined) return this.table.delete(packageName)
+    if (this.table.get(packageName)?.sourceKey === source.sourceKey) return false
     // The opaque initial rev rides the row until HMR observes a file change;
-    // a fiber restart reuses the existing row without inspecting bytes.
-    const snapshot = this.initialBundleSnapshot(entryName, meta.clientPath)
+    // a fiber restart from the same source reuses the existing row.
+    const snapshot = this.initialBundleSnapshot(packageName, source.meta.clientPath)
     const rev = this.allocateInitialRevision()
-    this.table.set(entryName, {
-      entry: graphRow(entryName, rev, meta),
-      meta,
+    this.table.set(packageName, {
+      entry: graphRow(packageName, rev, source.meta),
+      loaderName: source.loaderName,
+      sourceKey: source.sourceKey,
+      meta: source.meta,
       bundle: snapshot.bundle,
       baseline: snapshot.baseline,
       ...(snapshot.sourceMap === undefined ? {} : { sourceMap: snapshot.sourceMap }),
@@ -832,7 +976,7 @@ export class ClientModuleRegistry extends Service {
     for (const entryName of [...this.dirty]) {
       this.dirty.delete(entryName)
       try {
-        if (this.processOne(entryName)) changed = true
+        if (this.processOne(entryName, onError)) changed = true
       } catch (error) {
         // Steady state: one broken package must not poison the others; the
         // activation pass aggregates these into a loud throw instead.

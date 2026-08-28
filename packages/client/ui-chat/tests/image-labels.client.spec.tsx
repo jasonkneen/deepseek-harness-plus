@@ -29,9 +29,11 @@ function imageRenderer(calls: MessageImagesRenderOwner[]): RenderMessageImages {
     calls.push(owner)
     return (
       <div data-testid="message-images" data-align={owner.align} data-count={owner.images.length}>
-        {owner.images.map(({ attachment: image }, index) => (
-          <span key={`${image.attachmentId}:${String(index)}`}>{image.name}</span>
-        ))}
+        {owner.images.map((entry, index) => {
+          if (!('attachment' in entry)) throw new Error('assistant flow images are always durable references')
+          const image = entry.attachment
+          return <span key={`${image.attachmentId}:${String(index)}`}>{image.name}</span>
+        })}
       </div>
     )
   }

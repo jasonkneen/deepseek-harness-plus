@@ -590,16 +590,16 @@ describe('dsh web keyless CLI smoke', () => {
     }
   }, 120_000)
 
-  it('DSH_TOOLS_MODE=code collapses the provider wire tools to run_code with the SDK prompt section', async () => {
+  it('DSH_TOOLS_MODE=ptc collapses the provider wire tools to run_code with the SDK prompt section', async () => {
     requireDist()
-    const workspace = mkdtempSync(join(tmpdir(), 'dsh-web-code-mode-'))
+    const workspace = mkdtempSync(join(tmpdir(), 'dsh-web-ptc-'))
 
-    interface CodeModeProviderRequest {
+    interface PtcModeProviderRequest {
       messages?: { role?: string; content?: string }[]
       tools?: { function?: { name?: string } }[]
     }
-    let resolveProviderRequest!: (request: CodeModeProviderRequest) => void
-    const providerRequest = new Promise<CodeModeProviderRequest>((resolve) => {
+    let resolveProviderRequest!: (request: PtcModeProviderRequest) => void
+    const providerRequest = new Promise<PtcModeProviderRequest>((resolve) => {
       resolveProviderRequest = resolve
     })
     const provider = createServer((request, response) => {
@@ -607,7 +607,7 @@ describe('dsh web keyless CLI smoke', () => {
       request.setEncoding('utf8')
       request.on('data', (chunk: string) => { body += chunk })
       request.on('end', () => {
-        resolveProviderRequest(JSON.parse(body) as CodeModeProviderRequest)
+        resolveProviderRequest(JSON.parse(body) as PtcModeProviderRequest)
         response.writeHead(200, { 'content-type': 'text/event-stream' })
         response.end([
           'data: {"choices":[{"delta":{"role":"assistant","content":null,"reasoning_content":""}}]}',
@@ -629,9 +629,9 @@ describe('dsh web keyless CLI smoke', () => {
         cwd: workspace,
         env: {
           ...process.env,
-          DEEPSEEK_API_KEY: 'keyless-web-code-mode',
+          DEEPSEEK_API_KEY: 'keyless-web-ptc',
           DEEPSEEK_BASE_URL: `http://127.0.0.1:${address.port}`,
-          DSH_TOOLS_MODE: 'code',
+          DSH_TOOLS_MODE: 'ptc',
           DSH_HOME: join(workspace, '.dsh'),
           DSH_AGENTS_HOME: join(workspace, '.agents'),
           TSX_TSCONFIG_PATH: join(REPO_ROOT, 'tsconfig.json'),

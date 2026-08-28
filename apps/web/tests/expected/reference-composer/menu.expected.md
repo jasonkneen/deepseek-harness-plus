@@ -1,9 +1,10 @@
 - listbox "Trigger suggestions":
   - text: Files & folders
-  - option "Folder · folderx/ folderx Browse folder" [selected]:
-    - text: Folder · folderx/ folderx
-    - button "Browse folder": ›
-  - option "File · reference.txt reference.txt"
-  - text: Session conversations
-  - option "Session · Reference order target reference-order-target-session · {{cwd}} · {{timestamp}}"
-  - option "Session · Research notes reference-source-session · {{cwd}} · {{timestamp}}"
+  - option "folderx/ Browse folder" [selected]:
+    - text: folderx/
+    - button "Browse folder":
+      - img
+  - option "reference.txt"
+  - text: Sessions
+  - option "reference-order-target-session {{cwd}} · {{age}}"
+  - option "reference-source-session {{cwd}} · {{age}}"

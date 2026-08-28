@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-With `dsh-tools`, tool plugins register schemas and executors, and every model tool call runs through a guarded pipeline — allow/deny/ask policy, monotonic guards, around-dispatch wrappers, result inspection, definition-owned content finalization, and a final observe-only notification. The package also controls how tools are presented to the model: its `mode` config selects native function calling, [Code Mode](#code-mode), or both, and one agent shadows that default for itself with `presentAs`. Tool authors use `defineTool` for typed parameter and output schemas, an optional cooperative timeout, parallel-safety classification, and optional UI presentation intents. Choose it as the registry for any capability you want the model to reach — schemas flow into prompt assembly automatically.
+With `dsh-tools`, tool plugins register schemas and executors, and every model tool call runs through a guarded pipeline — allow/deny/ask policy, monotonic guards, around-dispatch wrappers, result inspection, definition-owned content finalization, and a final observe-only notification. The package also controls how tools are presented to the model: its `mode` config selects native function calling, [PTC mode](#ptc-mode), or both, and one agent shadows that default for itself with `presentAs`. Tool authors use `defineTool` for typed parameter and output schemas, an optional cooperative timeout, parallel-safety classification, and optional UI presentation intents. Choose it as the registry for any capability you want the model to reach — schemas flow into prompt assembly automatically.
 
 ## Table of Contents
 
@@ -61,7 +61,7 @@ The unified schema DSL supports `string`, `number`, `integer`, `boolean`, `null`
 
 ### Configure the presentation mode
 
-The `mode` config decides what the model sees: `native` (every visible schema), `code` (only `run_code` plus a generated SDK), or `both`.
+The `mode` config decides what the model sees: `native` (every visible schema), `ptc` (only `run_code` plus a generated SDK), or `both`.
 
 ```yaml
 - name: '@deepseek-ai/dsh-tools'
@@ -71,7 +71,7 @@ The `mode` config decides what the model sees: `native` (every visible schema), 
 
 | Field | Default | Meaning |
 |---|---|---|
-| `mode` | `native` | How visible tools are presented to the model: `native`, `code`, or `both` |
+| `mode` | `native` | How visible tools are presented to the model: `native`, `ptc`, or `both` |
 | `maxParallelSubCalls` | `10` | Concurrency cap for a `run_code` program's overlapping sub-calls; `1` restores strictly serial dispatch |
 
 The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-tools) is the exhaustive source for every accepted field. Non-native modes require a composed `ctx.codeRuntime` whose language has a registered SDK renderer; an agent preset selects its own presentation with [`dsh-agent-tool-presentation`](../agent-tool-presentation/README.md), and one agent can shadow the default with `presentAs(mode)`.
@@ -111,7 +111,7 @@ The registry holds typed `ToolDefinition`s in scoped layers and projects them on
 | [`src/schema.ts`](src/schema.ts) | The `defineTool` DSL: `ValueSchemaSpec`, `ParameterSchemaSpec`, `InferValue`, `InferArgs` |
 | [`src/json-schema.ts`](src/json-schema.ts) | The enforced raw JSON Schema subset and validation |
 | [`src/presentation.ts`](src/presentation.ts) | The `card`-tagged UI render intents |
-| [`src/code-mode.ts`](src/code-mode.ts) | Code Mode: SDK generation, `run_code` dispatch bridge, settlement |
+| [`src/ptc.ts`](src/ptc.ts) | PTC mode: SDK generation, `run_code` dispatch bridge, settlement |
 | [`src/ts-types.ts`](src/ts-types.ts) | TypeScript SDK type rendering |
 | [`src/py-types.ts`](src/py-types.ts) | Python SDK type rendering |
 | [`src/invariant.ts`](src/invariant.ts) | Invariant companion |
@@ -120,9 +120,9 @@ The registry holds typed `ToolDefinition`s in scoped layers and projects them on
 
 Each typed invocation materializes and freezes parsed arguments, assigns an opaque correlation token, and runs policy and dispatch. Cancellation is cooperative and quiescent: every tool body receives the caller-owned `exec.signal` and must observe it; cancellation before body invocation is `ABORTED_BEFORE_DISPATCH`, after invocation it replaces only a successful outcome with `ABORTED`. Denials, wrapper failures, tool failures, post-policy failures, and timeout-owned `TOOL_TIMEOUT` remain more specific. Unknown and throwing tools become structured errors (`UNKNOWN_TOOL`), so a call fails without ending the turn.
 
-### Code Mode
+### PTC mode
 
-Under `code` or `both`, the registry exposes the reserved `run_code` transport plus a deterministic SDK generated in the loaded runtime's language. Each SDK binding call re-enters the complete tool pipeline with logged correlation to the outer call, scheduled through a per-run pool that reuses the native concurrency contract. Under `code` alone, a model-direct call naming any other visible tool resolves to `UNKNOWN_TOOL` before policy — the announced surface and the callable surface stay the same. Intermediate binding values are execution-local; only the outer `run_code` result has a hard size cap. The [executor-collapse note](../../../.agents/notes/implemented/bug-fix/2026-08-07-code-mode-executor-collapse.md) owns the collapse contract.
+Under `ptc` or `both`, the registry exposes the reserved `run_code` transport plus a deterministic SDK generated in the loaded runtime's language. Each SDK binding call re-enters the complete tool pipeline with logged correlation to the outer call, scheduled through a per-run pool that reuses the native concurrency contract. Under `ptc` alone, a model-direct call naming any other visible tool resolves to `UNKNOWN_TOOL` before policy — the announced surface and the callable surface stay the same. Intermediate binding values are execution-local; only the outer `run_code` result has a hard size cap. The [executor-collapse note](../../../.agents/notes/implemented/bug-fix/2026-08-07-ptc-executor-collapse.md) owns the collapse contract.
 
 <a id="extension-points"></a>
 ### Extension points
@@ -164,40 +164,44 @@ Fixed per-request cost proportional to the visible definitions. Restrictions tha
 
 Prefix-stable while visible definitions and their order are unchanged. Registration, disposal, or scoped restriction may invalidate reuse from the first changed schema token.
 
-### Code Mode schema and system prompt
+### PTC mode schema and system prompt
 
 #### What the model sees
 
-Code Mode exposes the generated [`run_code` schema](../../../docs/tool-catalog.md#deepseek-aidsh-tools), the SDK instructions below, and the generated exact SDK block for the loaded runtime's language. The `tools:sdk` section uses first-party order 5000. `both` exposes normal schemas and this Code Mode API; under `code` the prompt also carries the `tools:code-only` rule earlier in the first-party order, so the model reads which tools it may call before it reads what each one is for.
+PTC mode exposes the generated [`run_code` schema](../../../docs/tool-catalog.md#deepseek-aidsh-tools), the SDK instructions below, and the generated exact SDK block for the loaded runtime's language. The TypeScript instructions identify generated declarations as program-only bindings. When the current `bash` parameter schema accepts the example arguments, they also show a complete `run_code` call around `tools.bash(...)`. The `tools:sdk` section uses first-party order 5000. `both` exposes normal schemas and this PTC mode API; under `ptc` the prompt also carries the `tools:ptc-only` rule earlier in the first-party order, so the model reads which tools it may call before it reads what each one is for.
 
-##### Code Mode SDK instructions
+##### TypeScript PTC mode SDK instructions with bash
 
 ```markdown
 ## Writing code for run_code
 
-`run_code` takes two required arguments: `code` — the body of an async TypeScript function (erasable syntax only — no `enum` or namespaces; type annotations are advisory, the code runs type-stripped) — and `description`, a short summary of what the program does. Inside the program:
+`run_code` takes two required arguments: `code` — the body of an async TypeScript function (erasable syntax only — no `enum` or namespaces; type annotations are advisory, the code runs type-stripped) — and `description`, a short summary of what the program does. The declarations below are SDK bindings for this program. A declaration does not make its name a directly callable tool; only names supplied as separate tool schemas may be called directly. When no separate `bash` schema is supplied, invoke a declared `bash` binding inside `run_code`:
+
+`run_code({ code: "return await tools.bash({ command: 'pwd', description: 'Show current directory' })", description: "Show current directory" })`
+
+Inside the program:
 
 - Call tools as `await tools.name(args)` — quoted access for exotic names: `tools["my-tool"](args)`. Every call resolves to the tool's typed canonical JSON value. Tool arguments must be lossless JSON.
 - A FAILED tool call rejects with `ToolCallError`, whose `toolName` identifies the failed tool and whose `message` is human-readable — `try/catch` it to handle and continue.
 - Independent read-only calls MAY overlap under `Promise.all` (safe calls run concurrently; mutating calls run alone, in submission order). Sequence dependent work with `await`.
 - Emit results with `return` and/or `console.log(...)`. Only what you print or return is program output. A successful tool result containing an image is attached after the run so you can inspect it on the next step; every other intermediate result stays out of the conversation, so extract just what you need.
 
-The available tools:
+Program-only SDK bindings:
 ```
 
 #### Token effect
 
-Fixed per-request cost proportional to the visible definitions. Code Mode trades end-tool schemas for generated SDK text plus one transport schema rather than promising a universal reduction.
+Fixed per-request cost proportional to the visible definitions. PTC mode trades end-tool schemas for generated SDK text plus one transport schema rather than promising a universal reduction.
 
 #### KV Cache effect
 
-Prefix-stable while the Code Mode selection, generated SDK, transport schema, and visible tool set are unchanged. Mode or filter changes may invalidate reuse from the first changed prompt or schema token.
+Prefix-stable while the PTC mode selection, generated SDK, transport schema, and visible tool set are unchanged. Mode or filter changes may invalidate reuse from the first changed prompt or schema token.
 
 ### Tool-call history and results
 
 #### What the model sees
 
-The loop retains model-emitted arguments and the registry's final content. Any thrown or denied call becomes exactly `Error: <message>`. Code Mode renders the outer program's printed lines and return value, `(run_code completed with no output)` when both are empty, or `Error: code run failed (<kind>): <message>` followed conditionally by `Captured output:` and the captured lines. Inner dispatch events stay log-only, while a successful image-bearing sub-result is appended after the outer result as source-attributed context.
+The loop retains model-emitted arguments and the registry's final content. Any thrown or denied call becomes exactly `Error: <message>`. PTC mode renders the outer program's printed lines and return value, `(run_code completed with no output)` when both are empty, or `Error: code run failed (<kind>): <message>` followed conditionally by `Captured output:` and the captured lines. Inner dispatch events stay log-only, while a successful image-bearing sub-result is appended after the outer result as source-attributed context.
 
 #### Token effect
 
@@ -218,8 +222,8 @@ These limits define when the registry needs special care. They are current packa
 - **`tools/pre-execute` deliberately cannot rewrite `exec.arguments`** — logged and rendered args would desync from what ran; the rewrite design is [a proposed Agent Note](../../../.agents/notes/proposed/feature/2026-06-30-pre-tool-input-rewrite.md).
 - **Caller-defined subagent and workflow structured outputs remain object-rooted** — this is a consumer-level guard; the shared schema vocabulary and tool outputs support every JSON root.
 - **`timeoutMs` on a definition is declarative only** — the registry never enforces deadlines; enforcement requires the `@deepseek-ai/dsh-tool-call-timeout-policy` wrapper.
-- **Code Mode's SDK language follows the one loaded runtime, and a presentation is per agent rather than per tool** — `mode: code`/`both` rejects prompt assembly unless `ctx.codeRuntime.language` has a registered SDK renderer; within one agent no tool can be native-only while another is code-only.
-- **Code Mode intermediate values are execution-local and unbounded by bytes** — they cannot be reconstructed from session replay and may exhaust process or worker memory; only the outer `run_code` output has the worker's configurable hard cap.
+- **PTC mode's SDK language follows the one loaded runtime, and a presentation is per agent rather than per tool** — `mode: ptc`/`both` rejects prompt assembly unless `ctx.codeRuntime.language` has a registered SDK renderer; within one agent no tool can be native-only while another is ptc-only.
+- **PTC mode intermediate values are execution-local and unbounded by bytes** — they cannot be reconstructed from session replay and may exhaust process or worker memory; only the outer `run_code` output has the worker's configurable hard cap.
 - **`run_code` state is fresh per run** — a persistent REPL-style kernel is rejected for the MVP, because cross-call state would be invisible to the log.
 
 <a id="dev-note"></a>

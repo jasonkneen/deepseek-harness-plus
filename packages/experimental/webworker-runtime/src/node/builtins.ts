@@ -2,7 +2,7 @@
  * The Node-compatibility table, in one place. Two consumers share it, and they
  * must resolve to the same module instances:
  *   - the worker vite build aliases these specifiers for code bundled statically
- *     into the worker (vendored loader, apiproxy, …);
+ *     into the worker (vendored loader, Connection, …);
  *   - the worker module loader answers `require('node:fs')` from VFS-loaded
  *     modules out of this table, before bare-name resolution.
  * Anything absent here fails loudly at resolution instead of resolving to an

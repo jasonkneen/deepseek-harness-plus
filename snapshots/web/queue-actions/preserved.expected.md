@@ -16,10 +16,9 @@
 - text: Reply with a one-sentence description of event sourcing, then stop. {{clock}}
 - button "Copy":
   - img
-- button "Context injection @deepseek-ai/dsh-system-prompt":
+- button "Thought for a while":
+  - text: Thought for a while
   - img
-  - img
-  - text: Context injection @deepseek-ai/dsh-system-prompt
 - paragraph: partial
 - text: Stopped
 - button "Copy":
@@ -50,7 +49,7 @@
       - img
     - button "Steer queued message" [disabled]:
       - img
-- textbox "Message the agent"
+- textbox "Message or run a task... / commands, @ files or sessions"
 - button "Commands":
   - img
 - 'button "Access mode, current: Workspace Write"': Workspace Write

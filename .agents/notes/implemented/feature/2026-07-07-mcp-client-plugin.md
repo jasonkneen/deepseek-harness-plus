@@ -141,10 +141,10 @@ Tools are never silently skipped; which tools are available never depends on plu
 A unified `execute` handler for all tools from one MCP server:
 
 1. Resolve `rawName` (the executor closes over it) and call `client.callTool({ name: rawName, arguments }, { signal: exec.signal })` with the configured timeout — the public name is never sent to the server.
-2. Preserve canonical success as `{ content: JsonValue[], structuredContent? }`; complete MCP JSON blocks remain the programmatic/Code Mode value. `isError: true` throws before any image persistence so the registry owns the failure path.
+2. Preserve canonical success as `{ content: JsonValue[], structuredContent? }`; complete MCP JSON blocks remain the programmatic/PTC mode value. `isError: true` throws before any image persistence so the registry owns the failure path.
 3. Prepare a separate ordered Native projection. Text runs join with `'\n'`; resource links preserve name and URI as text; audio, embedded resources, malformed blocks, and unknown types become explicit diagnostics. If any image exists, the bridge strictly decodes the complete batch, resolves the calling agent's latest exact route, requires an attachment store plus explicit model image input, and delegates all-member validation and ordered persistence to `AttachmentStore.saveImages()`. Any decode, capability, or storage refusal renders every image as diagnostic text and returns no partial references.
 4. Keep `output.render` synchronous and pure. The executor stages its richer projection in a generation-local `WeakMap` keyed by the exact execution; `finalizeContent` installs it only when the registry's post-execute result still has the original canonical value and fallback content. A policy block, value replacement, or content replacement remains authoritative, and a re-sync cannot let an older generation consume new execution state.
-5. Code Mode receives the untouched canonical value. Its generic dispatch bridge defers a successful final content sequence containing an image through the outer `run_code` result, so MCP requires no private parent-token special case.
+5. PTC mode receives the untouched canonical value. Its generic dispatch bridge defers a successful final content sequence containing an image through the outer `run_code` result, so MCP requires no private parent-token special case.
 6. Cancellation: `exec.signal` (from the agent loop's cancel) is passed through to the MCP SDK's `callTool`, exact-model lookup, and the pre-storage gate.
 
 ### Subprocess environment (stdio transport)
@@ -197,9 +197,9 @@ Rejected. Programmatic callers need protocol-complete MCP blocks and `structured
 
 Rejected. Core already owns the role-neutral content vocabulary, and a second service would duplicate its logging and ordering contracts. `output.render` is pure, synchronous, and replayable, so attachment I/O belongs in async execution with an exact finalization handoff.
 
-### Let each image-returning tool special-case Code Mode parents
+### Let each image-returning tool special-case PTC mode parents
 
-Rejected. That couples leaf tools to composite-tool internals and misses future rich tools. The generic Code Mode bridge observes the final post-policy content and forwards image-bearing results uniformly.
+Rejected. That couples leaf tools to composite-tool internals and misses future rich tools. The generic PTC mode bridge observes the final post-policy content and forwards image-bearing results uniformly.
 
 ## Testing
 
@@ -207,7 +207,7 @@ Coverage is named per tier; each behavior lives at the cheapest tier that can ex
 
 - **Unit** (`tests/mcp-client.spec.ts`, `tests/apply.spec.ts`, mocked MCP SDK): the `publicToolName` algorithm (clean, normalize, truncate-and-hash, determinism, distinct-identity separation), raw-vs-public wire discipline, cross-server and native-tool coexistence, duplicate-`serverName` load failure and reservation release, invalid-tool-list rejection, generation swap/rollback, failed-re-sync retention, lossless canonical results, mixed rich ordering, atomic malformed batches, exact capability/store refusal, explicit non-image diagnostics, post-execute policy precedence, cancellation, and config schema validation. 100% per-file coverage gates the package.
 - **E2E** (`tests/mcp-client.e2e.ts`, keyless): the real MCP protocol against the in-repo fixture server, `@modelcontextprotocol/server-everything`, and `@modelcontextprotocol/server-filesystem` over stdio, and against an in-process `StreamableHTTPServerTransport` server over Streamable HTTP — discovery under the namespace, dotted-name normalization end to end, execution round-trips, durable image save/read with base64 retained only in the canonical value, explicit refusal without an image route, duplicate-`serverName` rejection, and disposal.
-- **Snapshot**: the assembled ACP example owns the transport-visible inline-image transcript and the Code Mode image-forwarding transcript; package E2E owns the real MCP wire because the runnable snapshot must stay keyless and deterministic rather than spawning third-party server packages. MCP tool cards still use the generic-card fallback and require no package-specific UI snapshot.
+- **Snapshot**: the assembled ACP example owns the transport-visible inline-image transcript and the PTC mode image-forwarding transcript; package E2E owns the real MCP wire because the runnable snapshot must stay keyless and deterministic rather than spawning third-party server packages. MCP tool cards still use the generic-card fallback and require no package-specific UI snapshot.
 
 ## Consequences
 

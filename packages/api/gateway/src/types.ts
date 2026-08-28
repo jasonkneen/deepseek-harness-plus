@@ -4,6 +4,7 @@
  */
 
 import type { Context } from '@deepseek-ai/cordis'
+import type { RemoteEventHostInfo } from './stream-protocol.ts'
 
 /** One Remote method request after a carrier has decoded its envelope. */
 export interface InvokeRemoteRequest {
@@ -124,9 +125,13 @@ export interface TypertGateway {
   /**
    * Register the application-selected forwarded-event source.
    * @param source - stream factory installed by the Remote assembly.
+   * @param host - stable Host facts included in each Client generation's opening frame.
    * @returns disposer removing this exact source and cancelling its active streams.
    */
-  registerRemoteEvents(source: TypertRemoteEventSource): () => Promise<void>
+  registerRemoteEvents(
+    source: TypertRemoteEventSource,
+    host: RemoteEventHostInfo,
+  ): () => Promise<void>
 
   /**
    * Invoke one live Remote method without assuming a carrier or response envelope.

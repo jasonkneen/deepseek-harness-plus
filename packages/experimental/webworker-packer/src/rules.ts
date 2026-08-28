@@ -65,7 +65,6 @@ export const PAGE_ASSETS: readonly string[] = [
 export const IMAGE_ENTRY_SEEDS: readonly string[] = [
   '@deepseek-ai/dsh-app-boot',
   '@deepseek-ai/dsh-cmdline',
-  '@deepseek-ai/dsh-host-apiproxy',
   '@deepseek-ai/cordis',
   '@deepseek-ai/cordis-plugin-include',
   'js-yaml',

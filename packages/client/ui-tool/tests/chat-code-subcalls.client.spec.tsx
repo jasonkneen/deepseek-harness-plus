@@ -7,7 +7,7 @@ import type {
   ChatSnapshot, RunningToolCall, ToolCallBlock, ToolResultNode,
 } from '@deepseek-ai/dsh-client-ui-chat/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
-import { SlotTestRuntime } from '@deepseek-ai/dsh-client-test-runtime'
+import { SlotTestRuntime, TestRemote, stubSettingsScope } from '@deepseek-ai/dsh-client-test-runtime'
 import { LocaleRuntime } from '@deepseek-ai/dsh-client-locale/client'
 import type { PropsRenderSlots } from '@deepseek-ai/dsh-client-ui-slots'
 import {
@@ -103,6 +103,7 @@ async function bench(snapshot: ChatSnapshot) {
   const chat = createSnapshotStore(snapshot)
   const events = new ConversationEventRegistry(ctx)
   const views = new ConversationViewRegistry(ctx)
+  ctx.provide('settingsScope', { bind: () => stubSettingsScope().scope } as never)
   ctx.provide('uiConversation', {
     events,
     views,
@@ -115,13 +116,13 @@ async function bench(snapshot: ChatSnapshot) {
     snapshot: { running: snapshot.legacy.runningCalls.length > 0 },
   })
   const layout = { openDetails: vi.fn(), closeDetails: vi.fn() }
-  const openPath = vi.fn(async () => {})
+  const openWorkspacePath = vi.fn(async () => ({ ok: true, value: { opened: true } }))
   ctx.provide('layout', layout as never)
-  ctx.provide('uiWorkspace', { openPath } as never)
+  ctx.provide('uiWorkspace', {} as never)
+  new TestRemote(ctx, { session: { openWorkspacePath } })
   ctx.provide('connection', {
-    api: { settings: {} },
     isLoopback: false,
-    hostDescription: { getSnapshot: () => undefined, subscribe: () => () => {} },
+    generation: { getSnapshot: () => undefined, subscribe: () => () => {} },
   } as never)
   const locale = new LocaleRuntime(ctx)
   ctx.provide('locale', locale)
@@ -131,7 +132,7 @@ async function bench(snapshot: ChatSnapshot) {
   await runtime.root.declare(ROOT_CHILDREN, AppRoot)
   await runtime.mount({ inject: [...injectChat], apply: applyChat })
   await runtime.mount({ inject: [...injectTool], apply: applyTool })
-  return { runtime, layout, openPath }
+  return { runtime, layout, openWorkspacePath }
 }
 
 function mountApp(runtime: SlotTestRuntime) {
@@ -221,7 +222,7 @@ describe('run_code sub-calls through the real chat machinery', () => {
     view.getByText('notes/demo.txt').click()
     expect(b.layout.openDetails).not.toHaveBeenCalled()
     await vi.waitFor(() => {
-      expect(b.openPath).toHaveBeenCalledWith('notes/demo.txt')
+      expect(b.openWorkspacePath).toHaveBeenCalledWith({ path: 'notes/demo.txt' })
     })
     view.getByText('List notes').click()
     expect(b.layout.openDetails).not.toHaveBeenCalled()

@@ -1,6 +1,7 @@
 import { Context } from '@deepseek-ai/cordis'
 import type { Fiber } from '@deepseek-ai/cordis'
 import type {
+  RemoteEventHostInfo,
   TypertRemoteEventInvocation,
   TypertRemoteEventSource,
 } from '@deepseek-ai/dsh-api-gateway'
@@ -10,8 +11,12 @@ import { apply, inject } from '../src/index.ts'
 
 interface GatewayProbe {
   source: TypertRemoteEventSource | undefined
+  host: RemoteEventHostInfo | undefined
   removals: number
-  registerRemoteEvents(source: TypertRemoteEventSource): () => Promise<void>
+  registerRemoteEvents(
+    source: TypertRemoteEventSource,
+    host: RemoteEventHostInfo,
+  ): () => Promise<void>
 }
 
 async function setup(): Promise<{
@@ -22,12 +27,15 @@ async function setup(): Promise<{
   const ctx = new Context()
   const gateway: GatewayProbe = {
     source: undefined,
+    host: undefined,
     removals: 0,
-    registerRemoteEvents(source) {
+    registerRemoteEvents(source, host) {
       gateway.source = source
+      gateway.host = host
       return async () => {
         if (gateway.source !== source) return
         gateway.source = undefined
+        gateway.host = undefined
         gateway.removals += 1
       }
     },
@@ -71,6 +79,14 @@ function invocationOf(value: unknown): TypertRemoteEventInvocation {
 }
 
 describe('Remote event Host source', () => {
+  it('registers the Host home used by Client connection generations', async () => {
+    const { gateway, fiber } = await setup()
+    expect(gateway.host?.home).toBeTypeOf('string')
+    expect(gateway.host?.home.length).toBeGreaterThan(0)
+    await fiber.dispose()
+    expect(gateway.host).toBeUndefined()
+  })
+
   it('gives each Client stream an independent allowlisted event queue', async () => {
     const { ctx, gateway, fiber } = await setup()
     const firstAbort = new AbortController()

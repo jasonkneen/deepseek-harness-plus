@@ -50,15 +50,16 @@
   background: var(--dsw-alias-label-caption);
 }
 
-/* Think text sits one 2px step under the body size and follows the Settings
-   font-size preference through the same px delta, keeping the step. */
+/* Think text reads the secondary tier — one step under the body size
+   (setting −1 at ≤14, setting −2 above), shared with every flow-row title
+   and summary. */
 .summary {
   min-width: 0;
   overflow: hidden;
   flex: 1 1 auto;
   color: var(--dsw-alias-label-tertiary);
-  font-size: calc(12px + var(--dsh-content-font-delta, 0px));
-  line-height: calc(20px + var(--dsh-content-font-delta, 0px));
+  font-size: var(--dsh-content-font-size-secondary, 13px);
+  line-height: calc(20px + var(--dsh-content-font-delta-secondary, 0px));
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -71,8 +72,8 @@
   /* Indent under the title, which starts at leading (16 + delta) + gap 6. */
   padding: 4px 0 4px calc(22px + var(--dsh-content-font-delta, 0px));
   color: var(--dsw-alias-label-tertiary);
-  font-size: calc(12px + var(--dsh-content-font-delta, 0px));
-  line-height: calc(20px + var(--dsh-content-font-delta, 0px));
+  font-size: var(--dsh-content-font-size-secondary, 13px);
+  line-height: calc(20px + var(--dsh-content-font-delta-secondary, 0px));
   white-space: pre-wrap;
   word-break: break-word;
 }

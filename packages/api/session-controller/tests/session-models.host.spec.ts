@@ -305,9 +305,9 @@ describe('Web session model selection', () => {
       model: 'private-preview',
       reasoningEffort: ReasoningEffortId('max'),
     })
-    createSessionTestRemote(ctx, { defaultModelSelection: () => ({ provider: 'deepseek-official', model: 'deepseek-chat' }), cwd: '/tmp' })
+    const remote = createSessionTestRemote(ctx, { defaultModelSelection: () => ({ provider: 'deepseek-official', model: 'deepseek-chat' }), cwd: '/tmp' })
 
-    const catalog = await buildModelCatalog(ctx)
+    const catalog = expectValue(await remote.modelCatalog())
     expect(currentSelection(ctx, sessionId)).toEqual({
       provider: 'deepseek-official',
       model: 'private-preview',

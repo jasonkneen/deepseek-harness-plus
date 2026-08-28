@@ -27,7 +27,7 @@ Status: proposed
 | `CompactionResult.startSeq`、`summarySeq`、`endSeq` 与 `summary` | 生产消费方只读取 shadowed range/seq/token 统计；持久日志拥有 summary 和事件标识。 | 移除四个结果回显，保留两个共享的 transcript（文本记录）渲染器。 |
 | `BasicCompactionEngine` 的估算/摘要方法可见性 | 没有包外生产调用者调用这五个方法；已实现的 Agent Note 只将 `estimateContentTokens()` 和 `summarize()` 命名为子类钩子。 | 将这两个方法改为 `protected`，其余三个编排专用的估算器改为 private。 |
 | `CodeLogEntry.source`/`level` 与 `RunCodeMeta.dispatches` | 每个生产消费方都将日志映射为文本；没有 presenter/模型路径读取其他字段或持久化的 dispatch 计数。 | 将 code-runtime 日志改为字符串（或纯文本条目），移除 result-meta 的 dispatch 管道；保留用于生成确定性 dispatch id 的本地计数器。 |
-| `CodeRuntime.language` 与 `CodeRuntime.isolation` | worker 后端提供唯一的生产值，而 Code Mode 及其他所有生产调用方只调用 `run()`。 | 移除未读描述符，同时保留 worker 的语言、隔离、预算、取消与资源释放行为。 |
+| `CodeRuntime.language` 与 `CodeRuntime.isolation` | worker 后端提供唯一的生产值，而 PTC mode 及其他所有生产调用方只调用 `run()`。 | 移除未读描述符，同时保留 worker 的语言、隔离、预算、取消与资源释放行为。 |
 | `ToolNotFoundError.toolName`、`SystemPrompt.config` 与 `BashTask.command` | 每个存储的公开值都没有生产读取者。 | 移除未读字段，保留错误消息、已解析的配置行为和任务生命周期。 |
 | 后端包根实现辅助函数 | 下方精确清单仅通过相对路径的同包导入调用。生产命名空间导入挂载的是保留的插件约定，不读取这些属性；包根命名导入的消费方都是测试。 | 保留每个适配器/提供方/服务及其配置/错误约定；停止在包根导出所列辅助函数/常量。 |
 | 消费方包根实现辅助函数 | 下方精确清单只有同包生产调用者。生产命名空间导入挂载的是插件约定，不读取辅助属性；包根命名导入的消费方都是测试。 | 保留插件约定和稳定的错误码；将测试迁移到包内模块或公开行为，停止在包根导出所列辅助函数。 |

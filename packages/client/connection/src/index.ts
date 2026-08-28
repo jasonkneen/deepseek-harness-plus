@@ -5,7 +5,6 @@ import type {} from '@deepseek-ai/dsh-attachment'
 import type {} from '@deepseek-ai/dsh-credentials'
 // Activates the webServer Context merge used below.
 import type { WebRoute } from '@deepseek-ai/dsh-host-webserver'
-import { toFetchHandler } from '@deepseek-ai/dsh-host-apiproxy'
 import { API_PATH } from './api-path.ts'
 import { bridge, DEFAULT_MAX_REQUEST_BODY_BYTES } from './http-bridge.ts'
 import { assertTrustedAuthority } from './api-request-trust.ts'
@@ -13,6 +12,9 @@ import { BrowserAuth } from './browser-auth.ts'
 import { HostConnectionService } from './rpc-host.ts'
 
 export type {
+  ConnectionFetchMethod,
+  ConnectionFetchHandler,
+  ConnectionFetchRoute,
   ConnectionIndexRequest,
   ConnectionIndexResponse,
   ConnectionRpcEndpointMatcher,
@@ -21,9 +23,22 @@ export type {
   ConnectionRequestRejection,
   ConnectionRpcResult,
   ConnectionTrustRequest,
+  ClientRequest,
   HostConnectionHandle,
+  HostConnectionFetch,
   HostConnectionRpc,
+  RpcMessage,
+  ServerResponse,
 } from './rpc.ts'
+export { RpcId, transportError } from './rpc.ts'
+export {
+  clientRequestSchema,
+  rpcErrorSchema,
+  rpcIdSchema,
+  rpcMessageSchema,
+  rpcResultSchema,
+  serverResponseSchema,
+} from './rpc-schema.ts'
 export { HostConnectionService } from './rpc-host.ts'
 
 export { API_PATH } from './api-path.ts'
@@ -48,7 +63,7 @@ function assertImageBodyCapacity(ctx: Context, maxRequestBodyBytes: number): voi
   }
 }
 
-/** Services required before providing Connection; API Proxy is an optional `/api` fallback. */
+/** Services required before providing Connection. */
 export const inject = ['webServer', 'credentials']
 
 /** Plugin config: the deployment's non-loopback serving authorities. */
@@ -89,19 +104,13 @@ export async function apply(ctx: Context, config?: ConnectionConfig): Promise<vo
   // Config boundary: a malformed entry fails the load loudly here rather than
   // silently authorizing its hostname prefix at request time.
   for (const entry of trustedHosts) assertTrustedAuthority(entry)
-  if (ctx.get('apiProxy') !== undefined) assertImageBodyCapacity(ctx, maxRequestBodyBytes)
+  assertImageBodyCapacity(ctx, maxRequestBodyBytes)
   const connection = new HostConnectionService(
     ctx,
     trustedHosts,
     await BrowserAuth.create(ctx.root, ctx.credentials, cookieMaxAgeDays),
   )
-  const fetchHandler = connection.createSharedFetchHandler(API_PATH, {
-    async fetch(request) {
-      const apiProxy = ctx.get('apiProxy')
-      if (apiProxy === undefined) return new Response('not found', { status: 404 })
-      return await toFetchHandler(apiProxy).fetch(request)
-    },
-  })
+  const fetchHandler = connection.createSharedFetchHandler(API_PATH)
   const route: WebRoute = {
     kind: 'prefix',
     path: API_PATH,
@@ -116,5 +125,7 @@ export async function apply(ctx: Context, config?: ConnectionConfig): Promise<vo
     },
   }
   ctx.effect(() => ctx.webServer.register(route), 'client-connection: /api route')
-  ctx.inject(['apiProxy'], (apiCtx) => { assertImageBodyCapacity(apiCtx, maxRequestBodyBytes) })
+  ctx.inject(['attachments'], (attachmentCtx) => {
+    assertImageBodyCapacity(attachmentCtx, maxRequestBodyBytes)
+  })
 }

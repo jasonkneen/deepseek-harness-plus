@@ -18,7 +18,9 @@ import {
   webSnapshotMode,
   type WebScaffold,
 } from './scaffold.ts'
-import { connectFreshWorkspace, conversationContextKey, newEnglishPage, saveFailureShot } from './support.ts'
+import {
+  connectFreshWorkspace, conversationContextKey, expandOwningTurnProcess, newEnglishPage, saveFailureShot,
+} from './support.ts'
 
 const MODE = webSnapshotMode()
 const TURN_COUNT = 12
@@ -315,6 +317,7 @@ describe('web e2e: continuous conversation grown through the composer', () => {
       const toolRow = page.locator(`[data-chat-call-id="${spec.callId}"]`)
       await expect.poll(() => toolRow.count(), { timeout: 10_000 }).toBe(1)
       expect(await toolRow.textContent()).toContain(spec.toolResultMarker)
+      await expandOwningTurnProcess(page, toolRow)
       const disclosure = toolRow.locator('[data-sample="bash"]')
       expect(await disclosure.getAttribute('aria-expanded')).toBe('false')
       await disclosure.click()
@@ -332,9 +335,10 @@ describe('web e2e: continuous conversation grown through the composer', () => {
     ))).toHaveLength(TURN_COUNT)
     expect(sessionEvents.flatMap(event =>
       event.type === 'request/header' ? [event.data.reason] : [])).toEqual(['initial'])
-    await expect.poll(() => page.getByRole('button', { name: 'System prompt' }).count(), {
-      timeout: 10_000,
-    }).toBe(1)
+    expect(await page.getByRole('button', { name: 'System prompt' }).count()).toBe(1)
+    expect(await page.locator(
+      '[data-chat-flow-kind="system-prompt"][hidden="until-found"]',
+    ).count()).toBe(0)
     expect(specs.at(-1)?.prompt.length).toBeGreaterThan(4_000)
     expect(sessionEvents.filter(event => (
       event.type === 'assistant/chunk' && event.data.turn === TURN_COUNT

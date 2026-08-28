@@ -261,23 +261,6 @@
       }
     },
     {
-      "name": "list_subagent_models",
-      "description": "Discover LLM routes for subagents without changing the current Agent. Call with no arguments to list registered providers, with `provider` to list its advertised models, or with `provider` and `model` to inspect that exact model and its reasoning efforts. Catalog membership is advisory: an adapter may accept an unlisted model id. Use the returned ids with a delegation tool's `provider`, `model`, and `reasoning_effort` fields.",
-      "parameters": {
-        "type": "object",
-        "properties": {
-          "provider": {
-            "type": "string",
-            "description": "Registered LLM provider id. Omit to list providers."
-          },
-          "model": {
-            "type": "string",
-            "description": "Exact model id to inspect. Requires provider; omit to list that provider's advertised models."
-          }
-        }
-      }
-    },
-    {
       "name": "ralph",
       "description": "Run a foreground fresh-agent Ralph loop toward one immutable objective. Use only when the direct human explicitly asks for Ralph or fresh-agent iteration. Each round opens a new child with no parent conversation or prior child session; the shared workspace is long-term memory, and only a bounded structured report crosses rounds. The call returns when a worker reports completion or a concrete blocker, or at the round limit. Ordinary long-running same-session work belongs to goal tools.",
       "parameters": {
@@ -461,7 +444,7 @@
     },
     {
       "name": "subagent",
-      "description": "Delegate a self-contained task to a subagent (a separate agent that works in its own context) to offload focused, independent work — research, a scoped implementation, an analysis — so it does not consume this conversation's context. The subagent returns its result, not its intermediate steps. Give it a complete, standalone prompt: it does not see this conversation. This tool runs in the background by default, immediately returns a durable subagent id, and keeps the child conversation available for later turns. When that run settles, the runtime sends the parent a notice containing its outcome and any final assistant message; `send_message` starts a later turn in the same child conversation. Set `run_in_background: false` only when your next action depends on receiving the result. Child LLM selection is optional. Omit `provider`, `model`, and `reasoning_effort` to use configured child defaults and inherit compatible missing values from the parent Agent. Supply `provider` and `model` together after using `list_subagent_models` to inspect advertised routes and efforts. Changing the effective route without naming an effort uses the selected model's default effort.",
+      "description": "Delegate a self-contained task to a subagent (a separate agent that works in its own context) to offload focused, independent work — research, a scoped implementation, an analysis — so it does not consume this conversation's context. The subagent returns its result, not its intermediate steps. Give it a complete, standalone prompt: it does not see this conversation. This tool runs in the background by default, immediately returns a durable subagent id, and keeps the child conversation available for later turns. When that run settles, the runtime sends the parent a notice containing its outcome and any final assistant message; `send_message` starts a later turn in the same child conversation. Set `run_in_background: false` only when your next action depends on receiving the result.",
       "parameters": {
         "type": "object",
         "properties": {
@@ -472,18 +455,6 @@
           "prompt": {
             "type": "string",
             "description": "The complete, self-contained task for the subagent. It does not share this conversation's context, so include everything it needs."
-          },
-          "provider": {
-            "type": "string",
-            "description": "LLM provider route for the child. Supply together with model; omit both to use configured child defaults or inherit the parent route."
-          },
-          "model": {
-            "type": "string",
-            "description": "Model id interpreted by provider. Supply together with provider; omit both to use configured child defaults or inherit the parent route."
-          },
-          "reasoning_effort": {
-            "type": "string",
-            "description": "Adapter-owned reasoning effort for the effective child route. Omit to inherit a compatible configured/parent effort or use a newly selected model's default."
           },
           "run_in_background": {
             "type": "boolean",
@@ -991,23 +962,6 @@
         }
       },
       {
-        "name": "list_subagent_models",
-        "description": "Discover LLM routes for subagents without changing the current Agent. Call with no arguments to list registered providers, with `provider` to list its advertised models, or with `provider` and `model` to inspect that exact model and its reasoning efforts. Catalog membership is advisory: an adapter may accept an unlisted model id. Use the returned ids with a delegation tool's `provider`, `model`, and `reasoning_effort` fields.",
-        "parameters": {
-          "type": "object",
-          "properties": {
-            "provider": {
-              "type": "string",
-              "description": "Registered LLM provider id. Omit to list providers."
-            },
-            "model": {
-              "type": "string",
-              "description": "Exact model id to inspect. Requires provider; omit to list that provider's advertised models."
-            }
-          }
-        }
-      },
-      {
         "name": "ralph",
         "description": "Run a foreground fresh-agent Ralph loop toward one immutable objective. Use only when the direct human explicitly asks for Ralph or fresh-agent iteration. Each round opens a new child with no parent conversation or prior child session; the shared workspace is long-term memory, and only a bounded structured report crosses rounds. The call returns when a worker reports completion or a concrete blocker, or at the round limit. Ordinary long-running same-session work belongs to goal tools.",
         "parameters": {
@@ -1191,7 +1145,7 @@
       },
       {
         "name": "subagent",
-        "description": "Delegate a self-contained task to a subagent (a separate agent that works in its own context) to offload focused, independent work — research, a scoped implementation, an analysis — so it does not consume this conversation's context. The subagent returns its result, not its intermediate steps. Give it a complete, standalone prompt: it does not see this conversation. This tool runs in the background by default, immediately returns a durable subagent id, and keeps the child conversation available for later turns. When that run settles, the runtime sends the parent a notice containing its outcome and any final assistant message; `send_message` starts a later turn in the same child conversation. Set `run_in_background: false` only when your next action depends on receiving the result. Child LLM selection is optional. Omit `provider`, `model`, and `reasoning_effort` to use configured child defaults and inherit compatible missing values from the parent Agent. Supply `provider` and `model` together after using `list_subagent_models` to inspect advertised routes and efforts. Changing the effective route without naming an effort uses the selected model's default effort.",
+        "description": "Delegate a self-contained task to a subagent (a separate agent that works in its own context) to offload focused, independent work — research, a scoped implementation, an analysis — so it does not consume this conversation's context. The subagent returns its result, not its intermediate steps. Give it a complete, standalone prompt: it does not see this conversation. This tool runs in the background by default, immediately returns a durable subagent id, and keeps the child conversation available for later turns. When that run settles, the runtime sends the parent a notice containing its outcome and any final assistant message; `send_message` starts a later turn in the same child conversation. Set `run_in_background: false` only when your next action depends on receiving the result.",
         "parameters": {
           "type": "object",
           "properties": {
@@ -1202,18 +1156,6 @@
             "prompt": {
               "type": "string",
               "description": "The complete, self-contained task for the subagent. It does not share this conversation's context, so include everything it needs."
-            },
-            "provider": {
-              "type": "string",
-              "description": "LLM provider route for the child. Supply together with model; omit both to use configured child defaults or inherit the parent route."
-            },
-            "model": {
-              "type": "string",
-              "description": "Model id interpreted by provider. Supply together with provider; omit both to use configured child defaults or inherit the parent route."
-            },
-            "reasoning_effort": {
-              "type": "string",
-              "description": "Adapter-owned reasoning effort for the effective child route. Omit to inherit a compatible configured/parent effort or use a newly selected model's default."
             },
             "run_in_background": {
               "type": "boolean",

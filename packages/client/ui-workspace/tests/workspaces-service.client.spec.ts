@@ -6,13 +6,8 @@ import type {
 import type {
   IWorkspaces, WorkspaceId, WorkspaceSnapshot, WorkspaceView,
 } from '@deepseek-ai/dsh-api-workspace-controller/client'
-import {
-  RpcId,
-  type DirectoryListing,
-  type IApiClient,
-  type RpcError,
-  type RpcResponse,
-} from '@deepseek-ai/dsh-client-connection/client'
+import type { ClientRemote, DirectoryListing } from '@deepseek-ai/dsh-api-remotes/client'
+import type { RemoteResult } from '@deepseek-ai/dsh-typert-protocol'
 import { SessionId } from '@deepseek-ai/dsh-session/types'
 import { DirectoryBrowseError, UiWorkspaceService } from '../src/client/navigation.ts'
 
@@ -152,16 +147,6 @@ class FakeWorkspaces implements IWorkspaces {
   }
 }
 
-let nextRpcId = 0
-
-function ok<T>(value: T): RpcResponse<T> {
-  return { rpcId: RpcId(`workspace-test-${nextRpcId++}`), result: { ok: true, value } }
-}
-
-function failed<T>(error: RpcError): RpcResponse<T> {
-  return { rpcId: RpcId(`workspace-test-${nextRpcId++}`), result: { ok: false, error } }
-}
-
 const listing: DirectoryListing = {
   path: '/home/u',
   home: '/home/u',
@@ -170,42 +155,29 @@ const listing: DirectoryListing = {
   truncated: false,
 }
 
-class FakeApiClient implements IApiClient {
-  readonly calls: Array<{ readonly method: string; readonly payload: unknown }> = []
+/** The directory-picking Remote namespace, recorded and scripted per case. */
+class FakeDirectoryPicker {
+  readonly calls: { method: string; payload: unknown }[] = []
 
-  onDescribe: IApiClient['host']['describe'] = () => Promise.resolve(ok({
-    version: 'test',
-    cwd: '/home/u',
-    attachedSessions: 0,
-    home: '/home/u',
-    canOpenPath: true,
-  }))
-  onPickDirectory: IApiClient['host']['pickDirectory'] = () => Promise.resolve(ok({ path: null }))
-  onListDirectory: IApiClient['host']['listDirectory'] = () => Promise.resolve(ok(listing))
-  onCreateDirectory: IApiClient['host']['createDirectory'] = () => Promise.resolve(ok({ path: '/home/u/new' }))
-  onOpenPath: IApiClient['host']['openPath'] = () => Promise.resolve(ok({ opened: true }))
+  onPick: () => Promise<RemoteResult<string | null>> = () => Promise.resolve({ ok: true, value: null })
+  onList: () => Promise<RemoteResult<DirectoryListing>> = () => Promise.resolve({ ok: true, value: listing })
+  onCreateDirectory: () => Promise<RemoteResult<string>> =
+    () => Promise.resolve({ ok: true, value: '/home/u/new' })
 
-  declare readonly skills: IApiClient['skills']
-  declare readonly agentPresets: IApiClient['agentPresets']
-  declare readonly settings: IApiClient['settings']
-  declare readonly credentials: IApiClient['credentials']
-  declare readonly llm: IApiClient['llm']
-
-  readonly host: IApiClient['host'] = {
-    describe: (payload, signal) => this.record('host.describe', payload, this.onDescribe(payload, signal)),
-    pickDirectory: (payload, signal) => this.record('host.pickDirectory', payload, this.onPickDirectory(payload, signal)),
-    listDirectory: (payload, signal) => this.record('host.listDirectory', payload, this.onListDirectory(payload, signal)),
-    createDirectory: (payload, signal) => this.record('host.createDirectory', payload, this.onCreateDirectory(payload, signal)),
-    openPath: (payload, signal) => this.record('host.openPath', payload, this.onOpenPath(payload, signal)),
+  readonly remote: ClientRemote['directoryPicker'] = {
+    pick: () => this.record('pick', {}, this.onPick()),
+    list: (path?: string) => this.record('list', { path }, this.onList()),
+    createDirectory: (path: string, name: string) =>
+      this.record('createDirectory', { path, name }, this.onCreateDirectory()),
   }
 
   callsOf(method: string): unknown[] {
     return this.calls.filter(call => call.method === method).map(call => call.payload)
   }
 
-  private record<T>(method: string, payload: unknown, response: Promise<T>): Promise<T> {
+  private record<T>(method: string, payload: unknown, result: Promise<T>): Promise<T> {
     this.calls.push({ method, payload })
-    return response
+    return result
   }
 }
 
@@ -216,16 +188,16 @@ interface BenchOptions {
 
 function bench(options: BenchOptions = {}) {
   const ctx = new Context()
-  const api = new FakeApiClient()
+  const directoryPicker = new FakeDirectoryPicker()
   const workspaces = new FakeWorkspaces(options.workspaces ?? workspaceState([], [], 'pending'))
   const sessions = new FakeSessions(options.sessions ?? sessionState([], undefined, 'pending'))
   const uiWorkspace = new UiWorkspaceService(
     ctx,
-    api,
+    directoryPicker.remote,
     workspaces,
     sessions as unknown as ISessions,
   )
-  return { api, ctx, sessions, uiWorkspace, workspaces }
+  return { ctx, directoryPicker, sessions, uiWorkspace, workspaces }
 }
 
 async function flush(): Promise<void> {
@@ -451,35 +423,32 @@ describe('UiWorkspaceService', () => {
 
   it('passes directory operations to the Host and preserves structured browse failures', async () => {
     const b = bench()
-    b.api.onPickDirectory = () => Promise.resolve(ok({ path: '/w/alpha' }))
+    b.directoryPicker.onPick = () => Promise.resolve({ ok: true, value: '/w/alpha' })
     await expect(b.uiWorkspace.pickDirectory()).resolves.toBe('/w/alpha')
-    b.api.onPickDirectory = () => Promise.resolve(ok({ path: null }))
+    b.directoryPicker.onPick = () => Promise.resolve({ ok: true, value: null })
     await expect(b.uiWorkspace.pickDirectory()).resolves.toBeNull()
-    expect(b.api.callsOf('host.pickDirectory')).toEqual([{}, {}])
+    expect(b.directoryPicker.callsOf('pick')).toEqual([{}, {}])
 
     await expect(b.uiWorkspace.listDirectory()).resolves.toEqual(listing)
     await expect(b.uiWorkspace.listDirectory('/home/u')).resolves.toEqual(listing)
-    expect(b.api.callsOf('host.listDirectory')).toEqual([{}, { path: '/home/u' }])
+    expect(b.directoryPicker.callsOf('list')).toEqual([{ path: undefined }, { path: '/home/u' }])
     await expect(b.uiWorkspace.createDirectory('/home/u', 'new')).resolves.toBe('/home/u/new')
-    expect(b.api.callsOf('host.createDirectory')).toEqual([{ path: '/home/u', name: 'new' }])
-    await expect(b.uiWorkspace.openPath('/w/alpha/file.ts')).resolves.toBeUndefined()
-    expect(b.api.callsOf('host.openPath')).toEqual([{ path: '/w/alpha/file.ts' }])
-
-    b.api.onPickDirectory = () => Promise.resolve(failed({ code: 'internal', message: 'no chooser', details: {} }))
+    expect(b.directoryPicker.callsOf('createDirectory')).toEqual([{ path: '/home/u', name: 'new' }])
+    b.directoryPicker.onPick = () => Promise.resolve({
+      ok: false, error: { code: 'internal', message: 'no chooser', details: {} },
+    })
     await expect(b.uiWorkspace.pickDirectory()).rejects.toThrow('directory picker failed: no chooser')
-    b.api.onListDirectory = () => Promise.resolve(failed({
-      code: 'directory-unreadable', message: 'denied', details: { path: '/private' },
-    }))
+    b.directoryPicker.onList = () => Promise.resolve({
+      ok: false, error: { code: 'directory-unreadable', message: 'denied', details: { path: '/private' } },
+    })
     const listFailure = b.uiWorkspace.listDirectory('/private')
     await expect(listFailure).rejects.toBeInstanceOf(DirectoryBrowseError)
     await expect(listFailure).rejects.toMatchObject({ rpcError: { code: 'directory-unreadable' } })
-    b.api.onCreateDirectory = () => Promise.resolve(failed({
-      code: 'directory-exists', message: 'taken', details: { path: '/home/u/new' },
-    }))
+    b.directoryPicker.onCreateDirectory = () => Promise.resolve({
+      ok: false, error: { code: 'directory-exists', message: 'taken', details: { path: '/home/u/new' } },
+    })
     await expect(b.uiWorkspace.createDirectory('/home/u', 'new')).rejects.toMatchObject({
       rpcError: { code: 'directory-exists' },
     })
-    b.api.onOpenPath = () => Promise.resolve(failed({ code: 'internal', message: 'boom', details: {} }))
-    await expect(b.uiWorkspace.openPath('/missing')).rejects.toThrow('path open failed: boom')
   })
 })

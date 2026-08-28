@@ -186,7 +186,7 @@ describe('tool-terminal foreground API', () => {
     expect(empty).toMatchObject({ isError: false, value: [] })
   })
 
-  it('projects every terminal DTO into the generated Code Mode output map', async () => {
+  it('projects every terminal DTO into the generated PTC mode output map', async () => {
     const { ctx } = await setup(false)
     const schemas = TOOL_NAMES.map((toolName): ToolSdkSchema => {
       const definition = ctx.tools.get(toolName)

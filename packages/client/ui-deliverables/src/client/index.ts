@@ -9,6 +9,8 @@
  */
 import type { ConnectionHandle } from '@deepseek-ai/dsh-client-connection/client'
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
+import type {} from '@deepseek-ai/dsh-api-remotes/client'
+import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
 import type { ChatFileMentions } from '@deepseek-ai/dsh-client-ui-chat/client'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
@@ -30,7 +32,7 @@ export { ProducedFiles, type ProducedFilesProps } from './ProducedFiles.tsx'
 export { producedForClosing } from './turn-deliverables.ts'
 
 /** Required services for the tail-slot registration and its dictionaries. */
-export const inject = ['slots', 'locale', 'uiConversation', 'connection']
+export const inject = ['slots', 'locale', 'uiConversation', 'connection', 'remote', 'remote.session']
 
 /**
  * Client plugin body: register the dictionaries and the turn-tail entry.
@@ -38,6 +40,34 @@ export const inject = ['slots', 'locale', 'uiConversation', 'connection']
  */
 export function apply(ctx: ClientContext): void {
   const connection = ctx.get('connection') as ConnectionHandle
+  const workspacePathOpen = createSnapshotStore<boolean | undefined>(undefined)
+  let requestedWorkspacePathOpen = false
+  let capabilityRevision = 0
+  let pendingCapability: Promise<void> | undefined
+  const loadWorkspacePathOpen = (): void => {
+    if (pendingCapability !== undefined) return
+    const revision = capabilityRevision
+    const pending = ctx.remote.session.canOpenWorkspacePath()
+      .then((result) => {
+        if (revision === capabilityRevision) workspacePathOpen.set(result.ok && result.value)
+      }, () => {
+        if (revision === capabilityRevision) workspacePathOpen.set(false)
+      })
+      .finally(() => {
+        if (pendingCapability === pending) pendingCapability = undefined
+      })
+    pendingCapability = pending
+  }
+  const ensureWorkspacePathOpen = (): void => {
+    requestedWorkspacePathOpen = true
+    if (workspacePathOpen.getSnapshot() === undefined) loadWorkspacePathOpen()
+  }
+  ctx.on('connection/reset', () => {
+    capabilityRevision++
+    pendingCapability = undefined
+    workspacePathOpen.set(undefined)
+    if (requestedWorkspacePathOpen) loadWorkspacePathOpen()
+  })
   ctx.uiConversation.events.register(deliverablesDefinition)
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'ui-deliverables: dictionaries')
   ctx.slots.inject(
@@ -48,7 +78,8 @@ export function apply(ctx: ClientContext): void {
       locale: NS,
       inject: () => ({
         isLoopback: connection.isLoopback,
-        hooks: { hostDescription: connection.hostDescription },
+        ensureWorkspacePathOpen,
+        hooks: { workspacePathOpen },
       }),
     }, ProducedFiles),
   )

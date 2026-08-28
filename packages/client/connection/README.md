@@ -1,5 +1,5 @@
 ---
-description: "Browser-host wire layer for the web GUI: the shared API client, event-stream delivery with reconnect, the /api HTTP bridge, and the browser-trust fence, for users and maintainers composing or debugging the connection."
+description: "Browser-host wire layer for the web GUI: Remote RPC, event-stream delivery with reconnect, exact Fetch routes, the /api HTTP bridge, and the browser-trust fence."
 kind: "package-reference"
 ---
 
@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-Protocol and connection-generation layer. The Client plugin mounts `ctx.connection`, containing the shared API client, current-page loopback state, generation-scoped observable `hostDescription`, a generic RPC carrier, and the registration point for one generation source and the connection loop. A generation publishes `hostDescription` and calls `onConnected` only after its source is ready and `host.describe` succeeds; source completion, failure, withdrawal, or an explicit stop clears that value before `ConnectionController` reconnects with backoff.
+The package carries browser-to-Host Remote calls, exact Fetch responses, and connection generations. The Client plugin mounts `ctx.connection` with current-page loopback state, a generic RPC carrier, the active generation and its Host facts, and the registration point for one generation source. A generation becomes visible when its source reports ready; source completion, failure, withdrawal, or an explicit stop clears it before `ConnectionController` reconnects with backoff.
 
 ## Table of Contents
 
@@ -25,7 +25,7 @@ Protocol and connection-generation layer. The Client plugin mounts `ctx.connecti
 <a id="use-this-package"></a>
 ## Use this package
 
-The browser uses HTTP POST for API Proxy and generic Remote unary calls. API Gateway owns the `/api/remote.mux` WebSocket and its logical streams; in-process compositions provide equivalent Remote streams through `connection.rpc.open` without opening a WebSocket. The Host half owns the sole `/api` route, Fetch bridge, browser authentication, and Host/Origin checks. Typert Gateway claims its Remote endpoints first, and unclaimed requests fall through to API Proxy. Loopback hostname classification remains package-internal to the browser-facing Client state.
+The browser uses HTTP POST for Remote unary calls. API Gateway owns the `/api/remote.mux` WebSocket and its logical streams; in-process compositions provide equivalent Remote streams through `connection.rpc.open` without opening a WebSocket. The Host half owns the sole `/api` route, Fetch bridge, browser authentication, Host/Origin checks, and exact `GET`/`HEAD` route registry. Typert Gateway claims generated Remote endpoints, feature packages register non-JSON responses such as Session-log downloads, and unclaimed requests return 404. Loopback hostname classification remains package-internal to the browser-facing Client state.
 
 -----
 
@@ -41,9 +41,9 @@ Before authentication, every request still passes `src/api-request-trust.ts`. It
 <a id="connection-generation"></a>
 ## Connection generation
 
-API Gateway Client registers the internal `$events` logical stream as the sole generation source, independently of whether any `$on` listener exists. The Host attaches all incremental listeners in the API Remotes source factory, then sends one `{ type: 'ready' }` item before events. `ConnectionController` waits for that item and `host.describe` in parallel; `onConnected` cannot start baseline reads until both succeed, so baseline acquisition cannot race ahead of incremental observation.
+API Gateway Client registers the internal `$events` logical stream as the sole generation source, independently of whether any `$on` listener exists. The Host attaches all incremental listeners in the API Remotes source factory, then sends one `{ type: 'ready', clientId, host: { home } }` item before events. `ConnectionController` publishes that generation and calls `onConnected` only after the ready item arrives, so baseline acquisition cannot race ahead of incremental observation.
 
-An ended `$events` stream, a Remote stream error, a non-ready opening item, or a malformed event item invalidates the current generation. The controller immediately withdraws `hostDescription`, publishes `reconnecting`, and rebuilds the `$events` plus `host.describe` handshake after backoff. Gateway mux reconnects the physical WebSocket; Connection generation reopens the logical stream and establishes the next baseline starting point.
+An ended `$events` stream, a Remote stream error, a non-ready opening item, or a malformed event item invalidates the current generation. The controller immediately withdraws the generation, publishes `reconnecting`, and reopens `$events` after backoff. Gateway mux reconnects the physical WebSocket; Connection generation reopens the logical stream and establishes the next baseline starting point.
 
 <a id="model-experience"></a>
 ## Model Experience

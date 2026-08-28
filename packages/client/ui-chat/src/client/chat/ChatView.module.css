@@ -41,13 +41,26 @@
   margin: 0 auto;
   display: flex;
   flex-direction: column;
-  gap: 16px;
+}
+
+/* `hidden="until-found"` retains a zero-height box so browser find can reveal
+   its subtree. Direct Chat Node Seats and auxiliary rows share one flow;
+   hidden and empty Seats do not contribute spacing. */
+.column > :not([hidden]):not(.flowItem:empty)
+  ~ :not([hidden]):not(.flowItem:empty) {
+  margin-top: var(--dsh-chat-flow-gap, 16px);
 }
 
 /* Settled-flow identity boundary. It is neutral until it becomes the natural
    measurement/mount unit for a virtualizer without changing the column gap. */
 .flowItem {
   min-width: 0;
+}
+
+/* A closed process reads as one summary immediately followed by its answer.
+   Expanded process rows return to the ordinary 16px rhythm. */
+.flowItem[data-turn-process-answer] {
+  --dsh-chat-flow-gap: 8px;
 }
 
 /* A keyed renderer may intentionally decline its row after dispatch (the
@@ -101,8 +114,8 @@
 .turnStatusClock {
   margin-left: 8px;
   font: var(--dsw-font-xs-13);
-  font-size: calc(13px + var(--dsh-content-font-delta, 0px));
-  line-height: calc(20px + var(--dsh-content-font-delta, 0px));
+  font-size: var(--dsh-content-font-size-secondary, 13px);
+  line-height: calc(20px + var(--dsh-content-font-delta-secondary, 0px));
   font-weight: 400;
   font-variant-numeric: tabular-nums;
   color: var(--dsw-alias-label-caption);
@@ -125,14 +138,14 @@
 
 .hint {
   color: var(--dsw-alias-label-tertiary);
-  font-size: calc(12px + var(--dsh-content-font-delta, 0px));
-  line-height: calc(18px + var(--dsh-content-font-delta, 0px));
+  font-size: var(--dsh-content-font-size-secondary, 13px);
+  line-height: calc(18px + var(--dsh-content-font-delta-secondary, 0px));
 }
 
 .openError {
   color: var(--dsw-alias-state-error-primary);
-  font-size: calc(12px + var(--dsh-content-font-delta, 0px));
-  line-height: calc(18px + var(--dsh-content-font-delta, 0px));
+  font-size: var(--dsh-content-font-size-secondary, 13px);
+  line-height: calc(18px + var(--dsh-content-font-delta-secondary, 0px));
 }
 
 .older {

@@ -61,9 +61,9 @@ describe('ApprovalCommand', () => {
 })
 
 describe('ui-chat package entries', () => {
-  it('keeps the Host half inert and registers the invariant companion', async () => {
-    expect(() => { nodeApply() }).not.toThrow()
+  it('keeps the Host half optional and registers the invariant companion', async () => {
     const ctx = new Context()
+    expect(() => { nodeApply(ctx) }).not.toThrow()
     await ctx.plugin(InvariantRegistry, { enabled: true })
 
     await expect(ctx.plugin(ChatInvariant).await()).resolves.toBeDefined()

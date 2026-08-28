@@ -1,9 +1,6 @@
 /** One Host-generation model catalog shared by every Session selector. */
 
-import {
-  type IApiClient,
-  type ModelCatalog,
-} from '@deepseek-ai/dsh-client-connection/client'
+import type { ClientRemote, ModelCatalog } from '@deepseek-ai/dsh-api-remotes/client'
 import { createSnapshotStore, type SnapshotStore } from '@deepseek-ai/dsh-client-store'
 
 /** Observable lifecycle of the shared model catalog. */
@@ -25,8 +22,8 @@ export class ModelCatalogDirectory {
   private generation = 0
   private inflight: Promise<ModelCatalog> | undefined
 
-  /** @param api - shared connection API client. */
-  constructor(private readonly api: IApiClient) {}
+  /** @param session - Session Remote namespace carrying the Host-generation catalog. */
+  constructor(private readonly session: Pick<ClientRemote['session'], 'modelCatalog'>) {}
 
   /**
    * Return the current generation's catalog, sharing its one in-flight load.
@@ -41,14 +38,14 @@ export class ModelCatalogDirectory {
       draft.status = 'loading'
       draft.error = null
     })
-    const operation = this.api.llm.models({}).then((response) => {
-      if (!response.result.ok) {
-        throw new Error(`${response.result.error.code}: ${response.result.error.message}`)
+    const operation = this.session.modelCatalog().then((response) => {
+      if (!response.ok) {
+        throw new Error(`${response.error.code}: ${response.error.message}`)
       }
       if (generation === this.generation) {
-        this.store.set({ value: response.result.value, status: 'ready', error: null })
+        this.store.set({ value: response.value, status: 'ready', error: null })
       }
-      return response.result.value
+      return response.value
     }).catch((error: unknown) => {
       if (generation === this.generation) {
         this.store.update((draft) => {

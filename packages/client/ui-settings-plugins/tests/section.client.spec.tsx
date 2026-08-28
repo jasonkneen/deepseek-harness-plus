@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-test-runtime'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
@@ -12,6 +12,8 @@ import { ConfigurablePluginsTab } from '../src/client/ConfigurablePluginsTab.tsx
 import type { ConfigurablePluginsTabProps } from '../src/client/ConfigurablePluginsTab.tsx'
 import { PluginsSettingsSection } from '../src/client/PluginsSettingsSection.tsx'
 import type { PluginsSettingsSectionProps, PluginsSettingsTabEntry } from '../src/client/PluginsSettingsSection.tsx'
+import { SubagentModelSelectionCard } from '../src/client/SubagentModelSelectionCard.tsx'
+import type { SubagentModelSelectionCardProps } from '../src/client/SubagentModelSelectionCard.tsx'
 import { WebSearchCard } from '../src/client/WebSearchCard.tsx'
 import type { WebSearchCardProps } from '../src/client/WebSearchCard.tsx'
 import type { AgentLoopCardState } from '../src/client/agent-loop-card-controller.ts'
@@ -19,6 +21,7 @@ import type { BashCardState } from '../src/client/bash-card-controller.ts'
 import type { CardFieldState, CardShell } from '../src/client/card-form.ts'
 import type { ConfigurablePluginsTabState } from '../src/client/tab-store.ts'
 import type { WebSearchCardState } from '../src/client/web-search-card-controller.ts'
+import type { SubagentModelSelectionCardState } from '../src/client/subagent-model-selection-card-controller.ts'
 import { en } from '../src/client/locales.ts'
 
 afterEach(cleanup)
@@ -66,7 +69,7 @@ function renderConfigurable(namespaces: string[], cards: Record<string, string> 
   render(<ConfigurablePluginsTab {...props} />)
 }
 
-function renderBash(state: Partial<BashCardState> = {}) {
+function renderBashCard(state: Partial<BashCardState> = {}) {
   const store = createSnapshotStore<BashCardState>({
     ...settled,
     timeoutMs: field('60000'),
@@ -76,6 +79,36 @@ function renderBash(state: Partial<BashCardState> = {}) {
   const actions = cardActions()
   const props = { ...actions, t, useBashCard: bindSnapshotSelector(store) } as unknown as BashCardProps
   render(<BashCard {...props} />)
+  return { actions, store }
+}
+
+function renderBash(state: Partial<BashCardState> = {}) {
+  return renderBashCard(state).actions
+}
+
+function renderSubagentModelSelection(state: Partial<SubagentModelSelectionCardState> = {}) {
+  const store = createSnapshotStore<SubagentModelSelectionCardState>({
+    ...settled,
+    enabled: false,
+    candidates: [],
+    catalogStatus: 'idle',
+    catalogPartial: false,
+    conflicted: false,
+    ...state,
+  })
+  const actions = {
+    toggleEnabled: vi.fn(),
+    toggleModel: vi.fn(),
+    retryCatalog: vi.fn(),
+    save: vi.fn(),
+    discard: vi.fn(),
+  }
+  const props = {
+    ...actions,
+    t,
+    useSubagentModelSelectionCard: bindSnapshotSelector(store),
+  } as unknown as SubagentModelSelectionCardProps
+  render(<SubagentModelSelectionCard {...props} />)
   return actions
 }
 
@@ -291,6 +324,137 @@ describe('BashCard', () => {
     fireEvent.click(screen.getByText(en.bashTitle))
 
     expect(screen.queryByLabelText(en.bashTimeoutMs)).toBeNull()
+  })
+
+  it('collapses after a successful save settles', () => {
+    const { actions, store } = renderBashCard({ dirty: true })
+    fireEvent.click(screen.getByText(en.bashTitle))
+    fireEvent.click(screen.getByRole('button', { name: en.save }))
+    expect(actions.save).toHaveBeenCalledOnce()
+
+    act(() => { store.set({ ...store.getSnapshot(), saving: true }) })
+    act(() => { store.set({ ...store.getSnapshot(), dirty: false, saving: false }) })
+
+    expect(screen.queryByLabelText(en.bashTimeoutMs)).toBeNull()
+  })
+
+  it('keeps a failed save open', () => {
+    const { store } = renderBashCard({ dirty: true })
+    fireEvent.click(screen.getByText(en.bashTitle))
+    fireEvent.click(screen.getByRole('button', { name: en.save }))
+
+    act(() => { store.set({ ...store.getSnapshot(), saving: true }) })
+    act(() => { store.set({ ...store.getSnapshot(), failed: true, saving: false }) })
+
+    expect(screen.getByLabelText(en.bashTimeoutMs)).toBeTruthy()
+    expect(screen.getByText(en.saveFailed)).toBeTruthy()
+  })
+})
+
+describe('SubagentModelSelectionCard', () => {
+  it('renders the default-off preference in its staged plugin card', () => {
+    const actions = renderSubagentModelSelection()
+    fireEvent.click(screen.getByText(en.subagentModelSelectionTitle))
+
+    const control = screen.getByRole('switch', { name: en.subagentModelSelectionToggle })
+    expect(control.getAttribute('aria-checked')).toBe('false')
+    fireEvent.click(control)
+
+    expect(actions.toggleEnabled).toHaveBeenCalledOnce()
+  })
+
+  it('groups available adapter candidates by provider', () => {
+    const actions = renderSubagentModelSelection({
+      enabled: true,
+      candidates: [
+        {
+          key: 'alpha\0fast',
+          provider: 'alpha',
+          model: 'fast',
+          providerName: 'Alpha API',
+          modelName: 'Fast',
+          available: true,
+          selected: true,
+        },
+        {
+          key: 'alpha\0deep',
+          provider: 'alpha',
+          model: 'deep',
+          providerName: 'Alpha API',
+          modelName: 'Deep',
+          available: true,
+          selected: false,
+        },
+      ],
+      catalogStatus: 'ready',
+    })
+    fireEvent.click(screen.getByText(en.subagentModelSelectionTitle))
+
+    expect(screen.getByRole('switch').getAttribute('aria-checked')).toBe('true')
+    expect(screen.getByText('Alpha API', { exact: true })).toBeTruthy()
+    fireEvent.click(screen.getByRole('checkbox', { name: /Fast/ }))
+    fireEvent.click(screen.getByRole('checkbox', { name: /Deep/ }))
+    expect(actions.toggleModel).toHaveBeenCalledWith('alpha\0fast')
+    expect(actions.toggleModel).toHaveBeenCalledWith('alpha\0deep')
+  })
+
+  it('renders directory progress, failures, unavailable routes, and validation', () => {
+    renderSubagentModelSelection({ enabled: true, catalogStatus: 'loading', invalid: true })
+    fireEvent.click(screen.getByText(en.subagentModelSelectionTitle))
+    expect(screen.getByText(en.subagentModelSelectionLoading)).toBeTruthy()
+    expect(screen.getByText(en.subagentModelSelectionRequired)).toBeTruthy()
+
+    cleanup()
+    const errorActions = renderSubagentModelSelection({ enabled: true, catalogStatus: 'error' })
+    fireEvent.click(screen.getByText(en.subagentModelSelectionTitle))
+    fireEvent.click(screen.getByRole('button', { name: en.subagentModelSelectionRetry }))
+    expect(errorActions.retryCatalog).toHaveBeenCalledOnce()
+
+    cleanup()
+    renderSubagentModelSelection({
+      enabled: true,
+      catalogStatus: 'ready',
+      catalogPartial: true,
+      candidates: [{
+        key: 'legacy\0old',
+        provider: 'legacy',
+        model: 'old',
+        providerName: 'legacy',
+        modelName: 'old',
+        available: false,
+        selected: true,
+      }],
+    })
+    fireEvent.click(screen.getByText(en.subagentModelSelectionTitle))
+    expect(screen.getByText(en.subagentModelSelectionPartial)).toBeTruthy()
+    expect(screen.getByText(en.subagentModelSelectionUnavailable)).toBeTruthy()
+    expect(screen.getByText(en.subagentModelSelectionUnavailableGroup)).toBeTruthy()
+
+    cleanup()
+    renderSubagentModelSelection({ enabled: true, catalogStatus: 'ready' })
+    fireEvent.click(screen.getByText(en.subagentModelSelectionTitle))
+    expect(screen.getByText(en.subagentModelSelectionEmpty)).toBeTruthy()
+  })
+
+  it('distinguishes a stale draft from a rejected save', () => {
+    renderSubagentModelSelection({ dirty: true, conflicted: true })
+    fireEvent.click(screen.getByText(en.subagentModelSelectionTitle))
+
+    expect(screen.getByText(en.subagentModelSelectionConflict)).toBeTruthy()
+    expect(screen.queryByText(en.saveFailed)).toBeNull()
+  })
+
+  it('stays hidden when unavailable and disables writes when read-only', () => {
+    renderSubagentModelSelection({ available: false })
+    expect(screen.queryByText(en.subagentModelSelectionTitle)).toBeNull()
+
+    cleanup()
+    const actions = renderSubagentModelSelection({ writable: false })
+    fireEvent.click(screen.getByText(en.subagentModelSelectionTitle))
+    const control = screen.getByRole('switch') as HTMLButtonElement
+    expect(control.disabled).toBe(true)
+    fireEvent.click(control)
+    expect(actions.toggleEnabled).not.toHaveBeenCalled()
   })
 })
 

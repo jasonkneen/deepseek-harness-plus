@@ -65,7 +65,7 @@ The required request signal covers both startup and the live run. Before publica
 
 ### Structured output
 
-`attachStructuredRuntime(childCtx, schema)` installs the whole contract in the child's scope: a `structured_output` tool validates and stages the model's value against the requested schema; a trailing first-party order-9900 system-prompt section tells the child the tool call is the terminal answer; a `tools/result` observer commits a staged value only after the authoritative final tool result succeeds, including the enclosing `run_code` result for Code Mode sub-dispatch; and a monotonic tool guard blocks later calls after capture. A clean turn that never commits the required value reports `error`; the driver does not re-prompt. All registrations ride the child fiber and disappear with it.
+`attachStructuredRuntime(childCtx, schema)` installs the whole contract in the child's scope: a `structured_output` tool validates and stages the model's value against the requested schema; a trailing first-party order-9900 system-prompt section tells the child the tool call is the terminal answer; a `tools/result` observer commits a staged value only after the authoritative final tool result succeeds, including the enclosing `run_code` result for PTC mode sub-dispatch; and a monotonic tool guard blocks later calls after capture. A clean turn that never commits the required value reports `error`; the driver does not re-prompt. All registrations ride the child fiber and disappear with it.
 
 ### Source map
 
@@ -98,7 +98,7 @@ Read these pages when the package-level contract is not enough; they move from t
 
 #### What the model sees
 
-The shared driver sends the task verbatim as the child's user message and, when requested, shadows the persona and restricts global tool schemas, lookup, execution, and Code Mode SDK bindings in the unpublished child's fresh scope; parent restrictions are not inherited, and standalone tool-guidance sections remain. Spawn supplies no history; fork supplies its balanced seed.
+The shared driver sends the task verbatim as the child's user message and, when requested, shadows the persona and restricts global tool schemas, lookup, execution, and PTC mode SDK bindings in the unpublished child's fresh scope; parent restrictions are not inherited, and standalone tool-guidance sections remain. Spawn supplies no history; fork supplies its balanced seed.
 
 #### Token effect
 

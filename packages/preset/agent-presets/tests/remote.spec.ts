@@ -13,6 +13,7 @@ import Loader from '@deepseek-ai/cordis-plugin-loader'
 import Include from '@deepseek-ai/cordis-plugin-include'
 import LlmRuntime from '@deepseek-ai/dsh-llm'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
+import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
 import AgentRegistry, { type Agent } from '@deepseek-ai/dsh-agent'
@@ -75,6 +76,7 @@ async function harness(
   await ctx.plugin(SystemPrompt, { persona: '' })
   await ctx.plugin(ToolRuntime)
   await ctx.plugin(AgentRegistry)
+  await ctx.plugin(SessionProjectionRegistry)
   await ctx.plugin(AgentLoop, { agents: [] })
   await ctx.plugin(AgentPresets, roster)
   return ctx
@@ -362,6 +364,17 @@ describe('switching one session\'s composition', () => {
     // that is what a restart replays and what every projection resolves from.
     expect(ctx.agentPresets.composedPreset(agent.ctx)).toBe('minimal')
     expect(recordedPreset(agent)).toEqual({ agentPreset: 'minimal' })
+  })
+
+  it('treats an absent turn boundary as no prior turn', async () => {
+    const ctx = await harness()
+    const agent = await agentOn(ctx, 'sel-no-turn-boundary', 'standard')
+    const stateOf = ctx.sessionProjections.stateOf.bind(ctx.sessionProjections)
+    vi.spyOn(ctx.sessionProjections, 'stateOf').mockImplementation((session, key) => (
+      key === 'turnBoundary' ? undefined : stateOf(session, key)
+    ))
+
+    expect(await ctx.agentPresets.select(agent, 'minimal')).toBe('minimal')
   })
 
   it('serializes two concurrent switches on one session', async () => {

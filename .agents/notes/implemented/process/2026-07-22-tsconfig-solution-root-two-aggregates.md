@@ -6,7 +6,7 @@ English | [中文](2026-07-22-tsconfig-solution-root-two-aggregates.zh.md)
 
 ## Problem
 
-The GUI split introduced a second aggregate program (`tsconfig.client.json`, [layering RFC](../architecture/2026-07-19-gui-layering-and-rpc-protocol.md)) while the root `tsconfig.json` kept doubling as the host aggregate, and `tsconfig.build.json` remained a third, hand-maintained full emit graph. That triple bookkeeping produced four concrete asymmetries:
+The GUI split introduced a second aggregate program (`tsconfig.client.json`, [archived layering RFC](../../archived/architecture/2026-07-19-gui-layering-and-rpc-protocol.md)) while the root `tsconfig.json` kept doubling as the host aggregate, and `tsconfig.build.json` remained a third, hand-maintained full emit graph. That triple bookkeeping produced four concrete asymmetries:
 
 - The typecheck and build references lists drifted apart (`packages/goal/command-goal` was in the typecheck graph but missing from the build graph).
 - The lefthook pre-push hook ran `tsc -b tsconfig.json` only, so client-side type breakage passed the local checkpoint and surfaced in CI.

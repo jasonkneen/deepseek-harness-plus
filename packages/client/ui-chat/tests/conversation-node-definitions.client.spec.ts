@@ -15,6 +15,8 @@ import {
 } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import { isChunkRow, packChunkRuns, type ChunkRow } from '@deepseek-ai/dsh-session/chunk-rows'
 import type { SessionEvent } from '@deepseek-ai/dsh-session/types'
+import { hasAssistantReplyContent } from '../src/client/contract/assistant-content.ts'
+import { decodeTurnProcess } from '../src/client/contract/turn-process.ts'
 import { assistantDefinition } from '../src/client/conversation-nodes/assistant.ts'
 import { chatViewDefinition } from '../src/client/conversation-nodes/chat-snapshot-builder.ts'
 import { commandDefinition } from '../src/client/conversation-nodes/command.ts'
@@ -29,6 +31,7 @@ import { toolDefinition } from '../src/client/conversation-nodes/tool.ts'
 import { turnErrorDefinition } from '../src/client/conversation-nodes/turn-error.ts'
 import { turnMaxTokensDefinition } from '../src/client/conversation-nodes/turn-max-tokens.ts'
 import { turnTailDefinition } from '../src/client/conversation-nodes/turn-tail.ts'
+import { turnProcessDefinition } from '../src/client/conversation-nodes/turn-process.ts'
 import type {
   AssistantChatData, ManualCompactionChatData, RetryChatData, ToolChatData, TurnTailChatData,
 } from '../src/client/contract/chat-nodes.ts'
@@ -39,6 +42,7 @@ const DEFINITIONS: readonly ConversationNodeDefinition[] = [
   messageDefinition,
   requestPromptDefinition(inspectRequestPrompt),
   assistantDefinition,
+  turnProcessDefinition,
   toolDefinition,
   commandDefinition,
   compactionDefinition,
@@ -219,6 +223,350 @@ describe('built-in conversation node Definitions', () => {
     ])
     const items = snapshot(value).navigation.items()
     expect(items[0]?.prompt.length).toBe(160)
+  })
+
+  it('classifies reply content separately from reasoning and Tool protocol blocks', () => {
+    expect(hasAssistantReplyContent([{ kind: 'text', text: '  ' }])).toBe(false)
+    expect(hasAssistantReplyContent([{ kind: 'reasoning', text: 'thinking' }])).toBe(false)
+    expect(hasAssistantReplyContent([{ kind: 'tool-call', callId: 'c', name: 'read', argsRaw: '{}' }])).toBe(false)
+    expect(hasAssistantReplyContent([{ kind: 'text', text: 'answer' }])).toBe(true)
+    expect(hasAssistantReplyContent([{ kind: 'image', attachment: {} as never }])).toBe(true)
+    expect(hasAssistantReplyContent([{ kind: 'other', block: { type: 'future' } }])).toBe(true)
+  })
+
+  it('projects one reversible process window before the finalized answer', () => {
+    const value = assembler([
+      at(1, 'turn/start', { turn: 1 }),
+      at(2, 'step/start', { turn: 1, step: 1 }),
+      at(3, 'user/message', {
+        ...textMessage('context-1', 'workspace context'),
+        turn: 1,
+        step: 1,
+        source: { kind: 'plugin', plugin: 'context' },
+      }, { surfaceOp: 'append' }),
+      at(4, 'assistant/chunk', {
+        turn: 1, step: 1, chunk: { type: 'reasoning-delta', index: 0, text: 'thinking' },
+      }),
+      at(5, 'assistant/chunk', {
+        turn: 1, step: 1, chunk: { type: 'text-delta', index: 1, text: 'checking' },
+      }),
+      at(6, 'assistant/chunk', {
+        turn: 1,
+        step: 1,
+        chunk: { type: 'tool-call-delta', index: 2, id: 'call-1', name: 'read', argumentsDelta: '{}' },
+      }),
+    ])
+    const process = () => {
+      const signature = snapshot(value).timeline.turns.get(1)?.data.get('turn-process')
+      return signature === undefined ? undefined : decodeTurnProcess(signature)
+    }
+    expect(process()).toMatchObject({ processStartSeq: 4, answerAnchorSeq: null, answerStep: null })
+    expect(node(snapshot(value), 'turn-process')?.data).toMatchObject({ answerAnchorSeq: null })
+
+    value.append(at(7, 'tool/call', {
+      turn: 1, step: 1, callId: 'call-1', name: 'read', arguments: '{}',
+    }))
+    value.append(at(8, 'tool/result', {
+      turn: 1, step: 1, message: toolResult('call-1', 'done'),
+    }, { surfaceOp: 'append' }))
+    value.append(at(9, 'step/end', { turn: 1, step: 1 }))
+    value.append(at(10, 'step/start', { turn: 1, step: 2 }))
+    value.append(at(11, 'assistant/chunk', {
+      turn: 1, step: 2, chunk: { type: 'reasoning-delta', index: 0, text: 'final thinking' },
+    }))
+    value.append(at(12, 'assistant/chunk', {
+      turn: 1, step: 2, chunk: { type: 'text-delta', index: 1, text: 'final reply' },
+    }))
+    value.flush()
+    expect(process()).toMatchObject({
+      processStartSeq: 4,
+      answerAnchorSeq: null,
+      answerStep: null,
+      inlineReasoning: false,
+    })
+
+    value.append(at(13, 'llm/retry', {
+      retryId: 'retry-tail', turn: 1, step: 2, provider: 'fake', mode: 'normal',
+      policyKey: 'fake-normal', retry: 1, maxRetries: 2, delayMs: 10,
+      failure: { code: 'TRANSPORT', message: 'temporary' },
+    }))
+    value.flush()
+    expect(process()).toMatchObject({ answerAnchorSeq: null, answerStep: null })
+
+    value.append(at(14, 'assistant/chunk', {
+      turn: 1,
+      step: 2,
+      chunk: { type: 'text-delta', index: 0, text: 'replacement reply' },
+    }))
+    value.flush()
+    expect(process()).toMatchObject({ answerAnchorSeq: null, answerStep: null })
+
+    value.append(at(15, 'step/end', { turn: 1, step: 2 }))
+    value.append(at(16, 'turn/end', {
+      turn: 1,
+      reason: { kind: 'aborted', reason: { kind: 'user' } },
+    }))
+    value.flush()
+    expect(process()).toMatchObject({ answerAnchorSeq: 14.1, answerStep: 2 })
+
+    const recovered = assembler([
+      at(20, 'turn/start', { turn: 2 }),
+      at(21, 'step/start', { turn: 2, step: 1 }),
+      at(22, 'assistant/message', {
+        turn: 2, step: 1, message: assistantMessage('recovered-1', 'settled reply'),
+      }, { surfaceOp: 'append' }),
+      at(23, 'step/end', { turn: 2, step: 1 }),
+      at(24, 'step/start', { turn: 2, step: 2 }),
+      at(25, 'assistant/chunk', {
+        turn: 2, step: 2, chunk: { type: 'text-delta', index: 0, text: 'crash partial' },
+      }),
+      at(26, 'turn/end', { turn: 2, reason: { kind: 'interrupted' } }),
+    ])
+    const recoveredSignature = snapshot(recovered).timeline.turns.get(2)?.data.get('turn-process')
+    expect(recoveredSignature === undefined ? undefined : decodeTurnProcess(recoveredSignature))
+      .toMatchObject({ answerStep: 2, answerAnchorSeq: 25.1 })
+
+    const partialWindow = assembler([
+      at(30, 'assistant/chunk', {
+        turn: 3, step: 4, chunk: { type: 'text-delta', index: 0, text: 'loaded tail' },
+      }),
+      at(31, 'step/end', { turn: 3, step: 4 }),
+    ], true)
+    const partialSignature = snapshot(partialWindow).timeline.turns.get(3)?.data.get('turn-process')
+    expect(partialSignature === undefined ? undefined : decodeTurnProcess(partialSignature))
+      .toMatchObject({ processStartSeq: 30.1, answerAnchorSeq: 30.1, answerStep: 4 })
+  })
+
+  it('counts Assistant messages, Tool calls, and subagent delegations per Turn', () => {
+    const value = assembler([
+      at(1, 'turn/start', { turn: 1 }),
+      at(2, 'step/start', { turn: 1, step: 1 }),
+      at(3, 'assistant/message', {
+        turn: 1, step: 1, message: assistantMessage('message-1', 'checking'),
+      }, { surfaceOp: 'append' }),
+      at(4, 'tool/call', {
+        turn: 1, step: 1, callId: 'call-read', name: 'read', arguments: '{}',
+      }),
+      at(5, 'tool/result', {
+        turn: 1, step: 1, message: toolResult('call-read', 'read done'),
+      }, { surfaceOp: 'append' }),
+      at(6, 'tool/call', {
+        turn: 1, step: 1, callId: 'call-subagent', name: 'subagent_fork', arguments: '{}',
+      }),
+      at(7, 'tool/result', {
+        turn: 1, step: 1, message: toolResult('call-subagent', 'delegation done'),
+      }, { surfaceOp: 'append' }),
+      at(8, 'step/end', { turn: 1, step: 1 }),
+      at(9, 'step/start', { turn: 1, step: 2 }),
+      at(10, 'assistant/message', {
+        turn: 1, step: 2, message: assistantMessage('message-2', 'final answer'),
+      }, { surfaceOp: 'append' }),
+      at(11, 'step/end', { turn: 1, step: 2 }),
+      at(12, 'turn/end', { turn: 1, reason: { kind: 'completed' } }),
+    ])
+    const signature = snapshot(value).timeline.turns.get(1)?.data.get('turn-process')
+    expect(signature === undefined ? undefined : decodeTurnProcess(signature)).toMatchObject({
+      messageCount: 1,
+      toolCallCount: 1,
+      subagentCount: 1,
+    })
+  })
+
+  it('orders the opening User before its process control and later steering', () => {
+    const steering = textMessage('steer-1', 'change direction')
+    const value = assembler([
+      at(1, 'turn/start', { turn: 1 }),
+      at(2, 'user/message', {
+        ...textMessage('context-1', 'runtime context'),
+        source: { kind: 'plugin', plugin: 'context' },
+      }, { surfaceOp: 'append' }),
+      at(3, 'user/message', textMessage('user-1', 'question'), { surfaceOp: 'append' }),
+      at(4, 'step/start', { turn: 1, step: 1 }),
+    ])
+    const opening = snapshot(value)
+    expect(opening.order.map(key => opening.nodes.get(key)?.kind)).toEqual([
+      'user', 'context',
+    ])
+
+    value.append(at(5, 'assistant/chunk', {
+      turn: 1, step: 1, chunk: { type: 'reasoning-delta', index: 0, text: 'thinking' },
+    }))
+    value.flush()
+    const running = snapshot(value)
+    expect(running.order.map(key => running.nodes.get(key)?.kind)).toEqual([
+      'user', 'turn-process', 'context', 'assistant-step',
+    ])
+
+    value.append(at(6, 'agent/inbox/spliced', {
+      target: 'next-step', start: 0, inserted: [steering],
+    }))
+    value.append(at(7, 'agent/inbox/spliced', {
+      target: 'next-step', start: 0, removedCount: 1, inserted: [],
+    }))
+    value.append(at(8, 'user/message', steering, { surfaceOp: 'append' }))
+    value.append(at(9, 'step/end', { turn: 1, step: 1 }))
+    value.append(at(10, 'step/start', { turn: 1, step: 2 }))
+    value.append(at(11, 'assistant/message', {
+      turn: 1, step: 2, message: assistantMessage('answer-1', 'answer'),
+    }, { surfaceOp: 'append' }))
+    value.append(at(12, 'step/end', { turn: 1, step: 2 }))
+    value.append(at(13, 'turn/end', { turn: 1, reason: { kind: 'completed' } }))
+    value.flush()
+    const current = snapshot(value)
+
+    expect(current.order.map(key => current.nodes.get(key)?.kind)).toEqual([
+      'user', 'turn-process', 'context', 'steering', 'assistant-step', 'assistant-step', 'turn-tail',
+    ])
+  })
+
+  it('orders a command-started Turn first steering before its process control', () => {
+    const steering = textMessage('command-task', 'plan this change')
+    const value = assembler([
+      at(1, 'turn/start', { turn: 1 }),
+      at(2, 'agent/inbox/spliced', {
+        target: 'next-step', start: 0, inserted: [steering],
+      }),
+      at(3, 'agent/inbox/spliced', {
+        target: 'next-step', start: 0, removedCount: 1, inserted: [],
+      }),
+      at(4, 'user/message', steering, { surfaceOp: 'append' }),
+      at(5, 'step/start', { turn: 1, step: 1 }),
+      at(6, 'assistant/chunk', {
+        turn: 1, step: 1, chunk: { type: 'reasoning-delta', index: 0, text: 'thinking' },
+      }),
+      at(7, 'step/end', { turn: 1, step: 1 }),
+      at(8, 'step/start', { turn: 1, step: 2 }),
+      at(9, 'assistant/message', {
+        turn: 1, step: 2, message: assistantMessage('answer-1', 'answer'),
+      }, { surfaceOp: 'append' }),
+      at(10, 'step/end', { turn: 1, step: 2 }),
+      at(11, 'turn/end', { turn: 1, reason: { kind: 'completed' } }),
+    ])
+    const current = snapshot(value)
+
+    expect(current.order.map(key => current.nodes.get(key)?.kind)).toEqual([
+      'steering', 'turn-process', 'assistant-step', 'assistant-step', 'turn-tail',
+    ])
+  })
+
+  it('keeps a first human message after process evidence at its event position', () => {
+    const steering = textMessage('late-steering', 'change direction')
+    const value = assembler([
+      at(1, 'turn/start', { turn: 1 }),
+      at(2, 'step/start', { turn: 1, step: 1 }),
+      at(3, 'tool/call', {
+        turn: 1, step: 1, callId: 'call-1', name: 'read', arguments: '{}',
+      }),
+      at(4, 'tool/result', {
+        turn: 1, step: 1, message: toolResult('call-1', 'done'),
+      }, { surfaceOp: 'append' }),
+      at(5, 'agent/inbox/spliced', {
+        target: 'next-step', start: 0, inserted: [steering],
+      }),
+      at(6, 'agent/inbox/spliced', {
+        target: 'next-step', start: 0, removedCount: 1, inserted: [],
+      }),
+      at(7, 'user/message', steering, { surfaceOp: 'append' }),
+      at(8, 'step/end', { turn: 1, step: 1 }),
+      at(9, 'step/start', { turn: 1, step: 2 }),
+      at(10, 'assistant/message', {
+        turn: 1, step: 2, message: assistantMessage('answer-1', 'answer'),
+      }, { surfaceOp: 'append' }),
+      at(11, 'step/end', { turn: 1, step: 2 }),
+      at(12, 'turn/end', { turn: 1, reason: { kind: 'completed' } }),
+    ])
+    const current = snapshot(value)
+
+    expect(current.order.map(key => current.nodes.get(key)?.kind)).toEqual([
+      'turn-process', 'tool-call', 'steering', 'assistant-step', 'turn-tail',
+    ])
+  })
+
+  it('keeps Process before pre-User Context as answer eligibility changes', () => {
+    const value = assembler([
+      at(1, 'turn/start', { turn: 1 }),
+      at(2, 'user/message', {
+        ...textMessage('context-1', 'runtime context'),
+        source: { kind: 'plugin', plugin: 'context' },
+      }, { surfaceOp: 'append' }),
+      at(3, 'step/start', { turn: 1, step: 1 }),
+      at(4, 'assistant/chunk', {
+        turn: 1, step: 1, chunk: { type: 'reasoning-delta', index: 0, text: 'thinking' },
+      }),
+    ])
+    const running = snapshot(value)
+    expect(running.order.map(key => running.nodes.get(key)?.kind)).toEqual([
+      'turn-process', 'context', 'assistant-step',
+    ])
+
+    value.append(at(5, 'step/end', { turn: 1, step: 1 }))
+    value.append(at(6, 'step/start', { turn: 1, step: 2 }))
+    value.append(at(7, 'assistant/message', {
+      turn: 1, step: 2, message: assistantMessage('answer-1', 'answer'),
+    }, { surfaceOp: 'append' }))
+    value.flush()
+    const answered = snapshot(value)
+    expect(answered.order.map(key => answered.nodes.get(key)?.kind)).toEqual([
+      'turn-process', 'context', 'assistant-step', 'assistant-step',
+    ])
+
+    value.append(at(8, 'llm/retry', {
+      retryId: 'retry-tail', turn: 1, step: 2, provider: 'fake', mode: 'normal',
+      policyKey: 'fake-normal', retry: 1, maxRetries: 2, delayMs: 10,
+      failure: { code: 'TRANSPORT', message: 'temporary' },
+    }))
+    value.flush()
+    const retried = snapshot(value)
+    expect(retried.order.map(key => retried.nodes.get(key)?.kind)).toEqual([
+      'turn-process', 'context', 'assistant-step', 'model-retry',
+    ])
+  })
+
+  it('establishes the answer boundary only when a streamed answer finalizes', () => {
+    const value = assembler([
+      at(40, 'turn/start', { turn: 4 }),
+      at(41, 'step/start', { turn: 4, step: 1 }),
+      at(42, 'assistant/chunk', {
+        turn: 4, step: 1, chunk: { type: 'reasoning-delta', index: 0, text: 'thinking' },
+      }),
+      at(43, 'assistant/chunk', {
+        turn: 4, step: 1, chunk: { type: 'text-delta', index: 1, text: 'answer' },
+      }),
+    ])
+    const read = () => {
+      const signature = snapshot(value).timeline.turns.get(4)?.data.get('turn-process')
+      if (signature === undefined) throw new Error('turn-process signature is unavailable')
+      return decodeTurnProcess(signature)
+    }
+    const streaming = read()
+    value.append(at(44, 'assistant/message', {
+      turn: 4, step: 1, message: assistantMessage('settled-4', 'answer'),
+    }, { surfaceOp: 'append' }))
+    value.flush()
+    const settled = read()
+
+    expect(streaming).toMatchObject({ answerAnchorSeq: null, answerStep: null })
+    expect(settled.answerAnchorSeq).toBe(44)
+    expect(settled.answerStep).toBe(1)
+  })
+
+  it('anchors a streamed non-text answer from its block start', () => {
+    const value = assembler([
+      at(50, 'turn/start', { turn: 5 }),
+      at(51, 'step/start', { turn: 5, step: 1 }),
+      at(52, 'assistant/chunk', {
+        turn: 5, step: 1, chunk: { type: 'block-start', index: 0, blockType: 'image' },
+      }),
+    ])
+    const current = snapshot(value)
+    const process = node(current, 'turn-process')
+    const answer = node(current, 'assistant-step')
+    const signature = current.timeline.turns.get(5)?.data.get('turn-process')
+
+    expect(process?.anchorSeq).toBe(51.9)
+    expect(answer?.anchorSeq).toBe(52)
+    expect(signature === undefined ? undefined : decodeTurnProcess(signature))
+      .toMatchObject({ answerAnchorSeq: null, answerStep: null })
   })
 
   it('keeps one keyed Assistant node while streaming settles and materializes interruption from Location', () => {
@@ -638,10 +986,10 @@ describe('built-in conversation node Definitions', () => {
     const after = snapshot(value)
     expect(after.nodes).toBe(store)
     expect(after.nodes.get(existing?.key ?? '')).toBe(existing)
-    expect(after.order).toHaveLength(before.order.length + 3)
+    expect(after.order).toHaveLength(before.order.length + 4)
     expect(after.order.map(key => after.nodes.get(key)?.kind)).toEqual([
-      'user', 'assistant-step', 'turn-tail',
-      'user', 'assistant-step', 'turn-tail',
+      'user', 'turn-process', 'assistant-step', 'turn-tail',
+      'user', 'turn-process', 'assistant-step', 'turn-tail',
     ])
   })
 
@@ -671,7 +1019,7 @@ describe('built-in conversation node Definitions', () => {
     expect(after.order.slice(0, oldOrder.length)).toEqual(oldOrder)
     expect(oldOrder.map(key => after.nodes.get(key))).toEqual(oldNodes)
     expect(after.order.map(key => after.nodes.get(key)?.kind)).toEqual([
-      'user', 'assistant-step', 'turn-tail', 'user',
+      'user', 'turn-process', 'assistant-step', 'turn-tail', 'user',
     ])
   })
 
@@ -929,6 +1277,51 @@ describe('built-in conversation node Definitions', () => {
     expect(node(current, 'system-prompt')?.anchorSeq).toBe(1)
   })
 
+  it('keeps the initial system prompt before the opening User as Turn process state changes', () => {
+    const value = assembler([
+      at(1, 'turn/start', { turn: 1 }),
+      at(2, 'step/start', { turn: 1, step: 1 }),
+      at(3, 'user/message', textMessage('direct-user', 'prompt'), { surfaceOp: 'append' }),
+      at(4, 'user/message', {
+        ...textMessage('runtime-context', 'runtime facts'),
+        source: { kind: 'plugin', plugin: 'context' },
+      }, { surfaceOp: 'append' }),
+      at(5, 'request/header', {
+        reason: 'initial',
+        header: { config: { provider: 'fake', model: 'fake' }, system: '# System' },
+      }),
+    ])
+    const kinds = () => {
+      const current = snapshot(value)
+      return current.order.map(key => current.nodes.get(key)?.kind)
+    }
+    const promptKey = node(snapshot(value), 'system-prompt')?.key
+
+    expect(kinds()).toEqual(['system-prompt', 'user', 'context'])
+
+    value.append(at(6, 'assistant/chunk', {
+      turn: 1, step: 1, chunk: { type: 'reasoning-delta', index: 0, text: 'thinking' },
+    }))
+    value.flush()
+    expect(kinds()).toEqual([
+      'system-prompt', 'user', 'turn-process', 'context', 'assistant-step',
+    ])
+
+    value.append(at(7, 'step/end', { turn: 1, step: 1 }))
+    value.append(at(8, 'step/start', { turn: 1, step: 2 }))
+    value.append(at(9, 'assistant/message', {
+      turn: 1, step: 2, message: assistantMessage('answer-1', 'answer'),
+    }, { surfaceOp: 'append' }))
+    value.append(at(10, 'step/end', { turn: 1, step: 2 }))
+    value.append(at(11, 'turn/end', { turn: 1, reason: { kind: 'completed' } }))
+    value.flush()
+
+    expect(kinds()).toEqual([
+      'system-prompt', 'user', 'turn-process', 'context', 'assistant-step', 'assistant-step', 'turn-tail',
+    ])
+    expect(node(snapshot(value), 'system-prompt')?.key).toBe(promptKey)
+  })
+
   it('keeps an append-only later user turn in the existing system-prompt series', () => {
     const value = assembler([
       at(1, 'turn/start', { turn: 1 }),
@@ -953,7 +1346,7 @@ describe('built-in conversation node Definitions', () => {
     expect(ordered.map(candidate => candidate.kind)).toEqual(['system-prompt', 'user', 'user'])
   })
 
-  it('keeps windowed non-initial headers at their event until prepend supplies the preceding header', () => {
+  it('keeps a windowed System prompt in place when prepend supplies the preceding header', () => {
     const reasons = ['change', 'resume', 'series'] as const
     for (const reason of reasons) {
       const windowedSystem = reason === 'series' ? '# Original' : '# Windowed'
@@ -967,7 +1360,13 @@ describe('built-in conversation node Definitions', () => {
         }),
       ], true)
 
-      expect(node(snapshot(windowed), 'system-prompt')?.anchorSeq).toBe(8)
+      const before = snapshot(windowed)
+      const prompt = node(before, 'system-prompt')
+      const user = node(before, 'user')
+      if (prompt === undefined || user === undefined) throw new Error('windowed prompt fixture is incomplete')
+      const stableOrder = [user.key, prompt.key]
+      expect(prompt.anchorSeq).toBe(8)
+      expect(before.order.filter(key => stableOrder.includes(key))).toEqual(stableOrder)
 
       windowed.prepend([
         at(1, 'turn/start', { turn: 1 }),
@@ -985,7 +1384,9 @@ describe('built-in conversation node Definitions', () => {
         const candidate = restored.nodes.get(key)
         return candidate?.kind === 'system-prompt' ? [candidate] : []
       })
-      expect(prompts.map(prompt => prompt.anchorSeq)).toEqual([1, 5])
+      expect(prompts.map(candidate => candidate.anchorSeq)).toEqual([1, 8])
+      expect(restored.nodes.get(prompt.key)?.anchorSeq).toBe(8)
+      expect(restored.order.filter(key => stableOrder.includes(key))).toEqual(stableOrder)
     }
   })
 

@@ -25,7 +25,7 @@ Users who cannot reach an OS chooser still pick a workspace directory through `d
 <a id="use-this-package"></a>
 ## Use this package
 
-Compose this backend when a workspace directory must be chosen without an OS chooser — remote browsers, SSH-forwarded sessions, or unattended hosts. The workspace flow drives `host.listDirectory` and `host.createDirectory`; both primitives answer from the host filesystem.
+Compose this backend when a workspace directory must be chosen without an OS chooser — remote browsers, SSH-forwarded sessions, or unattended hosts. The workspace flow drives `directoryPicker/list` and `directoryPicker/createDirectory`; both primitives answer from the host filesystem.
 
 ### Listing a directory
 

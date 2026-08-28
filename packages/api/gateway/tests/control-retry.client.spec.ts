@@ -5,23 +5,17 @@ import {
   RemoteStream,
 } from '../src/client/index.ts'
 
-const DESCRIPTION = {
-  version: 'fixture',
-  cwd: '/fixture',
-  attachedSessions: 0,
-  home: '/home/fixture',
-  canOpenPath: true,
-}
+const GENERATION = { id: 1, host: { home: '/home/fixture' } }
 
 function hostSource(initiallyAvailable: boolean): {
-  connection: Pick<ConnectionHandle, 'hostDescription'>
+  connection: Pick<ConnectionHandle, 'generation'>
   publish(available: boolean): void
 } {
-  let current = initiallyAvailable ? DESCRIPTION : undefined
+  let current = initiallyAvailable ? GENERATION : undefined
   const listeners = new Set<() => void>()
   return {
     connection: {
-      hostDescription: {
+      generation: {
         getSnapshot: () => current,
         subscribe: (listener) => {
           listeners.add(listener)
@@ -30,7 +24,7 @@ function hostSource(initiallyAvailable: boolean): {
       },
     },
     publish: (available) => {
-      current = available ? DESCRIPTION : undefined
+      current = available ? GENERATION : undefined
       for (const listener of listeners) listener()
     },
   }
@@ -67,7 +61,7 @@ function scripted<Item>(generations: Generation<Item>[], opened?: () => void) {
 }
 
 function supervisor<Item>(
-  connection: Pick<ConnectionHandle, 'hostDescription'>,
+  connection: Pick<ConnectionHandle, 'generation'>,
   generations: Generation<Item>[],
   carrierFailed?: (error: RemoteStreamCarrierError) => void,
 ): RemoteStream<Item> {
@@ -122,8 +116,8 @@ describe('RemoteStream', () => {
     let listener: (() => void) | undefined
     const subscribed = Promise.withResolvers<undefined>()
     const connection = {
-      hostDescription: {
-        getSnapshot: () => available ? DESCRIPTION : undefined,
+      generation: {
+        getSnapshot: () => available ? GENERATION : undefined,
         subscribe: (value: () => void) => {
           listener = value
           subscribed.resolve(undefined)
@@ -177,8 +171,8 @@ describe('RemoteStream', () => {
     let reads = 0
     let disposed = 0
     const connection = {
-      hostDescription: {
-        getSnapshot: () => reads++ === 0 ? undefined : DESCRIPTION,
+      generation: {
+        getSnapshot: () => reads++ === 0 ? undefined : GENERATION,
         subscribe: (listener: () => void) => {
           listener()
           return () => { disposed++ }
@@ -261,7 +255,7 @@ describe('RemoteStream', () => {
     const holder: { stream?: RemoteStream<string> } = {}
     let subscriptions = 0
     const connection = {
-      hostDescription: {
+      generation: {
         getSnapshot: () => undefined,
         subscribe: () => {
           subscriptions++

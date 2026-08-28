@@ -30,8 +30,8 @@
 
 - id: tools
   config:
-    # TEMPORARY workaround: DSH_TOOLS_MODE (native|code|both) opts a whole dsh
-    # process into Code Mode while per-session tool-presentation selection is being
+    # TEMPORARY workaround: DSH_TOOLS_MODE (native|ptc|both) opts a whole dsh
+    # process into PTC mode while per-session tool-presentation selection is being
     # designed; unset keeps the schema default (native). Remove the env seam
     # once the web UI owns the choice per session.
     mode: !!js process.env.DSH_TOOLS_MODE
@@ -42,7 +42,7 @@
 # window.__DSH_BOOT__; the modules row is simultaneously a host row.
 - insert:
     # Host-owned opt-in sampled when a new Web session receives its preset
-    # delegation tools. The Models page edits this settings namespace.
+    # delegation tools. The Plugins page edits this settings namespace.
     - id: subagent-model-selection-settings
       name: '@deepseek-ai/dsh-tool-subagent/model-selection-settings'
 
@@ -86,14 +86,14 @@
     - id: session-controller
       name: '@deepseek-ai/dsh-api-session-controller'
 
+    # Configuration-surface reads and writes over Typert Remote. Each method
+    # reports an actionable error when its settings-domain provider is absent.
+    - id: settings-controller
+      name: '@deepseek-ai/dsh-api-settings-controller'
+
     # Workspace commands and reconnect-safe projection over Typert Remote.
     - id: workspace-controller
       name: '@deepseek-ai/dsh-api-workspace-controller'
-
-    # The API gateway: the transport-agnostic dispatch face every client shape
-    # shares. The base layer's agent-default-model service owns the default model.
-    - id: api-gateway
-      name: '@deepseek-ai/dsh-host-apiproxy'
 
     - id: cordis-host-runner
       name: '@deepseek-ai/dsh-cordis-host-runner'
@@ -252,6 +252,13 @@
 
     - id: ui-reference
       name: '@deepseek-ai/dsh-client-ui-reference'
+
+    # Read-only active Schedule catalog. The shipped Web graph resolves the
+    # client package but leaves it disabled; the explicit Schedule overlay
+    # enables this same row together with the host Schedule services.
+    - id: ui-schedule
+      name: '@deepseek-ai/dsh-client-ui-schedule'
+      disabled: true
 
     # Background jobs: the session-header list over the jobsBySession mirror.
     - id: ui-jobs

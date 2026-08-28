@@ -29,7 +29,7 @@ Mount this plugin alongside `ui-conversation` and the goal domain package; the s
 
 ### The command-input bubble
 
-Each durable `/goal` run projects as a right-aligned monospace user-style bubble labeled `Command input` (or `命令输入`), rendered before the generic command result row. It carries no timestamp, copy, or branch actions, and reloading reconstructs it from the run.
+Each durable `/goal` run projects as a right-aligned monospace user-style bubble labeled `Command input` (or `指令输入`), rendered before the generic command result row. It carries no timestamp, copy, or branch actions, and reloading reconstructs it from the run.
 
 ### Failures
 

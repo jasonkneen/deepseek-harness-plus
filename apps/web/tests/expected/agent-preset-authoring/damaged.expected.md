@@ -33,8 +33,8 @@
         - text: 复制
     - listitem:
       - 'button "设为默认: PTC 模式"':
-        - text: PTC 模式 内置 具备标准模式的全部能力，并通过 Code Mode SDK 呈现工具，让模型用一个 TypeScript 程序组合多步操作。
-        - code: code
+        - text: PTC 模式 内置 具备标准模式的全部能力，并通过 PTC 模式 SDK 呈现工具，让模型用一个 TypeScript 程序组合多步操作。
+        - code: ptc
       - 'button "查看: PTC 模式"':
         - img
         - text: 查看

@@ -33,9 +33,6 @@
       "path": "../../packages/bundle/web-app"
     },
     {
-      "path": "../../packages/host/apiproxy"
-    },
-    {
       "path": "../../packages/host/webserver"
     },
     {

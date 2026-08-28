@@ -6,14 +6,12 @@
  * back into the mirror.
  */
 
-import type {
-  IApiClient, SettingsNamespaceView,
-} from '@deepseek-ai/dsh-api-remotes/client'
+import type { SettingsNamespaceView } from '@deepseek-ai/dsh-api-remotes/client'
 import {
   createSnapshotStore, type SnapshotStore,
 } from '@deepseek-ai/dsh-client-store'
 import type {
-  SchemaNode, SettingsDescribeFace, SettingsSchemaService,
+  SchemaNode, SettingsDescribeFace, SettingsSchemaService, SettingsWireFace,
 } from '@deepseek-ai/dsh-client-ui-settings/client'
 import { displayPermissionPreset } from './presentation.ts'
 
@@ -101,7 +99,7 @@ export class PermissionPresetSettingsController {
    */
   constructor(
     private readonly describeFace: SettingsDescribeFace,
-    private readonly api: Pick<IApiClient, 'settings'>,
+    private readonly api: SettingsWireFace,
     private readonly schema: SettingsSchemaService,
   ) {}
 
@@ -139,17 +137,17 @@ export class PermissionPresetSettingsController {
       draft.error = null
     })
     try {
-      const response = await this.api.settings.mutate({
-        ns: PERMISSION_SETTINGS_NS,
-        ops: [{ op: 'set', path: ['defaultPreset'], value: preset }],
-        expectedRevision: view.revision,
-      })
-      if (!response.result.ok) throw new Error(response.result.error.message)
+      const response = await this.api.settings.mutate(
+        PERMISSION_SETTINGS_NS,
+        [{ op: 'set', path: ['defaultPreset'], value: preset }],
+        view.revision,
+      )
+      if (!response.ok) throw new Error(response.error.message)
       this.saving = false
       if (this.disposed) return
       // The mirror publish reaches this row's own subscription, so the fold
       // is also what republishes the accepted value here.
-      this.describeFace.acceptView(response.result.value)
+      this.describeFace.acceptView(response.value)
     } catch (error) {
       this.saving = false
       if (this.disposed) return

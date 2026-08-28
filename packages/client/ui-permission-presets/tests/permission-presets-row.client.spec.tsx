@@ -43,8 +43,9 @@ function view(defaultPreset: string, revision = 0): SettingsNamespaceView {
   }
 }
 
+/** The settings namespace answers over the Remote carrier, which has no envelope. */
 function ok<T>(value: T) {
-  return { rpcId: 'test', result: { ok: true as const, value } }
+  return { ok: true as const, value }
 }
 
 const dictionary: Record<string, string> = en
@@ -153,11 +154,8 @@ describe('PermissionRow', () => {
       settings: {
         describe: () => describe.promise,
         mutate: () => Promise.resolve({
-          rpcId: 'test',
-          result: {
-            ok: false as const,
-            error: { code: 'settings-conflict', message: 'changed elsewhere', details: {} },
-          },
+          ok: false as const,
+          error: { code: 'settings-conflict', message: 'changed elsewhere', details: {} },
         }),
       },
     })

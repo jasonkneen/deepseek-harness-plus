@@ -40,7 +40,14 @@ export type {
   SessionProjectionMap,
   UseProjection,
 } from './sessions/projection-store.ts'
-export type { ISession, ProjectionsFace, SessionFace } from './contract/session.ts'
+export type {
+  BeginSubmissionInput,
+  ISession,
+  PendingSubmissionRetirement,
+  ProjectionsFace,
+  SessionFace,
+  SubmissionHandle,
+} from './contract/session.ts'
 export type { ISessions } from './contract/sessions.ts'
 export { MutableSessionEventSource } from './contract/events.ts'
 export type {
@@ -53,6 +60,8 @@ export type {
 } from './contract/events.ts'
 export type {
   OpenState,
+  PendingSubmission,
+  PendingSubmissionImage,
   PromptError,
   QueuedMessage,
   SessionSnapshot,
@@ -102,7 +111,7 @@ export function apply(ctx: Context): void {
   })
   control.start()
   ctx.on('connection/reset', () => { sessions.handleConnected() })
-  if (connection.hostDescription.getSnapshot() !== undefined) sessions.handleConnected()
+  if (connection.generation.getSnapshot() !== undefined) sessions.handleConnected()
   ctx.typert.contexts.registerClient('agent', {
     identity: candidate => sessions.scopeOf(candidate),
     resolve: sessionId => sessions.resolveAgentScope(sessionId),

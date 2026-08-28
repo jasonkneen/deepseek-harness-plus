@@ -1,5 +1,5 @@
 ---
-description: "面向 Web bundle 用户的会话日志导出：Session Header 下载按钮与 /export 命令，以及下载弹窗的预期行为。"
+description: "Web 会话日志 ZIP 导出：Host 流式传输、认证下载路由、Session Header 操作与 /export 命令。"
 kind: "package-reference"
 ---
 
@@ -9,7 +9,7 @@ kind: "package-reference"
 
 ## 概述
 
-`dsh-session-log-export` 让 Web 界面可以下载会话的完整历史：Session Header 中的 `Session log` 按钮与 `/export` 斜杠命令都会把会话树——会话本身、其子会话与附件——作为 ZIP 交给浏览器下载。一个小弹窗报告准备中、开始下载或失败，按钮与命令共用该弹窗。ZIP 由 `dsh-host-apiproxy` 生成并流式传输；本包只提供浏览器侧的按钮与命令。下载是浏览器下载：目标位置由浏览器选择。设置与用法在前；实现内部细节放在下方可折叠的开发者章节中。
+`dsh-session-log-export` 让 Web 界面可以下载会话的完整历史：Session Header 中的 `Session log` 按钮与 `/export` 斜杠命令都会把会话树——会话本身、其子会话与附件——作为 ZIP 交给浏览器下载。本包拥有 Host 归档流、经过认证的 Fetch 路由以及浏览器控制和反馈。下载目标位置由浏览器选择。设置与用法在前，随后说明实现细节。
 
 ## 目录
 
@@ -25,7 +25,7 @@ kind: "package-reference"
 <a id="use-this-package"></a>
 ## 使用本包
 
-当 Web bundle 需要让用户导出会话日志时使用本包。它只由 Web bundle 挂载，与 Host API 代理、命令注册表和对话 UI 并列。常用路径是：挂载插件，然后点击 Session Header 中的 `Session log` 或输入 `/export`——浏览器下载 `dsh-session-<id>.zip`。
+当 Web bundle 需要让用户导出会话日志时使用本包。它需要 Connection、命令注册表、Session 查询与持久化以及附件服务。挂载插件，然后点击 Session Header 中的 `Session log` 或输入 `/export`；浏览器会下载 `dsh-session-<id>.zip`。
 
 ### 何时选择
 
@@ -38,7 +38,13 @@ kind: "package-reference"
   name: '@deepseek-ai/dsh-session-log-export'
 ```
 
-Web bundle 将本包与 `dsh-host-apiproxy`、`dsh-commands`、`dsh-client-ui-commands` 和 `dsh-client-ui-conversation` 一起挂载。
+Web bundle 将本包与 Connection、`dsh-commands`、`dsh-client-ui-commands` 和 `dsh-client-ui-conversation` 一起挂载。
+
+### 配置
+
+| 字段 | 默认值 | 含义 |
+|---|---|---|
+| `compressionLevel` | `6` | 每个 ZIP 条目的 DEFLATE 级别，范围为 0 到 9。 |
 
 ### 命令约定
 
@@ -67,13 +73,13 @@ Web bundle 将本包与 `dsh-host-apiproxy`、`dsh-commands`、`dsh-client-ui-co
 
 ### 设计拆分
 
-本包有两个半包。Host 半包（[`src/index.ts`](src/index.ts)）在 `ctx.commands` 上注册 `/export` 命令；浏览器半包（[`src/client/index.ts`](src/client/index.ts)）提供 `SessionLogDownloadController`，把 Header 按钮与共享弹窗贡献到 `conversation.session.header.utilities` slot，并观察 `command/executed`，使提交命令的浏览器在 `/export` 成功后启动同一下载。其他标签页仍渲染持久命令行，但不会重复浏览器副作用。
+本包有两个半包。Host 半包（[`src/index.ts`](src/index.ts)）注册 `/export` 命令，并向 Connection 贡献精确的 `GET`/`HEAD /api/session.export` Fetch 路由；[`src/archive.ts`](src/archive.ts) 构建有界 ZIP 流。浏览器半包（[`src/client/index.ts`](src/client/index.ts)）提供共享下载控制器和 UI，并观察 `command/executed`，因此只有提交命令的浏览器会启动下载。
 
 ### 下载流程
 
 两条入口都会对 `GET /api/session.export?...` 发出 `HEAD` 预检，然后把 GET URL 交给浏览器下载管理器，JavaScript 不缓冲 ZIP。一个控制器按会话持有一项进行中的下载，把并发操作折叠进该任务，并在插件释放时取消预检。弹窗状态存放在按会话键控的快照存储中，因此按钮与命令按会话共享一个弹窗。
 
-Host 下载端点由 [`dsh-host-apiproxy`](../../host/apiproxy/README.zh.md) 拥有：它在 `readRaw` 前 flush 活动的根会话并流式传输 ZIP；ZIP 生成、原始 JSONL/zstd 读取、子会话、附件、背压与 HTTP 错误语义都属于那里。
+Host 路由是业务拥有的精确 Fetch contribution。Connection 应用 Host/Origin 与浏览器会话检查并桥接流式 `Response`；本包拥有查询校验、活动会话 flush、原始产物与附件读取、ZIP 生成和 HTTP 状态语义。
 
 </details>
 
@@ -84,7 +90,7 @@ Host 下载端点由 [`dsh-host-apiproxy`](../../host/apiproxy/README.zh.md) 拥
 
 当包级约定不够用时阅读以下页面。它们从 Web 控制逐步进入 Host 端点与周围的命令和会话表面。
 
-- [dsh-host-apiproxy](../../host/apiproxy/README.zh.md)——本包驱动的 Host 流式 ZIP 下载端点。
+- [dsh-client-connection](../../client/connection/README.zh.md)——Host 端点使用的认证 Fetch 路由载体。
 - [命令子系统参考](../../../docs/subsystems/commands.zh.md)——`/export` 命令注册的用户命令注册表。
 - [dsh-client-ui-commands](../../client/ui-commands/README.zh.md)——渲染并确认 `/export` 的浏览器命令表面。
 - [会话查询包映射](../README.zh.md)——本包所属的检索能力家族。

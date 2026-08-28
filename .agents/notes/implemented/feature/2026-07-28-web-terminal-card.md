@@ -49,7 +49,7 @@ One premise of that split has since weakened: [tool rows stopped being details-p
 
 `TerminalBlock` reads only the terminal view's fields, so it stays a pure function of what the render intent carries — no session lookups, replay-safe like the presenters that produce the view. A UI without the terminal capability still gets the bridge's fenced fallback; nothing about the tool's result shape changed.
 
-A `run_code` sub-dispatch does not reach a terminal card on the shipped wire: `session.ts` folds `tool/code-dispatch(-start)` with `callView: null`/`resultView: null`, and the host's `viewFor` presents only top-level `tool/call`/`tool/result`, so a nested bash call keeps the generic flattened form. Both arms are pinned — the resolution path with views injected, and the no-view shape the wire actually delivers — so the gap is recorded rather than implied. Carrying presenter views through the code-dispatch wire is that boundary's own change.
+A `run_code` sub-dispatch does not reach a terminal card on the shipped wire: `session.ts` folds `tool/code-dispatch(-start)` with `callView: null`/`resultView: null`, and the host's `viewFor` presents only top-level `tool/call`/`tool/result`, so a nested bash call keeps the generic flattened form. Both arms are pinned — the resolution path with views injected, and the no-view shape the wire actually delivers — so the gap is recorded rather than implied. Carrying presenter views through the ptc-dispatch wire is that boundary's own change.
 
 Inline rendering is licensed for the terminal intent alone. A future intent that wants it needs its own bound and its own decision, argued against the reason recorded here rather than against the panel-only convention on its own.
 

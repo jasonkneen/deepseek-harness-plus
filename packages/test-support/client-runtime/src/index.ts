@@ -42,6 +42,8 @@ export { domSnapshotSerializer, registerDomSnapshotSerializer } from './snapshot
 export { FixtureSession, TestSessions } from './sessions.ts'
 export { stubSettingsScope } from './settings-scope.ts'
 export type { StubSettingsScope } from './settings-scope.ts'
+export { scriptedSettingsRemote } from './settings-remote.ts'
+export type { ScriptedNamespace, ScriptedSettingsRemote } from './settings-remote.ts'
 export { TestWorkspaces } from './workspaces.ts'
 export { TestRemote } from './remote.ts'
 export {

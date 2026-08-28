@@ -90,7 +90,7 @@ schema 不将 `expected_hash`、`expected_version` 或 `create_only` 作为面�
 - 目录列表、glob、grep 和搜索工具。
 - 二进制安全的读/写操作。
 - PDF/图片/多模态 `read`。
-- 文件系统工具的 Code Mode 投影值。
+- 文件系统工具的 PTC mode 投影值。
 - 规范的 edit diff 格式。
 
 ## 测试

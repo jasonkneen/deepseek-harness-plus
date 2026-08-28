@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { describe, expect, it, vi } from 'vitest'
 import {
-  chatSnapshot, SlotTestRuntime, stubSettingsScope, usePinnedBrowserLanguages,
+  chatSnapshot, SlotTestRuntime, TestRemote, stubSettingsScope, usePinnedBrowserLanguages,
 } from '@deepseek-ai/dsh-client-test-runtime'
 import { LocaleRuntime } from '@deepseek-ai/dsh-client-locale/client'
 import { resolveSlotLabel } from '@deepseek-ai/dsh-client-ui-slots'
@@ -15,8 +15,9 @@ import {
   apply as applyChat, EMPTY_CHAT_SNAPSHOT, inject as injectChat,
 } from '@deepseek-ai/dsh-client-ui-chat/client'
 import type {
-  ChatNodeTurnDataInjected, ChatSnapshot, UseChat,
+  ChatNodeTurnDataInjected, ChatSnapshot, TranscriptViewRowInjected, UseChat,
 } from '@deepseek-ai/dsh-client-ui-chat/client'
+import { CHAT_SETTINGS_NAMESPACE, type ChatSettings } from '../src/chat-settings.ts'
 
 declare module '@deepseek-ai/dsh-client-ui-conversation/client' {
   interface ConversationTurnDataMap {
@@ -30,12 +31,19 @@ const SID = 'session-1' as SessionId
 
 async function bench() {
   const runtime = await SlotTestRuntime.create()
-  runtime.ctx.provide('settingsScope', { bind: () => stubSettingsScope().scope } as never)
+  const chatSettings = stubSettingsScope<ChatSettings>()
+  runtime.ctx.provide('settingsScope', {
+    bind: ({ namespace }: { namespace: string }) => namespace === CHAT_SETTINGS_NAMESPACE
+      ? chatSettings.scope
+      : stubSettingsScope().scope,
+  } as never)
   runtime.ctx.provide('layout', { openDetails: vi.fn(), closeDetails: vi.fn() } as never)
   runtime.ctx.provide('uiWorkspace', {
     connectWorkspace: vi.fn(async () => SID),
-    openPath: vi.fn(async () => {}),
   } as never)
+  new TestRemote(runtime.ctx, {
+    session: { openWorkspacePath: vi.fn(async () => ({ ok: true, value: { opened: true } })) },
+  })
   const locale = new LocaleRuntime(runtime.ctx)
   runtime.ctx.provide('locale', locale)
   runtime.slots.installLocale(locale)
@@ -53,7 +61,7 @@ async function bench() {
   const chat = await runtime.mount({ inject: [...injectChat], apply: applyChat })
   const sourceDescriptor = provide.mock.calls[0]?.[0]
   if (sourceDescriptor === undefined) throw new Error('ui-chat did not provide its standard source')
-  return { runtime, conversation, chat, sourceDescriptor }
+  return { runtime, conversation, chat, chatSettings, sourceDescriptor }
 }
 
 function storeOf(runtime: SlotTestRuntime, key: 'conversation.session' | 'conversation.session.header' | 'conversation.view' | 'details') {
@@ -70,7 +78,27 @@ describe('Chat apply wiring', () => {
       .toMatchObject({ kind: 'keyed', scope: 'session' })
     expect(b.runtime.slots.entries('conversation.composer.dock').map(row => row.options.id))
       .toEqual(['stats'])
+    expect(b.runtime.slots.entries('settings.general.item').map(row => row.options.id))
+      .toEqual(['transcript-view', 'composer-enter'])
     expect(b.runtime.slots.entries('details')).toHaveLength(1)
+    await b.runtime.dispose()
+  })
+
+  it('mirrors the Host transcript preference into its Settings row', async () => {
+    const b = await bench()
+    const row = b.runtime.slots.entries('settings.general.item')
+      .find(entry => entry.options.id === 'transcript-view')!
+    const face = (row.inject as unknown as () => TranscriptViewRowInjected)()
+
+    expect(face.hooks.transcriptView.getSnapshot()).toBe('compact')
+    face.setTranscriptView('normal')
+    expect(face.hooks.transcriptView.getSnapshot()).toBe('normal')
+    expect(b.chatSettings.set).toHaveBeenCalledWith('transcriptView', 'normal')
+
+    b.chatSettings.publish({
+      status: 'ready', value: { transcriptView: 'compact' }, revision: 1, writable: true,
+    })
+    expect(face.hooks.transcriptView.getSnapshot()).toBe('compact')
     await b.runtime.dispose()
   })
 

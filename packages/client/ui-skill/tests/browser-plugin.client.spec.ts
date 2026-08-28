@@ -27,11 +27,7 @@ type SkillRow = { name: string; description: string; whenToUse?: string; modelIn
 type ListResult =
   | { ok: true; value: { skills: SkillRow[] } }
   | { ok: false; error: { code: string; message: string; details: object } }
-type ListFn = (payload: object, signal?: AbortSignal) => Promise<{ result: ListResult }>
-type InvokeResult =
-  | { ok: true; value: { accepted: true } }
-  | { ok: false; error: { code: string; message: string; details: object } }
-type InvokeFn = (payload: object) => Promise<{ result: InvokeResult }>
+type ListFn = (payload: object, signal?: AbortSignal) => Promise<ListResult>
 
 interface PresentationCapture {
   slots: SlotRegistry
@@ -63,18 +59,17 @@ function providePresentation(ctx: Context): PresentationCapture {
 }
 
 /** Boot the plugin over fake slash/connection faces; returns the captured source and its ctx. */
-async function bench(list: ListFn, addressed?: SessionId, invoke?: InvokeFn) {
+async function bench(list: ListFn, addressed?: SessionId) {
   const ctx = new Context()
   let captured: InputTriggerSource | undefined
   ctx.provide('inputTriggers', { registerSource: (src: InputTriggerSource) => { captured = src; return () => {} } })
-  const defaultInvoke: InvokeFn = () => Promise.resolve({ result: { ok: true as const, value: { accepted: true as const } } })
-  ctx.provide('connection', { api: { skills: { list, invoke: invoke ?? defaultInvoke } } })
+  ctx.provide('connection', {})
   ctx.provide('sessions', {
     subagentAddress: (id: SessionId) => id === addressed
       ? { parentSessionId: sid('parent'), childSessionId: id, mode: 'continuable' as const }
       : undefined,
   })
-  const remote = new TestRemote(ctx)
+  const remote = new TestRemote(ctx, { skills: { list } })
   providePresentation(ctx)
   await ctx.plugin({ inject: [...inject], apply }).await()
   return { ctx, source: captured!, remote }
@@ -86,7 +81,7 @@ const CATALOG: SkillRow[] = [
   { name: 'deploy', description: 'deploy flow', modelInvocable: true },
 ]
 
-const listOk = (skills: SkillRow[]): ListFn => () => Promise.resolve({ result: { ok: true as const, value: { skills } } })
+const listOk = (skills: SkillRow[]): ListFn => () => Promise.resolve({ ok: true as const, value: { skills } })
 
 /** Counting fake: records payloads, resolves the shared catalog. */
 function countingList(skills: SkillRow[] = CATALOG) {
@@ -103,19 +98,19 @@ const sid = (id: string) => id as SessionId
 const proj = (id: string): ClientSessionContext => ({ sessionId: sid(id) })
 
 const req = (query: string, signal?: AbortSignal) =>
-  ({ query, position: 'leading' as const, signal: signal ?? new AbortController().signal })
+  ({ query, position: 'leading' as const, drilled: false, signal: signal ?? new AbortController().signal })
 
 describe('apply', () => {
   it('declares the services it binds', () => {
-    expect(inject).toEqual(['inputTriggers', 'connection', 'sessions', 'slots', 'locale', 'remote'])
+    expect(inject).toEqual(['inputTriggers', 'connection', 'sessions', 'slots', 'locale', 'remote', 'remote.skills'])
   })
 
   it('registers the dedicated skill row and its locale dictionaries', async () => {
     const ctx = new Context()
     ctx.provide('inputTriggers', { registerSource: () => () => {} })
-    ctx.provide('connection', { api: { skills: { list: listOk(CATALOG) } } })
+    ctx.provide('connection', {})
     ctx.provide('sessions', { subagentAddress: () => undefined })
-    new TestRemote(ctx)
+    new TestRemote(ctx, { skills: { list: listOk(CATALOG) } })
     const presentation = providePresentation(ctx)
     await ctx.plugin({ inject: [...inject], apply }).await()
     const entry = presentation.slots.entries('tool.call.toolview')[0]
@@ -151,8 +146,8 @@ describe('apply', () => {
     // InputTriggerService itself injects 'sessions'; the stub unblocks its fiber.
     ctx.provide('sessions', {})
     await ctx.plugin(InputTriggerService).await()
-    ctx.provide('connection', { api: { skills: { list: listOk(CATALOG) } } })
-    new TestRemote(ctx)
+    ctx.provide('connection', {})
+    new TestRemote(ctx, { skills: { list: listOk(CATALOG) } })
     const presentation = providePresentation(ctx)
     const fiber = ctx.plugin({ inject: [...inject], apply })
     await fiber.await()
@@ -188,10 +183,10 @@ describe('candidates: sessionId addressing', () => {
 
   it('rejects on a failed result (the slash shell owns the menu-side fold)', async () => {
     const { source } = await bench(() => Promise.resolve({
-      result: { ok: false, error: { code: 'internal', message: 'boom', details: {} } },
+      ok: false, error: { code: 'internal', message: 'boom', details: {} },
     }))
     await expect(source.candidates(proj('s1'), req('co')))
-      .rejects.toThrow('skill.list failed: internal: boom')
+      .rejects.toThrow('skills/list failed: internal: boom')
   })
 
   it('does not fetch Agent-bound skills for an addressed child', async () => {
@@ -248,7 +243,7 @@ describe('catalog cache', () => {
     const { source } = await bench((payload) => {
       payloads.push(payload)
       return fail
-        ? Promise.resolve({ result: { ok: false as const, error: { code: 'internal', message: 'boom', details: {} } } })
+        ? Promise.resolve({ ok: false as const, error: { code: 'internal', message: 'boom', details: {} } })
         : listOk(CATALOG)(payload)
     })
     await expect(source.candidates(proj('s1'), req(''))).rejects.toThrow('boom')

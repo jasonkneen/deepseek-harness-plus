@@ -30,10 +30,16 @@
       "path": "../connection/tsconfig.client.json"
     },
     {
+      "path": "../../api/remotes/tsconfig.client.json"
+    },
+    {
       "path": "../store"
     },
     {
       "path": "../../core/session"
+    },
+    {
+      "path": "../../schedule/schedule"
     },
     {
       "path": "../ui-sidebar"

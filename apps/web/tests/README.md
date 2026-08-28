@@ -11,8 +11,8 @@ the deliberate composition divergences from `dsh web` — are documented in
 ## These are Host-face tests
 
 They type-check in the root `tsconfig.host.json`, not in the Client aggregate,
-because they read Host services directly: `ctx.apiProxy`, the Host
-`SessionStore`, `ctx.sessionProjectionCache`. Driving a browser at runtime does
+because they read Host services directly: `ctx.connection`, the Host
+`SessionStore`, and `ctx.sessionProjectionCache`. Driving a browser at runtime does
 not make a file part of the Client program — the two faces merge cordis
 `Context` under the same keys with different services, so one program cannot see
 both. Moving these files into the Client aggregate makes every Host-service

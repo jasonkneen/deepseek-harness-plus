@@ -23,10 +23,18 @@ export type RemoteEventClientId = Branded<'RemoteEventClientId'>
 /** Opaque correlation id for one pending Host-to-Client Remote Event. */
 export type RemoteEventId = Branded<'RemoteEventId'>
 
+/** Stable Host facts published with every established Client event generation. */
+export interface RemoteEventHostInfo {
+  /** Host account home used only to abbreviate displayed filesystem paths. */
+  readonly home: string
+}
+
 /** Opening item that binds later HTTP results to this active event stream. */
 export interface RemoteEventReadyFrame {
   readonly type: 'ready'
   readonly clientId: RemoteEventClientId
+  /** Stable Host facts attached to this connection generation. */
+  readonly host: RemoteEventHostInfo
 }
 
 /** Opaque Agent identity carried by one scoped Remote Event. */

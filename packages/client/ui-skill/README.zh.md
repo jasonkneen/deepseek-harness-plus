@@ -9,7 +9,7 @@ kind: "package-reference"
 
 ## 概述
 
-`dsh-client-ui-skill` 让用户通过在编辑器中键入 `/name` 来调用 skill：建议菜单从 `skill.list` RPC 提供用户可调用的 skill 候选，选择一项会落下字面文本 `/name `，宿主随后将其加载为 skill 的指令。加载是确定性的：宿主的 pre-step 边界（`dsh-tool-skill`）识别发出消息中以空白为界的 `/name` token，并为每个入口注入渲染后的 `<skill_content>`，因此菜单 pick、手动键入的 token 与 TUI/ACP 提示词都以同一种方式加载 skill。已结算的 skill 调用在对话中渲染为可展开的 `Instructions` 卡片，只从冻结的调用/结果切片派生。
+`dsh-client-ui-skill` 让用户通过在编辑器中键入 `/name` 来调用 skill：建议菜单从 `skills/list` Remote 提供用户可调用的 skill 候选，选择一项会落下字面文本 `/name `，宿主随后将其加载为 skill 的指令。加载是确定性的：宿主的 pre-step 边界（`dsh-tool-skill`）识别发出消息中以空白为界的 `/name` token，并为每个入口注入渲染后的 `<skill_content>`，因此菜单 pick、手动键入的 token 与 TUI/ACP 提示词都以同一种方式加载 skill。已结算的 skill 调用在对话中渲染为可展开的 `Instructions` 卡片，只从冻结的调用/结果切片派生。
 
 ## 目录
 
@@ -29,7 +29,7 @@ kind: "package-reference"
 
 ### source 提供什么
 
-普通会话的候选来自 `skill.list` RPC；宿主提供每一个用户可调用的 skill，`modelInvocable: false` 的条目（即 `disable-model-invocation` skill，此路径是其唯一入口）会以当前语言把仅限用户标记作为描述前缀带上。结果按 `startsWith(query)` 过滤。`skill.list` 失败时会被记录并静默丢弃该菜单组——菜单只显示 pending/ready 状态。
+普通会话的候选来自 `skills/list` Remote；宿主提供每一个用户可调用的 skill，`modelInvocable: false` 的条目（即 `disable-model-invocation` skill，此路径是其唯一入口）会以当前语言把仅限用户标记作为描述前缀带上。结果按 `startsWith(query)` 过滤。`skills/list` 调用失败时会被记录并静默丢弃该菜单组——菜单只显示 pending/ready 状态。
 
 ### skill 工具行
 

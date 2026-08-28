@@ -9,6 +9,7 @@ import type {
   ChatLocationNodeIndex, ChatNodeStore, ChatSnapshot, ChatTurnNavigationIndex, ConversationNode,
   LegacyConversationSlice, PartialAssistant, RunningToolCall, TurnNavigationItem,
 } from '../contract/snapshot.ts'
+import { TURN_PROCESS_INDEPENDENT_KINDS } from '../contract/turn-process.ts'
 import { sessionRecallLabels } from './event-projection.ts'
 import { sameTurnNavigationItem, turnNavigationItem } from './turn-navigation.ts'
 
@@ -192,10 +193,101 @@ function locationCoordinates(location: ConversationLocation): { turn?: number; s
   return {}
 }
 
-function orderedVisible(nodes: readonly ChatConversationViewNode[]): ChatConversationViewNode[] {
-  return nodes
-    .filter(node => node.visibility === 'visible')
-    .sort((left, right) => left.anchorSeq - right.anchorSeq || left.key.localeCompare(right.key))
+interface TurnProcessPresentation {
+  readonly control?: ChatNode<'turn-process'>
+  readonly openingHumanAnchor?: number
+  readonly earliestProcessAnchor?: number
+}
+
+function turnProcessPresentations(
+  nodes: readonly ChatConversationViewNode[],
+): ReadonlyMap<number, TurnProcessPresentation> {
+  const presentations = new Map<number, TurnProcessPresentation>()
+  for (const raw of nodes) {
+    const node = raw as ChatNode
+    if (node.kind === 'turn-process') {
+      presentations.set(node.data.turn, { ...presentations.get(node.data.turn), control: node })
+    }
+  }
+  for (const raw of nodes) {
+    const node = raw as ChatNode
+    const location = node.location
+    if (location.kind !== 'turn' && location.kind !== 'step') continue
+    const current: TurnProcessPresentation = presentations.get(location.turn.turn) ?? {}
+    if ((node.kind === 'user' || node.kind === 'steering')
+      && node.anchorSeq < (current.control?.data.controlAnchorSeq ?? Number.POSITIVE_INFINITY)) {
+      presentations.set(location.turn.turn, {
+        ...current,
+        openingHumanAnchor: Math.min(current.openingHumanAnchor ?? node.anchorSeq, node.anchorSeq),
+      })
+      continue
+    }
+    if (TURN_PROCESS_INDEPENDENT_KINDS.has(node.kind)) continue
+    presentations.set(location.turn.turn, {
+      ...current,
+      earliestProcessAnchor: Math.min(current.earliestProcessAnchor ?? node.anchorSeq, node.anchorSeq),
+    })
+  }
+  return presentations
+}
+
+interface PresentationPosition {
+  readonly anchor: number
+  readonly rank: number
+  readonly originalAnchor: number
+}
+
+function presentationPosition(
+  raw: ChatConversationViewNode,
+  presentations: ReadonlyMap<number, TurnProcessPresentation>,
+): PresentationPosition {
+  const node = raw as ChatNode
+  const location = node.location
+  if (location.kind !== 'turn' && location.kind !== 'step') {
+    return { anchor: node.anchorSeq, rank: 0, originalAnchor: node.anchorSeq }
+  }
+  const presentation = presentations.get(location.turn.turn)
+  if (presentation === undefined) {
+    return { anchor: node.anchorSeq, rank: 0, originalAnchor: node.anchorSeq }
+  }
+  const openingHumanAnchor = presentation.openingHumanAnchor
+  if (openingHumanAnchor !== undefined
+    && node.anchorSeq < openingHumanAnchor
+    && !TURN_PROCESS_INDEPENDENT_KINDS.has(node.kind)) {
+    return { anchor: openingHumanAnchor, rank: 2, originalAnchor: node.anchorSeq }
+  }
+  if (presentation.control !== undefined && node.key === presentation.control.key) {
+    return openingHumanAnchor === undefined
+      ? {
+        anchor: presentation.earliestProcessAnchor ?? node.anchorSeq,
+        rank: -1,
+        originalAnchor: node.anchorSeq,
+      }
+      : { anchor: openingHumanAnchor, rank: 1, originalAnchor: node.anchorSeq }
+  }
+  return { anchor: node.anchorSeq, rank: 0, originalAnchor: node.anchorSeq }
+}
+
+/**
+ * Order visible Chat Nodes without changing existing relative order as process
+ * eligibility changes. Opening human input precedes process candidates, while
+ * each synthetic process control sits between them.
+ * @param nodes - currently materialized Chat Nodes.
+ * @returns visible Nodes in presentation order.
+ */
+export function orderedVisibleChatNodes(
+  nodes: readonly ChatConversationViewNode[],
+): ChatConversationViewNode[] {
+  const visible = nodes.filter(node => node.visibility === 'visible')
+  const presentations = turnProcessPresentations(visible)
+  return visible.sort((left, right) => {
+    const leftPosition = presentationPosition(left, presentations)
+    const rightPosition = presentationPosition(right, presentations)
+    return leftPosition.anchor - rightPosition.anchor
+      || leftPosition.rank - rightPosition.rank
+      || leftPosition.originalAnchor - rightPosition.originalAnchor
+      || left.key.localeCompare(right.key)
+  })
 }
 
 function referenceMessageSeq(node: ChatConversationViewNode): number | undefined {
@@ -556,7 +648,7 @@ export class ChatSnapshotBuilder implements ConversationViewBuilder<ChatConversa
   }): ChatSnapshot {
     const nodes = this.referenceLabels.replace(input.nodes)
     this.store.replace(nodes)
-    this.order = orderedVisible(nodes).map(node => node.key)
+    this.order = orderedVisibleChatNodes(nodes).map(node => node.key)
     this.locations.rebuild(this.order, this.store)
     this.navigation.rebuild(input.timeline, this.locations, this.store)
     this.timeline = input.timeline
@@ -573,6 +665,7 @@ export class ChatSnapshotBuilder implements ConversationViewBuilder<ChatConversa
     for (const node of upserts) {
       const previous = this.store.get(node.key)
       const nodeStructural = previous === undefined
+        || previous.kind !== node.kind
         || previous.anchorSeq !== node.anchorSeq
         || previous.visibility !== node.visibility
         || locationIdentity(previous.location) !== locationIdentity(node.location)
@@ -581,7 +674,7 @@ export class ChatSnapshotBuilder implements ConversationViewBuilder<ChatConversa
     }
     this.store.upsert(upserts)
     if (structural) {
-      const next = orderedVisible(this.store.values()).map(node => node.key)
+      const next = orderedVisibleChatNodes(this.store.values()).map(node => node.key)
       this.order = sameReferences(this.order, next) ? this.order : next
       this.locations.rebuild(this.order, this.store)
     }

@@ -89,7 +89,7 @@ describe('tool-pipeline invariants', () => {
     expect(() => { emitResult(ctx, anonymous, outcome()) }).toThrow(/non-empty name and callId/)
   })
 
-  it('requires code-dispatch records to be turn-enclosed', async () => {
+  it('requires ptc-dispatch records to be turn-enclosed', async () => {
     const ctx = await setup()
     const session = ctx.sessions.create()
     const data = {
@@ -204,7 +204,7 @@ describe('tool-pipeline invariants', () => {
     }).not.toThrow()
   })
 
-  it('replays enclosed code-dispatch records on late registration', async () => {
+  it('replays enclosed ptc-dispatch records on late registration', async () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
     const session = ctx.sessions.create()
@@ -223,7 +223,7 @@ describe('tool-pipeline invariants', () => {
     await expect(ctx.plugin(ToolsInvariant).then(() => undefined)).resolves.toBeUndefined()
   })
 
-  it('rejects an unenclosed code-dispatch record on late registration', async () => {
+  it('rejects an unenclosed ptc-dispatch record on late registration', async () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
     ctx.sessions.create().append('tool/code-dispatch-start', {

@@ -1,8 +1,10 @@
 /**
  * WorkflowRunPanel's font-size-axis adoption as CSS text. jsdom has no
  * layout, so these read the declarations that make the run/phase headers and
- * the expanded member rows follow the Settings font-size preference through
- * --dsh-content-font-size / --dsh-content-font-delta.
+ * the expanded member rows follow the Settings font-size preference: member
+ * labels at the body size (--dsh-content-font-size / --dsh-content-font-delta),
+ * the chrome around them on the secondary tier
+ * (--dsh-content-font-size-secondary / --dsh-content-font-delta-secondary).
  */
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
@@ -31,18 +33,18 @@ describe('WorkflowRunPanel.module.css font-size axis', () => {
     ]))
   })
 
-  it('member status and the empty placeholder keep their 1px step under the body', () => {
+  it('member status and the empty placeholder read the secondary tier', () => {
     for (const selector of ['.memberStatus', '.empty']) {
       expect(declarations(selector)).toEqual(expect.arrayContaining([
-        'font-size: calc(13px + var(--dsh-content-font-delta, 0px))',
-        'line-height: calc(20px + var(--dsh-content-font-delta, 0px))',
+        'font-size: var(--dsh-content-font-size-secondary, 13px)',
+        'line-height: calc(20px + var(--dsh-content-font-delta-secondary, 0px))',
       ]))
     }
   })
 
   it('the phase status column widens with the text so larger sizes do not truncate', () => {
     expect(declarations('.phaseStatus')).toEqual(expect.arrayContaining([
-      'width: calc(132px + var(--dsh-content-font-delta, 0px) * 10)',
+      'width: calc(132px + var(--dsh-content-font-delta-secondary, 0px) * 10)',
     ]))
   })
 })

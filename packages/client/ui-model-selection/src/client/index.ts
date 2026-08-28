@@ -2,7 +2,7 @@
  * Model selection plugin, browser half — TWO entries over ONE per-session
  * directory owned by ModelDirectoryResolver (`ctx.modelDirectories`). The /model popupSelect
  * contribution and the composer's named `conversation.input.model` seat share
- * one Host-generation `llm.models` catalog, combine it with the Session's
+ * one Host-generation `session/modelCatalog` catalog, combine it with the Session's
  * durable model-selection projection, and submit through `session.selectModel`.
  * A switch made in either entry is what the other shows next. Failures
  * ride each entry's own retry surface (popup shell error/retry; seat menu

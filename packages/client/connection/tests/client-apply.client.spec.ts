@@ -10,8 +10,6 @@ import {
   type ConnectionGenerationSource,
   type ConnectionHandle,
 } from '../src/client/index.ts'
-import { FixtureApiClient } from '../src/client/fixture.ts'
-import { WebApiClient } from '../src/client/web-api-client.ts'
 
 type Win = {
   location?: { hostname: string; search: string; origin?: string }
@@ -37,7 +35,7 @@ class GenerationProbe {
     }
     this.active.add(finish)
     signal.addEventListener('abort', finish, { once: true })
-    ready()
+    ready({ home: '/h' })
     if (signal.aborted) finish()
   })
 
@@ -61,20 +59,22 @@ async function mount(): Promise<ConnectionHandle> {
 }
 
 describe('connection client apply', () => {
-  it('mounts ctx.connection with the real client when no ?fixture switch is present', async () => {
+  it('treats a runtime without browser location as local', async () => {
+    delete (globalThis as Win).location
+    expect((await mount()).isLoopback).toBe(true)
+  })
+
+  it('mounts ctx.connection and identifies a loopback page', async () => {
     ;(globalThis as Win).location = { hostname: 'localhost', search: '' }
     const handle = await mount()
-    expect(handle.api).toBeInstanceOf(WebApiClient)
     expect(handle.isLoopback).toBe(true)
   })
 
-  it('selects the fixture client under ?fixture (and with no location at all stays real)', async () => {
+  it('selects the fixture RPC transport under ?fixture', async () => {
     ;(globalThis as Win).location = { hostname: '127.0.0.1', search: '?fixture' }
-    expect((await mount()).api).toBeInstanceOf(FixtureApiClient)
-    delete (globalThis as Win).location
     const handle = await mount()
-    expect(handle.api).toBeInstanceOf(WebApiClient)
-    expect(handle.isLoopback).toBe(true)
+    await expect(handle.rpc.call('/api', 'settings/describe', { args: {} }))
+      .resolves.toMatchObject({ ok: true })
   })
 
   it('reports non-loopback page authority through the connection handle', async () => {
@@ -98,10 +98,10 @@ describe('connection client apply', () => {
 
     const loop = handle.start({})
     await vi.waitFor(() => {
-      expect(handle.hostDescription.getSnapshot()?.canOpenPath).toBe(true)
+      expect(handle.generation.getSnapshot()?.host.home).toBe('/h')
     })
     unregisterSecond()
-    expect(handle.hostDescription.getSnapshot()).toBeUndefined()
+    expect(handle.generation.getSnapshot()).toBeUndefined()
     loop.stop()
   })
 
@@ -110,26 +110,26 @@ describe('connection client apply', () => {
     const handle = await mount()
     installGeneration(handle)
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
-    const descriptions: Array<boolean | undefined> = []
-    const stopThrowing = handle.hostDescription.subscribe(() => { throw new Error('subscriber bug') })
-    const stopDescription = handle.hostDescription.subscribe(() => {
-      descriptions.push(handle.hostDescription.getSnapshot()?.canOpenPath)
+    const generations: Array<string | undefined> = []
+    const stopThrowing = handle.generation.subscribe(() => { throw new Error('subscriber bug') })
+    const stopGeneration = handle.generation.subscribe(() => {
+      generations.push(handle.generation.getSnapshot()?.host.home)
     })
-    expect(handle.hostDescription.getSnapshot()).toBeUndefined()
+    expect(handle.generation.getSnapshot()).toBeUndefined()
     // config omitted: the `config ?? {}` default arm is part of the surface.
     let connected = 0
     const loop = handle.start({ onConnected: () => { connected++ } })
     expect(() => handle.start({})).toThrow(/already owned by another consumer/)
     await vi.waitFor(() => {
-      expect(handle.hostDescription.getSnapshot()?.canOpenPath).toBe(true)
+      expect(handle.generation.getSnapshot()?.host.home).toBe('/h')
     })
     loop.stop() // teardown must not throw; the fixture streams abort quietly
-    expect(handle.hostDescription.getSnapshot()).toBeUndefined()
-    expect(descriptions).toEqual([true, undefined])
+    expect(handle.generation.getSnapshot()).toBeUndefined()
+    expect(generations).toEqual(['/h', undefined])
     expect(connected).toBe(1)
     expect(errorSpy).toHaveBeenCalledTimes(2)
     stopThrowing()
-    stopDescription()
+    stopGeneration()
     errorSpy.mockRestore()
   })
 
@@ -140,87 +140,87 @@ describe('connection client apply', () => {
 
     const first = handle.start({})
     await vi.waitFor(() => {
-      expect(handle.hostDescription.getSnapshot()?.canOpenPath).toBe(true)
+      expect(handle.generation.getSnapshot()?.host.home).toBe('/h')
     })
     first.stop()
-    expect(handle.hostDescription.getSnapshot()).toBeUndefined()
+    expect(handle.generation.getSnapshot()).toBeUndefined()
 
     const second = handle.start({})
     await vi.waitFor(() => {
-      expect(handle.hostDescription.getSnapshot()?.canOpenPath).toBe(true)
+      expect(handle.generation.getSnapshot()?.host.home).toBe('/h')
     })
     first.stop()
-    expect(handle.hostDescription.getSnapshot()?.canOpenPath).toBe(true)
+    expect(handle.generation.getSnapshot()?.host.home).toBe('/h')
 
     second.stop()
     generation.end()
   })
 
-  it('does not announce a generation synchronously stopped by a description subscriber', async () => {
+  it('does not announce a generation synchronously stopped by a generation subscriber', async () => {
     ;(globalThis as Win).location = { hostname: 'localhost', search: '?fixture' }
     const handle = await mount()
     installGeneration(handle)
     const owner: { loop?: ReturnType<ConnectionHandle['start']> } = {}
-    let sawDescription = false
-    const stopDescription = handle.hostDescription.subscribe(() => {
-      if (handle.hostDescription.getSnapshot() === undefined) return
-      sawDescription = true
+    let sawGeneration = false
+    const stopGeneration = handle.generation.subscribe(() => {
+      if (handle.generation.getSnapshot() === undefined) return
+      sawGeneration = true
       owner.loop?.stop()
     })
     const connected = vi.fn()
     const loop = handle.start({ onConnected: connected })
     owner.loop = loop
     try {
-      await vi.waitFor(() => { expect(sawDescription).toBe(true) })
-      expect(handle.hostDescription.getSnapshot()).toBeUndefined()
+      await vi.waitFor(() => { expect(sawGeneration).toBe(true) })
+      expect(handle.generation.getSnapshot()).toBeUndefined()
       expect(connected).not.toHaveBeenCalled()
     } finally {
-      stopDescription()
+      stopGeneration()
       loop.stop()
     }
   })
 
-  it('retracts the host description while reconnecting and republishes the next generation', async () => {
+  it('retracts the generation while reconnecting and publishes the next generation', async () => {
     ;(globalThis as Win).location = { hostname: 'localhost', search: '?fixture' }
     const handle = await mount()
     const generation = installGeneration(handle)
-    const descriptions: Array<boolean | undefined> = []
-    const reconnectSnapshots: Array<boolean | undefined> = []
-    const stopDescription = handle.hostDescription.subscribe(() => {
-      descriptions.push(handle.hostDescription.getSnapshot()?.canOpenPath)
+    const generations: Array<string | undefined> = []
+    const reconnectSnapshots: Array<string | undefined> = []
+    const stopGeneration = handle.generation.subscribe(() => {
+      generations.push(handle.generation.getSnapshot()?.host.home)
     })
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
     const loop = handle.start({
       onStateChange: (state) => {
         if (state === 'reconnecting') {
-          reconnectSnapshots.push(handle.hostDescription.getSnapshot()?.canOpenPath)
+          reconnectSnapshots.push(handle.generation.getSnapshot()?.host.home)
         }
       },
     }, { backoffBaseMs: 10, backoffFactor: 1, backoffMaxMs: 10, generationReadyTimeoutMs: 500 })
     try {
       await vi.waitFor(() => {
-        expect(handle.hostDescription.getSnapshot()?.canOpenPath).toBe(true)
+        expect(handle.generation.getSnapshot()?.host.home).toBe('/h')
       })
       generation.end()
 
       await vi.waitFor(() => { expect(reconnectSnapshots).toEqual([undefined]) })
-      await vi.waitFor(() => { expect(descriptions).toEqual([true, undefined, true]) })
-      expect(handle.hostDescription.getSnapshot()?.canOpenPath).toBe(true)
+      await vi.waitFor(() => { expect(generations).toEqual(['/h', undefined, '/h']) })
+      expect(handle.generation.getSnapshot()?.host.home).toBe('/h')
     } finally {
-      stopDescription()
+      stopGeneration()
       loop.stop()
       warnSpy.mockRestore()
     }
   })
 
-  it('does not announce reconnecting after a description subscriber stops the loop', async () => {
+  it('does not announce reconnecting after a generation subscriber stops the loop', async () => {
     ;(globalThis as Win).location = { hostname: 'localhost', search: '?fixture' }
     const handle = await mount()
     const generation = installGeneration(handle)
     const owner: { loop?: ReturnType<ConnectionHandle['start']> } = {}
     let stoppedOnRetraction = false
-    const stopDescription = handle.hostDescription.subscribe(() => {
-      if (handle.hostDescription.getSnapshot() !== undefined || owner.loop === undefined) return
+    const stopGeneration = handle.generation.subscribe(() => {
+      if (handle.generation.getSnapshot() !== undefined || owner.loop === undefined) return
       stoppedOnRetraction = true
       owner.loop.stop()
     })
@@ -232,36 +232,18 @@ describe('connection client apply', () => {
     owner.loop = loop
     try {
       await vi.waitFor(() => {
-        expect(handle.hostDescription.getSnapshot()?.canOpenPath).toBe(true)
+        expect(handle.generation.getSnapshot()?.host.home).toBe('/h')
       })
       generation.end()
 
       await vi.waitFor(() => { expect(stoppedOnRetraction).toBe(true) })
-      expect(handle.hostDescription.getSnapshot()).toBeUndefined()
+      expect(handle.generation.getSnapshot()).toBeUndefined()
       expect(states).toEqual(['connected'])
     } finally {
-      stopDescription()
+      stopGeneration()
       loop.stop()
       warnSpy.mockRestore()
     }
-  })
-
-  it('WebApiClient keeps unary calls on globalThis.fetch', async () => {
-    ;(globalThis as Win).location = { hostname: 'localhost', search: '' }
-    const handle = await mount()
-    const original = globalThis.fetch
-    const seen: string[] = []
-    globalThis.fetch = (input: URL | RequestInfo) => {
-      seen.push(typeof input === 'string' ? input : input instanceof URL ? input.href : input.url)
-      return Promise.resolve(new Response('{}', { status: 200 }))
-    }
-    try {
-      // Schema rejection is fine — the transport hop is the assertion.
-      await (handle.api as WebApiClient).host.describe({}).catch(() => undefined)
-    } finally {
-      globalThis.fetch = original
-    }
-    expect(seen.some(u => u.includes('/api/host.describe'))).toBe(true)
   })
 
   it('carries RPC calls without requiring secure-context randomUUID', async () => {
@@ -311,7 +293,6 @@ describe('connection client apply', () => {
       })(),
     )
     ;(globalThis as Win).__DSH_TRANSPORT__ = {
-      createApiClient: () => new FixtureApiClient(),
       fetch: vi.fn<ClientTransportHooks['fetch']>(),
       openStream,
       ownsHost: true,
@@ -428,7 +409,7 @@ describe('connection client apply', () => {
     }
   })
 
-  it('carries Goal Remotes over the same state as the client-only fixture API', async () => {
+  it('carries Goal Remotes over the client-only fixture state', async () => {
     ;(globalThis as Win).location = { hostname: 'localhost', search: '?fixture' }
     const handle = await mount()
     const created = await handle.rpc.call('/api', 'goals/create', {

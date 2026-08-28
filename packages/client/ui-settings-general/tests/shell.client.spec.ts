@@ -18,11 +18,14 @@ async function bench() {
     getSnapshot: () => ({ active: 'zh', locales: [], revision: 0 }),
     subscribe: () => () => {},
   } as never)
-  ctx.provide('connection', {
-    api: { settings: { describe: async () => ({ result: { ok: false } }) } },
-    isLoopback: false,
-  } as never)
-  ctx.provide('remote', { $on: () => () => {} } as never)
+  ctx.provide('connection', { api: {}, isLoopback: false } as never)
+  // The shell mounts ui-settings, which injects `remote.settings`; without the
+  // namespace provided its fiber parks and no slot is ever declared.
+  const settings = {
+    describe: async () => ({ ok: false, error: { code: 'internal', message: 'no settings', details: {} } }),
+  }
+  ctx.provide('remote', { $on: () => () => {}, settings } as never)
+  ctx.provide('remote.settings', settings as never)
   await ctx.plugin({ inject: [...settingsInject], apply: settingsApply }).await()
   return { ctx, slots: ctx.get('slots') as SlotRegistry }
 }
@@ -51,7 +54,9 @@ const CHILD_SPECS = {
 
 describe('ui-settings apply', () => {
   it('declares only the slot registry (a pure composition face, no locale)', () => {
-    expect(inject).toEqual(['slots', 'locale', 'connection', 'settingsScope'])
+    expect(inject).toEqual([
+      'slots', 'locale', 'connection', 'remote', 'remote.settings', 'settingsScope',
+    ])
   })
 
   it('registers the shell and declares every child slot, before or after the declaration', async () => {

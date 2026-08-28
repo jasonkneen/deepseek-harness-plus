@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-`dsh-client-ui-skill` lets users invoke skills by typing `/name` in the composer: the suggestion menu offers user-invocable skills from the `skill.list` RPC, and a pick lands the literal `/name ` text that the host then loads as the skill's instructions. Loading is deterministic: the host's pre-step boundary (`dsh-tool-skill`) recognizes the whitespace-bounded `/name` token in the sent message and injects the rendered `<skill_content>` for every entry point, so a menu pick, a hand-typed token, and a TUI/ACP prompt all load the skill the same way. Settled skill calls render in the conversation as an expandable `Instructions` card, derived only from the frozen call/result slice.
+`dsh-client-ui-skill` lets users invoke skills by typing `/name` in the composer: the suggestion menu offers user-invocable skills from the `skills/list` Remote, and a pick lands the literal `/name ` text that the host then loads as the skill's instructions. Loading is deterministic: the host's pre-step boundary (`dsh-tool-skill`) recognizes the whitespace-bounded `/name` token in the sent message and injects the rendered `<skill_content>` for every entry point, so a menu pick, a hand-typed token, and a TUI/ACP prompt all load the skill the same way. Settled skill calls render in the conversation as an expandable `Instructions` card, derived only from the frozen call/result slice.
 
 ## Table of Contents
 
@@ -29,7 +29,7 @@ Type `/` in the composer and pick a skill from the suggestions, or type `/name` 
 
 ### What the source offers
 
-Ordinary-session candidates come from the `skill.list` RPC; the host serves every user-invocable skill, and a `modelInvocable: false` entry (a `disable-model-invocation` skill, whose only entry point is this path) wears the user-only marker as a description prefix in the active language. Results filter by `startsWith(query)`. A failed `skill.list` is logged and folded into a silent menu-group drop — the menu shows only pending/ready states.
+Ordinary-session candidates come from the `skills/list` Remote; the host serves every user-invocable skill, and a `modelInvocable: false` entry (a `disable-model-invocation` skill, whose only entry point is this path) wears the user-only marker as a description prefix in the active language. Results filter by `startsWith(query)`. A failed `skills/list` call is logged and folded into a silent menu-group drop — the menu shows only pending/ready states.
 
 ### The skill tool row
 

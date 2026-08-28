@@ -3,7 +3,7 @@ import { existsSync, mkdirSync } from 'node:fs'
 import { createServer } from 'node:net'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import type { Browser, Page } from 'playwright'
+import type { Browser, Locator, Page } from 'playwright'
 
 /** The built page under test; `pnpm run test:web` rebuilds it before running. */
 export const DIST_INDEX = fileURLToPath(new URL('../dist/index.html', import.meta.url))
@@ -29,6 +29,35 @@ export const ZH_BROWSER_LOCALE = 'zh-CN'
  */
 export async function newEnglishPage(browser: Browser, height = 1000): Promise<Page> {
   return await browser.newPage({ viewport: { width: 1680, height }, locale: 'en-US' })
+}
+
+/**
+ * Expand every currently eligible Turn-process group so a Tool-focused
+ * scenario can exercise the original row contract beneath product-default
+ * compact Chat presentation.
+ * @param page - page containing the Chat view.
+ */
+export async function expandTurnProcesses(page: Page): Promise<void> {
+  const controls = page.locator('[data-turn-process]')
+  await controls.first().waitFor({ state: 'visible', timeout: 10_000 })
+  const count = await controls.count()
+  for (let index = 0; index < count; index++) {
+    const control = controls.nth(index)
+    if (await control.getAttribute('aria-expanded') !== 'true') await control.click()
+  }
+}
+
+/**
+ * Expand the Turn-process group containing one possibly hidden descendant.
+ * @param page - page containing the Chat view.
+ * @param target - descendant whose owning Turn process should open.
+ */
+export async function expandOwningTurnProcess(page: Page, target: Locator): Promise<void> {
+  const turn = await target.evaluate(element => element.closest<HTMLElement>('[data-chat-turn]')?.dataset.chatTurn)
+  if (turn === undefined || await target.isVisible()) return
+  const control = page.locator(`[data-turn-process="${turn}"]`)
+  await control.waitFor({ state: 'visible', timeout: 10_000 })
+  if (await control.getAttribute('aria-expanded') !== 'true') await control.click()
 }
 
 /** Fail loud on a stale checkout instead of testing yesterday's bundle. */
@@ -83,7 +112,7 @@ export async function connectFreshWorkspace(page: Page, root: string, name = 'wo
   await dialog.getByRole('button', { name: 'Open', exact: true }).click()
   // The pick connected the workspace: the blank session's live composer
   // replaces the locked placeholder and enables.
-  await page.locator('[data-composer-input][contenteditable="true"][data-placeholder="Describe what you want to build"]')
+  await page.locator('[data-composer-input][contenteditable="true"][data-placeholder="Describe what you want to build... / commands, @ files or sessions"]')
     .waitFor({ timeout: 15_000 })
 }
 
@@ -106,7 +135,7 @@ export async function connectFreshWorkspaceZh(page: Page, root: string, name = '
   await pathInput.fill(join(root, name))
   await pathInput.press('Enter')
   await dialog.getByRole('button', { name: '打开', exact: true }).click()
-  await page.locator('[data-composer-input][contenteditable="true"][data-placeholder="描述你想要构建的内容"]')
+  await page.locator('[data-composer-input][contenteditable="true"][data-placeholder="描述你想要构建的内容… / 调用指令 @ 文件或对话"]')
     .waitFor({ timeout: 15_000 })
 }
 

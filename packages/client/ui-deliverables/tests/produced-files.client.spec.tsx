@@ -22,7 +22,7 @@ import { apply as applyLocale, inject as localeInject } from '@deepseek-ai/dsh-c
 import type { ChatFileMentions, TurnTailOwnerProps } from '@deepseek-ai/dsh-client-ui-chat/client'
 import { makeTranslate, stubSettingsScope } from '@deepseek-ai/dsh-client-test-runtime'
 import {
-  fitProducedFiles, ProducedFiles, type ProducedFilesProps,
+  fitProducedFiles, ProducedFiles, type ProducedFilesInjected, type ProducedFilesProps,
 } from '../src/client/ProducedFiles.tsx'
 import {
   basename, deliverablesDefinition, producedFileMentions, producedForClosing, selectProducedFiles,
@@ -403,13 +403,11 @@ describe('ProducedFiles row', () => {
   const capability = (
     canOpenPath: boolean | undefined,
     isLoopback = true,
-  ): Pick<ProducedFilesProps, 'isLoopback' | 'useHostDescription'> => {
-    const description = canOpenPath === undefined
-      ? undefined
-      : { version: 'test', cwd: '/workspace', attachedSessions: 1, home: '/h', canOpenPath }
+  ): Pick<ProducedFilesProps, 'isLoopback' | 'ensureWorkspacePathOpen' | 'useWorkspacePathOpen'> => {
     return {
       isLoopback,
-      useHostDescription: selector => selector(description),
+      ensureWorkspacePathOpen: () => {},
+      useWorkspacePathOpen: selector => selector(canOpenPath),
     }
   }
 
@@ -580,14 +578,17 @@ describe('plugin registration', () => {
       name: 'root',
       children: { 'conversation.chat.turnTail': { kind: 'chain', scope: 'session' } },
     } as never, () => null)
-    const hostDescription = { getSnapshot: () => undefined, subscribe: () => () => {} }
+    const generation = { getSnapshot: () => undefined, subscribe: () => () => {} }
     ctx.provide('connection', {
-      api: { settings: {} },
       isLoopback: false,
-      hostDescription,
+      generation,
     } as never)
     // ui-theme's Appearance row binds a durable scope through these two.
-    ctx.provide('remote', { $on: () => () => {} } as never)
+    const session = {
+      canOpenWorkspacePath: () => Promise.resolve({ ok: true as const, value: true }),
+    }
+    ctx.provide('remote', { $on: () => () => {}, session } as never)
+    ctx.provide('remote.session', session as never)
     ctx.provide('settingsScope', { bind: () => stubSettingsScope().scope } as never)
     await ctx.plugin({ inject: localeInject, apply: applyLocale }).await()
 
@@ -595,7 +596,16 @@ describe('plugin registration', () => {
     await fiber.await()
     const [entry] = ctx.slots.entries('conversation.chat.turnTail')
     expect(entry).toBeDefined()
-    expect(entry?.inject?.()).toEqual({ isLoopback: false, hooks: { hostDescription } })
+    const injected = entry?.inject?.() as unknown as ProducedFilesInjected
+    expect(injected.isLoopback).toBe(false)
+    expect(typeof injected.ensureWorkspacePathOpen).toBe('function')
+    expect(injected.hooks.workspacePathOpen.getSnapshot()).toBeUndefined()
+    ctx.emit('connection/reset')
+    injected.ensureWorkspacePathOpen()
+    await vi.waitFor(() => {
+      expect(injected.hooks.workspacePathOpen.getSnapshot()).toBe(true)
+    })
+    injected.ensureWorkspacePathOpen()
 
     // The prose face is live while the plugin is: a produced turn yields a
     // resolver whose matches open through the owner-supplied opener.
@@ -616,5 +626,53 @@ describe('plugin registration', () => {
     expect(ctx.slots.entries('conversation.chat.turnTail')).toHaveLength(0)
     // Fiber teardown retracts the service: the consumer's ctx.get sees the off state.
     expect((ctx as unknown as { get(name: string): unknown }).get('chatFileMentions')).toBeUndefined()
+  })
+
+  it('queries the workspace opener lazily and replaces stale results after reconnect', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SlotRegistry).await()
+    new UiConversation(ctx, { binding: () => undefined } as never)
+    ctx.slots.register({
+      name: 'root',
+      children: { 'conversation.chat.turnTail': { kind: 'chain', scope: 'session' } },
+    } as never, () => null)
+    ctx.provide('connection', {
+      isLoopback: true,
+      generation: { getSnapshot: () => undefined, subscribe: () => () => {} },
+    } as never)
+    const first = Promise.withResolvers<{ ok: true; value: boolean }>()
+    const second = Promise.withResolvers<{ ok: true; value: boolean }>()
+    const staleFailure = Promise.withResolvers<{ ok: true; value: boolean }>()
+    const capability = vi.fn()
+      .mockReturnValueOnce(first.promise)
+      .mockReturnValueOnce(second.promise)
+      .mockReturnValueOnce(staleFailure.promise)
+      .mockRejectedValueOnce(new Error('offline'))
+    const session = { canOpenWorkspacePath: capability }
+    ctx.provide('remote', { $on: () => () => {}, session } as never)
+    ctx.provide('remote.session', session as never)
+    ctx.provide('settingsScope', { bind: () => stubSettingsScope().scope } as never)
+    await ctx.plugin({ inject: localeInject, apply: applyLocale }).await()
+    const fiber = ctx.plugin({ inject: [...inject], apply })
+    await fiber.await()
+    const entry = ctx.slots.entries('conversation.chat.turnTail')[0]
+    const injected = entry?.inject?.() as unknown as ProducedFilesInjected
+
+    injected.ensureWorkspacePathOpen()
+    injected.ensureWorkspacePathOpen()
+    expect(capability).toHaveBeenCalledOnce()
+    ctx.emit('connection/reset')
+    expect(capability).toHaveBeenCalledTimes(2)
+    first.resolve({ ok: true, value: false })
+    await Promise.resolve()
+    expect(injected.hooks.workspacePathOpen.getSnapshot()).toBeUndefined()
+    second.resolve({ ok: true, value: true })
+    await vi.waitFor(() => { expect(injected.hooks.workspacePathOpen.getSnapshot()).toBe(true) })
+
+    ctx.emit('connection/reset')
+    ctx.emit('connection/reset')
+    staleFailure.reject(new Error('stale offline'))
+    await vi.waitFor(() => { expect(injected.hooks.workspacePathOpen.getSnapshot()).toBe(false) })
+    await fiber.dispose()
   })
 })

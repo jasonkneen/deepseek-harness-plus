@@ -24,14 +24,9 @@
   - img
   - img
   - text: System prompt
-- button "Context injection webhook github webhook handled by review-pr-when-ready":
+- button "Thought for a while":
+  - text: Thought for a while
   - img
-  - img
-  - text: Context injection webhook github webhook handled by review-pr-when-ready
-- button "Context injection @deepseek-ai/dsh-system-prompt":
-  - img
-  - img
-  - text: Context injection @deepseek-ai/dsh-system-prompt
 - paragraph: "Review complete: no actionable findings."
 - button "Copy":
   - img
@@ -42,7 +37,7 @@
 - button "Branch into a new conversation":
   - img
 - text: {{clock}} Ran for {{duration}}
-- textbox "Message the agent"
+- textbox "Message or run a task... / commands, @ files or sessions"
 - button "Commands":
   - img
 - 'button "Access mode, current: Read Only"': Read Only

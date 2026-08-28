@@ -29,21 +29,21 @@ The packages below provide the Remote layer; the package READMEs own the exhaust
 | [`remotes/`](remotes/README.md) | Chooses which Host capabilities and events the Client can consume. | — |
 | [`gateway/`](gateway/README.md) | Carries typed unary calls, multiplexed streams, and forwarded Host events. | `ctx.typertGateway` / `ctx.remote` |
 | [`session-controller/`](session-controller/README.md) | Owns Session commands, history streams, live control state, and Agent/Session identity policy. | `ctx.sessionController` / `ctx.remote.session` |
+| [`settings-controller/`](settings-controller/README.md) | Owns the configuration-surface reads and writes over the settings-domain seams. | `ctx.settingsController`, `ctx.credentialsController` / `ctx.remote.settings`, `ctx.remote.credentials` |
 | [`workspace-controller/`](workspace-controller/README.md) | Owns Workspace mutations and the complete Client Workspace projection. | `ctx.workspaceController` / `ctx.remote.workspace` |
 
-Remote calls run Client → Host over the application's shared Connection. API Gateway owns Remote transport, while the two controller packages own Session and Workspace behavior. Endpoints without a Remote definition fall through to the application's API Proxy.
+Remote calls run Client → Host over the application's shared Connection. API Gateway owns Remote transport, while the controller packages own Session, configuration-surface, and Workspace behavior. Feature packages register exact Connection Fetch routes for responses that do not fit Remote invocation, such as streamed downloads.
 
 -----
 
 <a id="related-documentation"></a>
 ## Related documentation
 
-Start with the API Gateway reference to see the Remote model end to end, then the Typert subsystem page for the shared definitions, and the carrier and fallback packages for how calls travel and how endpoints without Remote definitions are served.
+Start with the API Gateway reference to see the Remote model end to end, then the Typert subsystem page for the shared definitions and Connection for the physical carrier.
 
 - [API Gateway reference](../../docs/api-gateway.md) — the current-state reference for the Typert API Gateway: programming model, generation pipeline, and runtime invocation.
 - [Typert subsystem reference](../../docs/subsystems/typert.md) — the public contracts shared by protocol, Gateway, and consumer assemblies.
 - [Connection](../client/connection/README.md) — the RPC carrier, `/api` trust fence, and response envelopes behind every Remote call.
-- [API Proxy](../host/apiproxy/README.md) — the fallback for endpoints without Remote descriptors.
 
 <a id="dev-note"></a>
 ## Dev Note

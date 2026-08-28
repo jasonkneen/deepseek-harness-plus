@@ -28,6 +28,7 @@ type AttentionState = Parameters<Parameters<QuestionComposerProps['useSessionPen
 const sessionState: SessionState = {
   sessionId: SID,
   queue: [],
+  pendingSubmissions: [],
   running: false,
   subagent: null,
   removed: false,

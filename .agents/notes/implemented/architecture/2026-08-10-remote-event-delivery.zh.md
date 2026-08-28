@@ -70,9 +70,9 @@ $on<Event extends TypertRemoteEvent>(event: Event, listener: TypertClientEventLi
 
 **契约只公开消费动词。**`ClientRemoteService` 激活时就把内部唯一的 `$events` pump 注册为 Connection generation source，与当前有无 `$on` 订阅无关；浏览器通过共享 Remote mux 打开 `$events`，进程内组合通过 `connection.rpc.open` 打开同一 logical stream。解码、精确 item 校验和订阅表派发都是 Gateway Client 的私有实现，`TypertClientRemote` 不暴露生产方方法，因此业务插件不能伪造一条 Host 事件。
 
-每次 Host 打开 `$events` 时，API Remotes source factory 先同步挂载所有 allowlist listener，Gateway 随后产出首项 `{ type: 'ready' }`，再开始迭代事件 source。`ConnectionController` 并行等待该 ready 与 `host.describe`，只有两者都成功才发布 `connected` 并允许 baseline 读取。这个顺序保证 baseline 不会跑在增量 listener 前面。
+每次 Host 打开 `$events` 时，API Remotes source factory 先同步挂载所有 allowlist listener，Gateway 随后产出首项 `{ type: 'ready', clientId, host: { home } }`，再开始迭代事件 source。`ConnectionController` 只有在该项到达后才发布 `connected`，因此 baseline 读取不会跑在增量 listener 前面。
 
-物理 mux 断开会让 logical stream 以 `RemoteStreamCarrierError` 结束；Host 返回的 Remote stream error、意外正常结束、非 ready 首项或畸形事件项也会结束当前 generation。Connection 撤回该 generation 的 `hostDescription`，在退避后重开 `$events` 和 `host.describe`；Gateway mux 只负责重建物理 WebSocket。转发事件不重放；凡正确性依赖恢复的状态，owner 必须另有查询、cursor 或 opening baseline，不能把 `$on` 当作可靠日志。
+物理 mux 断开会让 logical stream 以 `RemoteStreamCarrierError` 结束；Host 返回的 Remote stream error、意外正常结束、非 ready 首项或畸形事件项也会结束当前 generation。Connection 撤回该 generation，在退避后重开 `$events`；Gateway mux 只负责重建物理 WebSocket。转发事件不重放；凡正确性依赖恢复的状态，owner 必须另有查询、cursor 或 opening baseline，不能把 `$on` 当作可靠日志。
 
 Client 以 Remote 实例私有 Cordis key 分发。普通 `emit` 使用 `parallel()` 并隔离 listener 失败；Agent-scoped `waterfall` 在解析出的 Agent Context 上使用 `waterfall()`，允许结果、拒绝或 `next()` 委托。两类注册都归属调用方 fiber，且 Host 事件不会触发 Client 本地同名事件。
 
@@ -132,13 +132,13 @@ cancel    { type, eventId }
 
 Client 以 endpoint `$events` 和 payload `{ args: {} }` 打开 internal logical stream。Gateway 拒绝额外参数、缺失 Host source 和重复 source 注册；source 被撤回时会中止所有由该注册打开的 stream。每个 Client stream 在 `api/remotes` 中拥有独立队列与一组 allowlist listener，因此一个 Client 断开不会消费或撤销另一个 Client 的事件。
 
-Client 要求首项是带非空 `clientId` 的 `ready`；后续 item 按 discriminant 精确校验字段。普通 `emit` 的未知但结构合法事件名在没有订阅者时静默丢弃。waterfall 通过 `eventId` 关联 `$events/result`，并由 `agentId` 选择 Client Agent Context；Client 只回传可无损表示为 JSON 的结果，不在 transport 层重复解释业务字段。
+Client 要求首项是带非空 `clientId` 与 `host.home` 的 `ready`；后续 item 按 discriminant 精确校验字段。ready 项建立 Connection generation，并提供稳定的 Host 路径显示信息。普通 `emit` 的未知但结构合法事件名在没有订阅者时静默丢弃。waterfall 通过 `eventId` 关联 `$events/result`，并由 `agentId` 选择 Client Agent Context；Client 只回传可无损表示为 JSON 的结果，不在 transport 层重复解释业务字段。
 
 `$events` 是 Gateway 内部 endpoint，不进入生成的 Typert Remote descriptor，也不成为 `ctx.remote.<namespace>`。应用选择仍只存在于 `api/remotes` 的 allowlist 和 Host source；Gateway 只拥有注册、payload 校验与物理传输。
 
 ### apps/web 的 browser e2e 属于 Host 面
 
-`apps/web/tests/**` 那批 e2e 在**根 `tsconfig.host.json`** 做类型检查：它们在进程内起真 harness、直接摸 `ctx.apiProxy`、host `SessionStore.get/create/flush`、`ctx.sessionProjectionCache`。**运行时用浏览器 ≠ 类型上属于 client 程序**——把它们搬进 client 聚合会立刻报 21 条错，因为一个 program 装不下两个 face 对同一个 Context key 的合并。
+`apps/web/tests/**` 那批 e2e 在**根 `tsconfig.host.json`** 做类型检查：它们在进程内起真 harness、直接访问 `ctx.connection`、Host `SessionStore.get/create/flush` 与 `ctx.sessionProjectionCache`。**运行时用浏览器 ≠ 类型上属于 Client 程序**——把它们搬进 Client 聚合会报错，因为一个 program 装不下两个 face 对同一个 Context key 的合并。
 
 由此得到一条对本设计要紧的连带纪律：**这些测试从客户端包 import 值或类型，会把该包的整个 project——以及它引用的每个 project——拖进 Host 构建图**。`ui-settings-general`/`ui-settings-models`/`ui-permission`/`ui-commands` 四个消费者 references `api/remotes` 的 client face，而该 face 必须等 host tsdown 生成 `@deepseek-ai/dsh-goal/remote` 才能编译，于是形成构建期死锁：host tsc → api/remotes client face → `goal/remote` → host tsdown → 排在 host tsc 之后。
 
@@ -153,11 +153,10 @@ Client 要求首项是带非空 `clientId` 的 `ready`；后续 item 按 discrim
 | `api/remotes` | `src/remote-events.ts`（带 mode 的名单值）与 `src/types.ts`（键投影 + selection）双列进两个 face；Host 半注册每 Client source，并在入队前校验 JSON；Client 半继续组合生成的 Remote contribution |
 | 根 `tsconfig.base.json` | 加 `dsh-settings/types`、`dsh-credentials/types`、`dsh-api-remotes/types` 三条 `paths`，全部指向**源**平面 |
 | `dsh-commands` / `dsh-settings` / `dsh-credentials` | `interface Events` 子块移入各自 client-safe 的 `./types`（settings/credentials 新建该出口，brand 与纯类型一并移入，index 继续 re-export 并留住构造器；`files` 补 `lib/types/**/*.js`） |
-| `host/apiproxy` | 不包含 `HostFrame`、`events.host()` 或其他 Host 下行 carrier；API Proxy 不参与 Host 事件或 Connection generation |
 | `dsh-session` | `isJsonValue` 供 `api/remotes` Host source 校验每个事件参数 |
 | `client/runtime` | 删除 Host frame 到 Remote subscription table 的桥；只继续在 Connection generation 建立后发布 `connection/reset` |
 | 消费方 | Client 插件直接订阅 `ctx.remote.$on(...)`，type-only 引入 owner 事件声明并把 `'remote'` 加进 `inject` |
-| `client/connection` | 提供唯一 generation source 注册位；`ConnectionController` 以 `$events` ready 与 `host.describe` 组成世代握手，fixture 也从同一 source 产生事件 |
+| `client/connection` | 提供唯一 generation source 注册位；`ConnectionController` 发布 `$events` ready 携带的 Host 信息，fixture 也从同一 source 产生事件 |
 | `apps/web/tests` + `apps/cli` | 客户端符号镜像（见上节）；`apps/cli/tsconfig.json` 删 15 条 client 工程引用 |
 
 ## 备选方案

@@ -29,19 +29,37 @@ import type { TodoItem } from '@deepseek-ai/dsh-tool-todo/client'
 // wire-fabrication boundary (the schema layer's one-cast-point posture).
 import type { CommandId } from '@deepseek-ai/dsh-commands/brand'
 import type { CommandDescriptor, CommandExecution, CommandResult } from '@deepseek-ai/dsh-commands/types'
+import type { CredentialInfo } from '@deepseek-ai/dsh-credentials/types'
+import type { DirectoryListing as FixtureDirectoryListing } from '@deepseek-ai/dsh-host-directory-picker/types'
+import type { SettingsDescribeValue, SettingsNamespaceView } from '@deepseek-ai/dsh-settings/types'
 import { deriveEventMessage, foldSurface } from '@deepseek-ai/dsh-session/surface'
-import type {
-  ApiProxy, ClientRequest,
-  ModelProviderGroup, ModelSelection, RpcRequest, RpcResponse, RpcResult, ServerResponse,
-} from './api.ts'
-import type { RequestPayload, ResponseValue, RpcMethodMap } from '@deepseek-ai/dsh-host-apiproxy/api'
-import { AbstractApiClient, RpcId } from './api.ts'
+import type { RpcResult } from './api.ts'
 import { randomUuid } from './random-uuid.ts'
 import type {
   ClientConnectionRpc, ConnectionRpcFailure, ConnectionRpcResult,
 } from '../rpc.ts'
 
 const FIXTURE_SESSION_SEARCH_RESULT_LIMIT = 20
+
+interface ModelSelection {
+  readonly provider: string
+  readonly model: string
+  readonly reasoningEffort?: string
+}
+
+interface ModelProviderGroup {
+  readonly id: string
+  readonly name: string
+  readonly models: readonly {
+    readonly id: string
+    readonly name: string
+    readonly description?: string
+    readonly reasoning?: {
+      readonly efforts: readonly { readonly id: string; readonly name: string; readonly description?: string }[]
+      readonly defaultEffort?: string
+    }
+  }[]
+}
 
 /* jscpd:ignore-start -- The standalone fixture mirrors host timing without importing a target implementation. */
 function isFixtureTokenDelta(chunk: StreamChunk): boolean {
@@ -173,6 +191,7 @@ interface FixtureRemoteEventResult {
 interface FixtureRemoteEventReadyFrame {
   readonly type: 'ready'
   readonly clientId: string
+  readonly host: { readonly home: string }
 }
 
 interface FixtureProjectionFrame {
@@ -318,11 +337,6 @@ interface FixtureWorkspace {
   sessionIds: SessionId[]
   createdAt: string
   updatedAt: string
-}
-
-/** The fake carrier mints like a real one (business code never mints). */
-function rpcRequest<P>(payload: P): RpcRequest<P> {
-  return { rpcId: RpcId(randomUuid()), payload }
 }
 
 function text(t: string): ContentBlock[] {
@@ -548,7 +562,7 @@ const OPENAI_REASONING = {
   defaultEffort: 'medium',
 }
 
-/** Catalog served by `llm.models` (fresh copies per call). */
+/** Catalog served by `session/modelCatalog` (fresh copies per call). */
 function fixtureModelGroups(): ModelProviderGroup[] {
   return [
     {
@@ -1727,34 +1741,22 @@ class FxInbox<Value> implements StreamConn<Value> {
   }
 }
 
-/**
- * In-memory fake host: fx-alpha carries history and replay scripts; fx-beta is fx-alpha's child session (lineage indent material).
- * @param options - fixture branches for empty state and failure timing.
- * @returns an ApiProxy backed entirely by in-memory state — no host process, no network.
- */
-export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
-  return createFixtureWorld(options).api
-}
-
-/** Both fixture faces over one state graph. */
+/** Fixture RPC face over one in-memory state graph. */
 export interface FixtureWorld {
-  /** Legacy unary/stream API the fixture still answers. */
-  readonly api: ApiProxy
   /** Generic Remote caller for the endpoints business services own. */
   readonly rpc: ClientConnectionRpc
 }
 
 /**
- * Build both fixture faces so a caller can drive the Remote endpoints and the
- * legacy API against one in-memory state graph.
+ * Build the fixture RPC face over one in-memory state graph.
  * @param options - fixture branches for empty state and failure timing.
- * @returns the legacy API face and the Remote RPC face.
+ * @returns the Remote RPC face.
  */
 export function createFixtureFaces(options: FixtureOptions = {}): FixtureWorld {
   return createFixtureWorld(options)
 }
 
-/** Build the fixture's legacy API and Remote RPC faces over one state graph. */
+/** Build the fixture's Remote RPC face over one state graph. */
 function createFixtureWorld(options: FixtureOptions): FixtureWorld {
   // The resident fixture sessions all carry history, so none of them is blank.
   const sessions: FixtureSessionSummary[] = options.empty ? [] : [
@@ -1777,6 +1779,102 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
     // DeepSeek route so unrelated GUI journeys do not enter first-run setup.
     ['DEEPSEEK_API_KEY', true],
   ])
+
+  /** Canonical fixture implementation of the generated Settings Remote contract. */
+  const settingsRemotes = {
+    // Only the resolved DeepSeek address needed by first-run readiness is
+    // represented here. Fixture-backed journeys do not open its Models editor;
+    // real schema-driven forms ride the HTTP transport.
+    describe(): RpcResult<SettingsDescribeValue> {
+      return {
+        ok: true,
+        value: {
+          writable: true,
+          hasDocument: true,
+          namespaces: [{
+            ns: 'llm-deepseek',
+            schema: {},
+            value: { apiKeyEnv: 'DEEPSEEK_API_KEY' },
+            applies: 'live',
+            secrets: [{ path: ['apiKey'], set: false }],
+            revision: 0,
+          }],
+        },
+      }
+    },
+    update(ns: string): ConnectionRpcResult<SettingsNamespaceView> {
+      return {
+        ok: false,
+        error: {
+          code: 'settings-rejected',
+          message: 'fixture: the minimal readiness settings descriptor is read-only',
+          details: { ns },
+        },
+      }
+    },
+    replace(ns: string): ConnectionRpcResult<SettingsNamespaceView> {
+      return {
+        ok: false,
+        error: {
+          code: 'settings-rejected',
+          message: 'fixture: the minimal readiness settings descriptor is read-only',
+          details: { ns },
+        },
+      }
+    },
+    mutate(ns: string): ConnectionRpcResult<SettingsNamespaceView> {
+      // A Remote failure code is free-form, unlike the unary error vocabulary.
+      return {
+        ok: false,
+        error: {
+          code: 'settings-rejected',
+          message: 'fixture: no settings namespaces are registered',
+          details: { ns },
+        },
+      }
+    },
+    openSettingsDocument(): RpcResult<{ opened: true }> {
+      return { ok: true, value: { opened: true } }
+    },
+    openAgentPresetDirectory(agentPreset: string): RpcResult<
+      { opened: true } | { opened: false; path: string }
+    > {
+      const existing = fixturePresets.get(agentPreset)
+      if (existing === undefined || existing.trust === 'system') {
+        return {
+          ok: false,
+          error: {
+            code: 'agent-preset-read-only',
+            message: `agent preset "${agentPreset}" ships with the deployment`,
+            details: { agentPreset, reason: 'it ships with the deployment' },
+          },
+        }
+      }
+      return { ok: true, value: { opened: true } }
+    },
+  }
+
+  const credentialRemotes = {
+    describe(refs: readonly string[]): RpcResult<Record<string, CredentialInfo>> {
+      return {
+        ok: true,
+        value: Object.fromEntries(refs.map(ref => [ref, {
+          configured: fixtureCredentials.has(ref),
+          ...fixtureCredentials.has(ref) ? { source: 'file' } : {},
+          writable: true,
+        }])),
+      }
+    },
+    set(ref: string): RpcResult<void> {
+      fixtureCredentials.set(ref, true)
+      return { ok: true, value: undefined }
+    },
+    unset(ref: string): RpcResult<void> {
+      fixtureCredentials.delete(ref)
+      return { ok: true, value: undefined }
+    },
+  }
+
   /**
    * Preset compositions the fixture serves. Held as state rather than
    * constants so the settings editor's save and delete are exercisable: the
@@ -1790,7 +1888,6 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
   let fixtureDefaultPreset = 'standard'
   const nextTurn = new Map<SessionId, number>([[sid('fx-alpha'), 75]])
   let nextSession = 1
-  let attachedSessions = options.empty ? 0 : 1
   // Workspace entities mirroring the host registry: the fixture sessions all
   // live under one workspace, whose account carries them in attach order.
   const wid = (raw: string): WorkspaceId => raw as WorkspaceId
@@ -1915,14 +2012,6 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
     for (const conn of followConns.get(sessionId) ?? []) conn.push(entry)
   }
 
-  /** OK response echoing the caller's rpcId (contract: responses always backfill, never mint). */
-  function ok<P, T>(request: RpcRequest<P>, value: T): Promise<RpcResponse<T>> {
-    return Promise.resolve({ rpcId: request.rpcId, result: { ok: true, value } })
-  }
-  function err<P, T>(request: RpcRequest<P>, error: Extract<RpcResult<T>, { ok: false }>['error']): Promise<RpcResponse<T>> {
-    return Promise.resolve({ rpcId: request.rpcId, result: { ok: false, error } })
-  }
-
   function sessionOk<T>(value: T): Promise<ConnectionRpcResult<T>> {
     return Promise.resolve({ ok: true, value })
   }
@@ -1932,16 +2021,6 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
   }
 
   const summaryOf = (id: SessionId): FixtureSessionSummary | undefined => sessions.find(s => s.sessionId === id)
-  /** Shared session guard for sessionId-addressed catalog routes: the error
-   *  response when the session is unknown, undefined when it exists. */
-  const requireSession = (request: RpcRequest<{ sessionId: SessionId }>): Promise<RpcResponse<never>> | undefined => {
-    if (summaryOf(request.payload.sessionId) !== undefined) return undefined
-    return err<{ sessionId: SessionId }, never>(request, {
-      code: 'session-not-found',
-      message: `no session ${request.payload.sessionId}`,
-      details: { sessionId: request.payload.sessionId },
-    })
-  }
   const requireRemoteSession = (
     request: { readonly sessionId: SessionId },
   ): Promise<ConnectionRpcResult<never>> | undefined => {
@@ -2175,6 +2254,55 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
           }
         })
       return { ok: true, value }
+    },
+  }
+
+  /**
+   * Canonical fixture implementation of the generated Directory Picker Remote
+   * contract. The pick is deterministic — the keyless lanes drive the full
+   * pick-then-adopt path without an OS chooser — over the same design-mock
+   * tree the browse primitives serve.
+   */
+  const directoryPickerRemotes = {
+    pick(): ConnectionRpcResult<string | null> {
+      return { ok: true, value: `${FIXTURE_HOME}/Documents/project` }
+    },
+    list(path?: string): ConnectionRpcResult<FixtureDirectoryListing> {
+      const target = path ?? FIXTURE_HOME
+      const children = childrenOf(target)
+      if (children === undefined) {
+        return {
+          ok: false,
+          error: { code: 'directory-unreadable', message: `cannot list ${target}: not in the fixture tree`, details: { path: target } },
+        }
+      }
+      return {
+        ok: true,
+        value: {
+          path: target,
+          home: FIXTURE_HOME,
+          crumbs: crumbsOf(target),
+          entries: [...children].sort((a, b) => a.localeCompare(b))
+            .map(name => ({ name, path: target === '/' ? `/${name}` : `${target}/${name}`, hidden: name.startsWith('.') })),
+          // The fixture tree is tiny; no level ever reaches a backend bound.
+          truncated: false,
+        },
+      }
+    },
+    createDirectory(parent: string, name: string): ConnectionRpcResult<string> {
+      const children = childrenOf(parent)
+      if (children === undefined) {
+        return { ok: false, error: { code: 'directory-create-failed', message: `missing parent ${parent}`, details: { path: parent } } }
+      }
+      // Same root special case as list's entry paths: a plain join under '/'
+      // would mint '//name' and fork the tree's identity.
+      const target = parent === '/' ? `/${name}` : `${parent}/${name}`
+      if (children.includes(name)) {
+        return { ok: false, error: { code: 'directory-exists', message: `${target} already exists`, details: { path: target } } }
+      }
+      directoryTree.set(parent, [...children, name])
+      directoryTree.set(target, [])
+      return { ok: true, value: target }
     },
   }
 
@@ -2682,7 +2810,6 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
       }
       sessions.push(created)
       modelSelections.set(created.sessionId, { provider: 'deepseek-official', model: 'deepseek-v4-flash' })
-      attachedSessions += 1
       const emitSession = (): void => {
         emitRemote('api-session/added', [created])
       }
@@ -2833,9 +2960,14 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
         attachments.set(String(attachment.attachmentId), { attachment, data: block.data })
         return { type: 'image', attachment }
       })
+      // The host echoes the prompt's requestId as the user source's rpcId;
+      // the Session object retires its local submission echo on it. The
+      // user-rpc source member is declared by dsh-api-session-controller,
+      // which this standalone fixture does not import — hence the assertion.
+      const promptSource = { kind: 'user', rpcId: request.requestId } as MessageSource
       if (mode === 'steer' && replays.has(id)) {
         // Steering: the durable user/message lands inside the current turn; the replay continues.
-        append(id, { type: 'user/message', surfaceOp: 'append', data: userMessage(durable) })
+        append(id, { type: 'user/message', surfaceOp: 'append', data: userMessage(durable, promptSource) })
         return sessionOk({ accepted: true as const })
       }
       const turn = nextTurn.get(id) ?? 0
@@ -2848,7 +2980,7 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
       if (plan.wanted !== null && plan.wanted !== plan.active) {
         append(id, { type: 'plan/mode', data: { active: plan.wanted } })
       }
-      append(id, { type: 'user/message', surfaceOp: 'append', data: userMessage(durable) })
+      append(id, { type: 'user/message', surfaceOp: 'append', data: userMessage(durable, promptSource) })
       // Capacity parallel of the host token-meter's request/context record:
       // log-only, appended inside the open turn, and deduplicated against the
       // route already recorded (the fixture never varies contextWindow).
@@ -3022,7 +3154,7 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
       if (gamma !== undefined) setRunning(gamma.sessionId, !gamma.running)
     }, 5000)
     try {
-      yield { type: 'ready', clientId }
+      yield { type: 'ready', clientId, host: { home: FIXTURE_HOME } }
       if (approvalPending) yield approvalInvocation()
       if (questionPending) yield questionInvocation()
       yield* conn.drain(signal)
@@ -3259,162 +3391,6 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
     },
   }
 
-  const api: ApiProxy = {
-    host: {
-      describe: request => ok(request, {
-        version: '0.0.0-fixture', cwd: '/tmp/fixture', attachedSessions, home: FIXTURE_HOME, canOpenPath: true,
-      }),
-      // Deterministic native pick: the keyless lanes drive the full
-      // pick-then-adopt path without an OS chooser (design-mock content,
-      // same tree the browse primitives serve).
-      pickDirectory: request => ok(request, { path: `${FIXTURE_HOME}/Documents/project` }),
-      listDirectory: (request) => {
-        const target = request.payload.path ?? FIXTURE_HOME
-        const children = childrenOf(target)
-        if (children === undefined) {
-          return err(request, { code: 'directory-unreadable', message: `cannot list ${target}: not in the fixture tree`, details: { path: target } })
-        }
-        return ok(request, {
-          path: target,
-          home: FIXTURE_HOME,
-          crumbs: crumbsOf(target),
-          entries: [...children].sort((a, b) => a.localeCompare(b))
-            .map(name => ({ name, path: target === '/' ? `/${name}` : `${target}/${name}`, hidden: name.startsWith('.') })),
-          // The fixture tree is tiny; no level ever reaches a backend bound.
-          truncated: false,
-        })
-      },
-      createDirectory: (request) => {
-        const parent = request.payload.path
-        const children = childrenOf(parent)
-        if (children === undefined) {
-          return err(request, { code: 'directory-create-failed', message: `missing parent ${parent}`, details: { path: parent } })
-        }
-        // Same root special case as listDirectory's entry paths: a plain join
-        // under '/' would mint '//name' and fork the tree's identity.
-        const target = parent === '/' ? `/${request.payload.name}` : `${parent}/${request.payload.name}`
-        if (children.includes(request.payload.name)) {
-          return err(request, { code: 'directory-exists', message: `${target} already exists`, details: { path: target } })
-        }
-        directoryTree.set(parent, [...children, request.payload.name])
-        directoryTree.set(target, [])
-        return ok(request, { path: target })
-      },
-      openPath: request => ok(request, { opened: true as const }),
-    },
-    agentPresets: {
-      // Native opens are deterministic no-op successes in this fixture, so the
-      // open-directory affordance renders and the path-text fallback stays a
-      // component-test concern.
-      openDocument: (request) => {
-        const { agentPreset } = request.payload
-        const existing = fixturePresets.get(agentPreset)
-        if (existing === undefined || existing.trust === 'system') {
-          return err(request, {
-            code: 'agent-preset-read-only',
-            message: `agent preset "${agentPreset}" ships with the deployment`,
-            details: { agentPreset, reason: 'it ships with the deployment' },
-          })
-        }
-        return ok(request, { opened: true as const })
-      },
-    },
-
-    skills: {
-      list: (request) => {
-        const missing = requireSession(request)
-        if (missing !== undefined) return missing
-        return ok(request, {
-          skills: [
-            { name: 'fixture-demo', description: 'fixture 技能样本', whenToUse: '仅供 UI 目录渲染验收', modelInvocable: true },
-            { name: 'fixture-user-only', description: 'fixture 仅用户技能样本', modelInvocable: false },
-          ],
-        })
-      },
-    },
-    settings: {
-      // Only the resolved DeepSeek address needed by first-run readiness is
-      // represented here. Fixture-backed journeys do not open its Models
-      // editor; real schema-driven forms ride the HTTP transport.
-      describe: request => ok(request, {
-        writable: true,
-        hasDocument: true,
-        namespaces: [{
-          ns: 'llm-deepseek',
-          schema: {},
-          value: { apiKeyEnv: 'DEEPSEEK_API_KEY' },
-          applies: 'live',
-          secrets: [{ path: ['apiKey'], set: false }],
-          revision: 0,
-        }],
-      }),
-      // Native opens are deterministic no-op successes in this fixture, as is host.openPath.
-      openDocument: request => ok(request, { opened: true as const }),
-      update: request => err(request, {
-        code: 'settings-rejected',
-        message: 'fixture: the minimal readiness settings descriptor is read-only',
-        details: { ns: request.payload.ns },
-      }),
-      replace: request => err(request, {
-        code: 'settings-rejected',
-        message: 'fixture: the minimal readiness settings descriptor is read-only',
-        details: { ns: request.payload.ns },
-      }),
-      mutate: request => err(request, {
-        code: 'settings-rejected',
-        message: 'fixture: no settings namespaces are registered',
-        details: { ns: request.payload.ns },
-      }),
-    },
-    credentials: {
-      describe: request => ok(request, {
-        credentials: Object.fromEntries(request.payload.refs.map(ref => [ref, {
-          configured: fixtureCredentials.has(ref),
-          ...fixtureCredentials.has(ref) ? { source: 'file' } : {},
-          writable: true,
-        }])),
-      }),
-      set: (request) => {
-        fixtureCredentials.set(request.payload.ref, true)
-        return ok(request, {})
-      },
-      unset: (request) => {
-        fixtureCredentials.delete(request.payload.ref)
-        return ok(request, {})
-      },
-    },
-    llm: {
-      providers: request => ok(request, {
-        providers: [
-          { provider: 'deepseek-official', displayName: 'DeepSeek', settingsNs: 'llm-deepseek', settingsPath: [], active: true },
-          { provider: 'openai', displayName: 'openai', settingsNs: 'llm-pi-ai', settingsPath: ['providers', 'openai'], active: true, declared: false },
-          { provider: 'anthropic', displayName: 'anthropic', settingsNs: 'llm-pi-ai', settingsPath: ['providers', 'anthropic'], active: false, declared: false },
-          // One hand-declared route, so a surface reading this fixture meets
-          // the tagged shape rather than only the shipped one.
-          { provider: 'acme-gateway', displayName: 'Acme Gateway', settingsNs: 'llm-pi-ai', settingsPath: ['providers', 'acme-gateway'], active: true, declared: true },
-        ],
-      }),
-      models: request => ok(request, {
-        default: { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
-        routableProviders: ['deepseek-official', 'openai', 'acme-gateway'],
-        groups: fixtureModelGroups(),
-        failures: [],
-      }),
-      // The fixture endpoint is imaginary, so the interrogation answers the
-      // catalog it already serves — enough for a surface to exercise adopting
-      // candidates without a reachable provider.
-      discoverModels: request => ok(request, {
-        models: fixtureModelGroups().flatMap(group => group.models.map(model => ({ id: model.id, name: model.name }))),
-      }),
-    },
-    // Satisfies the ApiProxy contract type only: the browser export button
-    // hands GET /api/session.export to the native download manager, so this
-    // stub is never reached through the fixture's dispatch.
-    downloads: {
-      sessionLog: () => Promise.resolve(new Response('fixture mode does not serve session export', { status: 404 })),
-    },
-  }
-
   const rpc: ClientConnectionRpc = {
     call(channel, endpoint, payload, signal) {
       if (channel !== '/api') {
@@ -3425,8 +3401,15 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
           agentId: SessionId
           line?: string
           query?: string
+          path?: string
+          name?: string
           images?: readonly unknown[]
-          ref?: { id: string; revision: number }
+          // A goal ref and a credential reference name share this wire field name.
+          ref?: string | { id: string; revision: number }
+          refs?: readonly string[]
+          value?: string
+          ns?: string
+          settingsNs?: string
           agentPreset?: string
           from?: string
           id?: string
@@ -3442,6 +3425,10 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
         case 'commands/execute': return Promise.resolve(commandRemotes.execute(sessionId, args.line as string, args.images ?? []))
         case 'fileReferences/list': return Promise.resolve(referenceRemotes.files(sessionId, args.query ?? ''))
         case 'sessionReferenceResolver/candidates': return Promise.resolve(referenceRemotes.sessions(sessionId, args.query ?? ''))
+        case 'directoryPicker/pick': return Promise.resolve(directoryPickerRemotes.pick())
+        case 'directoryPicker/list': return Promise.resolve(directoryPickerRemotes.list(args.path))
+        case 'directoryPicker/createDirectory':
+          return Promise.resolve(directoryPickerRemotes.createDirectory(args.path ?? '', args.name ?? ''))
         case 'goals/create': return Promise.resolve(goalRemotes.create(sessionId, {
           objective: (request as { objective?: string } | undefined)?.objective as string,
           ...(request as { maxGoalRounds?: number } | undefined)?.maxGoalRounds === undefined
@@ -3473,6 +3460,65 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
           },
         })
         case 'subagents/interruptByParent': return Promise.resolve({ ok: true, value: { accepted: true } })
+        case 'credentials/describe': return Promise.resolve(credentialRemotes.describe(args.refs ?? []))
+        case 'credentials/set': return Promise.resolve(credentialRemotes.set(args.ref as string))
+        case 'credentials/unset': return Promise.resolve(credentialRemotes.unset(args.ref as string))
+        case 'settings/describe': return Promise.resolve(settingsRemotes.describe())
+        case 'settings/canOpenAgentPresetDirectory': return Promise.resolve({ ok: true, value: true })
+        case 'settings/openSettingsDocument': return Promise.resolve(settingsRemotes.openSettingsDocument())
+        case 'settings/openAgentPresetDirectory': return Promise.resolve(
+          settingsRemotes.openAgentPresetDirectory(args.agentPreset as string),
+        )
+        case 'skills/list': {
+          const skillRequest = request as { readonly sessionId: SessionId }
+          const missing = requireRemoteSession(skillRequest)
+          if (missing !== undefined) return missing
+          return sessionOk({
+            skills: [
+              { name: 'fixture-demo', description: 'fixture 技能样本', whenToUse: '仅供 UI 目录渲染验收', modelInvocable: true },
+              { name: 'fixture-user-only', description: 'fixture 仅用户技能样本', modelInvocable: false },
+            ],
+          })
+        }
+        case 'session/openWorkspacePath': {
+          return sessionOk({ opened: true as const })
+        }
+        case 'session/canOpenWorkspacePath': return Promise.resolve({ ok: true, value: true })
+        case 'session/modelCatalog': return Promise.resolve({
+          ok: true,
+          value: {
+            default: { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
+            routableProviders: ['deepseek-official', 'openai', 'acme-gateway'],
+            groups: fixtureModelGroups(),
+            failures: [],
+          },
+        })
+        case 'llm/listProviders': return Promise.resolve({
+          ok: true,
+          value: [
+            { id: 'deepseek-official', name: 'DeepSeek' },
+            { id: 'openai', name: 'openai' },
+            { id: 'acme-gateway', name: 'Acme Gateway' },
+          ],
+        })
+        case 'llm/listConfigurableProviders': return Promise.resolve({
+          ok: true,
+          value: [
+            { provider: 'deepseek-official', displayName: 'DeepSeek', settingsNs: 'llm-deepseek', settingsPath: [] },
+            { provider: 'openai', displayName: 'openai', settingsNs: 'llm-pi-ai', settingsPath: ['providers', 'openai'], declared: false },
+            { provider: 'anthropic', displayName: 'anthropic', settingsNs: 'llm-pi-ai', settingsPath: ['providers', 'anthropic'], declared: false },
+            { provider: 'acme-gateway', displayName: 'Acme Gateway', settingsNs: 'llm-pi-ai', settingsPath: ['providers', 'acme-gateway'], declared: true },
+          ],
+        })
+        // The fixture endpoint is imaginary, so interrogation answers the
+        // catalog it already serves without a network request.
+        case 'llm/discoverModels': return Promise.resolve({
+          ok: true,
+          value: fixtureModelGroups().flatMap(group => group.models.map(model => ({ id: model.id, name: model.name }))),
+        })
+        case 'settings/update': return Promise.resolve(settingsRemotes.update(args.ns as string))
+        case 'settings/replace': return Promise.resolve(settingsRemotes.replace(args.ns as string))
+        case 'settings/mutate': return Promise.resolve(settingsRemotes.mutate(args.ns as string))
         case 'session/list': return sessionApi.list(
           args._request as Parameters<FixtureSessionApi['list']>[0],
         )
@@ -3544,78 +3590,15 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
       }
     },
   }
-  return { api, rpc }
+  return { rpc }
 }
 
 /**
- * Fixture platform subclass: there is no HTTP at all, so instead of a doFetch transport it
- * overrides the legacy protocol-level call virtual to dispatch
- * straight into the in-memory ApiProxy while still minting rpcIds, fabricating
- * the request/response envelopes, and feeding the same tap as a real carrier. TODO: delete when the fixture
- * moves to the isomorphic pipeline (InProcessApiClient over toFetchHandler(fixtureImpl)).
+ * Build the browser fixture transport from the current page's query switches.
+ * @returns an in-memory Connection RPC transport.
  */
-export class FixtureApiClient extends AbstractApiClient {
-  private readonly api: ApiProxy
-  /** Generic Remote caller backed by the same in-memory state as the legacy fixture API. */
-  readonly rpc: ClientConnectionRpc
-
-  constructor() {
-    super()
-    const world = createFixtureWorld(fixtureOptionsFromLocation())
-    this.api = world.api
-    this.rpc = world.rpc
-  }
-
-  protected doFetch(): Promise<Response> {
-    throw new Error('FixtureApiClient overrides all protocol paths; doFetch must be unreachable')
-  }
-
-  protected override async callUnary<K extends keyof RpcMethodMap>(
-    method: K,
-    payload: RequestPayload<K>,
-    signal?: AbortSignal,
-  ): Promise<RpcResponse<ResponseValue<K>>> {
-    const request = rpcRequest(payload)
-    const full: ClientRequest = { type: 'client-request', rpcId: request.rpcId, method, payload }
-    this.onEnvelope(full)
-    const response = await this.dispatch(
-      method,
-      request as RpcRequest<never>,
-      signal ?? new AbortController().signal,
-    ) as RpcResponse<ResponseValue<K>>
-    const fullResponse: ServerResponse = { type: 'server-response', rpcId: response.rpcId, result: response.result }
-    this.onEnvelope(fullResponse)
-    return response
-  }
-
-  /** Method-key dispatch into the in-memory contract impl (a real carrier routes by URL path instead). */
-  private dispatch(
-    method: keyof RpcMethodMap,
-    request: RpcRequest<never>,
-    signal: AbortSignal,
-  ): Promise<RpcResponse<unknown>> {
-    switch (method) {
-      case 'host.describe': return this.api.host.describe(request)
-      case 'host.pickDirectory': return this.api.host.pickDirectory(request, new AbortController().signal)
-      case 'host.listDirectory': return this.api.host.listDirectory(request, new AbortController().signal)
-      case 'host.createDirectory': return this.api.host.createDirectory(request)
-      case 'host.openPath': return this.api.host.openPath(request, new AbortController().signal)
-      case 'skill.list': return this.api.skills.list(request)
-      case 'agentPreset.openDocument': return this.api.agentPresets.openDocument(request, new AbortController().signal)
-      case 'settings.describe': return this.api.settings.describe(request)
-      case 'settings.openDocument': return this.api.settings.openDocument(request, signal)
-      case 'settings.update': return this.api.settings.update(request)
-      case 'settings.replace': return this.api.settings.replace(request)
-      case 'settings.mutate': return this.api.settings.mutate(request)
-      case 'credentials.describe': return this.api.credentials.describe(request)
-      case 'credentials.set': return this.api.credentials.set(request)
-      case 'credentials.unset': return this.api.credentials.unset(request)
-      case 'llm.providers': return this.api.llm.providers(request)
-      case 'llm.models': return this.api.llm.models(request)
-      case 'llm.discoverModels': return this.api.llm.discoverModels(request, signal)
-    }
-  }
-
+export function createFixtureConnectionRpc(): ClientConnectionRpc {
+  return createFixtureWorld(fixtureOptionsFromLocation()).rpc
 }
 
 /** Browser query mapping; direct unit callers pass FixtureOptions explicitly. */

@@ -22,15 +22,13 @@ export class SessionControlController {
   /** @param ctx - Host context carrying live Agent, projection, and jobs services. */
   constructor(private readonly ctx: Context) {
     ctx.on('session/event', (session, event) => { this.onSessionEvent(session, event) })
-    ctx.inject(['sessionProjections'], (projectionCtx) => {
-      projectionCtx.sessionProjections.onChanged((session, key, value, seq) => {
-        this.broadcast({
-          type: 'projection',
-          sessionId: session.id,
-          key,
-          value: value as JsonValue,
-          seq,
-        })
+    ctx.sessionProjections.onChanged((session, key, value, seq) => {
+      this.broadcast({
+        type: 'projection',
+        sessionId: session.id,
+        key,
+        value: value as JsonValue,
+        seq,
       })
     })
     ctx.inject(['jobs'], (jobsCtx) => {
@@ -83,17 +81,14 @@ export class SessionControlController {
   private projectionBaseline(
     sessions: readonly Session[],
   ): Readonly<Record<SessionId, SessionProjectionBaseline>> {
-    const registry = this.ctx.get('sessionProjections')
     const blocks = Object.create(null) as Record<SessionId, SessionProjectionBaseline>
     for (const session of sessions) {
-      const snapshot = registry?.snapshot(session)
-      blocks[session.id] = snapshot === undefined
-        ? { asOfSeq: session.seq - 1, values: {} }
-        : {
-          asOfSeq: snapshot.asOfSeq,
-          // Every projection definition validates its value before snapshot publication.
-          values: snapshot.values as SessionProjectionValues,
-        }
+      const snapshot = this.ctx.sessionProjections.snapshot(session)
+      blocks[session.id] = {
+        asOfSeq: snapshot.asOfSeq,
+        // Every projection definition validates its value before snapshot publication.
+        values: snapshot.values as SessionProjectionValues,
+      }
     }
     return blocks
   }
@@ -188,14 +183,22 @@ function queueItems(
     ...project('next-turn').map(message => ({
       id: message.id,
       placement: 'queued' as const,
+      ...promptRpcId(message),
       message: { id: message.id, content: message.content as unknown as JsonValue[] },
     })),
     ...project('next-step').map(message => ({
       id: message.id,
       placement: message.source.kind === 'user' ? 'steering' as const : 'context' as const,
+      ...promptRpcId(message),
       message: { id: message.id, content: message.content as unknown as JsonValue[] },
     })),
   ]
+}
+
+/** Prompt-RPC identity carried by a browser-submitted message's user source. */
+function promptRpcId(message: UserMessage): Pick<SessionQueuedItem, 'rpcId'> {
+  const source = message.source
+  return source.kind === 'user' && 'rpcId' in source ? { rpcId: source.rpcId } : {}
 }
 
 function jobView(job: JobSnapshot): SessionJob {

@@ -27,7 +27,7 @@
       "path": "../../client/modules"
     },
     {
-      "path": "../../host/apiproxy"
+      "path": "../../client/connection/tsconfig.host.json"
     },
     {
       "path": "../../host/webserver"

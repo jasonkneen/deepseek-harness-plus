@@ -76,6 +76,7 @@ function createSessionsBench(_ctx: Context): SessionsBench {
       const snapshot = createSnapshotStore<SessionSnapshot>({
         sessionId: id,
         queue: [],
+        pendingSubmissions: [],
         running: false,
         subagent: null,
         removed: false,

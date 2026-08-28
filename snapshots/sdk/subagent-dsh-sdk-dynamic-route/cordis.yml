@@ -35,12 +35,19 @@
         env:
           DSH_TELEMETRY_DISABLED: '1'
 
+    - id: subagent-model-selection-settings
+      name: '@deepseek-ai/dsh-tool-subagent/model-selection-settings'
+      config:
+        enabled: true
+        allowedModels:
+          - provider: mock
+            model: mock-routed
+
     - id: tool-subagent-dsh-sdk
-      name: '@deepseek-ai/dsh-tool-subagent'
+      name: '../../../packages/subagent/subagent-dsh-sdk/tests/fixtures/loader/scoped-tool-subagent.ts'
       config:
         provider: dsh-sdk
         toolName: subagent
-        enableModelSelection: true
         enableRunInBackground: false
         agentOptions:
           maxTokens: 777

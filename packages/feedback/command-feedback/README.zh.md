@@ -45,7 +45,7 @@ kind: "package-reference"
 | 披露的状态 | 确认文本中的句子 |
 |---|---|
 | `full` | `Session sharing is enabled.` |
-| `feedback-only` | `Session sharing is feedback-gated; recording feedback releases the session prefix for sharing.` |
+| `feedback-only` | `Session sharing is feedback-gated; recording feedback uploads the session records not yet shared.` |
 | `disabled` | `Session sharing is disabled.` |
 | 无遥测服务 | `Session sharing is not configured.` |
 

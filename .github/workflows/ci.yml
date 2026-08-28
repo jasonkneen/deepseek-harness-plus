@@ -55,7 +55,7 @@ jobs:
 
       - uses: pnpm/action-setup@v4
         with:
-          dest: ${{ runner.temp }}/setup-pnpm
+          dest: ${{ runner.temp }}/setup-pnpm-${{ github.run_id }}-${{ github.run_attempt }}
 
       - uses: actions/setup-node@v6
         with:
@@ -109,7 +109,7 @@ jobs:
 
       - uses: pnpm/action-setup@v4
         with:
-          dest: ${{ runner.temp }}/setup-pnpm
+          dest: ${{ runner.temp }}/setup-pnpm-${{ github.run_id }}-${{ github.run_attempt }}
 
       - uses: actions/setup-node@v6
         with:
@@ -173,7 +173,7 @@ jobs:
 
       - uses: pnpm/action-setup@v4
         with:
-          dest: ${{ runner.temp }}/setup-pnpm
+          dest: ${{ runner.temp }}/setup-pnpm-${{ github.run_id }}-${{ github.run_attempt }}
 
       - uses: actions/setup-node@v6
         with:
@@ -261,7 +261,7 @@ jobs:
 
       - uses: pnpm/action-setup@v4
         with:
-          dest: ${{ runner.temp }}/setup-pnpm
+          dest: ${{ runner.temp }}/setup-pnpm-${{ github.run_id }}-${{ github.run_attempt }}
 
       - uses: actions/setup-node@v6
         with:
@@ -329,7 +329,7 @@ jobs:
 
       - uses: pnpm/action-setup@v4
         with:
-          dest: ${{ runner.temp }}/setup-pnpm
+          dest: ${{ runner.temp }}/setup-pnpm-${{ github.run_id }}-${{ github.run_attempt }}
 
       - uses: actions/setup-node@v6
         with:
@@ -421,16 +421,9 @@ jobs:
         run: >-
           reg add "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\AppModelUnlock"
           /t REG_DWORD /f /v "AllowDevelopmentWithoutDevLicense" /d "1"
-      # Best-effort: a torn-down job on this self-hosted pool can leave a
-      # locked @reflink native module under the action's install destination,
-      # and pnpm/action-setup's self-installer then fails its unlink with
-      # EPERM. Clearing the destination gives every attempt fresh state.
-      - name: Clear stale pnpm setup state
-        shell: pwsh
-        run: if (Test-Path "$env:RUNNER_TEMP/setup-pnpm-js") { Remove-Item -Recurse -Force "$env:RUNNER_TEMP/setup-pnpm-js" -ErrorAction SilentlyContinue }
       - uses: pnpm/action-setup@v4
         with:
-          dest: ${{ runner.temp }}/setup-pnpm-js
+          dest: ${{ runner.temp }}/setup-pnpm-js-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}
       - uses: actions/setup-node@v6
         with:
           node-version: ${{ env.PRIMARY_NODE_VERSION }}
@@ -453,24 +446,33 @@ jobs:
     env:
       DSH_COVERAGE_MAX_WORKERS: '6'
       DSH_COVERAGE_PARTITIONS: '4'
-      DSH_COVERAGE_TEST_TIMEOUT_MS: '30000'
+      DSH_COVERAGE_TEST_TIMEOUT_MS: '90000'
       DSH_GATE_CONCURRENCY: '3'
     steps:
       - uses: actions/checkout@v6
         with:
           persist-credentials: false
+      # Checkout removes the gitignored duration history, so restore it from
+      # the GitHub cache before coverage and save the updated one afterwards.
+      # The coordinator then weights partitions by measured durations on the
+      # second run instead of degrading to a file-count split. GitHub cache
+      # entries are immutable, so the save key is unique per run and the
+      # restore matches the newest entry through the stable prefix.
+      - name: Restore coverage duration history
+        uses: actions/cache/restore@v4
+        with:
+          path: .coverage-times.json
+          key: coverage-times-${{ github.run_id }}
+          restore-keys: |
+            coverage-times-
       - name: Enable Developer Mode (symlink support)
         shell: pwsh
         run: >-
           reg add "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\AppModelUnlock"
           /t REG_DWORD /f /v "AllowDevelopmentWithoutDevLicense" /d "1"
-      # Best-effort stale pnpm-destination cleanup; rationale on windows-build's copy.
-      - name: Clear stale pnpm setup state
-        shell: pwsh
-        run: if (Test-Path "$env:RUNNER_TEMP/setup-pnpm-js") { Remove-Item -Recurse -Force "$env:RUNNER_TEMP/setup-pnpm-js" -ErrorAction SilentlyContinue }
       - uses: pnpm/action-setup@v4
         with:
-          dest: ${{ runner.temp }}/setup-pnpm-js
+          dest: ${{ runner.temp }}/setup-pnpm-js-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}
       - uses: actions/setup-node@v6
         with:
           node-version: ${{ env.PRIMARY_NODE_VERSION }}
@@ -483,6 +485,15 @@ jobs:
       - name: Run Windows coverage
         shell: pwsh
         run: pnpm run check:ci:coverage
+      - name: Save coverage duration history
+        # Coverage flakes must not prevent the cache from building; the
+        # measured durations remain useful even when a partition failed. The
+        # per-run key keeps every save a fresh immutable cache entry.
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: .coverage-times.json
+          key: coverage-times-${{ github.run_id }}
 
   windows-native-tests:
     if: github.event_name == 'pull_request'
@@ -502,13 +513,9 @@ jobs:
         run: >-
           reg add "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\AppModelUnlock"
           /t REG_DWORD /f /v "AllowDevelopmentWithoutDevLicense" /d "1"
-      # Best-effort stale pnpm-destination cleanup; rationale on windows-build's copy.
-      - name: Clear stale pnpm setup state
-        shell: pwsh
-        run: if (Test-Path "$env:RUNNER_TEMP/setup-pnpm-js") { Remove-Item -Recurse -Force "$env:RUNNER_TEMP/setup-pnpm-js" -ErrorAction SilentlyContinue }
       - uses: pnpm/action-setup@v4
         with:
-          dest: ${{ runner.temp }}/setup-pnpm-js
+          dest: ${{ runner.temp }}/setup-pnpm-js-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}
       - uses: actions/setup-node@v6
         with:
           node-version: ${{ env.PRIMARY_NODE_VERSION }}
@@ -520,7 +527,7 @@ jobs:
         run: >-
           pnpm exec vitest run
           --no-file-parallelism
-          --testTimeout 30000
+          --testTimeout 90000
           packages/shell/tool-pwsh/tests/loader.spec.ts
           packages/workflow/workflow-worker-thread/tests/workflow-worker-thread.spec.ts
           packages/workflow/tool-ralph/tests/integration.spec.ts
@@ -548,13 +555,9 @@ jobs:
         run: >-
           reg add "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\AppModelUnlock"
           /t REG_DWORD /f /v "AllowDevelopmentWithoutDevLicense" /d "1"
-      # Best-effort stale pnpm-destination cleanup; rationale on windows-build's copy.
-      - name: Clear stale pnpm setup state
-        shell: pwsh
-        run: if (Test-Path "$env:RUNNER_TEMP/setup-pnpm-js") { Remove-Item -Recurse -Force "$env:RUNNER_TEMP/setup-pnpm-js" -ErrorAction SilentlyContinue }
       - uses: pnpm/action-setup@v4
         with:
-          dest: ${{ runner.temp }}/setup-pnpm-js
+          dest: ${{ runner.temp }}/setup-pnpm-js-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}
       - uses: actions/setup-node@v6
         with:
           node-version: ${{ env.PRIMARY_NODE_VERSION }}

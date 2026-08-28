@@ -44,7 +44,11 @@
     - img
   - button "减小字号":
     - img
-  - text: px 繁忙时 Enter 键行为 仅在智能体运行时生效；Cmd/Ctrl+Enter 使用另一行为
+  - text: px 对话显示 控制已完成轮次的过程内容
+  - button "Compact":
+    - text: Compact
+    - img
+  - text: 繁忙时 Enter 键行为 仅在智能体运行时生效；Cmd/Ctrl+Enter 使用另一行为
   - button "排队发送":
     - text: 排队发送
     - img

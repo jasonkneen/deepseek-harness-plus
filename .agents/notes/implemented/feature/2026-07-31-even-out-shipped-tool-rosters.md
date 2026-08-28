@@ -52,7 +52,7 @@ Beyond the committed tests, both surfaces were driven against a real key from th
 
 **Sandbox the TUI in the same change.** Rejected as a separate decision that does not belong in a roster change: the TUI mounts unrestricted executors, and replacing them alters what an existing surface does rather than what it offers. That decision needs its own evidence — not least because the TUI has no `approval/request` answerer, so an escalation there fails closed instead of prompting.
 
-**Enable Code Mode.** Its trust posture is bash-equivalent by design and its tool calls pass the same `tools/pre-execute` gate as bash, so it is not the same call as the model-code tools above. Rejected here anyway: `both` changes every model-visible request on both surfaces, and `code` replaces the wire rather than adding to it — either is a presentation decision, not a roster one.
+**Enable PTC mode.** Its trust posture is bash-equivalent by design and its tool calls pass the same `tools/pre-execute` gate as bash, so it is not the same call as the model-code tools above. Rejected here anyway: `both` changes every model-visible request on both surfaces, and `ptc` replaces the wire rather than adding to it — either is a presentation decision, not a roster one.
 
 **Mount an MCP server by default.** Rejected because a shipped default would have to name one, and any choice spawns a third-party child process on every user's machine outside the sandbox. The dependency ships instead.
 

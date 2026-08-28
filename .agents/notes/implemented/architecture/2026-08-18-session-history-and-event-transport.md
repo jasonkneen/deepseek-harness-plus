@@ -62,21 +62,23 @@ API Proxy owns neither the Session or Workspace Remote namespace nor the Host do
 
 The browser's Client Remote plugin starts `RemoteStreamMuxClient` idempotently on activation and connects to `/api/remote.mux` immediately. The physical WebSocket remains resident even when there is no business logical stream.
 
+The Host sends one RFC 6455 Ping control frame to every open mux socket at the configured `websocketHeartbeatIntervalMs` interval (30 seconds by default). The browser replies with Pong at the protocol layer; neither control frame enters the Remote stream JSON union or changes Connection generation state. The Host imposes no Pong deadline, so half-open detection remains with TCP and network intermediaries.
+
 After an initial connection failure or the loss of a connected socket, the mux rebuilds the physical connection with capped jittered backoff. Logical streams not yet opened share that reconnect loop; streams already open end their current physical generation with `RemoteStreamCarrierError`.
 
 In-process `connection.rpc.open` uses the same logical endpoint semantics while bypassing the browser WebSocket mux.
 
 The Gateway-internal `$events` logical stream is the sole generation source for `ConnectionHandle`. It does not depend on whether any business `$on` subscription exists, so connection health does not vary with the number of UI listeners.
 
-The Host event source installs incremental listeners synchronously before returning its first frame. Gateway then sends `{ type: 'ready' }` with a `clientId`; this frame proves that the current generation can receive increments.
+The Host event source installs incremental listeners synchronously before returning its first frame. Gateway then sends `{ type: 'ready', clientId, host: { home } }`; this frame proves that the current generation can receive increments and carries the stable Host path-display fact.
 
-`ConnectionController` waits for `$events` readiness and `host.describe` in parallel. It publishes `connected` only after both complete, so a Session or Workspace baseline cannot be read before Host incremental listeners are ready.
+`ConnectionController` publishes `connected` only after `$events` readiness, so a Session or Workspace baseline cannot be read before Host incremental listeners are ready.
 
-Unexpected normal completion of `$events`, a Host error, a malformed opening frame, or a carrier failure ends the current Connection generation. Connection withdraws `hostDescription`, then re-establishes `$events` and `host.describe` after backoff.
+Unexpected normal completion of `$events`, a Host error, a malformed opening frame, or a carrier failure ends the current Connection generation. Connection withdraws the generation, then re-establishes `$events` after backoff.
 
 Gateway stream generation, Connection generation, and a Session business open epoch are three independent counters: the first identifies physical replacement of one logical stream, the second identifies a Host-availability handshake, and the last prevents an obsolete Session open from writing into current state.
 
-Plugin disposal stops backoff, cancels candidate and active sockets, ends logical streams, and awaits quiescence of background loops and consumers.
+Host plugin disposal stops the heartbeat timer, terminates mux sockets, and waits for active iterators. Client plugin disposal stops backoff, cancels candidate and active sockets, ends logical streams, and awaits quiescence of background loops and consumers.
 
 ### General Remote stream model
 
@@ -134,7 +136,7 @@ If a page request is canceled with its physical carrier generation, the journal 
 
 `packages/api/session-controller` provides Host `ctx.sessionController` and the generated `ctx.remote.session` namespace.
 
-It owns Session list, search, create, selectModel, rename, fork, prompt, attachment, updateQueue, cancel, page, follow, and control. The Host-generation model catalog is exposed separately through `llm.models` because it is not Session-specific.
+It owns Session list, search, create, selectModel, rename, fork, prompt, attachment, updateQueue, cancel, page, follow, and control. The Host-generation model catalog is exposed separately through `session/modelCatalog` because it is not Session-specific.
 
 The package separates agent, commands, control, history, and list controllers internally, but Session identity resolution, activation policy, subagent ownership, and Remote error projection have one public owner.
 
@@ -320,15 +322,17 @@ API Proxy carries only independent business APIs it owns. Session, Workspace, Re
 
 **Use an independent physical WebSocket or duplex stream for Remote Event.** Gateway mux already provides authenticated upgrade, multiplexing, cancellation, error mapping, and reconnect. Downlink `$events` plus HTTP `$events/result` expresses request/response without a third connection.
 
+**Send application-level JSON heartbeat frames.** This would expand the strict Remote stream message union and require browser handling for traffic with no business meaning. WebSocket Ping/Pong provides carrier activity without changing logical-stream semantics.
+
 **Retain API Proxy's Host mux.** This keeps the handwritten union, schema, response envelope, and second stream lifecycle, and prevents Session and Workspace Controllers from owning their data protocols independently.
 
 **Update Session list time from aggregate `session/event`.** List correctness would depend on which Sessions a browser consumes and would mistake arbitrary plugin events for user activity. The durable `lastPromptAt` projection expresses the ordering fact directly.
 
 ## Verification
 
-Gateway mux tests pin connection without logical streams, idle residency, initial-failure and disconnect recovery, active-stream carrier failure, cancellation, and no reconnect after disposal.
+Gateway mux tests pin connection without logical streams, idle residency, configurable Ping/Pong without application messages, initial-failure and disconnect recovery, active-stream carrier failure, cancellation, and no reconnect after disposal.
 
-Connection tests pin missing, duplicate, and withdrawn generation sources; the race between `$events` ready and `host.describe`; and description withdrawal and rebuilding after generation failure.
+Connection tests pin missing, duplicate, and withdrawn generation sources, readiness timeout, and generation withdrawal and rebuilding after failure.
 
 `RemoteStream` tests pin single consumption, retry reset after opening acceptance, generation-only `restart()`, no retry for terminal errors, and disposal quiescence.
 
@@ -364,6 +368,8 @@ Durable logs repair a missing suffix by sequence number and page; Session contro
 
 Gateway owns only transport, generation, pending waterfalls, and strict wire validation, not Session or Workspace business fields. A domain Controller supplies only openers, cursor rules, baseline reducers, and error presentation.
 
+Each resident browser connection adds one empty Ping/Pong exchange per configured interval. Deployments can shorten the interval for stricter idle timeouts without changing the Remote stream protocol or browser code.
+
 Session and Workspace Host APIs, stream adapters, and Client data models each have an explicit owner. API Proxy is no longer their intermediary.
 
 The general stream objects add three explicit layers while deleting the retry, cancellation, generation, baseline, and gap-repair shells previously duplicated by each Controller.
@@ -372,4 +378,4 @@ Remote waterfalls preserve first claim across multiple Clients, continuation of 
 
 This decision extends the allowlist and single Cordis-signature design from [Remote event delivery](2026-08-10-remote-event-delivery.md): ordinary notifications use `emit`, while Agent-scoped async waterfalls use the same `ctx.remote.$on` surface with explicit `waterfall` mode. It creates no second invocation map.
 
-This decision takes over the Session, Workspace, and Host-event carriers retained by [simple unary API Proxy migration](../../proposed/architecture/2026-08-10-unary-apiproxy-remote-migration.md) while preserving the complete jobs snapshot, process-local lifecycle, and “observation does not resume an Agent” semantics required by [background job display](../feature/2026-08-08-web-background-job-display.md).
+This decision takes over the Session, Workspace, and Host-event carriers retained by [simple unary API Proxy migration](2026-08-10-unary-apiproxy-remote-migration.md) while preserving the complete jobs snapshot, process-local lifecycle, and “observation does not resume an Agent” semantics required by [background job display](../feature/2026-08-08-web-background-job-display.md).

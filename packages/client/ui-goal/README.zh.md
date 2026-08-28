@@ -27,9 +27,9 @@ kind: "package-reference"
 
 与 `ui-conversation` 及 goal 领域包一起挂载本插件；只要会话存在目标，条带就会作为 composer 上下文堆栈的第二张卡片出现（位于 Todo 之后、Queue 之前）。active 的 goal 提供暂停动作；paused 的提供恢复；编辑重写目标文本；清除移除目标，并在投影追上之前抑制条带。
 
-### 命令输入气泡
+### 指令输入气泡
 
-每条持久的 `/goal` 运行都投影为一个右对齐的等宽用户样式气泡，标签为 `Command input`（或 `命令输入`），渲染在通用命令结果行之前。它不含时间戳、复制或分支操作，重新加载时会依据运行记录重建。
+每条持久的 `/goal` 运行都投影为一个右对齐的等宽用户样式气泡，标签为 `Command input`（或 `指令输入`），渲染在通用命令结果行之前。它不含时间戳、复制或分支操作，重新加载时会依据运行记录重建。
 
 ### 失败
 
@@ -43,7 +43,7 @@ kind: "package-reference"
 <details>
 <summary>实现细节——点击展开</summary>
 
-条带是投影模式：活目标经 `useProjection('goal')` 到达（由历史尾页播种、`session/projection` 帧更新），因此插件不持有领域 store、不设刷新链、不挂事件监听。注入面只携带四个变更动词，经 `ctx.remote.goals` 调用；每个动词在调用时从会话当前投影值读取 CAS ref，比较并交换（RPC 的 CAS）就是陈旧性护栏。由于 React 的 pending 渲染无法拦住同一帧内的点击，条带会同步为变更建立 single-flight 防护。命令输入投影是独立的 Conversation Definition，在通用命令结果 Node 之前构建 `command-input` Chat Node；它绝不创建 `user/message` 或模型轮次。
+条带是投影模式：活目标经 `useProjection('goal')` 到达（由历史尾页播种、`session/projection` 帧更新），因此插件不持有领域 store、不设刷新链、不挂事件监听。注入面只携带四个变更动词，经 `ctx.remote.goals` 调用；每个动词在调用时从会话当前投影值读取 CAS ref，比较并交换（RPC 的 CAS）就是陈旧性护栏。由于 React 的 pending 渲染无法拦住同一帧内的点击，条带会同步为变更建立 single-flight 防护。指令输入投影是独立的 Conversation Definition，在通用命令结果 Node 之前构建 `command-input` Chat Node；它绝不创建 `user/message` 或模型轮次。
 
 </details>
 

@@ -10,9 +10,9 @@ web GUI 的「打开本地文件夹」流程被焊死在一种交互上：`host.
 
 ## 决策
 
-在 `packages/host/` 落一个三包能力 seam——`directory-picker`（Service Definition）、`directory-picker-native`、`directory-picker-browse`（后端）——唯一约定方法 `capability()` 返回**可辨识联合**：`{ kind: 'native', pick(signal) }` 或 `{ kind: 'browse', list(path?), createDirectory(path, name) }`。网关（`dsh-host-apiproxy`）注入 `directoryPicker`，提供对应的 RPC，另一种 kind 的调用以 `directory-picker-unavailable` 应答。联合之所以可辨识，是因为后端差异在**交互形态**——压平成统一方法集会逼每个后端伪装另一方的形态。
+在 `packages/host/` 落一个三包能力 seam——`directory-picker`（Service Definition）、`directory-picker-native`、`directory-picker-browse`（后端）——唯一约定方法 `capability()` 返回**可辨识联合**：`{ kind: 'native', pick(signal) }` 或 `{ kind: 'browse', list(path?), createDirectory(path, name) }`。`dsh-api-workspace-controller` 中的 `DirectoryPickerController` 注入 `directoryPicker`，提供匹配的生成 Remote 方法，另一种 kind 的调用以 `directory-picker-unavailable` 应答。联合之所以可辨识，是因为后端差异在**交互形态**——压平成统一方法集会逼每个后端伪装另一方的形态。
 
-**client 侧靠 slot 组合，而非按广播分支。** ui-workspace 的两个触发表层各自声明一个 `single` 目录流洞（`conversation.hero.workspace.directoryFlow`／`sidebar.workspaces.directoryFlow`；之所以是两个 key，是因为一个洞只有一个声明它的 slot entry——owner 约定相同、占用者相同）。后端包是**双面包**：浏览器一侧把匹配的交互注册进两个洞——`-native` 是驱动 `host.pickDirectory` 的无渲染占用者，`-browse` 是应用内的选择工作区目录对话框。洞的 owner 会话（`open`/`busy`/`onPicked`/`onCancel`/`onError`）承载整个交换：ui-workspace 保留触发（菜单入口仅在洞被占用时渲染）与接纳（`createWorkspace({path})`、可重试的错误对话框、重新选择），占用者持有从 `open` 到所选路径之间的一切。因此一行 `cordis.yml` 同时切换宿主能力与 client 流程；错配在构造上不可能，同时挂两个流程包会在 client 加载期失败（`single` 洞）。早先的 `host.describe.directoryPicker` 广播与客户端 kind 分支被删除——组合已经接好两侧后，供客户端分支用的 wire 事实不再有任何消费者。洞注册表（`ctx.slots.entries`）取而代之，成为每次打开菜单的占用读取。
+**client 侧靠 slot 组合，而非按广播分支。** ui-workspace 的两个触发表层各自声明一个 `single` 目录流洞（`conversation.hero.workspace.directoryFlow`／`sidebar.workspaces.directoryFlow`；之所以是两个 key，是因为一个洞只有一个声明它的 slot entry——owner 约定相同、占用者相同）。后端包是**双面包**：浏览器一侧把匹配的交互注册进两个洞——`-native` 是驱动 `directoryPicker/pick` 的无渲染占用者，`-browse` 是应用内的选择工作区目录对话框。洞的 owner 会话（`open`/`busy`/`onPicked`/`onCancel`/`onError`）承载整个交换：ui-workspace 保留触发（菜单入口仅在洞被占用时渲染）与接纳（`createWorkspace({path})`、可重试的错误对话框、重新选择），占用者持有从 `open` 到所选路径之间的一切。因此一行 `cordis.yml` 同时切换宿主能力与 client 流程；错配在构造上不可能，同时挂两个流程包会在 client 加载期失败（`single` 洞）。早先的 `host.describe.directoryPicker` 广播与客户端 kind 分支被删除——组合已经接好两侧后，供客户端分支用的 wire 事实不再有任何消费者。洞注册表（`ctx.slots.entries`）取而代之，成为每次打开菜单的占用读取。
 
 并入本决策的位置与策略裁决：
 
@@ -31,7 +31,7 @@ web GUI 的「打开本地文件夹」流程被焊死在一种交互上：`host.
 
 - **给 `ctx.fs` 增加浏览方法。** 否决：上述权限域耦合；且面向展示的列举约定（hidden 标志、面包屑、home 锚点）不属于存储 seam。
 - **统一的 Service Definition 方法集（`pick(): path`）。** 否决：应用内浏览器无法藏在一次宿主侧调用后面——浏览循环在客户端，需要协议上的原语；而原生选择器实现不了原语。交互差异不可约，故用判别标签。
-- **apiproxy 里直接调标准库（不建 seam）。** 否决：换装点仍是改网关源码，失去 fixture（测试前置数据）／测试后端，与促成这项工作的插件教义相悖。
+- **API adapter 里直接调标准库（不建 seam）。** 否决：换装点仍是改 adapter 源码，失去 fixture（测试前置数据）／测试后端，与促成这项工作的插件教义相悖。
 - **引入文件管理器／盘符枚举依赖。** 按上文调研否决；依赖政策要求记录于此。
 - **动作标签随状态翻转的「显示隐藏」开关（「隐藏隐藏文件」）。** 否决：会翻转的动作标签在状态与动作之间有歧义，还把否定叠了两层；固定标签加按下态呈现一次说清两者。
 - **纯 relatedTarget 失焦取消（不做 mousedown 抑制）。** 否决：Safari 在指针按下时不给按钮聚焦，点击触发的 focusout 因而携带空 `relatedTarget`，会在点击落地前就取消编辑器；编辑期作用的 mousedown 抑制加上锚定卡片的 relatedTarget 守卫才能同时覆盖指针与键盘路径。
@@ -43,6 +43,6 @@ web GUI 的「打开本地文件夹」流程被焊死在一种交互上：`host.
 ## 后果
 
 - `cordis.yml` 决定交互形态；`apps/cli` 挂 [`-auto` 选择器](../feature/2026-07-29-directory-picker-adaptive-default.zh.md)，它在启动时判定宿主处境并自行挂载 `-native` 或 `-browse`，一行仍同时切换后端与 UI；直接组合某个后端行即固定交互。
-- 协议新增 `host.listDirectory`／`host.createDirectory` 与四个错误码；connection fixture 提供确定性浏览树与确定性 `pickDirectory` 路径供无密钥组装测试使用。
+- 协议公开生成的 `directoryPicker/list` 与 `directoryPicker/createDirectory` 方法及四个错误码；Connection fixture 提供确定性浏览树与 `directoryPicker/pick` 结果供无密钥组装测试使用。
 - 未来的新交互（或提供 `native` 交互的 Electron 提供方）只是一个双面后端包——无需网关手术，也不动 ui-workspace。
 - `ApiProxyDefaults.pickDirectory`（仅测试注入）删除；测试像提供其他服务一样提供 stub `ctx.directoryPicker`。

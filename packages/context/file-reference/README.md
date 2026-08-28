@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-Host-backed user interfaces use `dsh-file-reference` to offer `@file` completion: a UI asks for path candidates for the addressed agent, the model types `@path` or `@"path with spaces"`, and picking a candidate inserts the matching mention as ordinary prompt text. The seam itself owns no filesystem access — a concrete provider such as `@deepseek-ai/dsh-file-reference-local` supplies candidates, ranking, caching, and invalidation. Selecting a candidate never reads or attaches file contents; the model must call a filesystem tool to inspect a file. The same discovery is callable from browser consumers through the remote `fileReferences/list` method without an API Proxy route.
+Host-backed user interfaces use `dsh-file-reference` to offer `@file` completion: a UI asks for path candidates for the addressed agent, the model types `@path` or `@"path with spaces"`, and picking a candidate inserts the matching mention as ordinary prompt text. The seam itself owns no filesystem access — a concrete provider such as `@deepseek-ai/dsh-file-reference-local` supplies candidates, ranking, caching, and invalidation. Selecting a candidate never reads or attaches file contents; the model must call a filesystem tool to inspect a file. Session Controller exposes the same discovery to browser consumers through the `fileReferences/list` Remote.
 
 ## Table of Contents
 
@@ -33,7 +33,7 @@ An `@path` token at the start of input or after whitespace triggers completion; 
 
 ### Getting candidates
 
-`ctx.fileReferences.list(agent, query, signal)` returns path-only file and directory candidates for one agent's working directory, deterministically ranked by the provider. Directory mentions render with a trailing `/` so completion can descend another level. Browser consumers call the same discovery as `ctx.remote.fileReferences.list`; the reserved trailing signal cancels a slow autocomplete.
+`ctx.fileReferences.list(agent, query, signal)` returns path-only file and directory candidates for one agent's working directory, deterministically ranked by the provider. Directory mentions render with a trailing `/` so completion can descend another level. Browser consumers call the Session Controller adapter as `ctx.remote.fileReferences.list`; the trailing signal cancels a slow autocomplete.
 
 ### Pairing with a provider
 
@@ -51,13 +51,13 @@ This section explains the design of the seam; the observable behavior is covered
 
 ### Design concept
 
-The package is one separation: an abstract discovery service plus a shared, browser-safe mention grammar, with providers owning namespace access, ranking, caching, and invalidation. The service is a `TypertRemoteService` whose `list` contract is remotely callable as the unary `fileReferences/list` method, so the same seam serves in-process and browser consumers.
+The package separates an abstract discovery service from a shared, browser-safe mention grammar, with providers owning namespace access, ranking, caching, and invalidation. The service remains wire-neutral; `dsh-api-session-controller` owns the `fileReferences/list` Remote adapter and delegates to the active provider after resolving its Agent.
 
 ### Source map
 
 | File | Role |
 |---|---|
-| [`src/index.ts`](src/index.ts) | Abstract `FileReferenceService`, `FILE_REFERENCE_PROMPT`, remote `list` face |
+| [`src/index.ts`](src/index.ts) | Abstract `FileReferenceService` and `FILE_REFERENCE_PROMPT` |
 | [`src/grammar.ts`](src/grammar.ts) | `activeAtToken` recognition and `formatFileMention` rendering |
 | [`src/types.ts`](src/types.ts) | `FileReferenceCandidate` path-only result type |
 | [`src/invariant.ts`](src/invariant.ts) | Invariant companion for the discovery contract |

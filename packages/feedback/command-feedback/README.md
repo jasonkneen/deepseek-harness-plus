@@ -45,7 +45,7 @@ The acknowledgement also states how the session is shared under the deployment's
 | Disclosed status | Acknowledgement sentence |
 |---|---|
 | `full` | `Session sharing is enabled.` |
-| `feedback-only` | `Session sharing is feedback-gated; recording feedback releases the session prefix for sharing.` |
+| `feedback-only` | `Session sharing is feedback-gated; recording feedback uploads the session records not yet shared.` |
 | `disabled` | `Session sharing is disabled.` |
 | no telemetry service | `Session sharing is not configured.` |
 

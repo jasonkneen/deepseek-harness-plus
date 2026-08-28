@@ -165,11 +165,14 @@
         writeEveryEvents: 200
         writeIntervalMs: 5000
 
-    # Session telemetry is mounted but disabled by default. DSH_TELEMETRY_MODE
-    # explicitly opts into FULL or FEEDBACK_ONLY reporting; uploading mirrors
-    # session-log records onto OTLP/HTTP logs with no session-telemetry/record redaction
-    # rule, so exports are the raw captured copy. The deployment stance, env
-    # seams, and follow-ups are pinned in the default-off Agent Note.
+    # Session telemetry defaults to feedback-gated sharing: FEEDBACK_ONLY
+    # uploads only when the user records /feedback, releasing the session
+    # records since the last handoff through that event (a resumed session
+    # shares only its current lifecycle). DSH_TELEMETRY_MODE overrides to
+    # FULL or DISABLED; uploading mirrors session-log records onto OTLP/HTTP
+    # logs with no session-telemetry/record redaction rule, so exports are
+    # the raw captured copy. The deployment stance, env seams, and follow-ups
+    # are pinned in the feedback-gated-default Agent Note.
     # DSH_TELEMETRY_OTLP_URL overrides the production endpoint. A non-empty
     # DSH_TELEMETRY_DISABLED — any value, including '0'/'false' — opts the
     # process out (the launchers patch the row disabled; config cannot disable
@@ -187,7 +190,7 @@
     - id: session-telemetry-otel
       name: '@deepseek-ai/dsh-session-telemetry-otel'
       config:
-        mode: !!js process.env.DSH_TELEMETRY_MODE || 'DISABLED'
+        mode: !!js process.env.DSH_TELEMETRY_MODE || 'FEEDBACK_ONLY'
         shutdownTimeoutMillis: 3000
         exporter:
           url: !!js process.env.DSH_TELEMETRY_OTLP_URL ?? 'https://harness-telemetry.deepseeksvc.com/v1/logs'
@@ -354,7 +357,6 @@
       config:
         provider: spawn
         toolName: subagent
-        enableModelSelection: true
         backgroundMode: continuable
 
     # Fork omits model selection so provider/model stay equal to the parent and

@@ -56,9 +56,9 @@ Status: implemented
 
 **创作 preset 是一次 RPC，而且是特权 RPC。** 组装是一个文件，但“去文件系统里改它”并不是浏览器能提供的操作，因此名单在 `select` 之外新增了 `read`/`write`/`remove`。Connection 用一个浏览器会话认证创作操作、`list`、`select` 与完整 Host API：组装指明一个会话所运行的插件，因此读取它是侦察，写入它是任意能力；选择 preset 则没有授予 `session.create` 携带 `agentPreset` 时尚未拥有的能力。这份能力也不由 preset 授予：部署自带的默认 preset 本就带着 `bash` 与文件系统工具，因此任何被允许开启会话的调用方，早已能以本进程的身份执行命令。约束是 id 自身的性质（`[a-z0-9][a-z0-9-]*`），在它成为目录名之前就检查，而不是事后再去审视拼接出的路径；文本使用 loader 自身的 schema 与方言解析，因此保存不会留下任何会话都无法加载的文件。随部署提供的 preset 拒绝写入与删除，因为部署自带的那一份正是用来对照有问题的本地 preset 的——这也让“先复制、再编辑”成为创作路径本身，而非事后补充。
 
-**在 agent 平面之外还有消费方的服务，不能搬进 preset。** 激进拆分把 `subagents` 注册表连同 spawn/fork 后端一起搬进了 delegation 组的 entry-local realm，于是 `dsh web` 直接起不来：`dsh-host-apiproxy` 是宿主行，它注入 `subagents` 来回答浏览器的跨会话查询（`listChildren`、`followup`），因而永远等待一个此刻只有会话才提供的服务。按会话各一份在两个层面上都是错的——provider 名只能注册一次，第二个会话本来也会相撞。注册表与所有共享后端，包括[固定的 Codex 与 Claude Code 产品 provider](2026-08-10-product-subagent-providers-in-shared-host.zh.md)，都属于宿主平面；preset 只贡献自己的 agent 应看见的委派**工具**，这些工具解析宿主注册表。`workflows` 保持 entry-local，因为 agent 之外没有任何东西读它。本该拦下它的是「检索注入方」这一步，而它没拦住：检索必须覆盖宿主包，而不只是 agent 平面的包。
+**在 agent 平面之外还有消费方的服务，不能搬进 preset。** 激进拆分把 `subagents` 注册表连同 spawn/fork 后端一起搬进了 delegation 组的 entry-local realm，于是 `dsh web` 直接起不来：`SubagentRuntime` 是 Host 行，它公开浏览器的跨会话 Remote 查询（`list`、`prompt`），因而永远等待一个只有会话才提供的服务。按会话各一份在两个层面上都是错的——provider 名只能注册一次，第二个会话本来也会相撞。注册表与所有共享后端，包括[固定的 Codex 与 Claude Code 产品 provider](2026-08-10-product-subagent-providers-in-shared-host.zh.md)，都属于宿主平面；preset 只贡献自己的 agent 应看见的委派**工具**，这些工具解析宿主注册表。`workflows` 保持 entry-local，因为 agent 之外没有任何东西读它。本该拦下它的是「检索注入方」这一步，而它没拦住：检索必须覆盖宿主包，而不只是 agent 平面的包。
 
-**真实组装测试若禁用了某个宿主行，就无法审计该行。** web 组装测试把 `api-gateway`——也就是 api-proxy 本身——当作「有外部副作用的行」禁用了，而它恰恰是那个会以 pending 注入点名此次断裂的行。现在它在启用 api-proxy、并替换为 browse 目录选择器的前提下引导，启动审计因此覆盖整个宿主平面的注入图；只有端口、资源目录与遥测导出器仍然关闭。
+**真实组装测试若禁用了某个宿主行，就无法审计该行。** web 组装测试保持 API Gateway 与各业务 Remote 服务启用，同时禁用只承载传输的 webserver、Connection、Session export、资源与遥测行。替换为 browse 目录选择器后，其启动审计无需绑定端口即可覆盖 Host 平面的服务图。
 
 **preset 的包名必须从 harness 解析，而非从 preset 解析。** `EntryTree.import()` 按行所属树的 `baseUrl` 解析，而 `Include` 把它设为组装文件所在的目录。这对相对标识符是对的，对包名却是致命的：本地创作的 preset 位于用户主目录之下，Node 向上查找 `node_modules` 永远够不到已安装的 harness，因此每一个 `@deepseek-ai/dsh-*` 行都会导入失败，整个 preset 无法挂载。随部署提供的 preset 掩盖了这一点——它们本就在安装目录之内。挂载在插入子树之前先记录宿主组装的基址，并把裸标识符送往那里，同时让相对路径继续从 preset 解析，使它自带的文件仍随它一同迁移。发现它的正是那个把 preset 写入临时根目录的真实组装测试。
 
@@ -68,7 +68,7 @@ Status: implemented
 
 **这个选择属于它仍然可用的那个界面。** composer 座位几乎一生都处于禁用状态，因为一旦跑过一个轮次，preset 即固定。它移到了新建会话界面、工作区选择器旁边，选择在那里是**暂存**的：该界面先于它要应用到的会话存在，暂存值在某个会话成为当前会话且仍为空白时落地——这既覆盖工作区连接新建的会话，也覆盖它复用的那个空白会话，而搭 `sessions.create` 的便车会漏掉后者。它一经使用即被清空，与旁边的工作区选择器一致。至于运行中的会话在跑什么，则是其标题旁的一个只读标签：在那里放控件，等于承诺一次宿主会断然拒绝的切换。
 
-**preset 放大的是宿主本来就在付的代价：没有任何东西会 dispose 一个 agent。** 用 `--expose-gc` 对随附组装实测：一个存活的 agent 在 `minimal` 上约占 0.17 MB、在 `standard`/`cordis` 上约 1.31 MB，挂载耗时分别约 38 ms 与 135 ms；进程里第一个 agent 另需约 7 MB，那是 Node 首次 import 模块的一次性成本，此后每次挂载共享。增长严格线性——10、30、50 个的单个增量一致——且 dispose 后基本全额回收（50 个 `standard` 占住 57.8 MB，释放后全部归还）。所以对象图并不泄漏，缺的是生命周期。`dsh-host-apiproxy` 创建后直接丢弃 `AgentHandle`，`archiveSession` 只改工作区注册表，`AgentRegistry` 没有驱逐机制，而宿主里唯一一处 dispose 是 JSON-RPC 服务器自身的关停。于是一个 web 宿主会留住它接触过的每一个会话，组装 preset 之后每个约 1.3 MB，而在此之前约 0.2 MB。注意：剪枝挂载注册表在这里没有用——它丢弃的是 fiber `uid` 已清空的记录，而永不死亡的 agent 永远不会清空它。
+**preset 放大的是宿主本来就在付的代价：没有任何东西会 dispose 一个 agent。** 用 `--expose-gc` 对随附组装实测：一个存活的 agent 在 `minimal` 上约占 0.17 MB、在 `standard`/`cordis` 上约 1.31 MB，挂载耗时分别约 38 ms 与 135 ms；进程里第一个 agent 另需约 7 MB，那是 Node 首次 import 模块的一次性成本，此后每次挂载共享。增长严格线性——10、30、50 个的单个增量一致——且 dispose 后基本全额回收（50 个 `standard` 占住 57.8 MB，释放后全部归还）。所以对象图并不泄漏，缺的是生命周期。`ApiSessionAgentController` 会丢弃注册表返回的 `AgentHandle`，`archiveSession` 只改工作区注册表，`AgentRegistry` 没有驱逐机制，而宿主里唯一一处 dispose 是 JSON-RPC 服务器自身的关停。于是一个 web 宿主会留住它接触过的每一个会话，组装 preset 之后每个约 1.3 MB，而在此之前约 0.2 MB。注意：剪枝挂载注册表在这里没有用——它丢弃的是 fiber `uid` 已清空的记录，而永不死亡的 agent 永远不会清空它。
 
 - 遗留 TODO：idle agent 驱逐——会话持久化后 dispose，恢复时重新挂载。它属于持有 handle 的那个宿主，不属于本 seam。
 

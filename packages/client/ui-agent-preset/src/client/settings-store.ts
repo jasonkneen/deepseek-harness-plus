@@ -7,10 +7,10 @@
  * namespace's `default` field, which is what the host resolves at creation.
  */
 
-import type { ClientRemote, IApiClient } from '@deepseek-ai/dsh-api-remotes/client'
+import type { ClientRemote } from '@deepseek-ai/dsh-api-remotes/client'
 import { createSnapshotStore, type SnapshotStore } from '@deepseek-ai/dsh-client-store'
 import type { AgentPresetRoster } from '@deepseek-ai/dsh-agent-presets/types'
-import type { SettingsDescribeFace } from '@deepseek-ai/dsh-client-ui-settings/client'
+import type { SettingsDescribeFace, SettingsWireFace } from '@deepseek-ai/dsh-client-ui-settings/client'
 
 /** The agent-preset settings namespace on the host wire. */
 export const AGENT_PRESET_SETTINGS_NS = 'agent-presets'
@@ -37,18 +37,22 @@ export function messageOf(error: unknown): string {
  * @returns the failure message, or undefined once the write landed.
  */
 export async function writeDefaultPreset(
-  api: Pick<IApiClient, 'settings'>,
+  api: SettingsWireFace,
   id: string,
 ): Promise<string | undefined> {
   let response
   try {
-    response = await api.settings.update({ ns: AGENT_PRESET_SETTINGS_NS, patch: { default: id } })
+    response = await api.settings.update(
+      AGENT_PRESET_SETTINGS_NS,
+      { default: id },
+      undefined,
+    )
   } catch (error) {
     // The transport rejected rather than answering; the caller must be able to
     // say so instead of the row silently snapping back.
     return messageOf(error)
   }
-  return response.result.ok ? undefined : response.result.error.message
+  return response.ok ? undefined : response.error.message
 }
 
 /** One selectable preset. */
@@ -181,7 +185,7 @@ export class AgentPresetSettingsController {
    * @param describeFace - the shared mirror's describe face (writability source).
    */
   constructor(
-    private readonly api: Pick<IApiClient, 'settings'>,
+    private readonly api: SettingsWireFace,
     private readonly remote: Pick<ClientRemote, 'agentPresets'>,
     private readonly describeFace: SettingsDescribeFace,
   ) {}

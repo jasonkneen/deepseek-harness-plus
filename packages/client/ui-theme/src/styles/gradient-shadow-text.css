@@ -22,10 +22,16 @@ body[data-ds-dark-theme] {
    重新从 Figma 导出时需要保留这一缩放。 */
 /* 正文字号调节：--dsh-content-font-size 由主题 bootstrap 与 ThemePresenter
    写在 body 上（整数 px，12–17，默认 14）。标题与正文变体按同一像素增量
-   （--dsh-content-font-delta）随动，保持层级；表格、small、code 属于密集
-   次级文本，保持固定。 */
+   （--dsh-content-font-delta）随动，保持层级。低一档文本（think、工具/bash
+   行的标题与摘要、markdown 表格、流内次级说明等）统一读
+   --dsh-content-font-size-secondary：设置 ≤14 时为设置值 −1，>14 时为
+   设置值 −2（12→11、13→12、14→13、15→13、16→14、17→15）。式中
+   max(13px,·) 的作用是让低设置取 −1 而非 −2，不是结果下限——12 设置下
+   层级触底 11px。small、code 属于密集次级文本，保持固定。 */
 body {
   --dsh-content-font-delta: calc(var(--dsh-content-font-size, 14px) - 14px);
+  --dsh-content-font-size-secondary: min(calc(var(--dsh-content-font-size, 14px) - 1px), max(13px, calc(var(--dsh-content-font-size, 14px) - 2px)));
+  --dsh-content-font-delta-secondary: calc(var(--dsh-content-font-size-secondary) - 13px);
 
   --dsw-font-markdown-h1: 700 calc(21px + var(--dsh-content-font-delta)) / calc(30px + var(--dsh-content-font-delta)) var(--dsw-font-family);
   --dsw-font-markdown-h1-font-family: var(--dsw-font-family);
@@ -83,18 +89,18 @@ body {
   --dsw-font-markdown-base-strong-italic-font-size: var(--dsh-content-font-size, 14px);
   --dsw-font-markdown-base-strong-italic-font-style: italic;
 
-  --dsw-font-markdown-table: 13px/22px var(--dsw-font-family);
+  --dsw-font-markdown-table: var(--dsh-content-font-size-secondary, 13px)/calc(22px + var(--dsh-content-font-delta-secondary, 0px)) var(--dsw-font-family);
   --dsw-font-markdown-table-font-family: var(--dsw-font-family);
   --dsw-font-markdown-table-font-weight: 400;
-  --dsw-font-markdown-table-line-height: 22px;
-  --dsw-font-markdown-table-font-size: 13px;
+  --dsw-font-markdown-table-line-height: calc(22px + var(--dsh-content-font-delta-secondary, 0px));
+  --dsw-font-markdown-table-font-size: var(--dsh-content-font-size-secondary, 13px);
   --dsw-font-markdown-table-font-style: normal;
 
-  --dsw-font-markdown-table-head: 500 13px/22px var(--dsw-font-family);
+  --dsw-font-markdown-table-head: 500 var(--dsh-content-font-size-secondary, 13px)/calc(22px + var(--dsh-content-font-delta-secondary, 0px)) var(--dsw-font-family);
   --dsw-font-markdown-table-head-font-family: var(--dsw-font-family);
   --dsw-font-markdown-table-head-font-weight: 500;
-  --dsw-font-markdown-table-head-line-height: 22px;
-  --dsw-font-markdown-table-head-font-size: 13px;
+  --dsw-font-markdown-table-head-line-height: calc(22px + var(--dsh-content-font-delta-secondary, 0px));
+  --dsw-font-markdown-table-head-font-size: var(--dsh-content-font-size-secondary, 13px);
   --dsw-font-markdown-table-head-font-style: normal;
 
   --dsw-font-markdown-small: 12px/20px var(--dsw-font-family);

@@ -84,7 +84,7 @@ The policy is deliberately narrow: it only decides **when** to spill and compose
 
 ### The two arms
 
-A `tools/post-execute` waterfall listener (registered with `prepend`, delegating via `next()`) bounds the model-facing result; a `tools/code-dispatch-log` listener bounds the durable log copy of each `run_code` sub-call. Both share one replacement helper so the two projections are byte-identical. The post-execute arm skips `read` to avoid a read → spill → read loop; the dispatch-log arm bounds `read` sub-calls because a log copy is not model context.
+A `tools/post-execute` waterfall listener (registered with `prepend`, delegating via `next()`) bounds the model-facing result; a `tools/ptc-dispatch-log` listener bounds the durable log copy of each `run_code` sub-call. Both share one replacement helper so the two projections are byte-identical. The post-execute arm skips `read` to avoid a read → spill → read loop; the dispatch-log arm bounds `read` sub-calls because a log copy is not model context.
 
 ### Source map
 
@@ -111,7 +111,7 @@ Read these pages when the package-level contract is not enough.
 - [dsh-spill-local](../spill-local/README.md) — the local backend that stores the spilled text.
 - [dsh-output-retention](../../util/output-retention/README.md) — the preview mechanics (`TextRetainer`) the policy composes.
 - [Tool output spill decision](../../../.agents/notes/implemented/architecture/2026-07-08-tool-output-spill-files.md) — the capability boundary and design rationale.
-- [Code dispatch-log spill decision](../../../.agents/notes/implemented/feature/2026-07-26-code-dispatch-log-spill.md) — why the durable log copy is bounded too.
+- [PTC dispatch-log spill decision](../../../.agents/notes/implemented/feature/2026-07-26-ptc-dispatch-log-spill.md) — why the durable log copy is bounded too.
 
 -----
 

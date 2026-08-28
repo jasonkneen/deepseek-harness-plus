@@ -1,5 +1,6 @@
-/* Session stats row: 12/20 tertiary text under the flow, aligned to the
-   shared message column axis (--dsh-chat-content-width). */
+/* Session stats row: 13/20 tertiary text (the secondary content tier) under
+   the flow, aligned to the shared message column axis
+   (--dsh-chat-content-width). */
 
 .root {
   /* Block, not flex: text-overflow only elides a block's inline content, so
@@ -11,8 +12,8 @@
   margin: 0 auto;
   box-sizing: border-box;
   padding: 4px calc(var(--dsh-composer-side-clearance) + 16px) 0px;
-  font-size: calc(12px + var(--dsh-content-font-delta, 0px));
-  line-height: calc(20px + var(--dsh-content-font-delta, 0px));
+  font-size: var(--dsh-content-font-size-secondary, 13px);
+  line-height: calc(20px + var(--dsh-content-font-delta-secondary, 0px));
   color: var(--dsw-alias-label-tertiary);
   white-space: nowrap;
   overflow: hidden;

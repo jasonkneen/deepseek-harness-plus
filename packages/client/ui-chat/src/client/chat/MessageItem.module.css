@@ -42,8 +42,8 @@
 
 .referenceSummary {
   color: var(--dsw-alias-label-tertiary);
-  font-size: calc(12px + var(--dsh-content-font-delta, 0px));
-  line-height: calc(18px + var(--dsh-content-font-delta, 0px));
+  font-size: var(--dsh-content-font-size-secondary, 13px);
+  line-height: calc(18px + var(--dsh-content-font-delta-secondary, 0px));
 }
 .contextRow {
   padding: 2px 0;
@@ -120,7 +120,7 @@
 
 .compactionTitle {
   flex: none;
-  font-size: var(--dsh-content-font-size, 14px);
+  font-size: var(--dsh-content-font-size-secondary, 13px);
   line-height: calc(24px + var(--dsh-content-font-delta, 0px));
   color: var(--dsw-alias-label-primary-dimmed);
 }
@@ -139,7 +139,7 @@
   min-width: 0;
   overflow: hidden;
   color: var(--dsw-alias-label-tertiary);
-  font-size: var(--dsh-content-font-size, 14px);
+  font-size: var(--dsh-content-font-size-secondary, 13px);
   line-height: calc(24px + var(--dsh-content-font-delta, 0px));
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -149,14 +149,14 @@
   /* Indent under the title, which starts at leading (16 + delta) + gap 6. */
   padding: 4px 0 4px calc(22px + var(--dsh-content-font-delta, 0px));
   color: var(--dsw-alias-label-tertiary);
-  font-size: var(--dsh-content-font-size, 14px);
+  font-size: var(--dsh-content-font-size-secondary, 13px);
   line-height: calc(24px + var(--dsh-content-font-delta, 0px));
 }
 
 .retryRow {
   color: var(--dsw-alias-label-tertiary);
-  font-size: calc(13px + var(--dsh-content-font-delta, 0px));
-  line-height: calc(20px + var(--dsh-content-font-delta, 0px));
+  font-size: var(--dsh-content-font-size-secondary, 13px);
+  line-height: calc(20px + var(--dsh-content-font-delta-secondary, 0px));
 }
 
 .retrySummary {
@@ -227,8 +227,8 @@
   margin-top: 3px;
   padding-left: 14px;
   overflow-wrap: anywhere;
-  font-size: calc(12px + var(--dsh-content-font-delta, 0px));
-  line-height: calc(18px + var(--dsh-content-font-delta, 0px));
+  font-size: var(--dsh-content-font-size-secondary, 13px);
+  line-height: calc(18px + var(--dsh-content-font-delta-secondary, 0px));
 }
 
 .retryDetailLabel {
@@ -241,8 +241,8 @@
   gap: 8px;
   align-items: start;
   padding: 2px 0;
-  font-size: calc(13px + var(--dsh-content-font-delta, 0px));
-  line-height: calc(20px + var(--dsh-content-font-delta, 0px));
+  font-size: var(--dsh-content-font-size-secondary, 13px);
+  line-height: calc(20px + var(--dsh-content-font-delta-secondary, 0px));
 }
 
 .turnErrorDot {

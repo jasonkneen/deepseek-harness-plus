@@ -30,22 +30,16 @@ async function bench() {
     revision,
   })
   const describe = vi.fn(async () => ({
-    rpcId: 'locale-describe' as never,
-    result: {
-      ok: true as const,
-      value: { writable: true, hasDocument: true, namespaces: [namespace()] },
-    },
+    ok: true as const,
+    value: { writable: true, hasDocument: true, namespaces: [namespace()] },
   }))
-  const mutate = vi.fn(async (request: { ops: { value: string }[] }) => {
-    preference = request.ops[0]!.value
+  const mutate = vi.fn(async (_ns: string, ops: { value: string }[]) => {
+    preference = ops[0]!.value
     revision += 1
-    return {
-      rpcId: 'locale-mutate' as never,
-      result: { ok: true as const, value: namespace() },
-    }
+    return { ok: true as const, value: namespace() }
   })
-  ctx.provide('connection', { api: { settings: { describe, mutate } }, isLoopback: true } as never)
-  const events = new TestRemote(ctx)
+  ctx.provide('connection', { api: {}, isLoopback: true } as never)
+  const events = new TestRemote(ctx, { settings: { describe, mutate } })
   await ctx.plugin({ inject: [...settingsInject], apply: settingsApply }).await()
   return {
     ctx, slots: ctx.get('slots') as SlotRegistry, describe, mutate, events,

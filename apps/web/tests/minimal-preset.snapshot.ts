@@ -154,6 +154,12 @@ describe('minimal agent preset', () => {
     await sessionRow.click()
     await page.getByText('MINIMAL_PRESET_REQUEST_OK', { exact: true }).waitFor({ timeout: 15_000 })
 
+    const process = page.locator('[data-turn-process]')
+    await process.waitFor({ timeout: 15_000 })
+    await expect.poll(() => process.getAttribute('aria-expanded')).toBe('false')
+    await process.click()
+    await expect.poll(() => process.getAttribute('aria-expanded')).toBe('true')
+
     const row = page.locator('[data-sample="bash"]').first()
     await row.waitFor({ timeout: 15_000 })
     await expect.poll(() => row.getAttribute('aria-expanded')).toBe('false')

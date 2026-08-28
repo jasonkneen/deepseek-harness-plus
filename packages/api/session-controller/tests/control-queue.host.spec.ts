@@ -3,6 +3,7 @@ import AgentRegistry, { Inbox } from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
+import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import { describe, expect, it } from 'vitest'
 import { SessionControlController } from '../src/control.ts'
 
@@ -15,6 +16,7 @@ async function harness(): Promise<{
   const ctx = new Context()
   await ctx.plugin(SessionStore)
   await ctx.plugin(AgentRegistry)
+  await ctx.plugin(SessionProjectionRegistry)
   const session = ctx.sessions.create(SessionId('queue-session'))
   const inbox = new Inbox(session, { inserted: () => {}, discarded: () => {}, claimed: () => {} })
   const agent = { id: session.id, session, inbox, status: 'running', ctx } as Agent
@@ -64,6 +66,30 @@ describe('Session control queue projection', () => {
     const removed = await iterator.next()
     if (removed.done || removed.value.type !== 'queue') throw new Error('missing queue replacement')
     expect(removed.value.items.map(item => item.id)).not.toContain(steering.id)
+
+    abort.abort()
+    await iterator.next()
+  })
+
+  it('projects the prompt rpcId from a user-rpc source and omits it elsewhere', async () => {
+    const { control, inbox } = await harness()
+    const identified = createUserMessage({
+      content: [{ type: 'text', text: 'browser prompt' }],
+      source: { kind: 'user', rpcId: 'req-42' as never },
+    })
+    inbox.append('next-turn', identified)
+    inbox.append('next-step', message('plain steering'))
+
+    const abort = new AbortController()
+    const iterator = control.control(abort.signal)[Symbol.asyncIterator]()
+    const opened = await iterator.next()
+    if (opened.done || opened.value.type !== 'baseline') throw new Error('missing baseline')
+    const items = opened.value.value.queues['queue-session' as SessionId] ?? []
+    expect(items.map(item => ({ id: item.id, placement: item.placement, rpcId: item.rpcId }))).toEqual([
+      { id: identified.id, placement: 'queued', rpcId: 'req-42' },
+      { id: items[1]?.id, placement: 'steering', rpcId: undefined },
+    ])
+    expect('rpcId' in (items[1] ?? {})).toBe(false)
 
     abort.abort()
     await iterator.next()

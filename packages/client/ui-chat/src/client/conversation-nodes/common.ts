@@ -14,6 +14,7 @@ import type {
 export const CHAT_SYNTHETIC_SEQ_OFFSETS = {
   interruptedAssistant: -0.9,
   interruptedFollowup: -0.8,
+  processControl: -0.1,
   maxTokensNotice: 0.05,
   finalizedFollowup: 0.1,
 } as const

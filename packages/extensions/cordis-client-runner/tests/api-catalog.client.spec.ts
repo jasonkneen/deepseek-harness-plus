@@ -19,7 +19,6 @@ describe('Client Cordis inspect catalog', () => {
         'pickDirectory(): Promise<string | null>',
         'listDirectory(path?: string, signal?: AbortSignal): Promise<DirectoryListing>',
         'createDirectory(path: string, name: string): Promise<string>',
-        'openPath(path: string): Promise<void>',
       ])
   })
 

@@ -1084,11 +1084,14 @@ describe('TypertGatewayService', () => {
         if (signal.aborted) resolve()
         else signal.addEventListener('abort', () => { resolve() }, { once: true })
       })
-    })())
+    })(), { home: '/home/fixture' })
     const carrier = new AbortController()
     const events = rawGatewayEventHarness(ctx).openRemoteEvents({ args: {} }, carrier.signal)
     const opening = await events.next()
-    expect(opening).toMatchObject({ done: false, value: { type: 'ready' } })
+    expect(opening).toMatchObject({
+      done: false,
+      value: { type: 'ready', host: { home: '/home/fixture' } },
+    })
     if (opening.done) throw new Error('Remote event stream ended before ready')
     const clientId: unknown = Reflect.get(opening.value as object, 'clientId')
     if (typeof clientId !== 'string') throw new Error('Remote event stream omitted its Client id')

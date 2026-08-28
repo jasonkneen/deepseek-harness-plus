@@ -359,7 +359,7 @@ Conversation tests 覆盖全部内建 Chat Definition、Assistant Step data、Tu
 
 Slot type/runtime tests 固定父注册必须提供声明的 common inject、`hookContext` 类型、不同 Node context 的 Hook 隔离、factory/Hook identity 稳定，以及无关 Session publication 不重渲染业务 renderer。原 entry-owned Observable Hook 测试继续固定未使用 contextual factory 的路径。
 
-Assembled Web snapshot、GUI 和浏览器场景覆盖真实 plugin graph。浏览器证据比较 Assistant streaming→settled、Bash running→settled 以及 Code Mode root + nested subcalls 与 master 的布局。
+Assembled Web snapshot、GUI 和浏览器场景覆盖真实 plugin graph。浏览器证据比较 Assistant streaming→settled、Bash running→settled 以及 PTC mode root + nested subcalls 与 master 的布局。
 
 历史链路验证同时覆盖完整 replace、非重叠 prepend、完整 range 去重、部分重叠拒绝、空页 `hasMore` 收敛和 scalar live append。相同 Assistant 历史的 scalar 与 packed 表示产生相同 Chat/Trajectory State、timing boundary 与最终 Node；一个 packed run 在 replace、prepend、Location replay 与 registry rebuild 中始终只保留一个 Match。
 

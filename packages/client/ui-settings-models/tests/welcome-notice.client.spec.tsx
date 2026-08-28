@@ -29,8 +29,9 @@ afterEach(() => {
   document.getElementById('root')?.remove()
 })
 
-function response<T>(value: T) {
-  return { rpcId: 'welcome-rpc' as never, result: { ok: true as const, value } }
+/** The settings namespace answers over the Remote carrier, which has no envelope. */
+function remoteAnswer<T>(value: T) {
+  return { ok: true as const, value }
 }
 
 function welcomeView(value: unknown, revision = 0) {
@@ -53,7 +54,7 @@ const useSessionPendingInteraction: WelcomeNoticeProps['useSessionPendingInterac
 function mount(
   version?: string,
   mutateImpl: () => Promise<unknown> = () =>
-    Promise.resolve(response(welcomeView({ [WELCOME_NOTICE_ACK_FIELD]: WELCOME_NOTICE_VERSION }, 1))),
+    Promise.resolve(remoteAnswer(welcomeView({ [WELCOME_NOTICE_ACK_FIELD]: WELCOME_NOTICE_VERSION }, 1))),
 ) {
   const appRoot = document.createElement('div')
   appRoot.id = 'root'
@@ -61,7 +62,7 @@ function mount(
   const mutate = vi.fn(mutateImpl)
   const api = {
     settings: {
-      describe: () => Promise.resolve(response({
+      describe: () => Promise.resolve(remoteAnswer({
         writable: true,
         hasDocument: false,
         namespaces: [welcomeView(version === undefined ? {} : { [WELCOME_NOTICE_ACK_FIELD]: version })],

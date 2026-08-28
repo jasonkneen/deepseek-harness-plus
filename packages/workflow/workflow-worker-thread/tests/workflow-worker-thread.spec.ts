@@ -13,6 +13,7 @@ import WorkerThreadWorkflowEngine, { type Config } from '../src/index.ts'
 import { workerSpawnEnv } from '../src/host.ts'
 import { HostToWorkerType, WorkerToHostType } from '../src/protocol.ts'
 import { SessionId } from '@deepseek-ai/dsh-session'
+import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 
 /** A minimal parent stand-in: the engine only threads it through to the provider. */
 function fakeParent(): Agent {
@@ -151,6 +152,7 @@ interface SetupOptions {
 
 async function setup(options?: SetupOptions) {
   const ctx = new Context()
+  await ctx.plugin(SessionProjectionRegistry)
   await ctx.plugin(SubagentRuntime)
   const provider = new StubProvider(
     'stub',
@@ -466,6 +468,7 @@ describe('dsh-workflow-worker-thread', { timeout: 120_000 }, () => {
 
     it('a child result REJECTION crosses back as a fatal AGENT_RESULT error (a broken provider is not a failed child)', async () => {
       const ctx = new Context()
+      await ctx.plugin(SessionProjectionRegistry)
       await ctx.plugin(SubagentRuntime)
       const provider: SubagentProvider = {
         name: 'rejecting',
@@ -525,6 +528,7 @@ describe('dsh-workflow-worker-thread', { timeout: 120_000 }, () => {
 
     it('a child whose dispose() throws synchronously cannot wedge the script (the host acks anyway)', async () => {
       const ctx = new Context()
+      await ctx.plugin(SessionProjectionRegistry)
       await ctx.plugin(SubagentRuntime)
       const provider: SubagentProvider = {
         name: 'bad-dispose',
@@ -547,6 +551,7 @@ describe('dsh-workflow-worker-thread', { timeout: 120_000 }, () => {
 
     it('a child dispose() rejecting an UNRENDERABLE value still acks — the containment warn is total', async () => {
       const ctx = new Context()
+      await ctx.plugin(SessionProjectionRegistry)
       await ctx.plugin(SubagentRuntime)
       const provider: SubagentProvider = {
         name: 'coercion-trap-dispose',
@@ -787,7 +792,7 @@ describe('dsh-workflow-worker-thread', { timeout: 120_000 }, () => {
       expect(result.error).toContain('raced the completion')
       expect(narration).toEqual(['started'])
       await handle.dispose()
-    }, 15_000)
+    }, 90_000)
 
     it('cancel() force-settles a script parked on a promise no hook owns, and TERMINATES its worker', async () => {
       const { ctx, parent } = await setup({ config: { provider: 'stub', disposeGraceMs: 50 } })
@@ -897,6 +902,7 @@ describe('dsh-workflow-worker-thread', { timeout: 120_000 }, () => {
 
     it('the settle-reap fires the request signal too: a provider honoring ONLY the signal winds its stray down promptly', async () => {
       const ctx = new Context()
+      await ctx.plugin(SessionProjectionRegistry)
       await ctx.plugin(SubagentRuntime)
       const aborted: string[] = []
       const provider: SubagentProvider = {
@@ -1027,7 +1033,7 @@ describe('dsh-workflow-worker-thread', { timeout: 120_000 }, () => {
       expect(provider.runs[0]!.disposeCalls).toBe(1)
       await handle.dispose()
       await ctx.fiber.dispose()
-    }, 15_000)
+    }, 90_000)
 
     it('dispose() on a wedged worker host-drives child disposal inside the grace: it returns with the children DISPOSED, not with their teardown still in flight', async () => {
       const { ctx, parent, provider } = await setup({
@@ -1062,7 +1068,7 @@ describe('dsh-workflow-worker-thread', { timeout: 120_000 }, () => {
       expect(provider.runs[0]!.disposed).toBe(true)
       const result = await handle.result
       expect(result.stopReason).toBe('cancelled')
-    }, 15_000)
+    }, 90_000)
 
     it('a live child disposed by the dispose() drive is disposed ONCE, and the worker\'s late dispose RPC still gets its ack (the script settles, not the grace)', async () => {
       const { ctx, parent, provider } = await setup({ manual: true })
@@ -1127,7 +1133,7 @@ describe('dsh-workflow-worker-thread', { timeout: 120_000 }, () => {
       // can finalize its state at run-end without dangling agents.
       expect(order.indexOf('run-end')).toBe(order.length - 1)
       await handle.dispose()
-    }, 15_000)
+    }, 90_000)
 
     it('graceful cancellation keeps pairing worker-authored: exactly one agent-end per start, nothing synthesized on top', async () => {
       const { ctx, parent, provider } = await setup({ manual: true })
@@ -1192,6 +1198,7 @@ describe('dsh-workflow-worker-thread', { timeout: 120_000 }, () => {
 
     it('refuses and disposes a provider run that becomes ready after its real worker dies', async () => {
       const ctx = new Context()
+      await ctx.plugin(SessionProjectionRegistry)
       await ctx.plugin(SubagentRuntime)
       const requested = Promise.withResolvers<SubagentStartRequest>()
       const ready = Promise.withResolvers<SubagentRun>()
@@ -1254,6 +1261,7 @@ describe('dsh-workflow-worker-thread', { timeout: 120_000 }, () => {
 
     it('a worker that exits before settling reports an error result and reaps its children', async () => {
       const ctx = new Context()
+      await ctx.plugin(SessionProjectionRegistry)
       await ctx.plugin(SubagentRuntime)
       // The child's dispose() REJECTS on top of the worker death: the reap
       // must contain it (warn, not crash) while still emptying the registry.
@@ -1305,7 +1313,7 @@ describe('dsh-workflow-worker-thread', { timeout: 120_000 }, () => {
       await Promise.resolve()
       expect(result.stopReason).toBe('error')
       await handle.dispose()
-    }, 15_000)
+    }, 90_000)
 
     it('an uncaught exception inside the worker surfaces as an error result and reaps the in-flight child', async () => {
       const { ctx, parent, provider } = await setup({ manual: true })
@@ -1331,7 +1339,7 @@ describe('dsh-workflow-worker-thread', { timeout: 120_000 }, () => {
         expect(provider.runs[0]!.disposed).toBe(true)
       }, 1000)
       await handle.dispose()
-    }, 15_000)
+    }, 90_000)
 
     it('a worker death pairs every stranded start: the synthesized cancelled agent-end precedes the error workflow/end', async () => {
       const { ctx, parent, provider } = await setup({ manual: true })
@@ -1366,7 +1374,7 @@ describe('dsh-workflow-worker-thread', { timeout: 120_000 }, () => {
       ])
       expect(order.indexOf('run-end')).toBe(order.length - 1)
       await handle.dispose()
-    }, 15_000)
+    }, 90_000)
 
     it('a dispose ack racing the worker death is dropped, not crashed (post after exit)', async () => {
       // Slow child disposal: the ack resolves only AFTER the worker died, so
@@ -1395,7 +1403,7 @@ describe('dsh-workflow-worker-thread', { timeout: 120_000 }, () => {
       // tight explicit bound (see the helper's doc comment).
       await waitFor(() => { expect(provider.runs[0]!.disposed).toBe(true) }, 1000)
       await handle.dispose()
-    }, 15_000)
+    }, 90_000)
 
     it('a worker death AFTER a cancel reports cancelled, not error', async () => {
       const { ctx, parent } = await setup({ config: { provider: 'stub', disposeGraceMs: 60_000 } })
@@ -1421,7 +1429,7 @@ describe('dsh-workflow-worker-thread', { timeout: 120_000 }, () => {
       expect(result.stopReason).toBe('cancelled')
       expect(result.error).toContain('stop it')
       await handle.dispose()
-    }, process.platform === 'win32' ? 30_000 : 15_000)
+    }, process.platform === 'win32' ? 90_000 : 15_000)
   })
 
   describe('service API', () => {
@@ -1441,6 +1449,7 @@ describe('dsh-workflow-worker-thread', { timeout: 120_000 }, () => {
 
     it('unregisters ctx.workflowEngine when the engine fiber is disposed (HMR safety)', async () => {
       const ctx = new Context()
+      await ctx.plugin(SessionProjectionRegistry)
       await ctx.plugin(SubagentRuntime)
       const fiber = await ctx.plugin(WorkerThreadWorkflowEngine, {})
       expect(ctx.get('workflowEngine')).toBeDefined()

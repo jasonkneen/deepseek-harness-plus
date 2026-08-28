@@ -60,7 +60,8 @@ describe('submit-machine: plain × enter', () => {
     expect(sink.draft).toBe('hello')
     expect(sink.mode).toBe('queue')
     expect(sink.attempt.draftSnapshot).toBe('hello')
-    expect(m.state.phase).toBe('submitting')
+    expect(effectAt(fx, 1, 'commit-draft').retainSuffixOf).toBe('hello')
+    expect(m.state.phase).toBe('plain')
   })
 
   it('retains an explicit steer mode on the default sink effect', () => {
@@ -122,7 +123,8 @@ describe('submit-machine: adjudication outcomes', () => {
     const sink = effectAt(fx, 0, 'default-sink')
     expect(sink.draft).toBe('/unknown thing')
     expect(sink.mode).toBe('steer')
-    expect(m.state.phase).toBe('submitting')
+    expect(effectAt(fx, 1, 'commit-draft').retainSuffixOf).toBe('/unknown thing')
+    expect(m.state.phase).toBe('plain')
   })
 
   it("'handled' lands plain with zero effects (popup shell path)", () => {
@@ -315,7 +317,7 @@ describe('submit-machine: per-session isolation', () => {
     expect(effectAt(fx, 0, 'default-sink').draft).toBe('hello')
     a.dispatch({ type: 'submit-settled', attempt, ok: true, draft: '/goal x' })
     expect(a.state.phase).toBe('plain')
-    expect(b.state.phase).toBe('submitting')
+    expect(b.state.phase).toBe('plain')
   })
 })
 
@@ -338,7 +340,7 @@ describe('decorations: scanTextRefs', () => {
 
   it('recognizes directory paths independently of the dynamic lexicon', () => {
     const out = scanTextRefs('see @src/x/ now', new Map())
-    expect(out).toEqual([{ start: 4, end: 11, trigger: '@', appearance: 'folder' }])
+    expect(out).toEqual([{ start: 4, end: 11, trigger: '@' }])
   })
 
   it('names off the lexicon do not match; triggers are routed per lexicon list', () => {

@@ -1,6 +1,6 @@
 /**
  * Skill reference plugin, browser half: registers the '/' skill source —
- * candidates from the skill.list RPC addressed by the per-call session
+ * candidates from the `skills/list` Remote addressed by the per-call session
  * projection's sessionId (sessions are always agent-backed; the host
  * resolves cwd from the session header). A pick lands the literal `/name `
  * text and the prompt ships the same literal (plain-text-reference decision;
@@ -10,7 +10,7 @@
  * leading `/name` naming a user-invocable skill and injects the rendered
  * body for every entry point, including `disable-model-invocation` skills the
  * model-side catalog never lists (issue #1470). The RPC rides the plugin's
- * root-context connection captured at registration — the source never reads
+ * root-context Remote captured at registration — the source never reads
  * services off a per-call argument. Draft chip visuals derive from
  * the lexicon scan; this source implements no reference codec.
  *
@@ -31,7 +31,7 @@
  */
 // Type-only: the carrier types, the forwarded Host-event face and the ctx.remote merge.
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
-import type { ConnectionHandle, SkillEntry } from '@deepseek-ai/dsh-api-remotes/client'
+import type { SkillEntry } from '@deepseek-ai/dsh-api-remotes/client'
 import type {} from '@deepseek-ai/dsh-api-session-controller/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { InputTriggerServiceContract, InputTriggerSource } from '@deepseek-ai/dsh-client-ui-input-trigger/client'
@@ -58,7 +58,7 @@ interface CatalogFetch {
 }
 
 /** Required services: reference source faces plus the tool-row and locale registries. */
-export const inject = ['inputTriggers', 'connection', 'sessions', 'slots', 'locale', 'remote']
+export const inject = ['inputTriggers', 'connection', 'sessions', 'slots', 'locale', 'remote', 'remote.skills']
 
 /**
  * Client plugin body: register the '/' source, dictionaries, and keyed tool row.
@@ -71,7 +71,7 @@ export function apply(ctx: ClientContext): void {
     SkillRow,
   ))
 
-  const skills = (ctx.get('connection') as ConnectionHandle).api.skills
+  const skills = ctx.remote.skills
   const sessions = ctx.sessions
   // Session-keyed catalog cache; single-flight per key. Plugin-closure state:
   // the fiber effect below is its teardown boundary.
@@ -98,8 +98,8 @@ export function apply(ctx: ClientContext): void {
     if (existing !== undefined) return existing.promise
     const abort = new AbortController()
     const promise = (async () => {
-      const { result } = await skills.list({ sessionId }, abort.signal)
-      if (!result.ok) throw new Error(`skill.list failed: ${result.error.code}: ${result.error.message}`)
+      const result = await skills.list({ sessionId }, abort.signal)
+      if (!result.ok) throw new Error(`skills/list failed: ${result.error.code}: ${result.error.message}`)
       return result.value.skills
     })()
     const entry: CatalogFetch = { promise, abort }

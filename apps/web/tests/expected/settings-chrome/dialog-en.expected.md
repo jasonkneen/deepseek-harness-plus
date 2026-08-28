@@ -44,7 +44,11 @@
     - img
   - button "Decrease font size":
     - img
-  - text: px Enter behavior while busy Busy only; Cmd/Ctrl+Enter uses the other behavior
+  - text: px Conversation display Controls process content in completed turns
+  - button "Compact":
+    - text: Compact
+    - img
+  - text: Enter behavior while busy Busy only; Cmd/Ctrl+Enter uses the other behavior
   - button "Queue":
     - text: Queue
     - img

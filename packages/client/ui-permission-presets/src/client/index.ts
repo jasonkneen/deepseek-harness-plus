@@ -14,7 +14,6 @@
  * created later through the host Settings API.
  */
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
-import type { ConnectionHandle } from '@deepseek-ai/dsh-api-remotes/client'
 import type { SessionFace } from '@deepseek-ai/dsh-api-session-controller/client'
 // Type-only: pulls the locale plugin's Context merge (ctx.locale).
 import type {} from '@deepseek-ai/dsh-client-locale/client'
@@ -44,7 +43,10 @@ export type {
 } from './settings-store.ts'
 
 /** Required services (cordis fiber inject). */
-export const inject = ['commandUi', 'sessions', 'slots', 'locale', 'connection', 'remote', 'settingsScope', 'settingsSchema']
+export const inject = [
+  'commandUi', 'sessions', 'slots', 'locale', 'remote', 'remote.settings',
+  'settingsScope', 'settingsSchema',
+]
 
 const ACCESS_NS = 'permission.access'
 
@@ -113,10 +115,9 @@ export function apply(ctx: ClientContext): void {
 
   ctx.effect(() => ctx.locale.register('settings.permission', { zh, en }), 'ui-permission: settings row dictionaries')
 
-  const connection = ctx.get('connection') as ConnectionHandle
   // The shared SettingsScope mirror updates after document commits and reconnects.
   const controller = new PermissionPresetSettingsController(
-    ctx.settingsScope.describe(), connection.api, ctx.settingsSchema)
+    ctx.settingsScope.describe(), { settings: ctx.remote.settings }, ctx.settingsSchema)
   const load = (): Promise<void> => controller.load()
   const select = (preset: string): Promise<void> => controller.select(preset)
   const injected = (): PermissionRowInjected => ({

@@ -42,22 +42,16 @@ async function bench(isLoopback = true) {
     revision: 0,
   })
   const describe = vi.fn(() => Promise.resolve({
-    rpcId: 'theme-describe' as never,
-    result: {
-      ok: true as const,
-      value: { writable: true, hasDocument: true, namespaces: [namespace()] },
-    },
+    ok: true as const,
+    value: { writable: true, hasDocument: true, namespaces: [namespace()] },
   }))
-  const mutate = vi.fn((request: { ops: { path: string[]; value: unknown }[] }) => {
-    const op = request.ops[0]!
+  const mutate = vi.fn((_ns: string, ops: { path: string[]; value: unknown }[]) => {
+    const op = ops[0]!
     section[op.path[0]!] = op.value
-    return Promise.resolve({
-      rpcId: 'theme-mutate' as never,
-      result: { ok: true as const, value: namespace() },
-    })
+    return Promise.resolve({ ok: true as const, value: namespace() })
   })
-  ctx.provide('connection', { api: { settings: { describe, mutate } }, isLoopback } as never)
-  const events = new TestRemote(ctx)
+  ctx.provide('connection', { api: {}, isLoopback } as never)
+  const events = new TestRemote(ctx, { settings: { describe, mutate } })
   await ctx.plugin({ inject: [...settingsInject], apply: settingsApply }).await()
   return {
     ctx, slots: ctx.get('slots') as SlotRegistry, locale, describe, mutate, events,

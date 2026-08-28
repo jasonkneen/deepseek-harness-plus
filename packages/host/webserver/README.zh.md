@@ -88,7 +88,7 @@ index 启动输入分两层。`collectIndexInjections()` 收集一张全新的�
 
 - [HTTP 服务器子系统](../../../docs/subsystems/web-server.zh.md)——路由、匹配顺序与服务器接受的配置。
 - [SPA dist 服务器](../frontend-static/README.zh.md)——回退席位的随附持有者。
-- [GUI 分层与 RPC 协议 RFC](../../../.agents/notes/implemented/architecture/2026-07-19-gui-layering-and-rpc-protocol.zh.md)——功能插件为何拥有每条路由。
+- [Web 配置树启动与传输分层](../../../.agents/notes/implemented/architecture/2026-07-24-web-config-tree-boot-and-transport-layering.zh.md)——功能插件为何拥有每条路由。
 - [生成配置目录](../../../docs/config-catalog.zh.md#deepseek-aidsh-host-webserver)——每个受支持配置字段及其源声明。
 
 -----

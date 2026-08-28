@@ -14,7 +14,7 @@ Status: implemented
 
 可选用户 overlay 作为交付资产位于 `apps/cli/config/examples/`，其中的裸插件名通过 CLI 应用 manifest 解析。GitHub 评审、Schedule、记忆 MCP 与运行时 Cordis 指南位于 `docs/user/` 并链接这些资产。可运行的 Python SDK 程序与极简 overlay 位于 `python/sdk/examples/`。
 
-仓库不存在 `demo:acp` 与 `demo:cordis` 脚本。ACP 通过 `dsh --profile acp` 启动；Cordis 指南使用显式 overlay 启动 `dsh web`。`demo:code-mode` 继续作为薄 wrapper，以 `DSH_TOOLS_MODE=code` 运行 `dsh --profile headless`。
+仓库不存在 `demo:acp` 与 `demo:cordis` 脚本。ACP 通过 `dsh --profile acp` 启动；Cordis 指南使用显式 overlay 启动 `dsh web`。`demo:ptc` 继续作为薄 wrapper，以 `DSH_TOOLS_MODE=ptc` 运行 `dsh --profile headless`。
 
 ## 考虑过的替代方案
 

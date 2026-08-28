@@ -251,6 +251,26 @@ export default defineConfig({
         // coverage lane exists.
         'packages/experimental/webworker-runtime/src/**',
         'packages/experimental/webworker-packer/src/*',
+        // Inspector execution adapters run in a Node Worker, the Host native
+        // inspector session, or a browser realm, outside attributable parent
+        // Vitest coverage.
+        'packages/experimental/inspector/src/client/**',
+        'packages/experimental/inspector/src/host/bridge/**',
+        'packages/experimental/inspector/src/host/cdp/**',
+        'packages/experimental/inspector/src/worker/bridge/**',
+        'packages/experimental/inspector/src/worker/cdp/**',
+        'packages/experimental/inspector/src/worker/realms/**',
+        'packages/experimental/inspector/src/worker/{entry,server}.ts',
+        // Keep already-complete Inspector modules under the per-file gate and
+        // enumerate the remaining direct-test debt instead of exempting src/**.
+        // TODO(inspector): close these branch gaps and remove the entries.
+        'packages/experimental/inspector/src/host/plugin.ts',
+        'packages/experimental/inspector/src/shared/bridge/{control-codec,rpc}.ts',
+        'packages/experimental/inspector/src/shared/bridge/messages/observation.ts',
+        'packages/experimental/inspector/src/shared/bridge/messages/query/codec.ts',
+        'packages/experimental/inspector/src/shared/bridge/messages/runtime/{command-codec,console-frames,frames,value-codec}.ts',
+        'packages/experimental/inspector/src/shared/bridge/messages/sources/{codec,frames}.ts',
+        'packages/experimental/inspector/src/worker/inspection/{cordis-store,query-router,realm-store}.ts',
         'packages/client/modules/src/client/system.ts',
         'packages/client/hmr/src/client/index.ts',
         // Web config-tree boot round: the new host-side web-transport halves
@@ -310,9 +330,6 @@ export default defineConfig({
         // by decision: its correctness signal is its uninstrumented suite and
         // the packer's end-to-end image spec.
         'packages/experimental/webworker-runtime/src/**/*.ts',
-        'packages/host/apiproxy/src/index.ts',
-        'packages/host/apiproxy/src/invariant.ts',
-        'packages/host/apiproxy/src/api-proxy.ts',
         // Projection/command round: executor lifecycle branches and the
         // registry's drive tails need the same maturing lanes. TODO(gui):
         // cover and remove with the client test lane above.

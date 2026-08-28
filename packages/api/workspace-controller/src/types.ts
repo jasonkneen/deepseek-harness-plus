@@ -1,9 +1,18 @@
-/** Browser-safe request, result, and state-stream vocabulary for Workspace Remote. */
+/**
+ * Browser-safe request, result, and state-stream vocabulary for the Workspace
+ * and directory-picking Remote namespaces this package owns. The picking seam
+ * declares its own listing types, so they are re-exported here rather than
+ * restated: a browser consumer reads the very declaration the backend answers.
+ */
 
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { WorkspaceId } from '@deepseek-ai/dsh-workspace/types'
+import type { z as zCore } from 'zod'
+
+type ZodIssue = zCore.core.$ZodIssue
 
 export type { WorkspaceId } from '@deepseek-ai/dsh-workspace/types'
+export type { DirectoryEntry, DirectoryListing } from '@deepseek-ai/dsh-host-directory-picker/types'
 
 /** One durable Workspace projected for browser consumers. */
 export interface WorkspaceView {
@@ -42,6 +51,24 @@ export type WorkspaceError = {
     readonly details: WorkspaceErrorDetailsMap[Code]
   }
 }[keyof WorkspaceErrorDetailsMap]
+
+/** Stable directory-picking failure details returned by the picking wire verbs. */
+export interface DirectoryPickerErrorDetailsMap {
+  /** The directory creation request violates its semantic input constraints. */
+  'bad-request': { readonly issues: ZodIssue[] }
+  /** The verb needs an interaction the composed backend does not serve. */
+  'directory-picker-unavailable': { readonly capability: string }
+  /** The target is not fully qualified, or the backend cannot list it. */
+  'directory-unreadable': { readonly path: string }
+  /** A child of that name is already there. */
+  'directory-exists': { readonly path: string }
+  /** The parent is not fully qualified, the name is not one segment, or creation failed. */
+  'directory-create-failed': { readonly path: string }
+  /** The caller's own timeout or disconnect ended the chooser or the scan. */
+  cancelled: Record<never, never>
+  /** A backend failure with no seam code of its own. */
+  internal: Record<never, never>
+}
 
 /** Existing directory requested for Workspace adoption. */
 export interface WorkspaceCreateRequest {

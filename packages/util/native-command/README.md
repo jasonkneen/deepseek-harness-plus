@@ -1,5 +1,5 @@
 ---
-description: "A zero-dependency no-shell execFile runner for host-native OS integrations, with utf8 stdio capture, abort propagation, and a hidden console window on Windows."
+description: "Host-native command and path-opening utilities with shell-free execution, cancellation, desktop detection, and WSL path handoff."
 kind: "package-library"
 ---
 
@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-`dsh-native-command` runs a host executable directly — never through a shell string — and captures its utf8 stdout and stderr. The caller's abort signal terminates the child, and on Windows the transient console window stays hidden. A failed run rejects with the exit code and both captured streams attached, so callers classify a missing tool, a cancellation, or a real failure without re-running anything. The host-side consumers are the native directory chooser and the open-with-default-application hand-off. It is a library, not a plugin: no `ctx`, no state, no events.
+`dsh-native-command` runs host executables without a shell and opens Host filesystem paths through the desktop. The command runner captures utf8 output, propagates cancellation, and hides transient Windows consoles. The path opener supports default-application and text-editor intents, browser-renderable documents, WSL translation, and desktop availability checks. It is a library, not a plugin: no `ctx`, no state, no events.
 
 ## Table of Contents
 
@@ -43,6 +43,10 @@ On exit 0 the call resolves with captured stdout and stderr. On any failure it r
 
 The `NativeCommandRunner` type is the injectable command boundary for host integrations: pass the function (or a wrapper) where the integration needs a testable seam, so tests can substitute a fake runner.
 
+### Opening a Host path
+
+`openNativePath(path, signal)` hands a path to the default application and prefers the named default browser for HTML and SVG where the platform can identify one. `openNativeTextFile(path, signal)` selects text-editor intent; on macOS it uses `open -t`. WSL paths are translated with `wslpath -w` before the Windows desktop receives them. `canOpenNativePath()` reports whether the current Host plausibly has a desktop target.
+
 -----
 
 <a id="understand-the-implementation"></a>
@@ -51,13 +55,15 @@ The `NativeCommandRunner` type is the injectable command boundary for host integ
 <details>
 <summary>Implementation internals — click to expand</summary>
 
-The runner is a thin wrapper over Node's `execFile` with three fixed choices: utf8 encoding, abort propagation, and Windows console hiding.
+The command runner is a thin wrapper over Node's `execFile`. The path opener selects one shell-free command from platform and environment facts, while callers retain authority over which path may be opened.
 
 ### Source map
 
 | File | Role |
 |---|---|
-| [`src/index.ts`](src/index.ts) | `runNativeCommand` and the `NativeCommandRunner` type — the whole package |
+| [`src/index.ts`](src/index.ts) | Public command-runner and path-opener exports |
+| [`src/runner.ts`](src/runner.ts) | Shell-free `execFile` adapter |
+| [`src/path-opener.ts`](src/path-opener.ts) | Desktop detection, open intents, browser preference, and WSL translation |
 | [`src/invariant.ts`](src/invariant.ts) | Invariant companion (no runtime invariant; each run is one stateless child-process round trip) |
 
 ### What execFile gives the runner
@@ -74,7 +80,8 @@ The runner is a thin wrapper over Node's `execFile` with three fixed choices: ut
 Read these pages when you need the consumers or the general subprocess capability this utility deliberately is not.
 
 - [Native directory picker](../../host/directory-picker-native/README.md) — the OS chooser commands this runner executes.
-- [Host API proxy](../../host/apiproxy/README.md) — the open-with-default-application hand-off this runner serves.
+- [Session Controller](../../api/session-controller/README.md) — resolves Session-relative workspace paths before opening them.
+- [Settings Controller](../../api/settings-controller/README.md) — selects settings documents and agent-preset directories.
 - [Subprocess capability](../../subprocess/subprocess/README.md) — the general subprocess seam, of which this package is not a part.
 
 -----
@@ -82,7 +89,7 @@ Read these pages when you need the consumers or the general subprocess capabilit
 <a id="model-experience"></a>
 ## Model Experience
 
-None, as the host-side subprocess runner registers nothing model-facing.
+None, as the host-side utilities register nothing model-facing.
 
 #### KV Cache effect
 

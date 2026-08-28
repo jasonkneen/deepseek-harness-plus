@@ -11,7 +11,8 @@ import {
 import type {} from '@deepseek-ai/dsh-agent'
 import { snapshotSubagentDescriptor } from '@deepseek-ai/dsh-subagent'
 import {
-  acknowledgeReloadConnectionLoss, captureStableAria, compareOrRefreshGolden,
+  acknowledgeReloadConnectionLoss, captureExpandedTurnProcessAria, captureStableAria,
+  compareOrRefreshGolden,
   launchWebScaffold, watchConsole,
   webSnapshotMode, type WebScaffold,
 } from './scaffold.ts'
@@ -19,6 +20,9 @@ import { connectFreshWorkspace, newEnglishPage, saveFailureShot } from './suppor
 
 const BASE_FIXTURE = fileURLToPath(new URL('../../../snapshots/web/live-interactions/session.jsonl', import.meta.url))
 const AVAILABLE_CHILD_EXPECTED = fileURLToPath(new URL('../../../snapshots/web/subagent-conversation/ui.expected.md', import.meta.url))
+const AVAILABLE_CHILD_EXPANDED_EXPECTED = fileURLToPath(
+  new URL('../../../snapshots/web/subagent-conversation/ui-expanded.expected.md', import.meta.url),
+)
 const TREE_EXPECTED = fileURLToPath(new URL('../../../snapshots/web/subagent-conversation/tree.expected.md', import.meta.url))
 const BRANCHLESS_EXPECTED = fileURLToPath(new URL('../../../snapshots/web/subagent-conversation/branchless.expected.md', import.meta.url))
 const STALE_CATALOG_EXPECTED = fileURLToPath(new URL('../../../snapshots/web/subagent-conversation/stale-catalog.expected.md', import.meta.url))
@@ -243,7 +247,7 @@ describe('web e2e: persisted subagent conversation and human continuation', () =
     const warningStart = tripwire.warnings.length
     await page.reload({ waitUntil: 'load' })
     await page.waitForSelector('[class*="frame"]', { timeout: 30_000 })
-    const catalogButton = page.getByRole('button', { name: /subagents/ })
+    const catalogButton = page.getByRole('button', { name: '3 subagents', exact: true })
     await catalogButton.waitFor({ timeout: 15_000 })
     await catalogButton.hover()
     const catalogTree = page.getByRole('tree', { name: 'Subagent sessions' })
@@ -393,7 +397,7 @@ describe('web e2e: persisted subagent conversation and human continuation', () =
       expect(await page.locator('[data-composer-seat]').evaluate(element =>
         getComputedStyle(element).visibility)).toBe('hidden')
       releaseCatalog()
-      const input = page.getByRole('textbox', { name: 'Message the agent' })
+      const input = page.getByRole('textbox', { name: 'Message or run a task... / commands, @ files or sessions' })
       await input.waitFor({ timeout: 15_000 })
       await expect.poll(() => input.isEnabled(), { timeout: 15_000 }).toBe(true)
       acknowledgeReloadConnectionLoss(tripwire, warningStart)
@@ -417,7 +421,7 @@ describe('web e2e: persisted subagent conversation and human continuation', () =
         resolveEnded()
       })
     })
-    const input = page.getByRole('textbox', { name: 'Message the agent' })
+    const input = page.getByRole('textbox', { name: 'Message or run a task... / commands, @ files or sessions' })
     await input.fill(FOLLOWUP)
     await input.press('Enter')
     await expect.poll(
@@ -434,6 +438,12 @@ describe('web e2e: persisted subagent conversation and human continuation', () =
     onTestFailed(() => saveFailureShot(page, 'web-e2e-subagent-aria'))
     const snapshot = await captureStableAria(page, '[class*="centerCol"]', scaffold.workspaceCwd)
     await compareOrRefreshGolden(AVAILABLE_CHILD_EXPECTED, snapshot, MODE)
+    const expanded = await captureExpandedTurnProcessAria(
+      page,
+      '[class*="centerCol"]',
+      scaffold.workspaceCwd,
+    )
+    await compareOrRefreshGolden(AVAILABLE_CHILD_EXPANDED_EXPECTED, expanded, MODE)
     expect(tripwire.pageErrors).toEqual([])
     expect(tripwire.warnings).toEqual([])
   })
@@ -500,7 +510,7 @@ describe('web e2e: persisted subagent conversation and human continuation', () =
       .click()
     await page.getByRole('button', { name: '3 subagents' }).hover()
     await page.getByRole('treeitem', { name: new RegExp(LABEL) }).click()
-    await page.getByRole('textbox', { name: 'Message the agent' }).waitFor()
+    await page.getByRole('textbox', { name: 'Message or run a task... / commands, @ files or sessions' }).waitFor()
     const forkResponse = page.waitForResponse(response =>
       new URL(response.url()).pathname === '/api/session/fork')
     await page.getByRole('button', { name: 'Branch into a new conversation' }).last().click()

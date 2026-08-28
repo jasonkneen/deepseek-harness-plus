@@ -4,7 +4,7 @@
  * without editing it.
  *
  * `settings.models.provider-card` is keyed by the row's owning settings
- * namespace (`ConfigurableProviderView.settingsNs`): an adapter family's
+ * namespace (`ProviderDirectoryEntry.settingsNs`): an adapter family's
  * companion plugin registers one entry under the family's namespace and
  * receives every card of that family — shipped, added, and hand-declared rows
  * alike — while the section never learns what the namespace means. Keying on
@@ -17,8 +17,8 @@
  * the declaration. The types therefore live with their declarer.
  */
 
-import type { ConfigurableProviderView } from '@deepseek-ai/dsh-api-remotes/client'
 import type {} from '@deepseek-ai/dsh-client-ui-slots'
+import type { ProviderDirectoryEntry } from './store.ts'
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface SlotMap {
@@ -42,7 +42,7 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
 /** Owner share of one provider-card extension occurrence. */
 export interface ProviderCardExtrasOwnerProps {
   /** The card's directory row (route id, display name, settings address, live state). */
-  provider: ConfigurableProviderView
+  provider: ProviderDirectoryEntry
   /** Whether any layer configures this provider (its profile resolves); `false` while the add-provider draft edits a dormant row. */
   configured: boolean
   /** Whether the row's referenced api-key credential is confirmed configured (the page's credential join). */

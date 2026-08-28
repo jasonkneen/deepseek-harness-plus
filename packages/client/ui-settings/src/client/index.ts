@@ -32,13 +32,15 @@ export type { SettingsScopeController, SettingsScopeBinder } from './settings-sc
 export type { SettingsScope, SettingsScopeSnapshot, SettingsScopeSpec } from './settings-contract.ts'
 export type { SettingsSchemaService } from './schema.ts'
 export type { SchemaNode } from './schema.ts'
-export type { SettingsDescribeFace, SettingsDescribeView, SettingsMirrorSnapshot } from './settings-mirror.ts'
+export type {
+  SettingsDescribeFace, SettingsDescribeView, SettingsMirrorSnapshot, SettingsRemote, SettingsWireFace,
+} from './settings-mirror.ts'
 
 /**
  * Required services: the wire handle for the mirror's reads and the forwarded
  * settings invalidation the mirror refreshes on.
  */
-export const inject = ['connection', 'remote']
+export const inject = ['connection', 'remote', 'remote.settings']
 
 /**
  * Provide the settings-namespace scope service over one shared describe
@@ -52,10 +54,10 @@ export const inject = ['connection', 'remote']
 export function apply(ctx: Context): void {
   const schema = new SettingsSchemaService(ctx)
   const connection = ctx.get('connection') as ConnectionHandle
-  const mirror = new SettingsDescribeMirror(
-    connection.api,
-    connection.isLoopback ? 'host' : 'memory',
-  )
+  // Captured once here, where `remote.settings` is declared in this plugin's
+  // own `inject`; the binder hands the same face to every scope it binds.
+  const wire = { settings: ctx.remote.settings }
+  const mirror = new SettingsDescribeMirror(wire, connection.isLoopback ? 'host' : 'memory')
   ctx.effect(() => {
     const disposers = [
       ctx.remote.$on('settings/document-updated', () => { void mirror.load() }),
@@ -68,5 +70,5 @@ export function apply(ctx: Context): void {
     void mirror.ensure()
     return () => { for (const dispose of disposers) dispose() }
   }, 'ui-settings: describe mirror invalidations')
-  new SettingsScopeBinder(ctx, { mirror, schema })
+  new SettingsScopeBinder(ctx, { mirror, schema, wire })
 }

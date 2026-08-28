@@ -19,7 +19,7 @@ import {
   webSnapshotMode,
   type WebScaffold,
 } from './scaffold.ts'
-import { conversationContextKey, newEnglishPage, saveFailureShot } from './support.ts'
+import { conversationContextKey, expandOwningTurnProcess, newEnglishPage, saveFailureShot } from './support.ts'
 
 const MODE = webSnapshotMode()
 const SESSION_ID = 'chat-long-interactions-e2e'
@@ -278,6 +278,7 @@ describe('web e2e: long Chat interaction contract', () => {
 
     const summary1 = call1.locator('[data-sample="bash"]')
     const summary2 = call2.locator('[data-sample="bash"]')
+    await expandOwningTurnProcess(page, call2)
     expect(await summary1.getAttribute('aria-expanded')).toBe('false')
     expect(await summary2.getAttribute('aria-expanded')).toBe('false')
     await summary2.focus()

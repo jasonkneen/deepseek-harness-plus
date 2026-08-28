@@ -7,8 +7,9 @@ import {
 import type {
   AgentContext, ISessions, ProjectionsFace, SessionBinding, SessionFace, SessionListState,
   SessionEventLikeEntry, SessionLiveEventEntry, SessionSearchResultItem,
-  SessionSnapshot, SessionSummary,
+  SessionSnapshot, SessionSummary, SubmissionHandle,
 } from '@deepseek-ai/dsh-api-session-controller/client'
+import type { SessionRequestId } from '@deepseek-ai/dsh-api-session-controller/types'
 import type { SubagentAddress } from '@deepseek-ai/dsh-subagent/client'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
 import type { ObservableSnapshot, SnapshotStore } from '@deepseek-ai/dsh-client-store'
@@ -93,6 +94,22 @@ export class FixtureSession implements SessionFace {
   prompt(): never {
     throw new Error(`test session "${this.sessionId}": prompt is not stubbed — supply it on the fixture's session face`)
   }
+
+  /**
+   * Minimal local-echo registration: mints an identity without touching the
+   * fixture snapshot (submission echoes are client-only presentation state).
+   * Supply `beginSubmission` on the fixture's session face to observe echoes.
+   * @returns a handle whose abandon is a no-op.
+   */
+  beginSubmission(): SubmissionHandle {
+    this.submissionSeq += 1
+    return {
+      requestId: `test-submission-${this.submissionSeq}` as SessionRequestId,
+      abandon: () => {},
+    }
+  }
+
+  private submissionSeq = 0
 
   /**
    * Fail-loud stub; supply `readAttachment` on the fixture's session face to exercise it.

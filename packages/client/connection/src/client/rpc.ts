@@ -4,7 +4,7 @@ import {
   RpcId,
   type ClientRequest,
   type RpcId as RpcIdType,
-} from '@deepseek-ai/dsh-host-apiproxy/api'
+} from '../rpc.ts'
 import type { ClientConnectionRpc, ConnectionRpcResult } from '../rpc.ts'
 import { randomUuid } from './random-uuid.ts'
 

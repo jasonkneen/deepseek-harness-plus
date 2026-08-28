@@ -25,7 +25,7 @@ kind: "package-reference"
 <a id="use-this-package"></a>
 ## 使用本包
 
-与 `ui-conversation` 一起挂载本插件；已完成轮次随即以产出文件行收尾，位于收尾消息正文与其动作页脚之间。每个标签项经宿主打开器打开文件，相对路径按会话 cwd 解析；页面为 loopback 且宿主报告可打开路径时，**在文件夹中显示**动作会打开会话工作区。
+与 `ui-conversation` 一起挂载本插件；已完成轮次随即以产出文件行收尾，位于收尾消息正文与其动作页脚之间。每个标签项经 Host 打开器打开文件，相对路径按会话 cwd 解析；该行首次显示时会查询 `session.canOpenWorkspacePath()`，只有页面为 loopback 且查询成功返回 `true` 时，**在文件夹中显示**动作才会打开会话工作区。
 
 ### 该行
 
@@ -87,7 +87,7 @@ Node 半部注册静态 `ui:deliverable-file-references` 系统提示词段，�
 
 - **提及匹配只认精确路径或唯一 basename**——后缀式提及保持惰性；等真实的收尾消息形态产生需求后再放宽匹配规则。
 - **终端命令间接创建的文件仍不在匹配词表内**——除非某个成功修改位置也记录了该路径，否则在行内代码中点名这类文件不会使其可点击。
-- **原生文件夹交接以宿主桌面为目标**——经非 loopback 权威访问的浏览器会省略该动作，报告没有原生打开器的部署也一样；若 SSH 转发让远端宿主看似 loopback 本地，部署必须为网关设置 `nativeOpen: false`。
+- **原生文件夹交接以 Host 桌面为目标**——经非 loopback authority 访问的浏览器会省略该动作，报告没有原生打开器的部署也一样；若 SSH 转发让远端 Host 看似 loopback 本地，部署必须为 Session Controller 设置 `nativeOpen: false`。
 
 <a id="dev-note"></a>
 ### 开发备注

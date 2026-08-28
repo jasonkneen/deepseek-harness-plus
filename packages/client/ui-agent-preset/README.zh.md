@@ -43,7 +43,7 @@ kind: "package-reference"
 <details>
 <summary>实现细节——点击展开</summary>
 
-选项与当前默认值都来自同一次 `agentPreset.list` 调用——名单本身已报告未显式选择的会话会得到哪个 id，因此该行无需对 settings schema 做内省——写入目标是 `agent-presets` settings 命名空间的 `default` 字段，也正是宿主在创建时解析的字段。新建会话 chip 与标题标签共用一个控制器，因为暂存选择属于流程而非任何单个会话；暂存值在会话到达时应用（既覆盖工作区连接新建的会话，也覆盖它复用的空白会话），被拒绝时丢弃。被拒绝会以一条瞬时横幅在 composer 列上方自报，因为 chip 的标签此时已经弹回，而被宿主拒绝挂载的 preset 正是发现过程报告为健康的那一种——它的名单卡片上没有任何原因可供回头查看。只有人刚做出的选择会被自报；会话成为当前会话时触发的应用器不会。[`dsh-client-connection`](../connection/README.zh.md) 使用同一浏览器会话认证 `agentPreset.read`、`copy`、`openDocument`、`remove`、`list` 及其他所有 Host API 方法。组装仍会指明一个会话所运行的插件，因此读取属于侦察，而 copy、remove 与 openDocument 管理名单并驱动宿主桌面。分区在自身操作、`settings/changed` 与 `connection/reset` 时重读，因为组装文件在浏览器之外编辑，线上没有任何机制宣布文件变动。
+选项与当前默认值都来自同一次 `agentPresets/list` 调用——名单本身已报告未显式选择的会话会得到哪个 id，因此该行无需对 settings schema 做内省——写入目标是 `agent-presets` settings 命名空间的 `default` 字段，也正是 Host 在创建时解析的字段。设置分区首次加载时查询 `settings.canOpenAgentPresetDirectory()`，并把结果与名单合并；查询失败只会移除原生打开动作。新建会话 chip 与标题标签共用一个控制器，因为暂存选择属于流程而非任何单个会话；暂存值在会话到达时应用（既覆盖工作区连接新建的会话，也覆盖它复用的空白会话），被拒绝时丢弃。被拒绝会以一条瞬时横幅在 composer 列上方自报，因为 chip 的标签此时已经弹回，而被 Host 拒绝挂载的 preset 正是发现过程报告为健康的那一种——它的名单卡片上没有任何原因可供回头查看。只有人刚做出的选择会被自报；会话成为当前会话时触发的应用器不会。[`dsh-client-connection`](../connection/README.zh.md) 使用同一浏览器会话认证 `agentPresets/read`、`agentPresets/copy`、`settings/openAgentPresetDirectory`、`agentPresets/deletePreset`、`agentPresets/list` 及其他所有 Host API 方法。组装仍会指明一个会话所运行的插件，因此读取属于侦察，而 copy、delete 与 settings 所有的目录打开操作负责管理名单并驱动 Host 桌面。分区在自身操作、`settings/document-updated` 与 `connection/reset` 时重读，因为组装文件在浏览器之外编辑，线上没有任何机制宣布文件变动。
 
 </details>
 

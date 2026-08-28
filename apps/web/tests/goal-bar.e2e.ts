@@ -1,5 +1,5 @@
 // Keyless assembled-browser coverage for the goal bar over the shipped Web
-// bundles and FixtureApiClient wire. The command creates a real projected
+// bundles and the fixture Connection RPC. The command creates a real projected
 // goal in the fixture session; the golden pins the active strip, while the
 // clear gesture proves the acknowledged tombstone leaves neither stale chrome
 // nor a duplicate-mutation error.
@@ -45,7 +45,7 @@ describe('web e2e: goal bar clear convergence', () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-goal-bar-clear'))
     // Startup reuses the fixture workspace's blank session, keeping this
     // command independent of alpha's running replay and pending question.
-    const input = page.locator('[data-composer-input][data-placeholder="Describe what you want to build"]')
+    const input = page.locator('[data-composer-input][data-placeholder="Describe what you want to build... / commands, @ files or sessions"]')
     await input.waitFor({ timeout: 10_000 })
     await input.fill('/goal guard rapid clear clicks')
     await input.press('Enter')

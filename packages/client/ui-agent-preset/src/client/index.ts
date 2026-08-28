@@ -11,7 +11,6 @@
  * before-the-fact, while the header only reports what a session already runs.
  */
 
-import type { ConnectionHandle } from '@deepseek-ai/dsh-api-remotes/client'
 // Type-only: pulls the Session Controller service merge (ctx.sessions).
 import type {} from '@deepseek-ai/dsh-api-session-controller/client'
 // Type-only: pulls the locale plugin's Context merge (ctx.locale).
@@ -50,19 +49,21 @@ export type { AgentPresetOption, AgentPresetSettingsState } from './settings-sto
 export { AGENT_PRESET_SETTINGS_NS, writeDefaultPreset } from './settings-store.ts'
 
 /** Required services (cordis fiber inject). */
-export const inject = ['slots', 'locale', 'connection', 'remote', 'remote.agentPresets', 'settingsScope']
+export const inject = [
+  'slots', 'locale', 'remote', 'remote.agentPresets', 'remote.settings', 'settingsScope',
+]
 
 /**
  * Mount the General-settings row.
  * @param ctx - the browser plugin context.
  */
 export function apply(ctx: ClientContext): void {
-  const { api } = ctx.get('connection') as ConnectionHandle
-  const controller = new AgentPresetSettingsController(api, ctx.remote, ctx.settingsScope.describe())
+  const settingsWire = { settings: ctx.remote.settings }
+  const controller = new AgentPresetSettingsController(settingsWire, ctx.remote, ctx.settingsScope.describe())
   // One roster, four surfaces. The chip is registered in a later scope, so it
   // subscribes here rather than being reached from this one.
   const rosterReaders = new Set<() => void>()
-  const section = new AgentPresetSectionController(api, ctx.remote, () => {
+  const section = new AgentPresetSectionController(ctx.remote, () => {
     void controller.load()
     for (const read of rosterReaders) read()
   })

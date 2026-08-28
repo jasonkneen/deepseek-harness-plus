@@ -21,6 +21,7 @@ function sessionSnapshot(): SessionSnapshot {
   return {
     sessionId: SESSION_ID,
     queue: [],
+    pendingSubmissions: [],
     running: false,
     subagent: null,
     removed: false,
@@ -43,6 +44,7 @@ function fakeSession(): SessionFace {
     projections: { faceOf: () => createSnapshotStore<unknown>(undefined) },
     getSnapshot: () => snapshot.getSnapshot(),
     subscribe: listener => snapshot.subscribe(listener),
+    beginSubmission: () => ({ requestId: 'test-req' as never, abandon: () => {} }),
     prompt: () => Promise.reject(new Error('unused fake Session operation')),
     readAttachment: () => Promise.reject(new Error('unused fake Session operation')),
     updateQueue: () => Promise.reject(new Error('unused fake Session operation')),

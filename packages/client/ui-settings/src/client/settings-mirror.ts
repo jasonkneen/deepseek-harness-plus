@@ -9,10 +9,24 @@
  * through {@link SettingsDescribeMirror.acceptView}.
  */
 
-import type { IApiClient, SettingsNamespaceView } from '@deepseek-ai/dsh-api-remotes/client'
+import type { ClientRemote, SettingsNamespaceView } from '@deepseek-ai/dsh-api-remotes/client'
 import { createSnapshotStore, type SnapshotStore } from '@deepseek-ai/dsh-client-store'
 
-type SettingsFace = Pick<IApiClient, 'settings'>
+/**
+ * The settings Remote methods browser configuration surfaces may reach: the
+ * redacted read plus merge, replacement, and path-addressed writes.
+ * Named once here so the consumers share one face instead of each re-deriving
+ * it from the namespace.
+ */
+export type SettingsRemote = Pick<ClientRemote['settings'], 'describe' | 'update' | 'replace' | 'mutate'>
+
+/** Wire face carrying the settings Remote namespace. */
+export interface SettingsWireFace {
+  /** The settings Remote namespace. */
+  settings: SettingsRemote
+}
+
+type SettingsFace = SettingsWireFace
 
 /** The full `settings.describe` answer the mirror serves. */
 export interface SettingsDescribeView {
@@ -180,10 +194,10 @@ export class SettingsDescribeMirror implements SettingsDescribeFace {
         const generation = ++this.generation
         let outcome: { view: SettingsDescribeView } | { failure: string }
         try {
-          const response = await this.api.settings.describe({})
-          outcome = response.result.ok
-            ? { view: response.result.value }
-            : { failure: response.result.error.message }
+          const response = await this.api.settings.describe()
+          outcome = response.ok
+            ? { view: response.value }
+            : { failure: response.error.message }
         } catch (error) {
           outcome = { failure: error instanceof Error ? error.message : String(error) }
         }

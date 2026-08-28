@@ -16,6 +16,7 @@
     { "path": "../../attachment/attachment" },
     { "path": "../../client/connection/tsconfig.client.json" },
     { "path": "../../client/store" },
+    { "path": "../../context/file-reference" },
     { "path": "../../core/session" },
     { "path": "../../jobs/jobs" },
     { "path": "../../llm/llm" },

@@ -16,14 +16,9 @@
 - text: Reply with the single word LIGHTHOUSE and stop. {{clock}}
 - button "Copy":
   - img
-- button "Context injection @deepseek-ai/dsh-system-prompt":
+- button "Thought for a while":
+  - text: Thought for a while
   - img
-  - img
-  - text: Context injection @deepseek-ai/dsh-system-prompt
-- button "Think The user wants me to reply with a single word. Let me comply.":
-  - img
-  - img
-  - text: Think The user wants me to reply with a single word. Let me comply.
 - paragraph: LIGHTHOUSE
 - button "Copy":
   - img
@@ -34,7 +29,7 @@
 - button "Branch into a new conversation":
   - img
 - text: {{clock}} Ran for {{duration}} TTFT {{duration}} {{throughput}} tok/s
-- textbox "Message the agent"
+- textbox "Message or run a task... / commands, @ files or sessions"
 - button "Commands":
   - img
 - 'button "Access mode, current: Workspace Write"': Workspace Write

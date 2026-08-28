@@ -65,6 +65,18 @@ async function bench() {
   // block follows this, never catalog membership.
   let routable = true
   const sessionRemote = {
+    modelCatalog: () => {
+      calls.models += 1
+      return Promise.resolve({
+        ok: true as const,
+        value: {
+          default: defaultSelection,
+          routableProviders: routable ? ['deepseek-official'] : [],
+          groups: GROUPS,
+          failures: [],
+        },
+      })
+    },
     selectModel: (payload: { sessionId: SessionId; provider: string; model: string; reasoningEffort?: string }) => {
       calls.select += 1
       selected = {
@@ -80,28 +92,6 @@ async function bench() {
   }
   const remote = Object.assign(new TestRemote(ctx), { session: sessionRemote })
   ctx.reflect.provide('remote.session', sessionRemote)
-  ctx.provide('connection', {
-    api: {
-      llm: {
-        models: () => {
-          calls.models += 1
-          return Promise.resolve({
-            rpcId: 'model-catalog',
-            result: {
-              ok: true as const,
-              value: {
-                default: defaultSelection,
-                routableProviders: routable ? ['deepseek-official'] : [],
-                groups: GROUPS,
-                failures: [],
-              },
-            },
-          })
-        },
-      },
-    },
-    isLoopback: false,
-  } as never)
   const blocks = new Map<SessionId, { reason: string } | undefined>()
   ctx.provide('conversation', {
     blocks: {
