@@ -409,7 +409,9 @@ describe('Linux one-shot exec bootstrap', () => {
     const files = track(createLinuxLaunchFiles({ cwd: 'work', env: { PATH: 'bin:' } }))
     const host = new FakeRunnerHost()
     host.directory = '/base'
-    const execve = vi.fn(() => { throw Object.assign(new Error('not found'), { code: 'ENOENT' }) })
+    const execve = vi.fn((_file: string, _argv: string[], _env: Record<string, string>): never => {
+      throw Object.assign(new Error('not found'), { code: 'ENOENT' })
+    })
     await runSpawnRunner(files.requestPath, ['--', 'tool'], hostArgument(host), internals({ execve }))
     expect(host.directory).toBe('/base/work')
     expect(execve.mock.calls.map(call => call[0])).toEqual([
