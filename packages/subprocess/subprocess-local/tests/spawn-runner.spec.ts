@@ -1,4 +1,5 @@
 import { EventEmitter } from 'node:events'
+import { spawnSync } from 'node:child_process'
 import {
   existsSync,
   mkdtempSync,
@@ -291,7 +292,7 @@ describe('runner launch inputs', () => {
   it('resolves the source runner entry and checks concrete paths without executing it', () => {
     const invocation = spawnRunnerInvocation()
     expect(invocation[0]).toBe(process.execPath)
-    expect(invocation).toContain('tsx/esm')
+    expect(invocation).toContain(import.meta.resolve('tsx/esm'))
     expect(runnerInvocationAvailable(invocation)).toBe(true)
     expect(runnerInvocationAvailable(['/definitely/missing-dsh-runner'])).toBe(false)
     expect(runnerInvocationAvailable(['node'])).toBe(true)
@@ -303,6 +304,21 @@ describe('runner launch inputs', () => {
     } finally {
       Reflect.deleteProperty(process, 'pkg')
     }
+  })
+
+  it('loads the source runner from an isolated application cwd', () => {
+    const directory = mkdtempSync(join(tmpdir(), 'dsh-runner-cwd-'))
+    scratch.push(directory)
+    const invocation = spawnRunnerInvocation()
+    const env = runnerEnvironment('unused')
+    Reflect.deleteProperty(env, SUBPROCESS_RUNNER_ENV)
+    const launched = spawnSync(invocation[0], invocation.slice(1), {
+      cwd: directory,
+      env,
+      encoding: 'utf8',
+    })
+    expect(launched.status).toBe(127)
+    expect(launched.stderr).not.toContain('ERR_MODULE_NOT_FOUND')
   })
 
   it('bounds non-Error and stackless runner failures', () => {

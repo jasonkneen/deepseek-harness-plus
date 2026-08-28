@@ -31,7 +31,7 @@ export function spawnRunnerInvocation(): RunnerInvocation {
   return [
     process.execPath,
     '--import',
-    'tsx/esm',
+    import.meta.resolve('tsx/esm'),
     fileURLToPath(new URL('./bin.ts', import.meta.url)),
   ]
 }
