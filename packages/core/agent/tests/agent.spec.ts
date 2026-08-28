@@ -1,9 +1,7 @@
 import { describe, expect, expectTypeOf, it } from 'vitest'
 import { Context, Service, symbols } from '@deepseek-ai/cordis'
-import { createUserMessage } from '@deepseek-ai/dsh-llm'
-import SessionStore, { Session, SessionId, type UserMessage } from '@deepseek-ai/dsh-session'
+import { Session, SessionId } from '@deepseek-ai/dsh-session'
 import AgentRegistry, { agentEvents } from '@deepseek-ai/dsh-agent'
-import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import TypertRegistry from '@deepseek-ai/dsh-typert-registry'
 
 import type {
@@ -39,134 +37,6 @@ function stubAgent(rawId: string, overrides: Partial<Agent> = {}): Agent {
   }
   return agent
 }
-
-async function reconstructPersistedInbox(
-  rawId: string,
-  populate: (session: Session) => void,
-): Promise<Error> {
-  const ctx = new Context()
-  await ctx.plugin(SessionStore)
-  const session = ctx.sessions.create(SessionId(rawId))
-  populate(session)
-  await ctx.plugin(SessionProjectionRegistry)
-  await ctx.plugin(AgentRegistry)
-  try {
-    ctx.sessionProjections.stateOf(session, 'inbox')
-  } catch (error: unknown) {
-    if (error instanceof Error) return error
-    throw error
-  }
-  throw new Error('persisted inbox reconstruction unexpectedly succeeded')
-}
-
-describe('Inbox projection', () => {
-  it('rejects invalid durable coordinates and duplicate identities during reconstruction', async () => {
-    const outOfRange = await reconstructPersistedInbox('invalid-inbox-range', (session) => {
-      session.append('agent/inbox/spliced', {
-        target: 'next-turn', start: 0, removedCount: 1, inserted: [],
-      })
-    })
-    expect(outOfRange.message).toBe('invalid persisted inbox splice at session seq 0')
-    expect((outOfRange.cause as Error).message).toBe('invalid inbox splice')
-
-    const pending = createUserMessage({
-      content: [{ type: 'text', text: 'duplicate' }],
-      source: { kind: 'user' },
-    })
-    const duplicate = await reconstructPersistedInbox('invalid-inbox-duplicate', (session) => {
-      session.append('agent/inbox/spliced', {
-        target: 'next-turn', start: 0, inserted: [pending],
-      })
-      session.append('agent/inbox/spliced', {
-        target: 'next-step', start: 0, inserted: [pending],
-      })
-    })
-    expect(duplicate.message).toBe('invalid persisted inbox splice at session seq 1')
-    expect((duplicate.cause as Error).message).toBe(`message "${pending.id}" is already pending`)
-  })
-
-  it('projects inherited inbox events in a forked session', async () => {
-    const ctx = new Context()
-    await ctx.plugin(SessionStore)
-    await ctx.plugin(SessionProjectionRegistry)
-    await ctx.plugin(AgentRegistry)
-    const parent = ctx.sessions.create(SessionId('inbox-fork-parent'))
-    const inherited = createUserMessage({
-      content: [{ type: 'text', text: 'parent pending' }],
-      source: { kind: 'user' },
-    })
-    parent.append('agent/inbox/spliced', {
-      target: 'next-turn', start: 0, inserted: [inherited],
-    })
-    const child = ctx.sessions.fork(parent, undefined, SessionId('inbox-fork-child'))
-
-    expect(child.header.seedLength).toBe(parent.events.length)
-    expect(ctx.sessionProjections.stateOf(child, 'inbox')).toEqual({
-      'next-turn': [inherited],
-      'next-step': [],
-    })
-
-    const own = createUserMessage({
-      content: [{ type: 'text', text: 'child pending' }],
-      source: { kind: 'user' },
-    })
-    child.append('agent/inbox/spliced', {
-      target: 'next-turn', start: 1, inserted: [own],
-    })
-    expect(ctx.sessionProjections.stateOf(child, 'inbox')?.['next-turn']).toEqual([inherited, own])
-  })
-
-  it('registers the durable inbox projection from the Agent registry', async () => {
-    const ctx = new Context()
-    await ctx.plugin(SessionStore)
-    await ctx.plugin(SessionProjectionRegistry)
-    const agentFiber = ctx.plugin(AgentRegistry)
-    await agentFiber
-    const session = ctx.sessions.create(SessionId('inbox-projection'))
-    const pending = createUserMessage({
-      content: [{ type: 'text', text: 'pending' }],
-      source: { kind: 'user' },
-    })
-
-    session.append('agent/inbox/spliced', {
-      target: 'next-turn', start: 0, inserted: [pending],
-    })
-
-    expect(ctx.sessionProjections.snapshot(session).values.inbox).toEqual({
-      'next-turn': [pending],
-      'next-step': [],
-    })
-    await agentFiber.dispose()
-    expect(ctx.sessionProjections.snapshot(session).values).toEqual({})
-  })
-
-  it('updates the projection cell before session observers run', async () => {
-    const ctx = new Context()
-    await ctx.plugin(SessionStore)
-    await ctx.plugin(SessionProjectionRegistry)
-    await ctx.plugin(AgentRegistry)
-    const session = ctx.sessions.create(SessionId('inbox-live-projection'))
-    const pending = createUserMessage({
-      content: [{ type: 'text', text: 'direct' }],
-      source: { kind: 'user' },
-    })
-    let observed: readonly UserMessage[] | undefined
-    ctx.on('session/event', (subject, event) => {
-      if (subject === session && event.type === 'agent/inbox/spliced') {
-        observed = ctx.sessionProjections.stateOf(session, 'inbox')?.['next-turn']
-      }
-    })
-
-    session.append('agent/inbox/spliced', {
-      target: 'next-turn', start: 0, inserted: [pending],
-    })
-
-    expect(observed).toEqual([pending])
-    expect(ctx.sessionProjections.snapshot(session).values.inbox).toEqual({
-      'next-turn': [pending], 'next-step': [],
-    })
-  })
-})
 
 describe('AgentRegistry', () => {
   it('contributes Agent lookup and scoped Context providers while Typert is live', async () => {

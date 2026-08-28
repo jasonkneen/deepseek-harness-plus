@@ -86,7 +86,7 @@ await handle.agent.whenIdle()
 
 ### 持久 inbox
 
-`AgentRegistry` 会在投影注册表已组合时贡献标准 `inbox` 会话投影。注册表只折叠一次持久 `agent/inbox/spliced` 事件，并继续作为实时 `{ 'next-turn', 'next-step' }` 状态的唯一所有者。`Agent.inbox` 只暴露结构化 `Inbox` 接口；dsh-agent-loop 持有读取该投影的包内部 `ProjectedInbox`。投影组合缺失时会明确失败；重建过程则会拒绝不安全或越界的 splice 坐标，以及跨两份待处理列表重复的 `MessageId`，并报告出错事件的 seq。
+`Agent.inbox` 只暴露结构化 `Inbox` 接口，投影词汇仍位于本包。dsh-agent-loop 持有包内部的 `ReactLoopInbox` 与标准 `inbox` 投影；构造具体 inbox 时会确保投影注册表为持久 `agent/inbox/spliced` fold 持有一份注册。注册表继续作为实时 `{ 'next-turn', 'next-step' }` 状态的唯一所有者。重建过程会拒绝不安全或越界的 splice 坐标，以及跨两份待处理列表重复的 `MessageId`，并报告出错事件的 seq。
 
 `Inbox` 暴露待处理的 `nextTurn` 与 `nextStep` 消息，并通过 `append`、`prepend`、`replace`、`remove`、`clear` 与 `splice` 变更它们。普通删除和 `clear()` 都是持久取消。在步骤边界，循环的内部实现会通过纯删除 splice 领取待处理输入。实时通知刻意采用逐消息的最小载荷：`agent/inbox/inserted { message }`、`agent/inbox/claimed { message, turn }` 与 `agent/inbox/discarded { message }`。
 
@@ -97,7 +97,6 @@ await handle.agent.whenIdle()
 | [`src/index.ts`](src/index.ts) | 插件入口：`AgentRegistry`、工厂槽位、发起方作用域、`CreateAgentOptions`/`ResumeAgentOptions` |
 | [`src/runtime-types.ts`](src/runtime-types.ts) | `Agent`、结构化 `Inbox`、`AgentStatus` 与 `agent/*` 事件声明 |
 | [`src/types.ts`](src/types.ts) | `AgentOptions`、取消原因与收件箱投影词汇 |
-| [`src/inbox-projection.ts`](src/inbox-projection.ts) | 持久 `agent/inbox/spliced` 事件之上的标准投影 |
 | [`src/dispatch.ts`](src/dispatch.ts) | `agentEvents` 融合分发器与 `assembleContextFor(agent)` |
 | [`src/consumed-work.ts`](src/consumed-work.ts) | `foldConsumedWork(events)`：日志消费掉的工作最终怎样了 |
 | [`src/model-selection.ts`](src/model-selection.ts) | `installModelSelection`：把一个选择耦合到组装与路由 |

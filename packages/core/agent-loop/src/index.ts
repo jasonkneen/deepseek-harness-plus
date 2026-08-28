@@ -33,6 +33,8 @@ import type { SessionPersistence } from '@deepseek-ai/dsh-session-persistence'
 import { ReactLoopAgent } from './agent.ts'
 import { DEFAULT_MAX_PARALLEL_TOOL_CALLS } from './constants.ts'
 
+export { inboxProjectionDefinition } from './inbox.ts'
+
 /** Fiber states that cannot own or serve a new lifecycle. */
 const INACTIVE_STATES: ReadonlySet<FiberState> = new Set([
   FiberState.UNLOADING,
@@ -581,15 +583,21 @@ export class AgentLoop extends Service implements AgentFactory {
     const untrack = this.ownership.track(dispose)
     let unfollowOwner: () => Promise<void> | void
     try {
-      unfollowOwner = ownerCtx.effect(() => () => {
-        // Owner disposal owns the same quiescence boundary. Its teardown skips
-        // unregistering this already-running owner effect from inside itself.
-        if (disposing !== undefined) return
-        abort.abort(new Error(`agent "${id}" setup aborted: owner disposed during setup`))
-        return dispose(true)
+      unfollowOwner = ownerCtx.effect(function* () {
+        machine = new ReactLoopAgent(loopCtx, id, options, session)
+        machineReady.resolve()
+        yield machine.scope.rawDispose
+        yield () => {
+          // Owner disposal owns the same quiescence boundary. Its teardown skips
+          // unregistering this already-running owner effect from inside itself.
+          if (disposing !== undefined) return
+          abort.abort(new Error(`agent "${id}" setup aborted: owner disposed during setup`))
+          return dispose(true)
+        }
       }, `agentLoop.lifecycle(${id})`)
       /* v8 ignore start -- ctx.effect throws only on an inactive fiber, which assertActive() above already rejected */
     } catch (error: unknown) {
+      machineReady.resolve()
       untrack()
       callerSignal?.removeEventListener('abort', onCallerAbort)
       this.ownership.signal.removeEventListener('abort', onFactoryTeardown)
@@ -606,8 +614,9 @@ export class AgentLoop extends Service implements AgentFactory {
       throw abort.signal.reason instanceof Error ? abort.signal.reason : new Error(String(abort.signal.reason))
     }
     try {
-      const agent = machine = new ReactLoopAgent(loopCtx, id, options, session)
-      machineReady.resolve()
+      /* v8 ignore next -- a synchronous effect exhausts the generator before returning */
+      if (machine === undefined) throw new Error(`agent "${id}" lifecycle did not construct its driver`)
+      const agent = machine
       assertLive()
 
       return {
@@ -631,7 +640,6 @@ export class AgentLoop extends Service implements AgentFactory {
         dispose,
       }
     } catch (error: unknown) {
-      machineReady.resolve()
       void dispose()
       throw error
     }

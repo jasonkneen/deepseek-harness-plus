@@ -1,4 +1,5 @@
 import type { Inbox, InboxState, InboxTarget } from '@deepseek-ai/dsh-agent'
+import { inboxProjectionDefinition } from '@deepseek-ai/dsh-agent-loop'
 import type { MessageId } from '@deepseek-ai/dsh-llm'
 import type { Session, SessionEventMap, UserMessage } from '@deepseek-ai/dsh-session'
 import type SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
@@ -13,7 +14,7 @@ export interface InboxFixture {
 
 /**
  * Create a session-backed structural Inbox test double for consumer tests.
- * @param projections - registry holding the standard inbox projection.
+ * @param projections - registry that will own the fixture's standard inbox projection registration.
  * @param session - session whose durable splices back the test double.
  * @returns the structural Inbox and a separate loop-driver claim operation.
  */
@@ -21,8 +22,11 @@ export function createInboxFixture(
   projections: SessionProjectionRegistry,
   session: Session,
 ): InboxFixture {
+  projections.register(inboxProjectionDefinition)
+
   const current = (): InboxState => {
     const state = projections.stateOf(session, 'inbox')
+    /* v8 ignore next -- createInboxFixture holds the registration for the context lifetime */
     if (state === undefined) throw new Error('test inbox requires the standard inbox projection')
     return state
   }

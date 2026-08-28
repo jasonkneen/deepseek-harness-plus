@@ -18,6 +18,7 @@ describe('dsh-agent-loop-testkit', () => {
       systemPrompt: { persona: 'Test persona.' },
       tools: { mode: 'native' },
     })
+    await ctx.plugin(SessionProjectionRegistry)
 
     expect(renderPrompt(await ctx.systemPrompt.assemble())).toContain('Test persona.')
     await expect(ctx.plugin(AgentLoop, { agents: [] })).resolves.toBeDefined()
@@ -28,6 +29,7 @@ describe('dsh-agent-loop-testkit', () => {
   it('provides a session-backed structural Inbox with separate driver claims', async () => {
     const ctx = new Context()
     await mountAgentLoopTestDependencies(ctx)
+    await ctx.plugin(SessionProjectionRegistry)
     const session = ctx.sessions.create(SessionId('agent-loop-testkit-inbox'))
     const fixture = createInboxFixture(ctx.sessionProjections, session)
     const firstTurn = message('first turn')
@@ -69,15 +71,20 @@ describe('dsh-agent-loop-testkit', () => {
     await ctx.fiber.dispose()
   })
 
-  it('reports a missing standard inbox projection', async () => {
+  it('registers the standard inbox projection for a standalone fixture', async () => {
     const ctx = new Context()
     await ctx.plugin(SessionProjectionRegistry)
+    const session = Session.create(SessionId('agent-loop-testkit-standalone-inbox'))
     const fixture = createInboxFixture(
       ctx.sessionProjections,
-      Session.create(SessionId('agent-loop-testkit-missing-inbox')),
+      session,
     )
 
-    expect(() => fixture.inbox.nextStep).toThrow('test inbox requires the standard inbox projection')
+    expect(fixture.inbox.nextStep).toEqual([])
+    expect(ctx.sessionProjections.snapshot(session).values.inbox).toEqual({
+      'next-turn': [],
+      'next-step': [],
+    })
 
     await ctx.fiber.dispose()
   })
