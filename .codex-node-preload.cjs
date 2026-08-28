@@ -1,1 +1,0 @@
-process.geteuid = () => 0
