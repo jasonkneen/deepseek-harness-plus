@@ -14,7 +14,10 @@ import { tmpdir } from 'node:os'
 import { join, posix } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Win32Error } from '@deepseek-ai/dsh-win32-process'
-import type { NativePtr, Win32ProcessBindings } from '@deepseek-ai/dsh-win32-process'
+import type {
+  CurrentTokenProcessBindings,
+  NativePtr,
+} from '@deepseek-ai/dsh-win32-process'
 import {
   cleanupLinuxLaunchFiles,
   consumeLinuxLaunchRequest,
@@ -90,13 +93,13 @@ function hostArgument(host: FakeRunnerHost): Parameters<typeof runSpawnRunner>[2
 function internals(overrides: Partial<SpawnRunnerInternals> = {}): SpawnRunnerInternals {
   return {
     execve: vi.fn(() => { throw Object.assign(new Error('missing'), { code: 'ENOENT' }) }),
-    loadWin32ProcessBindings: vi.fn(() => ({} as Win32ProcessBindings)),
+    loadWin32ProcessBindings: vi.fn(() => ({} as CurrentTokenProcessBindings)),
     spawnCurrentTokenJobProcess: vi.fn(() => ({
       pid: 123,
       process: 10n as NativePtr,
       job: 20n as NativePtr,
     })),
-    closeCurrentProcessStandardStreams: vi.fn(),
+    closeFileDescriptor: vi.fn(),
     resolveWindowsExecutable: vi.fn(() => 'C:\\resolved\\tool.exe'),
     pollProcessExit: vi.fn(() => 0),
     isJobEmpty: vi.fn(() => true),
@@ -249,11 +252,17 @@ describe('runner launch inputs', () => {
     expect(parseRunnerTargetArgv(['--', 'node', 'a'])).toEqual(['node', 'a'])
     expect(() => parseRunnerTargetArgv(['node'])).toThrow('private -- delimiter')
     expect(runnerStdio(spec, false)).toEqual(['pipe', 'pipe', 'inherit'])
-    expect(runnerStdio(spec, true)).toEqual(['pipe', 'pipe', 'inherit', 'ipc'])
+    expect(runnerStdio(spec, true)).toEqual([
+      'ignore', 'ignore', 'ignore', 'ipc', 'pipe', 'pipe', 2,
+    ])
     expect(runnerStdio({
       ...spec,
       stdio: { stdin: 'ignore', stdout: 'inherit', stderr: 'pipe' },
     }, false)).toEqual(['ignore', 'inherit', 'pipe'])
+    expect(runnerStdio({
+      ...spec,
+      stdio: { stdin: 'ignore', stdout: 'inherit', stderr: 'pipe' },
+    }, true)).toEqual(['ignore', 'ignore', 'ignore', 'ipc', 'ignore', 1, 'pipe'])
   })
 
   it('validates every Node-baseline NUL location before launch', () => {
@@ -527,7 +536,8 @@ describe('Windows Job runner protocol owner', () => {
 
   it('sends target-exit only after suspended Job launch and closes runner stdio', async () => {
     const host = new FakeRunnerHost()
-    const native = internals()
+    const closeFileDescriptor = vi.fn()
+    const native = internals({ closeFileDescriptor })
     await runWindows(host, native)
     expect(native.resolveWindowsExecutable).toHaveBeenCalledWith(
       'tool.exe',
@@ -538,9 +548,12 @@ describe('Windows Job runner protocol owner', () => {
     )
     expect(native.spawnCurrentTokenJobProcess).toHaveBeenCalledWith(expect.anything(), {
       command: 'tool.exe', applicationName: 'C:\\resolved\\tool.exe', args: ['literal arg'], cwd: 'C:\\target',
+      stdio: { stdin: 4, stdout: 5, stderr: 6 },
     })
-    expect(native.closeCurrentProcessStandardStreams).toHaveBeenCalledTimes(1)
-    expect(native.closeCurrentProcessStandardStreams).toHaveBeenCalledWith(expect.anything())
+    expect(closeFileDescriptor).toHaveBeenCalledTimes(3)
+    expect(closeFileDescriptor).toHaveBeenNthCalledWith(1, 4)
+    expect(closeFileDescriptor).toHaveBeenNthCalledWith(2, 5)
+    expect(closeFileDescriptor).toHaveBeenNthCalledWith(3, 6)
     expect(native.closeHandleChecked).toHaveBeenCalledWith(expect.anything(), 10n, 'ordinary direct process')
     expect(native.closeHandleChecked).toHaveBeenCalledWith(expect.anything(), 20n, 'ordinary process Job')
     expect(host.sent).toEqual([{ type: 'target-exit', exitCode: 0, signal: null }])
@@ -548,32 +561,24 @@ describe('Windows Job runner protocol owner', () => {
     expect(host.env).toEqual({ TARGET: 'yes', dsh_subprocess_runner: 'restored' })
   })
 
-  it('lets asynchronous runner stdio close before the first Windows poll', async () => {
-    let tick: (() => void) | undefined
+  it('closes every target carrier before the first Windows poll', async () => {
+    const events: string[] = []
     const interval = vi.spyOn(globalThis, 'setInterval').mockImplementation((callback: () => void) => {
-      tick = callback
+      events.push('interval')
+      queueMicrotask(callback)
       return 1 as unknown as ReturnType<typeof setInterval>
     })
     try {
-      const events: string[] = []
-      let closeComplete = false
       const host = new FakeRunnerHost()
       const native = internals({
-        closeCurrentProcessStandardStreams: vi.fn(() => {
-          events.push('close-start')
-          queueMicrotask(() => {
-            closeComplete = true
-            events.push('close-complete')
-            tick?.()
-          })
-        }),
+        closeFileDescriptor: vi.fn((fileDescriptor) => { events.push(`close:${String(fileDescriptor)}`) }),
         pollProcessExit: vi.fn(() => {
-          events.push(`poll:${String(closeComplete)}`)
+          events.push('poll')
           return 0
         }),
       })
       await runWindows(host, native)
-      expect(events).toEqual(['close-start', 'close-complete', 'poll:true'])
+      expect(events).toEqual(['close:4', 'close:5', 'close:6', 'interval', 'poll'])
       expect(host.sent).toEqual([{ type: 'target-exit', exitCode: 0, signal: null }])
       expect(host.exitCode).toBe(0)
     } finally {
@@ -671,8 +676,8 @@ describe('Windows Job runner protocol owner', () => {
   it('handles commit-time termination reentrancy and termination failure', async () => {
     const reentrantHost = new FakeRunnerHost()
     const reentrant = internals({
-      closeCurrentProcessStandardStreams: vi.fn(() => {
-        reentrantHost.emit('message', { type: 'terminate' })
+      closeFileDescriptor: vi.fn((fileDescriptor) => {
+        if (fileDescriptor === 4) reentrantHost.emit('message', { type: 'terminate' })
       }),
       pollProcessExit: vi.fn(() => undefined),
       isJobEmpty: vi.fn(() => false),

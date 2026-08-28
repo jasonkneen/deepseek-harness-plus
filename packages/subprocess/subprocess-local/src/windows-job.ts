@@ -1,6 +1,7 @@
 /** Windows parent-side launch and ownership for the private Job runner. */
 
 import { spawn } from 'node:child_process'
+import type { Readable, Writable } from 'node:stream'
 import type { SubprocessOutcome, SubprocessSpawnSpec } from '@deepseek-ai/dsh-subprocess'
 import {
   loadWin32ProcessBindings,
@@ -31,8 +32,9 @@ export interface WindowsJobInternals {
   probeCurrentTokenJobSupport?: typeof probeCurrentTokenJobSupport
 }
 
-type RunnerProcess = Omit<ReturnType<typeof spawn>, 'send'> & {
+type RunnerProcess = Omit<ReturnType<typeof spawn>, 'send' | 'stdio'> & {
   send?: ReturnType<typeof spawn>['send']
+  stdio: Array<Readable | Writable | null>
 }
 
 /**
@@ -108,7 +110,7 @@ export function launchWindowsJob(
 ): ManagedProcessLaunch {
   const invocation = internals.runnerInvocation ?? spawnRunnerInvocation()
   const [command, ...prefix] = invocation
-  const child: RunnerProcess = (internals.spawn ?? spawn)(command, [
+  const child = (internals.spawn ?? spawn)(command, [
     ...prefix,
     '--',
     ...spec.argv,
@@ -116,7 +118,7 @@ export function launchWindowsJob(
     cwd: process.cwd(),
     env: runnerEnvironment(WINDOWS_RUNNER_SELECTION),
     stdio: runnerStdio(spec, true),
-  })
+  }) as RunnerProcess
 
   const direct = Promise.withResolvers<SubprocessOutcome>()
   const infrastructure = Promise.withResolvers<never>()
@@ -199,9 +201,9 @@ export function launchWindowsJob(
   }
 
   return {
-    stdin: child.stdin,
-    stdout: child.stdout,
-    stderr: child.stderr,
+    stdin: child.stdio[4] as Writable | null,
+    stdout: child.stdio[5] as Readable | null,
+    stderr: child.stdio[6] as Readable | null,
     direct: direct.promise,
     owner,
     infrastructureFailure: infrastructure.promise,

@@ -15,7 +15,7 @@ import {
   throwLastError,
   throwWin32,
 } from './ffi.ts'
-import type { NativePtr, Win32ProcessBindings } from './ffi.ts'
+import type { CurrentTokenProcessBindings, NativePtr, Win32ProcessBindings } from './ffi.ts'
 
 /**
  * Quote one argument according to CommandLineToArgvW parsing.
@@ -66,6 +66,15 @@ interface ProcessSpawnOptions {
 export interface CurrentTokenProcessSpawnOptions extends ProcessSpawnOptions {
   /** Resolved executable path passed separately from the preserved argv entry. */
   applicationName?: string
+  /** Runner CRT descriptors carrying target stdin, stdout, and stderr. */
+  stdio: CurrentTokenStdioFileDescriptors
+}
+
+/** Runner CRT descriptors whose OS handles become the target standard handles. */
+export interface CurrentTokenStdioFileDescriptors {
+  stdin: number
+  stdout: number
+  stderr: number
 }
 
 /** Restricted-token process creation inputs owned by the Windows ACL sandbox. */
@@ -325,34 +334,61 @@ function createKillOnCloseJob(api: Win32ProcessBindings): NativePtr {
   return job
 }
 
+interface ProcessStandardHandles {
+  stdin: NativePtr
+  stdout: NativePtr
+  stderr: NativePtr
+}
+
+function inheritedStandardHandles(api: Win32ProcessBindings): ProcessStandardHandles {
+  const get = (selector: number, label: string): NativePtr => {
+    const handle = api.getStdHandle(selector)
+    if (!isNullPtr(handle)) return handle
+    throwLastError(api, 'GetStdHandle', `null ${label} handle`)
+  }
+  return {
+    stdin: get(abi.STD_INPUT_HANDLE, 'stdin'),
+    stdout: get(abi.STD_OUTPUT_HANDLE, 'stdout'),
+    stderr: get(abi.STD_ERROR_HANDLE, 'stderr'),
+  }
+}
+
+function targetCarrierHandles(
+  api: CurrentTokenProcessBindings,
+  descriptors: CurrentTokenStdioFileDescriptors,
+): ProcessStandardHandles {
+  const get = (fileDescriptor: number, label: string): NativePtr => {
+    const handle = api.getOsfHandle(fileDescriptor)
+    if (handle !== -1 && handle !== -1n) return BigInt(handle) as NativePtr
+    throw new Error(`_get_osfhandle failed for target ${label} fd ${String(fileDescriptor)}`)
+  }
+  return {
+    stdin: get(descriptors.stdin, 'stdin'),
+    stdout: get(descriptors.stdout, 'stdout'),
+    stderr: get(descriptors.stderr, 'stderr'),
+  }
+}
+
 /** Shared suspended-create, Job-assignment, and resume lifecycle. */
 function spawnJobProcess(
   api: Win32ProcessBindings,
-  options: CurrentTokenProcessSpawnOptions,
+  options: ProcessSpawnOptions,
+  resolveStdio: () => ProcessStandardHandles,
   createName: 'CreateProcessAsUserW' | 'CreateProcessW',
   create: (startupInfo: NativePtr, processInfo: NativePtr) => number,
 ): SpawnedJobProcess {
   const job = createKillOnCloseJob(api)
-  const getStdHandle = (selector: number, label: string): NativePtr => {
-    const handle = api.getStdHandle(selector)
-    if (!isNullPtr(handle)) return handle
-    const win32Code = api.getLastError()
-    api.closeHandle(job)
-    throwWin32(api, 'GetStdHandle', win32Code, `null ${label} handle`)
-  }
-  const stdIn = getStdHandle(abi.STD_INPUT_HANDLE, 'stdin')
-  const stdOut = getStdHandle(abi.STD_OUTPUT_HANDLE, 'stdout')
-  const stdErr = getStdHandle(abi.STD_ERROR_HANDLE, 'stderr')
   const enabled: NativePtr[] = []
   let startupInfo: NativePtr | undefined
   let processInfo: NativePtr | undefined
   let created = 0
   let createFailureCode = 0
   try {
+    const stdio = resolveStdio()
     for (const [handle, label] of [
-      [stdIn, 'stdin'],
-      [stdOut, 'stdout'],
-      [stdErr, 'stderr'],
+      [stdio.stdin, 'stdin'],
+      [stdio.stdout, 'stdout'],
+      [stdio.stderr, 'stderr'],
     ] as const) {
       if (api.setHandleInformation(handle, abi.HANDLE_FLAG_INHERIT, abi.HANDLE_FLAG_INHERIT) === 0) {
         throwLastError(api, 'SetHandleInformation', `${label} (enable inherit)`)
@@ -363,9 +399,9 @@ function spawnJobProcess(
     encodeStartupInfo(startupInfo, {
       cb: abi.STARTUPINFOW_SIZE,
       dwFlags: abi.STARTF_USESTDHANDLES,
-      hStdInput: stdIn,
-      hStdOutput: stdOut,
-      hStdError: stdErr,
+      hStdInput: stdio.stdin,
+      hStdOutput: stdio.stdout,
+      hStdError: stdio.stderr,
     })
     processInfo = allocProcessInfo()
     created = create(startupInfo, processInfo)
@@ -438,7 +474,7 @@ export function spawnInheritedJobProcess(
   options: RestrictedProcessSpawnOptions,
 ): SpawnedJobProcess {
   const commandLine = buildCommandLine(options.command, options.args)
-  return spawnJobProcess(api, options, 'CreateProcessAsUserW', (startupInfo, processInfo) =>
+  return spawnJobProcess(api, options, () => inheritedStandardHandles(api), 'CreateProcessAsUserW', (startupInfo, processInfo) =>
     createRestrictedProcess(
       api,
       options,
@@ -452,15 +488,15 @@ export function spawnInheritedJobProcess(
 /**
  * Spawn an ordinary process suspended, assign its Job, then resume it.
  * @param api - active binding table.
- * @param options - command, cwd, and argv.
+ * @param options - command, cwd, argv, and target carrier descriptors.
  * @returns caller-owned process and Job handles after successful resume.
  */
 export function spawnCurrentTokenJobProcess(
-  api: Win32ProcessBindings,
+  api: CurrentTokenProcessBindings,
   options: CurrentTokenProcessSpawnOptions,
 ): SpawnedJobProcess {
   const commandLine = buildCommandLine(options.command, options.args)
-  return spawnJobProcess(api, options, 'CreateProcessW', (startupInfo, processInfo) =>
+  return spawnJobProcess(api, options, () => targetCarrierHandles(api, options.stdio), 'CreateProcessW', (startupInfo, processInfo) =>
     api.createProcessW(
       options.applicationName ?? null,
       commandLine,
@@ -479,85 +515,12 @@ export function spawnCurrentTokenJobProcess(
  * Verify that an unnamed kill-on-close Job can be created and released now.
  * @param api - active binding table.
  */
-export function probeCurrentTokenJobSupport(api: Win32ProcessBindings): void {
+export function probeCurrentTokenJobSupport(api: CurrentTokenProcessBindings): void {
+  if (typeof api.getOsfHandle !== 'function') {
+    throw new Error('current-token Job support requires UCRT _get_osfhandle')
+  }
   const job = createKillOnCloseJob(api)
   closeHandleChecked(api, job, 'current-token Job capability probe')
-}
-
-interface MaterializedStdioStream {
-  readonly destroyed: boolean
-  destroy(): unknown
-  _destroy?: unknown
-}
-
-/**
- * Release the runner's Node-owned standard streams after target creation.
- * The target retains its inherited handle copies. On Windows, libuv duplicates
- * fd 0/1/2 for its stream owners while Node gives stdout and stderr an own
- * no-op `_destroy`. Close the raw handles and then restore the real Socket
- * destruction path so parent pipe EOF can follow the target.
- * @param api - active binding table used to release raw standard handles.
- * @param streams - stdin, stdout, and stderr used by the current process.
- */
-export function closeCurrentProcessStandardStreams(
-  api: Win32ProcessBindings,
-  streams: readonly [MaterializedStdioStream, MaterializedStdioStream, MaterializedStdioStream] = [
-    process.stdin,
-    process.stdout,
-    process.stderr,
-  ],
-): void {
-  const failures: Error[] = []
-  const recordFailure = (error: unknown): void => {
-    failures.push(error instanceof Error ? error : new Error(String(error)))
-  }
-
-  const handles: NativePtr[] = []
-  for (const selector of [abi.STD_INPUT_HANDLE, abi.STD_OUTPUT_HANDLE, abi.STD_ERROR_HANDLE]) {
-    try {
-      const handle = api.getStdHandle(selector)
-      if (!isNullPtr(handle) && !handles.includes(handle)) handles.push(handle)
-    } catch (error) {
-      recordFailure(error)
-    }
-  }
-  for (const handle of handles) {
-    try {
-      closeHandleChecked(api, handle, 'runner standard handle')
-    } catch (error) {
-      recordFailure(error)
-    }
-  }
-
-  const [stdin, stdout, stderr] = streams
-  if (!stdin.destroyed) {
-    try {
-      stdin.destroy()
-    } catch (error) {
-      recordFailure(error)
-    }
-  }
-  for (const output of [stdout, stderr]) {
-    if (output.destroyed) continue
-    if (Object.hasOwn(output, '_destroy')) {
-      try {
-        if (!Reflect.deleteProperty(output, '_destroy')) {
-          throw new Error('deleting runner standard-stream destroy override failed')
-        }
-      } catch (error) {
-        recordFailure(error)
-      }
-    }
-    try {
-      output.destroy()
-    } catch (error) {
-      recordFailure(error)
-    }
-  }
-  if (failures.length === 1) {
-    for (const failure of failures) throw failure
-  }
-  if (failures.length > 1) throw new AggregateError(failures, 'closing runner standard streams failed')
 }
 
 /**

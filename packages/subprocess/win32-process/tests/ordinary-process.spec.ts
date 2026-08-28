@@ -2,7 +2,6 @@ import koffi from 'koffi'
 import { describe, expect, it, vi } from 'vitest'
 import {
   closeHandleChecked,
-  closeCurrentProcessStandardStreams,
   isJobEmpty,
   pollProcessExit,
   probeCurrentTokenJobSupport,
@@ -15,15 +14,15 @@ import {
   JOBOBJECT_BASIC_ACCOUNTING_ACTIVE_PROCESSES_OFFSET,
   JOBOBJECT_BASIC_ACCOUNTING_SIZE,
   JobObjectBasicAccountingInformation,
-  STD_ERROR_HANDLE,
-  STD_INPUT_HANDLE,
-  STD_OUTPUT_HANDLE,
   WAIT_TIMEOUT,
 } from '../src/abi.ts'
 import { PROCESS_INFORMATION, STARTUPINFOW } from '../src/ffi.ts'
-import type { NativePtr, Win32ProcessBindings } from '../src/index.ts'
+import type {
+  CurrentTokenProcessBindings,
+  NativePtr,
+} from '../src/index.ts'
 
-function api(overrides: Partial<Win32ProcessBindings> = {}): Win32ProcessBindings {
+function api(overrides: Partial<CurrentTokenProcessBindings> = {}): CurrentTokenProcessBindings {
   return {
     createJobObjectW: vi.fn(() => 50n),
     setInformationJobObject: vi.fn(() => 1),
@@ -32,6 +31,7 @@ function api(overrides: Partial<Win32ProcessBindings> = {}): Win32ProcessBinding
       return 1
     }),
     getStdHandle: vi.fn((selector: number) => BigInt(100 - selector)),
+    getOsfHandle: vi.fn((fileDescriptor: number) => BigInt(67 + fileDescriptor)),
     setHandleInformation: vi.fn(() => 1),
     createProcessW: vi.fn((_app, _line, _pa, _ta, _inherit, _flags, _env, _cwd, _startup, info) => {
       koffi.encode(info, PROCESS_INFORMATION, {
@@ -55,7 +55,7 @@ function api(overrides: Partial<Win32ProcessBindings> = {}): Win32ProcessBinding
     getLastError: vi.fn(() => 5),
     formatMessageW: vi.fn(() => 0),
     ...overrides,
-  } as unknown as Win32ProcessBindings
+  } as unknown as CurrentTokenProcessBindings
 }
 
 describe('ordinary Job process operations', () => {
@@ -88,6 +88,7 @@ describe('ordinary Job process operations', () => {
       applicationName: 'C:\\resolved\\probe.exe',
       args: ['literal $VALUE', 'a b'],
       cwd: 'C:\\work',
+      stdio: { stdin: 4, stdout: 5, stderr: 6 },
     })).toEqual({ pid: 1234, process: 60n, job: 50n })
     expect(createProcessW).toHaveBeenCalledWith(
       'C:\\resolved\\probe.exe',
@@ -110,24 +111,24 @@ describe('ordinary Job process operations', () => {
     const bindings = api({ createProcessW: vi.fn(() => 0) })
     let caught: unknown
     try {
-      spawnCurrentTokenJobProcess(bindings, { command: 'missing.exe', args: [], cwd: 'C:\\work' })
+      spawnCurrentTokenJobProcess(bindings, {
+        command: 'missing.exe',
+        args: [],
+        cwd: 'C:\\work',
+        stdio: { stdin: 4, stdout: 5, stderr: 6 },
+      })
     } catch (error) {
       caught = error
     }
     expect(caught).toMatchObject({ api: 'CreateProcessW', win32Code: 5 })
   })
 
-  it('inherits the runner standard handles and restores their flags', () => {
+  it('resolves the target carrier descriptors and restores their handle flags', () => {
     let startup: Record<string, unknown> | undefined
-    const handles = new Map([
-      [STD_INPUT_HANDLE, 71n as NativePtr],
-      [STD_OUTPUT_HANDLE, 72n as NativePtr],
-      [STD_ERROR_HANDLE, 73n as NativePtr],
-    ])
-    const getStdHandle = vi.fn((selector: number) => handles.get(selector) as NativePtr)
+    const getOsfHandle = vi.fn((fileDescriptor: number) => BigInt(67 + fileDescriptor))
     const setHandleInformation = vi.fn(() => 1)
     const bindings = api({
-      getStdHandle,
+      getOsfHandle,
       setHandleInformation,
       createProcessW: vi.fn((_app, _line, _pa, _ta, _inherit, _flags, _env, _cwd, infoPtr, processInfo) => {
         startup = koffi.decode(infoPtr, STARTUPINFOW) as Record<string, unknown>
@@ -144,12 +145,9 @@ describe('ordinary Job process operations', () => {
       command: 'probe.exe',
       args: [],
       cwd: 'C:\\work',
+      stdio: { stdin: 4, stdout: 5, stderr: 6 },
     })).toEqual({ pid: 1234, process: 60n, job: 50n })
-    expect(getStdHandle.mock.calls.map(([selector]) => selector)).toEqual([
-      STD_INPUT_HANDLE,
-      STD_OUTPUT_HANDLE,
-      STD_ERROR_HANDLE,
-    ])
+    expect(getOsfHandle.mock.calls.map(([fileDescriptor]) => fileDescriptor)).toEqual([4, 5, 6])
     expect(startup).toMatchObject({ hStdInput: 71n, hStdOutput: 72n, hStdError: 73n })
     expect(setHandleInformation.mock.calls).toEqual([
       [71n, 1, 1], [72n, 1, 1], [73n, 1, 1],
@@ -213,92 +211,19 @@ describe('ordinary Job process operations', () => {
     expect(closeHandle).toHaveBeenCalledExactlyOnceWith(50n)
   })
 
-  it('closes unique raw handles and restores output Socket destruction', () => {
-    const input = { destroyed: false, destroy: vi.fn() }
-    const socketDestroy = vi.fn()
-    const dummyDestroy = vi.fn()
-    const makeOutput = (): {
-      stream: { destroyed: boolean; destroy(): void; _destroy?: () => void }
-      destroy: ReturnType<typeof vi.fn>
-    } => {
-      const destroy = vi.fn(function (this: { _destroy(): void }) { this._destroy() })
-      const stream = Object.assign(Object.create({ _destroy: socketDestroy }), {
-        destroyed: false,
-        destroy,
-        _destroy: dummyDestroy,
-      }) as { destroyed: boolean; destroy(): void; _destroy?: () => void }
-      return { stream, destroy }
-    }
-    const { stream: stdout, destroy: stdoutDestroy } = makeOutput()
-    const { stream: stderr, destroy: stderrDestroy } = makeOutput()
+  it('rejects an unavailable carrier descriptor or CRT binding before target creation', () => {
     const closeHandle = vi.fn(() => 1)
-    const getStdHandle = vi.fn((selector: number) =>
-      (selector === STD_INPUT_HANDLE ? 10n : 11n) as NativePtr)
-    const bindings = api({
-      getStdHandle,
-      closeHandle,
-    })
+    const missingDescriptor = api({ closeHandle, getOsfHandle: vi.fn(() => -1) })
+    expect(() => spawnCurrentTokenJobProcess(missingDescriptor, {
+      command: 'probe.exe',
+      args: [],
+      cwd: 'C:\\work',
+      stdio: { stdin: 4, stdout: 5, stderr: 6 },
+    })).toThrow('_get_osfhandle failed for target stdin fd 4')
+    expect(closeHandle).toHaveBeenCalledWith(50n)
 
-    expect(() => {
-      closeCurrentProcessStandardStreams(bindings, [input, stdout, stderr])
-    }).not.toThrow()
-    expect(getStdHandle).toHaveBeenCalledTimes(3)
-    expect(closeHandle.mock.calls).toEqual([[10n], [11n]])
-    expect(input.destroy).toHaveBeenCalledOnce()
-    expect(stdoutDestroy).toHaveBeenCalledOnce()
-    expect(stderrDestroy).toHaveBeenCalledOnce()
-    expect(dummyDestroy).not.toHaveBeenCalled()
-    expect(socketDestroy).toHaveBeenCalledTimes(2)
-    expect(Object.hasOwn(stdout, '_destroy')).toBe(false)
-    expect(Object.hasOwn(stderr, '_destroy')).toBe(false)
-  })
-
-  it('reports one or several runner standard-stream close failures', () => {
-    const closed = { destroyed: true, destroy: vi.fn() }
-    let getStdHandleCalls = 0
-    const getStdHandle = vi.fn(() => {
-      getStdHandleCalls += 1
-      if (getStdHandleCalls === 1) throw new Error('single close failure')
-      return 0n as NativePtr
-    })
-    const singleFailure = api({ getStdHandle })
-    expect(() => {
-      closeCurrentProcessStandardStreams(singleFailure, [
-        closed,
-        closed,
-        closed,
-      ])
-    }).toThrow('single close failure')
-    expect(getStdHandle).toHaveBeenCalledTimes(3)
-
-    const rawCloseFailure = api({ closeHandle: vi.fn(() => 0) })
-    const nonConfigurableDestroy = vi.fn()
-    const nonConfigurable = {
-      destroyed: false,
-      destroy: nonConfigurableDestroy,
-    } as { destroyed: boolean; destroy(): void; _destroy?: unknown }
-    Object.defineProperty(nonConfigurable, '_destroy', { value: vi.fn(), configurable: false })
-    let failure: unknown
-    try {
-      closeCurrentProcessStandardStreams(rawCloseFailure, [
-        { destroyed: false, destroy: () => { throw 'input close failure' } },
-        nonConfigurable,
-        { destroyed: false, destroy: () => { throw new Error('output close failure') } },
-      ])
-    } catch (error) {
-      failure = error
-    }
-    expect(failure).toMatchObject({
-      name: 'AggregateError',
-      message: 'closing runner standard streams failed',
-    })
-    const errors = (failure as { errors: unknown }).errors
-    expect(errors).toEqual(expect.arrayContaining([
-      expect.objectContaining({ api: 'CloseHandle' }),
-      expect.objectContaining({ message: 'input close failure' }),
-      expect.objectContaining({ message: 'deleting runner standard-stream destroy override failed' }),
-      expect.objectContaining({ message: 'output close failure' }),
-    ]))
-    expect(nonConfigurableDestroy).toHaveBeenCalledOnce()
+    const missingBinding = api({ getOsfHandle: undefined as never })
+    expect(() => { probeCurrentTokenJobSupport(missingBinding) })
+      .toThrow('current-token Job support requires UCRT _get_osfhandle')
   })
 })

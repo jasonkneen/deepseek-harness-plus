@@ -18,6 +18,8 @@ export interface Win32BindingContext {
   readonly kernel32: ReturnType<typeof koffi.load>
   /** Token and security APIs. */
   readonly advapi32: ReturnType<typeof koffi.load>
+  /** Universal CRT file-descriptor operations. */
+  readonly ucrtbase: ReturnType<typeof koffi.load>
   /** Bind one stdcall function from a loaded Win32 library. */
   readonly bind: (
     library: ReturnType<typeof koffi.load>,
@@ -118,6 +120,11 @@ export interface Win32ProcessBindings {
   terminateProcess(process: NativePtr, exitCode: number): number
   terminateJobObject(job: NativePtr, exitCode: number): number
   getStdHandle(stdHandle: number): NativePtr
+}
+
+/** Generic Win32 calls plus current-process CRT descriptor lookup. */
+export interface CurrentTokenProcessBindings extends Win32ProcessBindings {
+  getOsfHandle(fileDescriptor: number): number | bigint
 }
 
 /** Koffi STARTUPINFOW layout. */
@@ -229,26 +236,27 @@ export function decodeProcessInfo(processInfo: NativePtr): ProcessInfoOutput {
 }
 
 let cachedContext: Win32BindingContext | undefined
-let cached: Win32ProcessBindings | undefined
+let cached: CurrentTokenProcessBindings | undefined
 
 /* v8 ignore start -- exercised by native Windows ABI and sandbox jobs. */
 function bindingContext(): Win32BindingContext {
   if (cachedContext !== undefined) return cachedContext
   const kernel32 = koffi.load('kernel32.dll')
   const advapi32 = koffi.load('advapi32.dll')
+  const ucrtbase = koffi.load('ucrtbase.dll')
   const bind = (
     lib: ReturnType<typeof koffi.load>,
     name: string,
     result: Ptr | string,
     args: Array<Ptr | string>,
   ): unknown => lib.func('__stdcall', name, result, args)
-  cachedContext = { kernel32, advapi32, bind }
+  cachedContext = { kernel32, advapi32, ucrtbase, bind }
   return cachedContext
 }
 
-function bindings(): Win32ProcessBindings {
+function bindings(): CurrentTokenProcessBindings {
   if (cached !== undefined) return cached
-  const { kernel32, advapi32, bind } = bindingContext()
+  const { kernel32, advapi32, ucrtbase, bind } = bindingContext()
   cached = {
     closeHandle: bind(kernel32, 'CloseHandle', 'int', [PVOID]),
     getLastError: bind(kernel32, 'GetLastError', 'uint32', []),
@@ -281,7 +289,8 @@ function bindings(): Win32ProcessBindings {
     terminateProcess: bind(kernel32, 'TerminateProcess', 'int', [PVOID, 'uint32']),
     terminateJobObject: bind(kernel32, 'TerminateJobObject', 'int', [PVOID, 'uint32']),
     getStdHandle: bind(kernel32, 'GetStdHandle', PVOID, ['int']),
-  } as unknown as Win32ProcessBindings
+    getOsfHandle: ucrtbase.func('_get_osfhandle', 'intptr_t', ['int']),
+  } as unknown as CurrentTokenProcessBindings
   return cached
 }
 
@@ -292,7 +301,7 @@ function bindings(): Win32ProcessBindings {
  */
 export function extendWin32ProcessBindings<Extension extends object>(
   create: (context: Win32BindingContext) => Extension,
-): Win32ProcessBindings & Extension {
+): CurrentTokenProcessBindings & Extension {
   return { ...bindings(), ...create(bindingContext()) }
 }
 
@@ -300,7 +309,7 @@ export function extendWin32ProcessBindings<Extension extends object>(
  * Load the generic process binding table without policy-specific extensions.
  * @returns shared Win32 process, stdio, and Job operations.
  */
-export function loadWin32ProcessBindings(): Win32ProcessBindings {
+export function loadWin32ProcessBindings(): CurrentTokenProcessBindings {
   return bindings()
 }
 /* v8 ignore stop */

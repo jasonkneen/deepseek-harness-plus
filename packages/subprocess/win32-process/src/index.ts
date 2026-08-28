@@ -14,12 +14,12 @@ export {
   throwWin32,
 } from './ffi.ts'
 export type {
+  CurrentTokenProcessBindings,
   NativePtr,
   Win32ProcessBindings,
 } from './ffi.ts'
 export {
   closeHandleChecked,
-  closeCurrentProcessStandardStreams,
   drainPipe,
   isJobEmpty,
   pollProcessExit,
@@ -31,6 +31,7 @@ export {
   waitForProcessExit,
 } from './process.ts'
 export type {
+  CurrentTokenStdioFileDescriptors,
   CurrentTokenProcessSpawnOptions,
   SpawnedJobProcess,
   SpawnedPipedProcess,

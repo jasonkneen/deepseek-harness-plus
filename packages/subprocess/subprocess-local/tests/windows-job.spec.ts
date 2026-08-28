@@ -13,6 +13,10 @@ class FakeChild extends EventEmitter {
   stdin = new PassThrough()
   stdout = new PassThrough()
   stderr = new PassThrough()
+  targetStdin = new PassThrough()
+  targetStdout = new PassThrough()
+  targetStderr = new PassThrough()
+  stdio = [null, null, null, null, this.targetStdin, this.targetStdout, this.targetStderr]
   sent: unknown[] = []
   killed: NodeJS.Signals[] = []
   sendError: Error | undefined
@@ -116,18 +120,18 @@ describe('Windows Job capability', () => {
 })
 
 describe('Windows parent runner contract', () => {
-  it('launches with real stdio plus IPC and sends cwd/env through the strict start message', () => {
+  it('isolates runner stdio, carries target stdio on fd 4 through fd 6, and sends cwd/env', () => {
     const { child, result, spawn } = launch()
     expect(spawn).toHaveBeenCalledWith('C:\\node.exe', [
       'C:\\runner.js', '--', 'tool.exe', 'literal arg',
     ], expect.objectContaining({
       cwd: process.cwd(),
-      stdio: ['pipe', 'pipe', 'inherit', 'ipc'],
+      stdio: ['ignore', 'ignore', 'ignore', 'ipc', 'pipe', 'pipe', 2],
     }))
     expect(child.sent).toEqual([{ type: 'start', cwd: 'C:\\target', env: { TARGET: 'yes' } }])
-    expect(result.stdin).toBe(child.stdin)
-    expect(result.stdout).toBe(child.stdout)
-    expect(result.stderr).toBe(child.stderr)
+    expect(result.stdin).toBe(child.targetStdin)
+    expect(result.stdout).toBe(child.targetStdout)
+    expect(result.stderr).toBe(child.targetStderr)
   })
 
   it('maps target-exit to direct outcome and clean close to range quiescence', async () => {

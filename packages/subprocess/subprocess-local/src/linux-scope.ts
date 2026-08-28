@@ -9,6 +9,7 @@ import type {
   SubprocessSpawnSpec,
   SubprocessTerminalSpawnSpec,
 } from '@deepseek-ai/dsh-subprocess'
+import { loadLinuxExecve } from './linux-execve.ts'
 import type { BoundProcessOwner, ManagedProcessLaunch } from './managed-owner.ts'
 import {
   cleanupLinuxLaunchFiles,
@@ -36,7 +37,7 @@ export interface LinuxScopeInternals {
   runnerInvocation?: RunnerInvocation
   resolveRunnerInvocation?: () => RunnerInvocation
   runnerAvailable?: (invocation: RunnerInvocation) => boolean
-  execveAvailable?: boolean
+  loadLinuxExecve?: typeof loadLinuxExecve
 }
 
 interface SystemctlResult {
@@ -91,13 +92,13 @@ export function probeLinuxUserManager(internals: LinuxScopeInternals = {}): bool
 }
 
 /**
- * Confirm this exact runner entry and Node execve support without a probe mode.
- * @param internals - optional runner and execve seams used by tests.
+ * Confirm this exact runner entry and libc execve binding without a probe mode.
+ * @param internals - optional runner and libc-binding seams used by tests.
  * @returns whether the bootstrap can enter the final target.
  */
 export function probeLinuxBootstrap(internals: LinuxScopeInternals = {}): boolean {
-  if (!(internals.execveAvailable ?? typeof process.execve === 'function')) return false
   try {
+    ;(internals.loadLinuxExecve ?? loadLinuxExecve)()
     const invocation = internals.runnerInvocation
       ?? (internals.resolveRunnerInvocation ?? spawnRunnerInvocation)()
     return (internals.runnerAvailable ?? runnerInvocationAvailable)(invocation)

@@ -90,22 +90,31 @@ export function parseRunnerTargetArgv(argv: readonly string[]): string[] {
 }
 
 /**
- * Build the stdio inherited unchanged by the target, optionally with Node IPC on fd 3.
+ * Build direct Linux target stdio, or isolated Windows runner stdio with IPC
+ * on fd 3 and target carriers on fd 4 through fd 6.
  * @param spec - ordinary subprocess request whose stdio modes are preserved.
- * @param ipc - whether to append the private Node IPC descriptor.
+ * @param ipc - whether to isolate the runner and add its private Node IPC descriptor.
  * @returns child-process stdio options for the runner.
  */
 export function runnerStdio(
   spec: SubprocessSpawnSpec,
   ipc: boolean,
 ): StdioOptions {
-  const stdio: StdioOptions = [
+  const targetStdio: StdioOptions = [
     spec.stdio.stdin === 'ignore' ? 'ignore' : 'pipe',
     spec.stdio.stdout === 'inherit' ? 'inherit' : 'pipe',
     spec.stdio.stderr === 'inherit' ? 'inherit' : 'pipe',
   ]
-  if (ipc) (stdio as Array<string>).push('ipc')
-  return stdio
+  if (!ipc) return targetStdio
+  return [
+    'ignore',
+    'ignore',
+    'ignore',
+    'ipc',
+    targetStdio[0],
+    spec.stdio.stdout === 'inherit' ? 1 : 'pipe',
+    spec.stdio.stderr === 'inherit' ? 2 : 'pipe',
+  ]
 }
 
 function windowsEnvironmentValue(

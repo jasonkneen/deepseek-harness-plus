@@ -18,9 +18,9 @@ detached POSIX 进程组、Windows direct-parent 遍历与 PTY 后代扫描只�
 
 ### Linux scope 与 one-shot bootstrap
 
-每次符合条件的 Linux 普通或 PTY spawn 都会重新检查准确 runner 入口、`process.execve()`、可读的 user manager 与保留 literal argv 的 transient-scope 支持。正向结果不缓存。native 路径一旦选定，scope、协议、状态查询或 pre-exec failure 都由本次启动报告，绝不切换到 fallback。
+每次符合条件的 Linux 普通或 PTY spawn 都会重新检查准确 runner 入口、libc `execve` 与 `fcntl` bindings、可读的 user manager 与保留 literal argv 的 transient-scope 支持。正向结果不缓存。native 路径一旦选定，scope、协议、状态查询或 pre-exec failure 都由本次启动报告，绝不切换到 fallback。
 
-parent 创建一个 0700 目录，其中的完整 0600 `launch-request.json` 保存最终 target cwd 与环境。私有 `DSH_SUBPROCESS_RUNNER` 值负责定位该 request，runner 则从 provider cwd 与 bootstrap-safe 环境启动。`systemd-run --user --scope --quiet --collect --expand-environment=no` 先把自身进程注册到 scope，再由 one-shot bootstrap 删除并校验 request、切换到 target cwd、恢复完整 target 环境、按 target PATH 规则解析裸可执行文件，并使用原始 argv 调用 `execve()`。bootstrap 会原地成为 target，不作为常驻 supervisor。
+parent 创建一个 0700 目录，其中的完整 0600 `launch-request.json` 保存最终 target cwd 与环境。私有 `DSH_SUBPROCESS_RUNNER` 值负责定位该 request，runner 则从 provider cwd 与 bootstrap-safe 环境启动。`systemd-run --user --scope --quiet --collect --expand-environment=no` 先把自身进程注册到 scope，再由 one-shot bootstrap 删除并校验 request、切换到 target cwd、恢复完整 target 环境、按 target PATH 规则解析裸可执行文件、清除 fd 0 至 fd 2 的 `FD_CLOEXEC`，并使用原始 argv 调用 libc `execve()`。bootstrap 会原地成为 target 并保留继承的 stdio，不作为常驻 supervisor。
 
 request 被消费或 manager 已观察到 unit 都能建立 scope ownership。在这两项事实出现前，unit absence 仍是未决状态；direct child 在 request 尚未消费时退出表示建立失败。建立之后，inactive、failed 或已经被 collect 卸载的 unit 可以证明 range 为空。未知状态与不可读的 manager 结果会使 `waitForExit()` reject，而不是宣称完全停稳。严格的同目录 `startup-error.json` 只承载 request／bootstrap 或 target pre-exec failure，parent 会在可观察生命周期完成时移除本次 spawn 的私有路径。
 
@@ -28,7 +28,7 @@ request 被消费或 manager 已观察到 unit 都能建立 scope ownership。�
 
 ### Windows runner 与 Job
 
-Windows parent 从 bootstrap cwd 与环境启动 provider runner，把原始 target argv 放在私有 `--` 分隔符之后，并通过 Node IPC 传递恰好一条 start request、幂等 terminate control 与恰好一个 direct-result 分支。runner 按 Node 的 target-cwd／PATH 搜索顺序解析独立的 `CreateProcessW` application path，同时保留原始 argv 项。target stdin、stdout 与 stderr 继续使用 Node 创建的真实标准句柄：runner 临时把继承的句柄设为可继承，通过 `STARTF_USESTDHANDLES` 原样传递，随后销毁自己持有的 Node/libuv 标准流，使 parent pipe 只由 target 副本保持打开。用户字节绝不经过 IPC。
+Windows parent 从 bootstrap cwd 与环境启动 provider runner，把原始 target argv 放在私有 `--` 分隔符之后，并通过 Node IPC 传递恰好一条 start request、幂等 terminate control 与恰好一个 direct-result 分支。runner 的 fd 0 至 fd 2 相互隔离，fd 3 承载 IPC，fd 4 至 fd 6 承载 target stdin、stdout 与 stderr。共享 Win32 层通过 UCRT `_get_osfhandle` 解析这些 CRT 描述符，经 `STARTF_USESTDHANDLES` 传递对应 OS handle，并保留单独解析的 `CreateProcessW` application path，而不改变原始 argv 项。suspended target 进入 Job 并恢复后，runner 只关闭 fd 4 至 fd 6，绝不改写或销毁 Node 标准流。parent 把 carrier stream 作为普通句柄的 stdio 返回，用户字节绝不经过 IPC。
 
 runner 是 target process handle 与 unnamed Job handle 的唯一 owner。`spawnCurrentTokenJobProcess` 以 suspended 状态创建 target，把它分配给不允许 active breakaway 的 kill-on-close Job，并只在分配后恢复。runner 轮询 direct process 获取 target exit code，并轮询 Job 获取 active-process count。只有 direct result 已通过 IPC send callback 交付且 Job 已报告零 active process 后，runner 才成功退出；parent 只把这次 clean exit 映射成成功的 `waitForExit()`。
 
@@ -54,7 +54,7 @@ selector 是 per-spawn locator 或 sentinel，不是凭据或持久格式。Linu
 
 ## Verification
 
-- provider 与协议测试套件固定同步 NUL 拒绝发生在启动副作用之前、严格 request／result 解码、target cwd 与完整环境恢复、私有变量碰撞、保留 argv 的 Linux PATH 查找、pre-exec error ownership、三种 scope 建立状态、全部 4 个 Windows result 分支、startup cancellation、result-send 与 IPC-disconnect failure、stdio settlement、active-process 完全停稳，以及唯一 handle cleanup。
+- provider 与协议测试套件固定同步 NUL 拒绝发生在启动副作用之前、严格 request／result 解码、target cwd 与完整环境恢复、私有变量碰撞、保留 argv 的 Linux PATH 查找、为继承 stdio 清除 close-on-exec、pre-exec error ownership、三种 scope 建立状态、全部 4 个 Windows result 分支、startup cancellation、result-send 与 IPC-disconnect failure、隔离 carrier 描述符关闭、stdio settlement、active-process 完全停稳，以及唯一 handle cleanup。
 - 真实 Linux user-systemd 测试会分别通过生产入口运行一条普通命令与一条 `node-pty` `setsid`／reparent 场景。它们证明 scope signalling 与 collection、裸可执行文件查找、逃逸后代终止、range settlement，以及不变的 PTY PID、session、控制终端、前台输入、`/dev/tty`、readiness 与 startup-failure 语义。
 - native Windows 测试证明 suspended creation、resume 前 Job assignment、继承 stdio、默认后代继承、direct result、termination、active-process zero、异常／disconnected runner cleanup、kill-on-close 与同步 host-exit termination。source、built 与 Python packaged 冒烟测试进入同一 runner core。
 - 公共 seam 类型、local 与 E2B provider、LSP 与 subagent 消费方、shell fixture、README、Cordis catalog 与 keyless subprocess API snapshot 都不包含普通 PID；terminal PID 保留。

@@ -105,7 +105,7 @@ function launch(
     systemctl: overrides.systemctl ?? '/bin/systemctl',
     runnerInvocation: overrides.runnerInvocation ?? ['/usr/bin/node', '/runner.js'],
     ...overrides.runnerAvailable === undefined ? {} : { runnerAvailable: overrides.runnerAvailable },
-    ...overrides.execveAvailable === undefined ? {} : { execveAvailable: overrides.execveAvailable },
+    ...overrides.loadLinuxExecve === undefined ? {} : { loadLinuxExecve: overrides.loadLinuxExecve },
   })
   const requestPath = options?.env?.[SUBPROCESS_RUNNER_ENV]
   if (requestPath === undefined) throw new Error('launch did not publish a request locator')
@@ -117,19 +117,24 @@ describe('Linux native capability selection', () => {
   it('rechecks bootstrap, user manager, and literal transient-scope support', () => {
     const spawnSync = vi.fn(() => ({ status: 0, error: undefined }))
     const runnerAvailable = vi.fn(() => true)
+    const loadLinuxExecve = vi.fn(() => vi.fn() as never)
     const inputs = {
       spawnSync: spawnSync as never,
       runnerAvailable,
       runnerInvocation: ['/usr/bin/node', '/runner.js'] as [string, ...string[]],
-      execveAvailable: true,
+      loadLinuxExecve,
       systemdRun: '/bin/systemd-run',
       systemctl: '/bin/systemctl',
     }
     expect(probeLinuxNative(inputs)).toBe(true)
     expect(probeLinuxNative(inputs)).toBe(true)
     expect(runnerAvailable).toHaveBeenCalledTimes(2)
+    expect(loadLinuxExecve).toHaveBeenCalledTimes(2)
     expect(spawnSync).toHaveBeenCalledTimes(4)
-    expect(probeLinuxBootstrap({ ...inputs, execveAvailable: false })).toBe(false)
+    expect(probeLinuxBootstrap({
+      ...inputs,
+      loadLinuxExecve: () => { throw new Error('libc execve missing') },
+    })).toBe(false)
   })
 
   it('reports each failed dynamic prerequisite without executing a target', () => {
@@ -140,12 +145,12 @@ describe('Linux native capability selection', () => {
       spawnSync: vi.fn(() => ({ status: null, error: new Error('missing') })) as never,
     })).toBe(false)
     expect(probeLinuxBootstrap({
-      execveAvailable: true,
+      loadLinuxExecve: () => vi.fn() as never,
       runnerInvocation: ['/missing'],
       runnerAvailable: () => false,
     })).toBe(false)
     expect(probeLinuxBootstrap({
-      execveAvailable: true,
+      loadLinuxExecve: () => vi.fn() as never,
       resolveRunnerInvocation: () => { throw new Error('runner resolution failed') },
     })).toBe(false)
   })
@@ -155,11 +160,11 @@ describe('Linux native capability selection', () => {
     expect(probeLinuxUserManager()).toBe(true)
     expect(probeLinuxScope()).toBe(true)
     expect(childProcessMocks.spawnSync).toHaveBeenCalledTimes(2)
-    expect(probeLinuxBootstrap({ execveAvailable: true })).toBe(true)
+    expect(probeLinuxBootstrap({ loadLinuxExecve: () => vi.fn() as never })).toBe(true)
     expect(probeLinuxBootstrap({
       runnerInvocation: [process.execPath],
       runnerAvailable: () => true,
-    })).toBe(typeof process.execve === 'function')
+    })).toBe(process.platform !== 'win32')
   })
 })
 

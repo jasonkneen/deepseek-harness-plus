@@ -1,8 +1,8 @@
 /** One-shot Linux exec bootstrap and Windows Job-owning subprocess runner. */
 
+import { closeSync } from 'node:fs'
 import { posix } from 'node:path'
 import {
-  closeCurrentProcessStandardStreams,
   closeHandleChecked,
   isJobEmpty,
   loadWin32ProcessBindings,
@@ -11,7 +11,11 @@ import {
   terminateJob,
   Win32Error,
 } from '@deepseek-ai/dsh-win32-process'
-import type { NativePtr, Win32ProcessBindings } from '@deepseek-ai/dsh-win32-process'
+import type {
+  CurrentTokenProcessBindings,
+  NativePtr,
+} from '@deepseek-ai/dsh-win32-process'
+import { loadLinuxExecve } from './linux-execve.ts'
 import {
   consumeLinuxLaunchRequest,
   isWindowsTerminateRequest,
@@ -40,9 +44,9 @@ type RunnerHost = Pick<NodeJS.Process, 'env' | 'exitCode' | 'connected' | 'cwd' 
 /** Injectable operations used by the protocol-owner tests. */
 export interface SpawnRunnerInternals {
   execve(file: string, argv: string[], env: Record<string, string>): never
-  loadWin32ProcessBindings(): Win32ProcessBindings
+  loadWin32ProcessBindings(): CurrentTokenProcessBindings
   spawnCurrentTokenJobProcess: typeof spawnCurrentTokenJobProcess
-  closeCurrentProcessStandardStreams: typeof closeCurrentProcessStandardStreams
+  closeFileDescriptor(fileDescriptor: number): void
   resolveWindowsExecutable: typeof resolveWindowsExecutable
   pollProcessExit: typeof pollProcessExit
   isJobEmpty: typeof isJobEmpty
@@ -52,10 +56,10 @@ export interface SpawnRunnerInternals {
 
 const defaultInternals: SpawnRunnerInternals = {
   /* v8 ignore next -- source/built/packaged subprocess smoke executes this only in a replaceable child process. */
-  execve: (file, argv, env) => (process.execve as NonNullable<typeof process.execve>)(file, argv, env),
+  execve: (file, argv, env) => loadLinuxExecve()(file, argv, env),
   loadWin32ProcessBindings,
   spawnCurrentTokenJobProcess,
-  closeCurrentProcessStandardStreams,
+  closeFileDescriptor: closeSync,
   resolveWindowsExecutable,
   pollProcessExit,
   isJobEmpty,
@@ -187,7 +191,7 @@ function sendMessage(host: RunnerHost, result: WindowsRunnerResult): Promise<voi
 }
 
 class WindowsJobRunner {
-  private api: Win32ProcessBindings | undefined
+  private api: CurrentTokenProcessBindings | undefined
   private processHandle: NativePtr | undefined
   private jobHandle: NativePtr | undefined
   private pollTimer: ReturnType<typeof setInterval> | undefined
@@ -270,11 +274,14 @@ class WindowsJobRunner {
         applicationName,
         args,
         cwd: request.cwd,
+        stdio: { stdin: 4, stdout: 5, stderr: 6 },
       })
       this.processHandle = spawned.process
       this.jobHandle = spawned.job
       this.committed = true
-      this.internals.closeCurrentProcessStandardStreams(this.api)
+      for (const fileDescriptor of [4, 5, 6]) {
+        this.internals.closeFileDescriptor(fileDescriptor)
+      }
       if (this.startCancellationPending()) this.terminateOwnedJob()
       this.pollTimer = setInterval(() => { this.poll() }, 10)
     } catch (error) {
