@@ -2,7 +2,7 @@ import koffi from 'koffi'
 import { describe, expect, it, vi } from 'vitest'
 import {
   closeHandleChecked,
-  closeCurrentProcessStandardHandles,
+  closeCurrentProcessStandardStreams,
   isJobEmpty,
   pollProcessExit,
   probeCurrentTokenJobSupport,
@@ -22,10 +22,6 @@ import {
 } from '../src/abi.ts'
 import { PROCESS_INFORMATION, STARTUPINFOW } from '../src/ffi.ts'
 import type { NativePtr, Win32ProcessBindings } from '../src/index.ts'
-
-function nativePtr(value: bigint): NativePtr {
-  return value as NativePtr
-}
 
 function api(overrides: Partial<Win32ProcessBindings> = {}): Win32ProcessBindings {
   return {
@@ -89,11 +85,12 @@ describe('ordinary Job process operations', () => {
     })
     expect(spawnCurrentTokenJobProcess(bindings, {
       command: 'probe.exe',
+      applicationName: 'C:\\resolved\\probe.exe',
       args: ['literal $VALUE', 'a b'],
       cwd: 'C:\\work',
     })).toEqual({ pid: 1234, process: 60n, job: 50n })
     expect(createProcessW).toHaveBeenCalledWith(
-      null,
+      'C:\\resolved\\probe.exe',
       'probe.exe "literal $VALUE" "a b"',
       null,
       null,
@@ -216,57 +213,38 @@ describe('ordinary Job process operations', () => {
     expect(closeHandle).toHaveBeenCalledExactlyOnceWith(50n)
   })
 
-  it('closes unique non-null inherited standard handles', () => {
-    const getStdHandle = vi.fn((_selector: number): NativePtr => nativePtr(0n))
-      .mockReturnValueOnce(nativePtr(0n))
-      .mockReturnValueOnce(nativePtr(72n))
-      .mockReturnValueOnce(nativePtr(72n))
-    const closeHandle = vi.fn(() => 1)
-    const bindings = api({ getStdHandle, closeHandle })
+  it('destroys each unique live runner standard stream', () => {
+    const alreadyClosed = { destroyed: true, destroy: vi.fn() }
+    const live = { destroyed: false, destroy: vi.fn() }
 
-    expect(() => { closeCurrentProcessStandardHandles(bindings) }).not.toThrow()
-    expect(getStdHandle.mock.calls.map(([selector]) => selector)).toEqual([
-      STD_INPUT_HANDLE,
-      STD_OUTPUT_HANDLE,
-      STD_ERROR_HANDLE,
-    ])
-    expect(closeHandle).toHaveBeenCalledExactlyOnceWith(72n)
+    expect(() => { closeCurrentProcessStandardStreams([alreadyClosed, live, live]) }).not.toThrow()
+    expect(alreadyClosed.destroy).not.toHaveBeenCalled()
+    expect(live.destroy).toHaveBeenCalledOnce()
   })
 
-  it('reports one or several inherited standard-handle close failures', () => {
-    const singleFailure = api({
-      getStdHandle: vi.fn()
-        .mockReturnValueOnce(nativePtr(71n))
-        .mockReturnValueOnce(nativePtr(72n))
-        .mockReturnValueOnce(nativePtr(73n)),
-      closeHandle: vi.fn((handle: NativePtr) => handle === 72n ? 0 : 1),
-    })
-    expect(() => { closeCurrentProcessStandardHandles(singleFailure) }).toThrow(Win32Error)
+  it('reports one or several runner standard-stream close failures', () => {
+    expect(() => { closeCurrentProcessStandardStreams([{
+      destroyed: false,
+      destroy: () => { throw new Error('single close failure') },
+    }]) }).toThrow('single close failure')
 
-    const severalFailures = api({
-      getStdHandle: vi.fn()
-        .mockReturnValueOnce(nativePtr(71n))
-        .mockReturnValueOnce(nativePtr(72n))
-        .mockReturnValueOnce(nativePtr(73n)),
-      closeHandle: vi.fn((handle: NativePtr) => {
-        if (handle === 71n) throw 'raw close failure'
-        return handle === 72n ? 0 : 1
-      }),
-    })
     let failure: unknown
     try {
-      closeCurrentProcessStandardHandles(severalFailures)
+      closeCurrentProcessStandardStreams([
+        { destroyed: false, destroy: () => { throw 'raw close failure' } },
+        { destroyed: false, destroy: () => { throw new Error('second close failure') } },
+      ])
     } catch (error) {
       failure = error
     }
     expect(failure).toMatchObject({
       name: 'AggregateError',
-      message: 'closing runner standard handles failed',
+      message: 'closing runner standard streams failed',
     })
     const errors = (failure as { errors: unknown }).errors
     expect(errors).toEqual(expect.arrayContaining([
       expect.objectContaining({ message: 'raw close failure' }),
-      expect.any(Win32Error),
+      expect.objectContaining({ message: 'second close failure' }),
     ]))
   })
 })

@@ -14,9 +14,9 @@ Windows ACL sandbox 拥有 restricted token、SID、DACL、grant 与 workspace p
 
 Windows ACL sandbox 继续唯一拥有 restricted-token 创建、SID 与 DACL policy、grants、可写路径裁定、临时目录 policy 和公共 sandbox child result。它通过共享 binding context 扩展 policy-specific API，提供 primary token，组合 pipe drain 与 wait，并在自己的生命周期边界关闭调用方拥有的 Job。
 
-每项 native allocation 与 HANDLE 在各个 shared operation 内只有一个 owner。process operation 会释放 Koffi out-parameter，并在受控失败前关闭它已经取得的每个 pipe、thread、process 或 Job handle。anonymous pipe 创建成功时，把 process 与 stdout/stderr read handles 返回给 sandbox。ordinary runner 临时恢复自身标准句柄的可继承位，通过 `STARTF_USESTDHANDLES` 原样传递这些句柄，并在目标创建后关闭自身副本，使目标退出可以让 parent 观察到 EOF。restricted 与 ordinary 创建都会以 suspended 状态启动目标，把它分配给 kill-on-close Job，并只在分配后恢复，因此目标代码不会在 Job 外运行。sandbox 保留既有 pipe-drain 与 direct-wait 生命周期；[原生收容 runner](2026-08-28-subprocess-native-containment.zh.md)唯一保留 ordinary direct-process handle 与 unnamed Job，轮询 direct exit 和 active-process count，并只在 Job 为空后关闭它。
+每项 native allocation 与 HANDLE 在各个 shared operation 内只有一个 owner。process operation 会释放 Koffi out-parameter，并在受控失败前关闭它已经取得的每个 pipe、thread、process 或 Job handle。anonymous pipe 创建成功时，把 process 与 stdout/stderr read handles 返回给 sandbox。ordinary runner 临时恢复自身标准句柄的可继承位，通过 `STARTF_USESTDHANDLES` 原样传递这些句柄，并在目标创建后销毁自身的 Node/libuv 标准流，使目标退出可以让 parent 观察到 EOF。restricted 与 ordinary 创建都会以 suspended 状态启动目标，把它分配给 kill-on-close Job，并只在分配后恢复，因此目标代码不会在 Job 外运行。sandbox 保留既有 pipe-drain 与 direct-wait 生命周期；[原生收容 runner](2026-08-28-subprocess-native-containment.zh.md)唯一保留 ordinary direct-process handle 与 unnamed Job，轮询 direct exit 和 active-process count，并只在 Job 为空后关闭它。
 
-current-token API 直接命名为 `CurrentTokenProcessSpawnOptions` 与 `spawnCurrentTokenJobProcess`；不保留语义含糊的 `Ordinary*` 或 `Unrestricted*` 别名。该包只导出两个生产消费方已使用的操作。精确 `applicationName`、parent 自有的 Node stream 与 IPC、公共 process handle 以及后端选择仍留在外部。该包是 library，不是 Cordis service 或公共 Windows SDK。
+current-token API 直接命名为 `CurrentTokenProcessSpawnOptions` 与 `spawnCurrentTokenJobProcess`；不保留语义含糊的 `Ordinary*` 或 `Unrestricted*` 别名。current-token spawn 单独接受由 provider 解析的 `applicationName`，同时保留原始命令行 argv 项；executable resolution 仍由 provider 拥有。该包只导出两个生产消费方已使用的操作。IPC、公共 process handle 以及后端选择仍留在外部。该包是 library，不是 Cordis service 或公共 Windows SDK。
 
 ## Verification
 

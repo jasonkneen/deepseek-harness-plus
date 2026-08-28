@@ -1,8 +1,8 @@
 /** One-shot Linux exec bootstrap and Windows Job-owning subprocess runner. */
 
-import { delimiter, resolve } from 'node:path'
+import { posix } from 'node:path'
 import {
-  closeCurrentProcessStandardHandles,
+  closeCurrentProcessStandardStreams,
   closeHandleChecked,
   isJobEmpty,
   loadWin32ProcessBindings,
@@ -28,6 +28,7 @@ import type {
 } from './runner-protocol.ts'
 import {
   parseRunnerTargetArgv,
+  resolveWindowsExecutable,
   SUBPROCESS_RUNNER_ENV,
   WINDOWS_RUNNER_SELECTION,
 } from './runner-launch.ts'
@@ -41,7 +42,8 @@ export interface SpawnRunnerInternals {
   execve(file: string, argv: string[], env: Record<string, string>): never
   loadWin32ProcessBindings(): Win32ProcessBindings
   spawnCurrentTokenJobProcess: typeof spawnCurrentTokenJobProcess
-  closeCurrentProcessStandardHandles: typeof closeCurrentProcessStandardHandles
+  closeCurrentProcessStandardStreams: typeof closeCurrentProcessStandardStreams
+  resolveWindowsExecutable: typeof resolveWindowsExecutable
   pollProcessExit: typeof pollProcessExit
   isJobEmpty: typeof isJobEmpty
   terminateJob: typeof terminateJob
@@ -53,7 +55,8 @@ const defaultInternals: SpawnRunnerInternals = {
   execve: (file, argv, env) => (process.execve as NonNullable<typeof process.execve>)(file, argv, env),
   loadWin32ProcessBindings,
   spawnCurrentTokenJobProcess,
-  closeCurrentProcessStandardHandles,
+  closeCurrentProcessStandardStreams,
+  resolveWindowsExecutable,
   pollProcessExit,
   isJobEmpty,
   terminateJob,
@@ -106,8 +109,8 @@ function execLinuxTarget(
   if (program.includes('/')) return internals.execve(program, argv, request.env)
   const path = request.env.PATH ?? '/usr/bin:/bin'
   let permissionFailure: Error | undefined
-  for (const directory of path.split(delimiter)) {
-    const candidate = resolve(request.cwd, directory, program)
+  for (const directory of path.split(':')) {
+    const candidate = posix.resolve(request.cwd, directory, program)
     try {
       return internals.execve(candidate, argv, request.env)
     } catch (error) {
@@ -238,18 +241,26 @@ class WindowsJobRunner {
       return
     }
     try {
+      const [command, ...args] = this.argv
+      const applicationName = this.internals.resolveWindowsExecutable(
+        command as string,
+        request.cwd,
+        request.env,
+        undefined,
+        { ...this.host.env },
+      )
       replaceEnvironment(this.host.env, request.env)
       this.api = this.internals.loadWin32ProcessBindings()
-      const [command, ...args] = this.argv
       const spawned = this.internals.spawnCurrentTokenJobProcess(this.api, {
         command: command as string,
+        applicationName,
         args,
         cwd: request.cwd,
       })
       this.processHandle = spawned.process
       this.jobHandle = spawned.job
       this.committed = true
-      this.internals.closeCurrentProcessStandardHandles(this.api)
+      this.internals.closeCurrentProcessStandardStreams()
       if (this.startCancellationPending()) this.terminateOwnedJob()
       this.pollTimer = setInterval(() => { this.poll() }, 10)
       this.poll()

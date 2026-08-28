@@ -34,6 +34,7 @@ import {
   runnerEnvironment,
   runnerInvocationAvailable,
   runnerStdio,
+  resolveWindowsExecutable,
   spawnRunnerInvocation,
   SUBPROCESS_RUNNER_ENV,
   targetEnvironment,
@@ -95,7 +96,8 @@ function internals(overrides: Partial<SpawnRunnerInternals> = {}): SpawnRunnerIn
       process: 10n as NativePtr,
       job: 20n as NativePtr,
     })),
-    closeCurrentProcessStandardHandles: vi.fn(),
+    closeCurrentProcessStandardStreams: vi.fn(),
+    resolveWindowsExecutable: vi.fn(() => 'C:\\resolved\\tool.exe'),
     pollProcessExit: vi.fn(() => 0),
     isJobEmpty: vi.fn(() => true),
     terminateJob: vi.fn(),
@@ -122,8 +124,10 @@ async function runWindows(
 describe('closed runner protocol', () => {
   it('creates, consumes, reports through, and cleans one private Linux exchange', () => {
     const files = track(createLinuxLaunchFiles({ cwd: '/target', env: { A: '1' } }))
-    expect(statSync(files.directory).mode & 0o777).toBe(0o700)
-    expect(statSync(files.requestPath).mode & 0o777).toBe(0o600)
+    if (process.platform !== 'win32') {
+      expect(statSync(files.directory).mode & 0o777).toBe(0o700)
+      expect(statSync(files.requestPath).mode & 0o777).toBe(0o600)
+    }
     expect(linuxLaunchFilesFromLocator(files.requestPath)).toEqual(files)
     expect(consumeLinuxLaunchRequest(files.requestPath)).toEqual({ cwd: '/target', env: { A: '1' } })
     expect(existsSync(files.requestPath)).toBe(false)
@@ -132,7 +136,9 @@ describe('closed runner protocol', () => {
       name: 'SpawnError', code: 'ENOENT', errno: -2, syscall: 'spawn tool', path: 'tool', spawnargs: ['x'],
     })
     writeLinuxStartupError(files, { type: 'spawn-error', error: serializeRunnerError(failure) })
-    expect(statSync(files.startupErrorPath).mode & 0o777).toBe(0o600)
+    if (process.platform !== 'win32') {
+      expect(statSync(files.startupErrorPath).mode & 0o777).toBe(0o600)
+    }
     const result = readLinuxStartupError(files.startupErrorPath)
     expect(result).toMatchObject({ type: 'spawn-error', error: { code: 'ENOENT', path: 'tool', spawnargs: ['x'] } })
     expect(deserializeRunnerError(result!.error)).toMatchObject({
@@ -301,6 +307,42 @@ describe('runner launch inputs', () => {
     expect(minimal).not.toHaveProperty('path')
     expect(minimal).not.toHaveProperty('spawnargs')
   })
+
+  it('resolves Windows executables with target-cwd and PATH search semantics', () => {
+    const probed: string[] = []
+    const exists = (candidate: string): boolean => {
+      probed.push(candidate)
+      return candidate === 'C:\\tools\\git\\bin\\bash.exe'
+    }
+    expect(resolveWindowsExecutable('bash', 'C:\\target', {
+      Path: 'relative;"C:\\semi;colon";"C:\\tools\\git\\bin";C:\\later',
+    }, exists)).toBe('C:\\tools\\git\\bin\\bash.exe')
+    expect(probed).toEqual([
+      'C:\\target\\bash.com',
+      'C:\\target\\bash.exe',
+      'C:\\target\\relative\\bash.com',
+      'C:\\target\\relative\\bash.exe',
+      'C:\\semi;colon\\bash.com',
+      'C:\\semi;colon\\bash.exe',
+      'C:\\tools\\git\\bin\\bash.com',
+      'C:\\tools\\git\\bin\\bash.exe',
+    ])
+
+    expect(resolveWindowsExecutable('local.exe', 'C:\\target', {}, candidate =>
+      candidate === 'C:\\target\\local.exe')).toBe('C:\\target\\local.exe')
+    expect(resolveWindowsExecutable('tool', 'C:\\target', {
+      PATH: 'C:\\bin',
+    }, candidate => candidate === 'C:\\bin\\tool.com', {
+      NoDefaultCurrentDirectoryInExePath: '1',
+    })).toBe('C:\\bin\\tool.com')
+    expect(resolveWindowsExecutable('tool', 'C:\\target', {
+      PATH: 'D:relative',
+    }, candidate => candidate === 'D:relative\\tool.exe')).toBe('D:relative\\tool.exe')
+    expect(resolveWindowsExecutable('tool.', 'C:\\target', {}, candidate =>
+      candidate === 'C:\\target\\tool.exe')).toBe('C:\\target\\tool.exe')
+    expect(resolveWindowsExecutable('.\\missing', 'C:\\target', {}, () => false))
+      .toBe('C:\\target\\.\\missing')
+  })
 })
 
 describe('Linux one-shot exec bootstrap', () => {
@@ -417,10 +459,17 @@ describe('Windows Job runner protocol owner', () => {
     const host = new FakeRunnerHost()
     const native = internals()
     await runWindows(host, native)
+    expect(native.resolveWindowsExecutable).toHaveBeenCalledWith(
+      'tool.exe',
+      'C:\\target',
+      { TARGET: 'yes', dsh_subprocess_runner: 'restored' },
+      undefined,
+      { SAFE: 'bootstrap' },
+    )
     expect(native.spawnCurrentTokenJobProcess).toHaveBeenCalledWith(expect.anything(), {
-      command: 'tool.exe', args: ['literal arg'], cwd: 'C:\\target',
+      command: 'tool.exe', applicationName: 'C:\\resolved\\tool.exe', args: ['literal arg'], cwd: 'C:\\target',
     })
-    expect(native.closeCurrentProcessStandardHandles).toHaveBeenCalledOnce()
+    expect(native.closeCurrentProcessStandardStreams).toHaveBeenCalledOnce()
     expect(native.closeHandleChecked).toHaveBeenCalledWith(expect.anything(), 10n, 'ordinary direct process')
     expect(native.closeHandleChecked).toHaveBeenCalledWith(expect.anything(), 20n, 'ordinary process Job')
     expect(host.sent).toEqual([{ type: 'target-exit', exitCode: 0, signal: null }])
@@ -518,7 +567,7 @@ describe('Windows Job runner protocol owner', () => {
   it('handles commit-time termination reentrancy and termination failure', async () => {
     const reentrantHost = new FakeRunnerHost()
     const reentrant = internals({
-      closeCurrentProcessStandardHandles: vi.fn(() => {
+      closeCurrentProcessStandardStreams: vi.fn(() => {
         reentrantHost.emit('message', { type: 'terminate' })
       }),
       pollProcessExit: vi.fn(() => undefined),

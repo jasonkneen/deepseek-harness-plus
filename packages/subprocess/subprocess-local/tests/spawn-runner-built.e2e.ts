@@ -3,11 +3,19 @@ import type { Buffer } from 'node:buffer'
 import { existsSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
+import type { SubprocessSpawnSpec } from '@deepseek-ai/dsh-subprocess'
 import {
   cleanupLinuxLaunchFiles,
   createLinuxLaunchFiles,
 } from '../src/runner-protocol.ts'
-import { runnerEnvironment, SUBPROCESS_RUNNER_ENV } from '../src/runner-launch.ts'
+import {
+  runnerEnvironment,
+  SUBPROCESS_RUNNER_ENV,
+  targetEnvironment,
+} from '../src/runner-launch.ts'
+import type { RunnerInvocation } from '../src/runner-launch.ts'
+import { bindManagedProcess } from '../src/spawn.ts'
+import { launchWindowsJob } from '../src/windows-job.ts'
 
 const repoRoot = resolve(import.meta.dirname, '../../../..')
 const sourceRunner = resolve(repoRoot, 'packages/subprocess/subprocess-local/src/bin.ts')
@@ -20,10 +28,10 @@ function targetEnv(): Record<string, string> {
   }
 }
 
-async function execute(invocation: string[]): Promise<{ status: number | null; stdout: string; stderr: string }> {
+async function executePosix(invocation: RunnerInvocation): Promise<{ status: number | null; stdout: string; stderr: string }> {
   const files = createLinuxLaunchFiles({ cwd: repoRoot, env: targetEnv() })
   try {
-    const child = spawn(invocation[0] as string, [
+    const child = spawn(invocation[0], [
       ...invocation.slice(1),
       '--',
       process.execPath,
@@ -48,6 +56,41 @@ async function execute(invocation: string[]): Promise<{ status: number | null; s
   }
 }
 
+async function executeWindows(invocation: RunnerInvocation): Promise<{ status: number | null; stdout: string; stderr: string }> {
+  const request: SubprocessSpawnSpec = {
+    argv: [
+      process.execPath,
+      '--input-type=module',
+      '--eval',
+      `process.stdout.write(process.argv[0]+'|'+process.cwd()+'|'+process.env.${SUBPROCESS_RUNNER_ENV})`,
+    ],
+    cwd: repoRoot,
+    env: targetEnv(),
+    stdio: {
+      stdin: 'ignore',
+      stdout: { maxBytes: 64_000 },
+      stderr: { maxBytes: 64_000 },
+    },
+    graceMs: 3_000,
+  }
+  const handle = bindManagedProcess(request, launchWindowsJob(
+    request,
+    targetEnvironment(request),
+    { runnerInvocation: invocation },
+  ))
+  const outcome = await handle.done
+  await handle.waitForExit()
+  const stdout = handle.collected.stdout?.readFrom(0).text ?? ''
+  const stderr = handle.collected.stderr?.readFrom(0).text ?? ''
+  return { status: outcome.exitCode, stdout, stderr }
+}
+
+async function execute(invocation: RunnerInvocation): Promise<{ status: number | null; stdout: string; stderr: string }> {
+  return process.platform === 'win32'
+    ? executeWindows(invocation)
+    : executePosix(invocation)
+}
+
 describe('subprocess-local runner artifacts', () => {
   it('executes the source entry through the provider-owned core', async () => {
     const result = await execute([process.execPath, '--import', 'tsx/esm', sourceRunner])
@@ -56,7 +99,7 @@ describe('subprocess-local runner artifacts', () => {
       stdout: `${process.execPath}|${repoRoot}|target-collision-restored`,
       stderr: '',
     })
-  })
+  }, 30_000)
 
   it.skipIf(!existsSync(builtRunner))('executes the built ./runner subpath through the same core', async () => {
     const result = await execute([process.execPath, builtRunner])
@@ -65,5 +108,5 @@ describe('subprocess-local runner artifacts', () => {
       stdout: `${process.execPath}|${repoRoot}|target-collision-restored`,
       stderr: '',
     })
-  })
+  }, 30_000)
 })

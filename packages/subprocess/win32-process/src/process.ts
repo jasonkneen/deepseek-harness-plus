@@ -53,8 +53,7 @@ export function buildCommandLine(program: string, args: readonly string[]): stri
   return [program, ...args].map(quoteArg).join(' ')
 }
 
-/** Ordinary process creation inputs used by the local Win32 runner. */
-export interface CurrentTokenProcessSpawnOptions {
+interface ProcessSpawnOptions {
   /** Executable argv entry passed through CreateProcess. */
   command: string
   /** Arguments excluding the executable. */
@@ -63,8 +62,14 @@ export interface CurrentTokenProcessSpawnOptions {
   cwd: string
 }
 
+/** Ordinary process creation inputs used by the local Win32 runner. */
+export interface CurrentTokenProcessSpawnOptions extends ProcessSpawnOptions {
+  /** Resolved executable path passed separately from the preserved argv entry. */
+  applicationName?: string
+}
+
 /** Restricted-token process creation inputs owned by the Windows ACL sandbox. */
-export interface RestrictedProcessSpawnOptions extends CurrentTokenProcessSpawnOptions {
+export interface RestrictedProcessSpawnOptions extends ProcessSpawnOptions {
   /** Restricted primary token supplied by sandbox policy. */
   token: NativePtr
 }
@@ -457,7 +462,7 @@ export function spawnCurrentTokenJobProcess(
   const commandLine = buildCommandLine(options.command, options.args)
   return spawnJobProcess(api, options, 'CreateProcessW', (startupInfo, processInfo) =>
     api.createProcessW(
-      null,
+      options.applicationName ?? null,
       commandLine,
       null,
       null,
@@ -480,22 +485,25 @@ export function probeCurrentTokenJobSupport(api: Win32ProcessBindings): void {
 }
 
 /**
- * Close the runner's inherited standard-handle copies after target creation.
- * The target retains its inherited copies; closing these permits parent pipe
- * EOF to follow the target rather than the longer-lived runner.
- * @param api - active binding table.
+ * Release the runner's Node-owned standard streams after target creation.
+ * The target retains its inherited handle copies; destroying the runner's
+ * libuv owners permits parent pipe EOF to follow the target rather than the
+ * longer-lived runner. Raw `CloseHandle` is insufficient because Node may own
+ * a duplicated libuv handle that remains live until its stream is destroyed.
+ * @param streams - injectable current-process streams used by tests.
  */
-export function closeCurrentProcessStandardHandles(api: Win32ProcessBindings): void {
-  const handles: NativePtr[] = []
-  for (const selector of [abi.STD_INPUT_HANDLE, abi.STD_OUTPUT_HANDLE, abi.STD_ERROR_HANDLE]) {
-    const handle = api.getStdHandle(selector)
-    if (isNullPtr(handle) || handles.includes(handle)) continue
-    handles.push(handle)
-  }
+export function closeCurrentProcessStandardStreams(
+  streams: ReadonlyArray<{ readonly destroyed: boolean; destroy(): unknown }> = [
+    process.stdin,
+    process.stdout,
+    process.stderr,
+  ],
+): void {
   const failures: Error[] = []
-  for (const handle of handles) {
+  for (const stream of new Set(streams)) {
+    if (stream.destroyed) continue
     try {
-      closeHandleChecked(api, handle, 'runner standard handle')
+      stream.destroy()
     } catch (error) {
       failures.push(error instanceof Error ? error : new Error(String(error)))
     }
@@ -503,7 +511,7 @@ export function closeCurrentProcessStandardHandles(api: Win32ProcessBindings): v
   if (failures.length === 1) {
     for (const failure of failures) throw failure
   }
-  if (failures.length > 1) throw new AggregateError(failures, 'closing runner standard handles failed')
+  if (failures.length > 1) throw new AggregateError(failures, 'closing runner standard streams failed')
 }
 
 /**

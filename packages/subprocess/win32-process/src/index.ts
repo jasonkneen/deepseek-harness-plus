@@ -19,7 +19,7 @@ export type {
 } from './ffi.ts'
 export {
   closeHandleChecked,
-  closeCurrentProcessStandardHandles,
+  closeCurrentProcessStandardStreams,
   drainPipe,
   isJobEmpty,
   pollProcessExit,

@@ -28,7 +28,7 @@ request 被消费或 manager 已观察到 unit 都能建立 scope ownership。�
 
 ### Windows runner 与 Job
 
-Windows parent 从 bootstrap cwd 与环境启动 provider runner，把原始 target argv 放在私有 `--` 分隔符之后，并通过 Node IPC 传递恰好一条 start request、幂等 terminate control 与恰好一个 direct-result 分支。target stdin、stdout 与 stderr 继续使用 Node 创建的真实标准句柄：runner 临时把继承的句柄设为可继承，通过 `STARTF_USESTDHANDLES` 原样传递，并在 target 创建后关闭自身副本。用户字节绝不经过 IPC。
+Windows parent 从 bootstrap cwd 与环境启动 provider runner，把原始 target argv 放在私有 `--` 分隔符之后，并通过 Node IPC 传递恰好一条 start request、幂等 terminate control 与恰好一个 direct-result 分支。runner 按 Node 的 target-cwd／PATH 搜索顺序解析独立的 `CreateProcessW` application path，同时保留原始 argv 项。target stdin、stdout 与 stderr 继续使用 Node 创建的真实标准句柄：runner 临时把继承的句柄设为可继承，通过 `STARTF_USESTDHANDLES` 原样传递，随后销毁自己持有的 Node/libuv 标准流，使 parent pipe 只由 target 副本保持打开。用户字节绝不经过 IPC。
 
 runner 是 target process handle 与 unnamed Job handle 的唯一 owner。`spawnCurrentTokenJobProcess` 以 suspended 状态创建 target，把它分配给不允许 active breakaway 的 kill-on-close Job，并只在分配后恢复。runner 轮询 direct process 获取 target exit code，并轮询 Job 获取 active-process count。只有 direct result 已通过 IPC send callback 交付且 Job 已报告零 active process 后，runner 才成功退出；parent 只把这次 clean exit 映射成成功的 `waitForExit()`。
 

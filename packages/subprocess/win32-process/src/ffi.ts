@@ -70,7 +70,7 @@ export interface Win32ProcessBindings {
   setHandleInformation(handle: NativePtr, mask: number, flags: number): number
   createProcessAsUserW(
     token: NativePtr,
-    applicationName: null,
+    applicationName: string | null,
     commandLine: string,
     processAttributes: null,
     threadAttributes: null,
@@ -82,7 +82,7 @@ export interface Win32ProcessBindings {
     processInfo: NativePtr,
   ): number
   createProcessW(
-    applicationName: null,
+    applicationName: string | null,
     commandLine: string,
     processAttributes: null,
     threadAttributes: null,
