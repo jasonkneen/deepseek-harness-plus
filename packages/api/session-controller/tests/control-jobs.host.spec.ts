@@ -28,7 +28,7 @@ function producer(label = 'sleep 60') {
   return { spec, reads, settle: (outcome: JobOutcome) => { settle(outcome) } }
 }
 
-async function harness(withRegistry: boolean): Promise<{
+async function harness(withJobs: boolean): Promise<{
   ctx: Context
   session: Session
   agent: Agent
@@ -38,7 +38,8 @@ async function harness(withRegistry: boolean): Promise<{
   await ctx.plugin(SessionStore)
   await ctx.plugin(SessionProjectionRegistry)
   await ctx.plugin(AgentRegistry)
-  if (withRegistry) {
+  await ctx.plugin(SessionProjectionRegistry)
+  if (withJobs) {
     await ctx.plugin(LocalJobRegistry)
     ctx.jobs.attachController('session-controller-test')
   }

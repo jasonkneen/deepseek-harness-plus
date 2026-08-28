@@ -4,7 +4,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import type { Agent, InboxState } from '@deepseek-ai/dsh-agent'
 import type { JobSnapshot } from '@deepseek-ai/dsh-jobs'
 import type {
-  JsonValue, Session, SessionId,
+  JsonValue, Session, SessionId, UserMessage,
 } from '@deepseek-ai/dsh-session'
 import type {
   SessionControlBaseline,
@@ -21,23 +21,21 @@ export class SessionControlController {
 
   /** @param ctx - Host context carrying live Agent, projection, and jobs services. */
   constructor(private readonly ctx: Context) {
-    ctx.inject(['sessionProjections'], (projectionCtx) => {
-      projectionCtx.sessionProjections.onChanged((session, key, value, seq) => {
-        this.broadcast({
-          type: 'projection',
-          sessionId: session.id,
-          key,
-          value: value as JsonValue,
-          seq,
-        })
-        if (key !== 'inbox') return
-        const agent = this.ctx.agents.get(session.id)
-        if (agent?.session !== session) return
-        this.broadcast({
-          type: 'queue',
-          sessionId: session.id,
-          items: queueItemsFromInbox(value as InboxState),
-        })
+    ctx.sessionProjections.onChanged((session, key, value, seq) => {
+      this.broadcast({
+        type: 'projection',
+        sessionId: session.id,
+        key,
+        value: value as JsonValue,
+        seq,
+      })
+      if (key !== 'inbox') return
+      const agent = this.ctx.agents.get(session.id)
+      if (agent?.session !== session) return
+      this.broadcast({
+        type: 'queue',
+        sessionId: session.id,
+        items: queueItemsFromInbox(value as InboxState),
       })
     })
     ctx.inject(['jobs'], (jobsCtx) => {
@@ -90,17 +88,14 @@ export class SessionControlController {
   private projectionBaseline(
     sessions: readonly Session[],
   ): Readonly<Record<SessionId, SessionProjectionBaseline>> {
-    const registry = this.ctx.get('sessionProjections')
     const blocks = Object.create(null) as Record<SessionId, SessionProjectionBaseline>
     for (const session of sessions) {
-      const snapshot = registry?.snapshot(session)
-      blocks[session.id] = snapshot === undefined
-        ? { asOfSeq: session.seq - 1, values: {} }
-        : {
-          asOfSeq: snapshot.asOfSeq,
-          // Every projection definition validates its value before snapshot publication.
-          values: snapshot.values as SessionProjectionValues,
-        }
+      const snapshot = this.ctx.sessionProjections.snapshot(session)
+      blocks[session.id] = {
+        asOfSeq: snapshot.asOfSeq,
+        // Every projection definition validates its value before snapshot publication.
+        values: snapshot.values as SessionProjectionValues,
+      }
     }
     return blocks
   }

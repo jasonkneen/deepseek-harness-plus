@@ -49,7 +49,7 @@ import type {
 // The pure payload outlet (./types.ts, ONE home of the `goal` projection-key
 // declaration) re-exported onto the package root keeps the module edge in
 // the emitted index.d.ts, so aggregate programs consuming the declarations
-// still receive the SessionProjectionMap merge.
+// still receive the SessionProjectionStateMap merge.
 export type * from './types.ts'
 export type * from './domain.ts'
 export { GOAL_CHANGE_VERSION, GoalError, GoalId } from './runtime.ts'
@@ -234,7 +234,7 @@ function resolveBlockReason(reason: unknown): GoalBlockReason {
 
 /** Goal service (`ctx.goals`) backed exclusively by the owning session log. */
 export class GoalService extends TypertRemoteService {
-  static inject = ['agents']
+  static inject = ['agents', 'sessionProjections']
 
   static Config: z<Config> = z.object({
     defaultMaxGoalRounds: z.number().default(256),
@@ -251,9 +251,7 @@ export class GoalService extends TypertRemoteService {
     ctx.on('agent/session-start', ({ agent }) => {
       this.runtimeState(agent.session).activation = 'disarmed'
     })
-    ctx.inject(['sessionProjections'], (projectionCtx) => {
-      projectionCtx.sessionProjections.register(goalProjectionDefinition)
-    })
+    ctx.sessionProjections.register(goalProjectionDefinition)
     ctx.on('session/event', (session, event) => {
       if (event.type !== 'goal/change') return
       const runtime = this.runtimeState(session)
@@ -467,11 +465,9 @@ export class GoalService extends TypertRemoteService {
     }
   }
 
-  /** Read the current durable projection or fail at the first service access. */
+  /** Read the current durable projection maintained by the registry. */
   private state(session: Session): GoalProjection | null {
-    const projections = this.ctx.get('sessionProjections')
-    if (projections === undefined) throw new Error('goal: session projection registry is unavailable')
-    const state = projections.stateOf(session, 'goal')
+    const state = this.ctx.sessionProjections.stateOf(session, 'goal')
     if (state === undefined) throw new Error('goal projection is not registered')
     if (state.failure !== null) throw new Error(state.failure)
     return state.current

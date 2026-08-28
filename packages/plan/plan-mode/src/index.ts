@@ -169,7 +169,7 @@ export const planProjectionDefinition = {
  * Client carriers expose the projection's cropped `{ active, pending }` view.
  */
 export class PlanModeController extends Service {
-  static inject = ['tools', 'systemPrompt']
+  static inject = ['tools', 'systemPrompt', 'sessionProjections']
 
   /** Validated deployment-owned guidance. */
   private readonly section: string
@@ -219,10 +219,7 @@ export class PlanModeController extends Service {
       },
     })
 
-    // The `plan` projection unit registers through the projection registry.
-    ctx.inject(['sessionProjections'], (projectionCtx) => {
-      projectionCtx.sessionProjections.register(planProjectionDefinition)
-    })
+    ctx.sessionProjections.register(planProjectionDefinition)
 
     // The command child activates only when a command registry is composed.
     ctx.inject(['commands'], (commandCtx) => {
@@ -367,14 +364,8 @@ export class PlanModeController extends Service {
     return this.planState(session).active
   }
 
-  private projectionRegistry(): Context['sessionProjections'] {
-    const projections = this.ctx.get('sessionProjections')
-    if (projections === undefined) throw new Error('plan-mode requires the session projection registry')
-    return projections
-  }
-
   private hasOpenTurn(session: Session): boolean {
-    const state = this.projectionRegistry().stateOf(session, 'turnBoundary')
+    const state = this.ctx.sessionProjections.stateOf(session, 'turnBoundary')
     if (state === undefined) throw new Error('plan-mode requires the turnBoundary session projection')
     return state.openTurnStartSeq !== null
   }
@@ -385,7 +376,7 @@ export class PlanModeController extends Service {
 
   /** Read the required plan projection state or fail at the first service access. */
   private planState(session: Session): PlanUnitState {
-    const state = this.projectionRegistry().stateOf(session, 'plan')
+    const state = this.ctx.sessionProjections.stateOf(session, 'plan')
     if (state === undefined) throw new Error('plan-mode requires the plan session projection')
     return state
   }

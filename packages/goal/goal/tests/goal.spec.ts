@@ -103,13 +103,11 @@ function appendRound(session: Session, ref: GoalRef, round: number): void {
 }
 
 describe('GoalService creation and replay', () => {
-  it('fails on first state access when the projection registry is absent', async () => {
+  it('does not activate without the required projection registry', async () => {
     const ctx = new Context()
     await ctx.plugin(AgentRegistry)
     await ctx.plugin(GoalService)
-    const stub = stubAgent('goal-missing-projections')
-    ctx.agents.register(stub.agent)
-    expect(() => ctx.goals.get(stub.agent)).toThrow('goal: session projection registry is unavailable')
+    expect(ctx.get('goals')).toBeUndefined()
   })
 
   it('applies the configured default and writes one durable goal change', async () => {
@@ -169,7 +167,6 @@ describe('GoalService creation and replay', () => {
     const stub = stubAgent('goal-direct-construction')
     ctx.agents.register(stub.agent)
     const goals = new GoalService(ctx)
-    expect(() => goals.get(stub.agent)).toThrow('goal projection is not registered')
     await new Promise(resolve => setImmediate(resolve))
     expect(goals.create(stub.agent, { objective: 'direct' })).toMatchObject({
       objective: 'direct', maxGoalRounds: 256,

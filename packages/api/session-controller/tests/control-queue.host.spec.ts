@@ -19,6 +19,7 @@ async function harness(): Promise<{
   await ctx.plugin(SessionStore)
   await ctx.plugin(SessionProjectionRegistry)
   await ctx.plugin(AgentRegistry)
+  await ctx.plugin(SessionProjectionRegistry)
   const session = ctx.sessions.create(SessionId('queue-session'))
   const agent = { id: session.id, session, inbox: undefined as never, status: 'running', ctx } as unknown as Agent
   Object.assign(agent, { inbox: createInboxFixture(ctx.sessionProjections, session).inbox })

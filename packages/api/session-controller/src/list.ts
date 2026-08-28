@@ -87,25 +87,23 @@ export class ApiSessionList {
     private readonly ctx: Context,
     private readonly coldBlankProbeMaxBytes: number,
   ) {
-    ctx.inject(['sessionProjections'], (projectionCtx) => {
-      projectionCtx.sessionProjections.register<'sessionListMetadata', SessionListMetadata>({
-        key: 'sessionListMetadata',
-        stateSchema: sessionListMetadataSchema,
-        init: () => ({ blank: true, lastPromptAt: null }),
-        apply: applySessionListMetadata,
-        wire: { viewSchema: sessionListMetadataSchema, view: state => state },
-        stateVersion: 1,
-      })
+    ctx.sessionProjections.register<'sessionListMetadata', SessionListMetadata>({
+      key: 'sessionListMetadata',
+      stateSchema: sessionListMetadataSchema,
+      init: () => ({ blank: true, lastPromptAt: null }),
+      apply: applySessionListMetadata,
+      wire: { viewSchema: sessionListMetadataSchema, view: state => state },
+      stateVersion: 1,
     })
-    ctx.inject(['sessionProjections', 'attachments'], (projectionCtx) => {
-      projectionCtx.sessionProjections.register<'imageLimits', null>({
+    ctx.inject(['attachments'], (attachmentCtx) => {
+      ctx.sessionProjections.register<'imageLimits', null>({
         key: 'imageLimits',
         stateSchema: z.null(),
         init: () => null,
         apply: state => state,
         wire: {
           viewSchema: imageLimitsSchema,
-          view: () => projectionCtx.attachments.imageLimits,
+          view: () => attachmentCtx.attachments.imageLimits,
         },
         stateVersion: 1,
       })
@@ -332,7 +330,7 @@ export class ApiSessionList {
     try {
       const block = session === undefined
         ? this.ctx.get('sessionProjectionCache')?.cachedSnapshot(header)
-        : this.ctx.get('sessionProjections')?.cachedSnapshot(session)
+        : this.ctx.sessionProjections.cachedSnapshot(session)
       return block !== undefined && Object.keys(block.values).length > 0
         ? {
           asOfSeq: block.asOfSeq,

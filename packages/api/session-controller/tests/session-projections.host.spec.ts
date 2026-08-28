@@ -26,7 +26,6 @@ import SessionProjectionCache, { projectionCacheDomainSpec } from '@deepseek-ai/
 import Storage from '@deepseek-ai/dsh-storage'
 import * as StorageDomain from '@deepseek-ai/dsh-storage-domain'
 import * as StorageJson from '@deepseek-ai/dsh-storage-json'
-import { SessionControlController } from '@deepseek-ai/dsh-api-session-controller/src/control.ts'
 import type { SessionControlFrame, SessionFollowFrame } from '@deepseek-ai/dsh-api-session-controller/types'
 import { createInboxFixture } from '@deepseek-ai/dsh-agent-loop-testkit'
 import { createSessionTestRemote, testSessionPersistence, type TestSessionRemote } from './test-remote.ts'
@@ -666,20 +665,5 @@ describe('Session control projection frames', () => {
     // Frame seq aligns with the tail block's asOfSeq vocabulary (higher-seq-wins compatible).
     const tail = await opening(proxy, session.id)
     expect(tail.projections.asOfSeq).toBe(pushes.at(-1)?.seq)
-  })
-
-  it('emits no projection frames when the composition has no registry', async () => {
-    const { ctx, session } = await harness(false)
-    const control = new SessionControlController(ctx)
-    const abort = new AbortController()
-    const iterator = control.control(abort.signal)[Symbol.asyncIterator]()
-    const baseline = await iterator.next()
-    const next = iterator.next()
-    seedMessages(session, 2)
-    await new Promise(resolve => setTimeout(resolve, 0))
-    abort.abort()
-    if (baseline.done) throw new Error('Control stream ended before its baseline')
-    expect(baseline.value.type).toBe('baseline')
-    await expect(next).resolves.toEqual({ done: true, value: undefined })
   })
 })

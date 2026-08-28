@@ -87,10 +87,9 @@ describe('permission preset fold', () => {
 })
 
 describe('PermissionPresetService', () => {
-  it('fails on first state access when the projection registry is absent', async () => {
+  it('does not activate without the required projection registry', async () => {
     const ctx = await mounted({ projection: false })
-    expect(() => ctx.permissionPresets.current(freshSession('missing-permission-projections')))
-      .toThrow('permission: session projection registry is unavailable')
+    expect(ctx.get('permissionPresets')).toBeUndefined()
   })
 
   it('fails when the permissions projection key is absent', async () => {

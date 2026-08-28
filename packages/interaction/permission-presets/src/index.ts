@@ -180,7 +180,7 @@ export class PermissionPresetService extends Service {
     defaultPreset: z.string(),
   })
 
-  static inject = ['shell', 'approval', 'sessions']
+  static inject = ['shell', 'approval', 'sessions', 'sessionProjections']
 
   private readonly presets: Record<string, PresetSpec>
   private defaultSettings: () => PermissionSettings
@@ -232,24 +232,20 @@ export class PermissionPresetService extends Service {
       })),
       currentValue: zod.string().min(1),
     }) as unknown as zod.ZodType<PermissionSelect>
-    // The projection child activates only when a registry is composed. Service
-    // reads reject a missing registry or key instead of substituting defaults.
-    ctx.inject(['sessionProjections'], (projectionCtx) => {
-      projectionCtx.sessionProjections.register({
-        key: 'permissions',
-        stateVersion: 2,
-        stateSchema: permissionStateSchema,
-        init: () => ({ ...EMPTY_KNOBS, seeded: false }),
-        apply: applyPermissionEvent,
-        wire: { viewSchema: selectSchema, view: state => this.selectFor(state) },
-      })
-      projectionCtx.on('session/created', (session) => {
-        this.pinInitialPermission(session)
-      })
-      for (const session of projectionCtx.sessions.list()) {
-        this.pinInitialPermission(session)
-      }
+    ctx.sessionProjections.register({
+      key: 'permissions',
+      stateVersion: 2,
+      stateSchema: permissionStateSchema,
+      init: () => ({ ...EMPTY_KNOBS, seeded: false }),
+      apply: applyPermissionEvent,
+      wire: { viewSchema: selectSchema, view: state => this.selectFor(state) },
     })
+    ctx.on('session/created', (session) => {
+      this.pinInitialPermission(session)
+    })
+    for (const session of ctx.sessions.list()) {
+      this.pinInitialPermission(session)
+    }
 
     // The /permission command: the one write path a web client uses (the
     // popup contribution submits the picked preset as this line). The child
@@ -295,9 +291,7 @@ export class PermissionPresetService extends Service {
   }
 
   private permissionState(session: Session): PermissionProjectionState {
-    const projections = this.ctx.get('sessionProjections')
-    if (projections === undefined) throw new Error('permission: session projection registry is unavailable')
-    const state = projections.stateOf(session, 'permissions')
+    const state = this.ctx.sessionProjections.stateOf(session, 'permissions')
     if (state === undefined) throw new Error('permission: permissions session projection is not registered')
     return state
   }
