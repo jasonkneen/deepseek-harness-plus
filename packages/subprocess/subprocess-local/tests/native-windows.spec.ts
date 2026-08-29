@@ -58,6 +58,19 @@ function cleanup(pid: number): void {
 
 type SpawnFailure = NodeJS.ErrnoException & { path?: string; spawnargs?: string[] }
 
+function expectedSpawnFailure(error: SpawnFailure): Record<string, unknown> {
+  const expected: Record<string, unknown> = {
+    name: error.name,
+    message: error.message,
+    code: error.code,
+    errno: error.errno,
+    syscall: error.syscall,
+  }
+  if (Object.hasOwn(error, 'path')) expected.path = error.path
+  if (Object.hasOwn(error, 'spawnargs')) expected.spawnargs = error.spawnargs
+  return expected
+}
+
 function directSpawnFailure(argv: readonly string[], cwd = scratch): Promise<SpawnFailure> {
   return new Promise((resolve, reject) => {
     try {
@@ -191,29 +204,13 @@ describe.skipIf(!windowsNative)('Windows Job native containment', () => {
     const missing = spec([`missing-native-target-${Date.now()}.exe`])
     const expectedMissing = await directSpawnFailure(missing.argv)
     const missingHandle = bindManagedProcess(missing, launchWindowsJob(missing, targetEnvironment(missing)))
-    await expect(missingHandle.done).rejects.toMatchObject({
-      name: expectedMissing.name,
-      message: expectedMissing.message,
-      code: expectedMissing.code,
-      errno: expectedMissing.errno,
-      syscall: expectedMissing.syscall,
-      path: expectedMissing.path,
-      spawnargs: expectedMissing.spawnargs,
-    })
+    await expect(missingHandle.done).rejects.toMatchObject(expectedSpawnFailure(expectedMissing))
     await expect(missingHandle.waitForExit()).resolves.toBe(true)
 
     const expectedAccessDenied = await directSpawnFailure([scratch])
     const accessDenied = spec([scratch])
     const accessDeniedHandle = bindManagedProcess(accessDenied, launchWindowsJob(accessDenied, targetEnvironment(accessDenied)))
-    await expect(accessDeniedHandle.done).rejects.toMatchObject({
-      name: expectedAccessDenied.name,
-      message: expectedAccessDenied.message,
-      code: expectedAccessDenied.code,
-      errno: expectedAccessDenied.errno,
-      syscall: expectedAccessDenied.syscall,
-      path: expectedAccessDenied.path,
-      spawnargs: expectedAccessDenied.spawnargs,
-    })
+    await expect(accessDeniedHandle.done).rejects.toMatchObject(expectedSpawnFailure(expectedAccessDenied))
     await expect(accessDeniedHandle.waitForExit()).resolves.toBe(true)
 
     const missingCwd = join(scratch, `missing-cwd-${Date.now()}`)
@@ -221,15 +218,7 @@ describe.skipIf(!windowsNative)('Windows Job native containment', () => {
     const expectedCwd = await directSpawnFailure(cwdArgv, missingCwd)
     const invalidCwd = { ...spec(cwdArgv), cwd: missingCwd }
     const invalidCwdHandle = bindManagedProcess(invalidCwd, launchWindowsJob(invalidCwd, targetEnvironment(invalidCwd)))
-    await expect(invalidCwdHandle.done).rejects.toMatchObject({
-      name: expectedCwd.name,
-      message: expectedCwd.message,
-      code: expectedCwd.code,
-      errno: expectedCwd.errno,
-      syscall: expectedCwd.syscall,
-      path: expectedCwd.path,
-      spawnargs: expectedCwd.spawnargs,
-    })
+    await expect(invalidCwdHandle.done).rejects.toMatchObject(expectedSpawnFailure(expectedCwd))
     await expect(invalidCwdHandle.waitForExit()).resolves.toBe(true)
 
     const invalidExecutable = join(scratch, `direct-${Date.now()}.exe`)
@@ -237,15 +226,7 @@ describe.skipIf(!windowsNative)('Windows Job native containment', () => {
     const directError = await directSpawnFailure([invalidExecutable])
     const invalid = spec([invalidExecutable])
     const invalidHandle = bindManagedProcess(invalid, launchWindowsJob(invalid, targetEnvironment(invalid)))
-    await expect(invalidHandle.done).rejects.toMatchObject({
-      name: directError.name,
-      message: directError.message,
-      code: directError.code,
-      errno: directError.errno,
-      syscall: directError.syscall,
-      path: directError.path,
-      spawnargs: directError.spawnargs,
-    })
+    await expect(invalidHandle.done).rejects.toMatchObject(expectedSpawnFailure(directError))
     await expect(invalidHandle.waitForExit()).resolves.toBe(true)
   })
 })
