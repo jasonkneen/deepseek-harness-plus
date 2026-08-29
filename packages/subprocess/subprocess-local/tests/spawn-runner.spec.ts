@@ -42,7 +42,6 @@ import {
   spawnRunnerInvocation,
   SUBPROCESS_RUNNER_ENV,
   targetEnvironment,
-  validateTerminalTarget,
   WINDOWS_RUNNER_SELECTION,
 } from '../src/runner-launch.ts'
 import {
@@ -114,10 +113,11 @@ async function runWindows(
   host: FakeRunnerHost,
   native: SpawnRunnerInternals,
   start: unknown = { type: 'start', cwd: 'C:\\target', env: { TARGET: 'yes', dsh_subprocess_runner: 'restored' } },
+  targetArgv: string[] = ['tool.exe', 'literal arg'],
 ): Promise<void> {
   const running = runSpawnRunner(
     WINDOWS_RUNNER_SELECTION,
-    ['--', 'tool.exe', 'literal arg'],
+    ['--', ...targetArgv],
     hostArgument(host),
     native,
   )
@@ -276,7 +276,6 @@ describe('runner launch inputs', () => {
     expect(targetEnvironment(spec)).toMatchObject({ EXPLICIT: 'yes' })
     expect(targetEnvironment({ ...spec, env: { '=C:': 'C:\\target' } }))
       .toMatchObject({ '=C:': 'C:\\target' })
-    expect(validateTerminalTarget({ ...spec, rows: 24, cols: 80 })).toMatchObject({ EXPLICIT: 'yes' })
     for (const invalid of [
       { ...spec, argv: ['node\0'] },
       { ...spec, argv: ['node', 'a\0'] },
@@ -602,20 +601,20 @@ describe('Windows Job runner protocol owner', () => {
   })
 
   it('maps the bounded Win32 process-creation error classes', async () => {
-    for (const [win32Code, code, errno, enriched] of [
-      [2, 'ENOENT', -4058, true],
-      [3, 'ENOENT', -4058, true],
-      [267, 'ENOENT', -4058, true],
-      [740, 'EACCES', -4092, true],
-      [5, 'EPERM', -4048, false],
-      [193, 'EFTYPE', -4028, false],
-      [999, 'UNKNOWN', -4094, false],
+    for (const [win32Code, code, errno, enriched, program] of [
+      [2, 'ENOENT', -4058, true, 'tool.exe'],
+      [3, 'ENOENT', -4058, true, 'tool.exe'],
+      [267, 'ENOENT', -4058, true, 'tool.exe'],
+      [740, 'EACCES', -4092, true, '$&.exe'],
+      [5, 'EPERM', -4048, false, 'tool.exe'],
+      [193, 'EFTYPE', -4028, false, 'tool.exe'],
+      [999, 'UNKNOWN', -4094, false, 'tool.exe'],
     ] as const) {
       const host = new FakeRunnerHost()
       await runWindows(host, internals({
         spawnCurrentTokenJobProcess: vi.fn(() => { throw new Win32Error('CreateProcessW', win32Code) }),
-      }))
-      const syscall = enriched ? 'spawn tool.exe' : 'spawn'
+      }), undefined, [program, 'literal arg'])
+      const syscall = enriched ? `spawn ${program}` : 'spawn'
       expect(host.sent).toMatchObject([{
         type: 'error',
         error: {
@@ -630,7 +629,7 @@ describe('Windows Job runner protocol owner', () => {
       if (result.type !== 'error') throw new Error('expected runner error')
       expect(result.error.stack?.split('\n')[0]).toBe(`Error: ${syscall} ${code}`)
       if (enriched) {
-        expect(result.error).toMatchObject({ path: 'tool.exe', spawnargs: ['literal arg'] })
+        expect(result.error).toMatchObject({ path: program, spawnargs: ['literal arg'] })
       } else {
         expect(result.error).not.toHaveProperty('path')
         expect(result.error).not.toHaveProperty('spawnargs')

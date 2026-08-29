@@ -78,7 +78,7 @@ function nodeSpawnError(
     name: 'Error',
     message,
     ...source.stack === undefined ? {} : {
-      stack: source.stack.replace(/^[^\n]*/, `Error: ${message}`),
+      stack: source.stack.replace(/^[^\n]*/, () => `Error: ${message}`),
     },
     code,
     ...errno === undefined ? {} : { errno },

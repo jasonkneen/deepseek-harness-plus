@@ -35,7 +35,7 @@ import {
   probeLinuxNative,
 } from './linux-scope.ts'
 import { launchWindowsJob, probeWindowsJob } from './windows-job.ts'
-import { targetEnvironment, validateTerminalTarget } from './runner-launch.ts'
+import { targetEnvironment } from './runner-launch.ts'
 import { createProcessInspector } from './process-inspector.ts'
 import type { ProcessInspector } from './process-inspector.ts'
 import { LocalTerminalHandle } from './terminal.ts'
@@ -230,7 +230,7 @@ export class LocalSubprocessRuntime extends SubprocessRuntime {
       throw new Error('subprocess-local: terminal argv must contain a program')
     }
     spec.signal?.throwIfAborted()
-    const env = validateTerminalTarget(spec)
+    const env = targetEnvironment(spec)
     const options: IPtyForkOptions = {
       name: 'dumb',
       rows: spec.rows,

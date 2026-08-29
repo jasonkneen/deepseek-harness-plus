@@ -5,7 +5,7 @@ import { accessSync, constants as fsConstants, statSync } from 'node:fs'
 import { extname, isAbsolute } from 'node:path'
 import { inspect } from 'node:util'
 import { fileURLToPath } from 'node:url'
-import type { SubprocessSpawnSpec, SubprocessTerminalSpawnSpec } from '@deepseek-ai/dsh-subprocess'
+import type { SubprocessSpawnSpec } from '@deepseek-ai/dsh-subprocess'
 import { childEnv } from './spawn.ts'
 
 /** The one private environment variable consumed before target state is restored. */
@@ -288,13 +288,4 @@ export function targetEnvironment(
     validateNoNullByte(`options.env['${key}']`, value)
   }
   return env
-}
-
-/**
- * Validate Linux PTY target strings before creating its request or terminal.
- * @param spec - terminal subprocess request to validate.
- * @returns complete validated target environment.
- */
-export function validateTerminalTarget(spec: SubprocessTerminalSpawnSpec): Record<string, string> {
-  return targetEnvironment(spec)
 }
