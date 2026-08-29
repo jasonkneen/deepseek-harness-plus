@@ -65,6 +65,7 @@ class WindowsJobOwner implements BoundProcessOwner {
   constructor(
     private readonly runner: RunnerProcess,
     private readonly exited: Promise<void>,
+    private readonly directResultSeen: () => boolean,
     private readonly failInfrastructure: (error: unknown) => void,
   ) {
     void this.exited.catch(() => {})
@@ -79,7 +80,7 @@ class WindowsJobOwner implements BoundProcessOwner {
     this.terminationSent = true
     try {
       this.runner.send?.({ type: 'terminate' }, (error) => {
-        if (error === null || !this.runner.connected) return
+        if (error === null || this.directResultSeen() || !this.runner.connected) return
         this.failInfrastructure(error)
         this.terminateForHostExit()
       })
@@ -145,7 +146,12 @@ export function launchWindowsJob(
     rangeExit.reject(error)
   }
 
-  const owner = new WindowsJobOwner(child, rangeExit.promise, failInfrastructure)
+  const owner = new WindowsJobOwner(
+    child,
+    rangeExit.promise,
+    () => resultSeen,
+    failInfrastructure,
+  )
   child.on('message', (value: unknown) => {
     if (resultSeen) {
       const error = new Error('subprocess-local: Windows runner emitted more than one direct result')

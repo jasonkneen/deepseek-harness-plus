@@ -334,7 +334,7 @@ describe('Windows parent runner contract', () => {
     await expect(error.result.owner.waitForExit()).rejects.toThrow('send threw')
   })
 
-  it('ignores a terminate callback error delivered after clean runner disconnect', async () => {
+  it('ignores a terminate callback error after a direct result while the runner is connected', async () => {
     const child = new FakeChild()
     const launched = launch(child)
     const handle = bindManagedProcess(spec, launched.result)
@@ -346,12 +346,12 @@ describe('Windows parent runner contract', () => {
     await expect(handle.done).rejects.toMatchObject({ code: 'ENOENT' })
     expect(child.pendingSendCallbacks).toHaveLength(1)
 
-    child.connected = false
-    child.emit('close', 0, null)
-    await expect(handle.waitForExit()).resolves.toBe(true)
+    expect(child.connected).toBe(true)
     child.deliverNextSend(new Error('late EPIPE'))
     await Promise.resolve()
     expect(child.killed).toEqual([])
+    child.connected = false
+    child.emit('close', 0, null)
     await expect(handle.waitForExit()).resolves.toBe(true)
   })
 
