@@ -1,3 +1,4 @@
+import { spawn } from 'node:child_process'
 import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -23,6 +24,16 @@ function spec(argv: string[], graceMs = 100): SubprocessSpawnSpec {
     },
     graceMs,
   }
+}
+
+type SpawnFailure = NodeJS.ErrnoException & { path?: string; spawnargs?: string[] }
+
+function directSpawnFailure(argv: readonly string[]): Promise<SpawnFailure> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(argv[0] as string, argv.slice(1), { cwd: scratch, stdio: 'ignore' })
+    child.once('error', resolve)
+    child.once('spawn', () => { reject(new Error(`expected ${argv[0]} to fail before spawn`)) })
+  })
 }
 
 async function waitForPid(path: string): Promise<number> {
@@ -146,16 +157,36 @@ describe.skipIf(!linuxNative)('Linux user-systemd native containment', () => {
   })
 
   it('preserves Node-shaped ENOENT and EACCES spawn failures without replay', async () => {
-    const missing = spec([`missing-native-target-${Date.now()}`])
+    const missingArgv = [`missing-native-target-${Date.now()}`, 'literal arg']
+    const expectedMissing = await directSpawnFailure(missingArgv)
+    const missing = spec(missingArgv)
     const missingHandle = bindManagedProcess(missing, launchLinuxScope(missing, targetEnvironment(missing)))
-    await expect(missingHandle.done).rejects.toMatchObject({ code: 'ENOENT' })
+    await expect(missingHandle.done).rejects.toMatchObject({
+      name: expectedMissing.name,
+      message: expectedMissing.message,
+      code: expectedMissing.code,
+      errno: expectedMissing.errno,
+      syscall: expectedMissing.syscall,
+      path: expectedMissing.path,
+      spawnargs: expectedMissing.spawnargs,
+    })
 
     const deniedPath = join(scratch, `not-executable-${Date.now()}`)
     writeFileSync(deniedPath, '#!/bin/sh\nexit 0\n', { mode: 0o600 })
     chmodSync(deniedPath, 0o600)
-    const denied = spec([deniedPath])
+    const deniedArgv = [deniedPath, 'literal arg']
+    const expectedDenied = await directSpawnFailure(deniedArgv)
+    const denied = spec(deniedArgv)
     const deniedHandle = bindManagedProcess(denied, launchLinuxScope(denied, targetEnvironment(denied)))
-    await expect(deniedHandle.done).rejects.toMatchObject({ code: 'EACCES' })
+    await expect(deniedHandle.done).rejects.toMatchObject({
+      name: expectedDenied.name,
+      message: expectedDenied.message,
+      code: expectedDenied.code,
+      errno: expectedDenied.errno,
+      syscall: expectedDenied.syscall,
+      path: expectedDenied.path,
+      spawnargs: expectedDenied.spawnargs,
+    })
   })
 
   it('keeps PTY identity and readiness while containing a reparented setsid descendant', async () => {

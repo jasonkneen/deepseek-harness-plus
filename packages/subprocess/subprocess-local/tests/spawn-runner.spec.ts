@@ -434,7 +434,16 @@ describe('Linux one-shot exec bootstrap', () => {
     expect(execve.mock.calls[0]?.[1]).toEqual(['tool', 'literal arg'])
     expect(execve.mock.calls[0]?.[2]).toMatchObject({ [SUBPROCESS_RUNNER_ENV]: 'target-value' })
     expect(readLinuxStartupError(files.startupErrorPath)).toMatchObject({
-      type: 'error', error: { code: 'ENOENT', path: 'tool' },
+      type: 'error',
+      error: {
+        name: 'Error',
+        message: 'spawn tool ENOENT',
+        code: 'ENOENT',
+        errno: -2,
+        syscall: 'spawn tool',
+        path: 'tool',
+        spawnargs: ['literal arg'],
+      },
     })
   })
 
@@ -509,10 +518,23 @@ describe('Linux one-shot exec bootstrap', () => {
 
   it('uses the default PATH and stops on a non-search error', async () => {
     const files = track(createLinuxLaunchFiles({ cwd: '/work', env: {} }))
-    const execve = vi.fn((_file: string) => { throw Object.assign(new Error('denied'), { code: 'EACCES' }) })
+    const execve = vi.fn((_file: string) => {
+      throw Object.assign(new Error('EACCES: permission denied'), { code: 'EACCES', errno: -13 })
+    })
     await runSpawnRunner(files.requestPath, ['--', 'tool'], hostArgument(new FakeRunnerHost()), internals({ execve }))
     expect(execve.mock.calls.map(call => call[0])).toEqual(['/usr/bin/tool', '/bin/tool'])
-    expect(readLinuxStartupError(files.startupErrorPath)).toMatchObject({ type: 'error', error: { code: 'EACCES' } })
+    expect(readLinuxStartupError(files.startupErrorPath)).toMatchObject({
+      type: 'error',
+      error: {
+        name: 'Error',
+        message: 'spawn tool EACCES',
+        code: 'EACCES',
+        errno: -13,
+        syscall: 'spawn tool',
+        path: 'tool',
+        spawnargs: [],
+      },
+    })
 
     const explicit = track(createLinuxLaunchFiles({ cwd: '/work', env: {} }))
     const fatal = vi.fn(() => { throw Object.assign(new Error('bad executable'), { code: 'EIO' }) })
@@ -580,12 +602,12 @@ describe('Windows Job runner protocol owner', () => {
   })
 
   it('maps the bounded Win32 process-creation error classes', async () => {
-    for (const [win32Code, code] of [
-      [3, 'ENOENT'],
-      [267, 'ENOENT'],
-      [5, 'EPERM'],
-      [193, 'EFTYPE'],
-      [999, 'UNKNOWN'],
+    for (const [win32Code, code, errno] of [
+      [3, 'ENOENT', -4058],
+      [267, 'ENOENT', -4058],
+      [5, 'EPERM', -4048],
+      [193, 'EFTYPE', -4028],
+      [999, 'UNKNOWN', -4094],
     ] as const) {
       const host = new FakeRunnerHost()
       await runWindows(host, internals({
@@ -593,7 +615,15 @@ describe('Windows Job runner protocol owner', () => {
       }))
       expect(host.sent).toMatchObject([{
         type: 'error',
-        error: { code, ...win32Code === 5 ? { errno: -4048 } : {} },
+        error: {
+          name: 'Error',
+          message: `spawn tool.exe ${code}`,
+          code,
+          errno,
+          syscall: 'spawn tool.exe',
+          path: 'tool.exe',
+          spawnargs: ['literal arg'],
+        },
       }])
     }
   })

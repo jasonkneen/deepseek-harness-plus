@@ -66,40 +66,48 @@ const defaultInternals: SpawnRunnerInternals = {
   closeHandleChecked,
 }
 
-function asSpawnError(error: unknown, program: string, args: readonly string[]): SerializedRunnerError {
-  const serialized = serializeRunnerError(error)
-  const win32Code = error instanceof Win32Error ? error.win32Code : undefined
-  const code = win32Code === undefined
-    ? serialized.code
-    : win32Code === 2 || win32Code === 3 || win32Code === 267
-      ? 'ENOENT'
-      : win32Code === 5
-        ? 'EPERM'
-        : win32Code === 193
-          ? 'EFTYPE'
-          : 'UNKNOWN'
-  if (code === undefined) return serialized
+function nodeSpawnError(
+  source: Pick<SerializedRunnerError, 'stack'>,
+  program: string,
+  args: readonly string[],
+  code: string,
+  errno: number | undefined,
+): SerializedRunnerError {
+  const message = `spawn ${program} ${code}`
+  const newline = source.stack?.indexOf('\n') ?? -1
   return {
-    ...serialized,
-    message: `spawn ${program} ${code}: ${serialized.message}`,
+    name: 'Error',
+    message,
+    ...source.stack === undefined ? {} : {
+      stack: `Error: ${message}${newline === -1 ? '' : source.stack.slice(newline)}`,
+    },
     code,
-    ...win32Code === 5 ? { errno: -4048 } : {},
+    ...errno === undefined ? {} : { errno },
     syscall: `spawn ${program}`,
     path: program,
     spawnargs: [...args],
   }
 }
 
-function windowsPathNotFoundError(program: string, args: readonly string[]): SerializedRunnerError {
-  return {
-    name: 'Error',
-    message: `spawn ${program} ENOENT`,
-    code: 'ENOENT',
-    errno: -4058,
-    syscall: `spawn ${program}`,
-    path: program,
-    spawnargs: [...args],
+function asSpawnError(error: unknown, program: string, args: readonly string[]): SerializedRunnerError {
+  const serialized = serializeRunnerError(error)
+  if (!(error instanceof Win32Error)) {
+    return serialized.code === undefined
+      ? serialized
+      : nodeSpawnError(serialized, program, args, serialized.code, serialized.errno)
   }
+  const [code, errno] = error.win32Code === 2 || error.win32Code === 3 || error.win32Code === 267
+    ? ['ENOENT', -4058]
+    : error.win32Code === 5
+      ? ['EPERM', -4048]
+      : error.win32Code === 193
+        ? ['EFTYPE', -4028]
+        : ['UNKNOWN', -4094]
+  return nodeSpawnError(serialized, program, args, code, errno)
+}
+
+function windowsPathNotFoundError(program: string, args: readonly string[]): SerializedRunnerError {
+  return nodeSpawnError({}, program, args, 'ENOENT', -4058)
 }
 
 function linuxPathNotFoundError(program: string): NodeJS.ErrnoException {

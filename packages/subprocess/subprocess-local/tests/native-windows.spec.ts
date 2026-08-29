@@ -58,7 +58,7 @@ function cleanup(pid: number): void {
 
 type SpawnFailure = NodeJS.ErrnoException & { path?: string; spawnargs?: string[] }
 
-function directSpawnFailure(argv: string[], cwd = scratch): Promise<SpawnFailure> {
+function directSpawnFailure(argv: readonly string[], cwd = scratch): Promise<SpawnFailure> {
   return new Promise((resolve, reject) => {
     try {
       const child = spawn(argv[0] as string, argv.slice(1), { cwd, stdio: 'ignore' })
@@ -189,14 +189,25 @@ describe.skipIf(!windowsNative)('Windows Job native containment', () => {
     await expect(relativeHandle.waitForExit()).resolves.toBe(true)
 
     const missing = spec([`missing-native-target-${Date.now()}.exe`])
+    const expectedMissing = await directSpawnFailure(missing.argv)
     const missingHandle = bindManagedProcess(missing, launchWindowsJob(missing, targetEnvironment(missing)))
-    await expect(missingHandle.done).rejects.toMatchObject({ code: 'ENOENT' })
+    await expect(missingHandle.done).rejects.toMatchObject({
+      name: expectedMissing.name,
+      message: expectedMissing.message,
+      code: expectedMissing.code,
+      errno: expectedMissing.errno,
+      syscall: expectedMissing.syscall,
+      path: expectedMissing.path,
+      spawnargs: expectedMissing.spawnargs,
+    })
     await expect(missingHandle.waitForExit()).resolves.toBe(true)
 
     const expectedAccessDenied = await directSpawnFailure([scratch])
     const accessDenied = spec([scratch])
     const accessDeniedHandle = bindManagedProcess(accessDenied, launchWindowsJob(accessDenied, targetEnvironment(accessDenied)))
     await expect(accessDeniedHandle.done).rejects.toMatchObject({
+      name: expectedAccessDenied.name,
+      message: expectedAccessDenied.message,
       code: expectedAccessDenied.code,
       errno: expectedAccessDenied.errno,
       syscall: expectedAccessDenied.syscall,
@@ -211,7 +222,10 @@ describe.skipIf(!windowsNative)('Windows Job native containment', () => {
     const invalidCwd = { ...spec(cwdArgv), cwd: missingCwd }
     const invalidCwdHandle = bindManagedProcess(invalidCwd, launchWindowsJob(invalidCwd, targetEnvironment(invalidCwd)))
     await expect(invalidCwdHandle.done).rejects.toMatchObject({
+      name: expectedCwd.name,
+      message: expectedCwd.message,
       code: expectedCwd.code,
+      errno: expectedCwd.errno,
       syscall: expectedCwd.syscall,
       path: expectedCwd.path,
       spawnargs: expectedCwd.spawnargs,
@@ -223,7 +237,15 @@ describe.skipIf(!windowsNative)('Windows Job native containment', () => {
     const directError = await directSpawnFailure([invalidExecutable])
     const invalid = spec([invalidExecutable])
     const invalidHandle = bindManagedProcess(invalid, launchWindowsJob(invalid, targetEnvironment(invalid)))
-    await expect(invalidHandle.done).rejects.toMatchObject({ code: directError.code })
+    await expect(invalidHandle.done).rejects.toMatchObject({
+      name: directError.name,
+      message: directError.message,
+      code: directError.code,
+      errno: directError.errno,
+      syscall: directError.syscall,
+      path: directError.path,
+      spawnargs: directError.spawnargs,
+    })
     await expect(invalidHandle.waitForExit()).resolves.toBe(true)
   })
 })
