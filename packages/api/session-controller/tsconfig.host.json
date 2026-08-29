@@ -42,6 +42,7 @@
     { "path": "../../session-query/session-query" },
     { "path": "../../skill/skill" },
     { "path": "../../subagent/subagent" },
+    { "path": "../../util/time" },
     { "path": "../../typert/protocol" },
     { "path": "../../typert/registry" },
     { "path": "../../workspace/workspace" }

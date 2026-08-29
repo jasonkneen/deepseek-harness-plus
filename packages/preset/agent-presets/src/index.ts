@@ -24,92 +24,32 @@
 import { stat } from 'node:fs/promises'
 import { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
-import { Remote, TypertRemoteFailure, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
+import { Remote, RemoteError, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
 import { bindScopeParent, createScope, scopeOf, type Scope, type ScopeKey, type ScopeParentBinding } from '@deepseek-ai/dsh-scope'
 // Type-only: resolves the `agent/created` lifecycle event this service watches.
 import type {} from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
-import type { AgentPresetDocument, AgentPresetErrorDetailsMap, AgentPresetRoster } from './types.ts'
+import type { AgentPresetDocument, AgentPresetRoster } from './types.ts'
 import type {} from '@deepseek-ai/dsh-session-projection'
 // Type-only: resolves the registry notification emitted after scope reparenting.
 import type {} from '@deepseek-ai/dsh-tools'
 import { settingsNamespace, type SettingsScope, type default as SettingsService } from '@deepseek-ai/dsh-settings'
 import { dshHomePath } from '@deepseek-ai/dsh-home-paths'
 import { discoverPresets, SHIPPED_PRESET_ROOT, USER_PRESET_DIR } from './discovery.ts'
-import {
-  copyComposition, deleteComposition, readComposition,
-  InvalidPresetIdError, PresetExistsError, PresetNotWritableError,
-} from './authoring.ts'
+import { copyComposition, deleteComposition, presetExists, readComposition } from './authoring.ts'
 import { mountPreset, serviceForAgent, standingMountFor } from './mount.ts'
-import {
-  PresetLockedError, PresetMountError, UnknownPresetError,
-  type AgentPreset, type Config, type PresetRoot,
-} from './preset.ts'
+import type { AgentPreset, Config, PresetRoot } from './preset.ts'
 import { agentPresetProjectionDefinition } from './session.ts'
 export type * from './types.ts'
 
 /** Settings namespace carrying the user's chosen default preset. */
 export const SETTINGS_NAMESPACE = 'agent-presets'
 
-/** Construct one typed preset failure for the Remote carrier. */
-function remotePresetFailure<Code extends keyof AgentPresetErrorDetailsMap>(
-  code: Code,
-  message: string,
-  details: AgentPresetErrorDetailsMap[Code],
-): TypertRemoteFailure {
-  return new TypertRemoteFailure({ code, message, details })
-}
-
-/** Map one preset rejection to its stable Remote code and details. */
-function presetFailure(error: unknown, agentPreset: string): TypertRemoteFailure | undefined {
-  if (error instanceof UnknownPresetError) {
-    return remotePresetFailure(
-      'agent-preset-not-found',
-      error.message,
-      { agentPreset: error.presetId, available: [...error.available] },
-    )
-  }
-  if (error instanceof PresetMountError) {
-    return remotePresetFailure(
-      'agent-preset-invalid',
-      error.message,
-      { agentPreset: error.presetId, reason: error.reason },
-    )
-  }
-  if (error instanceof InvalidPresetIdError || error instanceof PresetExistsError) {
-    return remotePresetFailure(
-      'agent-preset-invalid',
-      error.message,
-      { agentPreset: error.presetId, reason: error.message },
-    )
-  }
-  if (error instanceof PresetNotWritableError) {
-    return remotePresetFailure(
-      'agent-preset-read-only',
-      error.message,
-      { agentPreset, reason: error.message },
-    )
-  }
-  if (error instanceof PresetLockedError) {
-    return remotePresetFailure(
-      'agent-preset-locked',
-      `session "${error.sessionId}" has already started; its agent preset is fixed`,
-      { sessionId: error.sessionId, agentPreset: error.presetId },
-    )
-  }
-  return undefined
-}
-
 /** Refuse an empty preset id before invoking a domain operation. */
 function validatePresetId(value: string, field: 'agentPreset' | 'from'): void {
   if (value.length === 0) {
-    throw remotePresetFailure('bad-request', `${field} must be a non-empty string`, {})
+    throw new RemoteError('gateway/bad-request', `${field} must be a non-empty string`, {})
   }
-}
-
-/** Throw the stable preset failure or the caller's operation-specific fallback. */
-function rejectPreset(error: unknown, agentPreset: string, fallbackMessage: string): never {
-  throw presetFailure(error, agentPreset) ?? remotePresetFailure('internal', fallbackMessage, {})
 }
 
 /** The user-writable slice of this plugin's config. */
@@ -131,12 +71,8 @@ export {
   inactiveRows, leakedServices, livePresetMounts, mountPreset, serviceForAgent, standingMountFor,
   type JoinedPresetMount, type PresetMount,
 } from './mount.ts'
-export {
-  copyComposition, deleteComposition, InvalidPresetIdError, PresetExistsError,
-  PresetNotWritableError, readComposition, writableRoot,
-} from './authoring.ts'
+export { copyComposition, deleteComposition, readComposition, writableRoot } from './authoring.ts'
 export { agentPresetProjectionDefinition } from './session.ts'
-export { PresetLockedError, PresetMountError, UnknownPresetError } from './preset.ts'
 export type { AgentPreset, Config, PresetRoot, PresetTrust } from './preset.ts'
 
 declare module '@deepseek-ai/cordis' {
@@ -343,7 +279,12 @@ export class AgentPresets extends TypertRemoteService {
     const presets = await this.list()
     const found = presets.find(preset => preset.id === wanted)
     if (found === undefined) {
-      throw new UnknownPresetError(wanted, presets.map(preset => preset.id))
+      const available = presets.map(preset => preset.id)
+      throw new RemoteError(
+        'agent-preset/not-found',
+        `agent-presets: preset "${wanted}" not found (available: ${available.join(', ') || 'none'})`,
+        { agentPreset: wanted, available },
+      )
     }
     return found
   }
@@ -361,7 +302,11 @@ export class AgentPresets extends TypertRemoteService {
   private async resolveMountable(id?: string): Promise<AgentPreset> {
     const preset = await this.resolve(id)
     if (preset.broken !== undefined) {
-      throw new PresetMountError(preset.id, preset.broken)
+      throw new RemoteError(
+        'agent-preset/invalid',
+        `agent-presets: preset "${preset.id}" failed to mount: ${preset.broken}`,
+        { agentPreset: preset.id, reason: preset.broken },
+      )
     }
     return preset
   }
@@ -495,23 +440,19 @@ export class AgentPresets extends TypertRemoteService {
    * One preset's composition text with the roster row it belongs to.
    * @param agentPreset - the preset id.
    * @returns the composition beside its trust and published metadata.
-   * @throws {TypertRemoteFailure} `bad-request` for an empty id, or
-   * `agent-preset-not-found` when no configured root supplies it.
+   * @throws {RemoteError} `gateway/bad-request` for an empty id, or
+   * `agent-preset/not-found` when no configured root supplies it.
    */
   @Remote('read')
   async readDocument(agentPreset: string): Promise<AgentPresetDocument> {
     validatePresetId(agentPreset, 'agentPreset')
-    try {
-      const preset = await this.resolve(agentPreset)
-      return {
-        agentPreset: preset.id,
-        trust: preset.trust,
-        content: await this.read(preset.id),
-        ...preset.name === undefined ? {} : { name: preset.name },
-        ...preset.description === undefined ? {} : { description: preset.description },
-      }
-    } catch (error: unknown) {
-      rejectPreset(error, agentPreset, `agent preset "${agentPreset}": ${String(error)}`)
+    const preset = await this.resolve(agentPreset)
+    return {
+      agentPreset: preset.id,
+      trust: preset.trust,
+      content: await this.read(preset.id),
+      ...preset.name === undefined ? {} : { name: preset.name },
+      ...preset.description === undefined ? {} : { description: preset.description },
     }
   }
 
@@ -536,7 +477,7 @@ export class AgentPresets extends TypertRemoteService {
     // since a user directory named like a shipped preset is shadowed by it.
     // The disk check inside copyComposition only sees the writable root.
     if ((await this.list()).some(preset => preset.id === id)) {
-      throw new PresetExistsError(id)
+      throw presetExists(id)
     }
     await copyComposition(this.resolvedRoots, source, id, name)
     // A settled mount under this id can only be stale (its preset was deleted
@@ -551,18 +492,14 @@ export class AgentPresets extends TypertRemoteService {
    * @param id - the new preset id.
    * @param name - the copy's optional display name.
    * @returns once the copy is stored.
-   * @throws {TypertRemoteFailure} with the corresponding stable preset code
-   * and details when the copy is refused.
+   * @throws {RemoteError} with the corresponding stable preset code and
+   * details when the copy is refused.
    */
   @Remote('copy')
   async remoteExportCopy(from: string, id: string, name?: string): Promise<void> {
     validatePresetId(from, 'from')
     validatePresetId(id, 'agentPreset')
-    try {
-      await this.copy(from, id, name)
-    } catch (error: unknown) {
-      rejectPreset(error, id, `agent preset "${id}": ${String(error)}`)
-    }
+    await this.copy(from, id, name)
   }
 
   /**
@@ -593,17 +530,13 @@ export class AgentPresets extends TypertRemoteService {
    * Delete one preset through the Remote API.
    * @param id - the preset id.
    * @returns once the preset is deleted.
-   * @throws {TypertRemoteFailure} with the corresponding stable preset code
-   * and details when deletion is refused.
+   * @throws {RemoteError} with the corresponding stable preset code and
+   * details when deletion is refused.
    */
   @Remote('deletePreset')
   async remoteExportDelete(id: string): Promise<void> {
     validatePresetId(id, 'agentPreset')
-    try {
-      await this.remove(id)
-    } catch (error: unknown) {
-      rejectPreset(error, id, `agent preset "${id}": ${String(error)}`)
-    }
+    await this.remove(id)
   }
 
   /**
@@ -689,8 +622,8 @@ export class AgentPresets extends TypertRemoteService {
    * @param agent - the session's live agent, resolved from the wire identity.
    * @param agentPreset - the preset to compose the agent from instead.
    * @returns the preset id that was recorded.
-   * @throws {TypertRemoteFailure} with `bad-request`, `agent-preset-locked`,
-   * `agent-preset-not-found`, or `agent-preset-invalid` when refused.
+   * @throws {RemoteError} with `gateway/bad-request`, `agent-preset/locked`,
+   * `agent-preset/not-found`, or `agent-preset/invalid` when refused.
    */
   @Remote('select')
   async select(agent: Agent, agentPreset: string): Promise<string> {
@@ -701,8 +634,6 @@ export class AgentPresets extends TypertRemoteService {
     this.switches.set(agent.id, guard)
     try {
       return await turn
-    } catch (error: unknown) {
-      return rejectPreset(error, agentPreset, `failed to select agent preset "${agentPreset}": ${String(error)}`)
     } finally {
       if (this.switches.get(agent.id) === guard) this.switches.delete(agent.id)
     }
@@ -717,7 +648,11 @@ export class AgentPresets extends TypertRemoteService {
     const boundary = this.selfCtx.sessionProjections.stateOf(agent.session, 'turnBoundary')
     if (boundary !== undefined
       && (boundary.openTurnStartSeq !== null || boundary.lastTurn > 0)) {
-      throw new PresetLockedError(agent.id, agentPreset)
+      throw new RemoteError(
+        'agent-preset/locked',
+        `session "${agent.id}" has already started; its agent preset is fixed`,
+        { sessionId: agent.id, agentPreset },
+      )
     }
     const preset = await this.recompose(agent.ctx, agentPreset)
     // Recorded only after the swap committed: the log states what the agent
@@ -774,7 +709,12 @@ export class AgentPresets extends TypertRemoteService {
         // refreshes instead of trusting a composition older than its stamp.
         const stamp = await compositionStamp(preset.path)
         if (stamp === undefined) {
-          throw new PresetMountError(preset.id, `composition file is unreadable: ${preset.path}`)
+          const reason = `composition file is unreadable: ${preset.path}`
+          throw new RemoteError(
+            'agent-preset/invalid',
+            `agent-presets: preset "${preset.id}" failed to mount: ${reason}`,
+            { agentPreset: preset.id, reason },
+          )
         }
         await mountPreset(scope.ctx, preset)
         return { key, scope, stamp }

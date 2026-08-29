@@ -1,5 +1,5 @@
 ---
-description: "Package map for the zero-dependency utility family: atomic file writes, branded ids, harness home paths, the launch environment, native commands, output retention, and timeouts."
+description: "Package map for the zero-dependency utility family: atomic file writes, branded ids, harness home paths, the launch environment, native commands, output retention, time zones, and timeouts."
 kind: "package-group"
 ---
 
@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-The `util/` group gives capability packages shared mechanical primitives instead of duplicate implementations. It covers atomic writes, branded ids, UUIDs, Harness-home paths, launch environments, native commands, output retention, and timeout handling. Every package here is a library: it registers no service or event, and the consuming capability retains the business semantics.
+The `util/` group gives capability packages shared mechanical primitives instead of duplicate implementations. It covers atomic writes, branded ids, UUIDs, Harness-home paths, launch environments, native commands, output retention, time-zone canonicalization, and timeout handling. Every package here is a library: it registers no service or event, and the consuming capability retains the business semantics.
 
 ## Table of Contents
 
@@ -34,6 +34,7 @@ Each package provides one primitive; open a package page for how to use it.
 | [`native-command/`](native-command/README.md) | Runs host-native commands directly, never through a shell string |
 | [`workspace-path/`](workspace-path/README.md) | Provides browser-safe Workspace path and display helpers |
 | [`output-retention/`](output-retention/README.md) | Bounds model-facing output and reports exact omission metadata |
+| [`time/`](time/README.md) | Validates and canonicalizes a caller-reported IANA time zone |
 | [`timeout/`](timeout/README.md) | Deadline arithmetic, signal fusion, and timeout-versus-cancel classification |
 
 -----

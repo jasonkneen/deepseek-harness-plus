@@ -159,7 +159,7 @@ export interface PresetRoot {
 export type PresetTrust = 'system' | 'user'
 ```
 
-来源：[`packages/preset/agent-presets/src/preset.ts:54`](../packages/preset/agent-presets/src/preset.ts)
+来源：[`packages/preset/agent-presets/src/preset.ts:52`](../packages/preset/agent-presets/src/preset.ts)
 
 <a id="deepseek-aidsh-agent-spine-demo"></a>
 
@@ -287,12 +287,12 @@ export interface Config {
 ```ts config-catalog
 /** Gateway transport configuration. */
 export interface Config {
-  /** WebSocket Ping interval from 1 through 2,147,483,647 milliseconds. @default 30000 */
+  /** WebSocket Ping interval from 1 through 2,147,483,647 milliseconds. @default 2000 */
   readonly websocketHeartbeatIntervalMs?: number
 }
 ```
 
-来源：[`packages/api/gateway/src/index.ts:117`](../packages/api/gateway/src/index.ts)
+来源：[`packages/api/gateway/src/index.ts:118`](../packages/api/gateway/src/index.ts)
 
 <a id="deepseek-aidsh-api-session-controller"></a>
 
@@ -324,7 +324,7 @@ export interface Config {
 }
 ```
 
-来源：[`packages/api/settings-controller/src/index.ts:41`](../packages/api/settings-controller/src/index.ts)
+来源：[`packages/api/settings-controller/src/index.ts:37`](../packages/api/settings-controller/src/index.ts)
 
 <a id="deepseek-aidsh-attachment-local"></a>
 
@@ -3550,5 +3550,6 @@ export interface Config {
 - `@deepseek-ai/dsh-typert-protocol`（[`packages/typert/protocol/src/index.ts`](../packages/typert/protocol/src/index.ts)）
 - `@deepseek-ai/dsh-typert-registry`（[`packages/typert/registry/src/index.ts`](../packages/typert/registry/src/index.ts)）
 - `@deepseek-ai/dsh-util-crypto`（[`packages/util/crypto/src/index.ts`](../packages/util/crypto/src/index.ts)）
+- `@deepseek-ai/dsh-util-time`（[`packages/util/time/src/index.ts`](../packages/util/time/src/index.ts)）
 - `@deepseek-ai/dsh-util-workspace-path`（[`packages/util/workspace-path/src/index.ts`](../packages/util/workspace-path/src/index.ts)）
 - `@deepseek-ai/dsh-win32-process`（[`packages/subprocess/win32-process/src/index.ts`](../packages/subprocess/win32-process/src/index.ts)）

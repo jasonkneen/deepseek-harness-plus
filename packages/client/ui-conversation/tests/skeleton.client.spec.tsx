@@ -7,7 +7,7 @@ import type { SessionListState, SessionSnapshot } from '@deepseek-ai/dsh-api-ses
 import type { WorkspaceSnapshot, WorkspaceView } from '@deepseek-ai/dsh-api-workspace-controller/client'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
 import {
-  bindSnapshotSelector, makeTranslate, sessionSnapshot as sessionFixture,
+  bindSnapshotSelector, makeTranslate, RemoteError, sessionSnapshot as sessionFixture,
 } from '@deepseek-ai/dsh-client-test-runtime'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { SessionPendingInteractionSnapshot } from '@deepseek-ai/dsh-client-ui-session/client'
@@ -466,7 +466,7 @@ describe('ConversationRoot resident composer', () => {
       awaitingFirstTurn: true,
       promptError: {
         op: 'send',
-        error: { code: 'agent-busy', message: 'busy', details: { reason: 'busy' } },
+        error: new RemoteError('session/agent-busy', 'busy', { reason: 'busy' }),
       },
     })
 

@@ -10,12 +10,8 @@
 import { dirname } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
 import Schema from '@deepseek-ai/schemastery'
-import {
-  InvalidPresetIdError,
-  PresetExistsError,
-  PresetNotWritableError,
-  UnknownPresetError,
-} from '@deepseek-ai/dsh-agent-presets'
+// Type-only: resolves the `agentPresets` Context augmentation this controller reads.
+import type {} from '@deepseek-ai/dsh-agent-presets'
 import {
   canOpenNativePath,
   openNativePath,
@@ -27,7 +23,7 @@ import type {
   SettingsDescribeValue, SettingsNamespaceView, SettingsPathOpView,
 } from '@deepseek-ai/dsh-settings/types'
 import type { JsonValue } from '@deepseek-ai/dsh-session/types'
-import { Remote, TypertRemoteFailure, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
+import { Remote, RemoteError, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
 import { z } from 'zod'
 import { CredentialsController } from './credentials.ts'
 import type { AgentPresetDirectoryOpenValue, SettingsDocumentOpenValue } from './types.ts'
@@ -88,7 +84,7 @@ declare module '@deepseek-ai/cordis' {
  * remote read uses `redactSecrets: true`, so a `role('secret')` field cannot
  * ride a response. Writes expose the settings service's merge, replacement,
  * and path-addressed operations, and classify every provider refusal as
- * `settings-conflict` or `settings-rejected` with the service's message.
+ * `settings/conflict` or `settings/rejected` with the service's message.
  */
 export class SettingsController extends TypertRemoteService {
   static Config: Schema<Config> = Schema.object({ nativeOpen: Schema.boolean() })
@@ -116,7 +112,7 @@ export class SettingsController extends TypertRemoteService {
    * Describe every registered namespace for a configuration page: redacted
    * layered values plus the serialized schema the page renders its form from.
    * @returns provider writability, local-document presence, and one view per namespace.
-   * @throws TypertRemoteFailure when no settings provider is mounted.
+   * @throws RemoteError when no settings provider is mounted.
    */
   @Remote
   describe(): SettingsDescribeValue {
@@ -143,7 +139,7 @@ export class SettingsController extends TypertRemoteService {
    * @param patch - fields to merge into the user section.
    * @param expectedRevision - revision the caller read; `undefined` writes unconditionally.
    * @returns the namespace's redacted view after the write.
-   * @throws TypertRemoteFailure when the request is invalid, no provider is mounted, or the provider refuses the write.
+   * @throws RemoteError when the request is invalid, no provider is mounted, or the provider refuses the write.
    */
   @Remote
   update(
@@ -160,7 +156,7 @@ export class SettingsController extends TypertRemoteService {
    * @param section - complete replacement user section.
    * @param expectedRevision - revision the caller read; `undefined` writes unconditionally.
    * @returns the namespace's redacted view after the write.
-   * @throws TypertRemoteFailure when the request is invalid, no provider is mounted, or the provider refuses the write.
+   * @throws RemoteError when the request is invalid, no provider is mounted, or the provider refuses the write.
    */
   @Remote
   replace(
@@ -179,7 +175,7 @@ export class SettingsController extends TypertRemoteService {
    * @param ops - the edits to apply, in order.
    * @param expectedRevision - revision the caller read; `undefined` writes unconditionally.
    * @returns the namespace's redacted view after the write.
-   * @throws TypertRemoteFailure when the request is invalid, no provider is mounted, or the provider refuses the write.
+   * @throws RemoteError when the request is invalid, no provider is mounted, or the provider refuses the write.
    */
   @Remote
   async mutate(
@@ -194,29 +190,29 @@ export class SettingsController extends TypertRemoteService {
    * Materialize the provider-owned settings document and open it in a native text editor.
    * @param signal - caller lifetime; abort terminates preparation or the native command.
    * @returns confirmation after the native opener accepts the document.
-   * @throws TypertRemoteFailure when no document exists, preparation fails, or opening fails.
+   * @throws RemoteError when no document exists, preparation fails, or opening fails.
    */
   @Remote
   async openSettingsDocument(signal: AbortSignal): Promise<SettingsDocumentOpenValue> {
     const settings = this.provider()
-    if (isAborted(signal)) throw cancelled('settings document open was aborted')
+    if (isAborted(signal)) throw new RemoteError('gateway/cancelled', 'settings document open was aborted', {})
     let path: string | undefined
     try {
       path = await settings.prepareDocument()
     } catch (error: unknown) {
-      if (isAborted(signal)) throw cancelled('settings document preparation was aborted')
-      throw internal(`settings document preparation failed: ${messageOf(error)}`)
+      if (isAborted(signal)) throw new RemoteError('gateway/cancelled', 'settings document preparation was aborted', {})
+      throw new RemoteError('gateway/internal', `settings document preparation failed: ${messageOf(error)}`, {}, { cause: error })
     }
     if (path === undefined) {
-      throw internal('settings provider has no local document to open')
+      throw new RemoteError('gateway/internal', 'settings provider has no local document to open', {})
     }
-    if (isAborted(signal)) throw cancelled('settings document open was aborted')
+    if (isAborted(signal)) throw new RemoteError('gateway/cancelled', 'settings document open was aborted', {})
     try {
       await this.openTextFile(path, signal)
       return { opened: true }
     } catch (error: unknown) {
-      if (isAborted(signal)) throw cancelled('settings document open was aborted')
-      throw internal(`path open failed: ${messageOf(error)}`)
+      if (isAborted(signal)) throw new RemoteError('gateway/cancelled', 'settings document open was aborted', {})
+      throw new RemoteError('gateway/internal', `path open failed: ${messageOf(error)}`, {}, { cause: error })
     }
   }
 
@@ -225,7 +221,7 @@ export class SettingsController extends TypertRemoteService {
    * @param agentPreset - preset id resolved against Host-owned roots.
    * @param signal - caller lifetime; abort terminates the native command.
    * @returns an opened confirmation or the resolved directory for text display.
-   * @throws TypertRemoteFailure when the preset is missing, read-only, invalid, or cannot be opened.
+   * @throws RemoteError when the preset is missing, read-only, invalid, or cannot be opened.
    */
   @Remote
   async openAgentPresetDirectory(
@@ -233,35 +229,32 @@ export class SettingsController extends TypertRemoteService {
     signal: AbortSignal,
   ): Promise<AgentPresetDirectoryOpenValue> {
     if (agentPreset.length === 0) {
-      throw new TypertRemoteFailure({
-        code: 'bad-request', message: 'agent preset id must not be empty', details: {},
-      })
+      throw new RemoteError('gateway/bad-request', 'agent preset id must not be empty', {})
     }
     const presets = this.ctx.get('agentPresets')
     if (presets === undefined) {
-      throw new TypertRemoteFailure({
-        code: 'agent-preset-not-found',
-        message: 'this deployment composes no agent presets',
-        details: { agentPreset, available: [] },
-      })
+      throw new RemoteError(
+        'agent-preset/not-found',
+        'this deployment composes no agent presets',
+        { agentPreset, available: [] },
+      )
     }
-    let directory: string
-    try {
-      const preset = await presets.resolve(agentPreset)
-      if (preset.trust !== 'user') {
-        throw new PresetNotWritableError(preset.id, 'it ships with the deployment')
-      }
-      directory = dirname(preset.path)
-    } catch (error: unknown) {
-      throw presetFailure(agentPreset, error)
+    const preset = await presets.resolve(agentPreset)
+    if (preset.trust !== 'user') {
+      throw new RemoteError(
+        'agent-preset/read-only',
+        `agent-presets: preset "${preset.id}" cannot be written: it ships with the deployment`,
+        { agentPreset: preset.id, reason: 'it ships with the deployment' },
+      )
     }
+    const directory = dirname(preset.path)
     if (!this.canOpenPath()) return { opened: false, path: directory }
     try {
       await this.openPath(directory, signal)
       return { opened: true }
     } catch (error: unknown) {
-      if (signal.aborted) throw cancelled('path open was aborted')
-      throw internal(`path open failed: ${messageOf(error)}`)
+      if (signal.aborted) throw new RemoteError('gateway/cancelled', 'path open was aborted', {})
+      throw new RemoteError('gateway/internal', `path open failed: ${messageOf(error)}`, {}, { cause: error })
     }
   }
 
@@ -273,11 +266,7 @@ export class SettingsController extends TypertRemoteService {
   ): Promise<SettingsNamespaceView> {
     const parsed = settingsNamespaceRequestSchema.safeParse({ ns })
     if (!parsed.success) {
-      throw new TypertRemoteFailure({
-        code: 'bad-request',
-        message: `invalid payload for settings.${mode}`,
-        details: { issues: parsed.error.issues },
-      })
+      throw new RemoteError('gateway/bad-request', `invalid payload for settings.${mode}`, { issues: parsed.error.issues })
     }
     const settings = this.provider()
     let branded
@@ -286,7 +275,7 @@ export class SettingsController extends TypertRemoteService {
       // unregistered one does.
       branded = settingsNamespace(parsed.data.ns)
     } catch (error: unknown) {
-      throw rejected(ns, error)
+      throw new RemoteError('settings/rejected', messageOf(error), { ns }, { cause: error })
     }
     try {
       if (mode === 'update') await settings.update(branded, input, expectedRevision)
@@ -299,11 +288,7 @@ export class SettingsController extends TypertRemoteService {
     if (descriptor === undefined) {
       // The write committed but the namespace vanished before this read: only a
       // concurrent registrant disposal can produce it.
-      throw new TypertRemoteFailure({
-        code: 'internal',
-        message: `settings namespace "${ns}" was disposed after the ${mode}`,
-        details: {},
-      })
+      throw new RemoteError('gateway/internal', `settings namespace "${ns}" was disposed after the ${mode}`, {})
     }
     return namespaceView(descriptor)
   }
@@ -312,11 +297,11 @@ export class SettingsController extends TypertRemoteService {
   private provider(): SettingsProvider {
     const settings = this.ctx.get('settings')
     if (settings === undefined) {
-      throw new TypertRemoteFailure({
-        code: 'internal',
-        message: 'settings service is absent: this deployment does not mount a settings provider (e.g. @deepseek-ai/dsh-settings-file) in its composition',
-        details: {},
-      })
+      throw new RemoteError(
+        'gateway/internal',
+        'settings service is absent: this deployment does not mount a settings provider (e.g. @deepseek-ai/dsh-settings-file) in its composition',
+        {},
+      )
     }
     return settings
   }
@@ -324,40 +309,6 @@ export class SettingsController extends TypertRemoteService {
 
 function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
-}
-
-function internal(message: string): TypertRemoteFailure {
-  return new TypertRemoteFailure({ code: 'internal', message, details: {} })
-}
-
-function cancelled(message: string): TypertRemoteFailure {
-  return new TypertRemoteFailure({ code: 'cancelled', message, details: {} })
-}
-
-function presetFailure(agentPreset: string, error: unknown): TypertRemoteFailure {
-  if (error instanceof UnknownPresetError) {
-    return new TypertRemoteFailure({
-      code: 'agent-preset-not-found',
-      message: error.message,
-      details: { agentPreset: error.presetId, available: [...error.available] },
-    })
-  }
-  if (error instanceof PresetNotWritableError) {
-    return new TypertRemoteFailure({
-      code: 'agent-preset-read-only',
-      message: error.message,
-      details: { agentPreset, reason: error.message },
-    })
-  }
-  if (error instanceof InvalidPresetIdError || error instanceof PresetExistsError) {
-    return new TypertRemoteFailure({
-      code: 'agent-preset-invalid',
-      message: error.message,
-      details: { agentPreset, reason: error.message },
-    })
-  }
-  if (error instanceof TypertRemoteFailure) return error
-  return internal(`agent preset "${agentPreset}": ${String(error)}`)
 }
 
 /**
@@ -368,19 +319,16 @@ function presetFailure(agentPreset: string, error: unknown): TypertRemoteFailure
  * @param error - whatever the seam threw.
  * @returns the failure to raise for that refusal.
  */
-function rejected(ns: string, error: unknown): TypertRemoteFailure {
+function rejected(ns: string, error: unknown): RemoteError {
   if (error instanceof SettingsConflictError) {
-    return new TypertRemoteFailure({
-      code: 'settings-conflict',
-      message: error.message,
-      details: { ns, expected: error.expected, actual: error.actual },
-    })
+    return new RemoteError(
+      'settings/conflict',
+      error.message,
+      { ns, expected: error.expected, actual: error.actual },
+      { cause: error },
+    )
   }
-  return new TypertRemoteFailure({
-    code: 'settings-rejected',
-    message: error instanceof Error ? error.message : String(error),
-    details: { ns },
-  })
+  return new RemoteError('settings/rejected', messageOf(error), { ns }, { cause: error })
 }
 
 export default SettingsController

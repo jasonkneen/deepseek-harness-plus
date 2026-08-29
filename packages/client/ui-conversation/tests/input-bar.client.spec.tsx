@@ -11,10 +11,12 @@
 import { afterEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 import { act, cleanup, fireEvent, render } from '@testing-library/react'
 import { $getRoot, $isTextNode } from 'lexical'
-import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-test-runtime'
+import {
+  bindSnapshotSelector, conversationSnapshot as conversationFixture, makeTranslate, RemoteError,
+  sessionSnapshot as sessionFixture,
+} from '@deepseek-ai/dsh-client-test-runtime'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
 import type { SessionListState, SessionSnapshot } from '@deepseek-ai/dsh-api-session-controller/client'
-import { conversationSnapshot as conversationFixture, makeTranslate, sessionSnapshot as sessionFixture } from '@deepseek-ai/dsh-client-test-runtime'
 import { zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/zh.ts'
 import type { Context } from '@deepseek-ai/cordis'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
@@ -340,7 +342,7 @@ describe('image draft rail', () => {
   it('announces server attachment rejections as product copy, other codes as developer text', () => {
     const attachmentError = (reason: string): SessionSnapshot['promptError'] => ({
       op: 'send',
-      error: { code: 'attachment-error', message: 'raw wire text', details: { reason } },
+      error: new RemoteError('session/attachment-invalid', 'raw wire text', { reason }),
     })
     const model = bench({ promptError: attachmentError('MODEL_DOES_NOT_SUPPORT_IMAGES') })
     expect(model.view.getByRole('alert').textContent).toContain('当前模型不支持图片，请切换支持图片的模型')
@@ -348,10 +350,22 @@ describe('image draft rail', () => {
     const unknown = bench({ promptError: attachmentError('ATTACHMENT_NOT_REFERENCED') })
     expect(unknown.view.getByRole('alert').textContent).toContain('图片发送失败（ATTACHMENT_NOT_REFERENCED）')
     cleanup()
-    const other = bench({
-      promptError: { op: 'send', error: { code: 'internal', message: 'boom', details: {} } },
+    // A subagent turn refuses images under its own code; the reason keys the
+    // same product copy, because the user cannot act on which domain refused.
+    const subagent = bench({
+      promptError: {
+        op: 'send',
+        error: new RemoteError('subagent/attachment-unsupported', 'raw wire text', {
+          childSessionId: SID, reason: 'SUBAGENT_IMAGE_UNSUPPORTED',
+        }),
+      },
     })
-    expect(other.view.getByRole('alert').textContent).toContain('boom (internal)')
+    expect(subagent.view.getByRole('alert').textContent).toContain('子智能体会话暂不支持图片')
+    cleanup()
+    const other = bench({
+      promptError: { op: 'send', error: new RemoteError('gateway/internal', 'boom', {}) },
+    })
+    expect(other.view.getByRole('alert').textContent).toContain('boom (gateway/internal)')
   })
 
   it('marks the attachment slot unavailable while the composer is locked', () => {
@@ -1224,10 +1238,12 @@ describe('strips and variants', () => {
   it('announces promptError as a fading toast (ordinary failure — no transaction UI, no Retry)', () => {
     vi.useFakeTimers()
     try {
-      const send = bench({ promptError: { op: 'send', error: { code: 'agent-busy', message: 'boom', details: { reason: 'boom' } } } })
+      const send = bench({
+        promptError: { op: 'send', error: new RemoteError('session/agent-busy', 'boom', { reason: 'boom' }) },
+      })
       // The toast body-portals (transformed ancestors must not trap it), so
       // queries go through the view's document-bound helpers.
-      expect(send.view.getByRole('alert').textContent).toContain('boom (agent-busy)')
+      expect(send.view.getByRole('alert').textContent).toContain('boom (session/agent-busy)')
       expect(send.view.queryByRole('button', { name: 'Retry' })).toBeNull()
       act(() => { vi.advanceTimersByTime(4000) })
       expect(send.view.queryByRole('alert')).toBeNull()

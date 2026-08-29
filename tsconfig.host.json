@@ -130,6 +130,7 @@
     { "path": "./packages/util/launch-environment" },
     { "path": "./packages/util/native-command" },
     { "path": "./packages/util/home-paths" },
+    { "path": "./packages/util/time" },
     { "path": "./packages/util/timeout" },
     { "path": "./packages/util/crypto" },
     { "path": "./packages/util/workspace-path" },

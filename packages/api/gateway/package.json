@@ -57,17 +57,12 @@
   "license": "MIT",
   "dependencies": {
     "@deepseek-ai/dsh-timeout": "workspace:^",
-    "@deepseek-ai/dsh-typert-protocol": "workspace:^",
     "@deepseek-ai/schemastery": "workspace:^",
     "ws": "^8.21.0"
   },
   "peerDependencies": {
-    "@deepseek-ai/dsh-brand": "workspace:^",
-    "@deepseek-ai/dsh-client-connection": "workspace:^",
-    "@deepseek-ai/dsh-host-webserver": "workspace:^",
-    "@deepseek-ai/dsh-invariants": "workspace:^",
-    "@deepseek-ai/dsh-typert-registry": "workspace:^",
-    "@deepseek-ai/cordis": "workspace:^"
+    "@deepseek-ai/cordis": "workspace:^",
+    "@deepseek-ai/dsh-typert-protocol": "workspace:^"
   },
   "devDependencies": {
     "@deepseek-ai/dsh-brand": "workspace:^",
@@ -78,6 +73,7 @@
     "@deepseek-ai/dsh-util-crypto": "workspace:^",
     "@types/ws": "^8.18.1",
     "@deepseek-ai/cordis": "workspace:^",
-    "zod": "^4.4.3"
+    "zod": "^4.4.3",
+    "@deepseek-ai/dsh-typert-protocol": "workspace:^"
   }
 }

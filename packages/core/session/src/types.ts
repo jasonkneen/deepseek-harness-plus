@@ -415,3 +415,10 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
     surfaceOp?: SurfaceOp
   } : object)
 }[T]
+
+declare module '@deepseek-ai/dsh-typert-protocol' {
+  interface RemoteErrorDetailsMap {
+    /** The named Session does not exist; produced by every layer that resolves a SessionId. */
+    'session/not-found': { readonly sessionId: SessionId }
+  }
+}

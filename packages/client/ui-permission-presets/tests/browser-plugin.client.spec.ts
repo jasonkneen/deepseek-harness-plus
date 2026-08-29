@@ -48,17 +48,6 @@ async function bench() {
       'settings.general.item': { kind: 'list', scope: 'root' },
     },
   } as never, () => null)
-  ctx.provide('connection', {
-    api: {
-      settings: {
-        describe: () => Promise.resolve({
-          rpcId: 'describe',
-          result: { ok: true as const, value: { writable: true, hasDocument: false, namespaces: [] } },
-        }),
-        mutate: () => Promise.reject(new Error('settings mutation is not exercised')),
-      },
-    },
-  } as never)
   await ctx.plugin({ inject: [...settingsInject], apply: settingsApply }).await()
   let decoration: CommandDecoration | undefined
   ctx.provide('commandUi', {
@@ -81,7 +70,7 @@ async function bench() {
       commands.push(line)
       return Promise.resolve(commandResult.ok
         ? { ok: true as const, value: { matched: commandResult.matched ?? true } }
-        : { ok: false as const, error: { code: 'internal', message: 'boom' } })
+        : { ok: false as const, error: { code: 'gateway/internal', message: 'boom' } })
     },
   })
   ctx.provide('sessions', {

@@ -80,6 +80,12 @@ Every reference to a workspace member uses `workspace:^`, so `pnpm pack` substit
 
 `scripts/check-workspace-constraints.ts` requires the protocol, so a new package cannot reintroduce a hand-written range; the invariant-companion rule requires `workspace:^` for `@deepseek-ai/dsh-invariants` for the same reason.
 
+### Published dependency faces use an explicit policy
+
+[`verify-package-dependencies`](../../../../scripts/verify-package-dependencies.ts) classifies workspace relationships by their published Client and Host use, keeps only Cordis as a peer in covered packages, and applies a small explicit Host roster. [Published dependency faces and bounded peer relays](2026-08-26-published-dependency-faces.md) owns the selection rules and rationale.
+
+`pnpm run benchmark:npm-resolution` measures this graph manually with the installed npm executable. `pnpm run benchmark:npm-resolution:next` additionally tries each reachable unconfigured Host package and serially remeasures the leading candidates. Both commands use a loopback metadata registry and reject archive requests, so their duration excludes package downloads. Neither command is an aggregate gate because scheduler load and metadata completion order make wall-clock thresholds nondeterministic.
+
 ### An optional dependency is never loaded at module scope
 
 A dependency in `optionalDependencies`, or a peer carrying `peerDependenciesMeta.<name>.optional`, may be absent from an installed tree — that absence is the whole promise of "optional". A static import is evaluated when the importing module loads, so one absent package stops being "this capability is unavailable" and becomes a load failure for everything that reaches the importing module. The failure appears only in an installed tree missing that package, and no test here constructs one: a workspace install always has every package, so the unit tests, the snapshots, and the packed-install probe all pass while the published package is broken for the consumer who declined the optional peer.

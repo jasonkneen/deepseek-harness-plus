@@ -2,7 +2,7 @@
 import { Context } from '@deepseek-ai/cordis'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-test-runtime'
+import { bindSnapshotSelector, RemoteError } from '@deepseek-ai/dsh-client-test-runtime'
 import type { SettingsNamespaceView } from '@deepseek-ai/dsh-api-remotes/client'
 import { SettingsSchemaService } from '@deepseek-ai/dsh-client-ui-settings/src/client/schema.ts'
 import { PermissionRow, type PermissionRowProps } from '../src/client/PermissionRow.tsx'
@@ -12,10 +12,10 @@ import { PermissionPresetSettingsController } from '../src/client/settings-store
 
 const schema = new SettingsSchemaService(new Context())
 
-/** Controller over a real mirror derived from the same fake wire. */
-function derivedController(api: { settings: object }) {
-  const wire = api as never
-  return new PermissionPresetSettingsController(new SettingsDescribeMirror(wire), wire, schema)
+/** Controller over a real mirror derived from the same scripted context. */
+function derivedController(remote: { settings: object }) {
+  const ctx = { remote } as never
+  return new PermissionPresetSettingsController(new SettingsDescribeMirror(ctx), ctx, schema)
 }
 
 afterEach(cleanup)
@@ -155,7 +155,9 @@ describe('PermissionRow', () => {
         describe: () => describe.promise,
         mutate: () => Promise.resolve({
           ok: false as const,
-          error: { code: 'settings-conflict', message: 'changed elsewhere', details: {} },
+          error: new RemoteError('settings/conflict', 'changed elsewhere', {
+            ns: 'permission', expected: 1, actual: 2,
+          }),
         }),
       },
     })

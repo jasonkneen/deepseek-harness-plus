@@ -660,7 +660,7 @@ inspect( sessionId: SessionId, signal?: AbortSignal, ): Promise<{ meta: SessionH
  * @param request - path after best-effort Session workspace resolution.
  * @param signal - caller lifetime; abort terminates the native command.
  * @returns confirmation after the native opener accepts the path.
- * @throws TypertRemoteFailure when the request is invalid, cancelled, or the opener fails.
+ * @throws RemoteError when the request is invalid, cancelled, or the opener fails.
  */
 @Remote('openWorkspacePath') async openWorkspacePath( request: SessionOpenWorkspacePathRequest, signal: AbortSignal, ): Promise<SessionOpenWorkspacePathValue>
 

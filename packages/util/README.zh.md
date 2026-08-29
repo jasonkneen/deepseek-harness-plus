@@ -1,5 +1,5 @@
 ---
-description: "零依赖工具家族的包映射：原子文件写入、品牌化 id、harness 主目录路径、启动环境、原生命令、输出保留与超时。"
+description: "零依赖工具家族的包映射：原子文件写入、品牌化 id、harness 主目录路径、启动环境、原生命令、输出保留、时区与超时。"
 kind: "package-group"
 ---
 
@@ -9,7 +9,7 @@ kind: "package-group"
 
 ## 概述
 
-`util/` 组为能力包提供共享的机制原语，避免重复实现。它涵盖原子写入、品牌化 id、UUID、Harness home 路径、启动环境、原生命令、输出保留和超时处理。这里的每个包都是库：它不注册服务或事件，业务语义仍由消费它的能力负责。
+`util/` 组为能力包提供共享的机制原语，避免重复实现。它涵盖原子写入、品牌化 id、UUID、Harness home 路径、启动环境、原生命令、输出保留、时区规范化和超时处理。这里的每个包都是库：它不注册服务或事件，业务语义仍由消费它的能力负责。
 
 ## 目录
 
@@ -34,6 +34,7 @@ kind: "package-group"
 | [`native-command/`](native-command/README.zh.md) | 直接运行宿主原生命令，绝不拼 shell 字符串 |
 | [`workspace-path/`](workspace-path/README.zh.md) | 提供浏览器安全的 Workspace 路径与显示辅助函数 |
 | [`output-retention/`](output-retention/README.zh.md) | 限制面向模型的输出并报告精确的省略元数据 |
+| [`time/`](time/README.zh.md) | 校验并规范化调用方所报的 IANA 时区 |
 | [`timeout/`](timeout/README.zh.md) | 截止时间运算、信号融合与超时/取消分类 |
 
 -----

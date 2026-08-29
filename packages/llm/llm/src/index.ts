@@ -7,7 +7,7 @@
  */
 
 import { Context } from '@deepseek-ai/cordis'
-import { Remote, TypertRemoteFailure, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
+import { Remote, RemoteError, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
 import type {
   GenerateOptions,
   LlmConfigurableProvider,
@@ -615,7 +615,7 @@ export class LlmRuntime extends TypertRemoteService {
    * @param request - endpoint, protocol, and one-shot credential to use.
    * @param signal - caller cancellation supplied by the Remote carrier.
    * @returns advertised models in endpoint order.
-   * @throws TypertRemoteFailure with `model-discovery-failed` when discovery refuses or fails.
+   * @throws RemoteError with `llm/model-discovery-rejected` when discovery refuses or fails.
    */
   @Remote('discoverModels')
   async remoteDiscoverModels(
@@ -626,14 +626,15 @@ export class LlmRuntime extends TypertRemoteService {
     try {
       return await this.discoverModels(settingsNs, request, signal)
     } catch (error: unknown) {
-      throw new TypertRemoteFailure({
-        code: 'model-discovery-failed',
-        message: error instanceof Error ? error.message : String(error),
-        details: {
+      throw new RemoteError(
+        'llm/model-discovery-rejected',
+        error instanceof Error ? error.message : String(error),
+        {
           settingsNs,
           ...request.baseURL === undefined ? {} : { baseURL: request.baseURL },
         },
-      })
+        { cause: error },
+      )
     }
   }
 

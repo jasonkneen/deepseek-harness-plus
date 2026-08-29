@@ -262,14 +262,14 @@ Source: [`packages/settings/settings/src/index.ts`](../../packages/settings/sett
 
 ### `ctx.settingsController` — `SettingsController`
 
-Host service backing the generated `ctx.remote.settings` namespace. Every remote read uses `redactSecrets: true`, so a `role('secret')` field cannot ride a response. Writes expose the settings service's merge, replacement, and path-addressed operations, and classify every provider refusal as `settings-conflict` or `settings-rejected` with the service's message.
+Host service backing the generated `ctx.remote.settings` namespace. Every remote read uses `redactSecrets: true`, so a `role('secret')` field cannot ride a response. Writes expose the settings service's merge, replacement, and path-addressed operations, and classify every provider refusal as `settings/conflict` or `settings/rejected` with the service's message.
 
 ```ts cordis-catalog
 /**
  * Describe every registered namespace for a configuration page: redacted
  * layered values plus the serialized schema the page renders its form from.
  * @returns provider writability, local-document presence, and one view per namespace.
- * @throws TypertRemoteFailure when no settings provider is mounted.
+ * @throws RemoteError when no settings provider is mounted.
  */
 @Remote describe(): SettingsDescribeValue
 
@@ -285,7 +285,7 @@ Host service backing the generated `ctx.remote.settings` namespace. Every remote
  * @param patch - fields to merge into the user section.
  * @param expectedRevision - revision the caller read; `undefined` writes unconditionally.
  * @returns the namespace's redacted view after the write.
- * @throws TypertRemoteFailure when the request is invalid, no provider is mounted, or the provider refuses the write.
+ * @throws RemoteError when the request is invalid, no provider is mounted, or the provider refuses the write.
  */
 @Remote update( ns: string, patch: Record<string, JsonValue>, expectedRevision: number | undefined, ): Promise<SettingsNamespaceView>
 
@@ -295,7 +295,7 @@ Host service backing the generated `ctx.remote.settings` namespace. Every remote
  * @param section - complete replacement user section.
  * @param expectedRevision - revision the caller read; `undefined` writes unconditionally.
  * @returns the namespace's redacted view after the write.
- * @throws TypertRemoteFailure when the request is invalid, no provider is mounted, or the provider refuses the write.
+ * @throws RemoteError when the request is invalid, no provider is mounted, or the provider refuses the write.
  */
 @Remote replace( ns: string, section: Record<string, JsonValue>, expectedRevision: number | undefined, ): Promise<SettingsNamespaceView>
 
@@ -307,7 +307,7 @@ Host service backing the generated `ctx.remote.settings` namespace. Every remote
  * @param ops - the edits to apply, in order.
  * @param expectedRevision - revision the caller read; `undefined` writes unconditionally.
  * @returns the namespace's redacted view after the write.
- * @throws TypertRemoteFailure when the request is invalid, no provider is mounted, or the provider refuses the write.
+ * @throws RemoteError when the request is invalid, no provider is mounted, or the provider refuses the write.
  */
 @Remote async mutate( ns: string, ops: SettingsPathOpView[], expectedRevision: number | undefined, ): Promise<SettingsNamespaceView>
 
@@ -315,7 +315,7 @@ Host service backing the generated `ctx.remote.settings` namespace. Every remote
  * Materialize the provider-owned settings document and open it in a native text editor.
  * @param signal - caller lifetime; abort terminates preparation or the native command.
  * @returns confirmation after the native opener accepts the document.
- * @throws TypertRemoteFailure when no document exists, preparation fails, or opening fails.
+ * @throws RemoteError when no document exists, preparation fails, or opening fails.
  */
 @Remote async openSettingsDocument(signal: AbortSignal): Promise<SettingsDocumentOpenValue>
 
@@ -324,7 +324,7 @@ Host service backing the generated `ctx.remote.settings` namespace. Every remote
  * @param agentPreset - preset id resolved against Host-owned roots.
  * @param signal - caller lifetime; abort terminates the native command.
  * @returns an opened confirmation or the resolved directory for text display.
- * @throws TypertRemoteFailure when the preset is missing, read-only, invalid, or cannot be opened.
+ * @throws RemoteError when the preset is missing, read-only, invalid, or cannot be opened.
  */
 @Remote async openAgentPresetDirectory( agentPreset: string, signal: AbortSignal, ): Promise<AgentPresetDirectoryOpenValue>
 ```

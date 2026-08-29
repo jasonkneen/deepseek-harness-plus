@@ -5,7 +5,9 @@
  */
 
 import { Service, type Context } from '@deepseek-ai/cordis'
-import type { RemoteFailure, TypertContextMap } from './types.ts'
+import type { TypertContextMap } from './types.ts'
+
+export { RemoteError, remoteErrorOf } from './remote-error.ts'
 
 const TYPERT_REMOTE_SEGMENT_PATTERN = /^[A-Za-z0-9_$.-]+$/
 
@@ -18,45 +20,12 @@ export function isTypertRemoteSegment(value: string): boolean {
   return value !== '.' && value !== '..' && TYPERT_REMOTE_SEGMENT_PATTERN.test(value)
 }
 
-/**
- * A lookup policy rejection whose typed payload belongs to the active boundary adapter.
- * Gateway adapters preserve this payload instead of collapsing it into an infrastructure failure.
- */
-export class TypertLookupFailure<Failure = unknown> extends Error {
-  /** Adapter-owned failure returned to the caller. */
-  readonly failure: Failure
-
-  /**
-   * Wrap one adapter failure without exposing the rejected identity.
-   * @param failure - typed failure owned by the active boundary adapter.
-   */
-  constructor(failure: Failure) {
-    super('Typert lookup policy rejected the requested identity')
-    this.name = 'TypertLookupFailure'
-    this.failure = failure
-  }
-}
-
-/** A business Remote rejection preserved by unary and stream carriers. */
-export class TypertRemoteFailure extends Error {
-  /** Stable caller-facing failure payload. */
-  readonly failure: RemoteFailure
-
-  /**
-   * Wrap one business rejection for transport without changing its code or details.
-   * @param failure - business failure returned unchanged to the caller.
-   */
-  constructor(failure: RemoteFailure) {
-    super(failure.message)
-    this.name = 'TypertRemoteFailure'
-    this.failure = failure
-  }
-}
-
 export type {
   InvocationDescriptor,
   InvocationParameterDescriptor,
   InvocationSourceLocation,
+  RemoteErrorCode,
+  RemoteErrorDetailsMap,
   RemoteFailure,
   RemoteResult,
   TypertClientEventListener,

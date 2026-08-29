@@ -19,7 +19,8 @@ import { Context, type Fiber } from '@deepseek-ai/cordis'
 import { Include } from '@deepseek-ai/cordis-plugin-include'
 import type { EntryTree } from '@deepseek-ai/cordis-plugin-loader'
 import { scopeOf, scopeParentOf, type ScopeKey } from '@deepseek-ai/dsh-scope'
-import { PresetMountError, type AgentPreset } from './preset.ts'
+import { RemoteError } from '@deepseek-ai/dsh-typert-protocol'
+import type { AgentPreset } from './preset.ts'
 import { classifyRowSpecifier } from './specifier.ts'
 
 /** What one mounted subtree publishes about itself for the audit to read. */
@@ -406,6 +407,12 @@ export async function mountPreset(agentCtx: Context, preset: AgentPreset): Promi
       // Swallows only this subtree's teardown failure. The mount error below is
       // the actionable one, and the discarded fiber is unreachable either way.
     }
-    throw new PresetMountError(preset.id, `${mountDetail(error)} (${preset.path})`, { cause: error })
+    const reason = `${mountDetail(error)} (${preset.path})`
+    throw new RemoteError(
+      'agent-preset/invalid',
+      `agent-presets: preset "${preset.id}" failed to mount: ${reason}`,
+      { agentPreset: preset.id, reason },
+      { cause: error },
+    )
   }
 }

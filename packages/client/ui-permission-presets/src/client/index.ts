@@ -117,7 +117,7 @@ export function apply(ctx: ClientContext): void {
 
   // The shared SettingsScope mirror updates after document commits and reconnects.
   const controller = new PermissionPresetSettingsController(
-    ctx.settingsScope.describe(), { settings: ctx.remote.settings }, ctx.settingsSchema)
+    ctx.settingsScope.describe(), ctx, ctx.settingsSchema)
   const load = (): Promise<void> => controller.load()
   const select = (preset: string): Promise<void> => controller.select(preset)
   const injected = (): PermissionRowInjected => ({

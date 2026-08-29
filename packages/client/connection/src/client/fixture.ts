@@ -1806,7 +1806,7 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
       return {
         ok: false,
         error: {
-          code: 'settings-rejected',
+          code: 'settings/rejected',
           message: 'fixture: the minimal readiness settings descriptor is read-only',
           details: { ns },
         },
@@ -1816,7 +1816,7 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
       return {
         ok: false,
         error: {
-          code: 'settings-rejected',
+          code: 'settings/rejected',
           message: 'fixture: the minimal readiness settings descriptor is read-only',
           details: { ns },
         },
@@ -1827,7 +1827,7 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
       return {
         ok: false,
         error: {
-          code: 'settings-rejected',
+          code: 'settings/rejected',
           message: 'fixture: no settings namespaces are registered',
           details: { ns },
         },
@@ -1844,7 +1844,7 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
         return {
           ok: false,
           error: {
-            code: 'agent-preset-read-only',
+            code: 'agent-preset/read-only',
             message: `agent preset "${agentPreset}" ships with the deployment`,
             details: { agentPreset, reason: 'it ships with the deployment' },
           },
@@ -2026,7 +2026,7 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
   ): Promise<ConnectionRpcResult<never>> | undefined => {
     if (summaryOf(request.sessionId) !== undefined) return undefined
     return sessionErr({
-      code: 'session-not-found',
+      code: 'session/not-found',
       message: `no session ${request.sessionId}`,
       details: { sessionId: request.sessionId },
     })
@@ -2079,12 +2079,12 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
 
   const goalFailure = <T>(message: string): RpcResult<T> => ({
     ok: false,
-    error: { code: 'internal', message, details: {} },
+    error: { code: 'gateway/internal', message, details: {} },
   })
 
   const requireGoalSession = (id: SessionId): RpcResult<never> | undefined => (
     summaryOf(id) === undefined
-      ? { ok: false, error: { code: 'session-not-found', message: `no session ${id}`, details: { sessionId: id } } }
+      ? { ok: false, error: { code: 'session/not-found', message: `no session ${id}`, details: { sessionId: id } } }
       : undefined
   )
 
@@ -2273,7 +2273,7 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
       if (children === undefined) {
         return {
           ok: false,
-          error: { code: 'directory-unreadable', message: `cannot list ${target}: not in the fixture tree`, details: { path: target } },
+          error: { code: 'directory-picker/unreadable', message: `cannot list ${target}: not in the fixture tree`, details: { path: target } },
         }
       }
       return {
@@ -2292,13 +2292,13 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
     createDirectory(parent: string, name: string): ConnectionRpcResult<string> {
       const children = childrenOf(parent)
       if (children === undefined) {
-        return { ok: false, error: { code: 'directory-create-failed', message: `missing parent ${parent}`, details: { path: parent } } }
+        return { ok: false, error: { code: 'directory-picker/create-failed', message: `missing parent ${parent}`, details: { path: parent } } }
       }
       // Same root special case as list's entry paths: a plain join under '/'
       // would mint '//name' and fork the tree's identity.
       const target = parent === '/' ? `/${name}` : `${parent}/${name}`
       if (children.includes(name)) {
-        return { ok: false, error: { code: 'directory-exists', message: `${target} already exists`, details: { path: target } } }
+        return { ok: false, error: { code: 'directory-picker/exists', message: `${target} already exists`, details: { path: target } } }
       }
       directoryTree.set(parent, [...children, name])
       directoryTree.set(target, [])
@@ -2428,7 +2428,7 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
         return {
           ok: false,
           error: {
-            code: 'agent-preset-not-found',
+            code: 'agent-preset/not-found',
             message: `unknown agent preset "${agentPreset}"`,
             details: { agentPreset, available: [...fixturePresets.keys()] },
           },
@@ -2442,7 +2442,7 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
         return {
           ok: false,
           error: {
-            code: 'agent-preset-not-found',
+            code: 'agent-preset/not-found',
             message: `unknown agent preset "${from}"`,
             details: { agentPreset: from, available: [...fixturePresets.keys()] },
           },
@@ -2452,7 +2452,7 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
         return {
           ok: false,
           error: {
-            code: 'agent-preset-invalid',
+            code: 'agent-preset/invalid',
             message: `agent preset "${id}" already exists`,
             details: { agentPreset: id, reason: 'already exists' },
           },
@@ -2466,7 +2466,7 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
         return {
           ok: false,
           error: {
-            code: 'agent-preset-read-only',
+            code: 'agent-preset/read-only',
             message: `agent preset "${id}" ships with the deployment`,
             details: { agentPreset: id, reason: 'it ships with the deployment' },
           },
@@ -2724,7 +2724,7 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
     search: (request, signal) => {
       if (signal.aborted) {
         return sessionErr({
-          code: 'cancelled',
+          code: 'gateway/cancelled',
           message: 'fixture session search was aborted',
           details: {},
         })
@@ -2766,7 +2766,7 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
         : workspaces.find(w => w.workspaceId === request.workspaceId)
       if (request.workspaceId !== undefined && workspace === undefined) {
         return sessionErr({
-          code: 'workspace-not-found',
+          code: 'workspace/not-found',
           message: `no workspace ${request.workspaceId}`,
           details: { workspaceId: request.workspaceId },
         })
@@ -2784,7 +2784,7 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
         sessionId: SessionId,
         workspaceId: WorkspaceId,
       ): Promise<ConnectionRpcResult<{ sessionId: SessionId }>> => sessionErr({
-        code: 'workspace-attach-failed' as const,
+        code: 'session/workspace-attach-failed' as const,
         message: `fixture rejected Workspace attachment for ${sessionId}`,
         details: { sessionId, workspaceId },
       })
@@ -2793,7 +2793,7 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
         if (existing !== undefined) {
           if (existing.cwd !== cwd) {
             return sessionErr({
-              code: 'session-conflict',
+              code: 'session/conflict',
               message: `session ${requestedId} already uses ${existing.cwd ?? 'no cwd'}`,
               details: { sessionId: requestedId, requestedCwd: cwd, ...existing.cwd === undefined ? {} : { existingCwd: existing.cwd } },
             })
@@ -2834,7 +2834,7 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
       const normalized = title.trim().replace(/\s+/g, ' ')
       if (normalized.length === 0) {
         return sessionErr({
-          code: 'title-invalid',
+          code: 'session/title-invalid',
           message: 'session title must contain visible characters',
           details: { sessionId },
         })
@@ -2853,7 +2853,7 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
       const source = summaryOf(sessionId)
       if (source === undefined) {
         return sessionErr({
-          code: 'session-not-found',
+          code: 'session/not-found',
           message: `no session ${sessionId}`,
           details: { sessionId },
         })
@@ -2869,7 +2869,7 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
             : undefined)
       if (boundary === undefined) {
         return sessionErr({
-          code: 'fork-unavailable',
+          code: 'session/fork-unavailable',
           message: atSeq !== undefined && atSeq <= lastSeq
             ? `session ${sessionId} has not completed the turn containing event ${String(atSeq)}`
             : `session ${sessionId} has no completed turn`,
@@ -2923,18 +2923,18 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
       const { sessionId: id, mode, content } = request
       const summary = summaryOf(id)
       if (summary === undefined) {
-        return sessionErr({ code: 'session-not-found', message: `no session ${id}`, details: { sessionId: id } })
+        return sessionErr({ code: 'session/not-found', message: `no session ${id}`, details: { sessionId: id } })
       }
       if (options.rejectPrompt) {
         if (content.some(block => block.type === 'image')) {
           return sessionErr({
-            code: 'attachment-error',
+            code: 'session/attachment-invalid',
             message: 'fixture: image side exceeds the deployment limit',
             details: { reason: 'IMAGE_DIMENSION_TOO_LARGE' },
           })
         }
         return sessionErr({
-          code: 'agent-busy',
+          code: 'session/agent-busy',
           message: 'fixture: prompt rejected before acceptance',
           details: { reason: 'fixture-prompt-rejection' },
         })
@@ -3029,7 +3029,7 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
       const stored = attachments.get(String(request.attachmentId))
       if (stored === undefined) {
         return sessionErr({
-          code: 'attachment-error',
+          code: 'session/attachment-invalid',
           message: 'fixture attachment missing',
           details: { reason: 'ATTACHMENT_NOT_FOUND' },
         })
@@ -3039,7 +3039,7 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
         String(request.attachmentId),
       )) {
         return sessionErr({
-          code: 'attachment-error',
+          code: 'session/attachment-invalid',
           message: 'fixture attachment is not referenced by this session',
           details: { reason: 'ATTACHMENT_NOT_REFERENCED' },
         })
@@ -3047,7 +3047,7 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
       return sessionOk(stored)
     },
     updateQueue: request => sessionErr({
-      code: 'queue-item-not-found',
+      code: 'session/queue-item-not-found',
       message: 'fixture has no pending queue item',
       details: { itemId: request.itemId },
     }),
@@ -3226,7 +3226,7 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
       return {
         ok: false,
         error: {
-          code: 'invocation-unavailable',
+          code: 'gateway/invocation-unavailable',
           message: 'fixture Remote event result identifies no active event stream',
           details: {},
         },
@@ -3269,7 +3269,7 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
       const workspace = workspaces.find(candidate => candidate.workspaceId === request.workspaceId)
       if (workspace === undefined) {
         return sessionErr({
-          code: 'workspace-not-found',
+          code: 'workspace/not-found',
           message: `no workspace ${request.workspaceId}`,
           details: { workspaceId: request.workspaceId },
         })
@@ -3277,7 +3277,7 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
       const title = request.title.trim()
       if (title === '') {
         return sessionErr({
-          code: 'bad-request',
+          code: 'gateway/bad-request',
           message: 'Workspace rename requires a non-blank title',
           details: {},
         })
@@ -3285,7 +3285,7 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
       if (title !== workspace.title) {
         if (workspaces.some(candidate => candidate.workspaceId !== request.workspaceId && candidate.title === title)) {
           return sessionErr({
-            code: 'workspace-name-conflict',
+            code: 'workspace/name-conflict',
             message: `workspace name '${title}' is already in use`,
             details: { name: title },
           })
@@ -3300,7 +3300,7 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
       const index = workspaces.findIndex(workspace => workspace.workspaceId === request.workspaceId)
       if (index === -1) {
         return sessionErr({
-          code: 'workspace-not-found',
+          code: 'workspace/not-found',
           message: `no workspace ${request.workspaceId}`,
           details: { workspaceId: request.workspaceId },
         })
@@ -3321,7 +3321,7 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
           : undefined
       if (missing !== undefined) {
         return sessionErr({
-          code: 'workspace-not-found',
+          code: 'workspace/not-found',
           message: `no workspace ${missing}`,
           details: { workspaceId: missing },
         })
@@ -3348,7 +3348,7 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
       const workspace = workspaces.find(candidate => candidate.workspaceId === request.workspaceId)
       if (workspace === undefined) {
         return sessionErr({
-          code: 'workspace-not-found',
+          code: 'workspace/not-found',
           message: `no workspace ${request.workspaceId}`,
           details: { workspaceId: request.workspaceId },
         })
@@ -3356,7 +3356,7 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
       if (!workspace.sessionIds.includes(request.sessionId)
         || (request.beforeSessionId !== undefined && !workspace.sessionIds.includes(request.beforeSessionId))) {
         return sessionErr({
-          code: 'workspace-move-invalid',
+          code: 'workspace/move-invalid',
           message: `session or anchor is not accounted by workspace ${request.workspaceId}`,
           details: {
             workspaceId: request.workspaceId,
@@ -3378,7 +3378,7 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
     archiveSession: (request) => {
       if (summaryOf(request.sessionId) === undefined) {
         return sessionErr({
-          code: 'session-not-found',
+          code: 'session/not-found',
           message: `no session ${request.sessionId}`,
           details: { sessionId: request.sessionId },
         })

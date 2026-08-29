@@ -148,7 +148,7 @@ describe('web e2e: the composer model switch is the default for later sessions',
       sessionId: SessionId(await createSession('default-model-refusal')),
       mode: 'queue',
       content: [{ type: 'text', text: 'hi' }],
-    }, new AbortController().signal)).rejects.toMatchObject({ failure: { code: 'model-unavailable' } })
+    }, new AbortController().signal)).rejects.toMatchObject({ code: 'session/model-unavailable' })
 
     // The way out stays open. Locking the model seat with everything else
     // would leave the composer asking for the one thing it prevents.

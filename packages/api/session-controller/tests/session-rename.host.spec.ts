@@ -90,7 +90,7 @@ describe('sessions.rename', () => {
     expect(response.ok).toBe(false)
     if (!response.ok) {
       expect(response.error).toMatchObject({
-        code: 'title-invalid',
+        code: 'session/title-invalid',
         details: { sessionId: source.id },
       })
       // The message renders verbatim in the rename dialog's alert.
@@ -109,7 +109,7 @@ describe('sessions.rename', () => {
 
     const response = await remote(ctx).rename(request({ sessionId: stale.id, title: 'name' }))
     expect(response.ok).toBe(false)
-    if (!response.ok) expect(response.error.code).toBe('internal')
+    if (!response.ok) expect(response.error.code).toBe('gateway/internal')
   })
 
   it('answers internal when the composition mounts no session-title service', async () => {
@@ -119,7 +119,7 @@ describe('sessions.rename', () => {
     const response = await remote(ctx).rename(request({ sessionId: source.id, title: 'name' }))
     expect(response.ok).toBe(false)
     if (!response.ok) {
-      expect(response.error.code).toBe('internal')
+      expect(response.error.code).toBe('gateway/internal')
       expect(response.error.message).toMatch(/mounts no session-title service/)
     }
   })
