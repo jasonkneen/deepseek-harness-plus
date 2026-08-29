@@ -262,6 +262,36 @@ describe('CI workflow', () => {
     }
   })
 
+  it('redirects the Node compile cache to the data-volume runner temp before the first pnpm call', () => {
+    const prWorkflow = loadWorkflow('.github/workflows/ci.yml')
+    const masterWorkflow = loadWorkflow('.github/workflows/ci-master.yml')
+    const redirectLanes = [
+      [prWorkflow, 'node-24'],
+      [prWorkflow, 'node-24-coverage'],
+      [prWorkflow, 'node-24-consumers'],
+      [masterWorkflow, 'serial-linux-selfhosted'],
+    ] as const
+    for (const [workflow, jobKey] of redirectLanes) {
+      const job = workflowJob(workflow, jobKey)
+      if (!Array.isArray(job.steps)) throw new TypeError(`${jobKey} must define steps`)
+      const redirectStepIndex = job.steps.findIndex((step): step is Record<string, unknown> & { run: string } => (
+        isRecord(step) && typeof step.run === 'string'
+          && step.run.includes('NODE_COMPILE_CACHE=${{ runner.temp }}/node-compile-cache')
+          && step.run.includes('"$GITHUB_ENV"')
+      ))
+      // Removing this injection would send every pnpm call in the lane (setup,
+      // store-path probe, install, and the gate) back to the root partition's
+      // /tmp; rationale in
+      // .agents/notes/implemented/process/2026-08-28-ci-node-compile-cache-data-disk.md.
+      expect(redirectStepIndex, `${jobKey} must inject NODE_COMPILE_CACHE into GITHUB_ENV`).toBeGreaterThan(-1)
+      const pnpmSetupIndex = job.steps.findIndex((step): step is Record<string, unknown> & { uses: string } => (
+        isRecord(step) && typeof step.uses === 'string' && step.uses.includes('pnpm/action-setup')
+      ))
+      expect(pnpmSetupIndex, `${jobKey} must run pnpm/action-setup`).toBeGreaterThan(-1)
+      expect(redirectStepIndex, `${jobKey} must redirect before pnpm/action-setup runs pnpm`).toBeLessThan(pnpmSetupIndex)
+    }
+  })
+
   it('keeps supported LSP source under native Windows coverage', () => {
     const config = readFileSync(resolve(root, 'vitest.config.ts'), 'utf8')
 

@@ -6,7 +6,7 @@ English | [中文](2026-07-29-pnpm-setup-runner-isolation.zh.md)
 
 ## Problem
 
-`pnpm/action-setup@v4` defaults its install destination to `~/setup-pnpm` and replaces that directory during setup. The self-hosted CI failover runs six GitHub Actions runner services under one VM user, so concurrent jobs shared the same destination. In the reproducing run, three jobs entered pnpm setup within 73 milliseconds; one setup removed another process's current working directory and two jobs failed in Node's `uv_cwd` initialization. A retry on another runner passed, making the failure timing-dependent rather than a repository-test regression.
+`pnpm/action-setup@v4` defaults its install destination to `~/setup-pnpm` and replaces that directory during setup. The self-hosted CI failover runs 32 GitHub Actions runner services under one VM user, so concurrent jobs shared the same destination. In the reproducing run, three jobs entered pnpm setup within 73 milliseconds; one setup removed another process's current working directory and two jobs failed in Node's `uv_cwd` initialization. A retry on another runner passed, making the failure timing-dependent rather than a repository-test regression.
 
 ## Decision
 
