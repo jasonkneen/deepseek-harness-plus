@@ -12,9 +12,6 @@ import {
 import {
   CREATE_SUSPENDED,
   CREATE_UNICODE_ENVIRONMENT,
-  CRT_FOPEN,
-  INHERITED_STDIO_COUNT_SIZE,
-  INHERITED_STDIO_HANDLE_SIZE,
   JOBOBJECT_BASIC_ACCOUNTING_ACTIVE_PROCESSES_OFFSET,
   JOBOBJECT_BASIC_ACCOUNTING_SIZE,
   JobObjectBasicAccountingInformation,
@@ -26,30 +23,6 @@ import type {
   CurrentTokenProcessBindings,
   NativePtr,
 } from '../src/index.ts'
-
-function inheritedStdioTable(count = 7): Buffer {
-  const table = Buffer.alloc(
-    INHERITED_STDIO_COUNT_SIZE + count + count * INHERITED_STDIO_HANDLE_SIZE,
-  )
-  table.writeUInt32LE(count, 0)
-  for (let fileDescriptor = 0; fileDescriptor < count; fileDescriptor++) {
-    table[INHERITED_STDIO_COUNT_SIZE + fileDescriptor] = CRT_FOPEN
-    table.writeBigUInt64LE(
-      BigInt(100 + fileDescriptor),
-      INHERITED_STDIO_COUNT_SIZE + count + fileDescriptor * INHERITED_STDIO_HANDLE_SIZE,
-    )
-  }
-  return table
-}
-
-function startupInfo(
-  table: Buffer | null,
-  size = table?.length ?? 0,
-): CurrentTokenProcessBindings['getStartupInfoW'] {
-  return vi.fn((startup: NativePtr) => {
-    koffi.encode(startup, STARTUPINFOW, { cbReserved2: size, lpReserved2: table })
-  })
-}
 
 function options(
   overrides: Partial<CurrentTokenProcessSpawnOptions> = {},
@@ -66,7 +39,6 @@ function options(
 }
 
 function api(overrides: Partial<CurrentTokenProcessBindings> = {}): CurrentTokenProcessBindings {
-  const table = inheritedStdioTable()
   return {
     createJobObjectW: vi.fn(() => 50n),
     setInformationJobObject: vi.fn(() => 1),
@@ -75,7 +47,7 @@ function api(overrides: Partial<CurrentTokenProcessBindings> = {}): CurrentToken
       return 1
     }),
     getStdHandle: vi.fn((selector: number) => BigInt(100 - selector)),
-    getStartupInfoW: startupInfo(table),
+    uvGetOsfhandle: vi.fn((fileDescriptor: number) => BigInt(100 + fileDescriptor)),
     setHandleInformation: vi.fn(() => 1),
     createProcessW: vi.fn((_app, _line, _pa, _ta, _inherit, _flags, _env, _cwd, _startup, info) => {
       koffi.encode(info, PROCESS_INFORMATION, {
@@ -129,7 +101,13 @@ describe('ordinary Job process operations', () => {
     })
     expect(spawnCurrentTokenJobProcess(bindings, options({
       args: ['literal $VALUE', 'a b'],
-      env: { ZED: 'last', '=C:': 'C:\\work', alpha: 'first' },
+      env: {
+        ZED: 'last',
+        '=C:': 'C:\\work',
+        alpha: 'first',
+        ALPHA: 'same-folded-key',
+        _A: 'underscore',
+      },
     }))).toEqual({ pid: 1234, process: 60n, job: 50n })
     const environment = createProcessW.mock.calls[0]?.[6] as Buffer
     expect(createProcessW).toHaveBeenCalledWith(
@@ -144,7 +122,9 @@ describe('ordinary Job process operations', () => {
       expect.anything(),
       expect.anything(),
     )
-    expect(environment.toString('utf16le')).toBe('=C:=C:\\work\0alpha=first\0ZED=last\0\0')
+    expect(environment.toString('utf16le')).toBe(
+      '=C:=C:\\work\0alpha=first\0ALPHA=same-folded-key\0ZED=last\0_A=underscore\0\0',
+    )
     expect(events.indexOf('create')).toBeLessThan(events.indexOf('assign'))
     expect(events.indexOf('assign')).toBeLessThan(events.indexOf('resume'))
     expect(events).toContain('close:61')
@@ -164,8 +144,12 @@ describe('ordinary Job process operations', () => {
   it('resolves the target carrier descriptors and restores their handle flags', () => {
     let startup: Record<string, unknown> | undefined
     const setHandleInformation = vi.fn(() => 1)
+    const uvGetOsfhandle = vi.fn(
+      (fileDescriptor: number) => BigInt(100 + fileDescriptor) as NativePtr,
+    )
     const bindings = api({
       setHandleInformation,
+      uvGetOsfhandle,
       createProcessW: vi.fn((_app, _line, _pa, _ta, _inherit, _flags, _env, _cwd, infoPtr, processInfo) => {
         startup = koffi.decode(infoPtr, STARTUPINFOW) as Record<string, unknown>
         koffi.encode(processInfo, PROCESS_INFORMATION, {
@@ -179,6 +163,9 @@ describe('ordinary Job process operations', () => {
     })
     expect(spawnCurrentTokenJobProcess(bindings, options())).toEqual({ pid: 1234, process: 60n, job: 50n })
     expect(startup).toMatchObject({ hStdInput: 104n, hStdOutput: 105n, hStdError: 106n })
+    expect(uvGetOsfhandle).toHaveBeenNthCalledWith(1, 4)
+    expect(uvGetOsfhandle).toHaveBeenNthCalledWith(2, 5)
+    expect(uvGetOsfhandle).toHaveBeenNthCalledWith(3, 6)
     expect(setHandleInformation.mock.calls).toEqual([
       [104n, 1, 1], [105n, 1, 1], [106n, 1, 1],
       [104n, 1, 0], [105n, 1, 0], [106n, 1, 0],
@@ -241,40 +228,19 @@ describe('ordinary Job process operations', () => {
     expect(closeHandle).toHaveBeenCalledExactlyOnceWith(50n)
   })
 
-  it('strictly validates the inherited libuv descriptor table before target creation', () => {
-    const expectFailure = (
-      getStartupInfoW: CurrentTokenProcessBindings['getStartupInfoW'],
-      message: string,
-    ): void => {
+  it('rejects invalid carrier handles before target creation', () => {
+    const expectFailure = (invalid: NativePtr | null): void => {
       const closeHandle = vi.fn(() => 1)
-      expect(() => spawnCurrentTokenJobProcess(api({ closeHandle, getStartupInfoW }), options()))
-        .toThrow(message)
+      const createProcessW = vi.fn(() => 1)
+      expect(() => spawnCurrentTokenJobProcess(api({
+        closeHandle,
+        createProcessW,
+        uvGetOsfhandle: vi.fn(() => invalid),
+      }), options())).toThrow('uv_get_osfhandle returned an invalid handle for target stdin fd 4')
       expect(closeHandle).toHaveBeenCalledWith(50n)
+      expect(createProcessW).not.toHaveBeenCalled()
     }
 
-    expectFailure(startupInfo(null), 'no inherited stdio table')
-    expectFailure(startupInfo(Buffer.alloc(3)), 'truncated inherited stdio table')
-
-    const excessive = Buffer.alloc(INHERITED_STDIO_COUNT_SIZE)
-    excessive.writeUInt32LE(257, 0)
-    expectFailure(startupInfo(excessive), 'unsupported descriptor count 257')
-
-    const truncated = Buffer.alloc(INHERITED_STDIO_COUNT_SIZE)
-    truncated.writeUInt32LE(7, 0)
-    expectFailure(startupInfo(truncated), 'truncated inherited stdio table')
-    expectFailure(startupInfo(inheritedStdioTable(6)), 'missing target stderr fd 6')
-
-    const closed = inheritedStdioTable()
-    closed[INHERITED_STDIO_COUNT_SIZE + 4] = 0
-    expectFailure(startupInfo(closed), 'marks target stdin fd 4 closed')
-
-    for (const invalid of [0n, 0xFFFFFFFFFFFFFFFFn, 0xFFFFFFFFFFFFFFFEn]) {
-      const table = inheritedStdioTable()
-      table.writeBigUInt64LE(
-        invalid,
-        INHERITED_STDIO_COUNT_SIZE + 7 + 4 * INHERITED_STDIO_HANDLE_SIZE,
-      )
-      expectFailure(startupInfo(table), 'invalid handle for target stdin fd 4')
-    }
+    for (const invalid of [null, 0n, -1n, -2n]) expectFailure(invalid as NativePtr | null)
   })
 })

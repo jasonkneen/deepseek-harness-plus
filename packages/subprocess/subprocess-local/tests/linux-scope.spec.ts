@@ -354,6 +354,22 @@ describe('Linux scope establishment and quiescence', () => {
     launched.result.owner.cleanup?.()
   })
 
+  it('does not signal the direct group after the launcher exits', async () => {
+    const { child, result, requestPath, spawnSync } = launch(async () => activeUnit())
+    consumeLinuxLaunchRequest(requestPath)
+    child.exit(0, null)
+    await expect(result.direct).resolves.toEqual({ exitCode: 0, signal: null })
+    const processKill = vi.spyOn(process, 'kill')
+
+    result.owner.signal('SIGTERM')
+    result.owner.terminateForHostExit()
+
+    expect(processKill).not.toHaveBeenCalled()
+    expect(child.kills).toEqual([])
+    expect(spawnSync).toHaveBeenCalledTimes(2)
+    result.owner.cleanup?.()
+  })
+
   it('runs direct fallback before the exact synchronous scope kill on host exit', () => {
     const events: string[] = []
     const { child, result } = launch(async () => missingUnit(), {

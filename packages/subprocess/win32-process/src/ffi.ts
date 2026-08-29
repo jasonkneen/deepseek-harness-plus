@@ -53,12 +53,6 @@ export interface ProcessInfoOutput {
   dwThreadId: number
 }
 
-/** STARTUPINFOW fields used to recover libuv's inherited descriptor table. */
-export interface StartupInfoOutput {
-  cbReserved2: number
-  lpReserved2: NativePtr | null
-}
-
 /** Generic Win32 calls consumed by restricted-token sandbox process operations. */
 export interface Win32ProcessBindings {
   closeHandle(handle: NativePtr): number
@@ -126,9 +120,9 @@ export interface Win32ProcessBindings {
   getStdHandle(stdHandle: number): NativePtr
 }
 
-/** Generic Win32 calls plus the inherited startup-information reader. */
+/** Generic Win32 calls plus Node's libuv descriptor-to-handle bridge. */
 export interface CurrentTokenProcessBindings extends Win32ProcessBindings {
-  getStartupInfoW(startupInfo: NativePtr): void
+  uvGetOsfhandle(fileDescriptor: number): NativePtr | null
 }
 
 /** Koffi STARTUPINFOW layout. */
@@ -223,15 +217,6 @@ export function encodeStartupInfo(startupInfo: NativePtr, fields: StartupInfoInp
 }
 
 /**
- * Decode the inherited-descriptor fields from STARTUPINFOW.
- * @param startupInfo - struct filled by GetStartupInfoW.
- * @returns reserved buffer size and pointer.
- */
-export function decodeStartupInfo(startupInfo: NativePtr): StartupInfoOutput {
-  return koffi.decode(startupInfo, STARTUPINFOW) as StartupInfoOutput
-}
-
-/**
  * Allocate a zeroed PROCESS_INFORMATION.
  * @returns allocated struct pointer.
  */
@@ -269,6 +254,7 @@ function bindingContext(): Win32BindingContext {
 function bindings(): CurrentTokenProcessBindings {
   if (cached !== undefined) return cached
   const { kernel32, advapi32, bind } = bindingContext()
+  const node = koffi.load(null)
   cached = {
     closeHandle: bind(kernel32, 'CloseHandle', 'int', [PVOID]),
     getLastError: bind(kernel32, 'GetLastError', 'uint32', []),
@@ -301,7 +287,7 @@ function bindings(): CurrentTokenProcessBindings {
     terminateProcess: bind(kernel32, 'TerminateProcess', 'int', [PVOID, 'uint32']),
     terminateJobObject: bind(kernel32, 'TerminateJobObject', 'int', [PVOID, 'uint32']),
     getStdHandle: bind(kernel32, 'GetStdHandle', PVOID, ['int']),
-    getStartupInfoW: bind(kernel32, 'GetStartupInfoW', 'void', [koffi.pointer(STARTUPINFOW)]),
+    uvGetOsfhandle: node.func('uv_get_osfhandle', PVOID, ['int']),
   } as unknown as CurrentTokenProcessBindings
   return cached
 }

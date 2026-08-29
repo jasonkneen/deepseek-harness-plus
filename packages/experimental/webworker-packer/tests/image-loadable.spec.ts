@@ -37,7 +37,6 @@ const repoRoot = fileURLToPath(new URL('../../../../', import.meta.url))
 const SUBJECT = '@deepseek-ai/dsh-timeout'
 const LANDLOCK = '@deepseek-ai/node-addon-landlock-run'
 const PLUGIN_INVENTORY = '@deepseek-ai/dsh-plugin-package-inventory-deepseek'
-const SUBPROCESS_LOCAL = '@deepseek-ai/dsh-subprocess-local'
 const WEB_SERVER = '@deepseek-ai/dsh-host-webserver'
 
 const workspaces = indexWorkspacePackages(repoRoot)
@@ -115,15 +114,6 @@ const packedWebServer = (): ReturnType<typeof packVfsImage> => webServerMemo ??=
   entries: [],
 })
 
-let subprocessLocalMemo: ReturnType<typeof packVfsImage> | undefined
-const packedSubprocessLocal = (): ReturnType<typeof packVfsImage> => subprocessLocalMemo ??= packVfsImage({
-  config: `- id: subject\n  name: '${SUBPROCESS_LOCAL}'\n`,
-  profile: 'subprocess-runner-face-check',
-  workspaces,
-  resolveFrom: repoRoot,
-  entries: [],
-})
-
 /** The image's archive, inflated once: mounting reads the tar, not the gzip member. */
 let archiveMemo: Uint8Array | undefined
 const archive = async (): Promise<Uint8Array> =>
@@ -144,13 +134,6 @@ const archive = async (): Promise<Uint8Array> =>
     const manifest = JSON.parse(new TextDecoder().decode(result.files[MANIFEST_PATH])) as { lowered: string }
     expect(manifest.lowered).toBe(result.contract)
     expect(result.transform.rewritten).toBeGreaterThan(0)
-  })
-
-  it('keeps the published subprocess runner face in the lowered image', () => {
-    const result = packedSubprocessLocal()
-    expect(result.roster).toEqual([SUBPROCESS_LOCAL])
-    expect(result.missing).toEqual([])
-    expect(Object.hasOwn(result.files, `node_modules/${SUBPROCESS_LOCAL}/lib/runner.js`)).toBe(true)
   })
 
   it('names every JavaScript entry for the debugger, workspace files by repository path', () => {

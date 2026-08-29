@@ -285,12 +285,8 @@ function reportFailure(spec: AcpRunSpec, error: unknown): void {
 function startupFailure(
   error: unknown,
   stage: Extract<AcpFailureStage, 'initialize' | 'new-session'>,
-  processFailure: Error | undefined,
   outcome: SubprocessOutcome | undefined,
 ): AcpRunFailure {
-  if (processFailure !== undefined) {
-    return new AcpRunFailure({ stage: 'process', category: 'process-start' }, processFailure)
-  }
   return new AcpRunFailure(
     /* v8 ignore next -- Windows anonymous pipes cannot expose a live-child protocol close during startup. */
     outcome === undefined
@@ -378,16 +374,16 @@ export async function startAcpRun(request: SubagentStartRequest, spec: AcpRunSpe
     },
   )
 
-  // Spawn-level failure surfaces as `done` rejecting into the startup race; a
-  // clean exit must never win it, so the success arm parks forever. (The ACP
-  // connection observing its streams closing bounds a child that exits
-  // without speaking the protocol.)
-  const spawnFailed: Promise<never> = processDone.then(
+  // A rejected direct result surfaces into the startup race; a clean exit must
+  // never win it, so the success arm parks forever. (The ACP connection
+  // observing its streams closing bounds a child that exits without speaking
+  // the protocol.)
+  const processRejected: Promise<never> = processDone.then(
     /* v8 ignore next -- the success arm's never-settling executor is intentionally empty. */
     () => new Promise<never>(() => {}),
     (err: unknown) => Promise.reject(toError(err)),
   )
-  spawnFailed.catch(() => { /* observed by the startup race; never unhandled */ })
+  processRejected.catch(() => { /* observed by the startup race; never unhandled */ })
 
   const observeProcessOutcome = async (signal?: AbortSignal): Promise<SubprocessOutcome | undefined> => {
     if (processOutcome !== undefined) return processOutcome
@@ -505,7 +501,7 @@ export async function startAcpRun(request: SubagentStartRequest, spec: AcpRunSpe
         /* v8 ignore next -- cancelSettled wins the startup race before this post-response guard can settle it. */
         if (flags.cancelled) throw new Error('subagent cancelled before the ACP session started')
       })(),
-      spawnFailed,
+      processRejected,
       cancelSettled.then((): never => { throw new Error('subagent cancelled before the ACP session started') }),
     ])
   } catch (error: unknown) {
@@ -523,7 +519,7 @@ export async function startAcpRun(request: SubagentStartRequest, spec: AcpRunSpe
         kind: 'failed',
         failure: error instanceof AcpRunFailure
           ? error
-          : startupFailure(error, startupStage, processFailure, observedOutcome),
+          : startupFailure(error, startupStage, observedOutcome),
       } as const
     if (startup.kind === 'cancelled') {
       // Local cancellation owns the startup outcome; only cleanup failure is
@@ -582,11 +578,9 @@ export async function startAcpRun(request: SubagentStartRequest, spec: AcpRunSpe
       } catch (error: unknown) {
         if (!flags.cancelled) {
           const outcome = await observeProcessOutcome(request.signal)
-          const facts = processFailure !== undefined
-            ? { stage: 'process', category: 'process-start' } as const
-            : outcome === undefined
-              ? { stage: 'prompt', category: 'transport' } as const
-              : { stage: 'process', category: 'process-exit', outcome } as const
+          const facts = outcome === undefined
+            ? { stage: 'prompt', category: 'transport' } as const
+            : { stage: 'process', category: 'process-exit', outcome } as const
           diagnostic = diagnosticText(facts, latestPermission)
         }
         throw processFailure ?? error

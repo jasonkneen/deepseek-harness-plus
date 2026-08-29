@@ -150,7 +150,7 @@ class SystemdScopeOwner implements BoundProcessOwner {
 
   signal(signal: 'SIGTERM' | 'SIGKILL'): void {
     if (this.stopped) return
-    this.direct.signal(signal)
+    if (this.direct.running()) this.direct.signal(signal)
     const result = this.runSync(this.systemctl, [
       '--user',
       'kill',
@@ -174,7 +174,9 @@ class SystemdScopeOwner implements BoundProcessOwner {
 
   terminateForHostExit(): void {
     if (this.stopped) return
-    try { this.direct.signal('SIGKILL') } catch { /* Continue with the native owner. */ }
+    try {
+      if (this.direct.running()) this.direct.signal('SIGKILL')
+    } catch { /* Continue with the native owner. */ }
     try {
       this.runSync(this.systemctl, [
         '--user',
@@ -287,9 +289,8 @@ function directOutcome(
 }
 
 function signalChildGroup(child: ReturnType<typeof spawn>, signal: 'SIGTERM' | 'SIGKILL'): void {
-  if (child.pid === undefined) return
   try {
-    process.kill(-child.pid, signal)
+    process.kill(-(child.pid as number), signal)
   } catch {
     try { child.kill(signal) } catch { /* The direct process already exited. */ }
   }

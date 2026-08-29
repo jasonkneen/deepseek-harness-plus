@@ -28,7 +28,7 @@ kind: "package-library"
 - **restricted-token 创建** — `RestrictedProcessSpawnOptions` 要求 sandbox 的 primary token，并使用 `CreateProcessAsUserW`。pipe 与 inherited-stdio 路径共用命令行引用、cwd、restricted-token 空环境策略、返回值检查与句柄清理。
 - **管道进程原语** — `spawnPipedProcess()` 创建匿名 stdin/stdout/stderr 管道，立即关闭 stdin，并返回两个读取端；调用方负责等待进程与排空管道。任一局部失败都会关闭该操作已经拥有的句柄，并在各自 Win32 生命周期结束后释放每个 Koffi 输出槽与结构体分配。
 - **继承 stdio 的 Job 原语** — `spawnInheritedJobProcess()` 创建一个 kill-on-close Job，临时把当前 stdio 句柄设为可继承，以 suspended 状态创建 restricted child，把它分配给 Job，再恢复初始线程。目标代码不会在 Job 分配前运行；受控的分配或恢复失败会终止 suspended child，或在释放全部已拥有句柄前关闭已分配的 Job。
-- **ordinary Job runner 原语** — `CurrentTokenProcessSpawnOptions` 要求已解析的 `applicationName`、完整 target 环境，以及三个专用于 target stdin、stdout 与 stderr 的 runner CRT 描述符。`spawnCurrentTokenJobProcess()` 调用 `GetStartupInfoW`，严格解码 libuv 的 `cbReserved2`／`lpReserved2` 描述符表以取得三个 OS handle，临时把它们设为可继承，并通过 `STARTF_USESTDHANDLES` 传入。它使用 `CREATE_UNICODE_ENVIRONMENT` 传入排序后的 UTF-16LE 环境块，再以 suspended 状态通过 `CreateProcessW` 创建 target、把它分配给 unnamed kill-on-close Job，并只在分配后恢复。原始命令行 argv 项保持不变，runner 也可以关闭自己的 carrier 描述符，而不触碰 Node 自身的标准流。
+- **ordinary Job runner 原语** — `CurrentTokenProcessSpawnOptions` 要求已解析的 `applicationName`、完整 target 环境，以及三个专用于 target stdin、stdout 与 stderr 的 runner CRT 描述符。`spawnCurrentTokenJobProcess()` 通过 Node 导出的 `uv_get_osfhandle()` 把这些描述符映射为 OS handle，拒绝无效结果，临时把 handle 设为可继承，并通过 `STARTF_USESTDHANDLES` 传入。它使用 `CREATE_UNICODE_ENVIRONMENT` 传入排序后的 UTF-16LE 环境块，再以 suspended 状态通过 `CreateProcessW` 创建 target、把它分配给 unnamed kill-on-close Job，并只在分配后恢复。原始命令行 argv 项保持不变，runner 也可以关闭自己的 carrier 描述符，而不触碰 Node 自身的标准流。
 - **ordinary 停稳操作** — `pollProcessExit()` 单独发布 direct exit，`isJobEmpty()` 则读取 `QueryInformationJobObject(JobObjectBasicAccountingInformation)`，直到 `ActiveProcesses` 归零。带检查的 Job 终止与 handle 关闭使 runner 保持唯一 native owner。
 - **显式结算归属** — `waitForProcessExit()` 等待并关闭 sandbox process handle；ordinary runner 的 process polling、Job accounting 与 checked Job termination/closure 是独立操作。`drainPipe()` 在排空期间复用一个 native count slot，释放该分配并关闭管道读取句柄。每个调用方拥有自己的 result 组合与返回 handle。
 
@@ -43,7 +43,7 @@ process、stdio 与 Job 的常量以及选定结构体的大小和偏移由 [`ve
 g++ -std=c++20 -municode -O2 -o abi-probe.exe verify/abi-probe.cpp && ./abi-probe.exe
 ```
 
-Koffi 的 `STARTUPINFOW` 与 `PROCESS_INFORMATION` 定义还会在模块加载时断言各自的 64 位大小。该探针还固定 `STARTUPINFOW` 保留表偏移、指针与 handle 宽度、Unicode 环境标志，以及用于判断停稳的基础 Job accounting record 大小与 `ActiveProcesses` 偏移；其余已记录偏移和常量也由该探针提供证据。
+Koffi 的 `STARTUPINFOW` 与 `PROCESS_INFORMATION` 定义还会在模块加载时断言各自的 64 位大小。该探针还固定指针与 handle 宽度、Unicode 环境标志，以及用于判断停稳的基础 Job accounting record 大小与 `ActiveProcesses` 偏移；其余已记录偏移和常量也由该探针提供证据。
 
 <a id="model-experience"></a>
 ## Model Experience

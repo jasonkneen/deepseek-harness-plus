@@ -28,7 +28,7 @@ request 被消费或 manager 已观察到 unit 都能建立 scope ownership。�
 
 ### Windows runner 与 Job
 
-Windows parent 从 bootstrap cwd 与环境启动 provider runner，把原始 target argv 放在私有 `--` 分隔符之后，并通过 Node IPC 传递恰好一条 start request、幂等 terminate control 与恰好一个 result。runner 的 fd 0 至 fd 2 相互隔离，fd 3 承载 IPC，fd 4 至 fd 6 承载 target stdin、stdout 与 stderr。忽略 stdin 时，fd 4 继承平台 null-device descriptor；其他模式使用 pipe。共享 Win32 层调用 `GetStartupInfoW`，严格解码 libuv 的 `cbReserved2`／`lpReserved2` 表以取得 fd 4 至 fd 6 的 OS handle，临时启用这些 handle 的继承，并通过 `STARTF_USESTDHANDLES` 传入。`spawnCurrentTokenJobProcess` 要求单独解析的 `applicationName` 与完整 target 环境，并使用 `CREATE_UNICODE_ENVIRONMENT` 传入排序、双 NUL 结尾的 UTF-16LE 块，其中包括 `=X:` 驱动器条目，而不修改 runner 环境。suspended target 进入 Job 并恢复后，runner 只关闭 fd 4 至 fd 6，绝不改写或销毁 Node 标准流。parent 把 pipe carrier stream 作为普通句柄的 stdio 返回，用户字节绝不经过 IPC。
+Windows parent 从 bootstrap cwd 与环境启动 provider runner，把原始 target argv 放在私有 `--` 分隔符之后，并通过 Node IPC 传递恰好一条 start request、幂等 terminate control 与恰好一个 result。runner 的 fd 0 至 fd 2 相互隔离，fd 3 承载 IPC，fd 4 至 fd 6 承载 target stdin、stdout 与 stderr。忽略 stdin 时，fd 4 继承平台 null-device descriptor；其他模式使用 pipe。共享 Win32 层通过 Node 导出的 `uv_get_osfhandle()` 把 fd 4 至 fd 6 映射为 OS handle，拒绝无效结果，临时启用这些 handle 的继承，并通过 `STARTF_USESTDHANDLES` 传入。`spawnCurrentTokenJobProcess` 要求单独解析的 `applicationName` 与完整 target 环境，并使用 `CREATE_UNICODE_ENVIRONMENT` 传入排序、双 NUL 结尾的 UTF-16LE 块，其中包括 `=X:` 驱动器条目，而不修改 runner 环境。suspended target 进入 Job 并恢复后，runner 只关闭 fd 4 至 fd 6；它绝不改写或销毁 Node 标准流。parent 把 pipe carrier stream 作为普通句柄的 stdio 返回，用户字节绝不经过 IPC。
 
 runner 是 target process handle 与 unnamed Job handle 的唯一 owner。`spawnCurrentTokenJobProcess` 以 suspended 状态创建 target，把它分配给不允许 active breakaway 的 kill-on-close Job，并只在分配后恢复。runner 轮询 direct process 获取 target exit code，并轮询 Job 获取 active-process count。只有 direct result 已通过 IPC send callback 交付且 Job 已报告零 active process 后，runner 才成功退出；parent 只把这次 clean exit 映射成成功的 `waitForExit()`。
 
@@ -55,7 +55,7 @@ selector 是 per-spawn locator 或 sentinel，不是凭据或持久格式。Linu
 ## Verification
 
 - provider 与 Linux 协议测试套件固定同步 NUL 拒绝发生在启动副作用之前、严格 request／error 解码、target cwd 与完整环境恢复、私有变量碰撞、保留 argv 且对 symlink 敏感的 PATH 遍历、为继承 stdio 清除 close-on-exec、pre-exec error ownership、三种 scope 建立状态，以及 PTY managed-owner 恰好一次 cleanup。
-- Windows 协议与 Win32 测试套件固定恰好三个 result 分支、只含数字的 target exit、原样本地 cancellation reason、access denied 到 `EPERM`／`-4048` 的映射、显式排序的 target 环境块及 `=C:` 保留和双 NUL 结尾、严格的 `GetStartupInfoW` libuv 描述符表解码、null-device ignored-stdin carrier 与非 ignore stdin pipe、result-send 与 IPC-disconnect failure、stdio settlement 前的 direct-result 锁存、active-process 完全停稳，以及唯一 handle cleanup。
+- Windows 协议与 Win32 测试套件固定恰好三个 result 分支、只含数字的 target exit、原样本地 cancellation reason、access denied 到 `EPERM`／`-4048` 的映射、按序数显式排序的 target 环境块及 `=C:` 保留和双 NUL 结尾、`uv_get_osfhandle()` carrier 映射与无效结果拒绝、null-device ignored-stdin carrier 与非 ignore stdin pipe、result-send 与 IPC-disconnect failure、stdio settlement 前的 direct-result 锁存、active-process 完全停稳，以及唯一 handle cleanup。
 - 真实 Linux user-systemd 测试会分别通过生产入口运行一条普通命令与一条 `node-pty` `setsid`／reparent 场景。它们证明 scope signalling 与 collection、裸可执行文件查找、逃逸后代终止、range settlement，以及不变的 PTY PID、session、控制终端、前台输入、`/dev/tty`、readiness 与 startup-failure 语义。
 - native Windows 测试证明 suspended creation、resume 前 Job assignment、继承 stdio、默认后代继承、direct result、termination、active-process zero、异常／disconnected runner cleanup、kill-on-close 与同步 host-exit termination。source、built 与 Python packaged 冒烟测试进入同一 runner core。
 - 公共 seam 类型、local 与 E2B provider、LSP 与 subagent 消费方、shell fixture、README、Cordis catalog 与 keyless subprocess API snapshot 都不包含普通 PID；terminal PID 保留。

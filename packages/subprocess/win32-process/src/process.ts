@@ -9,7 +9,6 @@ import {
   allocUint32,
   decodeProcessInfo,
   decodePtr,
-  decodeStartupInfo,
   decodeUint32,
   encodeStartupInfo,
   isNullPtr,
@@ -58,7 +57,9 @@ function compareWindowsEnvironmentKeys(
   [left]: readonly [string, string],
   [right]: readonly [string, string],
 ): number {
-  return left.toUpperCase().localeCompare(right.toUpperCase(), 'en-US')
+  const foldedLeft = left.toUpperCase()
+  const foldedRight = right.toUpperCase()
+  return foldedLeft < foldedRight ? -1 : foldedLeft > foldedRight ? 1 : 0
 }
 
 function encodeWindowsEnvironment(env: Readonly<Record<string, string>>): Buffer {
@@ -373,48 +374,12 @@ function targetCarrierHandles(
   api: CurrentTokenProcessBindings,
   descriptors: CurrentTokenStdioFileDescriptors,
 ): ProcessStandardHandles {
-  let startupInfo: NativePtr | undefined
-  let table: Buffer
-  try {
-    startupInfo = allocStartupInfo()
-    api.getStartupInfoW(startupInfo)
-    const inherited = decodeStartupInfo(startupInfo)
-    if (isNullPtr(inherited.lpReserved2)) {
-      throw new Error('GetStartupInfoW returned no inherited stdio table')
-    }
-    if (inherited.cbReserved2 < abi.INHERITED_STDIO_COUNT_SIZE) {
-      throw new Error('GetStartupInfoW returned a truncated inherited stdio table')
-    }
-    table = Buffer.from(koffi.view(inherited.lpReserved2, inherited.cbReserved2))
-  } finally {
-    freeNative(startupInfo)
-  }
-  const count = table.readUInt32LE(0)
-  if (count > abi.MAX_INHERITED_STDIO_DESCRIPTORS) {
-    throw new Error(`inherited stdio table declares unsupported descriptor count ${String(count)}`)
-  }
-  const requiredSize = abi.INHERITED_STDIO_COUNT_SIZE
-    + count
-    + count * abi.INHERITED_STDIO_HANDLE_SIZE
-  if (table.length < requiredSize) {
-    throw new Error('GetStartupInfoW returned a truncated inherited stdio table')
-  }
   const get = (fileDescriptor: number, label: string): NativePtr => {
-    if (fileDescriptor >= count) {
-      throw new Error(`inherited stdio table is missing target ${label} fd ${String(fileDescriptor)}`)
+    const handle = api.uvGetOsfhandle(fileDescriptor)
+    if (isNullPtr(handle) || handle === -1n || handle === -2n) {
+      throw new Error(`uv_get_osfhandle returned an invalid handle for target ${label} fd ${String(fileDescriptor)}`)
     }
-    const flags = table[abi.INHERITED_STDIO_COUNT_SIZE + fileDescriptor] as number
-    if ((flags & abi.CRT_FOPEN) === 0) {
-      throw new Error(`inherited stdio table marks target ${label} fd ${String(fileDescriptor)} closed`)
-    }
-    const handleOffset = abi.INHERITED_STDIO_COUNT_SIZE
-      + count
-      + fileDescriptor * abi.INHERITED_STDIO_HANDLE_SIZE
-    const handle = table.readBigUInt64LE(handleOffset)
-    if (handle === 0n || handle === 0xFFFFFFFFFFFFFFFFn || handle === 0xFFFFFFFFFFFFFFFEn) {
-      throw new Error(`inherited stdio table contains an invalid handle for target ${label} fd ${String(fileDescriptor)}`)
-    }
-    return handle as NativePtr
+    return handle
   }
   return {
     stdin: get(descriptors.stdin, 'stdin'),

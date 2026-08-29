@@ -348,7 +348,7 @@ describe('disposeAcpChild (the backend-owned teardown ladder over seam verbs)', 
     expect((failure as AggregateError).errors).toEqual([initialFailure, finalFailure])
   })
 
-  it('keeps a startup failure before its rollback failure', async () => {
+  it('keeps an initialize transport failure before its rollback failure', async () => {
     const startupFailure = new Error('target startup failed')
     const cleanupFailure = new Error('range cleanup failed')
     const direct = Promise.withResolvers<SubprocessOutcome>()
@@ -386,7 +386,7 @@ describe('disposeAcpChild (the backend-owned teardown ladder over seam verbs)', 
     expect(failure).toBeInstanceOf(AggregateError)
     const failures = (failure as AggregateError).errors as Error[]
     expect(failures.map(error => error.message)).toEqual([
-      `subagent-acp: ${expectedFailure('stage: process; category: process-start')}`,
+      `subagent-acp: ${expectedFailure('stage: initialize; category: transport')}`,
       `subagent-acp: ${expectedFailure('stage: teardown; category: unknown')}`,
     ])
     expect(failures[0]?.cause).toBe(startupFailure)
@@ -1195,8 +1195,8 @@ describe('dsh-subagent-acp', () => {
     await run.dispose()
   })
 
-  it('classifies a rejected direct result independently of PID publication', async () => {
-    const processFailure = new Error('remote provider failed before publishing a PID')
+  it('classifies a rejected direct result as the active prompt transport failure', async () => {
+    const processFailure = new Error('remote provider failed after returning a handle')
     const direct = Promise.withResolvers<SubprocessOutcome>()
     let realChild: SubprocessHandle | undefined
     const errors: Error[] = []
@@ -1225,7 +1225,7 @@ describe('dsh-subagent-acp', () => {
     })
     await expect(run.result).resolves.toEqual({
       output: [],
-      diagnostic: expectedFailure('stage: process; category: process-start'),
+      diagnostic: expectedFailure('stage: prompt; category: transport'),
       stopReason: 'error',
     })
     expect(errors).toContain(processFailure)
@@ -1256,7 +1256,7 @@ describe('dsh-subagent-acp', () => {
     await run.dispose()
   })
 
-  it('rejects a spawn failure after provider-owned cleanup', async () => {
+  it('rejects a returned-handle startup failure after provider-owned cleanup', async () => {
     const privateCommand = '/nonexistent/private/SECRET_TOKEN/acp-agent'
     const error = await startAcpRun(
       request(),
@@ -1264,7 +1264,7 @@ describe('dsh-subagent-acp', () => {
     ).catch((cause: unknown) => cause)
     expect(error).toBeInstanceOf(Error)
     expect((error as Error).message).toBe(
-      `subagent-acp: ${expectedFailure('stage: process; category: process-start')}`,
+      `subagent-acp: ${expectedFailure('stage: initialize; category: transport')}`,
     )
     expect((error as Error).message).not.toContain(privateCommand)
   })
@@ -1343,7 +1343,7 @@ describe('dsh-subagent-acp', () => {
     }
   })
 
-  it('rejects a startup failure via the provider load path', async () => {
+  it('classifies a returned-handle startup failure through the provider load path', async () => {
     const ctx = new Context()
     await ctx.plugin(SessionProjectionRegistry)
     await ctx.plugin(SubagentRuntime)
@@ -1356,7 +1356,7 @@ describe('dsh-subagent-acp', () => {
       env: {},
     })
     await expect(ctx.subagents.start('acp', request())).rejects.toThrow(
-      `subagent-acp: ${expectedFailure('stage: process; category: process-start')}`,
+      `subagent-acp: ${expectedFailure('stage: initialize; category: transport')}`,
     )
   })
 

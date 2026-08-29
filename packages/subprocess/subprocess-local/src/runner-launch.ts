@@ -1,7 +1,7 @@
 /** Parent-side invocation and bootstrap state for the private native runner. */
 
 import type { StdioOptions } from 'node:child_process'
-import { accessSync, constants as fsConstants, statSync } from 'node:fs'
+import { accessSync, constants as fsConstants, lstatSync, statSync } from 'node:fs'
 import { extname, isAbsolute } from 'node:path'
 import { inspect } from 'node:util'
 import { fileURLToPath } from 'node:url'
@@ -141,7 +141,12 @@ function executableCandidateExists(candidate: string): boolean {
   try {
     return !statSync(candidate).isDirectory()
   } catch {
-    return false
+    try {
+      const entry = lstatSync(candidate)
+      return entry.isFile() || entry.isSymbolicLink()
+    } catch {
+      return false
+    }
   }
 }
 
