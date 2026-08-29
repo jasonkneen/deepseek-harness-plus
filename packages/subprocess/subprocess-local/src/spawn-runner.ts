@@ -90,6 +90,18 @@ function asSpawnError(error: unknown, program: string, args: readonly string[]):
   }
 }
 
+function windowsPathNotFoundError(program: string, args: readonly string[]): SerializedRunnerError {
+  return {
+    name: 'Error',
+    message: `spawn ${program} ENOENT`,
+    code: 'ENOENT',
+    errno: -4058,
+    syscall: `spawn ${program}`,
+    path: program,
+    spawnargs: [...args],
+  }
+}
+
 function linuxPathNotFoundError(program: string): NodeJS.ErrnoException {
   return Object.assign(new Error(`spawn ${program} ENOENT`), {
     code: 'ENOENT',
@@ -266,6 +278,13 @@ class WindowsJobRunner {
         undefined,
         { ...this.host.env },
       )
+      if (applicationName === undefined) {
+        await this.publishTerminalResult({
+          type: 'error',
+          error: windowsPathNotFoundError(command as string, args),
+        }, 0)
+        return
+      }
       this.api = this.internals.loadWin32ProcessBindings()
       const spawned = this.internals.spawnCurrentTokenJobProcess(this.api, {
         command: command as string,

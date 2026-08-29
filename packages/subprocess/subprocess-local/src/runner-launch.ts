@@ -223,7 +223,7 @@ function windowsExecutableNames(command: string, name: string): string[] {
  * @param env - final target environment containing the child PATH.
  * @param exists - injectable non-directory candidate probe used by tests.
  * @param currentEnv - runner environment supplying PATH fallback and cwd-search policy.
- * @returns a resolved application name suitable for `CreateProcessW`.
+ * @returns a resolved application name suitable for `CreateProcessW`, or undefined when no candidate exists.
  */
 export function resolveWindowsExecutable(
   command: string,
@@ -231,7 +231,7 @@ export function resolveWindowsExecutable(
   env: Readonly<Record<string, string>>,
   exists: (candidate: string) => boolean = executableCandidateExists,
   currentEnv: Readonly<Record<string, string | undefined>> = process.env,
-): string {
+): string | undefined {
   const nameStart = windowsFileNameStart(command)
   const directory = command.slice(0, nameStart)
   const name = command.slice(nameStart)
@@ -254,10 +254,7 @@ export function resolveWindowsExecutable(
     }
   }
 
-  const unresolved = windowsSearchPathJoin(directory, name, cwd)
-  if (hasPath) return unresolved
-  const dot = name.indexOf('.')
-  return dot >= 0 && dot < name.length - 1 ? unresolved : `${unresolved}.exe`
+  return undefined
 }
 
 function throwNullByteError(property: string, value: string, argument: boolean): never {

@@ -374,7 +374,7 @@ describe('runner launch inputs', () => {
     expect(resolveWindowsExecutable('tool.', 'C:\\target', {}, candidate =>
       candidate === 'C:\\target\\tool.exe')).toBe('C:\\target\\tool.exe')
     expect(resolveWindowsExecutable('.\\missing', 'C:\\target', {}, () => false))
-      .toBe('C:\\target\\.\\missing')
+      .toBeUndefined()
 
     expect(resolveWindowsExecutable('tool', 'C:\\target', {
       PATH: ';;C:\\bin',
@@ -395,9 +395,9 @@ describe('runner launch inputs', () => {
 
     const noSearchEnvironment = { NoDefaultCurrentDirectoryInExePath: '1' }
     expect(resolveWindowsExecutable('missing', 'C:\\target', {}, () => false, noSearchEnvironment))
-      .toBe('C:\\target\\missing.exe')
+      .toBeUndefined()
     expect(resolveWindowsExecutable('missing.cmd', 'C:\\target', {}, () => false, noSearchEnvironment))
-      .toBe('C:\\target\\missing.cmd')
+      .toBeUndefined()
 
     const directory = mkdtempSync(join(tmpdir(), 'dsh-windows-resolver-'))
     scratch.push(directory)
@@ -409,7 +409,7 @@ describe('runner launch inputs', () => {
     writeFileSync(`${directoryCandidate}.exe`, '')
     expect(resolveWindowsExecutable(executable, '', {})).toBe(executable)
     expect(resolveWindowsExecutable(directoryCandidate, '', {})).toBe(`${directoryCandidate}.exe`)
-    expect(resolveWindowsExecutable(missingExecutable, '', {})).toBe(missingExecutable)
+    expect(resolveWindowsExecutable(missingExecutable, '', {})).toBeUndefined()
   })
 })
 
@@ -554,6 +554,31 @@ describe('Linux one-shot exec bootstrap', () => {
 })
 
 describe('Windows Job runner protocol owner', () => {
+  it('publishes a Node-shaped path-search miss before loading Win32 bindings', async () => {
+    const host = new FakeRunnerHost()
+    const loadWin32ProcessBindings = vi.fn(() => ({} as CurrentTokenProcessBindings))
+    const native = internals({
+      loadWin32ProcessBindings,
+      resolveWindowsExecutable: vi.fn(() => undefined),
+    })
+    await runWindows(host, native)
+    expect(loadWin32ProcessBindings).not.toHaveBeenCalled()
+    expect(native.spawnCurrentTokenJobProcess).not.toHaveBeenCalled()
+    expect(host.sent).toEqual([{
+      type: 'error',
+      error: {
+        name: 'Error',
+        message: 'spawn tool.exe ENOENT',
+        code: 'ENOENT',
+        errno: -4058,
+        syscall: 'spawn tool.exe',
+        path: 'tool.exe',
+        spawnargs: ['literal arg'],
+      },
+    }])
+    expect(host.exitCode).toBe(0)
+  })
+
   it('maps the bounded Win32 process-creation error classes', async () => {
     for (const [win32Code, code] of [
       [3, 'ENOENT'],
