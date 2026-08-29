@@ -602,29 +602,39 @@ describe('Windows Job runner protocol owner', () => {
   })
 
   it('maps the bounded Win32 process-creation error classes', async () => {
-    for (const [win32Code, code, errno] of [
-      [3, 'ENOENT', -4058],
-      [267, 'ENOENT', -4058],
-      [5, 'EPERM', -4048],
-      [193, 'EFTYPE', -4028],
-      [999, 'UNKNOWN', -4094],
+    for (const [win32Code, code, errno, enriched] of [
+      [2, 'ENOENT', -4058, true],
+      [3, 'ENOENT', -4058, true],
+      [267, 'ENOENT', -4058, true],
+      [740, 'EACCES', -4092, true],
+      [5, 'EPERM', -4048, false],
+      [193, 'EFTYPE', -4028, false],
+      [999, 'UNKNOWN', -4094, false],
     ] as const) {
       const host = new FakeRunnerHost()
       await runWindows(host, internals({
         spawnCurrentTokenJobProcess: vi.fn(() => { throw new Win32Error('CreateProcessW', win32Code) }),
       }))
+      const syscall = enriched ? 'spawn tool.exe' : 'spawn'
       expect(host.sent).toMatchObject([{
         type: 'error',
         error: {
           name: 'Error',
-          message: `spawn tool.exe ${code}`,
+          message: `${syscall} ${code}`,
           code,
           errno,
-          syscall: 'spawn tool.exe',
-          path: 'tool.exe',
-          spawnargs: ['literal arg'],
+          syscall,
         },
       }])
+      const result = parseWindowsRunnerResult(host.sent[0])
+      if (result.type !== 'error') throw new Error('expected runner error')
+      expect(result.error.stack?.split('\n')[0]).toBe(`Error: ${syscall} ${code}`)
+      if (enriched) {
+        expect(result.error).toMatchObject({ path: 'tool.exe', spawnargs: ['literal arg'] })
+      } else {
+        expect(result.error).not.toHaveProperty('path')
+        expect(result.error).not.toHaveProperty('spawnargs')
+      }
     }
   })
 

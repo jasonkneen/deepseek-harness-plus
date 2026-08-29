@@ -139,9 +139,7 @@ export function launchWindowsJob(
   const direct = Promise.withResolvers<SubprocessOutcome>()
   const rangeExit = Promise.withResolvers<void>()
   let resultSeen = false
-  let infrastructureFailed = false
   const failInfrastructure = (error: unknown): void => {
-    infrastructureFailed = true
     direct.reject(error)
     rangeExit.reject(error)
   }
@@ -180,7 +178,7 @@ export function launchWindowsJob(
     failInfrastructure(error)
   })
   child.once('close', (exitCode, signal) => {
-    const clean = exitCode === 0 && signal === null && resultSeen && !infrastructureFailed
+    const clean = exitCode === 0 && signal === null && resultSeen
     if (clean) {
       rangeExit.resolve()
       return

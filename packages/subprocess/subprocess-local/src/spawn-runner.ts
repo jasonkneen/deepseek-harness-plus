@@ -68,24 +68,22 @@ const defaultInternals: SpawnRunnerInternals = {
 
 function nodeSpawnError(
   source: Pick<SerializedRunnerError, 'stack'>,
-  program: string,
-  args: readonly string[],
+  syscall: string,
   code: string,
   errno: number | undefined,
+  details: Pick<SerializedRunnerError, 'path' | 'spawnargs'>,
 ): SerializedRunnerError {
-  const message = `spawn ${program} ${code}`
-  const newline = source.stack?.indexOf('\n') ?? -1
+  const message = `${syscall} ${code}`
   return {
     name: 'Error',
     message,
     ...source.stack === undefined ? {} : {
-      stack: `Error: ${message}${newline === -1 ? '' : source.stack.slice(newline)}`,
+      stack: source.stack.replace(/^[^\n]*/, `Error: ${message}`),
     },
     code,
     ...errno === undefined ? {} : { errno },
-    syscall: `spawn ${program}`,
-    path: program,
-    spawnargs: [...args],
+    syscall,
+    ...details,
   }
 }
 
@@ -94,20 +92,36 @@ function asSpawnError(error: unknown, program: string, args: readonly string[]):
   if (!(error instanceof Win32Error)) {
     return serialized.code === undefined
       ? serialized
-      : nodeSpawnError(serialized, program, args, serialized.code, serialized.errno)
+      : nodeSpawnError(serialized, `spawn ${program}`, serialized.code, serialized.errno, {
+        path: program,
+        spawnargs: [...args],
+      })
   }
-  const [code, errno] = error.win32Code === 2 || error.win32Code === 3 || error.win32Code === 267
-    ? ['ENOENT', -4058]
-    : error.win32Code === 5
-      ? ['EPERM', -4048]
-      : error.win32Code === 193
-        ? ['EFTYPE', -4028]
-        : ['UNKNOWN', -4094]
-  return nodeSpawnError(serialized, program, args, code, errno)
+  if (error.win32Code === 2 || error.win32Code === 3 || error.win32Code === 267) {
+    return nodeSpawnError(serialized, `spawn ${program}`, 'ENOENT', -4058, {
+      path: program,
+      spawnargs: [...args],
+    })
+  }
+  if (error.win32Code === 740) {
+    return nodeSpawnError(serialized, `spawn ${program}`, 'EACCES', -4092, {
+      path: program,
+      spawnargs: [...args],
+    })
+  }
+  const [code, errno] = error.win32Code === 5
+    ? ['EPERM', -4048]
+    : error.win32Code === 193
+      ? ['EFTYPE', -4028]
+      : ['UNKNOWN', -4094]
+  return nodeSpawnError(serialized, 'spawn', code, errno, {})
 }
 
 function windowsPathNotFoundError(program: string, args: readonly string[]): SerializedRunnerError {
-  return nodeSpawnError({}, program, args, 'ENOENT', -4058)
+  return nodeSpawnError({}, `spawn ${program}`, 'ENOENT', -4058, {
+    path: program,
+    spawnargs: [...args],
+  })
 }
 
 function linuxPathNotFoundError(program: string): NodeJS.ErrnoException {
@@ -271,7 +285,9 @@ class WindowsJobRunner {
     }
     await new Promise<void>((resolveImmediate) => { setImmediate(resolveImmediate) })
     if (this.finished) return
-    if (this.startCancellationPending()) {
+    // IPC may set this field while start() is suspended above.
+    // oxlint-disable-next-line typescript/no-unnecessary-condition
+    if (this.terminateRequested) {
       await this.publishTerminalResult({ type: 'start-cancelled' }, 0)
       return
     }
@@ -305,7 +321,9 @@ class WindowsJobRunner {
       for (const fileDescriptor of [4, 5, 6]) {
         this.internals.closeFileDescriptor(fileDescriptor)
       }
-      if (this.startCancellationPending()) this.terminateOwnedJob()
+      // Descriptor cleanup may synchronously re-enter the IPC handler.
+      // oxlint-disable-next-line typescript/no-unnecessary-condition
+      if (this.terminateRequested) this.terminateOwnedJob()
       this.pollTimer = setInterval(() => { this.poll() }, 10)
     } catch (error) {
       if (this.jobHandle === undefined && error instanceof Win32Error && error.api === 'CreateProcessW') {
@@ -327,10 +345,6 @@ class WindowsJobRunner {
     } catch (error) {
       void this.runnerFailure(error)
     }
-  }
-
-  private startCancellationPending(): boolean {
-    return this.terminateRequested
   }
 
   private terminateOwnedJob(): void {
