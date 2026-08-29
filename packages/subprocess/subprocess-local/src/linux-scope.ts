@@ -78,20 +78,6 @@ function unitStem(prefix: string): string {
 }
 
 /**
- * Confirm that the live user manager is readable for this spawn.
- * @param internals - optional command seams used by tests.
- * @returns whether the current user manager answered successfully.
- */
-export function probeLinuxUserManager(internals: LinuxScopeInternals = {}): boolean {
-  const result = (internals.spawnSync ?? spawnSync)(
-    internals.systemctl ?? 'systemctl',
-    ['--user', 'show-environment'],
-    { env: systemctlEnv(), stdio: 'ignore', timeout: SYSTEMCTL_TIMEOUT_MS },
-  )
-  return result.error === undefined && result.status === 0
-}
-
-/**
  * Confirm this exact runner entry and libc execve binding without a probe mode.
  * @param internals - optional runner and libc-binding seams used by tests.
  * @returns whether the bootstrap can enter the final target.
@@ -139,7 +125,6 @@ export function probeLinuxScope(internals: LinuxScopeInternals = {}): boolean {
  */
 export function probeLinuxNative(internals: LinuxScopeInternals = {}): boolean {
   return probeLinuxBootstrap(internals)
-    && probeLinuxUserManager(internals)
     && probeLinuxScope(internals)
 }
 

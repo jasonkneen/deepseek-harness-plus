@@ -207,11 +207,9 @@ class WindowsJobRunner {
   private jobHandle: NativePtr | undefined
   private pollTimer: ReturnType<typeof setInterval> | undefined
   private startSeen = false
-  private committed = false
   private terminateRequested = false
   private resultStarted = false
   private resultDelivered = false
-  private jobEmpty = false
   private finished = false
   private readonly completion = Promise.withResolvers<void>()
 
@@ -296,14 +294,13 @@ class WindowsJobRunner {
       })
       this.processHandle = spawned.process
       this.jobHandle = spawned.job
-      this.committed = true
       for (const fileDescriptor of [4, 5, 6]) {
         this.internals.closeFileDescriptor(fileDescriptor)
       }
       if (this.startCancellationPending()) this.terminateOwnedJob()
       this.pollTimer = setInterval(() => { this.poll() }, 10)
     } catch (error) {
-      if (!this.committed && error instanceof Win32Error && error.api === 'CreateProcessW') {
+      if (this.jobHandle === undefined && error instanceof Win32Error && error.api === 'CreateProcessW') {
         await this.publishTerminalResult({
           type: 'error',
           error: asSpawnError(error, this.argv[0] as string, this.argv.slice(1)),
@@ -317,12 +314,10 @@ class WindowsJobRunner {
   private requestTermination(): void {
     if (this.terminateRequested) return
     this.terminateRequested = true
-    if (this.committed) {
-      try {
-        this.terminateOwnedJob()
-      } catch (error) {
-        void this.runnerFailure(error)
-      }
+    try {
+      this.terminateOwnedJob()
+    } catch (error) {
+      void this.runnerFailure(error)
     }
   }
 
@@ -355,7 +350,6 @@ class WindowsJobRunner {
       if (this.jobHandle !== undefined && this.internals.isJobEmpty(this.api, this.jobHandle)) {
         this.internals.closeHandleChecked(this.api, this.jobHandle, 'ordinary process Job')
         this.jobHandle = undefined
-        this.jobEmpty = true
         if (this.resultDelivered) this.finish(0)
       }
     } catch (error) {
@@ -379,7 +373,7 @@ class WindowsJobRunner {
       this.finish(exitCode)
       return
     }
-    if (this.jobEmpty) this.finish(0)
+    if (this.jobHandle === undefined) this.finish(0)
   }
 
   private async runnerFailure(error: unknown): Promise<void> {

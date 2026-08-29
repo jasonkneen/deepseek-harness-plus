@@ -8,7 +8,6 @@ import {
   probeLinuxBootstrap,
   probeLinuxNative,
   probeLinuxScope,
-  probeLinuxUserManager,
 } from '../src/linux-scope.ts'
 import type { LinuxScopeInternals } from '../src/linux-scope.ts'
 import {
@@ -114,7 +113,7 @@ function launch(
 }
 
 describe('Linux native capability selection', () => {
-  it('rechecks bootstrap, user manager, and literal transient-scope support', () => {
+  it('rechecks bootstrap and literal transient-scope support', () => {
     const spawnSync = vi.fn(() => ({ status: 0, error: undefined }))
     const runnerAvailable = vi.fn(() => true)
     const loadLinuxExecve = vi.fn(() => vi.fn() as never)
@@ -130,7 +129,7 @@ describe('Linux native capability selection', () => {
     expect(probeLinuxNative(inputs)).toBe(true)
     expect(runnerAvailable).toHaveBeenCalledTimes(2)
     expect(loadLinuxExecve).toHaveBeenCalledTimes(2)
-    expect(spawnSync).toHaveBeenCalledTimes(4)
+    expect(spawnSync).toHaveBeenCalledTimes(2)
     expect(probeLinuxBootstrap({
       ...inputs,
       loadLinuxExecve: () => { throw new Error('libc execve missing') },
@@ -138,9 +137,6 @@ describe('Linux native capability selection', () => {
   })
 
   it('reports each failed dynamic prerequisite without executing a target', () => {
-    expect(probeLinuxUserManager({
-      spawnSync: vi.fn(() => ({ status: 1, error: undefined })) as never,
-    })).toBe(false)
     expect(probeLinuxScope({
       spawnSync: vi.fn(() => ({ status: null, error: new Error('missing') })) as never,
     })).toBe(false)
@@ -157,9 +153,8 @@ describe('Linux native capability selection', () => {
 
   it('uses the default command adapters and runner resolution', () => {
     childProcessMocks.spawnSync.mockReturnValue({ status: 0, error: undefined })
-    expect(probeLinuxUserManager()).toBe(true)
     expect(probeLinuxScope()).toBe(true)
-    expect(childProcessMocks.spawnSync).toHaveBeenCalledTimes(2)
+    expect(childProcessMocks.spawnSync).toHaveBeenCalledTimes(1)
     expect(probeLinuxBootstrap({ loadLinuxExecve: () => vi.fn() as never })).toBe(true)
     expect(probeLinuxBootstrap({
       runnerInvocation: [process.execPath],
