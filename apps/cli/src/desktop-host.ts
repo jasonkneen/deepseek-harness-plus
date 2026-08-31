@@ -1,11 +1,12 @@
 /**
  * Electron child-process entry: boots the desktop project without a listening
- * socket and carries API plus validated Web assets over Node IPC.
+ * socket and carries API plus validated Web assets over framed byte pipes.
  * @module @deepseek-ai/dsh/desktop-host
  */
 
 import { createRequire } from 'node:module'
-import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
+import { closeSync, createReadStream, createWriteStream, existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
+import { once } from 'node:events'
 import { readFile } from 'node:fs/promises'
 import { dirname, extname, join, normalize, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -24,27 +25,33 @@ import type {} from '@deepseek-ai/dsh-api-gateway'
 import type { ConnectionFetchHandler } from '@deepseek-ai/dsh-client-connection'
 import type {} from '@deepseek-ai/dsh-client-modules'
 import { renderIndexInjections, type IndexInjection } from '@deepseek-ai/dsh-host-webserver'
+import {
+  DESKTOP_HOST_PROTOCOL_VERSION,
+  DESKTOP_PIPE_CHUNK_BYTES,
+  DESKTOP_REQUEST_PIPE_FD,
+  DESKTOP_RESPONSE_PIPE_FD,
+  DesktopHostRequestDecoder,
+  encodeDesktopResponseData,
+  encodeDesktopResponseEnd,
+  encodeDesktopResponseError,
+  encodeDesktopResponseStart,
+  type DesktopHostRequestFrame,
+} from './desktop-host-wire.ts'
 
-/** IPC protocol version shared with the Electron shell. */
-export const DESKTOP_HOST_PROTOCOL_VERSION = 2 as const
+export { DESKTOP_HOST_PROTOCOL_VERSION } from './desktop-host-wire.ts'
 
 /** One request forwarded from Electron's `dsh-app://` handler. */
 export interface DesktopHostFetchCommand {
-  readonly type: 'fetch'
-  readonly id: string
+  readonly streamId: number
   readonly request: {
     readonly url: string
     readonly method: string
     readonly headers: readonly [string, string][]
-    readonly bodyBase64?: string
   }
 }
 
 /** Commands accepted by the desktop child process. */
-export type DesktopHostCommand = DesktopHostFetchCommand | {
-  readonly type: 'cancel'
-  readonly id: string
-} | {
+export type DesktopHostCommand = {
   readonly type: 'shutdown'
 }
 
@@ -54,22 +61,6 @@ export type DesktopHostEvent = {
   readonly protocolVersion: typeof DESKTOP_HOST_PROTOCOL_VERSION
   readonly dshVersion: string
 } | {
-  readonly type: 'response-start'
-  readonly id: string
-  readonly status: number
-  readonly headers: readonly [string, string][]
-} | {
-  readonly type: 'response-chunk'
-  readonly id: string
-  readonly chunkBase64: string
-} | {
-  readonly type: 'response-end'
-  readonly id: string
-} | {
-  readonly type: 'response-error'
-  readonly id: string
-  readonly message: string
-} | {
   readonly type: 'fatal'
   readonly message: string
 }
@@ -78,17 +69,12 @@ export type DesktopHostEvent = {
 export interface DesktopHostController {
   /** Installed dsh version carried by this host. */
   readonly dshVersion: string
-  /** Dispatch one custom-protocol request and stream its response to `send`. */
-  fetch(command: DesktopHostFetchCommand): Promise<void>
+  /** Dispatch one custom-protocol request and stream its response to the response pipe. */
+  fetch(command: DesktopHostFetchCommand, body: ReadableStream<Uint8Array> | null): Promise<void>
   /** Abort one in-flight request. */
-  cancel(id: string): void
+  cancel(streamId: number): void
   /** Stop accepting messages and await complete host teardown. */
   dispose(): Promise<void>
-}
-
-function isCanonicalBase64(value: unknown): value is string {
-  return typeof value === 'string' && value.length % 4 === 0
-    && /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/u.test(value)
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -96,18 +82,8 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function isDesktopHostCommand(message: unknown): message is DesktopHostCommand {
-  if (typeof message !== 'object' || message === null || !('type' in message)) return false
-  const candidate = message as Record<string, unknown>
-  if (candidate.type === 'shutdown') return true
-  if (candidate.type === 'cancel') return typeof candidate.id === 'string'
-  if (candidate.type !== 'fetch' || typeof candidate.id !== 'string'
-    || typeof candidate.request !== 'object' || candidate.request === null) return false
-  const request = candidate.request as Record<string, unknown>
-  return typeof request.url === 'string' && typeof request.method === 'string'
-    && Array.isArray(request.headers)
-    && request.headers.every(header => Array.isArray(header) && header.length === 2
-      && typeof header[0] === 'string' && typeof header[1] === 'string')
-    && (request.bodyBase64 === undefined || isCanonicalBase64(request.bodyBase64))
+  return typeof message === 'object' && message !== null && 'type' in message
+    && (message as Record<string, unknown>).type === 'shutdown'
 }
 
 interface PackageManifest {
@@ -287,18 +263,20 @@ function remoteStreamHandler(ctx: Context): ConnectionFetchHandler {
   }
 }
 
-const DESKTOP_IPC_CHUNK_BYTES = 64 * 1024
+interface NodeRequestInit extends RequestInit {
+  readonly duplex?: 'half'
+}
 
 /**
  * Boot one installed desktop npm project.
  * @param projectDir - active or staged Electron-owned desktop profile.
- * @param send - IPC event sink; callback exceptions are contained by the caller.
+ * @param writeResponse - serialized response-pipe writer that applies byte backpressure.
  * @param options - development-only allowance for workspace-linked bundle packages.
  * @returns controller after every Host and client-manifest row is active.
  */
 export async function runDesktopHost(
   projectDir: string,
-  send: (event: DesktopHostEvent) => void,
+  writeResponse: (frame: Buffer) => Promise<void>,
   options: { allowLinkedPackages?: boolean } = {},
 ): Promise<DesktopHostController> {
   const absoluteProject = resolve(projectDir)
@@ -326,7 +304,7 @@ export async function runDesktopHost(
   const api = connection.createSharedFetchHandler('/api')
   const assets = assetHandler(ctx, absoluteProject)
   const streams = remoteStreamHandler(ctx)
-  const requests = new Map<string, AbortController>()
+  const requests = new Map<number, AbortController>()
   let disposing: Promise<void> | undefined
 
   const dispose = async (): Promise<void> => {
@@ -341,58 +319,53 @@ export async function runDesktopHost(
 
   return {
     dshVersion: dshVersion(absoluteProject),
-    cancel(id) {
-      requests.get(id)?.abort()
+    cancel(streamId) {
+      requests.get(streamId)?.abort()
     },
-    async fetch(command) {
+    async fetch(command, body) {
       if (disposing !== undefined) throw new Error('dsh desktop: host is disposing')
       const controller = new AbortController()
-      requests.set(command.id, controller)
+      requests.set(command.streamId, controller)
       try {
         const url = new URL(command.request.url)
-        const body = command.request.bodyBase64 === undefined
-          ? undefined
-          : Buffer.from(command.request.bodyBase64, 'base64')
-        const request = new Request(url, {
+        const init: NodeRequestInit = {
           method: command.request.method,
           headers: new Headers(command.request.headers.map(([name, value]) => [name, value] as [string, string])),
-          ...(body === undefined || body.byteLength === 0 ? {} : { body }),
+          ...(body === null ? {} : { body, duplex: 'half' }),
           signal: controller.signal,
-        })
+        }
+        const request = new Request(url, init)
         const response = url.pathname === DESKTOP_STREAM_PATH
           ? await streams.fetch(request)
           : url.pathname.startsWith('/api/')
             ? await api.fetch(request)
             : await assets.fetch(request)
-        send({
-          type: 'response-start',
-          id: command.id,
+        await writeResponse(encodeDesktopResponseStart(command.streamId, {
           status: response.status,
           headers: [...response.headers.entries()],
-        })
+          hasBody: response.body !== null,
+        }))
         if (response.body !== null) {
           for await (const chunk of response.body) {
             const bytes = Buffer.from(chunk)
-            for (let offset = 0; offset < bytes.byteLength; offset += DESKTOP_IPC_CHUNK_BYTES) {
-              send({
-                type: 'response-chunk',
-                id: command.id,
-                chunkBase64: bytes.subarray(offset, offset + DESKTOP_IPC_CHUNK_BYTES).toString('base64'),
-              })
+            for (let offset = 0; offset < bytes.byteLength; offset += DESKTOP_PIPE_CHUNK_BYTES) {
+              await writeResponse(encodeDesktopResponseData(
+                command.streamId,
+                bytes.subarray(offset, offset + DESKTOP_PIPE_CHUNK_BYTES),
+              ))
             }
           }
         }
-        send({ type: 'response-end', id: command.id })
+        await writeResponse(encodeDesktopResponseEnd(command.streamId))
       } catch (error) {
         if (!controller.signal.aborted) {
-          send({
-            type: 'response-error',
-            id: command.id,
-            message: error instanceof Error ? error.message : String(error),
-          })
+          await writeResponse(encodeDesktopResponseError(
+            command.streamId,
+            error instanceof Error ? error.message : String(error),
+          ))
         }
       } finally {
-        requests.delete(command.id)
+        requests.delete(command.streamId)
       }
     },
     dispose,
@@ -402,11 +375,22 @@ export async function runDesktopHost(
 async function main(): Promise<void> {
   const projectDir = process.argv[2]
   if (projectDir === undefined || process.send === undefined) {
-    throw new Error('dsh desktop: expected project directory and a Node IPC channel')
+    throw new Error('dsh desktop: expected project directory, byte pipes, and a Node IPC channel')
   }
   const option = process.argv[3]
   if (option !== undefined && option !== '--allow-linked-profile') {
     throw new Error(`dsh desktop: unsupported internal option ${JSON.stringify(option)}`)
+  }
+  const requestPipe = createReadStream('', { fd: DESKTOP_REQUEST_PIPE_FD, autoClose: false })
+  const responsePipe = createWriteStream('', { fd: DESKTOP_RESPONSE_PIPE_FD, autoClose: false })
+  let responseWriteTail: Promise<void> = Promise.resolve()
+  const writeResponse = (frame: Buffer): Promise<void> => {
+    const write = responseWriteTail.then(async () => {
+      if (responsePipe.destroyed) throw new Error('dsh desktop: Electron response pipe is unavailable')
+      if (!responsePipe.write(frame)) await once(responsePipe, 'drain')
+    })
+    responseWriteTail = write.catch(() => undefined)
+    return write
   }
   const send = (event: DesktopHostEvent): void => {
     if (process.send === undefined || !process.connected) return
@@ -418,39 +402,160 @@ async function main(): Promise<void> {
       if ((error as NodeJS.ErrnoException).code !== 'ERR_IPC_CHANNEL_CLOSED') throw error
     }
   }
-  const controller = await runDesktopHost(projectDir, send, { allowLinkedPackages: option !== undefined })
+  const controller = await runDesktopHost(projectDir, writeResponse, { allowLinkedPackages: option !== undefined })
   send({
     type: 'ready',
     protocolVersion: DESKTOP_HOST_PROTOCOL_VERSION,
     dshVersion: controller.dshVersion,
   })
-  let stopping = false
-  const stop = async (): Promise<void> => {
-    if (stopping) return
-    stopping = true
-    await controller.dispose()
-    if (process.connected) process.disconnect()
-    process.exitCode = 0
+  const decoder = new DesktopHostRequestDecoder()
+  const requestBodies = new Map<number, ReadableStreamDefaultController<Uint8Array>>()
+  const blockedRequests = new Set<number>()
+  const runs = new Set<Promise<void>>()
+  let lastStreamId = 0
+  let requestedExitCode = 0
+  let stopping: Promise<void> | undefined
+
+  const resumeRequestPipe = (): void => {
+    if (blockedRequests.size === 0) requestPipe.resume()
   }
+
+  const stop = (exitCode = 0): Promise<void> => {
+    requestedExitCode = Math.max(requestedExitCode, exitCode)
+    stopping ??= (async () => {
+      requestPipe.pause()
+      requestPipe.removeAllListeners('data')
+      const stopped = new Error('dsh desktop: Host is stopping')
+      for (const body of requestBodies.values()) body.error(stopped)
+      requestBodies.clear()
+      blockedRequests.clear()
+      requestPipe.destroy()
+      closeSync(DESKTOP_REQUEST_PIPE_FD)
+      await controller.dispose()
+      await Promise.allSettled([...runs])
+      await responseWriteTail.catch(() => undefined)
+      if (!responsePipe.destroyed) {
+        await new Promise<void>((resolvePromise) => { responsePipe.end(resolvePromise) })
+        responsePipe.destroy()
+      }
+      closeSync(DESKTOP_RESPONSE_PIPE_FD)
+      if (process.connected) process.disconnect()
+      process.exitCode = requestedExitCode
+    })()
+    return stopping
+  }
+
+  const failTransport = (error: unknown): void => {
+    const message = error instanceof Error ? error.message : String(error)
+    send({ type: 'fatal', message })
+    void stop(1)
+  }
+
+  const beginRequest = (frame: Extract<DesktopHostRequestFrame, { type: 'start' }>): void => {
+    if (frame.streamId <= lastStreamId) {
+      throw new Error(`dsh desktop: Electron reused or reordered request stream ${String(frame.streamId)}`)
+    }
+    lastStreamId = frame.streamId
+    let body: ReadableStream<Uint8Array> | null = null
+    if (frame.hasBody) {
+      body = new ReadableStream<Uint8Array>({
+        start(controllerOfBody) {
+          requestBodies.set(frame.streamId, controllerOfBody)
+        },
+        pull() {
+          blockedRequests.delete(frame.streamId)
+          resumeRequestPipe()
+        },
+        cancel() {
+          requestBodies.delete(frame.streamId)
+          blockedRequests.delete(frame.streamId)
+          controller.cancel(frame.streamId)
+          resumeRequestPipe()
+        },
+      })
+    }
+    const run = controller.fetch({
+      streamId: frame.streamId,
+      request: {
+        url: frame.url,
+        method: frame.method,
+        headers: frame.headers,
+      },
+    }, body)
+    runs.add(run)
+    void run.catch(failTransport).finally(() => { runs.delete(run) })
+  }
+
+  const handleRequestFrame = (frame: DesktopHostRequestFrame): void => {
+    switch (frame.type) {
+      case 'start':
+        beginRequest(frame)
+        return
+      case 'data': {
+        const body = requestBodies.get(frame.streamId)
+        if (body === undefined) {
+          throw new Error(`dsh desktop: Electron sent body data for inactive stream ${String(frame.streamId)}`)
+        }
+        body.enqueue(frame.data)
+        if ((body.desiredSize ?? 0) <= 0) {
+          blockedRequests.add(frame.streamId)
+          requestPipe.pause()
+        }
+        return
+      }
+      case 'end': {
+        const body = requestBodies.get(frame.streamId)
+        if (body === undefined) {
+          throw new Error(`dsh desktop: Electron ended inactive body stream ${String(frame.streamId)}`)
+        }
+        body.close()
+        requestBodies.delete(frame.streamId)
+        blockedRequests.delete(frame.streamId)
+        resumeRequestPipe()
+        return
+      }
+      case 'cancel': {
+        if (frame.streamId > lastStreamId) {
+          throw new Error(`dsh desktop: Electron canceled unknown stream ${String(frame.streamId)}`)
+        }
+        const body = requestBodies.get(frame.streamId)
+        body?.error(new Error('dsh desktop: Electron canceled the request'))
+        requestBodies.delete(frame.streamId)
+        blockedRequests.delete(frame.streamId)
+        controller.cancel(frame.streamId)
+        resumeRequestPipe()
+        return
+      }
+      default:
+        frame satisfies never
+    }
+  }
+
+  requestPipe.on('data', (chunk: string | Buffer) => {
+    try {
+      for (const frame of decoder.push(Buffer.from(chunk))) handleRequestFrame(frame)
+    } catch (error) {
+      failTransport(error)
+    }
+  })
+  requestPipe.once('end', () => {
+    if (stopping !== undefined) return
+    try {
+      decoder.finish()
+      failTransport(new Error('dsh desktop: Electron request pipe ended'))
+    } catch (error) {
+      failTransport(error)
+    }
+  })
+  requestPipe.once('error', failTransport)
+  responsePipe.once('error', failTransport)
   process.on('message', (message: unknown) => {
     if (!isDesktopHostCommand(message)) {
       send({ type: 'fatal', message: 'dsh desktop: invalid Electron IPC command' })
-      void stop()
+      void stop(1)
       return
     }
-    switch (message.type) {
-      case 'fetch':
-        void controller.fetch(message)
-        return
-      case 'cancel':
-        controller.cancel(message.id)
-        return
-      case 'shutdown':
-        void stop()
-        return
-      default:
-        message satisfies never
-    }
+    void stop()
   })
   process.once('disconnect', () => { void stop() })
   process.once('SIGTERM', () => { void stop() })

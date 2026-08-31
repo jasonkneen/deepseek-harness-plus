@@ -14,7 +14,7 @@ DeepSeek Harness 需要一个复用 Web UI 的 Electron 桌面应用。该应用
 
 ## 决策
 
-交付一个小型 Electron 壳，其中内置上游 Node.js 可执行文件和固定版本的 pnpm。Electron 把 dsh 作为隔离子进程启动，通过带版本的 JSON IPC 和有界 Base64 请求／响应分块承载一元 RPC 与 Remote stream，并通过 `dsh-app://` 提供经过验证的资源；它不会打开监听端口。壳以线性扫描验证 Base64 分块，使大型客户端 bundle 无法耗尽主进程调用栈；取消响应时则先移除记录再通知子进程，使迟到的分块和完成事件保持无效。Connection 插件无需 `webServer` 即可提供与载体无关的 RPC 与 Fetch 注册表，Client Modules 则向 shell-owned carrier 提供与广告内容完全一致的组合 bundle 响应；Web 组合为两者挂载可选 HTTP route。该线路格式不依赖 Electron 与内置上游 Node.js 之间的 V8 序列化兼容性。该设计沿用 [GUI 分层与 RPC 协议 Agent Note](../../archived/architecture/2026-07-19-gui-layering-and-rpc-protocol.md)中的 Electron 预留。
+交付一个小型 Electron 壳，其中内置上游 Node.js 可执行文件和固定版本的 pnpm。Electron 把 dsh 作为隔离子进程启动，通过两条带版本的分帧字节管道承载 Fetch 元数据及有界的原始请求与响应分块，只用 Node IPC 传递就绪、致命失败和关闭，并通过 `dsh-app://` 提供经过验证的资源；它不会打开监听端口。每个帧都包含固定标记、类型、单调 stream id、负载长度和经过验证的负载。串行 writer 遵守 pipe drain，请求或响应 stream 施加背压时 reader 会全局暂停，取消会关闭匹配的 stream，已退役 stream 的迟到响应帧保持无效。Connection 插件无需 `webServer` 即可提供与载体无关的 RPC 与 Fetch 注册表，Client Modules 则向 shell-owned carrier 提供与广告内容完全一致的组合 bundle 响应；Web 组合为两者挂载可选 HTTP route。渲染进程保留相同的 Fetch、RPC 与 Remote-stream 格式，子进程载体则避免 Base64 膨胀，也不依赖 Electron 与内置上游 Node.js 之间的 V8 序列化兼容性。该设计沿用 [GUI 分层与 RPC 协议 Agent Note](../../archived/architecture/2026-07-19-gui-layering-and-rpc-protocol.md)中的 Electron 预留。
 
 Electron 拥有保留 profile `.dsh/profiles/desktop`。其中精确的 `@deepseek-ai/dsh` 依赖同时提供后端与匹配的 Web UI。dsh 发布及其第一方依赖闭包使用同一次源码构建生成的本地 npm tarball；profile manifest 把每个核心包列为本地 `file:` 依赖，`pnpm-workspace.yaml` 再通过 overrides 重复该映射。桌面插件既是同一 profile 中来自 registry 的其他 npm 依赖，也是有序的 `dsh.profile.bundles` 条目，并从该 profile 唯一的 `node_modules` 解析。
 
@@ -26,7 +26,7 @@ Electron 拥有保留 profile `.dsh/profiles/desktop`。其中精确的 `@deepse
 
 | Owner | 职责 |
 |---|---|
-| Electron 壳 | 窗口与子进程生命周期、IPC、自定义协议、保留 desktop profile、插件 GUI、更新协调、回滚 |
+| Electron 壳 | 窗口与子进程生命周期、分帧字节管道、生命周期 IPC、自定义协议、保留 desktop profile、插件 GUI、更新协调、回滚 |
 | 内置 Node.js 与 pnpm | 执行 dsh 并安装桌面项目的精确依赖，不读取用户 `PATH` 或 pnpm 状态 |
 | Desktop profile | 为桌面 dsh 包与桌面插件提供一个依赖图、有序 bundle 列表和一个 `node_modules` |
 | 已安装 dsh 包 | 后端、匹配的 Web UI、启动 manifest、客户端包和产品行为 |
@@ -101,7 +101,7 @@ Electron 产物必须签名；macOS 产物必须公证。自定义协议提供�
 | 表面 | 实现 |
 |---|---|
 | 壳 | `apps/desktop` 负责 Electron 窗口、受限 preload、自定义协议、子进程生命周期、项目事务、插件 GUI、更新协调和 electron-builder 配置。 |
-| 已安装运行时 | `@deepseek-ai/dsh/desktop-host` 从活跃项目启动无端口桌面组合，并通过经过验证的 Node IPC 流式传输 API 与资源响应。 |
+| 已安装运行时 | `@deepseek-ai/dsh/desktop-host` 从活跃项目启动无端口桌面组合，并通过经过验证的分帧字节管道流式传输 API 与资源响应。 |
 | 包状态 | 发布种子和后续每次修改都通过内置 Node.js 与 pnpm 执行，并使用桌面端拥有的 store、config、cache、state 和 home 路径；核心包从发布 tarball 解析，插件从固定 npm registry 解析。 |
 | 资格验证 | 生产签名、公证、更新托管、跨上一版本的已安装产物测试和各平台 GUI 录制仍是发布环境门槛。 |
 
@@ -110,6 +110,8 @@ Electron 产物必须签名；macOS 产物必须公证。自定义协议提供�
 ## 考虑过的替代方案
 
 **使用 Electron 的 Node.js 执行 dsh。** 这可以减小包体积，但会让 dsh 耦合到 Electron 的 Node 补丁、fuse、原生 ABI、TLS 行为和进程生命周期。内置上游 Node.js 可以让 dsh 继续使用其受支持运行时。
+
+**通过 JSON IPC 以 Base64 承载 Fetch 消息体。** JSON IPC 可以只保留一种消息机制，但会膨胀每个请求与响应消息体、在两个进程中构造大字符串、在分派前缓冲完整请求，还会再次编码 RPC JSON 中已经表示为 Base64 的图片字节。原始分帧管道保留明确的带版本协议，同时不要求 Electron 与上游 Node.js 共享 V8 序列化行为。
 
 **把产品 Web UI 永久打包进 Electron。** 独立 UI 与后端更新需要新的版本化兼容计划。从同一个 dsh 包安装后端与 Web UI 可以保持当前发布绑定。
 

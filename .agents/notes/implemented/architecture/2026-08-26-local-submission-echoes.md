@@ -16,7 +16,7 @@ A multi-image prompt spent seconds in client serialization plus host admission b
 
 **The composer commits optimistically.** Enter clears the draft, occurrence table, and undo history in one machine transaction and keeps phase `plain`; the send runs as a detached attempt (concurrent sends allowed; the single frozen in-flight slot remains command-only). Failed detached sends are restored together in submission order while the composer is empty or still contains the preceding automatic restoration; a user edit ends that restoration sequence. Draft images remain owned by the detached attempt through echo retirement, so Session scope disposal can release them after they have left the rail. An observed echo gives each preview URL to `HistoricalImageCache.seed` under the admitted reference. The cache exposes that preview synchronously, fetches the durable attachment, replaces the preview with the canonical URL, and revokes both URLs with their respective lifetimes. Direct subagent continuations do not register echoes because their transport assigns a different RPC identity and image input is unsupported.
 
-Client image encoding switched from the synchronous chunked-`btoa` loop to `FileReader.readAsDataURL` (native encode). The browser→host transport still ships one base64 JSON envelope; that remaining #2885 transport work is out of scope here.
+Client image encoding uses `FileReader.readAsDataURL` (native encode). The shared browser submission protocol still carries Base64 image fields inside its JSON request; replacing that Web UI protocol remains outside this decision.
 
 ## Consequences
 

@@ -2,7 +2,7 @@
 
 English | [中文](README.zh.md)
 
-The desktop application is an Electron shell around the dsh Web UI. It opens no listening port: a bundled upstream Node.js child boots the installed dsh project, Electron carries Fetch and streaming responses over versioned JSON IPC with Base64 bodies, and `dsh-app://` serves the matching client assets.
+The desktop application is an Electron shell around the dsh Web UI. It opens no listening port: a bundled upstream Node.js child boots the installed dsh project, versioned framed byte pipes carry Fetch requests and streaming responses without an outer Base64 envelope, Node IPC carries lifecycle control, and `dsh-app://` serves the matching client assets.
 
 ## Key technical decisions
 
@@ -13,7 +13,7 @@ The desktop application is an Electron shell around the dsh Web UI. It opens no 
 | Package sources | The exact dsh source build must be packageable before npm publication and install offline; plugins must remain ordinary user-selected npm packages. | The signed application carries locally packed first-party dsh packages and an offline seed store. Desktop plugins remain ordinary npm dependencies resolved from the fixed Desktop registry. |
 | Seed transport | Shipping every pnpm store file separately makes code signing inventory tens of thousands of immutable cache entries and increases update metadata, while a single compressed archive would make small package changes replace one large block range. | Packaging assigns store files to 16 deterministic uncompressed tar shards. Signing inventories the shards, the outer installer compresses them, and unchanged shards remain reusable by differential updates. |
 | State ownership | Sharing executable dependency graphs would let CLI and Desktop change each other's dsh, Cordis, plugin, or native-module versions. | Electron exclusively owns `$DSH_HOME/profiles/desktop` and its package-manager state. CLI and Desktop share supported product data under `$DSH_HOME`, but never executable packages, plugin activation, lockfiles, or `node_modules`. |
-| Transport | A listening Web service adds port ownership, authentication, CORS, and exposure concerns; Electron and upstream Node.js also need an explicit cross-process protocol. | The application opens no Web port. `dsh-app://` carries Web assets and Fetch traffic, while versioned child-process IPC connects Electron to dsh. |
+| Transport | A listening Web service adds port ownership, authentication, CORS, and exposure concerns; Electron and upstream Node.js also need an explicit cross-process protocol. | The application opens no Web port. `dsh-app://` carries Web assets and Fetch traffic; framed byte pipes carry bounded request and response chunks with backpressure, while Node IPC carries only child lifecycle control. |
 | Activation | Dependency resolution, lifecycle scripts, native modules, and plugin startup can fail, and a process can stop during directory replacement. | Release and plugin changes install in staging, boot a complete backend health check, and replace the active profile only after success; a journal and one rollback profile cover interrupted replacement. |
 | Updates | Independent shell and dsh updates would recreate version splits, while unchanged shell blocks should not require a complete transfer. | The Electron shell, matching dsh seed, Node.js, and pnpm form one signed update unit. Platform update artifacts may reuse unchanged blocks, but runtime version selection never splits from the Desktop release. |
 

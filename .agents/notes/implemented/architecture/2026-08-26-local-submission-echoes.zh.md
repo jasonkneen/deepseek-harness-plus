@@ -16,7 +16,7 @@
 
 **Composer 乐观提交。**Enter 在一个 machine 事务里清空草稿、occurrence 表和撤销历史，phase 保持 `plain`；发送作为 detached attempt 运行，允许并发发送，唯一的冻结 in-flight 槽只留给命令。多个 detached 发送失败时，只要 composer 为空或仍是上一次自动还原的内容，就按提交顺序合并还原；用户编辑后停止这一轮自动还原。草稿图片由 detached attempt 持有到回显退休，因此图片离开 rail 后销毁 Session scope 仍能释放它们。回显以 observed 退休时，`HistoricalImageCache.seed` 把每个预览 URL 挂到 admitted 引用名下。缓存同步公开预览 URL，同时读取 durable 附件；读取完成后用规范化 URL 替换预览，并按各自生命周期撤销两个 URL。直接 subagent continuation 不注册回显，因为它的 transport 会分配另一个 RPC id，而且不支持图片输入。
 
-客户端图片编码从同步分块 `btoa` 循环换成 `FileReader.readAsDataURL`（原生编码）。browser→host 传输仍是一个 base64 JSON 整包；#2885 剩余的传输改造不在本决定范围内。
+客户端图片编码使用 `FileReader.readAsDataURL`（原生编码）。共享浏览器提交协议仍在 JSON 请求中携带 Base64 图片字段；替换该 Web UI 协议仍不属于本决定。
 
 ## 后果
 

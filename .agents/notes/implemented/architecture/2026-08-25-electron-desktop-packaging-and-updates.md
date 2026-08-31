@@ -14,7 +14,7 @@ The current GUI protocol binds the Web client and backend release. Independently
 
 ## Decision
 
-Ship a small Electron shell with a bundled upstream Node.js executable and pinned pnpm. Electron starts dsh as an isolated child process, carries unary RPC and Remote streams over versioned JSON IPC with bounded Base64 request and response chunks, and serves validated assets through `dsh-app://`; it opens no listening port. The shell validates Base64 chunks with a linear scan so large client bundles cannot exhaust the main-process call stack, and removes a canceled response before notifying the child so late chunks and completion events stay inert. The Connection plugin provides its carrier-neutral RPC and Fetch registries without requiring `webServer`, while Client Modules provides the exact advertised combo-bundle responses to the shell-owned carrier; Web compositions attach their optional HTTP routes for both. The wire format avoids relying on V8 serialization compatibility between Electron and the bundled upstream Node.js. This follows the Electron reservation in the [GUI layering and RPC protocol note](../../archived/architecture/2026-07-19-gui-layering-and-rpc-protocol.md).
+Ship a small Electron shell with a bundled upstream Node.js executable and pinned pnpm. Electron starts dsh as an isolated child process, carries Fetch metadata and bounded raw request and response chunks over two versioned framed byte pipes, reserves Node IPC for readiness, fatal failure, and shutdown, and serves validated assets through `dsh-app://`; it opens no listening port. Each frame carries a fixed marker, type, monotonic stream id, payload length, and validated payload. Serialized writers honor pipe drain, readers pause globally when a request or response stream applies backpressure, cancellation closes the matching stream, and late response frames for a retired stream stay inert. The Connection plugin provides its carrier-neutral RPC and Fetch registries without requiring `webServer`, while Client Modules provides the exact advertised combo-bundle responses to the shell-owned carrier; Web compositions attach their optional HTTP routes for both. The renderer keeps the same Fetch, RPC, and Remote-stream formats, while the child carrier avoids Base64 expansion and V8 serialization compatibility between Electron and the bundled upstream Node.js. This follows the Electron reservation in the [GUI layering and RPC protocol note](../../archived/architecture/2026-07-19-gui-layering-and-rpc-protocol.md).
 
 Electron owns the reserved profile at `.dsh/profiles/desktop`. Its exact `@deepseek-ai/dsh` dependency supplies both the backend and matching Web UI. The dsh release and its first-party dependency closure use local npm tarballs packed from the same source build; the profile manifest lists every core package as a local `file:` dependency, and `pnpm-workspace.yaml` repeats the mapping as overrides. Desktop plugins are additional registry npm dependencies and ordered `dsh.profile.bundles` entries in the same profile, and resolve from its one `node_modules`.
 
@@ -26,7 +26,7 @@ The browser Web UI, dsh backend, existing `dsh plugin` CLI, user npm, and user p
 
 | Owner | Responsibility |
 |---|---|
-| Electron shell | Window and child lifecycle, IPC, custom protocol, reserved desktop profile, plugin GUI, update coordination, rollback |
+| Electron shell | Window and child lifecycle, framed byte pipes, lifecycle IPC, custom protocol, reserved desktop profile, plugin GUI, update coordination, rollback |
 | Bundled Node.js and pnpm | Execute dsh and install exact desktop-project dependencies without consulting user `PATH` or pnpm state |
 | Desktop profile | One dependency graph, ordered bundle list, and `node_modules` for the desktop dsh package and desktop plugins |
 | Installed dsh package | Backend, matching Web UI, boot manifest, client bundles, and product behavior |
@@ -101,7 +101,7 @@ The bundled upstream Node.js and pnpm are expected to add about 35–50 MB compr
 | Surface | Implementation |
 |---|---|
 | Shell | `apps/desktop` owns Electron windows, restricted preloads, the custom protocol, child lifecycle, project transactions, the plugin GUI, update coordination, and electron-builder configuration. |
-| Installed runtime | `@deepseek-ai/dsh/desktop-host` boots the portless desktop composition from the active project and streams API and asset responses over validated Node IPC. |
+| Installed runtime | `@deepseek-ai/dsh/desktop-host` boots the portless desktop composition from the active project and streams API and asset responses over validated framed byte pipes. |
 | Package state | The release seed and every later mutation run through bundled Node.js and pnpm with desktop-owned store, config, cache, state, and home paths; core packages resolve from release tarballs while plugins resolve from the fixed npm registry. |
 | Qualification | Production signing, notarization, update hosting, previous-version installed-artifact tests, and platform GUI recordings remain release-environment gates. |
 
@@ -110,6 +110,8 @@ The bundled upstream Node.js and pnpm are expected to add about 35–50 MB compr
 ## Alternatives considered
 
 **Use Electron's Node.js for dsh.** This saves package size but couples dsh to Electron's Node patches, fuses, native ABI, TLS behavior, and process lifecycle. A bundled upstream Node.js keeps dsh on its supported runtime.
+
+**Carry Fetch bodies through JSON IPC as Base64.** JSON IPC keeps one message mechanism but expands every request and response body, constructs large strings in both processes, buffers each request before dispatch, and double-encodes image bytes already represented as Base64 inside RPC JSON. Raw framed pipes retain an explicit versioned protocol without relying on Electron and upstream Node.js to share V8 serialization behavior.
 
 **Bake the product Web UI into Electron.** Independent UI and backend updates would require a new versioned compatibility program. Installing backend and Web UI from the same dsh package preserves the current release binding.
 

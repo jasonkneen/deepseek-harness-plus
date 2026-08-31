@@ -1,35 +1,32 @@
 /** Upstream-Node child lifecycle and streaming custom-protocol carrier. */
 
 import { spawn, type ChildProcess } from 'node:child_process'
-import { randomUUID } from 'node:crypto'
+import { once } from 'node:events'
 import { join } from 'node:path'
+import { Readable, Writable } from 'node:stream'
 import {
   DESKTOP_HOST_PROTOCOL_VERSION,
+  DESKTOP_PIPE_CHUNK_BYTES,
+  DESKTOP_REQUEST_PIPE_FD,
+  DESKTOP_RESPONSE_PIPE_FD,
+  DesktopHostResponseDecoder,
+  encodeDesktopRequestCancel,
+  encodeDesktopRequestData,
+  encodeDesktopRequestEnd,
+  encodeDesktopRequestStart,
   type DesktopHostCommand,
   type DesktopHostEvent,
+  type DesktopHostResponseFrame,
 } from './host-protocol.ts'
 
 interface PendingResponse {
   readonly resolve: (response: Response) => void
   readonly reject: (error: Error) => void
+  responseStarted: boolean
+  uploadOpen: boolean
   controller?: ReadableStreamDefaultController<Uint8Array>
+  requestReader?: ReadableStreamDefaultReader<Uint8Array>
   removeAbort?: () => void
-}
-
-function isCanonicalBase64(value: unknown): value is string {
-  if (typeof value !== 'string' || value.length % 4 !== 0) return false
-  let padding = 0
-  if (value.endsWith('==')) padding = 2
-  else if (value.endsWith('=')) padding = 1
-  const contentLength = value.length - padding
-  for (let index = 0; index < contentLength; index += 1) {
-    const code = value.charCodeAt(index)
-    const isDigit = code >= 48 && code <= 57
-    const isUpper = code >= 65 && code <= 90
-    const isLower = code >= 97 && code <= 122
-    if (!isDigit && !isUpper && !isLower && code !== 43 && code !== 47) return false
-  }
-  return padding === 0 || contentLength > 0
 }
 
 function isDesktopHostEvent(message: unknown): message is DesktopHostEvent {
@@ -38,22 +35,15 @@ function isDesktopHostEvent(message: unknown): message is DesktopHostEvent {
   switch (candidate.type) {
     case 'ready':
       return candidate.protocolVersion === DESKTOP_HOST_PROTOCOL_VERSION && typeof candidate.dshVersion === 'string'
-    case 'response-start':
-      return typeof candidate.id === 'string' && typeof candidate.status === 'number'
-        && Array.isArray(candidate.headers)
-        && candidate.headers.every(header => Array.isArray(header) && header.length === 2
-          && typeof header[0] === 'string' && typeof header[1] === 'string')
-    case 'response-chunk':
-      return typeof candidate.id === 'string' && isCanonicalBase64(candidate.chunkBase64)
-    case 'response-end':
-      return typeof candidate.id === 'string'
-    case 'response-error':
-      return typeof candidate.id === 'string' && typeof candidate.message === 'string'
     case 'fatal':
       return typeof candidate.message === 'string'
     default:
       return false
   }
+}
+
+function errorOf(reason: unknown, fallback: string): Error {
+  return reason instanceof Error ? reason : new Error(fallback)
 }
 
 /** Ready facts reported by one installed dsh child. */
@@ -65,7 +55,13 @@ export interface DesktopHostReady {
 /** One dsh backend running under the bundled upstream Node.js executable. */
 export class DesktopHostProcess {
   private child: ChildProcess | undefined
-  private readonly pending = new Map<string, PendingResponse>()
+  private requestPipe: Writable | undefined
+  private responsePipe: Readable | undefined
+  private readonly responseDecoder = new DesktopHostResponseDecoder()
+  private requestWriteTail: Promise<void> = Promise.resolve()
+  private nextStreamId = 1
+  private readonly pending = new Map<number, PendingResponse>()
+  private readonly blockedResponses = new Set<number>()
   private readyResolve!: (ready: DesktopHostReady) => void
   private readyReject!: (error: Error) => void
   private readonly readyPromise = new Promise<DesktopHostReady>((resolve, reject) => {
@@ -100,12 +96,31 @@ export class DesktopHostProcess {
       env: Object.fromEntries(Object.entries(process.env).filter(([name]) => (
         name !== 'NODE_OPTIONS' && !/^DSH_DESKTOP_/u.test(name) && !/^(?:npm|pnpm|corepack)_/iu.test(name)
       ))),
-      stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
+      stdio: ['ignore', 'pipe', 'pipe', 'pipe', 'pipe', 'ipc'],
     })
+    const requestPipe = child.stdio[DESKTOP_REQUEST_PIPE_FD]
+    const responsePipe = child.stdio[DESKTOP_RESPONSE_PIPE_FD]
+    if (!(requestPipe instanceof Writable) || !(responsePipe instanceof Readable)) {
+      child.kill('SIGTERM')
+      throw new Error('dsh desktop host did not expose the required byte pipes and IPC channel')
+    }
     this.child = child
+    this.requestPipe = requestPipe
+    this.responsePipe = responsePipe
     child.stderr?.setEncoding('utf8')
     child.stderr?.on('data', (chunk: string) => { this.stderr += chunk })
     child.stdout?.pipe(process.stdout)
+    responsePipe.on('data', (chunk: Buffer) => { this.acceptResponseBytes(chunk) })
+    responsePipe.once('end', () => {
+      try {
+        this.responseDecoder.finish()
+        this.fail(new Error('dsh desktop host response pipe ended'))
+      } catch (error) {
+        this.fail(errorOf(error, 'dsh desktop host response pipe failed'))
+      }
+    })
+    requestPipe.once('error', (error) => { this.fail(error) })
+    responsePipe.once('error', (error) => { this.fail(error) })
     child.on('message', (message: unknown) => {
       if (!isDesktopHostEvent(message)) {
         this.fail(new Error('dsh desktop host sent an invalid IPC event'))
@@ -126,40 +141,45 @@ export class DesktopHostProcess {
     return this.readyPromise
   }
 
-  /** Forward one `dsh-app://app` request to the child. */
+  /** Forward one `dsh-app://app` request to the child without buffering its body. */
   async fetch(request: Request): Promise<Response> {
     await this.start()
     const child = this.child
-    if (child === undefined || !child.connected) throw new Error('dsh desktop host is unavailable')
-    const id = randomUUID()
+    if (child === undefined || !child.connected || this.requestPipe === undefined) {
+      throw new Error('dsh desktop host is unavailable')
+    }
+    if (this.nextStreamId > 0xffff_ffff) throw new Error('dsh desktop host exhausted its request stream ids')
+    const streamId = this.nextStreamId++
     const method = request.method.toUpperCase()
-    const body = method === 'GET' || method === 'HEAD'
-      ? undefined
-      : new Uint8Array(await request.arrayBuffer())
+    const hasBody = method !== 'GET' && method !== 'HEAD' && request.body !== null
     return new Promise<Response>((resolve, reject) => {
-      const pending: PendingResponse = { resolve, reject }
+      const pending: PendingResponse = {
+        resolve,
+        reject,
+        responseStarted: false,
+        uploadOpen: hasBody,
+      }
       const abort = (): void => {
-        this.send({ type: 'cancel', id })
-        pending.controller?.error(request.signal.reason)
-        this.pending.delete(id)
-        reject(request.signal.reason instanceof Error ? request.signal.reason : new Error('request aborted'))
+        if (!this.pending.has(streamId)) return
+        const error = errorOf(request.signal.reason, 'request aborted')
+        pending.uploadOpen = false
+        void pending.requestReader?.cancel(error).catch(() => undefined)
+        this.enqueueRequestFrame(encodeDesktopRequestCancel(streamId)).catch((pipeError: unknown) => {
+          this.fail(errorOf(pipeError, 'dsh desktop request pipe failed'))
+        })
+        if (pending.controller === undefined) pending.reject(error)
+        else pending.controller.error(error)
+        this.finishPending(streamId, false)
       }
       if (request.signal.aborted) {
-        abort()
+        reject(errorOf(request.signal.reason, 'request aborted'))
         return
       }
       request.signal.addEventListener('abort', abort, { once: true })
       pending.removeAbort = () => { request.signal.removeEventListener('abort', abort) }
-      this.pending.set(id, pending)
-      this.send({
-        type: 'fetch',
-        id,
-        request: {
-          url: request.url,
-          method,
-          headers: [...request.headers.entries()],
-          ...(body === undefined ? {} : { bodyBase64: Buffer.from(body).toString('base64') }),
-        },
+      this.pending.set(streamId, pending)
+      this.pumpRequest(streamId, request, hasBody).catch((error: unknown) => {
+        this.failPending(streamId, errorOf(error, 'dsh desktop request upload failed'))
       })
     })
   }
@@ -168,6 +188,8 @@ export class DesktopHostProcess {
   async stop(): Promise<void> {
     const child = this.child
     if (child === undefined) return
+    this.blockedResponses.clear()
+    this.responsePipe?.resume()
     if (child.connected) this.send({ type: 'shutdown' })
     const exited = this.exitPromise ?? Promise.resolve()
     const wait = (milliseconds: number): Promise<'timeout'> => new Promise((resolve) => {
@@ -181,6 +203,59 @@ export class DesktopHostProcess {
       throw new Error('dsh desktop host did not stop after termination')
     }
     this.child = undefined
+    this.requestPipe = undefined
+    this.responsePipe = undefined
+  }
+
+  private async pumpRequest(streamId: number, request: Request, hasBody: boolean): Promise<void> {
+    await this.enqueueRequestFrame(encodeDesktopRequestStart(streamId, {
+      url: request.url,
+      method: request.method.toUpperCase(),
+      headers: [...request.headers.entries()],
+      hasBody,
+    }))
+    if (!hasBody) return
+    const body = request.body
+    if (body === null) throw new Error('dsh desktop request body disappeared before upload')
+    const reader = body.getReader()
+    const pending = this.pending.get(streamId)
+    if (pending === undefined) {
+      await reader.cancel()
+      return
+    }
+    pending.requestReader = reader
+    try {
+      for (;;) {
+        const next = await reader.read()
+        if (next.done) break
+        for (let offset = 0; offset < next.value.byteLength; offset += DESKTOP_PIPE_CHUNK_BYTES) {
+          if (!this.pending.has(streamId)) return
+          await this.enqueueRequestFrame(encodeDesktopRequestData(
+            streamId,
+            next.value.subarray(offset, offset + DESKTOP_PIPE_CHUNK_BYTES),
+          ))
+        }
+      }
+      const live = this.pending.get(streamId)
+      if (live !== undefined) {
+        await this.enqueueRequestFrame(encodeDesktopRequestEnd(streamId))
+        live.uploadOpen = false
+      }
+    } finally {
+      reader.releaseLock()
+      const live = this.pending.get(streamId)
+      if (live?.requestReader === reader) delete live.requestReader
+    }
+  }
+
+  private enqueueRequestFrame(frame: Buffer): Promise<void> {
+    const write = this.requestWriteTail.then(async () => {
+      const pipe = this.requestPipe
+      if (pipe === undefined || pipe.destroyed) throw new Error('dsh desktop host request pipe is unavailable')
+      if (!pipe.write(frame)) await once(pipe, 'drain')
+    })
+    this.requestWriteTail = write.catch(() => undefined)
+    return write
   }
 
   private send(message: DesktopHostCommand): void {
@@ -189,49 +264,120 @@ export class DesktopHostProcess {
     child.send(message)
   }
 
+  private acceptResponseBytes(chunk: Buffer): void {
+    try {
+      for (const frame of this.responseDecoder.push(chunk)) this.handleResponseFrame(frame)
+    } catch (error) {
+      this.fail(errorOf(error, 'dsh desktop host response pipe failed'))
+      this.child?.kill('SIGTERM')
+    }
+  }
+
+  private handleResponseFrame(frame: DesktopHostResponseFrame): void {
+    const pending = this.pending.get(frame.streamId)
+    if (pending === undefined) {
+      if (frame.streamId >= this.nextStreamId) {
+        throw new Error(`dsh desktop host responded for unknown stream ${String(frame.streamId)}`)
+      }
+      return
+    }
+    switch (frame.type) {
+      case 'start': {
+        if (pending.responseStarted) throw new Error(`dsh desktop host started stream ${String(frame.streamId)} twice`)
+        pending.responseStarted = true
+        let body: ReadableStream<Uint8Array> | null = null
+        if (frame.hasBody) {
+          body = new ReadableStream<Uint8Array>({
+            start: (controller) => { pending.controller = controller },
+            pull: () => {
+              this.blockedResponses.delete(frame.streamId)
+              this.resumeResponsePipe()
+            },
+            cancel: (reason) => { this.cancelResponse(frame.streamId, reason) },
+          })
+        }
+        pending.resolve(new Response(body, {
+          status: frame.status,
+          headers: new Headers(frame.headers.map(([name, value]) => [name, value] as [string, string])),
+        }))
+        return
+      }
+      case 'data': {
+        const controller = pending.controller
+        if (!pending.responseStarted || controller === undefined) {
+          throw new Error(`dsh desktop host sent body data before a body start for stream ${String(frame.streamId)}`)
+        }
+        controller.enqueue(frame.data)
+        if ((controller.desiredSize ?? 0) <= 0) {
+          this.blockedResponses.add(frame.streamId)
+          this.responsePipe?.pause()
+        }
+        return
+      }
+      case 'end':
+        if (!pending.responseStarted) {
+          throw new Error(`dsh desktop host ended stream ${String(frame.streamId)} before its response start`)
+        }
+        pending.controller?.close()
+        this.finishPending(frame.streamId, true)
+        return
+      case 'error':
+        this.failPending(frame.streamId, new Error(frame.message))
+        return
+      default:
+        frame satisfies never
+    }
+  }
+
+  private cancelResponse(streamId: number, reason: unknown): void {
+    const pending = this.pending.get(streamId)
+    if (pending === undefined) return
+    pending.uploadOpen = false
+    void pending.requestReader?.cancel(reason).catch(() => undefined)
+    this.enqueueRequestFrame(encodeDesktopRequestCancel(streamId)).catch((error: unknown) => {
+      this.fail(errorOf(error, 'dsh desktop request pipe failed'))
+    })
+    this.finishPending(streamId, false)
+  }
+
+  private failPending(streamId: number, error: Error): void {
+    const pending = this.pending.get(streamId)
+    if (pending === undefined) return
+    pending.uploadOpen = false
+    void pending.requestReader?.cancel(error).catch(() => undefined)
+    if (pending.controller === undefined) pending.reject(error)
+    else pending.controller.error(error)
+    this.enqueueRequestFrame(encodeDesktopRequestCancel(streamId)).catch((pipeError: unknown) => {
+      this.fail(errorOf(pipeError, 'dsh desktop request pipe failed'))
+    })
+    this.finishPending(streamId, false)
+  }
+
+  private finishPending(streamId: number, cancelOpenUpload: boolean): void {
+    const pending = this.pending.get(streamId)
+    if (pending === undefined) return
+    if (cancelOpenUpload && pending.uploadOpen) {
+      pending.uploadOpen = false
+      void pending.requestReader?.cancel().catch(() => undefined)
+      this.enqueueRequestFrame(encodeDesktopRequestCancel(streamId)).catch((error: unknown) => {
+        this.fail(errorOf(error, 'dsh desktop request pipe failed'))
+      })
+    }
+    pending.removeAbort?.()
+    this.pending.delete(streamId)
+    this.blockedResponses.delete(streamId)
+    this.resumeResponsePipe()
+  }
+
+  private resumeResponsePipe(): void {
+    if (this.blockedResponses.size === 0) this.responsePipe?.resume()
+  }
+
   private handleMessage(message: DesktopHostEvent): void {
     switch (message.type) {
       case 'ready':
         this.readyResolve(message)
         return
-      case 'response-start': {
-        const pending = this.pending.get(message.id)
-        if (pending === undefined) return
-        const body = new ReadableStream<Uint8Array>({
-          start: (controller) => { pending.controller = controller },
-          cancel: () => {
-            pending.removeAbort?.()
-            this.pending.delete(message.id)
-            this.send({ type: 'cancel', id: message.id })
-          },
-        })
-        pending.resolve(new Response(body, {
-          status: message.status,
-          headers: new Headers(message.headers.map(([name, value]) => [name, value] as [string, string])),
-        }))
-        return
-      }
-      case 'response-chunk':
-        this.pending.get(message.id)?.controller?.enqueue(Buffer.from(message.chunkBase64, 'base64'))
-        return
-      case 'response-end': {
-        const pending = this.pending.get(message.id)
-        if (pending === undefined) return
-        pending.controller?.close()
-        pending.removeAbort?.()
-        this.pending.delete(message.id)
-        return
-      }
-      case 'response-error': {
-        const pending = this.pending.get(message.id)
-        if (pending === undefined) return
-        const error = new Error(message.message)
-        if (pending.controller === undefined) pending.reject(error)
-        else pending.controller.error(error)
-        pending.removeAbort?.()
-        this.pending.delete(message.id)
-        return
-      }
       case 'fatal':
         this.fail(new Error(message.message))
         return
@@ -243,10 +389,13 @@ export class DesktopHostProcess {
   private fail(error: Error): void {
     this.readyReject(error)
     for (const pending of this.pending.values()) {
+      void pending.requestReader?.cancel(error).catch(() => undefined)
       if (pending.controller === undefined) pending.reject(error)
       else pending.controller.error(error)
       pending.removeAbort?.()
     }
     this.pending.clear()
+    this.blockedResponses.clear()
+    this.responsePipe?.resume()
   }
 }

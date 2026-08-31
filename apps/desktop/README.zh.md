@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-桌面应用是包裹 dsh Web UI 的 Electron 壳。它不打开监听端口：内置的上游 Node.js 子进程启动已安装的 dsh 项目，Electron 通过带版本的 JSON IPC 和 Base64 消息体承载 Fetch 与流式响应，`dsh-app://` 则提供与后端版本匹配的客户端资源。
+桌面应用是包裹 dsh Web UI 的 Electron 壳。它不打开监听端口：内置的上游 Node.js 子进程启动已安装的 dsh 项目，带版本的分帧字节管道在没有外层 Base64 信封的情况下承载 Fetch 请求与流式响应，Node IPC 承载生命周期控制，`dsh-app://` 则提供与后端版本匹配的客户端资源。
 
 ## 关键技术决策
 
@@ -13,7 +13,7 @@
 | 包来源 | 必须能在发布到 npm 之前从同一次源码构建打包精确的 dsh，并支持离线安装；插件则需要保留为用户选择的普通 npm 包。 | 已签名应用携带本地打包的第一方 dsh 包与离线 seed store。桌面插件仍是从固定 Desktop registry 解析的普通 npm 依赖。 |
 | Seed 传输 | 把 pnpm store 的每个文件分别放入应用，会让代码签名记录数万个不可变缓存条目并增大更新元数据；单个压缩归档又会让很小的包变化改写一大片数据块。 | 打包按路径确定性地把 store 文件分配到 16 个未压缩 tar 分片。签名只记录分片，外层安装包负责压缩，差分更新可以复用未变化的分片。 |
 | 状态归属 | 共享可执行依赖图会让 CLI 与 Desktop 相互改变 dsh、Cordis、插件或原生模块版本。 | Electron 独占 `$DSH_HOME/profiles/desktop` 及其包管理器状态。CLI 与 Desktop 共享 `$DSH_HOME` 下受支持的产品数据，但绝不共享可执行包、插件激活、锁文件或 `node_modules`。 |
-| 通信 | 监听 Web 服务会引入端口归属、认证、CORS 与暴露风险；Electron 与上游 Node.js 之间也需要明确的跨进程协议。 | 应用不打开 Web 端口。`dsh-app://` 承载 Web 资源和 Fetch 流量，带版本的子进程 IPC 则连接 Electron 与 dsh。 |
+| 通信 | 监听 Web 服务会引入端口归属、认证、CORS 与暴露风险；Electron 与上游 Node.js 之间也需要明确的跨进程协议。 | 应用不打开 Web 端口。`dsh-app://` 承载 Web 资源和 Fetch 流量；分帧字节管道以背压传输有界请求与响应分块，Node IPC 只承载子进程生命周期控制。 |
 | 激活 | 依赖解析、生命周期脚本、原生模块与插件启动都可能失败，目录替换期间进程也可能中断。 | 发布与插件变更先安装到 staging，并启动完整后端执行健康检查；只有成功后才替换活跃 profile，中断替换由事务日志和一个 rollback profile 恢复。 |
 | 更新 | 桌面壳与 dsh 独立更新会重新产生版本分裂，而桌面壳未变化的数据块不应强制完整传输。 | Electron 壳、匹配的 dsh seed、Node.js 与 pnpm 组成一个已签名更新单元。平台更新产物可以复用未变化的数据块，但运行时版本选择绝不脱离 Desktop 发布。 |
 
