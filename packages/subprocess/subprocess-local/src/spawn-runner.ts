@@ -46,12 +46,9 @@ interface UvErrorBindings {
   errorName(error: number): string
 }
 
-let cachedUvErrorBindings: UvErrorBindings | undefined
-
 function loadUvErrorBindings(): UvErrorBindings {
-  if (cachedUvErrorBindings !== undefined) return cachedUvErrorBindings
   const node = koffi.load(null)
-  cachedUvErrorBindings = {
+  return {
     translateSystemError: node.func(
       'uv_translate_sys_error',
       'int',
@@ -63,7 +60,6 @@ function loadUvErrorBindings(): UvErrorBindings {
       ['int'],
     ) as unknown as UvErrorBindings['errorName'],
   }
-  return cachedUvErrorBindings
 }
 
 /** Injectable operations used by the protocol-owner tests. */

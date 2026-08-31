@@ -651,23 +651,21 @@ describe('Windows Job runner protocol owner', () => {
   })
 
   it('loads the error translation functions from Node-linked libuv', async () => {
-    for (let attempt = 0; attempt < 2; attempt += 1) {
-      const host = new FakeRunnerHost()
-      const native = internals({
-        spawnCurrentTokenJobProcess: vi.fn(() => { throw new Win32Error('CreateProcessW', 2) }),
-      })
-      Reflect.deleteProperty(native, 'uvErrorBindings')
-      await runWindows(host, native)
-      expect(host.sent).toMatchObject([{
-        type: 'error',
-        error: {
-          code: 'ENOENT',
-          errno: process.platform === 'win32' ? -4058 : -2,
-          path: 'tool.exe',
-          spawnargs: ['literal arg'],
-        },
-      }])
-    }
+    const host = new FakeRunnerHost()
+    const native = internals({
+      spawnCurrentTokenJobProcess: vi.fn(() => { throw new Win32Error('CreateProcessW', 2) }),
+    })
+    Reflect.deleteProperty(native, 'uvErrorBindings')
+    await runWindows(host, native)
+    expect(host.sent).toMatchObject([{
+      type: 'error',
+      error: {
+        code: 'ENOENT',
+        errno: process.platform === 'win32' ? -4058 : -2,
+        path: 'tool.exe',
+        spawnargs: ['literal arg'],
+      },
+    }])
   })
 
   it.skipIf(process.platform !== 'win32')('preserves native EMFILE and UNKNOWN translations', async () => {
