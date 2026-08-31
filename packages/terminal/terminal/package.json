@@ -2,6 +2,7 @@
   "name": "@deepseek-ai/dsh-terminal",
   "description": "Persistent PTY session seam for the DeepSeek Harness — owner-scoped ids, backend registry, interactive sends, reads, signals, and awaited cleanup",
   "version": "0.1.3",
+
   "publishConfig": {
     "access": "public"
   },

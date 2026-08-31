@@ -1,16 +1,46 @@
+---
+description: "Ready-made dsh profile bundles for the shared core, browser GUI, one-shot task, ACP, and SDK application surfaces."
+kind: "package-group"
+---
+
 # bundle/ — profile plugin bundles
 
 English | [中文](README.zh.md)
 
-Profile bundles: npm packages whose manifest declares `"dsh": { "bundle": { "patch": "./cordis.patch.yml" } }`, making them installable patch layers for `dsh --profile` compositions ([profile contract](../boot/app-boot/README.md#profiles)). A bundle's substance is its patch list; some also ship runtime glue plugins their patch mounts.
+## Summary
 
-The manifest declaration, not this directory, defines Bundle identity. Domain packages can carry their own optional Profile layer; the [Codex and Claude Code subagent packages](../subagent/README.md) are directly installable examples.
+This group maps the installable patch layers used by `dsh --profile`. Each package declares `dsh.bundle.patch`; the launcher stacks those patch documents to assemble a named profile. The `web`, `headless`, `acp`, and `sdk` profiles build on `dsh-base`, while `sdk-minimal` supplies its complete tree in one bundle. Domain packages can declare additional layers outside this directory.
+
+## Table of Contents
+
+- [Packages](#packages)
+- [Related documentation](#related-documentation)
+- [Dev Note](#dev-note)
+
+<a id="packages"></a>
+## Packages
 
 | Package | Role | ctx key |
 |---|---|---|
 | [`base/`](base/README.md) | The shared dsh core every profile applies first | — (patch only) |
+| [`acp-app/`](acp-app/README.md) | Automation-only ACP stdio application over base | mounts the ACP bridge |
 | [`web-app/`](web-app/README.md) | Browser surface: web patch layer + runtime glue plugin | mounts rows |
 | [`headless/`](headless/README.md) | Direct one-shot task mode over base, with no Host or Web layer | mounts `headless-runner` |
+| [`sdk-app/`](sdk-app/README.md) | SDK JSON-RPC stdio application over base | mounts the SDK server |
+| [`sdk-minimal/`](sdk-minimal/README.md) | Standalone minimal SDK application without base or Web | — (complete patch tree) |
 | [`multi-provider/`](multi-provider/README.md) | Optional third-party layer: Gemini/MiniMax/Kimi routes on `dsh-llm-pi-ai` plus the Claude Code and Codex delegation backends | — (patch only) |
 
 In-box bundles resolve from the dsh installation; out-of-tree bundles install into a profile through `dsh plugin --profile <name> add <package>`.
+
+<a id="related-documentation"></a>
+## Related documentation
+
+- [dsh app](../../apps/cli/README.md) — the `dsh` command that starts a profile.
+- [app-boot](../boot/app-boot/README.md) — how profiles are resolved, layered, and customized.
+- [Profile plugin bundles note](../../.agents/notes/implemented/architecture/2026-08-05-profile-plugin-bundles.md) — the profile and bundle composition design.
+- [Generated composition graph](../../apps/cli/composition.md) — the exact composition each shipped profile uses.
+
+<a id="dev-note"></a>
+## Dev Note
+
+None.

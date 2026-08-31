@@ -16,7 +16,8 @@ import {
   type SpawnOptions,
 } from '@anthropic-ai/claude-agent-sdk'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
-import { SessionId } from '@deepseek-ai/dsh-session'
+import { brandString } from '@deepseek-ai/dsh-brand'
+import type { SessionId } from '@deepseek-ai/dsh-session'
 import {
   settleRunResult,
   subprocessRunHandle,
@@ -59,8 +60,6 @@ const SUPPORTED_UNATTENDED_DIALOG_KINDS = [
   'refusal_fallback_prompt',
 ] satisfies NonNullable<Options['supportedDialogKinds']>
 
-type ClaudeCodeErrorSubtype = Exclude<SDKResultMessage['subtype'], 'success'>
-
 type ClaudeCodeFailureStage =
   | 'query-start'
   | 'query-run'
@@ -68,10 +67,10 @@ type ClaudeCodeFailureStage =
   | 'teardown'
 
 type ClaudeCodeFailureCategory =
-  | ClaudeCodeErrorSubtype
-  | 'invalid-success'
-  | 'missing-result'
-  | 'process-exit'
+  | 'limit'
+  | 'product-error'
+  | 'invalid-result'
+  | 'process'
   | 'unknown'
 
 interface ClaudeCodeFailureFacts {
@@ -112,13 +111,14 @@ class ClaudeCodeFailure extends Error {
 
 function sdkFailureCategory(
   subtype: string,
-): ClaudeCodeErrorSubtype | 'unknown' {
+): ClaudeCodeFailureCategory {
   switch (subtype) {
-    case 'error_during_execution':
     case 'error_max_turns':
     case 'error_max_budget_usd':
     case 'error_max_structured_output_retries':
-      return subtype
+      return 'limit'
+    case 'error_during_execution':
+      return 'product-error'
     default:
       return 'unknown'
   }
@@ -151,6 +151,8 @@ function unattendedDiagnostic(
 export interface ClaudeCodeRunSpec {
   /** Parent Session workspace supplied to the SDK and real CLI. */
   readonly cwd: string
+  /** Profile-selected native model; omitted to preserve Claude settings. */
+  readonly model?: string
   /** Profile-selected native non-interactive permission mode. */
   readonly permissionMode: ClaudeCodePermissionMode
   /** Explicit deployment/test environment layered after shared scrubbing. */
@@ -225,7 +227,7 @@ export function successfulResult(message: SDKResultMessage): string {
   if (message.is_error || message.result.trim().length === 0) {
     throw new ClaudeCodeFailure({
       stage: 'query-run',
-      category: 'invalid-success',
+      category: 'invalid-result',
     })
   }
   return message.result
@@ -317,7 +319,7 @@ export async function consumeClaudeQuery(
   if (answer === undefined) {
     throw new ClaudeCodeFailure({
       stage: 'query-run',
-      category: 'missing-result',
+      category: 'invalid-result',
     })
   }
   return {
@@ -435,6 +437,7 @@ export function claudeQueryOptions(
   return {
     abortController: controller,
     cwd: spec.cwd,
+    ...spec.model === undefined ? {} : { model: spec.model },
     env: { ...scrubbedParentEnv(), ...spec.env },
     persistSession: spec.continuation,
     ...(spec.continuation && continueFrom !== undefined ? { resume: continueFrom } : {}),
@@ -679,7 +682,7 @@ export async function startClaudeCodeRun(
         } else if (processOutcome !== undefined && !receivedResult) {
           facts = {
             stage: 'process',
-            category: 'process-exit',
+            category: 'process',
             outcome: processOutcome,
           }
         } else {
@@ -705,7 +708,7 @@ export async function startClaudeCodeRun(
   })
 
   return subprocessRunHandle({
-    id: SessionId(randomUUID()),
+    id: brandString<SessionId>(randomUUID()),
     result,
     updates: claudeUpdates(channel),
     signal: request.signal,

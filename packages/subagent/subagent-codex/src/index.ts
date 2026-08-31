@@ -32,10 +32,13 @@ export const inject = ['subagents', 'subprocess']
 
 const DEFAULT_PROVIDER_NAME = 'codex'
 
-/** Deployment-owned permission, environment, process-release, and continuation settings. */
+/** Deployment-owned model, permission, environment, process-release, and continuation settings. */
+
 export interface Config {
   /** Provider name on `ctx.subagents` (default `codex`). */
   providerName?: string
+  /** Native Codex model fixed for this instance; omitted to inherit Codex settings. */
+  model?: string
   /**
    * Explicit environment entries layered over the subprocess seam's
    * credential-scrubbed parent environment.
@@ -55,6 +58,7 @@ export interface Config {
 
 export const Config: z<Config> = z.object({
   providerName: z.string().min(1).default(DEFAULT_PROVIDER_NAME),
+  model: z.string().min(1),
   env: z.dict(z.string()).default({}),
   permissionMode: z.union([...CODEX_PERMISSION_MODES])
     .default(DEFAULT_CODEX_PERMISSION_MODE),
@@ -62,7 +66,7 @@ export const Config: z<Config> = z.object({
   continuation: z.boolean().default(false),
 })
 
-type ResolvedConfig = Required<Config>
+type ResolvedConfig = Omit<Required<Config>, 'model'> & Pick<Config, 'model'>
 
 class CodexProvider implements SubagentProvider {
   readonly capabilities: SubagentCapabilities = { ...NO_START_CAPABILITIES, continuation: true, reasoningEffort: true }
@@ -98,6 +102,7 @@ class CodexProvider implements SubagentProvider {
     }
     const spec: CodexRunSpec = {
       cwd,
+      ...this.config.model === undefined ? {} : { model: this.config.model },
       permissionMode: this.config.permissionMode,
       env: this.config.env,
       disposeGraceMs: this.config.disposeGraceMs,
@@ -116,11 +121,12 @@ class CodexProvider implements SubagentProvider {
 /**
  * Register one Profile-named Codex provider.
  * @param ctx - context carrying shared subagent and subprocess services.
- * @param config - registry name, permission mode, child environment, and disposal grace.
+ * @param config - registry name, optional model, permission mode, child environment, and disposal grace.
  */
 export function apply(ctx: Context, config: Config): void {
   const resolved: ResolvedConfig = {
     providerName: config.providerName ?? DEFAULT_PROVIDER_NAME,
+    ...config.model === undefined ? {} : { model: config.model },
     env: config.env as Record<string, string>,
     permissionMode: config.permissionMode ?? DEFAULT_CODEX_PERMISSION_MODE,
     disposeGraceMs: config.disposeGraceMs as number,
