@@ -53,12 +53,12 @@ function loadUvErrorBindings(): UvErrorBindings {
       'uv_translate_sys_error',
       'int',
       ['int'],
-    ) as unknown as UvErrorBindings['translateSystemError'],
+    ),
     errorName: node.func(
       'uv_err_name',
       'str',
       ['int'],
-    ) as unknown as UvErrorBindings['errorName'],
+    ),
   }
 }
 
