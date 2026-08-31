@@ -23,6 +23,7 @@
 
 import { stat } from 'node:fs/promises'
 import { Context } from '@deepseek-ai/cordis'
+import { evaluate } from '@deepseek-ai/cordis-plugin-loader'
 import z from '@deepseek-ai/schemastery'
 import { Remote, RemoteError, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
 import { bindScopeParent, createScope, scopeOf, type Scope, type ScopeKey, type ScopeParentBinding } from '@deepseek-ai/dsh-scope'
@@ -33,14 +34,22 @@ import type { AgentPresetDocument, AgentPresetRoster } from './types.ts'
 import type {} from '@deepseek-ai/dsh-session-projection'
 // Type-only: resolves the registry notification emitted after scope reparenting.
 import type {} from '@deepseek-ai/dsh-tools'
-import { settingsNamespace, type SettingsScope, type default as SettingsService } from '@deepseek-ai/dsh-settings'
+import type SettingsService from '@deepseek-ai/dsh-settings'
+import type { SettingsScope } from '@deepseek-ai/dsh-settings'
 import { dshHomePath } from '@deepseek-ai/dsh-home-paths'
 import { discoverPresets, SHIPPED_PRESET_ROOT, USER_PRESET_DIR } from './discovery.ts'
 import { copyComposition, deleteComposition, presetExists, readComposition } from './authoring.ts'
-import { mountPreset, serviceForAgent, standingMountFor } from './mount.ts'
+import { livePresetMounts, mountPreset, serviceForAgent, standingMountFor } from './mount.ts'
+import {
+  fileComposition, mountedCompositionRows,
+  type AgentPresetComposition,
+} from './composition-inventory.ts'
 import type { AgentPreset, Config, PresetRoot } from './preset.ts'
 import { agentPresetProjectionDefinition } from './session.ts'
 export type * from './types.ts'
+export type {
+  AgentPresetComposition, AgentPresetCompositionRow, CompositionRowEnablement,
+} from './composition-inventory.ts'
 
 /** Settings namespace carrying the user's chosen default preset. */
 export const SETTINGS_NAMESPACE = 'agent-presets'
@@ -171,14 +180,14 @@ export class AgentPresets extends TypertRemoteService {
       ...config.roots,
       ...config.includeUserRoot ? [{ path: dshHomePath(USER_PRESET_DIR), trust: 'user' } satisfies PresetRoot] : [],
     ]
-    // Deliberately not `installSettingsSection`: that helper exists to re-judge
+    // Deliberately not `settings.installSection`: that method exists to re-judge
     // what a consumer DERIVED from the source — memoized resolutions,
     // registration-level facts — across attach, detach, and change. Nothing
     // here is derived. `defaultId` reads through on every call, so both of its
     // hooks would be no-ops and the source thunk would restate this field.
     ctx.inject(['settings'], (settingsCtx) => {
       this.settings = settingsCtx.settings.register(
-        settingsNamespace(SETTINGS_NAMESPACE),
+        SETTINGS_NAMESPACE,
         AgentPresetSettingsSchema,
         { base: { default: config.default } },
       )
@@ -262,6 +271,63 @@ export class AgentPresets extends TypertRemoteService {
       })),
       authorable: this.authorable,
     }
+  }
+
+  /**
+   * Every preset's composition as flattened plugin rows, for plugin-listing
+   * surfaces beside the roster's own picker.
+   *
+   * A preset with a live standing mount answers from its newest generation's
+   * Loader entries — the composition new sessions join — even when the file
+   * behind it has since been edited into an unreadable state: the mount is
+   * what sessions actually run, so the broken verdict only applies to a
+   * preset nothing composed. One never composed since boot answers from its
+   * file, with `!!js` disabled gates evaluated against the Loader context so
+   * both answers reflect the same host. Reading never mounts: an unmounted
+   * preset is parsed, not composed, so listing a preset's plugins cannot
+   * activate them early. A composition that stopped reading between
+   * discovery's health verdict and this read is reported broken with the
+   * raced reason rather than dropped.
+   * @returns one composition per roster preset, in roster order.
+   */
+  async compositionInventory(): Promise<AgentPresetComposition[]> {
+    const defaultId = this.defaultId
+    // The Loader's own expression scope: what a mount decision would consult.
+    // An identifier this scope cannot resolve throws under `with`, and the
+    // row stays `'conditional'`; only a gate whose identifiers resolve BOTH
+    // here and under a mounted row's entry chain, with different values,
+    // could report a wrong verdict — the shipped gates read `process` alone.
+    const evaluateExpression = (expression: string): unknown => evaluate(this.ctx.loader.ctx, expression)
+    // Mount records span every Cordis runtime in the process; only this
+    // runtime's mounts describe this roster's presets.
+    const rootFiber = this.ctx.root.fiber
+    const found: AgentPresetComposition[] = []
+    for (const preset of await this.list()) {
+      const identity = {
+        id: preset.id,
+        trust: preset.trust,
+        ...preset.name === undefined ? {} : { name: preset.name },
+        isDefault: preset.id === defaultId,
+      }
+      // Before the broken verdict: a mounted preset whose file was since
+      // deleted or corrupted still runs its standing composition. Newest
+      // generation last: mount records keep insertion order, and a
+      // superseded generation's record precedes its replacement's.
+      const mount = livePresetMounts(rootFiber).findLast(candidate => candidate.presetId === preset.id)
+      if (mount !== undefined) {
+        found.push({ ...identity, rows: mountedCompositionRows(mount.tree) })
+        continue
+      }
+      if (preset.broken !== undefined) {
+        found.push({ ...identity, broken: preset.broken, rows: [] })
+        continue
+      }
+      const read = await fileComposition(preset.path, evaluateExpression)
+      found.push('broken' in read
+        ? { ...identity, broken: read.broken, rows: [] }
+        : { ...identity, rows: read.rows })
+    }
+    return found
   }
 
   /**
@@ -521,7 +587,7 @@ export class AgentPresets extends TypertRemoteService {
     // exposes the deployment's own default underneath, which is the layering.
     if (this.settings?.get().default !== id) return
     await this.settingsService?.mutate(
-      settingsNamespace(SETTINGS_NAMESPACE),
+      SETTINGS_NAMESPACE,
       [{ op: 'unset', path: ['default'] }],
     )
   }

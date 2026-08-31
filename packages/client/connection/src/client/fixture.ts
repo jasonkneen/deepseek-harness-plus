@@ -5,7 +5,8 @@ import {
   createToolResultMessage,
   createUserMessage,
 } from '@deepseek-ai/dsh-llm/message'
-import { ToolCallId, type MessageId } from '@deepseek-ai/dsh-llm/brand'
+import { brandString } from '@deepseek-ai/dsh-brand'
+import type { MessageId, ToolCallId } from '@deepseek-ai/dsh-llm/brand'
 import type {
   AssistantMessage,
   ContentBlock,
@@ -17,11 +18,11 @@ import type {
 } from '@deepseek-ai/dsh-llm'
 import type { AttachmentIdType, ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import type {
-  JsonValue,
   SessionEvent,
   SessionHeader,
   SessionId,
 } from '@deepseek-ai/dsh-session/types'
+import type { JsonValue } from '@deepseek-ai/dsh-util-values'
 import { isChunkRow, packChunkRuns } from '@deepseek-ai/dsh-session/chunk-rows'
 import type { ChunkRow } from '@deepseek-ai/dsh-session/chunk-rows'
 import type { TodoItem } from '@deepseek-ai/dsh-tool-todo/client'
@@ -355,7 +356,7 @@ function assistantMessage(content: ContentBlock[], model = 'fx-1'): AssistantMes
 }
 
 function toolResultMessage(callId: string, content: ContentBlock[], isError: boolean): ToolResultMessage {
-  return createToolResultMessage({ callId: ToolCallId(callId), content, isError })
+  return createToolResultMessage({ callId: brandString<ToolCallId>(callId), content, isError })
 }
 
 const MARKDOWN_FIXTURE = [

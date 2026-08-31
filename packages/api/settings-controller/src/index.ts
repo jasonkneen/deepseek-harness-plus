@@ -17,13 +17,12 @@ import {
   openNativePath,
   openNativeTextFile,
 } from '@deepseek-ai/dsh-native-command'
-import { SettingsConflictError, settingsNamespace } from '@deepseek-ai/dsh-settings'
 import type { SettingsDescriptor, SettingsPathOp, SettingsProvider } from '@deepseek-ai/dsh-settings'
 import type {
   SettingsDescribeValue, SettingsNamespaceView, SettingsPathOpView,
 } from '@deepseek-ai/dsh-settings/types'
-import type { JsonValue } from '@deepseek-ai/dsh-session/types'
 import { Remote, RemoteError, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
+import type { JsonValue } from '@deepseek-ai/dsh-util-values'
 import { z } from 'zod'
 import { CredentialsController } from './credentials.ts'
 import type { AgentPresetDirectoryOpenValue, SettingsDocumentOpenValue } from './types.ts'
@@ -269,22 +268,15 @@ export class SettingsController extends TypertRemoteService {
       throw new RemoteError('gateway/bad-request', `invalid payload for settings.${mode}`, { issues: parsed.error.issues })
     }
     const settings = this.provider()
-    let branded
+    const namespace = parsed.data.ns
     try {
-      // A malformed name can address no registration, so it fails exactly as an
-      // unregistered one does.
-      branded = settingsNamespace(parsed.data.ns)
-    } catch (error: unknown) {
-      throw new RemoteError('settings/rejected', messageOf(error), { ns }, { cause: error })
-    }
-    try {
-      if (mode === 'update') await settings.update(branded, input, expectedRevision)
-      else if (mode === 'replace') await settings.replace(branded, input, expectedRevision)
-      else await settings.mutate(branded, input as SettingsPathOp[], expectedRevision)
+      if (mode === 'update') await settings.update(namespace, input, expectedRevision)
+      else if (mode === 'replace') await settings.replace(namespace, input, expectedRevision)
+      else await settings.mutate(namespace, input as SettingsPathOp[], expectedRevision)
     } catch (error: unknown) {
       throw rejected(ns, error)
     }
-    const descriptor = settings.describe({ redactSecrets: true }).find(candidate => candidate.ns === branded)
+    const descriptor = settings.describe({ redactSecrets: true }).find(candidate => candidate.ns === namespace)
     if (descriptor === undefined) {
       // The write committed but the namespace vanished before this read: only a
       // concurrent registrant disposal can produce it.
@@ -311,6 +303,22 @@ function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
 
+interface SettingsConflict {
+  readonly code: 'SETTINGS_CONFLICT'
+  readonly message: string
+  readonly expected: number
+  readonly actual: number
+}
+
+function settingsConflictOf(error: unknown): SettingsConflict | undefined {
+  if (typeof error !== 'object' || error === null) return undefined
+  if (Reflect.get(error, 'code') !== 'SETTINGS_CONFLICT'
+    || typeof Reflect.get(error, 'message') !== 'string'
+    || typeof Reflect.get(error, 'expected') !== 'number'
+    || typeof Reflect.get(error, 'actual') !== 'number') return undefined
+  return error as SettingsConflict
+}
+
 /**
  * Classify one seam refusal. A stale writer is its own outcome, not a malformed
  * request: the client must re-read and re-apply rather than treat the write as
@@ -320,11 +328,12 @@ function messageOf(error: unknown): string {
  * @returns the failure to raise for that refusal.
  */
 function rejected(ns: string, error: unknown): RemoteError {
-  if (error instanceof SettingsConflictError) {
+  const conflict = settingsConflictOf(error)
+  if (conflict !== undefined) {
     return new RemoteError(
       'settings/conflict',
-      error.message,
-      { ns, expected: error.expected, actual: error.actual },
+      conflict.message,
+      { ns, expected: conflict.expected, actual: conflict.actual },
       { cause: error },
     )
   }

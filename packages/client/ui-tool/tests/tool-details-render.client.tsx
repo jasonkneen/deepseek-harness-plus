@@ -1,6 +1,6 @@
 /** Test adapter for the production conversation.details.tool registration. */
 import type { SessionLiveEventEntry } from '@deepseek-ai/dsh-api-session-controller/client'
-import { isJsonValue, type JsonValue } from '@deepseek-ai/dsh-session'
+import { isJsonValue, type JsonValue } from '@deepseek-ai/dsh-util-values'
 import type {
   ChatConversationViewNode, ChatSnapshot, ConversationNode, DetailsSlotProps,
   DetailsToolOwnerProps, RunningToolCall, ToolResultNode,

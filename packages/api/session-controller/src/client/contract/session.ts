@@ -27,6 +27,8 @@ export type PendingSubmissionRetirement =
 
 /** Input registering one local submission echo ahead of its prompt call. */
 export interface BeginSubmissionInput {
+  /** Delivery mode used with the upcoming prompt. */
+  readonly mode: 'queue' | 'steer'
   /** Prompt text exactly as the upcoming prompt will send it. */
   readonly text: string
   /** Ordered image previews matching the upcoming prompt's image parts. */

@@ -99,10 +99,6 @@ export type {
   DynamicCordisUndefineReceipt,
   RequestRunOutcome,
 } from '@deepseek-ai/dsh-cordis-host-runner/types'
-// The JSON vocabulary those payloads are built from, re-exported for the same
-// reason: a Client contribution names what it sends without importing a Host
-// package, and this assembly is where both planes legitimately meet.
-export type { JsonValue } from '@deepseek-ai/dsh-session/types'
 // Credential state vocabulary for the credentials namespace (values never ride it).
 export type { CredentialInfo } from '@deepseek-ai/dsh-credentials/types'
 // Redacted namespace vocabulary for the settings namespace (secrets never ride

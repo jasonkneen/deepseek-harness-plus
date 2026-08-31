@@ -318,6 +318,32 @@ describe('prompt and cancel errors', () => {
     })
   })
 
+  it('forwards continuation image parts to the subagent prompt Remote unstripped', async () => {
+    const api = new FakeApiClient()
+    const session = new Session(SID, fakeRemote(api), {
+      address: { parentSessionId: PARENT, childSessionId: SID, mode: 'continuable' },
+      parentAvailable: true,
+    })
+    await session.open()
+    const content = [
+      { type: 'text' as const, text: '看这张图' },
+      { type: 'image' as const, mediaType: 'image/png' as const, data: 'aGk=', name: 'shot.png' },
+    ]
+    const prompted = await session.prompt(content, 'queue')
+
+    expect(prompted).toEqual({ ok: true, value: { accepted: true } })
+    expect(api.callsOf('subagents.prompt')).toEqual([
+      {
+        requestId: expect.any(String) as unknown as string,
+        parentSessionId: PARENT, childSessionId: SID,
+        mode: 'continuable',
+        content,
+        clientTimeZone: new Intl.DateTimeFormat().resolvedOptions().timeZone,
+      },
+    ])
+    expect(session.getSnapshot().promptError).toBeNull()
+  })
+
   it('lands an interrupt business failure in promptError with op=stop', async () => {
     const api = new FakeApiClient()
     api.onSubagentInterrupt = () => Promise.resolve(err(new RemoteError('subagent/unauthorized', 'nope', { childSessionId: SID })))
@@ -366,13 +392,8 @@ describe('prompt and cancel errors', () => {
     expect(api.callsOf('session.cancel')).toEqual([])
   })
 
-  it('delivers an image continuation to the Host, which refuses it', async () => {
+  it('delivers an image continuation to the Host without narrowing its upload parts', async () => {
     const api = new FakeApiClient()
-    api.onSubagentPrompt = () => Promise.resolve(err(new RemoteError(
-      'subagent/attachment-unsupported',
-      'subagent continuation does not accept images',
-      { childSessionId: SID, reason: 'SUBAGENT_IMAGE_UNSUPPORTED' },
-    )))
     const session = new Session(SID, fakeRemote(api), {
       address: { parentSessionId: PARENT, childSessionId: SID, mode: 'continuable' },
     })
@@ -382,11 +403,7 @@ describe('prompt and cancel errors', () => {
       'queue',
     )
 
-    expect(prompted).toMatchObject({
-      ok: false,
-      error: { code: 'subagent/attachment-unsupported', details: { reason: 'SUBAGENT_IMAGE_UNSUPPORTED' } },
-    })
-    // The image reaches the wire unfiltered: refusing it is the Host's call.
+    expect(prompted).toEqual({ ok: true, value: { accepted: true } })
     expect(api.callsOf('subagents.prompt')).toMatchObject([
       { content: [{ type: 'text' }, { type: 'image', mediaType: 'image/png', data: 'AA==' }] },
     ])

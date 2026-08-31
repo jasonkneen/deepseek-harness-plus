@@ -1,10 +1,9 @@
 /**
- * Agent-preset default-settings controller.
+ * Agent-preset roster store shared by the display surfaces.
  *
- * Options and the current default both come from one `agentPresets.list` call:
- * the roster already reports which id a session with no explicit choice gets,
- * so the row needs no schema introspection. Writes target the settings
- * namespace's `default` field, which is what the host resolves at creation.
+ * Options come from one `agentPresets.list` call. Writes target the settings
+ * namespace's `default` field, which is what the host resolves at creation;
+ * the management section is the surface that writes it.
  */
 
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
@@ -12,7 +11,6 @@ import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-api-remotes/client'
 import { createSnapshotStore, type SnapshotStore } from '@deepseek-ai/dsh-client-store'
 import type { AgentPresetRoster } from '@deepseek-ai/dsh-agent-presets/types'
-import type { SettingsDescribeFace } from '@deepseek-ai/dsh-client-ui-settings/client'
 
 /** The agent-preset settings namespace on the host wire. */
 export const AGENT_PRESET_SETTINGS_NS = 'agent-presets'
@@ -20,9 +18,9 @@ export const AGENT_PRESET_SETTINGS_NS = 'agent-presets'
 /**
  * Persist one preset as the default for sessions created later.
  *
- * The default is a settings field rather than a preset property, so both the
- * General row and the management section write it here — one home for which
- * namespace and field the host resolves at session creation.
+ * The default is a settings field rather than a preset property; the
+ * management section writes it here — one home for which namespace and field
+ * the host resolves at session creation.
  * @param ctx - the browser plugin context carrying the Remote namespaces.
  * @param id - the preset to make default.
  * @returns the failure message, or undefined once the write landed.
@@ -101,14 +99,14 @@ export async function beginRosterRead<S extends { status: string; error: string 
 /**
  * The roster entries as the pickers render them: healthy presets only.
  *
- * The chip and the row exist to choose the NEXT session's composition, and a
- * broken preset cannot compose one — offering it would defer the discovery
- * of that fact to a failed session start. The management section renders the
- * full roster (broken rows included) from its own store instead.
+ * The chip exists to choose the NEXT session's composition, and a broken
+ * preset cannot compose one — offering it would defer the discovery of that
+ * fact to a failed session start. The management section renders the full
+ * roster (broken rows included) from its own store instead.
  *
- * The chip, the row, and the management section all show the same facts, and
- * `exactOptionalPropertyTypes` makes "absent" and "present as undefined"
- * different shapes — so the spread dance belongs in one place rather than
+ * The chip, the header label, and the management section all show the same
+ * facts, and `exactOptionalPropertyTypes` makes "absent" and "present as
+ * undefined" different shapes — so the spread dance belongs in one place rather than
  * once per store.
  * @param presets - the roster the host answered with.
  * @returns one option per selectable preset, in roster order.
@@ -124,43 +122,29 @@ export function presetOptions(
   }))
 }
 
-/** Agent-preset settings-row snapshot. */
+/** Agent-preset roster snapshot for the display surfaces. */
 export interface AgentPresetSettingsState {
-  status: 'idle' | 'loading' | 'ready' | 'saving' | 'unavailable' | 'error'
+  status: 'idle' | 'loading' | 'ready' | 'unavailable' | 'error'
   error: string | null
-  /**
-   * Whether this browser may persist the choice at all. `settings.describe` is
-   * enabled Host settings path reports a read-only provider as `writable: false`; the
-   * row then shows the current default and disables the control rather than
-   * offering a write the gateway will refuse.
-   */
-  writable: boolean
-  currentValue: string
   options: readonly AgentPresetOption[]
 }
 
 const INITIAL: AgentPresetSettingsState = {
   status: 'idle',
   error: null,
-  // Assumed until `load()` asks; a row that has not read yet renders nothing
-  // interactive anyway (status 'idle').
-  writable: true,
-  currentValue: '',
   options: [],
 }
 
-/** Reads the roster and persists the chosen default. */
+/** Reads the roster for the surfaces that only display it. */
 export class AgentPresetSettingsController {
-  /** Row snapshot the renderer subscribes to. */
+  /** Roster snapshot the renderer subscribes to. */
   readonly store: SnapshotStore<AgentPresetSettingsState> = createSnapshotStore(INITIAL)
 
   /**
-   * @param ctx - the browser plugin context (the roster read and the default write).
-   * @param describeFace - the shared mirror's describe face (writability source).
+   * @param ctx - the browser plugin context (the roster read).
    */
   constructor(
     private readonly ctx: ClientContext,
-    private readonly describeFace: SettingsDescribeFace,
   ) {}
 
   private set(patch: Partial<AgentPresetSettingsState>): void {
@@ -169,53 +153,23 @@ export class AgentPresetSettingsController {
 
   /**
    * Load the roster. An empty roster means the deployment composes no
-   * presets, which is a valid deployment rather than a failure — the row
-   * reports `unavailable` and renders nothing.
+   * presets, which is a valid deployment rather than a failure — the
+   * surfaces report `unavailable` and render nothing.
    * @returns once the snapshot reflects the host.
    */
   async load(): Promise<void> {
     const roster = await beginRosterRead(this.ctx, this.store)
     if (roster === undefined) return
     const { presets } = roster
-    const [first] = presets
-    if (first === undefined) {
-      this.set({ status: 'unavailable', options: [], currentValue: '' })
+    if (presets.length === 0) {
+      this.set({ status: 'unavailable', options: [] })
       return
     }
-    // The roster says what may be chosen; the shared mirror says whether this
-    // browser may write the choice down. A non-loopback browser's mirror never
-    // answers, so the row stays read-only rather than offering a control
-    // whose write the Host would refuse.
-    await this.describeFace.ensure()
     this.set({
       status: 'ready',
       error: null,
-      writable: this.describeFace.getSnapshot().view?.writable ?? false,
       options: presetOptions(presets),
-      // A roster can mark nothing default: settings can name a preset that
-      // was since deleted, and the picker still has to show something.
-      currentValue: presets.find(preset => preset.isDefault)?.id ?? first.id,
     })
   }
 
-  /**
-   * Persist one preset as the default for sessions created later. Running
-   * sessions keep the composition they were created with, so this never
-   * disturbs work in progress.
-   * @param id - the preset to make default.
-   * @returns once the write settled and the roster was re-read.
-   */
-  async select(id: string): Promise<void> {
-    const before = this.store.getSnapshot()
-    if (before.status === 'saving' || id === before.currentValue) return
-    this.set({ status: 'saving', error: null, currentValue: id })
-    const failure = await writeDefaultPreset(this.ctx, id)
-    if (failure !== undefined) {
-      this.set({ status: 'ready', currentValue: before.currentValue, error: failure })
-      return
-    }
-    // Re-read rather than trust the patch: the host resolves the default
-    // through the same roster the row displays.
-    await this.load()
-  }
 }

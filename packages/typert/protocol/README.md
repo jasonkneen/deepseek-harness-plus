@@ -79,11 +79,11 @@ This section explains how the declarations stay compiler-independent and where e
 
 ### Design concept
 
-The package keeps reflection out of the compiler: decorator initializers retain markers in a module-private `WeakMap` keyed by the Service prototype, with no constructor symbols, prototype properties, parameter metadata, or runtime reflection fields. Full parameter, result, lookup, and schema reflection is the Typert build pipeline's job, delivered through `InvocationDescriptor`.
+The package keeps strict reflection in the compiler: decorator initializers retain minimal markers in a versioned descriptor on the Service prototype. The descriptor uses a stable string property name, so another installed copy of the protocol package can read the same markers. Full parameter, result, lookup, and schema reflection is the Typert build pipeline's job, delivered through `InvocationDescriptor`.
 
 ### Remote markers
 
-`@Remote` and `@RemoteScope` schedule an initializer that records the method name, an optional export name, and the invocation mode; `remoteMethods(service)` returns a detached declaration-order snapshot that the Gateway's source-mode fallback reads. Markers require public, non-static instance methods with string names, and conflicting markers on one method are rejected.
+`@Remote` and `@RemoteScope` schedule an initializer that appends the method name, an optional export name, and the invocation mode to the prototype descriptor; `remoteMethods(service)` validates its version and returns a detached declaration-order snapshot that the Gateway's source-mode fallback reads. Markers require public, non-static instance methods with string names, and conflicting markers on one method are rejected.
 
 ### Protocol maps and descriptors
 

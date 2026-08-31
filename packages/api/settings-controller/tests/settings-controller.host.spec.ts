@@ -1,13 +1,12 @@
 import { describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
-import { settingsNamespace } from '@deepseek-ai/dsh-settings'
-import type { SettingsDescriptor, SettingsNamespace } from '@deepseek-ai/dsh-settings'
+import type { SettingsDescriptor } from '@deepseek-ai/dsh-settings'
 import { RemoteError, remoteErrorOf, remoteMethods } from '@deepseek-ai/dsh-typert-protocol'
 import SettingsController from '../src/index.ts'
 import { MemorySettings } from '../../../settings/settings/tests/memory.ts'
 
-const NS = settingsNamespace('ui-test')
+const NS = 'ui-test'
 
 const Profile = z.object({
   preference: z.union(['light', 'dark']).default('light'),
@@ -47,8 +46,8 @@ class SlotlessSettings extends MemorySettings {
 
 /** A provider that refuses every write the way a read-only backing store would. */
 class RefusingSettings extends MemorySettings {
-  override mutate(ns: SettingsNamespace): Promise<void> {
-    return Promise.reject(new Error(`settings "${ns}" is read-only in this deployment`))
+  override mutate(): Promise<void> {
+    return Promise.reject(new Error('settings are read-only in this deployment'))
   }
 }
 

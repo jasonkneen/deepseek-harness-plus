@@ -1,6 +1,7 @@
 /** Cold Session history pagination and live-event source. */
 
 import type { Context } from '@deepseek-ai/cordis'
+import { Deque } from '@deepseek-ai/dsh-deque'
 import { isAppendSurfaceEvent } from '@deepseek-ai/dsh-session'
 import { isChunkRow, packChunkRuns, type ChunkRow } from '@deepseek-ai/dsh-session/chunk-rows'
 import type { SessionEvent, SessionHeader, SessionId } from '@deepseek-ai/dsh-session'
@@ -88,7 +89,7 @@ export class SessionHistoryController {
     validateFollowRequest(request)
     const { address } = request
     const target = addressId(address)
-    const buffered: SessionEvent[] = []
+    const buffered = new Deque<SessionEvent>()
     let snapshotCursor: number | undefined
     let wake: (() => void) | undefined
     const notify = (): void => {
@@ -104,7 +105,7 @@ export class SessionHistoryController {
     this.closeFollowers.add(close)
     const disposeEvent = this.ctx.on('session/event', (session, event) => {
       if (session.id !== target) return
-      buffered.push(event)
+      buffered.pushBack(event)
       notify()
     }, { global: true })
     const disposeCreated = this.ctx.on('session/created', (session) => {
@@ -115,7 +116,9 @@ export class SessionHistoryController {
       const suffix = session.events.slice(snapshotCursor === undefined
         ? session.firstLiveSeq
         : snapshotCursor + 1)
-      buffered.unshift(...suffix)
+      for (let index = suffix.length - 1; index >= 0; index -= 1) {
+        buffered.pushFront(suffix[index] as SessionEvent)
+      }
       notify()
     }, { global: true })
     const onAbort = (): void => { notify() }
@@ -148,7 +151,7 @@ export class SessionHistoryController {
       }
       let nextSeq = cursor + 1
       while (!follower.closed && !signal.aborted) {
-        const item = buffered.shift()
+        const item = buffered.popFront()
         if (item === undefined) {
           await new Promise<void>((resolve) => { wake = resolve })
           continue

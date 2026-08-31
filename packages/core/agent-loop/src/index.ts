@@ -9,6 +9,7 @@ import { Context, FiberState, Service } from '@deepseek-ai/cordis'
 import { randomUUID } from 'node:crypto'
 import z from '@deepseek-ai/schemastery'
 import { z as zod } from 'zod'
+import { brandString } from '@deepseek-ai/dsh-brand'
 import { emitAgentEvent } from '@deepseek-ai/dsh-agent'
 import type {
   Agent,
@@ -22,9 +23,9 @@ import type {
   TurnBoundaryProjection,
 } from '@deepseek-ai/dsh-agent'
 import { errorChain, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
-import { installSettingsSection, settingsNamespace } from '@deepseek-ai/dsh-settings'
-import { SessionId, SessionPreparation } from '@deepseek-ai/dsh-session'
-import type { Session, SessionHeader } from '@deepseek-ai/dsh-session'
+import type {} from '@deepseek-ai/dsh-settings'
+import { SessionPreparation } from '@deepseek-ai/dsh-session'
+import type { Session, SessionHeader, SessionId } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-system-prompt'
 import type {} from '@deepseek-ai/dsh-tools'
 import type {} from '@deepseek-ai/dsh-session-projection'
@@ -289,7 +290,7 @@ function applyLauncherIdentities(
 }
 
 /** Settings namespace carrying the tool-call parallelism a user owns. */
-export const AGENT_LOOP_SETTINGS_NAMESPACE = settingsNamespace('agent-loop')
+export const AGENT_LOOP_SETTINGS_NAMESPACE = 'agent-loop'
 
 /**
  * The agent-loop fields a user owns. Deliberately a strict subset of
@@ -389,16 +390,18 @@ export class AgentLoop extends Service implements AgentFactory {
         return source().maxParallelToolCalls
       },
     }
-    installSettingsSection(ctx, AGENT_LOOP_SETTINGS_NAMESPACE, AGENT_LOOP_SETTINGS_SCHEMA, entry, {
-      // The schema admits any integer above zero; `resolveMaxParallelToolCalls`
-      // owns the whole rule, so refusing here keeps the running scheduler on
-      // its last good cap instead of failing at the next tool group.
-      validate: value => void resolveMaxParallelToolCalls(value.maxParallelToolCalls),
-      setSource: (current) => {
-        source = current
-      },
-      // Nothing is derived from the cap: the getter above is the only reader.
-      onChange: () => {},
+    ctx.inject(['settings'], (settingsCtx) => {
+      settingsCtx.settings.installSection(ctx, AGENT_LOOP_SETTINGS_NAMESPACE, AGENT_LOOP_SETTINGS_SCHEMA, entry, {
+        // The schema admits any integer above zero; `resolveMaxParallelToolCalls`
+        // owns the whole rule, so refusing here keeps the running scheduler on
+        // its last good cap instead of failing at the next tool group.
+        validate: value => void resolveMaxParallelToolCalls(value.maxParallelToolCalls),
+        setSource: (current) => {
+          source = current
+        },
+        // Nothing is derived from the cap: the getter above is the only reader.
+        onChange: () => {},
+      })
     })
     validateConfiguredAgents(this.config.agents)
     // Register only after every config validation above has passed, so a
@@ -415,7 +418,7 @@ export class AgentLoop extends Service implements AgentFactory {
     for (const { id, sessionId, cwd, resumeSessionId, ...options } of this.config.agents) {
       const meta = cwd === undefined ? {} : { cwd }
       if (resumeSessionId === undefined || resumeSessionId === '') {
-        const configuredId = sessionId ?? SessionId(`${id}-session-${randomUUID()}`)
+        const configuredId = sessionId ?? brandString<SessionId>(`${id}-session-${randomUUID()}`)
         const persistence = sessionId === undefined ? undefined : ctx.get('sessionPersistence')
         if (persistence === undefined) {
           this.create(configuredId, options, meta)

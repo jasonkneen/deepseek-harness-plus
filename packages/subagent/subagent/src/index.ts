@@ -30,6 +30,7 @@
  */
 
 import { Context } from '@deepseek-ai/cordis'
+import { admitPromptContent } from '@deepseek-ai/dsh-attachment'
 import { scopeTarget } from '@deepseek-ai/dsh-scope'
 import type { Scoped } from '@deepseek-ai/dsh-scope'
 import { assertObjectJsonSchema } from '@deepseek-ai/dsh-tools'
@@ -39,7 +40,7 @@ import type { SessionId } from '@deepseek-ai/dsh-session'
 import { canonicalClientTimeZone } from '@deepseek-ai/dsh-util-time'
 import { Remote, RemoteError, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
 import {
-  admitPromptContent, catalogView, rejectCatalogRead, rejectPrompt, validateControlRequest,
+  catalogView, rejectCatalogRead, rejectPrompt, validateControlRequest,
 } from './control.ts'
 import type {
   SubagentCatalog,
@@ -418,10 +419,12 @@ export class SubagentRuntime extends TypertRemoteService {
    * validated browser zone on the accepted message. Success identifies the
    * message the child's FIFO inbox accepted; later execution is independent of
    * this call.
+   * Image parts are admitted and persisted through the attachment store
+   * before delivery, and the child's model must accept image input.
    * @param request - durable address, minted identity, content, and optional browser zone.
    * @param signal - carrier cancellation, owning the call until inbox acceptance.
    * @returns the accepted message's inbox identity.
-   * @throws {RemoteError} `gateway/bad-request`, `subagent/attachment-unsupported`,
+   * @throws {RemoteError} `gateway/bad-request`, `subagent/attachment-invalid`,
    *   `subagent/invalid-time-zone`, `subagent/parent-unavailable`,
    *   `subagent/not-resumable`, `subagent/unauthorized`,
    *   `subagent/delivery-unavailable`, `gateway/cancelled`, or `gateway/internal`.
@@ -430,7 +433,6 @@ export class SubagentRuntime extends TypertRemoteService {
   async prompt(request: SubagentPromptRequest, signal: AbortSignal): Promise<SubagentPromptReceipt> {
     const { parentSessionId, childSessionId, clientTimeZone } = request
     validateControlRequest('subagent.prompt', request)
-    const content = admitPromptContent(childSessionId, request.content)
     const canonicalTimeZone = clientTimeZone === undefined
       ? undefined
       : canonicalClientTimeZone(clientTimeZone)
@@ -455,6 +457,16 @@ export class SubagentRuntime extends TypertRemoteService {
       ...(canonicalTimeZone === undefined ? {} : { clientTimeZone: canonicalTimeZone }),
     }
     try {
+      // Admission precedes delivery: image parts become durable references
+      // here, so the child inbox only ever accepts Host-persisted attachments.
+      let content: ContentBlock[]
+      if (request.content.every((part): part is { readonly type: 'text'; readonly text: string } => part.type === 'text')) {
+        content = request.content.map(part => ({ type: 'text', text: part.text }))
+      } else {
+        const attachments = this.ctx.get('attachments')
+        if (attachments === undefined) throw new Error('subagent image prompt requires an attachment store')
+        content = await admitPromptContent(attachments, request.content)
+      }
       return { messageId: await this.followup(parent, childSessionId, content, { source, signal }) }
     } catch (error: unknown) {
       return rejectPrompt(error, childSessionId, signal)

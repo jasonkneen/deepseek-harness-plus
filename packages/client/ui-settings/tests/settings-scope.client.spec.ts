@@ -2,9 +2,10 @@ import { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import { describe, expect, it, vi } from 'vitest'
 import type {
-  JsonValue, SettingsNamespaceView, SettingsPathOpView,
+  SettingsNamespaceView, SettingsPathOpView,
 } from '@deepseek-ai/dsh-api-remotes/client'
 import { RemoteError, TestRemote } from '@deepseek-ai/dsh-client-test-runtime'
+import type { JsonValue } from '@deepseek-ai/dsh-util-values'
 import type { SettingsScope } from '@deepseek-ai/dsh-client-ui-settings/client'
 import { SettingsSchemaService } from '../src/client/schema.ts'
 import { SettingsScopeController, SettingsScopeBinder } from '../src/client/settings-scope.ts'

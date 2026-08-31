@@ -38,7 +38,7 @@ import {
 
 const fakeRuntime = fileURLToPath(new URL('../../../sdk/client/tests/fake-runtime.ts', import.meta.url))
 const existingPatch = fileURLToPath(new URL(
-  './fixtures/loader/child.cordis.yml',
+  './fixtures/loader/child.patch.yml',
   import.meta.url,
 ))
 const defaultCreateHarness = runInternals.createHarness.bind(runInternals)

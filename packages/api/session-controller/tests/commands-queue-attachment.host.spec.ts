@@ -160,11 +160,11 @@ describe('Session attachment authorization', () => {
     const inserted = imageRef('inserted')
     const streamed = imageRef('streamed')
     const events = [
-      event('fixture/direct', 0, {
+      { ...event('fixture/direct', 0, {
         content: [null, [], { type: 'tool-result', content: [{ type: 'text', text: 'none' }] }, {
           type: 'tool-result', content: [{ type: 'image', attachment: nested }],
         }],
-      }),
+      }), ignorable: true as const },
       { ...event('assistant/message', 1, {
         turn: 1,
         step: 1,

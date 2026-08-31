@@ -6,7 +6,7 @@ import { Context } from '@deepseek-ai/cordis'
 import { ToolCallId } from '@deepseek-ai/dsh-llm'
 import { ShellExecutor } from '@deepseek-ai/dsh-shell'
 import type { ShellExecRequest, ShellExecSpec, ShellProcess, ShellProcessRead, ShellRunResult } from '@deepseek-ai/dsh-shell'
-import SystemPrompt, { FIRST_PARTY_SECTION_ORDER } from '@deepseek-ai/dsh-system-prompt'
+import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime, { TOOL_ABORTED, TOOL_ABORTED_BEFORE_DISPATCH } from '@deepseek-ai/dsh-tools'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
@@ -383,12 +383,12 @@ describe('bash tool', () => {
     const ctx = await setup()
     ctx.systemPrompt.section({
       name: 'test:before-bash',
-      order: FIRST_PARTY_SECTION_ORDER.TOOL_BASH - 10,
+      order: ctx.systemPrompt.getSectionOrder('TOOL_BASH') - 10,
       text: 'before',
     })
     ctx.systemPrompt.section({
       name: 'test:after-bash',
-      order: FIRST_PARTY_SECTION_ORDER.TOOL_BASH + 10,
+      order: ctx.systemPrompt.getSectionOrder('TOOL_BASH') + 10,
       text: 'after',
     })
     const assembly = await ctx.systemPrompt.assemble()

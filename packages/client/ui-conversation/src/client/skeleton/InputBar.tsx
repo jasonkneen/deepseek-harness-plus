@@ -94,7 +94,7 @@ export function InputBar({
   useEffect(() => {
     if (promptError === null) return
     const { error } = promptError
-    showToast(error.code === 'session/attachment-invalid' || error.code === 'subagent/attachment-unsupported'
+    showToast(error.code === 'session/attachment-invalid' || error.code === 'subagent/attachment-invalid'
       ? attachmentErrorText(t, error.details.reason, imageLimits)
       : `${error.message} (${error.code})`)
   }, [promptError, showToast, t, imageLimits])

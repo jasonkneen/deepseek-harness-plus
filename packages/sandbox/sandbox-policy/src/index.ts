@@ -140,7 +140,7 @@ export class SandboxPolicyService extends Service {
     ctx.inject(['systemPrompt'], (scope: Context) => {
       scope.systemPrompt.context({
         name: 'sandbox:policy',
-        order: 110,
+        order: scope.systemPrompt.getContextOrder('SANDBOX_POLICY'),
         text: (context) => {
           const session = context.agent?.session
           return session === undefined

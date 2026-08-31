@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -22,6 +22,24 @@ function writeJson(root: string, path: string, value: unknown): void {
   const absolute = join(root, path)
   mkdirSync(dirname(absolute), { recursive: true })
   writeFileSync(absolute, `${JSON.stringify(value, null, 2)}\n`)
+}
+
+function processCanExecute(pid: number): boolean {
+  try {
+    process.kill(pid, 0)
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ESRCH') return false
+    throw error
+  }
+  if (process.platform !== 'linux') return true
+  try {
+    const stat = readFileSync(`/proc/${pid}/stat`, 'utf8')
+    const state = stat.slice(stat.lastIndexOf(')') + 2).split(/\s+/, 1)[0]
+    return !/^[ZXx]$/.test(state ?? '')
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false
+    throw error
+  }
 }
 
 describe('npm resolution benchmark', () => {
@@ -168,7 +186,7 @@ describe('npm resolution benchmark', () => {
 
       expect(result.timedOut).toBe(true)
       expect(result.signal).toBe('SIGKILL')
-      expect(() => { process.kill(reportedPid, 0) }).toThrow()
+      await expect.poll(() => processCanExecute(reportedPid), { timeout: 5_000 }).toBe(false)
     } finally {
       if (descendantPid !== undefined && Number.isSafeInteger(descendantPid)) {
         try {

@@ -130,7 +130,7 @@ Client 卸载一个贡献时会一起移除描述符和具体方法，中止其�
 
 ## SRC 开发回退
 
-Host 通过 `node --import tsx/esm` 从源码启动时不会执行 Typert 编译插件。标准 decorator 初始化器仍会把方法名和调用模式记录到模块私有 `WeakMap`，`TypertRemoteService` 或 `bindTypertRemote()` 则提供显式服务 binding；Gateway 因而可以在不启动 `ts.Program` 的情况下构造一个较弱的临时描述符。
+Host 通过 `node --import tsx/esm` 从源码启动时不会执行 Typert 编译插件。标准 decorator 初始化器仍会把方法名和调用模式记录到 Service 原型上的带版本描述符中，`TypertRemoteService` 或 `bindTypertRemote()` 则提供显式服务 binding；Gateway 因而可以在不启动 `ts.Program` 的情况下构造一个较弱的临时描述符。描述符使用稳定的字符串属性名，因此 `remoteMethods()` 能读取协议包另一个已安装副本写入的标记。
 
 SRC 回退从运行中函数解析简单参数名。参数名与某个已注册 lookup 的 `parameter` 相同，例如 `agent` 或 `session`，就使用其 `agentId` 或 `sessionId` wire 字段并在 Host 解析对象；其他参数只检查值是否为无循环、无特殊 prototype 的 JSON-safe 数据。`@RemoteScope` 直接使用已注册 Host Context 提供方的 wire 字段。SRC 不读取 TypeScript 类型，不生成 Zod schema，不推断可选参数，也不支持解构、默认值、rest 或重复参数名。
 

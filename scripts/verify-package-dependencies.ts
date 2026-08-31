@@ -374,10 +374,19 @@ export function readPackageDependencyFacts(
 export function collectHostDependencyExportPolicyViolations(
   facts: readonly PackageDependencyFacts[],
   workspaceNames: ReadonlySet<string>,
-  policy: Pick<PackageDependencyPolicy, 'peerRequiredHostExports' | 'safeHostDependencyExports'>,
+  policy: Pick<PackageDependencyPolicy, 'duplicateSafePackages' | 'peerRequiredHostExports' | 'safeHostDependencyExports'>,
 ): string[] {
   const violations: string[] = []
   const allRuntimeUses = facts.flatMap(fact => fact.hostRuntimeExportUses)
+  const duplicateSafePackages = new Set(policy.duplicateSafePackages ?? [])
+  for (const packageName of duplicates(policy.duplicateSafePackages ?? [])) {
+    violations.push(`duplicateSafePackages lists ${packageName} more than once`)
+  }
+  for (const packageName of duplicateSafePackages) {
+    if (!workspaceNames.has(packageName)) {
+      violations.push(`duplicateSafePackages names unknown workspace package ${packageName}`)
+    }
+  }
   const classifications = [
     ['safeHostDependencyExports', policy.safeHostDependencyExports],
     ['peerRequiredHostExports', policy.peerRequiredHostExports],
@@ -387,6 +396,8 @@ export function collectHostDependencyExportPolicyViolations(
       const provider = packageNameOf(specifier)
       if (provider === undefined || !workspaceNames.has(provider)) {
         violations.push(`${field} specifier ${specifier} is not a workspace package`)
+      } else if (duplicateSafePackages.has(provider)) {
+        violations.push(`${field} redundantly classifies duplicate-install-safe package ${specifier}`)
       }
       if (exportNames.length === 0) {
         violations.push(`${field} lists no exports for ${specifier}`)
@@ -414,6 +425,7 @@ export function collectHostDependencyExportPolicyViolations(
     for (const use of fact.hostRuntimeExportUses) {
       if (use.packageName === fact.manifest.name || use.packageName === CORDIS) continue
       if (!workspaceNames.has(use.packageName)) continue
+      if (duplicateSafePackages.has(use.packageName)) continue
       if (policy.safeHostDependencyExports[use.specifier]?.includes(use.exportName) === true) continue
       if (policy.peerRequiredHostExports[use.specifier]?.includes(use.exportName) === true) continue
       violations.push(

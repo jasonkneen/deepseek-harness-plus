@@ -149,7 +149,7 @@ Consuming surfaces: diagnostic handling across wire, tool, and GUI **stays entir
 
 ## Alternatives considered
 
-**mode/label into SessionHeader.** The strongest zero-read guarantee — rows form from the header alone. But a header shape change propagates into both persistence backends and the header compatibility check; SQLite rejects pre-existing data outright, and JSONL pre-existing data can only degrade to unknown or be backfilled. Read-time computation's answer for pre-existing data is "one `inspect` computation on first listing", touching no durable format.
+**mode/label into SessionHeader.** The strongest zero-read guarantee — rows form from the header alone. But a header change propagates into the persistence provider and compatibility check; pre-existing JSONL can only degrade to unknown or be backfilled. Read-time computation's answer for pre-existing data is "one `inspect` computation on first listing", touching no durable format.
 
 **The projection-cache ladder (`cachedSnapshot ?? cold fold` plus fail-soft write-back).** The mechanism works — session-projection-cache's checkpoint ladder is designed for cold reads in the first place. But checkpoint write-back is a whole list-driven body of derived-data persistence and invalidation orchestration (floor/identity/putSoft); what was rejected is that orchestration as the primary mechanism. The settled three-rung ladder later reuses this cache opportunistically, read-only, as its second rung — no write-back, no orchestration, skipped when absent.
 

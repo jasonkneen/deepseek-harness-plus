@@ -1,7 +1,9 @@
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, expectTypeOf, it, vi } from 'vitest'
+import type { PromptContentPart as AttachmentPromptContentPart } from '@deepseek-ai/dsh-attachment/types'
 import {
   MutableSessionEventSource, type SessionLiveEventEntry,
 } from '../src/client/contract/events.ts'
+import type { PromptContentPart as SessionPromptContentPart } from '../src/types.ts'
 
 function entry(seq: number): SessionLiveEventEntry {
   return {
@@ -16,6 +18,10 @@ function entry(seq: number): SessionLiveEventEntry {
 }
 
 describe('Client Session contracts', () => {
+  it('keeps its catalog-visible prompt parts identical to attachment intake', () => {
+    expectTypeOf<SessionPromptContentPart>().toEqualTypeOf<AttachmentPromptContentPart>()
+  })
+
   it('publishes exact replace, prepend, and append event-window changes', () => {
     const feed = new MutableSessionEventSource()
     const listener = vi.fn()

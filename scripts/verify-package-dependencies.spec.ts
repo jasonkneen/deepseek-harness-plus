@@ -87,6 +87,39 @@ function facts(manifest: PackageDependencyManifest): PackageDependencyFacts {
   }
 }
 
+function hostRuntimeFixture(): {
+  provider: WorkspacePackageManifest
+  workspaceNames: Set<string>
+  consumerFacts: PackageDependencyFacts
+} {
+  const consumer = pkg('@f/consumer', 'packages/core/consumer/package.json')
+  const provider = pkg('@f/provider', 'packages/core/provider/package.json')
+  const sourcePath = 'packages/core/consumer/src/index.ts'
+  const specifier = `${provider.name}/api`
+  const workspaceNames = new Set([CORDIS, consumer.name, provider.name])
+  const consumerFacts: PackageDependencyFacts = {
+    manifestPath: consumer.manifestPath,
+    role: 'configured-host',
+    manifest: consumer.manifest,
+    workspaceNames,
+    allSourceUses: new Map(),
+    hostRuntimeSourceUses: new Map([[provider.name, [sourcePath]]]),
+    hostRuntimeExportUses: [{
+      packageName: provider.name,
+      specifier,
+      exportName: 'safeValue',
+      sourcePath,
+      line: 1,
+      column: 10,
+      sourceLine: `import { safeValue } from '${specifier}'`,
+    }],
+    peerRequiredHostDependencies: new Set(),
+    configurationOnlyDevDependencies: new Set(),
+    clientInject: new Set(),
+  }
+  return { provider, workspaceNames, consumerFacts }
+}
+
 describe('package dependency scope', () => {
   it('keeps the measured Host relay roster explicit', () => {
     expect(PACKAGE_DEPENDENCY_POLICY.clientFaceExclude).toEqual([
@@ -109,19 +142,20 @@ describe('package dependency scope', () => {
       '@deepseek-ai/dsh-client-ui-theme': ['@deepseek-ai/dsh-api-remotes'],
       '@deepseek-ai/dsh-client-ui-tool': ['@deepseek-ai/dsh-api-remotes'],
     })
+    expect(PACKAGE_DEPENDENCY_POLICY.duplicateSafePackages).toEqual([
+      '@deepseek-ai/dsh-brand',
+      '@deepseek-ai/dsh-typert-protocol',
+      '@deepseek-ai/dsh-util-crypto',
+      '@deepseek-ai/dsh-util-values',
+    ])
+    expect(PACKAGE_DEPENDENCY_POLICY.safeHostDependencyExports['@deepseek-ai/dsh-deque']).toEqual(['Deque'])
     expect(PACKAGE_DEPENDENCY_POLICY.safeHostDependencyExports['@deepseek-ai/schemastery']).toEqual(['default'])
-    expect(PACKAGE_DEPENDENCY_POLICY.safeHostDependencyExports['@deepseek-ai/dsh-session/types']).toEqual([
-      'SessionId',
-    ])
-    expect(PACKAGE_DEPENDENCY_POLICY.safeHostDependencyExports['@deepseek-ai/dsh-typert-protocol']).toEqual([
-      'RemoteError', 'remoteErrorOf',
-    ])
+    expect(PACKAGE_DEPENDENCY_POLICY.safeHostDependencyExports['@deepseek-ai/dsh-session/types']).toBeUndefined()
+    expect(PACKAGE_DEPENDENCY_POLICY.safeHostDependencyExports['@deepseek-ai/dsh-typert-protocol']).toBeUndefined()
     expect(PACKAGE_DEPENDENCY_POLICY.peerRequiredHostExports['@deepseek-ai/dsh-scope']).toEqual([
       'carrierKeyOf', 'scopeOf', 'scopeTarget',
     ])
-    expect(PACKAGE_DEPENDENCY_POLICY.peerRequiredHostExports['@deepseek-ai/dsh-typert-protocol']).toEqual([
-      'Remote', 'TypertRemoteService', 'remoteMethods',
-    ])
+    expect(PACKAGE_DEPENDENCY_POLICY.peerRequiredHostExports['@deepseek-ai/dsh-typert-protocol']).toBeUndefined()
   })
 
   it('discovers the Client directory, dsh.client declarations, and configured Host packages', () => {
@@ -174,29 +208,7 @@ describe('package dependency scope', () => {
   })
 
   it('rejects stale, duplicate, and unbounded safe Host export entries', () => {
-    const consumer = pkg('@f/consumer', 'packages/core/consumer/package.json')
-    const provider = pkg('@f/provider', 'packages/core/provider/package.json')
-    const workspaceNames = new Set([CORDIS, consumer.name, provider.name])
-    const consumerFacts: PackageDependencyFacts = {
-      manifestPath: consumer.manifestPath,
-      role: 'configured-host',
-      manifest: consumer.manifest,
-      workspaceNames,
-      allSourceUses: new Map(),
-      hostRuntimeSourceUses: new Map([[provider.name, ['packages/core/consumer/src/index.ts']]]),
-      hostRuntimeExportUses: [{
-        packageName: provider.name,
-        specifier: `${provider.name}/api`,
-        exportName: 'safeValue',
-        sourcePath: 'packages/core/consumer/src/index.ts',
-        line: 1,
-        column: 10,
-        sourceLine: "import { safeValue } from '@f/provider/api'",
-      }],
-      peerRequiredHostDependencies: new Set(),
-      configurationOnlyDevDependencies: new Set(),
-      clientInject: new Set(),
-    }
+    const { provider, workspaceNames, consumerFacts } = hostRuntimeFixture()
 
     expect(collectHostDependencyExportPolicyViolations(
       [consumerFacts],
@@ -215,6 +227,29 @@ describe('package dependency scope', () => {
       expect.stringContaining('unused @f/provider/api export staleValue'),
       expect.stringContaining('appears in both Host export classifications'),
     ]))
+  })
+
+  it('applies a duplicate-safe package classification to its subpaths', () => {
+    const { provider, workspaceNames, consumerFacts } = hostRuntimeFixture()
+
+    expect(collectHostDependencyExportPolicyViolations(
+      [consumerFacts],
+      workspaceNames,
+      {
+        duplicateSafePackages: [provider.name],
+        safeHostDependencyExports: {},
+        peerRequiredHostExports: {},
+      },
+    )).toEqual([])
+    expect(collectHostDependencyExportPolicyViolations(
+      [consumerFacts],
+      workspaceNames,
+      {
+        duplicateSafePackages: [provider.name],
+        safeHostDependencyExports: { [`${provider.name}/api`]: ['safeValue'] },
+        peerRequiredHostExports: {},
+      },
+    )).toContain(`safeHostDependencyExports redundantly classifies duplicate-install-safe package ${provider.name}/api`)
   })
 })
 

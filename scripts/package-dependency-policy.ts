@@ -29,28 +29,28 @@ const CONFIGURATION_ONLY_DEV_DEPENDENCIES = {
   '@deepseek-ai/dsh-client-ui-tool': ['@deepseek-ai/dsh-api-remotes'],
 } as const satisfies Readonly<Record<string, readonly string[]>>
 
+/** Workspace packages whose complete runtime surface is safe across duplicate installations. */
+const DUPLICATE_SAFE_PACKAGES: readonly string[] = [
+  '@deepseek-ai/dsh-brand',
+  '@deepseek-ai/dsh-typert-protocol',
+  '@deepseek-ai/dsh-util-crypto',
+  '@deepseek-ai/dsh-util-values',
+]
+
 /**
  * Runtime exports whose values remain valid when npm installs another package copy.
  */
 const SAFE_HOST_DEPENDENCY_EXPORTS = {
-  '@deepseek-ai/dsh-api-session-controller/remote-events': ['SESSION_CONTROLLER_REMOTE_EVENTS'],
   '@deepseek-ai/dsh-credentials': ['credentialKey'],
-  '@deepseek-ai/dsh-llm': ['MessageId', 'callConfigEquals', 'deepFreeze', 'freezeMessage'],
-  '@deepseek-ai/dsh-llm/brand': ['ToolCallId'],
-  '@deepseek-ai/dsh-session': ['isJsonValue'],
-  '@deepseek-ai/dsh-session/types': ['SessionId'],
-  '@deepseek-ai/dsh-settings': ['settingsNamespace'],
-  '@deepseek-ai/dsh-system-prompt': ['FIRST_PARTY_SECTION_ORDER'],
+  '@deepseek-ai/dsh-deque': ['Deque'],
+  '@deepseek-ai/dsh-llm': ['callConfigEquals'],
   '@deepseek-ai/dsh-timeout': ['MAX_TIMER_DELAY_MS'],
-  '@deepseek-ai/dsh-typert-protocol': ['RemoteError', 'remoteErrorOf'],
-  '@deepseek-ai/dsh-util-crypto': ['randomUUID'],
   '@deepseek-ai/schemastery': ['default'],
 } as const satisfies HostDependencyExports
 
 /** Runtime exports that require every consumer to resolve the provider's shared peer instance. */
 const PEER_REQUIRED_HOST_EXPORTS = {
   '@deepseek-ai/dsh-scope': ['carrierKeyOf', 'scopeOf', 'scopeTarget'],
-  '@deepseek-ai/dsh-typert-protocol': ['Remote', 'TypertRemoteService', 'remoteMethods'],
 } as const satisfies HostDependencyExports
 
 /** Exact import specifier to reviewed runtime exports. */
@@ -62,6 +62,7 @@ export interface PackageDependencyPolicy {
   readonly clientFaceExclude: readonly string[]
   readonly hostPackages: readonly string[]
   readonly configurationOnlyDevDependencies: Readonly<Record<string, readonly string[]>>
+  readonly duplicateSafePackages?: readonly string[]
   readonly safeHostDependencyExports: HostDependencyExports
   readonly peerRequiredHostExports: HostDependencyExports
 }
@@ -72,6 +73,7 @@ export const PACKAGE_DEPENDENCY_POLICY: PackageDependencyPolicy = {
   clientFaceExclude: CLIENT_FACE_EXCLUDE,
   hostPackages: HOST_DEPENDENCY_PACKAGES,
   configurationOnlyDevDependencies: CONFIGURATION_ONLY_DEV_DEPENDENCIES,
+  duplicateSafePackages: DUPLICATE_SAFE_PACKAGES,
   safeHostDependencyExports: SAFE_HOST_DEPENDENCY_EXPORTS,
   peerRequiredHostExports: PEER_REQUIRED_HOST_EXPORTS,
 }

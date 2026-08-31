@@ -89,7 +89,7 @@ A method that cooperatively supports cancellation declares `signal: AbortSignal`
 
 A decorator only states that a method participates in the Remote contract. It performs no runtime type reflection and injects no hidden symbol into a Service constructor. The arguments to `@Remote('create')` and `@RemoteScope('agent', 'create')` are external method names; the decorated member may be the business method itself or an adapter such as `remoteExportCreate`. The member name becomes the external method name only when no alias is provided. Inheriting `TypertRemoteService` is the normal explicit declaration that a Service has joined the Gateway; its public readonly `typertGateway` field keeps the binding visible on the runtime instance.
 
-In SRC mode, the decorator may record the prototype, method name, and invocation mode in a `WeakMap` internal to `dsh-typert-protocol`. It writes no custom properties to a Service instance, prototype, constructor, or method function.
+In SRC mode, the decorator records the method name and invocation mode in a versioned descriptor on the Service prototype. The descriptor uses a stable string property name, so `remoteMethods()` can read markers produced by another installed copy of `dsh-typert-protocol`; it writes nothing to the Service instance, constructor, or method function.
 
 In LIB mode, the Typert compiler performs strict method discovery, type resolution, and descriptor generation. It accepts a literal service key in `TypertRemoteService`'s direct `super()` call or the explicit binding fallback; generation neither rewrites business source nor injects hidden registration metadata.
 
@@ -349,7 +349,7 @@ The Web already depends on build artifacts such as `lib/client.js`, so it requir
 
 ## SRC and LIB operating modes
 
-SRC supports local source startup. The `WeakMap` records created by `@Remote` and `@RemoteScope()` provide method names and invocation modes. At runtime, the system reads ordered parameter names from the JavaScript function signature and combines them with registered lookup/Context providers to produce a permissive descriptor.
+SRC supports local source startup. The versioned prototype descriptors created by `@Remote` and `@RemoteScope()` provide method names and invocation modes. At runtime, the system reads ordered parameter names from the JavaScript function signature and combines them with registered lookup/Context providers to produce a permissive descriptor.
 
 For example, `@Remote('create') remoteExportCreate(agent, request, signal)` resolves to the external method `create`, implementation member `remoteExportCreate`, two top-level business parameters, and one cancellation injection point. Lookup registration rewrites `agent` to the wire field `agentId`, `request` is passed as a same-named JSON parameter, and the final `signal` stays outside the payload. SRC does not start a `ts.Program`, use a preload or loader hook, generate or rewrite source, or inspect the internal structure of an ordinary JSON object.
 

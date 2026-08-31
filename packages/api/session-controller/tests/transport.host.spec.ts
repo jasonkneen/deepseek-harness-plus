@@ -30,6 +30,7 @@ function event(type: string, seq: number, data: unknown = {}): SessionEvent {
     seq,
     time: seq + 1,
     data,
+    ...type.startsWith('fixture/') ? { ignorable: true } : {},
   } as SessionEvent
 }
 

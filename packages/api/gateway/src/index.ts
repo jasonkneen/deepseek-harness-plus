@@ -8,6 +8,7 @@
 import { randomUUID } from 'node:crypto'
 import { Context, Service, symbols } from '@deepseek-ai/cordis'
 import type { ConnectionRpcHandler } from '@deepseek-ai/dsh-client-connection'
+import { Deque } from '@deepseek-ai/dsh-deque'
 import type { WebUpgradeRoute } from '@deepseek-ai/dsh-host-webserver'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
 import z from '@deepseek-ai/schemastery'
@@ -882,13 +883,13 @@ type RemoteEventWireFrame =
 
 /** Pull-driven queue owned by one connected Client event generation. */
 class RemoteEventQueue {
-  private readonly frames: RemoteEventWireFrame[] = []
+  private readonly frames = new Deque<RemoteEventWireFrame>()
   private waiter: (() => void) | undefined
   private closed = false
 
   push(frame: RemoteEventWireFrame): void {
     if (this.closed) return
-    this.frames.push(frame)
+    this.frames.pushBack(frame)
     this.waiter?.()
   }
 
@@ -903,7 +904,7 @@ class RemoteEventQueue {
     signal.addEventListener('abort', abort, { once: true })
     try {
       while (true) {
-        while (this.frames.length > 0) yield this.frames.shift() as RemoteEventWireFrame
+        while (this.frames.size > 0) yield this.frames.popFront() as RemoteEventWireFrame
         if (this.closed || signal.aborted) return
         await new Promise<void>((resolve) => { this.waiter = resolve })
         this.waiter = undefined

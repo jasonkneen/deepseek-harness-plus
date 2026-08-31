@@ -24,7 +24,9 @@ Host-only 包通过另一份显式列表加入同一策略。该列表包含 `@d
 
 每个受管包都把 `@deepseek-ai/cordis` 保持在范围一致的 `peerDependencies` 和 `devDependencies` 中。Cordis 是由应用控制身份的共享插件运行时。
 
-Host 入口闭包中的运行期 value import 所到达的 workspace 包，只有在每个运行期导出都列入策略的 `safeHostDependencyExports` 表时才只属于 `dependencies`。constructor 身份或模块状态必须共享的导出列入 `peerRequiredHostExports`；一旦使用这类导出，整条包依赖边就保留在范围一致的 `peerDependencies` 与 `devDependencies` 中。表的每个 key 都是精确 module specifier，每个 value 都是经审查的导出集合。验证器从 Host 入口沿运行期本地 import 扫描，记录具名与默认 import 和 re-export，并拒绝两个表都未收录的导出；namespace、dynamic 和 side-effect import 无法限定导出范围，因此不能进入任一表。
+Host 入口闭包中的运行期 value import 所到达的 workspace 包，只有在其完整运行时入口列入 `duplicateSafePackages`，或每个运行期导出都列入 `safeHostDependencyExports` 时才只属于 `dependencies`。包级列表包含 `@deepseek-ai/dsh-brand`、`@deepseek-ai/dsh-typert-protocol`、`@deepseek-ai/dsh-util-crypto` 与 `@deepseek-ai/dsh-util-values`：它们的值无状态、按结构识别，或通过带版本且可互操作的描述符存储。导出表负责处理其他导出无法提供同等保证的混合包中的已审查值。
+
+constructor 身份或模块状态必须共享的导出列入 `peerRequiredHostExports`；一旦使用这类导出，整条包依赖边就保留在范围一致的 `peerDependencies` 与 `devDependencies` 中。每个导出表的 key 都是精确 module specifier，每个 value 都是经审查的导出集合。验证器从 Host 入口沿运行期本地 import 扫描，记录具名与默认 import 和 re-export，并拒绝既没有包级分类、也没有导出级分类的导出；除非完整的精确入口已按包分类，否则 namespace、dynamic 和 side-effect import 仍无法限定范围。
 
 Client bundle 使用的 workspace import、纯类型 import、模块扩充、`dsh.client.inject`、invariant companion 和仅有元数据的现存 peer 只属于 `devDependencies`。Host 运行时导入的普通第三方包属于 `dependencies`；其他第三方关系保持原区段。Workspace 引用使用 `workspace:^`。
 
@@ -40,7 +42,7 @@ Client bundle 使用的 workspace import、纯类型 import、模块扩充、`ds
 pnpm run verify-package-dependencies
 ```
 
-生成 manifest 前，在 [`package-dependency-policy.ts`](../../../../scripts/package-dependency-policy.ts) 中分类每个新增 Host 运行期导出。`safeHostDependencyExports` 允许普通 dependency；`peerRequiredHostExports` 让整个提供包依赖边保留在范围一致的 peer 与开发区段。一个导出只能出现在一个表中。把 peer-required 导出重构到重复安装安全后，将该精确 specifier 与导出移入 safe 表；只有当一条依赖边的所有 import 都不再使用 peer-required 导出时，它才会成为普通 dependency。
+生成 manifest 前，在 [`package-dependency-policy.ts`](../../../../scripts/package-dependency-policy.ts) 中分类每个新增 Host 运行期导出。`duplicateSafePackages` 允许一个精确根入口的全部运行期导出使用普通 dependency；`safeHostDependencyExports` 只允许列出的导出；`peerRequiredHostExports` 让整个提供包依赖边保留在范围一致的 peer 与开发区段。一个导出只能获得一种分类。移除包级的 identity 或状态要求后，按包分类其根入口；只改变混合包中的一个导出时，则更新精确导出表。只有当一条依赖边的所有 import 都不再使用 peer-required 导出时，它才会成为普通 dependency。
 
 用一条命令生成受管 manifest 和所有直接派生产物。存在策略违规时，`--fix` 不写任何文件；成功后，它会刷新 `pnpm-lock.yaml`、重新生成中英文 module graph 及其配对记录，并打印普通 dependency 与 peer-required 依赖边。
 
@@ -72,6 +74,8 @@ pnpm run benchmark:npm-resolution:next -- --runs=1 --finalist-runs=5 --finalists
 
 [`verify-npm-install-layout`](../../../../scripts/verify-npm-install-layout.ts) 是 `Release (dsh)` workflow 在每个 pull request 和 master push 上运行的确定性包路径与版本检查；它不限制 resolver 耗时。[`benchmark-npm-resolution`](../../../../scripts/benchmark-npm-resolution.ts) 与 [`benchmark-next-package-dependency`](../../../../scripts/benchmark-next-package-dependency.ts) 保持为手动工具，因为 resolver 耗时会随机器负载和 metadata 完成顺序变化。它们通过全新 consumer 和仅 metadata 的运行，把 npm 依赖树计算与 registry 延迟、包归档下载分离，因此相对结果可以定位 peer 中继，但不构成发布时性能承诺。
 
+生成后的策略目前在 13 个包中留下 27 条位于 `dependencies` 的受管 Host 运行时边。两条边仍位于 `peerDependencies`：`dsh-api-remotes → dsh-scope` 使用 `carrierKeyOf`，`dsh-session → dsh-scope` 使用 `scopeOf` 与 `scopeTarget`。
+
 ## 考虑过的替代方案
 
 **把内部关系继续保留为 peer。** npm 必须沿汇合的祖先路径放置并验证每个必需 peer；即使内部版本全部兼容，也会重新产生已报告的安装耗时问题。
@@ -90,4 +94,4 @@ pnpm run benchmark:npm-resolution:next -- --runs=1 --finalist-runs=5 --finalists
 
 把公开纯类型关系放进 `devDependencies`，意味着独立 TypeScript 消费者在使用该声明时必须自行安装被引用的类型包。发布 profile 会安装完整的受支持包族；若要支持独立组装的 TypeScript 消费者，需要另一套策略。
 
-显式 override、Host 列表与导出分类都是需要评审的决策。当 class constructor、symbol 和访问模块私有 registry 的函数跨包传递身份或状态时，它们要求 peer；仅仅属于 value import 并不能证明导出可重复安装。修改分类会改变安装图，因此需要运行聚焦 verifier 测试、双版本布局检查并重新执行 next-package benchmark。仅 metadata benchmark 是诊断证据，不是发布时安装耗时承诺。
+显式 override、Host 列表、包分类与导出分类都是需要评审的决策。当 `instanceof` 使用的 class constructor、私有 symbol 和模块本地 registry 跨包传递 identity 或不可访问状态时，它们要求 peer。稳定的结构标记或带版本的 prototype 描述符可以让特定值互操作，但仅仅属于 value import 并不能做到这一点。修改分类会改变安装图，因此需要运行聚焦 verifier 测试、双版本布局检查并重新执行 next-package benchmark。仅 metadata benchmark 是诊断证据，不是发布时安装耗时承诺。
