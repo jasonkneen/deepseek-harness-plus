@@ -430,7 +430,7 @@ const SERVICE_ROLES: ServiceRole[] = [
     pkg: 'agent-loop',
     title: 'Concrete loop driver',
     mode: 'bundle',
-    consumers: ['agent-spine-demo'],
+    consumers: ['base', 'sdk-minimal'],
     note: 'The one concrete loop plugin; extension packages depend on dsh-agent events and services, not on this package.',
   },
   {

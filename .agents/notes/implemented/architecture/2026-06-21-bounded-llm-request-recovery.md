@@ -64,7 +64,7 @@ Before sleeping, `dsh-llm-retry` appends one non-surface `llm/retry` session eve
 
 The listener calls `next()` for a non-transient code, an exhausted policy budget, or an over-cap provider delay. This preserves composition with context-overflow recovery and later policy plugins. For an owned failure it records and awaits the delay, then returns `{ kind: 'retry' }` without delegating. Turn cancellation and plugin disposal end the wait without returning a retry; the loop's cancellation/disposal checks remain authoritative.
 
-The agent-spine demo bundle loads the plugin so the shared stdio/TUI, one-shot CLI, ACP, and headless example compositions use the same provider-routed policy. The shipped Web composition also loads it, so browser and command-line requests use the same provider defaults. Library consumers retain explicit plugin composition: omitting the plugin leaves request failures terminal.
+The `dsh-base` and `dsh-sdk-minimal` patches load the plugin as an explicit row, so base-backed profiles and the standalone SDK profile use the same provider-routed policy. Library consumers retain explicit plugin composition: omitting the plugin leaves request failures terminal.
 
 ### Make one layer own visible attempts
 

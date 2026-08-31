@@ -45,7 +45,6 @@ packages/    @deepseek-ai/dsh-<pkg> workspaces at packages/<group>/<pkg>/
   interaction/ approval/interaction capabilities, permission, commands, ask-user
   boot/        shared profile/application boot glue
   sdk/         JSON-RPC protocol + TypeScript client/server
-  examples/    reusable composition bundles (agent-spine)
   experimental/ private prototypes excluded from official releases
   support/     dev/test infrastructure
   util/        zero-dependency utilities

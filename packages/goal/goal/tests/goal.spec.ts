@@ -265,6 +265,7 @@ describe('GoalService creation and replay', () => {
     await fiber.dispose()
     expect(ctx.get('goals')).toBeUndefined()
     expect(ctx.sessionProjections.stateOf(stub.session, 'goal')).toBeUndefined()
+    expect(() => first.get(stub.agent)).toThrow('goal projection is not registered')
 
     await ctx.plugin(GoalService)
     expect(ctx.goals).not.toBe(first)
