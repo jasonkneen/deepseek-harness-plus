@@ -10,7 +10,7 @@ import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import type { SessionEvent, SessionHeader, SessionId as SessionIdType } from '@deepseek-ai/dsh-session'
 import SessionPersistence, { SessionPersistenceRevision } from '@deepseek-ai/dsh-session-persistence'
 import type { SessionPersistenceSnapshot } from '@deepseek-ai/dsh-session-persistence'
-import SqliteSessionPersistence from '@deepseek-ai/dsh-session-persistence-sqlite'
+import JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
 import SqliteSessionQueryEngine, {
   SESSION_QUERY_SQLITE_SCHEMA_VERSION,
 } from '@deepseek-ai/dsh-session-query-sqlite'
@@ -1774,21 +1774,24 @@ describe('SQLite schema, cancellation, and real persistence integration', () => 
     await persistence.dispose()
   })
 
-  it('combines the real SQLite persistence backend with the real search service keylessly', async () => {
-    const persistencePath = await temporaryPath('canonical.db')
+  it('combines the real JSONL persistence backend with the real SQLite search service keylessly', async () => {
+    const persistenceRoot = await temporaryPath('canonical')
     const searchPath = await temporaryPath('derived.db')
     const ctx = new Context()
     await ctx.plugin(SessionStore)
     await ctx.plugin(SessionProjectionRegistry)
-    const persistence = await ctx.plugin(SqliteSessionPersistence, { path: persistencePath })
+    const persistence = await ctx.plugin(JsonlSessionPersistence, {
+      root: persistenceRoot,
+      compression: 'none',
+    })
     const search = await ctx.plugin(SqliteSessionQueryEngine, { path: searchPath })
     const meta = header('real', 10, { cwd: '/work' })
     await ctx.sessionPersistence.create(meta)
-    await ctx.sessionPersistence.append(meta.id, messageEvents('real SQLite needle'))
+    await ctx.sessionPersistence.append(meta.id, messageEvents('real search needle'))
 
-    await expect(ctx.sessionQuery.searchSessions({ query: 'SQLite needle' }))
+    await expect(ctx.sessionQuery.searchSessions({ query: 'search needle' }))
       .resolves.toMatchObject({ items: [{ header: meta, persisted: true, live: false }] })
-    await expect(ctx.sessionQuery.searchEvents({ sessionId: meta.id, query: 'SQLite needle' }))
+    await expect(ctx.sessionQuery.searchEvents({ sessionId: meta.id, query: 'search needle' }))
       .resolves.toMatchObject({ session: meta, items: [{ sessionId: meta.id, seq: 0 }] })
     await expect(ctx.sessionQuery.searchEvents({ sessionId: SessionId('absent'), query: 'needle' }))
       .rejects.toThrow(expectCode('SESSION_QUERY_SESSION_NOT_FOUND'))
@@ -1797,16 +1800,19 @@ describe('SQLite schema, cancellation, and real persistence integration', () => 
     await persistence.dispose()
   })
 
-  it('reconciles colliding local revisions when a derived index reopens against another SQLite store', async () => {
-    const persistencePathA = await temporaryPath('canonical-a.db')
-    const persistencePathB = await temporaryPath('canonical-b.db')
+  it('reconciles colliding local revisions when a derived index reopens against another JSONL store', async () => {
+    const persistenceRootA = await temporaryPath('canonical-a')
+    const persistenceRootB = await temporaryPath('canonical-b')
     const searchPath = await temporaryPath('derived-collision.db')
     const shared = header('same-id', 10)
 
     const first = new Context()
     await first.plugin(SessionStore)
     await first.plugin(SessionProjectionRegistry)
-    const persistenceA = await first.plugin(SqliteSessionPersistence, { path: persistencePathA })
+    const persistenceA = await first.plugin(JsonlSessionPersistence, {
+      root: persistenceRootA,
+      compression: 'none',
+    })
     await first.sessionPersistence.create(shared)
     await first.sessionPersistence.append(shared.id, messageEvents('alpha source'))
     const inspectA = vi.spyOn(first.sessionPersistence, 'inspect')
@@ -1820,7 +1826,10 @@ describe('SQLite schema, cancellation, and real persistence integration', () => 
     const reopened = new Context()
     await reopened.plugin(SessionStore)
     await reopened.plugin(SessionProjectionRegistry)
-    const persistenceAAgain = await reopened.plugin(SqliteSessionPersistence, { path: persistencePathA })
+    const persistenceAAgain = await reopened.plugin(JsonlSessionPersistence, {
+      root: persistenceRootA,
+      compression: 'none',
+    })
     const reopenedInspect = vi.spyOn(reopened.sessionPersistence, 'inspect')
     const searchAAgain = await reopened.plugin(SqliteSessionQueryEngine, { path: searchPath })
     await expect(reopened.sessionQuery.searchSessions({ query: 'alpha' }))
@@ -1832,7 +1841,10 @@ describe('SQLite schema, cancellation, and real persistence integration', () => 
     const second = new Context()
     await second.plugin(SessionStore)
     await second.plugin(SessionProjectionRegistry)
-    const persistenceB = await second.plugin(SqliteSessionPersistence, { path: persistencePathB })
+    const persistenceB = await second.plugin(JsonlSessionPersistence, {
+      root: persistenceRootB,
+      compression: 'none',
+    })
     await second.sessionPersistence.create(shared)
     await second.sessionPersistence.append(shared.id, messageEvents('bravo source'))
     const inspectB = vi.spyOn(second.sessionPersistence, 'inspect')

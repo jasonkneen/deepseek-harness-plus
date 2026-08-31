@@ -538,7 +538,7 @@ describe('Session control projection frames', () => {
     return frames
   }
 
-  it('broadcasts a frame per changed unit with the causing seq, and none for same-reference applies', async () => {
+  it('broadcasts changed view references with the causing seq and skips same-reference applies', async () => {
     const { ctx, session } = await harness(true)
     ctx.sessionProjections.register(lastUserUnit())
     const proxy = remote(ctx)
@@ -554,6 +554,7 @@ describe('Session control projection frames', () => {
     now.mockReturnValue(200)
     session.append('turn/start', { turn: 1 })
     now.mockReturnValue(300)
+    // The equal payload is a new object, so Object.is still treats its view as changed.
     seedMessages(session, 1)
     now.mockRestore()
 

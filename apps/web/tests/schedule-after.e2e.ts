@@ -1,6 +1,6 @@
 /** Keyless assembled-Web evidence for conversational Schedule delivery. */
 
-import { readFile } from 'node:fs/promises'
+import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { Browser, Page } from 'playwright'
@@ -29,6 +29,7 @@ import {
   type WebScaffold,
 } from './scaffold.ts'
 import {
+  REPO_ROOT,
   connectFreshWorkspace,
   conversationContextKey,
   saveFailureShot,
@@ -708,18 +709,34 @@ describe.skipIf(MODE === 'record')('web e2e: active Schedule catalog', () => {
     const catalog = page.getByRole('list', { name: 'Active reminders' })
     await catalog.waitFor({ timeout: 10_000 })
     expect(await catalog.getByRole('listitem').count()).toBe(3)
-    const lightLayout = await catalog.evaluate((element) => {
-      const box = element.getBoundingClientRect()
+    const lightLayout = await page.evaluate(() => {
+      const triggerElement = document.querySelector('button[aria-label="3 reminders"]')
+      const catalogElement = document.querySelector('[aria-label="Active reminders"]')
+      if (!(triggerElement instanceof HTMLElement) || !(catalogElement instanceof HTMLElement)) {
+        throw new Error('active reminder trigger or catalog is not mounted')
+      }
+      const triggerBox = triggerElement.getBoundingClientRect()
+      const catalogBox = catalogElement.getBoundingClientRect()
+      const viewport = window.innerWidth
       return {
-        width: box.width,
-        right: box.right,
-        viewport: window.innerWidth,
+        bodyPortal: catalogElement.parentElement === document.body,
+        position: getComputedStyle(catalogElement).position,
+        triggerLeft: triggerBox.left,
+        catalogLeft: catalogBox.left,
+        catalogRight: catalogBox.right,
+        width: catalogBox.width,
+        viewport,
+        expectedLeft: Math.min(Math.max(16, triggerBox.left), viewport - catalogBox.width - 16),
         scrollWidth: document.documentElement.scrollWidth,
-        background: getComputedStyle(element).backgroundColor,
+        background: getComputedStyle(catalogElement).backgroundColor,
       }
     })
+    expect(lightLayout.bodyPortal).toBe(true)
+    expect(lightLayout.position).toBe('fixed')
     expect(lightLayout.width).toBe(336)
-    expect(lightLayout.right).toBeLessThanOrEqual(lightLayout.viewport)
+    expect(lightLayout.catalogLeft).toBe(lightLayout.expectedLeft)
+    expect(lightLayout.catalogLeft).toBeLessThan(lightLayout.triggerLeft)
+    expect(lightLayout.catalogRight).toBeLessThanOrEqual(lightLayout.viewport - 16)
     expect(lightLayout.scrollWidth).toBeLessThanOrEqual(lightLayout.viewport)
     expect(lightLayout.background).not.toBe('rgba(0, 0, 0, 0)')
     const longRow = catalog.getByRole('listitem').filter({ hasText: 'Join release review' })
@@ -759,6 +776,17 @@ describe.skipIf(MODE === 'record')('web e2e: active Schedule catalog', () => {
       scrollHeight: element.scrollHeight,
     }))
     expect(scrollLayout.scrollHeight).toBeGreaterThan(scrollLayout.clientHeight)
+
+    const evidenceDir = join(REPO_ROOT, '.artifacts')
+    await mkdir(evidenceDir, { recursive: true })
+    await writeFile(
+      join(evidenceDir, 'web-e2e-schedule-catalog-left-alignment.json'),
+      `${JSON.stringify(lightLayout, null, 2)}\n`,
+    )
+    await page.screenshot({
+      path: join(evidenceDir, 'web-e2e-schedule-catalog-left-alignment.png'),
+      fullPage: true,
+    })
 
     await page.evaluate(() => { document.body.setAttribute('data-ds-dark-theme', '') })
     const darkBackground = await catalog.evaluate(element => getComputedStyle(element).backgroundColor)

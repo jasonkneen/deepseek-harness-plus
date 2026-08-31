@@ -159,99 +159,6 @@ export type PresetTrust = 'system' | 'user'
 
 Source: [`packages/preset/agent-presets/src/preset.ts:52`](../packages/preset/agent-presets/src/preset.ts)
 
-<a id="deepseek-aidsh-agent-spine-demo"></a>
-
-## `@deepseek-ai/dsh-agent-spine-demo`
-
-```ts config-catalog
-/**
- * Bundle config: each field forwarded verbatim to the child that owns it —
- * `agents` to the agent loop (an app that pre-creates no agents, like the ACP
- * bridge, simply omits it), `includeHarnessIdentity`, `includeRuntimeContext`,
- * `persona`, and `toolOrder` to the system-prompt plugin (the fixed opener,
- * dynamic-context policy, deployment persona, and explicit model-facing tool
- * order), the `tools` object to the tool
- * registry (its presentation `mode`),
- * `dshHome` to bash environment and local skill discovery, `sessionTitle` to
- * the fallback title service, `skills` to the
- * skill registry/local provider/tool consumer, `workspaceContext` to the
- * agent-instructions loader, `jobs` to the process-local job provider, and
- * `toolBash`/`toolJobs` to the model-facing tool plugins this bundle owns.
- * Provider adapters own their `retryPolicy`; this bundle always mounts its
- * executor.
- * `goals` opts into and configures the persisted goal domain plus its model tool
- * and same-session driver; `invariants` configures global and package-filtered
- * relational checks. Owner schemas supply defaults for optional input;
- * workspace context instead requires an explicit byte budget or `false` because
- * it changes model-visible input. Producer opt-in stays producer-local:
- * `toolBash` configures bash only; independently composed producers keep their
- * own config. Set `toolBash: false` when another plugin owns the model-facing
- * `bash` name.
- */
-export interface Config {
-  /** The agent-loop `agents` list (see dsh-agent-loop's `Config`). */
-  agents?: AgentLoopConfig['agents']
-  /** Agent-loop concurrency cap; `1` is serial. */
-  maxParallelToolCalls?: AgentLoopConfig['maxParallelToolCalls']
-  /** Whether the system prompt includes the fixed Harness identity (default true). */
-  includeHarnessIdentity?: SystemPromptConfig['includeHarnessIdentity']
-  /** Whether model history includes dynamic runtime-context snapshots (default true). */
-  includeRuntimeContext?: SystemPromptConfig['includeRuntimeContext']
-  /** The deployment persona (see dsh-system-prompt's `Config`). */
-  persona?: SystemPromptConfig['persona']
-  /** The explicit model-facing tool order (see dsh-system-prompt's `Config`). */
-  toolOrder?: SystemPromptConfig['toolOrder']
-  /** The tool registry's config — its presentation `mode` (see dsh-tools' `Config`). */
-  tools?: ToolsConfig
-  /** DeepSeek Harness home directory shared by shell context and local skill discovery. */
-  dshHome?: string
-  /** Deterministic fallback and accepted-title limits; omission uses the bundle's example policy. */
-  sessionTitle?: SessionTitleConfig
-  /** Workspace-context loader controls with an explicit byte budget; set `false` for hermetic prompts. */
-  workspaceContext: workspaceContext.Config | false
-  /**
-   * Skill registry, local provider, and model-facing consumer config.
-   * Skills use `enabled` because one nested config controls a provider stack;
-   * single model-tool plugins use `Config | false` to disable that one consumer.
-   */
-  skills?: SkillConfig
-  /** Model-facing bash tool config, or false when another plugin owns `bash`. */
-  toolBash?: toolBash.Config | false
-  /** Process-local background-job admission config. */
-  jobs?: JobsConfig
-  /** Generic background-job controls; set false to keep the job service without model-facing job tools. */
-  toolJobs?: toolJobs.Config | false
-  /** Global enablement and package-name filters for invariant companions. */
-  invariants?: InvariantConfig
-  /** Opt-in persisted same-session goal stack; set false or omit to leave it unmounted. */
-  goals?: GoalConfig | false
-}
-
-/** Skill bundle config forwarded to the registry, local provider, and model-facing consumer. */
-export interface SkillConfig {
-  /** Mount the bundled local skill provider and model-facing skill tool (default true). */
-  enabled?: boolean
-  /** Registry-level discovery cache settings. */
-  registry?: SkillRegistryConfig
-  /** Local filesystem skill provider settings. */
-  filesystem?: SkillFileSystem.Config
-  /** Model-facing skill catalog and tool settings. */
-  tool?: toolSkill.Config
-}
-
-/** Persisted goal domain, model-tool policy, and same-session driver config. */
-export interface GoalConfig {
-  /** Goal-domain creation defaults. */
-  domain?: GoalDomainConfig
-  /** Model-facing goal-tool authority policy. */
-  tool?: toolGoal.Config
-}
-```
-
-Depends on: [`AgentLoopConfig`](#deepseek-aidsh-agent-loop) · [`GoalDomainConfig`](#deepseek-aidsh-goal) · [`InvariantConfig`](#deepseek-aidsh-invariants) · [`JobsConfig`](#deepseek-aidsh-jobs-local) · [`SessionTitleConfig`](#deepseek-aidsh-session-title) · [`SkillFileSystem`](../packages/skill/skill-filesystem/src/index.ts) · [`SkillRegistryConfig`](#deepseek-aidsh-skill) · [`SystemPromptConfig`](#deepseek-aidsh-system-prompt) · [`toolBash`](../packages/shell/tool-bash/src/index.ts) · [`toolGoal`](../packages/goal/tool-goal/src/index.ts) · [`toolJobs`](../packages/jobs/tool-jobs/src/index.ts) · [`ToolsConfig`](#deepseek-aidsh-tools) · [`toolSkill`](../packages/skill/tool-skill/src/index.ts) · [`workspaceContext`](../packages/context/agent-instructions/src/index.ts)
-
-Source: [`packages/examples/agent-spine-demo/src/index.ts:94`](../packages/examples/agent-spine-demo/src/index.ts)
-
 <a id="deepseek-aidsh-agent-tool-presentation"></a>
 
 ## `@deepseek-ai/dsh-agent-tool-presentation`
@@ -1886,33 +1793,6 @@ export type JsonlCompression = 'zstd' | 'none'
 
 Source: [`packages/session/session-persistence-jsonl/src/index.ts:62`](../packages/session/session-persistence-jsonl/src/index.ts)
 
-<a id="deepseek-aidsh-session-persistence-sqlite"></a>
-
-## `@deepseek-ai/dsh-session-persistence-sqlite`
-
-Requires: `sessions`
-
-```ts config-catalog
-/** Plugin configuration. */
-export interface Config {
-  /** SQLite database path, or `:memory:` for an in-process database. */
-  path: string
-  /** Durable SQLite journal mode; defaults to `wal`. */
-  journalMode?: JournalMode
-  /** Maximum wait for another SQLite connection's lock; defaults to 5,000 ms. */
-  busyTimeoutMs?: number
-  /** Maximum cold Session preparations retained for history-to-resume reuse. */
-  preparedSessionCacheSize?: number
-  /** Fixed live-event coalescing window; not a backend completion deadline. */
-  writeBatchMaxDelayMs?: number
-}
-
-/** Durable journal modes accepted by the backend. */
-export type JournalMode = 'wal' | 'delete' | 'truncate' | 'persist'
-```
-
-Source: [`packages/session/session-persistence-sqlite/src/index.ts:38`](../packages/session/session-persistence-sqlite/src/index.ts)
-
 <a id="deepseek-aidsh-session-projection-cache"></a>
 
 ## `@deepseek-ai/dsh-session-projection-cache`
@@ -3473,6 +3353,7 @@ These load from a `cordis.yml` entry with no `config:` block; they declare no co
 - `@deepseek-ai/dsh-session-checkpoint-policy` — requires `llm` · `sessionPersistence` · `sessions` · `tools` ([`packages/session/session-checkpoint-policy/src/index.ts`](../packages/session/session-checkpoint-policy/src/index.ts))
 - `@deepseek-ai/dsh-session-projection` ([`packages/session/session-projection/src/index.ts`](../packages/session/session-projection/src/index.ts))
 - `@deepseek-ai/dsh-session-stats` — requires `sessionProjections` ([`packages/session/session-stats/src/index.ts`](../packages/session/session-stats/src/index.ts))
+- `@deepseek-ai/dsh-session-turn-outline` — requires `sessionProjections` ([`packages/session/session-turn-outline/src/index.ts`](../packages/session/session-turn-outline/src/index.ts))
 - `@deepseek-ai/dsh-skill-badge` — requires `skills` ([`packages/skill/skill-badge/src/index.ts`](../packages/skill/skill-badge/src/index.ts))
 - `@deepseek-ai/dsh-storage` ([`packages/storage/storage/src/index.ts`](../packages/storage/storage/src/index.ts))
 - `@deepseek-ai/dsh-subagent` ([`packages/subagent/subagent/src/index.ts`](../packages/subagent/subagent/src/index.ts))

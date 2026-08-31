@@ -149,7 +149,7 @@ export type SubagentListEntry =
 
 ## 考虑过的替代方案
 
-**mode/label 进 SessionHeader。** 零读保证最强——列表只看 header 就能成行。但 header 形状变更传导两个 persistence backend 与 header 兼容检查；SQLite 存量直接拒收，JSONL 存量只能 unknown 降级或 backfill。读时现算对存量的答案是「第一次列表一次 `inspect` 现算」，不碰持久格式。
+**mode/label 进 SessionHeader。** 零读保证最强——列表只看 header 就能成行。但 header 变更会传导到持久化 provider 与兼容性检查；存量 JSONL 只能降级为 unknown 或 backfill。读时现算对存量的答案是「第一次列表一次 `inspect` 现算」，不碰持久格式。
 
 **projection-cache 阶梯（`cachedSnapshot ?? cold fold` 加 fail-soft 写回）。** 机制成立——session-projection-cache 的 checkpoint 阶梯本就为冷读设计。但 checkpoint 写回是一套由列表驱动的派生数据持久化与失效编排（floor/identity/putSoft）；被否的是这套编排作为主机制。定稿的第三级阶梯后来以只读方式机会性复用该缓存作第二级——无写回、无编排、缺席即跳过。
 
