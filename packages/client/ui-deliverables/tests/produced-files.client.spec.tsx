@@ -165,7 +165,7 @@ function result(seq: number, callId: string, isError = false, turn = 1): Session
 function assembler(entries: readonly SessionLiveEventEntry[], hasMore = false): ConversationNodeAssembler {
   const value = new ConversationNodeAssembler(new TestEventDefinitions(), new TestViewDefinitions())
   value.replaceWindow(entries, hasMore)
-  value.flush()
+  value.activateTarget('test')
   return value
 }
 
