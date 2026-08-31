@@ -8,6 +8,7 @@ import { ShellExecutor } from '@deepseek-ai/dsh-shell'
 import type { ShellExecRequest, ShellExecSpec, ShellProcess, ShellRunResult } from '@deepseek-ai/dsh-shell'
 import * as tmuxContext from '@deepseek-ai/dsh-tmux-context'
 import type { Config } from '@deepseek-ai/dsh-tmux-context'
+import { unsupportedInbox } from '@deepseek-ai/dsh-agent-loop-testkit'
 
 const SIGNAL = new AbortController().signal
 
@@ -98,7 +99,7 @@ function sessionAgent(session: Session, id = 'agent'): Agent {
     id: SessionId(id),
     options: {},
     session,
-    inbox: { nextTurn: [], nextStep: [] } as never,
+    inbox: unsupportedInbox(),
     status: 'running',
     ctx: new Context(),
     send: () => {},

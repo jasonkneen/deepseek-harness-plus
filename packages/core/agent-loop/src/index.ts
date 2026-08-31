@@ -33,7 +33,7 @@ import type { SessionPersistence } from '@deepseek-ai/dsh-session-persistence'
 import { ReactLoopAgent } from './agent.ts'
 import { DEFAULT_MAX_PARALLEL_TOOL_CALLS } from './constants.ts'
 
-export { inboxProjectionDefinition } from './inbox.ts'
+export { ReactLoopInbox, inboxProjectionDefinition } from './inbox.ts'
 
 /** Fiber states that cannot own or serve a new lifecycle. */
 const INACTIVE_STATES: ReadonlySet<FiberState> = new Set([

@@ -13,12 +13,12 @@ import { Context } from '@deepseek-ai/cordis'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
 import type { Agent, AgentStatus } from '@deepseek-ai/dsh-agent'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
-import type { UserMessage } from '@deepseek-ai/dsh-session'
 import SessionStore from '@deepseek-ai/dsh-session'
 import type { Session } from '@deepseek-ai/dsh-session'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import GoalService, { GoalId, applyGoalProjection, foldGoal, goalProjectionDefinition } from '@deepseek-ai/dsh-goal'
 import type { GoalProjection, GoalProjectionState, GoalRef } from '@deepseek-ai/dsh-goal'
+import { unsupportedInbox } from '@deepseek-ai/dsh-agent-loop-testkit'
 
 interface Bench {
   ctx: Context
@@ -35,15 +35,13 @@ function liveAgent(ctx: Context, session: Session): Agent {
     id: session.id,
     options: {},
     session,
-    inbox: { nextTurn: [], nextStep: [] } as never,
+    inbox: unsupportedInbox(),
     ctx,
     get status() { return status },
     send: () => {},
     followup: () => {},
     steer: () => ({ outcome: Promise.resolve({ status: 'rejected' as const }) }),
-    inject(input: UserMessage) {
-      this.inbox.append('next-step', input)
-    },
+    inject: () => { throw new Error('goal projection tests do not inject model context') },
     cancel() {},
     runMaintenance: task => task(new AbortController().signal),
     whenIdle() { return Promise.resolve() },

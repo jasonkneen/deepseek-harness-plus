@@ -1,5 +1,5 @@
 ---
-description: "Shared prerequisite mounting and session-backed structural Inbox fixtures for tests that exercise agent-loop behavior."
+description: "Prerequisite mounting and fail-fast Inbox stubs for Agent and agent-loop tests."
 kind: "package-library"
 ---
 
@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-`dsh-agent-loop-testkit` mounts the standard prerequisite services a test needs before loading the concrete `AgentLoop` — the LLM runtime, session store, session-projection registry, system-prompt registry, tool registry, and agent registry — in dependency order, with one call. It also creates a session-backed structural `Inbox` for consumer tests without exposing the production `ReactLoopInbox` implementation. The loop itself, adapters, optional plugins, agents, and teardown stay in the test's hands, so each scenario keeps its own load order and topology. Use it when a test's subject is loop behavior rather than service wiring; tests that probe injection failures or partial topologies mount their dependencies directly. It registers no model-facing behavior of its own.
+`dsh-agent-loop-testkit` mounts the standard prerequisite services a test needs before loading the concrete `AgentLoop` — the LLM runtime, session store, session-projection registry, system-prompt registry, tool registry, and agent registry — in dependency order, with one call. The loop itself, adapters, optional plugins, agents, and teardown stay in the test's hands, so each scenario keeps its own load order and topology. It also provides a fail-fast unsupported Inbox placeholder for Agent stubs whose tests do not exercise pending input. Use the package when a test's subject is loop behavior rather than service wiring; tests that probe injection failures or partial topologies mount their dependencies directly. It registers no model-facing behavior of its own.
 
 ## Table of Contents
 
@@ -25,7 +25,7 @@ English | [中文](README.zh.md)
 <a id="use-this-package"></a>
 ## Use this package
 
-This package gives an AgentLoop test a working service topology before the loop is mounted and gives consumer tests a structural Inbox backed by the standard session projection.
+This package gives an AgentLoop test a working service topology before the loop is mounted.
 
 ### Minimal example
 
@@ -41,15 +41,28 @@ await mountAgentLoopTestDependencies(ctx)
 await ctx.plugin(AgentLoop, { agents: [] })
 ```
 
-The mounting helper activates the LLM, session, session-projection, system-prompt, tool, and agent services in dependency order and returns before the loop is mounted. System-prompt and tool-registry configuration can be forwarded through `options`; the helper provides no test defaults beyond those the services own. `createInboxFixture(ctx.sessionProjections, session)` registers the standard inbox projection for the fixture, then returns an `inbox` for code under test and a separate `claim` operation for the test driver; every edit appends a durable `agent/inbox/spliced` session event.
+The mounting helper activates the LLM, session, session-projection, system-prompt, tool, and agent services in dependency order and returns before the loop is mounted. System-prompt and tool-registry configuration can be forwarded through `options`; the helper provides no test defaults beyond those the services own.
+
+### Stub an Agent outside Inbox tests
+
+Use `unsupportedInbox()` only when the test subject does not exercise pending Agent input. It exposes empty pending lists and throws on every mutation, so an unexpected Inbox dependency fails at its first write. Tests that exercise Inbox behavior construct `ReactLoopInbox` from `@deepseek-ai/dsh-agent-loop` instead.
+
+```ts
+import { unsupportedInbox } from '@deepseek-ai/dsh-agent-loop-testkit'
+
+const agent = {
+  // ...
+  inbox: unsupportedInbox(),
+}
+```
 
 ### When to use it
 
-Use the mounting helper for tests whose subject is the loop: load order, retries, tool execution, or session behavior on a real prerequisite stack. Use the Inbox fixture when a consumer test needs durable queue edits without constructing the package-internal `ReactLoopInbox`. Mount dependencies directly when a test probes service load order, injection failures, partial topologies, or teardown — the helper hides exactly the wiring such tests must control.
+Use the mounting helper for tests whose subject is the loop: load order, retries, tool execution, or session behavior on a real prerequisite stack. Mount dependencies directly when a test probes service load order, injection failures, partial topologies, or teardown — the helper hides exactly the wiring such tests must control.
 
 ### What can go wrong
 
-A plugin-load failure rejects the mounting helper call; services activated earlier in the sequence remain owned by your context and unwind with it. The Inbox fixture requires a live session-projection registry and owns its standard inbox registration through that context. The context owns every mounted service, so dispose it after the test.
+A plugin-load failure rejects the mounting helper call; services activated earlier in the sequence remain owned by your context and unwind with it. The context owns every mounted service, so dispose it after the test.
 
 -----
 
@@ -63,7 +76,7 @@ This section explains the design of the test utilities; the observable behavior 
 
 ### Design
 
-`mountAgentLoopTestDependencies` mounts six service plugins in a fixed dependency order — LLM, session, session-projection registry, system-prompt registry, tool registry, then agent registry — and deliberately stops before `AgentLoop` itself, so the caller controls loop load order and the topology under test. `createInboxFixture` implements only the public structural Inbox operations and keeps loop-driver claiming separate; session projection replay supplies its state. Ownership stays with the caller's context and session. The implementations live in [`src/index.ts`](src/index.ts) and [`src/inbox.ts`](src/inbox.ts); the [`src/invariant.ts`](src/invariant.ts) companion declares no runtime invariant because the package owns no production event stream or mutable data — consuming test suites exercise its behavior.
+`mountAgentLoopTestDependencies` mounts six service plugins in a fixed dependency order — LLM, session, session-projection registry, system-prompt registry, tool registry, then agent registry — and deliberately stops before `AgentLoop` itself, so the caller controls loop load order and the topology under test. [`src/inbox.ts`](src/inbox.ts) provides only the fail-fast unsupported placeholder; it does not reproduce the concrete Inbox algorithm. The mounting implementation lives in [`src/index.ts`](src/index.ts); the [`src/invariant.ts`](src/invariant.ts) companion declares no runtime invariant because the package owns no production event stream or mutable data.
 
 </details>
 
@@ -99,7 +112,7 @@ None; this package neither assembles nor sends a provider request.
 These limits define what the utilities do not share. They are current package constraints, not a task backlog.
 
 - **Only the mandatory prerequisite spine is shared** — adapters, optional plugins, `AgentLoop`, agents, and context teardown remain caller-owned so scenario-specific ordering stays visible.
-- **The Inbox fixture emits durable session events only** — it does not reproduce live `agent/inbox/inserted` or `agent/inbox/discarded` notifications owned by `ReactLoopInbox`.
+- **The unsupported Inbox accepts no mutations** — use the concrete `ReactLoopInbox` whenever pending input is part of the test subject.
 
 <a id="dev-note"></a>
 ### Dev Note

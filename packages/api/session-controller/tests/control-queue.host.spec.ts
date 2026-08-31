@@ -1,5 +1,5 @@
 import { Context } from '@deepseek-ai/cordis'
-import AgentRegistry from '@deepseek-ai/dsh-agent'
+import AgentRegistry, { agentEvents } from '@deepseek-ai/dsh-agent'
 import type { Agent, Inbox } from '@deepseek-ai/dsh-agent'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
@@ -7,7 +7,8 @@ import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import { describe, expect, it } from 'vitest'
 import { SessionControlController } from '../src/control.ts'
 import type { SessionControlFrame } from '../src/types.ts'
-import { createInboxFixture } from '@deepseek-ai/dsh-agent-loop-testkit'
+import { ReactLoopInbox } from '@deepseek-ai/dsh-agent-loop'
+import { unsupportedInbox } from '@deepseek-ai/dsh-agent-loop-testkit'
 
 async function harness(): Promise<{
   ctx: Context
@@ -21,10 +22,15 @@ async function harness(): Promise<{
   await ctx.plugin(AgentRegistry)
   await ctx.plugin(SessionProjectionRegistry)
   const session = ctx.sessions.create(SessionId('queue-session'))
-  const agent = { id: session.id, session, inbox: undefined as never, status: 'running', ctx } as unknown as Agent
-  Object.assign(agent, { inbox: createInboxFixture(ctx.sessionProjections, session).inbox })
+  const agent: Agent = {
+    id: session.id, options: {}, session, inbox: unsupportedInbox(), status: 'running', ctx,
+    send: () => {}, followup: () => {}, steer: () => {}, inject: () => {}, cancel: () => {},
+    runMaintenance: task => task(new AbortController().signal), whenIdle: () => Promise.resolve(),
+  }
+  const inbox = new ReactLoopInbox(ctx.sessionProjections, session, agentEvents(ctx, agent))
+  Object.assign(agent, { inbox })
   ctx.agents.register(agent)
-  return { ctx, control: new SessionControlController(ctx), agent, inbox: agent.inbox }
+  return { ctx, control: new SessionControlController(ctx), agent, inbox }
 }
 
 function message(text: string, source: 'user' | 'plugin' = 'user') {
@@ -90,8 +96,13 @@ describe('Session control queue projection', () => {
     const control = new SessionControlController(ctx)
     await ctx.plugin(SessionProjectionRegistry)
     const session = ctx.sessions.create(SessionId('late-projection-queue'))
-    const agent = { id: session.id, session, inbox: undefined as never, status: 'running', ctx } as unknown as Agent
-    Object.assign(agent, { inbox: createInboxFixture(ctx.sessionProjections, session).inbox })
+    const agent: Agent = {
+      id: session.id, options: {}, session, inbox: unsupportedInbox(), status: 'running', ctx,
+      send: () => {}, followup: () => {}, steer: () => {}, inject: () => {}, cancel: () => {},
+      runMaintenance: task => task(new AbortController().signal), whenIdle: () => Promise.resolve(),
+    }
+    const inbox = new ReactLoopInbox(ctx.sessionProjections, session, agentEvents(ctx, agent))
+    Object.assign(agent, { inbox })
     ctx.agents.register(agent)
     const abort = new AbortController()
     const iterator = control.control(abort.signal)[Symbol.asyncIterator]()

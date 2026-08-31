@@ -20,6 +20,7 @@ import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import LocalSubprocessRuntime from '@deepseek-ai/dsh-subprocess-local'
 import * as TerminalLocal from '@deepseek-ai/dsh-terminal-bash'
 import * as ToolPty from '@deepseek-ai/dsh-tool-terminal'
+import { unsupportedInbox } from '@deepseek-ai/dsh-agent-loop-testkit'
 
 let root: string | undefined
 let context: Context | undefined
@@ -42,7 +43,7 @@ function agent(ctx: Context): Agent {
   const id = SessionId('pty-loader-agent')
   const session = Session.create(id)
   const value: Agent = {
-    id, options: {}, session, inbox: { nextTurn: [], nextStep: [] } as never,
+    id, options: {}, session, inbox: unsupportedInbox(),
     status: 'idle',
     ctx: scope.ctx,
     send: () => {},

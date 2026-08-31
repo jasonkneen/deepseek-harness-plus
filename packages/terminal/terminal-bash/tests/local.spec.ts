@@ -16,6 +16,7 @@ import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import LocalSubprocessRuntime from '@deepseek-ai/dsh-subprocess-local'
 import { resolvePwshPath } from '@deepseek-ai/dsh-pwsh-local/src/resolve.ts'
 import * as ptyLocal from '@deepseek-ai/dsh-terminal-bash'
+import { unsupportedInbox } from '@deepseek-ai/dsh-agent-loop-testkit'
 
 const roots: string[] = []
 const contexts: Context[] = []
@@ -39,7 +40,7 @@ function stubAgent(ctx: Context, rawId: string): Agent {
   const scope = ctx.plugin(() => {})
   const session = Session.create(id)
   const agent: Agent = {
-    id, options: {}, session, inbox: { nextTurn: [], nextStep: [] } as never,
+    id, options: {}, session, inbox: unsupportedInbox(),
     status: 'idle',
     ctx: scope.ctx,
     send: () => {},

@@ -16,6 +16,7 @@ import SandboxPolicyService from '@deepseek-ai/dsh-sandbox-policy'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
 import E2BSubprocessRuntime from '@deepseek-ai/dsh-subprocess-e2b'
+import { unsupportedInbox } from '@deepseek-ai/dsh-agent-loop-testkit'
 
 const fixtureRoot = fileURLToPath(new URL('./fixtures/composition/', import.meta.url))
 const binScript = join(fixtureRoot, 'bin.ts')
@@ -86,7 +87,7 @@ describe.skipIf(!process.env.E2B_API_KEY)('E2B live Loader composition', () => {
         id: ownerId,
         options: {},
         session: ownerSession,
-        inbox: { nextTurn: [], nextStep: [] } as never,
+        inbox: unsupportedInbox(),
         status: 'idle',
         ctx,
         send() {},

@@ -10,6 +10,7 @@ import ToolRuntime from '@deepseek-ai/dsh-tools'
 import type { ToolExecutionResult } from '@deepseek-ai/dsh-tools'
 import { registerScheduleTools } from '../src/tools.ts'
 import { runScheduleTransaction } from '../src/transaction.ts'
+import { unsupportedInbox } from '@deepseek-ai/dsh-agent-loop-testkit'
 
 const signal = new AbortController().signal
 const contexts: Context[] = []
@@ -28,7 +29,7 @@ function stubAgent(ctx: Context, id: string): Agent {
     id: session.id,
     options: {},
     session,
-    inbox: { nextTurn: [], nextStep: [] } as never,
+    inbox: unsupportedInbox(),
     status: 'idle',
     ctx: new Context(),
     send(_message: UserMessage, _target: InboxTarget, _wakeup: boolean) {},

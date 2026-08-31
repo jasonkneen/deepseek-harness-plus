@@ -7,6 +7,16 @@ import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import { describe, expect, it } from 'vitest'
 import { ReactLoopInbox } from '../src/inbox.ts'
 
+function unsupportedInbox(): Agent['inbox'] {
+  const rejectMutation = (): never => {
+    throw new Error('this test Agent does not support Inbox mutations')
+  }
+  return {
+    nextTurn: [], nextStep: [], clear: rejectMutation, append: rejectMutation,
+    prepend: rejectMutation, replace: rejectMutation, remove: rejectMutation, splice: rejectMutation,
+  }
+}
+
 function stubAgent(rawId: string, overrides: Partial<Agent> = {}): Agent {
   const id = SessionId(rawId)
   const session = overrides.session ?? Session.create(id)
@@ -15,7 +25,7 @@ function stubAgent(rawId: string, overrides: Partial<Agent> = {}): Agent {
     id,
     options: {},
     session,
-    inbox: { nextTurn: [], nextStep: [] } as never,
+    inbox: unsupportedInbox(),
     status: 'idle',
     ctx,
     send: () => {},

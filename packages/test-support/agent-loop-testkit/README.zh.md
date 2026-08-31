@@ -1,5 +1,5 @@
 ---
-description: "为测试 agent-loop 行为提供共享先决依赖挂载与基于会话的结构化 Inbox fixture。"
+description: "为 Agent 与 agent-loop 测试提供先决依赖挂载和快速失败的 Inbox 桩。"
 kind: "package-library"
 ---
 
@@ -9,7 +9,7 @@ kind: "package-library"
 
 ## 概述
 
-`dsh-agent-loop-testkit` 为测试在加载具体 `AgentLoop` 之前所需的全部标准先决服务——LLM（大语言模型）运行时、会话存储、会话投影注册表、系统提示词注册表、工具注册表与 agent（智能体）注册表——按依赖顺序一键挂载。它还为消费方测试创建由会话支撑的结构化 `Inbox`，而不暴露生产环境的 `ReactLoopInbox` 实现。loop 本身、适配器、可选插件、agent 与清理仍由测试掌控，因此每个场景都保持自己的加载顺序与拓扑。当测试对象是 loop 行为而非服务接线时使用它；针对注入失败或部分拓扑的测试会直接挂载其依赖。它自身不注册任何模型可见行为。
+`dsh-agent-loop-testkit` 为测试在加载具体 `AgentLoop` 之前所需的全部标准先决服务——LLM（大语言模型）运行时、会话存储、会话投影注册表、系统提示词注册表、工具注册表与 agent（智能体）注册表——按依赖顺序一键挂载。loop 本身、适配器、可选插件、agent 与清理仍由测试掌控，因此每个场景都保持自己的加载顺序与拓扑。它还为不测试待处理输入的 Agent 桩提供一个快速失败且不支持操作的 Inbox 占位值。当测试对象是 loop 行为而非服务接线时使用本包；针对注入失败或部分拓扑的测试会直接挂载其依赖。它自身不注册任何模型可见行为。
 
 ## 目录
 
@@ -25,7 +25,7 @@ kind: "package-library"
 <a id="use-this-package"></a>
 ## 使用本包
 
-本包在 loop 挂载前为 AgentLoop 测试提供可用的服务拓扑，并为消费方测试提供由标准会话 projection 支撑的结构化 Inbox。
+本包在 loop 挂载前为 AgentLoop 测试提供可用的服务拓扑。
 
 ### 最小示例
 
@@ -41,15 +41,28 @@ await mountAgentLoopTestDependencies(ctx)
 await ctx.plugin(AgentLoop, { agents: [] })
 ```
 
-挂载辅助函数按依赖顺序激活 LLM、会话、会话投影、系统提示词、工具与 agent 服务，并在 loop 挂载前返回。系统提示词与工具注册表配置可通过 `options` 转发；除服务自有的默认值外，本辅助函数不提供测试默认值。`createInboxFixture(ctx.sessionProjections, session)` 会为 fixture 注册标准 inbox 投影，然后返回供待测代码使用的 `inbox`，并另行返回供测试驱动使用的 `claim` 操作；每次编辑都会追加持久的 `agent/inbox/spliced` 会话事件。
+挂载辅助函数按依赖顺序激活 LLM、会话、会话投影、系统提示词、工具与 agent 服务，并在 loop 挂载前返回。系统提示词与工具注册表配置可通过 `options` 转发；除服务自有的默认值外，本辅助函数不提供测试默认值。
+
+### 在 Inbox 测试之外为 Agent 提供桩
+
+仅当测试对象不涉及待处理的 Agent 输入时才使用 `unsupportedInbox()`。它公开空的待处理列表，并在每次变更时抛错，因此意外的 Inbox 依赖会在首次写入时失败。测试 Inbox 行为时，应改为从 `@deepseek-ai/dsh-agent-loop` 构造 `ReactLoopInbox`。
+
+```ts
+import { unsupportedInbox } from '@deepseek-ai/dsh-agent-loop-testkit'
+
+const agent = {
+  // ...
+  inbox: unsupportedInbox(),
+}
+```
 
 ### 何时使用
 
-当测试对象是 loop 本身——在真实先决依赖栈上的加载顺序、重试、工具执行或会话行为——时使用挂载辅助函数。当消费方测试需要持久队列编辑但不应构造包内的 `ReactLoopInbox` 时，请使用 Inbox fixture。当测试要探测服务加载顺序、注入失败、部分拓扑或清理时，请直接挂载依赖——辅助函数隐藏的正是这类测试必须控制的接线。
+当测试对象是 loop 本身——在真实先决依赖栈上的加载顺序、重试、工具执行或会话行为——时使用挂载辅助函数。当测试要探测服务加载顺序、注入失败、部分拓扑或清理时，请直接挂载依赖——辅助函数隐藏的正是这类测试必须控制的接线。
 
 ### 可能出什么问题
 
-插件加载失败会使挂载辅助函数调用被拒绝；顺序中较早激活的服务仍归你的上下文所有，并随上下文一起解除。Inbox fixture 要求会话投影注册表处于活跃状态，并通过该上下文持有自己的标准 inbox 注册。上下文拥有所有已挂载服务，因此测试结束后请 dispose（资源释放）它。
+插件加载失败会使挂载辅助函数调用被拒绝；顺序中较早激活的服务仍归你的上下文所有，并随上下文一起解除。上下文拥有所有已挂载服务，因此测试结束后请 dispose（资源释放）它。
 
 -----
 
@@ -63,7 +76,7 @@ await ctx.plugin(AgentLoop, { agents: [] })
 
 ### 设计
 
-`mountAgentLoopTestDependencies` 按固定依赖顺序——LLM、会话、会话投影注册表、系统提示词注册表、工具注册表、agent 注册表——挂载六个服务插件，并刻意在 `AgentLoop` 之前停下，使调用方控制 loop 加载顺序与待测拓扑。`createInboxFixture` 只实现公开的结构化 Inbox 操作，并将 loop 驱动方的 claim 操作分离；会话投影重放提供其状态。所有权留在调用方的上下文与会话。实现位于 [`src/index.ts`](src/index.ts) 与 [`src/inbox.ts`](src/inbox.ts)；[`src/invariant.ts`](src/invariant.ts) 配套入口声明无运行时不变式，因为本包不拥有任何生产事件流或可变数据——消费它的测试套件会检验其行为。
+`mountAgentLoopTestDependencies` 按固定依赖顺序——LLM、会话、会话投影注册表、系统提示词注册表、工具注册表、agent 注册表——挂载六个服务插件，并刻意在 `AgentLoop` 之前停下，使调用方控制 loop 加载顺序与待测拓扑。[`src/inbox.ts`](src/inbox.ts) 只提供快速失败且不支持操作的占位值，不会重现具体 Inbox 算法。挂载实现位于 [`src/index.ts`](src/index.ts)；[`src/invariant.ts`](src/invariant.ts) 配套入口声明无运行时不变式，因为本包不拥有任何生产事件流或可变数据。
 
 </details>
 
@@ -99,7 +112,7 @@ await ctx.plugin(AgentLoop, { agents: [] })
 这些限制说明辅助工具不共享什么。它们是当前包约束，不是任务积压。
 
 - **只共享必需的先决主干**——适配器、可选插件、`AgentLoop`、agent 与上下文清理仍由调用方负责，以使特定场景的挂载顺序清晰可见。
-- **Inbox fixture 只发出持久会话事件**——它不会复现由 `ReactLoopInbox` 负责的实时 `agent/inbox/inserted` 或 `agent/inbox/discarded` 通知。
+- **不支持操作的 Inbox 不接受变更**——只要待处理输入属于测试对象，就应使用具体 `ReactLoopInbox`。
 
 <a id="dev-note"></a>
 ### 开发备注

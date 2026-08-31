@@ -23,6 +23,7 @@ import type {
   SubprocessTerminalHandle,
   SubprocessTerminalSpawnSpec,
 } from '@deepseek-ai/dsh-subprocess'
+import { unsupportedInbox } from '@deepseek-ai/dsh-agent-loop-testkit'
 
 class EmptySandbox extends SandboxProvider {
   confine(_argv: readonly string[], _policy: SandboxPolicy): ConfinedArgv {
@@ -52,7 +53,7 @@ function agent(ctx: Context, cwd?: string): Agent {
   const id = SessionId('agent')
   const session = Session.create(id, undefined, { version: 0, id, createdAt: 0, ...cwd === undefined ? {} : { cwd } })
   const agent: Agent = {
-    id, options: {}, session, inbox: { nextTurn: [], nextStep: [] } as never,
+    id, options: {}, session, inbox: unsupportedInbox(),
     status: 'idle',
     ctx,
     send: () => {},
@@ -592,7 +593,7 @@ describe('terminal-bash plugin shape', () => {
     const session = ctx.sessions.create(SessionId('mode-owner'))
     const ownerFiber = await ctx.plugin(() => {})
     const owner: Agent = {
-      id: session.id, options: {}, session, inbox: { nextTurn: [], nextStep: [] } as never,
+      id: session.id, options: {}, session, inbox: unsupportedInbox(),
       status: 'idle',
       ctx: ownerFiber.ctx,
       send: () => {},
@@ -642,7 +643,7 @@ describe('terminal-bash plugin shape', () => {
     const session = ctx.sessions.create(SessionId('pending-mode-owner'))
     const ownerFiber = await ctx.plugin(() => {})
     const owner: Agent = {
-      id: session.id, options: {}, session, inbox: { nextTurn: [], nextStep: [] } as never,
+      id: session.id, options: {}, session, inbox: unsupportedInbox(),
       status: 'idle',
       ctx: ownerFiber.ctx,
       send: () => {},

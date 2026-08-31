@@ -13,7 +13,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
 import { z } from 'zod'
-import AgentRegistry from '@deepseek-ai/dsh-agent'
+import AgentRegistry, { agentEvents } from '@deepseek-ai/dsh-agent'
 import { AttachmentStore } from '@deepseek-ai/dsh-attachment'
 import { agentPresetProjectionDefinition } from '@deepseek-ai/dsh-agent-presets'
 import type { Agent } from '@deepseek-ai/dsh-agent'
@@ -27,7 +27,8 @@ import Storage from '@deepseek-ai/dsh-storage'
 import * as StorageDomain from '@deepseek-ai/dsh-storage-domain'
 import * as StorageJson from '@deepseek-ai/dsh-storage-json'
 import type { SessionControlFrame, SessionFollowFrame } from '@deepseek-ai/dsh-api-session-controller/types'
-import { createInboxFixture } from '@deepseek-ai/dsh-agent-loop-testkit'
+import { ReactLoopInbox } from '@deepseek-ai/dsh-agent-loop'
+import { unsupportedInbox } from '@deepseek-ai/dsh-agent-loop-testkit'
 import { createSessionTestRemote, testSessionPersistence, type TestSessionRemote } from './test-remote.ts'
 
 declare module '@deepseek-ai/dsh-session-projection/types' {
@@ -119,23 +120,25 @@ async function harness(withRegistry: boolean): Promise<{
   await ctx.plugin(AgentRegistry)
   if (withRegistry) await ctx.plugin(SessionProjectionRegistry)
   const session = ctx.sessions.create(undefined, { meta: { cwd: '/workspace' } })
-  const agent = {
-    id: session.id,
-    session,
-    inbox: { nextTurn: [], nextStep: [] } as never,
-    status: 'idle',
-    ctx,
-  } as unknown as Agent
-  const fixture = withRegistry ? createInboxFixture(ctx.sessionProjections, session) : undefined
-  if (fixture !== undefined) Object.assign(agent, { inbox: fixture.inbox })
+  if (!withRegistry) {
+    return {
+      ctx,
+      session,
+      claim: () => { throw new Error('inbox is unavailable without the projection registry') },
+    }
+  }
+  const agent: Agent = {
+    id: session.id, options: {}, session, inbox: unsupportedInbox(), status: 'idle', ctx,
+    send: () => {}, followup: () => {}, steer: () => {}, inject: () => {}, cancel: () => {},
+    runMaintenance: task => task(new AbortController().signal), whenIdle: () => Promise.resolve(),
+  }
+  const inbox = new ReactLoopInbox(ctx.sessionProjections, session, agentEvents(ctx, agent))
+  Object.assign(agent, { inbox })
   ctx.agents.register(agent)
   return {
     ctx,
     session,
-    claim: (target) => {
-      if (fixture === undefined) throw new Error('inbox fixture is unavailable without the projection registry')
-      return fixture.claim(target)
-    },
+    claim: target => inbox.claim(target, 0),
   }
 }
 

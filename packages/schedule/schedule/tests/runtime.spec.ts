@@ -11,6 +11,7 @@ import {
   foldScheduleEvents,
 } from '../src/domain.ts'
 import { MAX_TIMER_DELAY_MS, ScheduleRuntime } from '../src/runtime.ts'
+import { unsupportedInbox } from '@deepseek-ai/dsh-agent-loop-testkit'
 
 const contexts: Context[] = []
 const runtimes: ScheduleRuntime[] = []
@@ -61,7 +62,7 @@ async function harness(): Promise<RuntimeHarness> {
     id: session.id,
     options: {},
     session,
-    inbox: { nextTurn: [], nextStep: [] } as never,
+    inbox: unsupportedInbox(),
     status: 'idle',
     ctx: new Context(),
     send(_message: UserMessage, _target: InboxTarget, _wakeup: boolean) {},

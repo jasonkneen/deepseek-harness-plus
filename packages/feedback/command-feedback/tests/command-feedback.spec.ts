@@ -7,6 +7,7 @@ import CommandRuntime from '@deepseek-ai/dsh-commands'
 import SessionStore, { foldSurface, Session, SessionId } from '@deepseek-ai/dsh-session'
 import { SessionTelemetryBackend, type SessionTelemetrySharingStatus } from '@deepseek-ai/dsh-session-telemetry'
 import * as commandFeedback from '@deepseek-ai/dsh-command-feedback'
+import { unsupportedInbox } from '@deepseek-ai/dsh-agent-loop-testkit'
 
 const { USER_ID, getOrCreateAnonymousUserId } = vi.hoisted(() => {
   const USER_ID = '01234567-89ab-4cde-8f01-23456789abcd'
@@ -48,7 +49,7 @@ function stubAgent(ctx: Context, id: string): { agent: Agent; session: Session }
     id: session.id,
     options: {},
     session,
-    inbox: { nextTurn: [], nextStep: [] } as never,
+    inbox: unsupportedInbox(),
     ctx: new Context(),
     get status() { return status },
     send: () => {},

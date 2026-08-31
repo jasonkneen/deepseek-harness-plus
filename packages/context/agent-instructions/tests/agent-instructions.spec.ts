@@ -43,7 +43,8 @@ import {
 import { resolveConfig } from '../src/config.ts'
 import { candidateScopeKey, renderInstructionChanges, renderWorkspaceInstructionSet, USER_GLOBAL_DIRECTORY, USER_GLOBAL_FILE } from '../src/render.ts'
 import { MockAdapter, textResponse, toolCallResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
-import { createInboxFixture, type InboxFixture } from '@deepseek-ai/dsh-agent-loop-testkit'
+import { ReactLoopInbox } from '@deepseek-ai/dsh-agent-loop'
+import { unsupportedInbox } from '@deepseek-ai/dsh-agent-loop-testkit'
 
 /** Per-candidate reconciliation scope key: directory paired with the file name. */
 const sk = (directory: string, candidateName: string): string => candidateScopeKey(directory, candidateName)
@@ -53,14 +54,10 @@ const isolatedInboxCtx = new Context()
 await isolatedInboxCtx.plugin(SessionStore)
 await isolatedInboxCtx.plugin(SessionProjectionRegistry)
 await isolatedInboxCtx.plugin(AgentRegistry)
-const inboxFixtures = new WeakMap<Agent, InboxFixture>()
 let nextStubSession = 1
 
-/** Test-driver operations for one structural agent inbox. */
-function inboxFixture(agent: Agent): InboxFixture {
-  const fixture = inboxFixtures.get(agent)
-  if (fixture === undefined) throw new Error('agent inbox fixture is unavailable')
-  return fixture
+interface TestAgent extends Agent {
+  readonly inbox: ReactLoopInbox
 }
 
 async function tempRepo(): Promise<string> {
@@ -201,7 +198,7 @@ async function mountFileToolsAndWorkspaceContext(ctx: Context, config: workspace
   return mountWorkspaceContextPlugin(ctx, config)
 }
 
-function stubAgent(cwd?: string, seed: SessionEvent[] = []): Agent {
+function stubAgent(cwd?: string, seed: SessionEvent[] = []): TestAgent {
   const id = SessionId(`agent-instructions-${String(nextStubSession++)}`)
   const agentCtx = isolatedInboxCtx
   const session = agentCtx.sessions.create(id, {
@@ -213,7 +210,7 @@ function stubAgent(cwd?: string, seed: SessionEvent[] = []): Agent {
     id: SessionId('a1'),
     options: {},
     session,
-    inbox: undefined as never,
+    inbox: unsupportedInbox(),
     status: 'idle',
     send: () => {},
     followup: () => {},
@@ -223,10 +220,9 @@ function stubAgent(cwd?: string, seed: SessionEvent[] = []): Agent {
     runMaintenance: task => task(new AbortController().signal),
     whenIdle: () => Promise.resolve(),
   }
-  const fixture = createInboxFixture(agentCtx.sessionProjections, session)
-  Object.assign(agent, { inbox: fixture.inbox })
-  inboxFixtures.set(agent, fixture)
-  return agent
+  return Object.assign(agent, {
+    inbox: new ReactLoopInbox(agentCtx.sessionProjections, session, agentEvents(agentCtx, agent)),
+  })
 }
 
 function stubToolExecution(
@@ -274,10 +270,10 @@ function baselineEvents(agent: Agent): SessionEvent[] {
     && event.data.source.baseline === true)
 }
 
-async function appendAdditionalContexts(ctx: Context, agent: Agent): Promise<number | undefined> {
+async function appendAdditionalContexts(ctx: Context, agent: TestAgent): Promise<number | undefined> {
   await syncedWorkspaceContext(ctx, agent)
   let lastSeq: number | undefined
-  for (const claimed of inboxFixture(agent).claim('next-step')) {
+  for (const claimed of agent.inbox.claim('next-step', 1)) {
     if (claimed.source.kind !== 'agent-instructions') continue
     const event = agent.session.append('user/message', claimed, { surfaceOp: 'append' })
     ctx.emit('session/event', agent.session, event)
@@ -288,14 +284,14 @@ async function appendAdditionalContexts(ctx: Context, agent: Agent): Promise<num
 
 const composedPrefixes = new WeakMap<object, Message[]>()
 
-async function composeBaselinePrefix(ctx: Context, agent: Agent): Promise<Message[]> {
+async function composeBaselinePrefix(ctx: Context, agent: TestAgent): Promise<Message[]> {
   const signal = new AbortController().signal
   await agentEvents(ctx, agent).waterfall(
     'agent/pre-step',
     { messages: [], turn: 1, step: 1, signal },
     () => Promise.resolve({ kind: 'enter' as const, messages: [] }),
   )
-  const claimed = inboxFixture(agent).claim('next-step')
+  const claimed = agent.inbox.claim('next-step', 1)
   const decision = await agentEvents(ctx, agent).waterfall(
     'agent/pre-step',
     { messages: claimed, turn: 1, step: 2, signal },
@@ -1408,7 +1404,7 @@ describe('workspace context request injection', () => {
       await mountWorkspaceContextPlugin(ctx, { dshHome: home, maxBytes: 65536 })
       const resumed = stubAgent(root, [...original.session.events])
       agentEvents(ctx, resumed).emit('agent/session-start', { source: 'resume' })
-      const claimed = inboxFixture(resumed).claim('next-step')
+      const claimed = resumed.inbox.claim('next-step', 1)
       const decision = await agentEvents(ctx, resumed).waterfall(
         'agent/pre-step',
         { messages: claimed, turn: 1, step: 1, signal: AbortSignal.timeout(1000) },
@@ -1454,7 +1450,7 @@ describe('workspace context request injection', () => {
       await mountWorkspaceContextPlugin(ctx, { dshHome: home, maxBytes: 65536 })
       const resumed = stubAgent(root, [...original.session.events])
       agentEvents(ctx, resumed).emit('agent/session-start', { source: 'resume' })
-      const staleClaim = inboxFixture(resumed).claim('next-step')
+      const staleClaim = resumed.inbox.claim('next-step', 1)
       const staleDecision = await agentEvents(ctx, resumed).waterfall(
         'agent/pre-step',
         { messages: staleClaim, turn: 1, step: 1, signal: AbortSignal.timeout(1000) },
@@ -1507,7 +1503,7 @@ describe('workspace context request injection', () => {
       await mountWorkspaceContextPlugin(resumedCtx, { dshHome: home, maxBytes })
       const resumed = stubAgent(root, [...original.session.events])
       agentEvents(resumedCtx, resumed).emit('agent/session-start', { source: 'resume' })
-      const claimed = inboxFixture(resumed).claim('next-step')
+      const claimed = resumed.inbox.claim('next-step', 1)
       const decision = await agentEvents(resumedCtx, resumed).waterfall(
         'agent/pre-step',
         { messages: claimed, turn: 1, step: 1, signal: AbortSignal.timeout(1000) },
@@ -4662,7 +4658,7 @@ describe('workspace context inbox synchronization', () => {
       await mountFileToolsAndWorkspaceContext(ctx, { dshHome: home, maxBytes: 65536 })
       const agent = stubAgent(join(root, 'pkg'))
       await syncedWorkspaceContext(ctx, agent)
-      const claimed = inboxFixture(agent).claim('next-step')
+      const claimed = agent.inbox.claim('next-step', 1)
       await write(join(root, 'pkg/AGENTS.md'), 'new claimed rule with more detail')
       const downstream = { kind: 'enter' as const, messages: claimed }
 

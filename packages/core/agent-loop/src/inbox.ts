@@ -64,7 +64,13 @@ export const inboxProjectionDefinition = {
   stateVersion: 1,
 } satisfies ProjectionDefinition<'inbox', InboxState>
 
-/** Concrete inbox implementation constructed only by ReactLoopAgent. */
+/**
+ * Driver-owned durable Inbox implementation used by ReactLoopAgent and focused
+ * provider tests.
+ * @param projections - registry that owns the standard Inbox projection.
+ * @param session - session whose durable events store pending input.
+ * @param dispatch - agent-scoped notifications for Inbox lifecycle events.
+ */
 export class ReactLoopInbox implements InboxContract {
   constructor(
     private readonly projections: SessionProjectionRegistry,

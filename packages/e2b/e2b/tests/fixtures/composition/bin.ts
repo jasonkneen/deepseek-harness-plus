@@ -15,11 +15,23 @@ const ctx = await boot('e2b-composition', resolve(configPath))
 const ownerFiber = ctx.plugin(() => {})
 const ownerId = SessionId('e2b-live-owner')
 const session = Session.create(ownerId)
+const unsupportedInboxMutation = (): never => {
+  throw new Error('the E2B composition owner does not support Inbox mutations')
+}
 const owner: Agent = {
   id: ownerId,
   options: {},
   session,
-  inbox: { nextTurn: [], nextStep: [] } as never,
+  inbox: {
+    nextTurn: [],
+    nextStep: [],
+    clear: unsupportedInboxMutation,
+    append: unsupportedInboxMutation,
+    prepend: unsupportedInboxMutation,
+    replace: unsupportedInboxMutation,
+    remove: unsupportedInboxMutation,
+    splice: unsupportedInboxMutation,
+  },
   status: 'idle',
   ctx: ownerFiber.ctx,
   send() {},

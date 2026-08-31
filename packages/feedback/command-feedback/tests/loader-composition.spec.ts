@@ -12,6 +12,7 @@ import CommandRuntime from '@deepseek-ai/dsh-commands'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import * as CommandFeedback from '@deepseek-ai/dsh-command-feedback'
 import { getOrCreateAnonymousUserId } from '@deepseek-ai/dsh-anonymous-user-id'
+import { unsupportedInbox } from '@deepseek-ai/dsh-agent-loop-testkit'
 
 let root: string | undefined
 let context: Context | undefined
@@ -34,7 +35,7 @@ function agent(ctx: Context): Agent {
     id,
     options: {},
     session,
-    inbox: { nextTurn: [], nextStep: [] } as never,
+    inbox: unsupportedInbox(),
     ctx: scope.ctx,
     get status() { return status },
     send: () => {},

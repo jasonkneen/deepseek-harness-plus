@@ -14,6 +14,7 @@ import type {
   TerminalSessionStatus,
   TerminalSignal,
 } from '@deepseek-ai/dsh-terminal'
+import { unsupportedInbox } from '@deepseek-ai/dsh-agent-loop-testkit'
 
 const agentScopeDisposers = new WeakMap<Agent, () => Promise<void>>()
 const ptyServiceDisposers = new WeakMap<Context, () => Promise<void>>()
@@ -26,7 +27,7 @@ function stubAgent(ctx: Context, rawId: string): Agent {
     id,
     options: {},
     session,
-    inbox: { nextTurn: [], nextStep: [] } as never,
+    inbox: unsupportedInbox(),
     status: 'idle',
     ctx: scopeFiber.ctx,
     send: () => {},

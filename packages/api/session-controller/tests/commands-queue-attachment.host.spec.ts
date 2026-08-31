@@ -1,5 +1,5 @@
 import { Context } from '@deepseek-ai/cordis'
-import AgentRegistry from '@deepseek-ai/dsh-agent'
+import AgentRegistry, { agentEvents } from '@deepseek-ai/dsh-agent'
 import type { Agent, Inbox, ModelSelectionRef } from '@deepseek-ai/dsh-agent'
 import { AttachmentError, AttachmentId } from '@deepseek-ai/dsh-attachment'
 import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
@@ -10,7 +10,8 @@ import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import { describe, expect, it, vi } from 'vitest'
 import { ApiSessionAgentController } from '../src/agent.ts'
 import { SessionCommandController } from '../src/commands.ts'
-import { createInboxFixture } from '@deepseek-ai/dsh-agent-loop-testkit'
+import { ReactLoopInbox } from '@deepseek-ai/dsh-agent-loop'
+import { unsupportedInbox } from '@deepseek-ai/dsh-agent-loop-testkit'
 import { installSessionReadTestServices, testSessionPersistence } from './test-remote.ts'
 
 async function commandHarness(): Promise<{
@@ -28,17 +29,23 @@ async function commandHarness(): Promise<{
   const session = ctx.sessions.create(SessionId('commands-session'), { meta: { cwd: '/workspace' } })
   const steer = vi.fn()
   const cancel = vi.fn()
-  const agent = {
+  const agent: Agent = {
     id: session.id,
+    options: {},
     session,
-    inbox: undefined as never,
+    inbox: unsupportedInbox(),
     status: 'running',
     ctx,
-    steer,
+    send: () => {},
     followup: vi.fn(),
+    steer,
+    inject: () => {},
     cancel,
-  } as unknown as Agent
-  Object.assign(agent, { inbox: createInboxFixture(ctx.sessionProjections, session).inbox })
+    runMaintenance: task => task(new AbortController().signal),
+    whenIdle: () => Promise.resolve(),
+  }
+  const inbox = new ReactLoopInbox(ctx.sessionProjections, session, agentEvents(ctx, agent))
+  Object.assign(agent, { inbox })
   ctx.agents.register(agent)
   ctx.provide('workspaceRegistry', { get: () => undefined, list: () => [] } as never)
   ctx.provide('agentDefaultModel', {
@@ -55,7 +62,7 @@ async function commandHarness(): Promise<{
     serializeImageAdmission: <Value>(_agent: Agent, operation: () => Promise<Value>) => operation(),
     composeAgent: () => Promise.resolve({ setup: () => {} }),
   } as unknown as ApiSessionAgentController
-  return { ctx, controller: new SessionCommandController(ctx, agents, '/workspace'), agent, inbox: agent.inbox, steer, cancel }
+  return { ctx, controller: new SessionCommandController(ctx, agents, '/workspace'), agent, inbox, steer, cancel }
 }
 
 async function expectFailure(operation: Promise<unknown>, code: string): Promise<void> {

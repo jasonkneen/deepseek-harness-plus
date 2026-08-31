@@ -18,6 +18,7 @@ import type {
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
 import * as ToolBashPersistent from '@deepseek-ai/dsh-tool-bash-persistent'
+import { unsupportedInbox } from '@deepseek-ai/dsh-agent-loop-testkit'
 
 const contexts: Context[] = []
 let callNumber = 0
@@ -39,7 +40,7 @@ function agent(ctx: Context, cwd: string | undefined): Agent {
     id,
     options: {},
     session,
-    inbox: { nextTurn: [], nextStep: [] } as never,
+    inbox: unsupportedInbox(),
     status: 'idle',
     ctx: scope.ctx,
     send: () => {},

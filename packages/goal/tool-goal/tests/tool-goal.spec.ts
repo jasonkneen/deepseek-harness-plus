@@ -15,13 +15,15 @@ import ToolRuntime from '@deepseek-ai/dsh-tools'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import type { ToolExecutionResult } from '@deepseek-ai/dsh-tools'
 import * as toolGoal from '@deepseek-ai/dsh-tool-goal'
-import { createInboxFixture, type InboxFixture } from '@deepseek-ai/dsh-agent-loop-testkit'
+import { ReactLoopInbox } from '@deepseek-ai/dsh-agent-loop'
+import { unsupportedInbox } from '@deepseek-ai/dsh-agent-loop-testkit'
 
 const testToolSignal = new AbortController().signal
 
 interface StubAgent {
   readonly agent: Agent
   readonly session: Session
+  readonly inbox: ReactLoopInbox
   setStatus(status: AgentStatus): void
 }
 
@@ -29,14 +31,6 @@ const isolatedInboxCtx = new Context()
 await isolatedInboxCtx.plugin(SessionStore)
 await isolatedInboxCtx.plugin(SessionProjectionRegistry)
 await isolatedInboxCtx.plugin(AgentRegistry)
-const inboxFixtures = new WeakMap<Agent, InboxFixture>()
-
-/** Test-driver operations for one structural agent inbox. */
-function inboxFixture(agent: Agent): InboxFixture {
-  const fixture = inboxFixtures.get(agent)
-  if (fixture === undefined) throw new Error('agent inbox fixture is unavailable')
-  return fixture
-}
 
 /** Build one registry-compatible live agent whose injections enter the durable inbox. */
 function stubAgent(rawId: string, supplied?: Session, suppliedCtx?: Context): StubAgent {
@@ -52,7 +46,7 @@ function stubAgent(rawId: string, supplied?: Session, suppliedCtx?: Context): St
     id: session.id,
     options: {},
     session,
-    inbox: undefined as never,
+    inbox: unsupportedInbox(),
     get status() { return status },
     ctx: agentCtx,
     send: () => {},
@@ -65,10 +59,9 @@ function stubAgent(rawId: string, supplied?: Session, suppliedCtx?: Context): St
     runMaintenance: task => task(new AbortController().signal),
     whenIdle() { return Promise.resolve() },
   }
-  const fixture = createInboxFixture(agentCtx.sessionProjections, session)
-  Object.assign(agent, { inbox: fixture.inbox })
-  inboxFixtures.set(agent, fixture)
-  return { agent, session, setStatus(value) { status = value } }
+  const inbox = new ReactLoopInbox(agentCtx.sessionProjections, session, agentEvents(agentCtx, agent))
+  Object.assign(agent, { inbox })
+  return { agent, session, inbox, setStatus(value) { status = value } }
 }
 
 /** Open one message-triggered turn with its accepted model-visible input. */
@@ -81,7 +74,7 @@ function openTurn(stub: StubAgent, source: MessageSource, text = 'prompt'): numb
     source,
   })
   stub.agent.inbox.append('next-turn', message)
-  const claimed = inboxFixture(stub.agent).claim('next-turn')
+  const claimed = stub.inbox.claim('next-turn', turn)
   if (claimed.length === 0) throw new Error('expected queued turn input')
   stub.session.append('turn/start', { turn })
   for (const admitted of claimed) {

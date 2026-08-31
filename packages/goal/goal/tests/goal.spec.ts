@@ -12,7 +12,8 @@ import GoalService, {
   foldGoal,
 } from '@deepseek-ai/dsh-goal'
 import type { GoalChangeMeta, GoalRef, GoalSnapshotChangeMeta } from '@deepseek-ai/dsh-goal'
-import { createInboxFixture } from '@deepseek-ai/dsh-agent-loop-testkit'
+import { ReactLoopInbox } from '@deepseek-ai/dsh-agent-loop'
+import { unsupportedInbox } from '@deepseek-ai/dsh-agent-loop-testkit'
 
 interface StubAgent {
   agent: Agent
@@ -48,7 +49,7 @@ function stubAgentForSession(session: Session, suppliedCtx?: Context): StubAgent
     id,
     options: {},
     session,
-    inbox: undefined as never,
+    inbox: unsupportedInbox(),
     ctx: agentCtx,
     status: 'idle',
     send: () => {},
@@ -59,7 +60,9 @@ function stubAgentForSession(session: Session, suppliedCtx?: Context): StubAgent
     runMaintenance: task => task(new AbortController().signal),
     whenIdle() { return Promise.resolve() },
   }
-  Object.assign(agent, { inbox: createInboxFixture(agentCtx.sessionProjections, session).inbox })
+  Object.assign(agent, {
+    inbox: new ReactLoopInbox(agentCtx.sessionProjections, session, agentEvents(agentCtx, agent)),
+  })
   const stub = {
     agent,
     session,

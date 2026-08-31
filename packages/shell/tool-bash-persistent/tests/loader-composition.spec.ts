@@ -20,6 +20,7 @@ import LocalSubprocessRuntime from '@deepseek-ai/dsh-subprocess-local'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
 import * as ToolBashPersistent from '@deepseek-ai/dsh-tool-bash-persistent'
+import { unsupportedInbox } from '@deepseek-ai/dsh-agent-loop-testkit'
 
 let root: string | undefined
 let context: Context | undefined
@@ -45,7 +46,7 @@ function agent(ctx: Context, cwd: string): Agent {
     id,
     options: {},
     session,
-    inbox: { nextTurn: [], nextStep: [] } as never,
+    inbox: unsupportedInbox(),
     status: 'idle',
     ctx: scope.ctx,
     send: () => {},

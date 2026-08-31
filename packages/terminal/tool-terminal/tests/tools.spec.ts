@@ -12,13 +12,14 @@ import type { TerminalBackend, TerminalBackendSession, TerminalSendOperation, Te
 import LocalJobRegistry from '@deepseek-ai/dsh-jobs-local'
 import * as ToolTasks from '@deepseek-ai/dsh-tool-jobs'
 import * as ToolPty from '@deepseek-ai/dsh-tool-terminal'
+import { unsupportedInbox } from '@deepseek-ai/dsh-agent-loop-testkit'
 
 function fakeAgent(ctx: Context, rawId: string): Agent {
   const scope = ctx.plugin(() => {})
   const id = SessionId(rawId)
   const session = Session.create(id)
   const agent: Agent = {
-    id, options: {}, session, inbox: { nextTurn: [], nextStep: [] } as never,
+    id, options: {}, session, inbox: unsupportedInbox(),
     status: 'idle',
     ctx: scope.ctx,
     send: () => {},
