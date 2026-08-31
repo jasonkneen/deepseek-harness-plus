@@ -92,7 +92,7 @@ Tier 2 在持续 `idleSilenceMs` 没有输出后返回 `inferred_idle`，因此 
 
 ### 进程树 teardown
 
-在受支持的 Linux 宿主上，subprocess 终端句柄会把顶层 PTY 进程绑定到临时 user-systemd scope。close 会向 direct PTY 与 scope 发送 `SIGTERM`，等待 manager 证明该 range 为空，并在配置的宽限期后升级到 `SIGKILL`。调用 `setsid` 或发生 reparent 的后代仍属于 scope，而 PTY 的 direct exit 通知继续作为终端结果。
+在受支持的 Linux 宿主上，subprocess 终端句柄会把顶层 PTY 进程绑定到临时 user-systemd scope。建立前，close 通过 direct PTY fallback 发送 `SIGTERM`，阻止 bootstrap 继续；建立后只向 scope 发送信号，并且仅在 scope signalling 失败时使用 direct fallback。随后它等待 manager 证明该 range 为空，并在配置的宽限期后升级到 `SIGKILL`。调用 `setsid` 或发生 reparent 的后代仍属于 scope，而 PTY 的 direct exit 通知继续作为终端结果。
 
 fallback 宿主保留观察式进程 session 清理。句柄会按父 PID 以子进程优先顺序捕获传递后代、发送 `SIGTERM` 并等待，然后重新扫描关停期间 fork 出的子进程，向二者并集发送 `SIGKILL`，并在停止顶层进程前验证每个非僵尸后代都已离开进程表。身份匹配的 Linux 僵尸进程已无可执行工作，因此视为完全停稳。每个捕获的 PID 都包含进程启动身份，避免 PID 复用把升级信号发给无关进程。
 

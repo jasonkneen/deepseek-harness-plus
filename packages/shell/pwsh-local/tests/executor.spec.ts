@@ -18,7 +18,7 @@ import { Context } from '@deepseek-ai/cordis'
 import { PwshLocalExecutor, ENCODING_PREAMBLE, candidatePwshPaths, resolvePwshPath } from '@deepseek-ai/dsh-pwsh-local'
 import LocalSubprocessRuntime from '@deepseek-ai/dsh-subprocess-local'
 import SubprocessRuntime from '@deepseek-ai/dsh-subprocess'
-import type { SubprocessHandle, SubprocessOutputReader, SubprocessSpawnSpec } from '@deepseek-ai/dsh-subprocess'
+import type { SubprocessHandle, SubprocessOutcome, SubprocessOutputReader, SubprocessSpawnSpec } from '@deepseek-ai/dsh-subprocess'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
 import type { ShellProcess } from '@deepseek-ai/dsh-shell'
 
@@ -155,6 +155,7 @@ describe('spawn construction (pure, every platform)', () => {
   /** A subprocess service that records spawn specs and settles instantly. */
   class CapturingSubprocessRuntime extends SubprocessRuntime {
     specs: SubprocessSpawnSpec[] = []
+    done: Promise<SubprocessOutcome> = Promise.resolve({ exitCode: 0, signal: null })
     override async resolveExecutable(command: string): Promise<string> { return command }
     override spawnTerminal(): Promise<never> { throw new Error('pwsh spawns pipes, never terminals') }
     private readonly reader: SubprocessOutputReader = {
@@ -167,7 +168,7 @@ describe('spawn construction (pure, every platform)', () => {
         stdout: undefined,
         stderr: undefined,
         collected: { stdout: this.reader, stderr: this.reader },
-        done: Promise.resolve({ exitCode: 0, signal: null }),
+        done: this.done,
         terminate: () => {},
         waitForExit: async () => true,
       }
@@ -185,6 +186,20 @@ describe('spawn construction (pure, every platform)', () => {
     expect(argv[5]).toBe(`${ENCODING_PREAMBLE}Write-Output 你好`)
     expect(ENCODING_PREAMBLE).toContain('[Console]::OutputEncoding')
     expect(ENCODING_PREAMBLE).toContain('$OutputEncoding')
+  })
+
+  it('reports asynchronous provider rejection without claiming that pwsh never started', async () => {
+    const ctx = new Context()
+    const subprocess = new CapturingSubprocessRuntime(ctx)
+    await ctx.plugin(PwshLocalExecutor)
+    subprocess.done = Promise.reject(new Error('provider lost the direct outcome'))
+
+    const proc = ctx.shell.start(ctx.shell.resolve({ command: 'Write-Output maybe-ran' }))
+    await expect(proc.done).resolves.toBeUndefined()
+    expect(proc.status).toBe('killed')
+    const output = proc.readOutput().delta
+    expect(output).toContain('subprocess failed before reporting an outcome:')
+    expect(output).not.toContain('spawn failed:')
   })
 })
 
@@ -435,13 +450,13 @@ describe.skipIf(!hasPwsh)('PwshLocalExecutor.start (background process handles)'
     expect(['SIGTERM', 'SIGKILL']).toContain(proc.signal)
   })
 
-  it('a background spawn failure settles as killed with the error readable on stderr', async () => {
+  it('an asynchronous creation failure settles as killed with a stage-neutral note', async () => {
     const { bash } = await setup()
     const proc = bash.start(bash.resolve({ command: 'Write-Output ok', workdir: '/nonexistent-dsh' }))
     // done resolves (never rejects) even though the process never ran.
     await expect(proc.done).resolves.toBeUndefined()
     expect(proc.status).toBe('killed')
-    expect(proc.readOutput().delta).toContain('spawn failed:')
+    expect(proc.readOutput().delta).toContain('subprocess failed before reporting an outcome:')
   })
 })
 

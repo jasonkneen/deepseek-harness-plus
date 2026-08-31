@@ -252,19 +252,19 @@ export class LocalBashExecutor extends ShellExecutor {
    * execution boundary.
    * @param spec - resolved execution settings and caller-owned command metadata.
    * @param argv - exact executable and arguments to hand to `ctx.subprocess`.
-   * @returns the live background handle; spawn rejection settles it as killed.
+   * @returns the live background handle; provider rejection settles it as killed.
    */
   protected startArgv(spec: ShellExecSpec, argv: readonly string[]): ShellProcess {
     // Background runs ignore timeoutMs; callers stop them through kill() or spec.signal.
     const running = this.ctx.subprocess.spawn(this.spawnSpec(spec, argv, this.config.maxOutputBytes, spec.signal))
     const collected = LocalBashExecutor.collected(running)
 
-    // A spawn failure produces no process output, so the subprocess service has nothing
-    // to buffer; the note is delivered exactly once through the read path.
-    let spawnFailureNote: string | undefined
-    const consumeSpawnFailure = (): string => {
-      const note = spawnFailureNote ?? ''
-      spawnFailureNote = undefined
+    // A provider rejection has no direct outcome to display; its stage is not
+    // public, so a neutral note is delivered once through the read path.
+    let providerFailureNote: string | undefined
+    const consumeProviderFailure = (): string => {
+      const note = providerFailureNote ?? ''
+      providerFailureNote = undefined
       return note
     }
 
@@ -283,10 +283,10 @@ export class LocalBashExecutor extends ShellExecutor {
         proc.signal = outcome.signal
         this.onProcessDone(proc, collected.stderr.readFrom(0).text, false)
       }, (error: unknown) => {
-        // Background spawn failures settle as killed and surface through the read path.
+        // Background provider failures settle as killed and surface through the read path.
         proc.status = 'killed'
-        spawnFailureNote = `spawn failed: ${String(error)}`
-        this.onProcessDone(proc, spawnFailureNote, true, error)
+        providerFailureNote = `subprocess failed before reporting an outcome: ${String(error)}`
+        this.onProcessDone(proc, providerFailureNote, true, error)
       }),
       readOutput: (): ShellProcessRead => {
         const out = collected.stdout.readFrom(stdoutOffset)
@@ -294,9 +294,7 @@ export class LocalBashExecutor extends ShellExecutor {
         stdoutOffset = out.nextOffset
         stderrOffset = err.nextOffset
 
-        // A failed spawn never produced process output, so the note and real
-        // stderr text are mutually exclusive.
-        const errText = err.text.length > 0 ? err.text : consumeSpawnFailure()
+        const errText = err.text.length > 0 ? err.text : consumeProviderFailure()
         // Single newline between sections: stdout chunks usually end with one
         // already; add it only when missing.
         const separator = out.text.length > 0 && !out.text.endsWith('\n') ? '\n' : ''
@@ -321,15 +319,15 @@ export class LocalBashExecutor extends ShellExecutor {
 
   /**
    * Settlement hook for subclasses that attach execution facts to a process.
-   * Called after exit facts or spawn-failure output are stamped and before
+   * Called after exit facts or provider-failure output are stamped and before
    * {@link ShellProcess.done} resolves. The base implementation is intentionally
    * empty.
    * @param _proc - the settled process handle.
    * @param _stderr - the process's retained stderr tail used by subclasses for settlement classification.
-   * @param _spawnFailed - whether the subprocess promise rejected before a process started.
-   * @param _spawnError - the original spawn rejection reason, which may itself be undefined.
+   * @param _providerRejected - whether the subprocess promise rejected without a direct outcome.
+   * @param _providerError - the provider rejection reason, which may itself be undefined.
    */
-  protected onProcessDone(_proc: ShellProcess, _stderr: string, _spawnFailed: boolean, _spawnError?: unknown): void {}
+  protected onProcessDone(_proc: ShellProcess, _stderr: string, _providerRejected: boolean, _providerError?: unknown): void {}
 }
 
 export default LocalBashExecutor

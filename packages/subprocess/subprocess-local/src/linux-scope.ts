@@ -38,6 +38,7 @@ export interface LinuxScopeInternals {
   resolveRunnerInvocation?: () => RunnerInvocation
   runnerAvailable?: (invocation: RunnerInvocation) => boolean
   loadLinuxExecve?: typeof loadLinuxExecve
+  sleep?: (delayMs: number) => Promise<void>
 }
 
 interface SystemctlResult {
@@ -48,7 +49,7 @@ interface SystemctlResult {
 }
 
 const SYSTEMCTL_TIMEOUT_MS = 5_000
-const SCOPE_POLL_INTERVAL_MS = 50
+const SCOPE_INITIAL_POLL_INTERVAL_MS = 50
 const MISSING_UNIT = /\bunit\b[^\r\n]*(?:could not be found|not found|not loaded)/iu
 
 function systemctlEnv(): NodeJS.ProcessEnv {
@@ -146,6 +147,7 @@ class SystemdScopeOwner implements BoundProcessOwner {
     private readonly systemctl: string,
     private readonly runSync: typeof spawnSync,
     private readonly query: (command: string, args: readonly string[]) => Promise<SystemctlResult>,
+    private readonly sleep: (delayMs: number) => Promise<void>,
   ) {}
 
   signal(signal: 'SIGTERM' | 'SIGKILL'): void {
@@ -228,7 +230,15 @@ class SystemdScopeOwner implements BoundProcessOwner {
   async waitForExit(): Promise<void> {
     if (this.stopped) return
     this.observation ??= (async () => {
-      while (await this.rangeActive()) await sleepMs(SCOPE_POLL_INTERVAL_MS)
+      let pollIntervalMs = SCOPE_INITIAL_POLL_INTERVAL_MS
+      while (await this.rangeActive()) {
+        await this.sleep(pollIntervalMs)
+        // Keep establishment responsive, then reduce systemctl process churn
+        // while systemd remains the authoritative owner of an active range.
+        if (this.established) {
+          pollIntervalMs = Math.min(pollIntervalMs * 2, SYSTEMCTL_TIMEOUT_MS)
+        }
+      }
       this.stopped = true
     })().catch((error: unknown) => {
       this.observation = undefined
@@ -337,6 +347,7 @@ export function prepareLinuxTerminalScope(
       internals.systemctl ?? 'systemctl',
       internals.spawnSync ?? spawnSync,
       internals.systemctlQuery ?? querySystemctl,
+      internals.sleep ?? sleepMs,
     ),
     resolveOutcome: (outcome) => {
       const startup = readLinuxStartupError(files.startupErrorPath)
@@ -391,6 +402,7 @@ export function launchLinuxScope(
     internals.systemctl ?? 'systemctl',
     internals.spawnSync ?? spawnSync,
     internals.systemctlQuery ?? querySystemctl,
+    internals.sleep ?? sleepMs,
   )
   return {
     stdin: child.stdin,

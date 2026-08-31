@@ -166,7 +166,7 @@ The `SANDBOX_UNAVAILABLE` error code (owned by the [sandbox seam](sandbox.md)) i
 
 ## Background processes: `ShellProcess`
 
-`start()` returns a handle with no id or owner. `dsh-tool-bash` adapts it into `ctx.jobs.start()` hooks; the generic runtime then owns job identity and lifecycle. `done` resolves when the process closes and never rejects, reads remain valid after settlement, and sandbox facts are stamped before `done` resolves.
+`start()` returns a handle with no id or owner. `dsh-tool-bash` adapts it into `ctx.jobs.start()` hooks; the generic runtime then owns job identity and lifecycle. `done` resolves when the underlying process settles and never rejects; a subprocess provider rejection becomes a `killed` process with a stage-neutral error on stderr. Reads remain valid after settlement, and sandbox facts are stamped before `done` resolves.
 
 ```ts type-equiv
 /**
@@ -182,7 +182,10 @@ interface ShellProcess {
   exitCode: number | null
   /** Terminating signal name, when signal-killed. */
   signal: NodeJS.Signals | null
-  /** Resolves when the underlying process closes (never rejects — a spawn failure settles as `killed` with the error on stderr). */
+  /**
+   * Resolves when the underlying process settles (never rejects — provider
+   * rejection settles as `killed` with a stage-neutral error on stderr).
+   */
   readonly done: Promise<void>
   /** Sandbox facts, stamped once a confined process settles. */
   sandbox?: ShellSandboxInfo

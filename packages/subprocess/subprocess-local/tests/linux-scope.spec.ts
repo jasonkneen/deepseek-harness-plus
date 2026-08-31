@@ -105,6 +105,7 @@ function launch(
     runnerInvocation: overrides.runnerInvocation ?? ['/usr/bin/node', '/runner.js'],
     ...overrides.runnerAvailable === undefined ? {} : { runnerAvailable: overrides.runnerAvailable },
     ...overrides.loadLinuxExecve === undefined ? {} : { loadLinuxExecve: overrides.loadLinuxExecve },
+    ...overrides.sleep === undefined ? {} : { sleep: overrides.sleep },
   })
   const requestPath = options?.env?.[SUBPROCESS_RUNNER_ENV]
   if (requestPath === undefined) throw new Error('launch did not publish a request locator')
@@ -230,6 +231,30 @@ describe('Linux scope establishment and quiescence', () => {
     child.exit(1, null)
     await expect(result.direct).rejects.toThrow('before its bootstrap consumed')
     result.owner.cleanup?.()
+  })
+
+  it('polls promptly before establishment and backs off established active scopes', async () => {
+    const delays: number[] = []
+    const states = [
+      missingUnit(),
+      activeUnit(),
+      activeUnit(),
+      activeUnit(),
+      activeUnit(),
+      activeUnit(),
+      activeUnit(),
+      activeUnit(),
+      activeUnit(),
+      activeUnit('inactive'),
+    ]
+    const launched = launch(
+      async () => states.shift() ?? activeUnit('inactive'),
+      { sleep: async (delayMs) => { delays.push(delayMs) } },
+    )
+
+    await expect(launched.result.owner.waitForExit()).resolves.toBeUndefined()
+    expect(delays).toEqual([50, 50, 100, 200, 400, 800, 1_600, 3_200, 5_000])
+    launched.result.owner.cleanup?.()
   })
 
   it('reports child termination before request consumption to both result and wait', async () => {

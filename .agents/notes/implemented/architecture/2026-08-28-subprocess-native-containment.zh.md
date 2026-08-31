@@ -22,7 +22,7 @@ detached POSIX 进程组、Windows direct-parent 遍历与 PTY 后代扫描只�
 
 parent 创建一个 0700 目录，其中的完整 0600 `launch-request.json` 保存最终 target cwd 与环境。私有 `DSH_SUBPROCESS_RUNNER` 值负责定位该 request，runner 则从 provider cwd 与 bootstrap-safe 环境启动。`systemd-run --user --scope --quiet --collect --expand-environment=no` 先把自身进程注册到 scope，再由 one-shot bootstrap 删除并校验 request、切换到 target cwd、恢复完整 target 环境、按 target PATH 规则解析裸可执行文件、清除 fd 0 至 fd 2 的 `FD_CLOEXEC`，并使用原始 argv 调用 libc `execve()`。bootstrap 会原地成为 target 并保留继承的 stdio，不作为常驻 supervisor。
 
-request 被消费或 manager 已观察到 unit 都能建立 scope ownership。在这两项事实出现前，unit absence 仍是未决状态；direct child 在 request 尚未消费时退出表示建立失败。建立之后，inactive、failed 或已经被 collect 卸载的 unit 可以证明 range 为空。未知状态与不可读的 manager 结果会使 `waitForExit()` reject，而不是宣称完全停稳。严格的同目录 `startup-error.json` 只承载 request／bootstrap 或 target pre-exec failure，parent 会在可观察生命周期完成时移除本次 spawn 的私有路径。
+request 被消费或 manager 已观察到 unit 都能建立 scope ownership。在这两项事实出现前，unit absence 仍是未决状态；direct child 在 request 尚未消费时退出表示建立失败。parent 每 50 毫秒检查一次这段未决区间；建立后，active-state 查询按指数增长间隔退避，最多达到既有的 5 秒 systemctl 上限。inactive、failed 或已经被 collect 卸载的 unit 可以证明 range 为空。未知状态与不可读的 manager 结果会使 `waitForExit()` reject，而不是宣称完全停稳。严格的同目录 `startup-error.json` 只承载 request／bootstrap 或 target pre-exec failure，parent 会在可观察生命周期完成时移除本次 spawn 的私有路径。
 
 普通 target result 仍来自同一个 child process。PTY 路径复用同一 request 与 bootstrap，但不增加常驻 runner，因此 `node-pty` PID、进程组、session leader、控制终端、前台 `inputWaiting`、`/dev/tty`、readiness 与 direct terminal outcome 保留既有含义，同时 scope membership 覆盖 `setsid` 与 reparent 后代。
 
@@ -32,7 +32,7 @@ Windows parent 从 bootstrap cwd 与环境启动 provider runner，把原始 tar
 
 runner 是 target process handle 与 unnamed Job handle 的唯一 owner。`spawnCurrentTokenJobProcess` 以 suspended 状态创建 target，把它分配给不允许 active breakaway 的 kill-on-close Job，并只在分配后恢复。runner 轮询 direct process 获取 target exit code，并轮询 Job 获取 active-process count。只有 direct result 已通过 IPC send callback 交付且 Job 已报告零 active process 后，runner 才成功退出；parent 只把这次 clean exit 映射成成功的 `waitForExit()`。
 
-parent 会在收到经过校验、只含数字的 `target-exit` 时立即永久锁存它，此时既有 stdout／stderr close 或有界 drain barrier 可能尚未完成。`.done` 只继续等待该 stdio barrier，随后返回已锁存的结果。后续 Job query、range settlement failure、IPC loss 或 runner 异常退出只会使 `waitForExit()` reject，不能替换 direct result。在有效 target result 到达前发生 infrastructure failure 才会使 `.done` reject。disconnect 或 result-send failure 会让 runner 停止协议工作、终止并关闭自己唯一的 Job handle，然后以非零状态退出。最后一个 Job handle 关闭会终止剩余成员，但不会把 disconnected 路径改写成成功的完全停稳证明。
+parent 会在收到经过校验、只含数字的 `target-exit` 时立即永久锁存它，此时既有 stdout／stderr close 或有界 drain barrier 可能尚未完成。`.done` 只继续等待该 stdio barrier，随后返回已锁存的结果。后续 Job query、range settlement failure、IPC loss 或 runner 异常退出只会使 `waitForExit()` reject，不能替换 direct result。在有效 target result 到达前发生 infrastructure failure 才会使 `.done` reject，但该 rejection 不会说明 target 是否已经开始执行。disconnect 或 result-send failure 会让 runner 停止协议工作、终止并关闭自己唯一的 Job handle，然后以非零状态退出。最后一个 Job handle 关闭会终止剩余成员，但不会把 disconnected 路径改写成成功的完全停稳证明。
 
 ### 私有分派与协议
 
@@ -54,7 +54,7 @@ selector 是 per-spawn locator 或 sentinel，不是凭据或持久格式。Linu
 
 ## Verification
 
-- provider 与 Linux 协议测试套件固定同步 NUL 拒绝发生在启动副作用之前、严格 request／error 解码、target cwd 与完整环境恢复、私有变量碰撞、保留 argv 且对 symlink 敏感的 PATH 遍历、为继承 stdio 清除 close-on-exec、pre-exec error ownership、三种 scope 建立状态，以及 PTY managed-owner 恰好一次 cleanup。
+- provider 与 Linux 协议测试套件固定同步 NUL 拒绝发生在启动副作用之前、严格 request／error 解码、target cwd 与完整环境恢复、私有变量碰撞、保留 argv 且对 symlink 敏感的 PATH 遍历、为继承 stdio 清除 close-on-exec、pre-exec error ownership、三种 scope 建立状态、建立前快速轮询与建立后有上限的退避，以及 PTY managed-owner 恰好一次 cleanup。
 - Windows 协议与 Win32 测试套件固定恰好三个 result 分支、只含数字的 target exit、原样本地 cancellation reason、access denied 到 `EPERM`／`-4048` 的映射、按序数显式排序的 target 环境块及 `=C:` 保留和双 NUL 结尾、`uv_get_osfhandle()` carrier 映射与无效结果拒绝、null-device ignored-stdin carrier 与非 ignore stdin pipe、result-send 与 IPC-disconnect failure、stdio settlement 前的 direct-result 锁存、active-process 完全停稳，以及唯一 handle cleanup。
 - 真实 Linux user-systemd 测试会分别通过生产入口运行一条普通命令与一条 `node-pty` `setsid`／reparent 场景。它们证明 scope signalling 与 collection、裸可执行文件查找、逃逸后代终止、range settlement，以及不变的 PTY PID、session、控制终端、前台输入、`/dev/tty`、readiness 与 startup-failure 语义。
 - native Windows 测试证明 suspended creation、resume 前 Job assignment、继承 stdio、默认后代继承、direct result、termination、active-process zero、异常／disconnected runner cleanup、kill-on-close 与同步 host-exit termination。source、built 与 Python packaged 冒烟测试进入同一 runner core。

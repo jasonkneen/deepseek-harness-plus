@@ -19,7 +19,7 @@ Status: implemented
 
 每个加载 bash 执行器的组合都同时加载 `@deepseek-ai/dsh-subprocess-local`：CLI（命令行界面）、各示例、Python 捆绑运行时以及各内联测试配置。
 
-后台进程的存续期从执行器移到了服务：执行器不再保有存活进程集合，于是重载执行器后，后台工作会继续运行且仍可读取，而组合拆除（服务的 dispose）仍是先终止再等待退出的边界。一条行为约定随之挪动：后台 spawn 失败不再能在管道内部被缓冲成伪造的 stderr（对一个从未真正运行的进程，服务会 reject `done`，且不缓冲任何内容），因此执行器把 `spawn failed: …` 提示注入恰好一个 `readOutput()` 增量。
+后台进程的存续期从执行器移到了服务：执行器不再保有存活进程集合，于是重载执行器后，后台工作会继续运行且仍可读取，而组合拆除（服务的 dispose）仍是先终止再等待退出的边界。一条行为约定随之挪动：当 spawn 或 provider failure 使 direct outcome 无法产生时，subprocess 服务会 reject `done`，但不会公开 target 是否已经开始执行。因此执行器不再伪造进程 stderr，而是把不声明阶段的 `subprocess failed before reporting an outcome: …` 提示注入恰好一个 `readOutput()` 增量。
 
 基于已观察到的流与生命周期需求，具备条件的进程消费方随后迁到该 seam：LSP 使用管道化协议流加收集式 stderr 尾部；ACP（Agent Client Protocol）后端使用管道化 ndjson、继承式 stderr 和消费方拥有的 stdin-EOF dispose 阶梯；PTY 使用 `spawnTerminal()`，同时保留就绪与终端策略。`dsh-subagent-subprocess` 与 LSP 私有进程树辅助函数均被删除。MCP 传输 spawn 和刻意保持轻依赖的 test-support 启动器因所有权或执行形状仍留在外部；适用的生产调用方共享凭据清除。
 

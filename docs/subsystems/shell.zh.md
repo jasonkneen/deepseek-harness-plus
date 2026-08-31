@@ -166,7 +166,7 @@ interface ShellSandboxInfo {
 
 ## 后台进程：`ShellProcess`
 
-`start()` 返回不含 id 或所有者的句柄。`dsh-tool-bash` 将它适配为 `ctx.jobs.start()` 钩子；随后由通用运行时拥有任务标识与生命周期。`done` 在进程关闭时完成且绝不被拒绝；进程结束后仍可读取，并且沙箱事实会在 `done` 完成前写入。
+`start()` 返回不含 id 或所有者的句柄。`dsh-tool-bash` 将它适配为 `ctx.jobs.start()` 钩子；随后由通用运行时拥有任务标识与生命周期。`done` 会在底层进程结算时完成且绝不 reject；subprocess 提供方的 rejection 会生成状态为 `killed` 的进程，并把不声明阶段的错误写入 stderr。进程结算后仍可读取，并且沙箱事实会在 `done` 完成前写入。
 
 ```ts type-equiv
 /**
@@ -182,7 +182,10 @@ interface ShellProcess {
   exitCode: number | null
   /** Terminating signal name, when signal-killed. */
   signal: NodeJS.Signals | null
-  /** Resolves when the underlying process closes (never rejects — a spawn failure settles as `killed` with the error on stderr). */
+  /**
+   * Resolves when the underlying process settles (never rejects — provider
+   * rejection settles as `killed` with a stage-neutral error on stderr).
+   */
   readonly done: Promise<void>
   /** Sandbox facts, stamped once a confined process settles. */
   sandbox?: ShellSandboxInfo

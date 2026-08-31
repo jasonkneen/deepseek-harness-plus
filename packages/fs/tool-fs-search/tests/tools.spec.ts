@@ -471,10 +471,9 @@ describe('workdir derivation and signal forwarding', () => {
       .toMatchObject({ name: 'SearchError', code: 'SEARCH_ABORTED' })
   })
 
-  it('translates a spawn rejection into SEARCH_FAILED even when the signal aborts concurrently', async () => {
-    // The seam rejects only for infrastructure failures (unusable workdir,
-    // missing binary); the abort happened after dispatch, so the launch
-    // failure is the reportable cause with the original error chained.
+  it('translates a provider rejection without claiming the search command never started', async () => {
+    // The public seam does not expose whether a done rejection happened before
+    // or after target execution; the original provider error remains chained.
     const { ctx, subprocess } = await setup()
     const controller = new AbortController()
     subprocess.handler = () => {
@@ -486,7 +485,8 @@ describe('workdir derivation and signal forwarding', () => {
 
     expect(result.isError).toBe(true)
     expect(result.error).toMatchObject({ info: { name: 'SearchError', code: 'SEARCH_FAILED' } })
-    expect(text(result)).toContain('could not start')
+    expect(text(result)).toContain('subprocess failed before reporting an outcome')
+    expect(text(result)).not.toContain('could not start')
   })
 
   it('classifies a synchronous spawn-creation throw as SEARCH_FAILED', async () => {

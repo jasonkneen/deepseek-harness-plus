@@ -91,7 +91,7 @@ seam 本身不是执行器：每个组合只挂载一个提供方，工具即可
 
 ### 后台生命周期与归属
 
-后台进程属于 subprocess 服务而非执行器：它能在仅重载执行器后存活，并在组合拆解时被终止并 join。实现必须遵守 seam 的语义——`run` 只在基础设施失败时 reject；`start` 立即返回且不设超时，其 `done` 绝不 reject（spawn 失败以 `killed` 结算，错误进入 stderr）；`readOutput` 是消费式的，有损读取会报告 spill 文件。
+后台进程属于 subprocess 服务而非执行器：它能在仅重载执行器后存活，并在组合拆解时被终止并 join。实现必须遵守 seam 的语义——`run` 只在基础设施失败时 reject；`start` 立即返回且不设超时，其 `done` 绝不 reject（subprocess provider rejection 以 `killed` 结算，并把不声明阶段的错误写入 stderr）；`readOutput` 是消费式的，有损读取会报告 spill 文件。
 
 </details>
 

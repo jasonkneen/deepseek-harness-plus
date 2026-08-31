@@ -92,7 +92,7 @@ Background sends use the existing task completion notice and `job_output` result
 
 ### Process-tree teardown
 
-On supported Linux hosts, the subprocess terminal handle binds the top-level PTY process to its transient user-systemd scope. Close sends `SIGTERM` to the direct PTY and the scope, waits for the manager to prove that range empty, and escalates to `SIGKILL` after the configured grace. Scope membership continues to include descendants that call `setsid` or reparent, while the PTY's direct exit notification remains the terminal outcome.
+On supported Linux hosts, the subprocess terminal handle binds the top-level PTY process to its transient user-systemd scope. Before establishment, close sends `SIGTERM` through the direct PTY fallback so the bootstrap cannot continue; after establishment, it signals the scope alone and uses the direct fallback only if scope signalling fails. It waits for the manager to prove that range empty and escalates to `SIGKILL` after the configured grace. Scope membership continues to include descendants that call `setsid` or reparent, while the PTY's direct exit notification remains the terminal outcome.
 
 Fallback hosts retain observational process-session cleanup. The handle snapshots transitive descendants by parent PID in children-first order, sends `SIGTERM`, waits, rescans for children forked during shutdown, sends `SIGKILL` to the union, and verifies every non-zombie descendant left the process table before stopping the top-level process. A matching Linux zombie has no executable work and therefore counts as quiescent. Every captured PID includes process-start identity so reuse cannot redirect escalation.
 
