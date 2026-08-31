@@ -323,7 +323,10 @@ export class PwshLocalExecutor extends ShellExecutor {
         stdoutOffset = out.nextOffset
         stderrOffset = err.nextOffset
 
-        const errText = err.text.length > 0 ? err.text : consumeProviderFailure()
+        const providerFailure = consumeProviderFailure()
+        const failureSeparator = err.text.length > 0 && !err.text.endsWith('\n') ? '\n' : ''
+        const errText = err.text
+          + (providerFailure.length > 0 ? `${failureSeparator}${providerFailure}` : '')
         // Single newline between sections: stdout chunks usually end with one
         // already; add it only when missing.
         const separator = out.text.length > 0 && !out.text.endsWith('\n') ? '\n' : ''

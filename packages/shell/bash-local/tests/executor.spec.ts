@@ -289,16 +289,24 @@ describe('LocalBashExecutor.start (background process handles)', () => {
     expect(proc.signal).toBe('SIGTERM')
   })
 
-  it('an asynchronous provider rejection does not claim that the command never started', async () => {
+  it('reports both unread stderr and an asynchronous provider rejection exactly once', async () => {
     const { ctx, bash } = await setup()
     const emptyReader: SubprocessOutputReader = {
       readFrom: () => ({ text: '', nextOffset: 0, lossy: false }),
+    }
+    const stderrText = 'target stderr'
+    const stderrReader: SubprocessOutputReader = {
+      readFrom: offset => ({
+        text: stderrText.slice(offset),
+        nextOffset: stderrText.length,
+        lossy: false,
+      }),
     }
     vi.spyOn(ctx.subprocess, 'spawn').mockReturnValue({
       stdin: undefined,
       stdout: undefined,
       stderr: undefined,
-      collected: { stdout: emptyReader, stderr: emptyReader },
+      collected: { stdout: emptyReader, stderr: stderrReader },
       done: Promise.reject(new Error('provider lost the direct outcome')),
       terminate: vi.fn(),
       waitForExit: async () => true,
@@ -308,8 +316,10 @@ describe('LocalBashExecutor.start (background process handles)', () => {
     await expect(proc.done).resolves.toBeUndefined()
     expect(proc.status).toBe('killed')
     const output = proc.readOutput().delta
+    expect(output).toContain('target stderr')
     expect(output).toContain('subprocess failed before reporting an outcome:')
     expect(output).not.toContain('spawn failed:')
+    expect(proc.readOutput().delta).toBe('')
   })
 
   it('an asynchronous creation failure settles as killed with a stage-neutral note', async () => {

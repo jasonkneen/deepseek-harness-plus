@@ -156,10 +156,18 @@ describe('spawn construction (pure, every platform)', () => {
   class CapturingSubprocessRuntime extends SubprocessRuntime {
     specs: SubprocessSpawnSpec[] = []
     done: Promise<SubprocessOutcome> = Promise.resolve({ exitCode: 0, signal: null })
+    stderrText = ''
     override async resolveExecutable(command: string): Promise<string> { return command }
     override spawnTerminal(): Promise<never> { throw new Error('pwsh spawns pipes, never terminals') }
-    private readonly reader: SubprocessOutputReader = {
+    private readonly stdoutReader: SubprocessOutputReader = {
       readFrom: () => ({ text: '', lossy: false, nextOffset: 0 }),
+    }
+    private readonly stderrReader: SubprocessOutputReader = {
+      readFrom: offset => ({
+        text: this.stderrText.slice(offset),
+        lossy: false,
+        nextOffset: this.stderrText.length,
+      }),
     }
     override spawn(spec: SubprocessSpawnSpec): SubprocessHandle {
       this.specs.push(spec)
@@ -167,7 +175,7 @@ describe('spawn construction (pure, every platform)', () => {
         stdin: undefined,
         stdout: undefined,
         stderr: undefined,
-        collected: { stdout: this.reader, stderr: this.reader },
+        collected: { stdout: this.stdoutReader, stderr: this.stderrReader },
         done: this.done,
         terminate: () => {},
         waitForExit: async () => true,
@@ -188,18 +196,21 @@ describe('spawn construction (pure, every platform)', () => {
     expect(ENCODING_PREAMBLE).toContain('$OutputEncoding')
   })
 
-  it('reports asynchronous provider rejection without claiming that pwsh never started', async () => {
+  it('reports both unread stderr and an asynchronous provider rejection exactly once', async () => {
     const ctx = new Context()
     const subprocess = new CapturingSubprocessRuntime(ctx)
     await ctx.plugin(PwshLocalExecutor)
+    subprocess.stderrText = 'target stderr'
     subprocess.done = Promise.reject(new Error('provider lost the direct outcome'))
 
     const proc = ctx.shell.start(ctx.shell.resolve({ command: 'Write-Output maybe-ran' }))
     await expect(proc.done).resolves.toBeUndefined()
     expect(proc.status).toBe('killed')
     const output = proc.readOutput().delta
+    expect(output).toContain('target stderr')
     expect(output).toContain('subprocess failed before reporting an outcome:')
     expect(output).not.toContain('spawn failed:')
+    expect(proc.readOutput().delta).toBe('')
   })
 })
 
