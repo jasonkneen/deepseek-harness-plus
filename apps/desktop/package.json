@@ -1,8 +1,9 @@
 {
   "name": "@deepseek-ai/dsh-desktop",
   "description": "Electron desktop shell for an isolated pnpm-installed dsh runtime",
-  "version": "0.1.2-alpha.1",
+  "version": "0.1.2-alpha.2",
   "private": true,
+  "license": "MIT",
   "type": "module",
   "main": "lib/main.js",
   "scripts": {
@@ -13,6 +14,7 @@
     "prepare:packages": "tsx scripts/prepare-package-set.ts",
     "prepare:seed": "tsx scripts/prepare-seed.ts",
     "prepare:package": "tsx scripts/package-target.ts --prepare-only",
+    "verify:mac-signature": "node scripts/verify-macos-signature.mjs",
     "package": "tsx scripts/package-target.ts",
     "package:dir": "tsx scripts/package-target.ts --dir",
     "package:mac:arm64": "tsx scripts/package-target.ts mac-arm64",
@@ -28,11 +30,13 @@
   },
   "devDependencies": {
     "@deepseek-ai/dsh-home-paths": "workspace:^",
+    "@electron/notarize": "2.5.0",
     "@types/node": "^22.20.0",
     "@types/semver": "^7.8.0",
     "electron": "^44.0.0",
     "electron-builder": "^26.15.3",
     "extract-zip": "^2.0.1",
+    "msgpackr": "2.0.4",
     "pnpm": "11.7.0",
     "tar": "^7.5.0",
     "typescript": "^6.0.3"

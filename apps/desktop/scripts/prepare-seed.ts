@@ -14,7 +14,19 @@ import {
   readDesktopCorePackageSet,
   verifyDesktopCoreLockfile,
 } from '../src/core-package-set.ts'
-import { archivePnpmStore, removePnpmProjectRegistrations } from '../src/seed-store.ts'
+import {
+  archivePnpmStore,
+  extractPnpmStoreArchives,
+  removePnpmProjectRegistrations,
+} from '../src/seed-store.ts'
+import {
+  resolveDesktopAppId,
+  resolveMacOSSigningEnvironment,
+} from './desktop-release-environment.mjs'
+import {
+  signMacOSSeedStore,
+  verifyMacOSSeedStore,
+} from './macos-seed-store.ts'
 
 const APP_ROOT = resolve(import.meta.dirname, '..')
 const BUILD_ROOT = join(APP_ROOT, '.desktop-build')
@@ -109,6 +121,21 @@ function inventory(root: string): readonly { path: string; bytes: number; sha256
   })
 }
 
+async function verifyOfflineInstallation(release: DesktopRelease): Promise<void> {
+  const installedModules = join(SEED_ROOT, 'node_modules')
+  try {
+    await runPnpm(['install', '--offline', '--frozen-lockfile', '--trust-lockfile'])
+    const desktopHost = join(installedModules, '@deepseek-ai', 'dsh', 'lib', 'desktop-host.js')
+    if (!existsSync(desktopHost)) {
+      throw new Error(
+        `desktop seed: local @deepseek-ai/dsh@${release.version} does not contain lib/desktop-host.js`,
+      )
+    }
+  } finally {
+    rmSync(installedModules, { recursive: true, force: true })
+  }
+}
+
 async function main(): Promise<void> {
   rmSync(SEED_OUTPUT_ROOT, { recursive: true, force: true })
   rmSync(PNPM_BUILD_STATE, { recursive: true, force: true })
@@ -124,20 +151,41 @@ async function main(): Promise<void> {
       readDesktopCorePackageSet(SEED_ROOT, release.version),
     )
     await runPnpm(['fetch', '--prod', '--frozen-lockfile'])
-    const installedModules = join(SEED_ROOT, 'node_modules')
-    try {
-      await runPnpm(['install', '--offline', '--frozen-lockfile', '--trust-lockfile'])
-      const desktopHost = join(installedModules, '@deepseek-ai', 'dsh', 'lib', 'desktop-host.js')
-      if (!existsSync(desktopHost)) {
-        throw new Error(
-          `desktop seed: local @deepseek-ai/dsh@${release.version} does not contain lib/desktop-host.js`,
-        )
+    await verifyOfflineInstallation(release)
+    const targetPlatform = process.env.DSH_DESKTOP_TARGET_PLATFORM ?? process.platform
+    let signedMachOFiles: number | undefined
+    let macOSSigning: ReturnType<typeof resolveMacOSSigningEnvironment> | undefined
+    if (targetPlatform === 'darwin') {
+      macOSSigning = resolveMacOSSigningEnvironment(process.env)
+      const signing = signMacOSSeedStore(
+        STORE_ROOT,
+        resolveDesktopAppId(process.env),
+        macOSSigning,
+      )
+      signedMachOFiles = signing.signedFiles
+      process.stdout.write(
+        `desktop seed: signed ${signing.signedFiles} Mach-O files, updated ${signing.updatedIndexRows} pnpm index records, and pruned ${signing.prunedOrphans} native orphans\n`,
+      )
+      await verifyOfflineInstallation(release)
+      const verified = verifyMacOSSeedStore(STORE_ROOT, macOSSigning)
+      if (verified !== signedMachOFiles) {
+        throw new Error(`desktop seed: verified ${verified} Mach-O files after signing ${signedMachOFiles}`)
       }
-    } finally {
-      rmSync(installedModules, { recursive: true, force: true })
     }
     removePnpmProjectRegistrations(STORE_ROOT)
     archivePnpmStore(SEED_ROOT, STORE_ROOT)
+    if (macOSSigning !== undefined && signedMachOFiles !== undefined) {
+      const extractedStore = mkdtempSync(join(tmpdir(), 'dsh-desktop-seed-verification-'))
+      try {
+        extractPnpmStoreArchives(SEED_ROOT, extractedStore)
+        const verified = verifyMacOSSeedStore(extractedStore, macOSSigning)
+        if (verified !== signedMachOFiles) {
+          throw new Error(`desktop seed: archived store contains ${verified} signed Mach-O files; expected ${signedMachOFiles}`)
+        }
+      } finally {
+        rmSync(extractedStore, { recursive: true, force: true })
+      }
+    }
     const records = inventory(SEED_ROOT).filter(entry => entry.path !== 'integrity.json')
     writeFileSync(join(SEED_ROOT, 'integrity.json'), `${JSON.stringify({ schemaVersion: 2, files: records }, undefined, 2)}\n`)
     cpSync(SEED_ROOT, SEED_OUTPUT_ROOT, { recursive: true })

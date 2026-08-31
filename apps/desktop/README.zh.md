@@ -11,7 +11,7 @@
 | 发布身份 | 桌面壳 API、Web 客户端、后端与插件依赖图作为一个组合完成验证；独立版本会产生未经验证的组合，并让更新可用性含糊不清。 | Electron 与 `@deepseek-ai/dsh` 始终使用同一精确版本。即使桌面壳代码不变，升级 dsh 也必须发布新 Desktop 版本。 |
 | 运行时 | Electron 的 Node.js 带有 Electron 补丁、fuse、ABI 与生命周期约束，而系统运行时和用户包管理器状态不可控。 | dsh 通过内置的上游 Node.js 运行，所有包操作都使用内置 pnpm。Electron 的 Node.js、系统 Node.js、系统 pnpm 与用户的包管理器配置都不进入执行路径。 |
 | 包来源 | 必须能在发布到 npm 之前从同一次源码构建打包精确的 dsh，并支持离线安装；插件则需要保留为用户选择的普通 npm 包。 | 已签名应用携带本地打包的第一方 dsh 包与离线 seed store。桌面插件仍是从固定 Desktop registry 解析的普通 npm 依赖。 |
-| Seed 传输 | 把 pnpm store 的每个文件分别放入应用，会让代码签名记录数万个不可变缓存条目并增大更新元数据；单个压缩归档又会让很小的包变化改写一大片数据块。 | 打包按路径确定性地把 store 文件分配到 16 个未压缩 tar 分片。签名只记录分片，外层安装包负责压缩，差分更新可以复用未变化的分片。 |
+| Seed 传输 | Apple 公证会检查归档内的代码；把 pnpm store 的每个文件分别放入应用，还会让应用签名记录数万个缓存条目，而单个压缩归档会放大小幅包变更。 | macOS 打包先签署每个 Mach-O CAS 对象、重写其 pnpm 哈希并再次证明离线安装，再把 store 文件分配到 16 个确定性的未压缩 tar 分片。外层安装包负责压缩，差分更新可以复用未变化的分片。 |
 | 状态归属 | 共享可执行依赖图会让 CLI 与 Desktop 相互改变 dsh、Cordis、插件或原生模块版本。 | Electron 独占 `$DSH_HOME/profiles/desktop` 及其包管理器状态。CLI 与 Desktop 共享 `$DSH_HOME` 下受支持的产品数据，但绝不共享可执行包、插件激活、锁文件或 `node_modules`。 |
 | 通信 | 监听 Web 服务会引入端口归属、认证、CORS 与暴露风险；Electron 与上游 Node.js 之间也需要明确的跨进程协议。 | 应用不打开 Web 端口。`dsh-app://` 承载 Web 资源和 Fetch 流量；分帧字节管道以背压传输有界请求与响应分块，Node IPC 只承载子进程生命周期控制。 |
 | 激活 | 依赖解析、生命周期脚本、原生模块与插件启动都可能失败，目录替换期间进程也可能中断。 | 发布与插件变更先安装到 staging，并启动完整后端执行健康检查；只有成功后才替换活跃 profile，中断替换由事务日志和一个 rollback profile 恢复。 |
@@ -27,7 +27,7 @@ dsh 主渲染进程只获得桌面协议标记。独立插件窗口获得结构�
 
 ### Seed 安装
 
-安装包内的 seed 是安装工具包，不是可以直接运行的 `node_modules` 目录。打包过程会生成锁文件、拉取生产依赖图、用匹配的 Desktop Host 入口完成一次完整离线安装验证，然后删除 `node_modules`。签名 seed 保留发布身份、本地第一方 tarball 及其描述文件、项目元数据、锁文件、完整性清单，以及在用户机器上重复该安装所需的 pnpm store 内容。
+安装包内的 seed 是安装工具包，不是可以直接运行的 `node_modules` 目录。打包过程会生成锁文件、拉取生产依赖图，并用匹配的 Desktop Host 入口完成一次完整离线安装验证。macOS 构建随后用 Developer ID 签署 pnpm 内容寻址 store 中的每个 Mach-O 对象，更新所有受影响的 SHA-512 索引记录，再用一次离线安装证明重写后的 store，最后删除 `node_modules`。签名 seed 保留发布身份、本地第一方 tarball 及其描述文件、项目元数据、锁文件、完整性清单，以及在用户机器上重复该安装所需的 pnpm store 内容。
 
 | Seed 内容 | 可写目标或用途 |
 |---|---|
@@ -67,7 +67,18 @@ Workspace 开发使用调用命令的 Node.js 运行当前 CLI 包，并禁用�
 
 ## 打包
 
-正常打包只需执行一条完整命令。该命令会先准备发布资源，再生成宿主平台的安装包；配置发布信息后还会生成更新元数据。无需提前执行 `prepare:desktop`：
+正常打包只需执行一条完整命令。该命令会先准备发布资源，再生成宿主平台的安装包；配置发布信息后还会生成更新元数据。所有目标都要求通过 `DSH_DESKTOP_APP_ID` 提供反向域名形式的应用 ID。macOS 目标还要求通过 `DSH_DESKTOP_MACOS_SIGNING_IDENTITY` 提供 electron-builder 证书限定名，通过 `DSH_DESKTOP_MACOS_TEAM_ID` 提供对应的 10 字符 Apple Team ID，并提供一套完整的 notarytool 凭据。App Store Connect API Key 方式使用以下变量：
+
+```sh
+export DSH_DESKTOP_APP_ID='<reverse-DNS application ID>'
+export DSH_DESKTOP_MACOS_SIGNING_IDENTITY='<certificate name without the Developer ID Application prefix>'
+export DSH_DESKTOP_MACOS_TEAM_ID='<10-character Apple Team ID>'
+export APPLE_API_KEY='<absolute path to the .p8 file>'
+export APPLE_API_KEY_ID='<App Store Connect API Key ID>'
+export APPLE_API_ISSUER='<App Store Connect issuer UUID>'
+```
+
+无需提前执行 `prepare:desktop`：
 
 ```sh
 pnpm run package:desktop
@@ -82,6 +93,8 @@ pnpm run package:desktop:win:x64
 ```
 
 macOS arm64 命令要求 Apple Silicon。macOS x64 命令可以在 Intel macOS 或带 Rosetta 的 Apple Silicon 上运行。Windows x64 命令要求 Windows x64。Desktop 尚不支持 Linux 发布目标。
+
+macOS 配置使用必填发布环境，不会接受钥匙串中最先发现的证书。空值、格式错误的 Team ID、包含 electron-builder 不支持的 `Developer ID Application:` 前缀的签名身份，以及不完整的公证凭据都会被拒绝。macOS 打包要求已配置的身份及其私钥可用。Seed 准备会把该身份、安全时间戳与 hardened runtime 应用到每个内嵌 Mach-O 文件；应用签名完成后，深度严格检查会拒绝其他叶证书 Authority 或 Team ID，验证通过才生成发布产物。Electron-builder 会在封装前公证应用并钉票，然后签署 DMG。DMG 的 artifact-completion hook 随后会公证它并钉票，再要求其身份、票据与 Gatekeeper 验证全部通过；只有 hook 成功，electron-builder 才能发布该文件。私钥可以来自登录钥匙串或 electron-builder 的标准 `CSC_LINK` 输入；环境中的 `CSC_NAME` 与证书发现顺序都不能选择发布所有者。公证凭据也可以使用 electron-builder 支持的完整 Apple ID 或钥匙串 profile 方式。手动执行 `pnpm --dir apps/desktop run verify:mac-signature -- <path-to-app>` 重复应用检查时，也必须提供两个 macOS 身份变量。
 
 使用对应的 `:dir` 命令可以生成可直接运行的应用目录，而不是安装包，例如：
 
@@ -98,7 +111,7 @@ pnpm run prepare:desktop
 
 这条诊断命令是另一种停止位置，并非两条命令构建流程的前半段。之后执行 `package:desktop*` 时仍会重新完成正式构建与准备，避免使用陈旧的 dsh 包、运行时文件或 seed 内容。
 
-每条打包命令都会先执行仓库的正式构建，打包 dsh 与 vendored 包族，并打包 Landlock 入口，然后再准备发布资源。`prepare:packages` 选择以 `@deepseek-ai/dsh` 为根的第一方生产依赖闭包，验证 dsh tarball 包含 `lib/desktop-host.js`，把选中的 tarball 复制到种子输入，并记录其大小与 SHA-512 完整性。这些 tarball 是正式的 `pnpm pack` 输出，因此各包的 `files` manifest 决定发布内容：Desktop 不增加第二套过滤规则，会保留 `lib/types` 等已发布声明，也不会独立删除或增加 source map。Registry 包同样在 pnpm 内容寻址 store 中保留其发布的包字节。根 dsh 包与 Electron 包必须使用同一版本，但构建 Desktop 应用前不再要求 dsh 已发布到 npm。`prepare:runtime` 从 Node.js 官方发行服务下载 Node.js 24.17.0，在解压前验证其 SHA-256 条目，并在兼容的构建宿主上执行准备完成的二进制文件以验证其报告版本。它复制桌面包声明的 pnpm 版本，并把两个运行时版本记录进发布种子。`prepare:seed` 生成本地核心包映射，使用内置 pnpm 从 npm 拉取外部生产依赖，证明完整依赖图可以离线安装并包含匹配的 Host 入口，删除 `node_modules` 和临时 pnpm 项目注册，再把松散 store 替换为 16 个确定性的未压缩 tar 分片，然后生成清单。后续 GUI 插件操作保留本地核心包映射，同时从固定的 Desktop npm registry 解析插件包及其外部依赖。`electron-builder` 把平台产物写到 `apps/desktop/.desktop-build/artifacts`。
+每条打包命令都会先执行仓库的正式构建，打包 dsh 与 vendored 包族，并打包 Landlock 入口，然后再准备发布资源。`prepare:packages` 选择以 `@deepseek-ai/dsh` 为根的第一方生产依赖闭包，验证 dsh tarball 包含 `lib/desktop-host.js`，把选中的 tarball 复制到种子输入，并记录其大小与 SHA-512 完整性。这些 tarball 是正式的 `pnpm pack` 输出，因此各包的 `files` manifest 决定发布内容：Desktop 不增加第二套过滤规则，会保留 `lib/types` 等已发布声明，也不会独立删除或增加 source map。Registry 解析、包路径、manifest 和非原生字节仍由 npm 管理。在 macOS 上，`prepare:seed` 会用公司 Developer ID 签名字节替换每个 Mach-O CAS 对象，把它们写到新的 SHA-512 路径，并以事务方式重写所有基础或 side-effects 索引引用；它保留完整包文件集，包括包内附带的架构变体。根 dsh 包与 Electron 包必须使用同一版本，但构建 Desktop 应用前不再要求 dsh 已发布到 npm。`prepare:runtime` 从 Node.js 官方发行服务下载 Node.js 24.17.0，在解压前验证其 SHA-256 条目，并在兼容的构建宿主上执行准备完成的二进制文件以验证其报告版本。它复制桌面包声明的 pnpm 版本，并把两个运行时版本记录进发布种子。`prepare:seed` 生成本地核心包映射，使用内置 pnpm 从 npm 拉取外部生产依赖，证明依赖图可以离线安装，在适用时执行 macOS 重写，再通过一次离线安装证明重写后的 store，删除临时 pnpm 项目注册，然后把松散 store 替换为 16 个确定性的未压缩 tar 分片。它会解包这些最终分片，并在生成清单前验证每个内嵌 macOS 签名。后续 GUI 插件操作保留本地核心包映射，同时从固定的 Desktop npm registry 解析插件包及其外部依赖。`electron-builder` 把平台产物写到 `apps/desktop/.desktop-build/artifacts`。
 
 未压缩产物包含四块相互独立的体积：Electron、离线 seed store 分片与本地 dsh tarball、上游 Node.js 与 pnpm 运行时，以及很小的桌面壳应用。分片不压缩，使外层 DMG、ZIP 或 NSIS 压缩器与差分更新器可以处理稳定的数据区间。文件系统占用不等于安装包下载大小，因此必须分别测量。打包应用首次启动时还会先把 seed store 解包到 `$DSH_HOME/desktop/pnpm/store`，再安装可写 profile，因此发布验证必须同时测量应用与 Harness home 的磁盘占用。
 
@@ -106,7 +119,7 @@ pnpm run prepare:desktop
 
 打包应用会在主窗口打开十秒后检查已配置的发布流；**检查更新…** 菜单项会手动触发同一检查。发现可用版本时，应用打开一个原生确认弹窗。用户确认后，应用下载并验证已签名的 Desktop 发布、停止 dsh 子进程，并把安装与重启交给 electron-updater。下次启动会先校准版本绑定的 seed，再重新打开产品窗口。没有 updater 配置的构建不会发起网络更新请求，并会报告当前已是最新版本。
 
-发布构建通过 `DSH_DESKTOP_SHELL_UPDATE_URL` 配置 electron-updater 使用的 generic 更新服务。设置该变量后，electron-builder 会生成需要与 blockmap 和安装包一起发布的频道元数据；未配置的本地构建不会生成该元数据。NSIS 差分包与 macOS ZIP 目标让 electron-updater 可以复用未变化的数据块；seed 与桌面壳仍属于同一个签名 Desktop 发布。代码签名与 macOS 公证凭据使用 electron-builder 的标准环境变量。
+发布构建通过 `DSH_DESKTOP_SHELL_UPDATE_URL` 配置 electron-updater 使用的 generic 更新服务。设置该变量后，electron-builder 会生成需要与更新 blockmap 和安装包一起发布的频道元数据；未配置的本地构建不会生成该元数据。NSIS 差分包与 macOS ZIP 目标让 electron-updater 可以复用未变化的数据块；供手动安装的 DMG 经过公证，但不生成 blockmap，因为它不是 macOS updater 的载荷。Seed 与桌面壳仍属于同一个签名 Desktop 发布。Windows 签名和 macOS 公证凭据使用 electron-builder 的标准环境变量；必填 Desktop 发布环境选择构建所验证的应用身份与 macOS 签名身份。
 
 ## 底层开发覆盖项
 
