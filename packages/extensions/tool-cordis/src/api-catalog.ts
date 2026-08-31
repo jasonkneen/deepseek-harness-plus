@@ -1465,7 +1465,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     methods: [
       {
         signature: 'abstract locate(meta: SessionHeader): SessionLocation | undefined',
-        description: 'Resolve this backend\'s independent local artifact for a session without reading, creating, flushing, or otherwise materializing it. Backends such as SQLite that do not own one artifact per session return `undefined`.',
+        description: 'Resolve this backend\'s independent local artifact for a session without reading, creating, flushing, or otherwise materializing it. A backend that does not own one artifact per Session returns `undefined`.',
         parameters: [{ name: 'meta', description: 'the immutable session header whose artifact is requested.' }],
         returns: 'the backend-specific absolute location, when one exists.',
       },
@@ -1522,7 +1522,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
       {
         signature: 'abstract readFrom(id: SessionId, fromSeq: number, signal?: AbortSignal): Promise<{ meta: SessionHeader; events: SessionEvent[] }>',
-        description: 'Read the stored events from `fromSeq` onward — the read-from-seq primitive for read models that resume from a watermark (e.g. a persisted projection cache folding only the tail past its checkpoint). Unlike inspect, it is a detached physical suffix read: no preparation cache, torn-tail truncation, synthetic closers, or coordinator-state publication. Only events from the valid contiguous stored prefix are returned, so a torn fragment never reaches the caller. `fromSeq` at or beyond the stored prefix returns an empty event list (never an error). Backends whose medium can seek by seq (SQLite) read only the suffix; sequential media (JSONL, both encodings) still parse the whole artifact and skip forward — the primitive bounds what is RETURNED and refolded, not every backend\'s physical read.',
+        description: 'Read the stored events from `fromSeq` onward — the read-from-seq primitive for read models that resume from a watermark (e.g. a persisted projection cache folding only the tail past its checkpoint). Unlike inspect, it is a detached physical suffix read: no preparation cache, torn-tail truncation, synthetic closers, or coordinator-state publication. Only events from the valid contiguous stored prefix are returned, so a torn fragment never reaches the caller. `fromSeq` at or beyond the stored prefix returns an empty event list (never an error). A backend whose medium can seek by seq may read only the suffix; sequential media such as JSONL still parse the whole artifact and skip forward. The primitive bounds what is returned and refolded, not every backend\'s physical read.',
         parameters: [{ name: 'id', description: 'the persisted session to read.' }, { name: 'fromSeq', description: 'first event seq to include; a non-negative safe integer.' }, { name: 'signal', description: 'optional cancellation for queued and backend read work.' }],
         returns: 'the header and the stored events with `seq >= fromSeq`.',
       },
@@ -3626,6 +3626,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'Branded',
     declaration: 'export type Branded<B extends string> = string & {\n    readonly [BRAND]: B;\n};',
+  },
+  {
+    name: 'ChunkRow',
+    declaration: 'export type ChunkRow = {\n    type: \'text-chunks\';\n    seq0: number;\n    time0: number;\n    data: TextRunData;\n} | {\n    type: \'reasoning-chunks\';\n    seq0: number;\n    time0: number;\n    data: TextRunData;\n} | {\n    type: \'tool-call-chunks\';\n    seq0: number;\n    time0: number;\n    data: ToolCallRunData;\n};',
   },
   {
     name: 'ChunkRowEvent',

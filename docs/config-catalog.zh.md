@@ -1795,33 +1795,6 @@ export type JsonlCompression = 'zstd' | 'none'
 
 来源：[`packages/session/session-persistence-jsonl/src/index.ts:62`](../packages/session/session-persistence-jsonl/src/index.ts)
 
-<a id="deepseek-aidsh-session-persistence-sqlite"></a>
-
-## `@deepseek-ai/dsh-session-persistence-sqlite`
-
-需要：`sessions`
-
-```ts config-catalog
-/** Plugin configuration. */
-export interface Config {
-  /** SQLite database path, or `:memory:` for an in-process database. */
-  path: string
-  /** Durable SQLite journal mode; defaults to `wal`. */
-  journalMode?: JournalMode
-  /** Maximum wait for another SQLite connection's lock; defaults to 5,000 ms. */
-  busyTimeoutMs?: number
-  /** Maximum cold Session preparations retained for history-to-resume reuse. */
-  preparedSessionCacheSize?: number
-  /** Fixed live-event coalescing window; not a backend completion deadline. */
-  writeBatchMaxDelayMs?: number
-}
-
-/** Durable journal modes accepted by the backend. */
-export type JournalMode = 'wal' | 'delete' | 'truncate' | 'persist'
-```
-
-来源：[`packages/session/session-persistence-sqlite/src/index.ts:38`](../packages/session/session-persistence-sqlite/src/index.ts)
-
 <a id="deepseek-aidsh-session-projection-cache"></a>
 
 ## `@deepseek-ai/dsh-session-projection-cache`

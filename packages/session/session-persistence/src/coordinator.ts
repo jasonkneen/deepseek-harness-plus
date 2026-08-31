@@ -155,8 +155,8 @@ export interface PersistenceBackend<TornMarker = unknown> {
   /**
    * Optional seek-capable suffix read behind the service's `readFrom`: return
    * the header plus the stored events with `seq >= fromSeq` without reading
-   * the whole log. A backend whose medium can address events by seq (SQLite)
-   * implements this so `readFrom` scales with the suffix; sequential backends
+   * the whole log. A backend whose medium can address events by seq implements
+   * this so `readFrom` scales with the suffix; sequential backends
    * omit it and the coordinator falls back to {@link loadStored} plus a
    * forward skip. Non-mutating (no truncation, no closers). Validation of the
    * region strictly below `fromSeq` is limited to seq contiguity — the

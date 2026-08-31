@@ -10,7 +10,6 @@ import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-test
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
-import SqliteSessionPersistence from '@deepseek-ai/dsh-session-persistence-sqlite'
 import SubagentService, { seedDescriptorTurn, snapshotSubagentDescriptor } from '@deepseek-ai/dsh-subagent'
 import * as SubagentSpawn from '@deepseek-ai/dsh-subagent-spawn-in-process'
 import { MockAdapter, textResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
@@ -79,13 +78,6 @@ const backends: PersistenceMount[] = [
     mount: async (ctx, root) => await ctx.plugin(JsonlSessionPersistence, {
       root: join(root, 'jsonl'),
       compression: 'none',
-    }),
-  },
-  {
-    name: 'SQLite',
-    mount: async (ctx, root) => await ctx.plugin(SqliteSessionPersistence, {
-      path: join(root, 'sessions.sqlite'),
-      journalMode: 'delete',
     }),
   },
 ]

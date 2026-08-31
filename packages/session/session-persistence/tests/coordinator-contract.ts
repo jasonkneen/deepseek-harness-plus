@@ -36,7 +36,7 @@ export interface CoordinatorFixture {
   cleanup: () => Promise<void>
 }
 
-/** A constant absolute cwd; jsonl keys directories off it, memory/sqlite ignore it. */
+/** A constant absolute cwd; JSONL keys directories off it and memory ignores it. */
 const WORK = '/w'
 const OTHER = '/other'
 
@@ -46,7 +46,7 @@ function send(session: Session, events: readonly SessionEvent[]): void {
 }
 
 /** A valid persisted log from immediately before messages gained wrappers and identities. */
-function legacyMessageLog(): SessionEvent[] {
+export function legacyMessageLog(): SessionEvent[] {
   return [
     { type: 'turn/start', seq: 0, time: 1, data: { turn: 1 } },
     {
@@ -109,7 +109,7 @@ function legacyMessageLog(): SessionEvent[] {
 }
 
 /** A complete log in the durable event vocabulary of the react-loop refactor base. */
-function preReactLoopLog(): SessionEvent[] {
+export function preReactLoopLog(): SessionEvent[] {
   const prompt = createUserMessage({
     content: [{ type: 'text', text: 'old prompt' }],
     source: { kind: 'user' },
@@ -325,7 +325,7 @@ export function runCoordinatorContract(name: string, makeFixture: () => Promise<
     it('round-trips the seed boundary (seedLength) through persistence', async () => {
       // A forked child records how many leading events were inherited via the seed; the
       // boundary must survive a reload (so a resume/replay can tell the inherited prefix from
-      // the child's own events). JSONL stores it in the header; SQLite uses `seed_length`.
+      // the child's own events). The backend must preserve it in stored metadata.
       const fix = await makeFixture()
       const { ctx, fiber } = await freshCtx(fix)
       try {
@@ -348,7 +348,7 @@ export function runCoordinatorContract(name: string, makeFixture: () => Promise<
     it('round-trips the delegation depth through persistence', async () => {
       // A subagent child's recursion budget lives in its header; a reload that
       // dropped it would reset the child to top-level and un-bound maxDepth
-      // (JSONL stores it in the header line; SQLite uses `delegation_depth`).
+      // The backend must preserve it in stored metadata.
       const fix = await makeFixture()
       const { ctx, fiber } = await freshCtx(fix)
       try {

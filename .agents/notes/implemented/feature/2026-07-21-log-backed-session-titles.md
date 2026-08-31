@@ -58,7 +58,7 @@ A fork inherits seed title events unchanged, like the rest of its source log —
 
 ## Consequences
 
-- Titles survive JSONL and SQLite persistence, replay, and fork inheritance without a separate mutable record.
+- Titles survive JSONL persistence, replay, and fork inheritance without a separate mutable record.
 - Web title delivery stays incremental and log-backed without a title index or persisted-list scan; cold list rows improve after attach.
 - A fallback appears immediately. Each fresh Web session adds one first-prompt auxiliary call; other compositions choose whether better titles justify model cost and whether later prompts should retitle a session.
 - Auxiliary request records and late accepted titles consume event seqs without consuming turn numbers, so persistence exposes both attempted dispatches and accepted updates even though model history and KV-cache identity do not change.
