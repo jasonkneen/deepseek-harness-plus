@@ -481,6 +481,7 @@ export function bindManagedProcess(
   }
 
   let graceTimer: ReturnType<typeof setTimeout> | undefined
+  let terminationStarted = false
   let rangeExitObserved = false
   let rangeExitObservation: Promise<void> | undefined
   let settled = false
@@ -520,7 +521,8 @@ export function bindManagedProcess(
   }
 
   const terminateWithReason = (cancellationReason: unknown): void => {
-    if (rangeExitObserved || graceTimer !== undefined) return
+    if (rangeExitObserved || terminationStarted) return
+    terminationStarted = true
     // Keep the shared observation rejection available to waitForExit() without
     // leaking an unhandled rejection when a caller only invokes terminate().
     void observeRangeExit().catch(() => {})

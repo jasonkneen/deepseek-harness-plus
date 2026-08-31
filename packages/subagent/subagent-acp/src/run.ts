@@ -398,8 +398,8 @@ export async function startAcpRun(request: SubagentStartRequest, spec: AcpRunSpe
     try {
       return await Promise.race([processDone, aborted.promise])
     } catch {
-      // The active protocol failure remains authoritative when exit observation fails.
-      /* v8 ignore next -- a published child.done cannot reject; spawn rejection is consumed before publication. */
+      // A provider rejection after handle publication leaves no direct outcome;
+      // the active protocol failure remains authoritative.
       return processOutcome
     } finally {
       bound.removeEventListener('abort', onObservationAbort)

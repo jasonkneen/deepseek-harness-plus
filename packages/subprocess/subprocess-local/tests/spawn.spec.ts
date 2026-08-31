@@ -908,6 +908,44 @@ describe('coverage seams', () => {
     }
   })
 
+  it('does not restart managed termination after the escalation timer fires', async () => {
+    vi.useFakeTimers()
+    try {
+      const direct = Promise.withResolvers<{ exitCode: number; signal: null }>()
+      const stopped = Promise.withResolvers<undefined>()
+      const signal = vi.fn()
+      const handle = bindManagedProcess(spec('true', {
+        graceMs: 10,
+        stdio: { stdin: 'ignore', stdout: 'inherit', stderr: 'inherit' },
+      }), {
+        stdin: null,
+        stdout: null,
+        stderr: null,
+        direct: direct.promise,
+        owner: {
+          signal,
+          waitForExit: () => stopped.promise,
+          terminateForHostExit: vi.fn(),
+        },
+      })
+
+      handle.terminate()
+      await vi.advanceTimersByTimeAsync(10)
+      handle.terminate()
+      await vi.advanceTimersByTimeAsync(10)
+      expect(signal).toHaveBeenCalledTimes(2)
+      expect(signal).toHaveBeenNthCalledWith(1, 'SIGTERM', expect.any(Error))
+      expect(signal).toHaveBeenNthCalledWith(2, 'SIGKILL', undefined)
+
+      stopped.resolve(undefined)
+      await expect(handle.waitForExit()).resolves.toBe(true)
+      direct.resolve({ exitCode: 0, signal: null })
+      await expect(handle.done).resolves.toEqual({ exitCode: 0, signal: null })
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('delivers an already-aborted managed spawn reason before target settlement', async () => {
     const reason = null
     const controller = new AbortController()

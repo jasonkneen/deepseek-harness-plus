@@ -105,6 +105,10 @@ function internals(overrides: Partial<SpawnRunnerInternals> = {}): SpawnRunnerIn
     isJobEmpty: vi.fn(() => true),
     terminateJob: vi.fn(),
     closeHandleChecked: vi.fn(),
+    uvErrorBindings: {
+      translateSystemError: vi.fn(systemError => systemError === 2 ? -4058 : -4094),
+      errorName: vi.fn(error => error === -4058 ? 'ENOENT' : 'UNKNOWN'),
+    },
     ...overrides,
   }
 }
@@ -603,20 +607,26 @@ describe('Windows Job runner protocol owner', () => {
     expect(host.exitCode).toBe(0)
   })
 
-  it('maps the bounded Win32 process-creation error classes', async () => {
+  it('uses libuv translation and Node detail-bearing codes for Win32 process-creation errors', async () => {
     for (const [win32Code, code, errno, enriched, program] of [
       [2, 'ENOENT', -4058, true, 'tool.exe'],
-      [3, 'ENOENT', -4058, true, 'tool.exe'],
-      [267, 'ENOENT', -4058, true, 'tool.exe'],
       [740, 'EACCES', -4092, true, '$&.exe'],
+      [10035, 'EAGAIN', -4088, true, 'tool.exe'],
+      [4, 'EMFILE', -4066, true, 'tool.exe'],
+      [12345, 'ENFILE', -4061, true, 'tool.exe'],
       [5, 'EPERM', -4048, false, 'tool.exe'],
       [193, 'EFTYPE', -4028, false, 'tool.exe'],
       [999, 'UNKNOWN', -4094, false, 'tool.exe'],
     ] as const) {
       const host = new FakeRunnerHost()
+      const translateSystemError = vi.fn(() => errno)
+      const errorName = vi.fn(() => code)
       await runWindows(host, internals({
         spawnCurrentTokenJobProcess: vi.fn(() => { throw new Win32Error('CreateProcessW', win32Code) }),
+        uvErrorBindings: { translateSystemError, errorName },
       }), undefined, [program, 'literal arg'])
+      expect(translateSystemError).toHaveBeenCalledExactlyOnceWith(win32Code)
+      expect(errorName).toHaveBeenCalledExactlyOnceWith(errno)
       const syscall = enriched ? `spawn ${program}` : 'spawn'
       expect(host.sent).toMatchObject([{
         type: 'error',
@@ -633,6 +643,52 @@ describe('Windows Job runner protocol owner', () => {
       expect(result.error.stack?.split('\n')[0]).toBe(`Error: ${syscall} ${code}`)
       if (enriched) {
         expect(result.error).toMatchObject({ path: program, spawnargs: ['literal arg'] })
+      } else {
+        expect(result.error).not.toHaveProperty('path')
+        expect(result.error).not.toHaveProperty('spawnargs')
+      }
+    }
+  })
+
+  it('loads the error translation functions from Node-linked libuv', async () => {
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const host = new FakeRunnerHost()
+      const native = internals({
+        spawnCurrentTokenJobProcess: vi.fn(() => { throw new Win32Error('CreateProcessW', 2) }),
+      })
+      Reflect.deleteProperty(native, 'uvErrorBindings')
+      await runWindows(host, native)
+      expect(host.sent).toMatchObject([{
+        type: 'error',
+        error: {
+          code: 'ENOENT',
+          errno: process.platform === 'win32' ? -4058 : -2,
+          path: 'tool.exe',
+          spawnargs: ['literal arg'],
+        },
+      }])
+    }
+  })
+
+  it.skipIf(process.platform !== 'win32')('preserves native EMFILE and UNKNOWN translations', async () => {
+    for (const [win32Code, code, errno, enriched] of [
+      [4, 'EMFILE', -4066, true],
+      [999, 'UNKNOWN', -4094, false],
+    ] as const) {
+      const host = new FakeRunnerHost()
+      const native = internals({
+        spawnCurrentTokenJobProcess: vi.fn(() => { throw new Win32Error('CreateProcessW', win32Code) }),
+      })
+      Reflect.deleteProperty(native, 'uvErrorBindings')
+      await runWindows(host, native)
+      expect(host.sent).toMatchObject([{
+        type: 'error',
+        error: { code, errno },
+      }])
+      const result = parseWindowsRunnerResult(host.sent[0])
+      if (result.type !== 'error') throw new Error('expected runner error')
+      if (enriched) {
+        expect(result.error).toMatchObject({ path: 'tool.exe', spawnargs: ['literal arg'] })
       } else {
         expect(result.error).not.toHaveProperty('path')
         expect(result.error).not.toHaveProperty('spawnargs')

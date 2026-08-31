@@ -150,7 +150,9 @@ class SystemdScopeOwner implements BoundProcessOwner {
 
   signal(signal: 'SIGTERM' | 'SIGKILL'): void {
     if (this.stopped) return
-    if (this.direct.running()) this.direct.signal(signal)
+    if (!this.established && !existsSync(this.files.requestPath)) this.established = true
+    const directFallbackRequired = !this.established
+    if (directFallbackRequired && this.direct.running()) this.direct.signal(signal)
     const result = this.runSync(this.systemctl, [
       '--user',
       'kill',
@@ -162,6 +164,7 @@ class SystemdScopeOwner implements BoundProcessOwner {
       if (signal === 'SIGKILL') this.killFailure = undefined
       return
     }
+    if (!directFallbackRequired && this.direct.running()) this.direct.signal(signal)
     if (signal === 'SIGKILL') {
       const output = `${result.stdout}\n${result.stderr}`
       if (!MISSING_UNIT.test(output)) {

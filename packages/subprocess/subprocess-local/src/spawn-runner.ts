@@ -1,6 +1,7 @@
 /** One-shot Linux exec bootstrap and Windows Job-owning subprocess runner. */
 
 import { closeSync } from 'node:fs'
+import koffi from 'koffi'
 import {
   closeHandleChecked,
   isJobEmpty,
@@ -40,6 +41,31 @@ type RunnerHost = Pick<NodeJS.Process, 'env' | 'exitCode' | 'connected' | 'cwd' 
   send?: NodeJS.Process['send']
 }
 
+interface UvErrorBindings {
+  translateSystemError(systemError: number): number
+  errorName(error: number): string
+}
+
+let cachedUvErrorBindings: UvErrorBindings | undefined
+
+function loadUvErrorBindings(): UvErrorBindings {
+  if (cachedUvErrorBindings !== undefined) return cachedUvErrorBindings
+  const node = koffi.load(null)
+  cachedUvErrorBindings = {
+    translateSystemError: node.func(
+      'uv_translate_sys_error',
+      'int',
+      ['int'],
+    ) as unknown as UvErrorBindings['translateSystemError'],
+    errorName: node.func(
+      'uv_err_name',
+      'str',
+      ['int'],
+    ) as unknown as UvErrorBindings['errorName'],
+  }
+  return cachedUvErrorBindings
+}
+
 /** Injectable operations used by the protocol-owner tests. */
 export interface SpawnRunnerInternals {
   execve(file: string, argv: string[], env: Record<string, string>): never
@@ -51,6 +77,7 @@ export interface SpawnRunnerInternals {
   isJobEmpty: typeof isJobEmpty
   terminateJob: typeof terminateJob
   closeHandleChecked: typeof closeHandleChecked
+  uvErrorBindings?: UvErrorBindings
 }
 
 const defaultInternals: SpawnRunnerInternals = {
@@ -65,6 +92,8 @@ const defaultInternals: SpawnRunnerInternals = {
   terminateJob,
   closeHandleChecked,
 }
+
+const NODE_SPAWN_DETAIL_CODES = new Set(['EACCES', 'EAGAIN', 'EMFILE', 'ENFILE', 'ENOENT'])
 
 function nodeSpawnError(
   source: Pick<SerializedRunnerError, 'stack'>,
@@ -87,7 +116,12 @@ function nodeSpawnError(
   }
 }
 
-function asSpawnError(error: unknown, program: string, args: readonly string[]): SerializedRunnerError {
+function asSpawnError(
+  error: unknown,
+  program: string,
+  args: readonly string[],
+  internals: Pick<SpawnRunnerInternals, 'uvErrorBindings'>,
+): SerializedRunnerError {
   const serialized = serializeRunnerError(error)
   if (!(error instanceof Win32Error)) {
     return serialized.code === undefined
@@ -97,23 +131,15 @@ function asSpawnError(error: unknown, program: string, args: readonly string[]):
         spawnargs: [...args],
       })
   }
-  if (error.win32Code === 2 || error.win32Code === 3 || error.win32Code === 267) {
-    return nodeSpawnError(serialized, `spawn ${program}`, 'ENOENT', -4058, {
+  const uv = internals.uvErrorBindings ?? loadUvErrorBindings()
+  const errno = uv.translateSystemError(error.win32Code)
+  const code = uv.errorName(errno)
+  if (NODE_SPAWN_DETAIL_CODES.has(code)) {
+    return nodeSpawnError(serialized, `spawn ${program}`, code, errno, {
       path: program,
       spawnargs: [...args],
     })
   }
-  if (error.win32Code === 740) {
-    return nodeSpawnError(serialized, `spawn ${program}`, 'EACCES', -4092, {
-      path: program,
-      spawnargs: [...args],
-    })
-  }
-  const [code, errno] = error.win32Code === 5
-    ? ['EPERM', -4048]
-    : error.win32Code === 193
-      ? ['EFTYPE', -4028]
-      : ['UNKNOWN', -4094]
   return nodeSpawnError(serialized, 'spawn', code, errno, {})
 }
 
@@ -198,7 +224,7 @@ function runLinux(
   } catch (error) {
     writeLinuxStartupError(files, {
       type: 'error',
-      error: asSpawnError(error, argv[0] as string, argv.slice(1)),
+      error: asSpawnError(error, argv[0] as string, argv.slice(1), internals),
     })
     host.exitCode = 127
   }
@@ -329,7 +355,7 @@ class WindowsJobRunner {
       if (this.jobHandle === undefined && error instanceof Win32Error && error.api === 'CreateProcessW') {
         await this.publishTerminalResult({
           type: 'error',
-          error: asSpawnError(error, this.argv[0] as string, this.argv.slice(1)),
+          error: asSpawnError(error, this.argv[0] as string, this.argv.slice(1), this.internals),
         }, 0)
         return
       }

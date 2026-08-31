@@ -193,6 +193,28 @@ describe('Linux scope establishment and quiescence', () => {
     expect(existsSync(linuxLaunchFilesFromLocator(requestPath).directory)).toBe(false)
   })
 
+  it('uses the scope alone after establishment and the direct range only when scope signalling fails', async () => {
+    const spawnSync = vi.fn()
+      .mockReturnValueOnce({ status: 0, stdout: '', stderr: '' })
+      .mockReturnValueOnce({ status: 1, stdout: '', stderr: 'scope signal failed' })
+    const { child, result, requestPath } = launch(async () => activeUnit(), {
+      spawnSync: spawnSync as never,
+    })
+    consumeLinuxLaunchRequest(requestPath)
+    const processKill = vi.spyOn(process, 'kill').mockReturnValue(true)
+
+    result.owner.signal('SIGTERM')
+    expect(processKill).not.toHaveBeenCalled()
+
+    result.owner.signal('SIGKILL')
+    expect(processKill).toHaveBeenCalledExactlyOnceWith(-321, 'SIGKILL')
+    expect(spawnSync).toHaveBeenCalledTimes(2)
+
+    child.exit(null, 'SIGKILL')
+    await expect(result.direct).resolves.toEqual({ exitCode: null, signal: 'SIGKILL' })
+    result.owner.cleanup?.()
+  })
+
   it('uses manager-observed unit existence as establishment proof', async () => {
     const { child, result } = launch(async () => activeUnit('inactive'))
     await expect(result.owner.waitForExit()).resolves.toBeUndefined()
