@@ -1,4 +1,3 @@
-import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 /**
  * Loop-level reconstructability: every request the loop sends is a pure function of the
  * session log — messages derive at the step/start boundary and the header is the latest

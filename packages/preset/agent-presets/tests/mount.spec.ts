@@ -11,12 +11,11 @@ import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
-import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import AgentRegistry, { assembleContextFor, type Agent } from '@deepseek-ai/dsh-agent'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import AgentPresets, {
-  COMPOSITION_FILE, leakedServices, livePresetMounts, mountPreset, PresetMountError, serviceForAgent,
+  COMPOSITION_FILE, leakedServices, livePresetMounts, mountPreset, serviceForAgent,
 } from '@deepseek-ai/dsh-agent-presets'
 import type { Config } from '@deepseek-ai/dsh-agent-presets'
 import type {} from '@deepseek-ai/dsh-agent-presets/types'
@@ -56,7 +55,6 @@ async function harness(roster: Config = { default: 'standard', roots: ROOTS, inc
   await ctx.plugin(SystemPrompt, { persona: '' })
   await ctx.plugin(ToolRuntime)
   await ctx.plugin(AgentRegistry)
-  await ctx.plugin(SessionProjectionRegistry)
   await ctx.plugin(AgentLoop, { agents: [] })
   await ctx.plugin(AgentPresets, roster)
   return ctx
@@ -371,9 +369,10 @@ describe('composing from a broken preset', () => {
     const scoped = await rosterWith('- id: x\n  name: [unclosed\n')
 
     // The refusal happens before the loader ever sees the file, so every
-    // unloadable shape gets the same early PresetMountError — and a rejected
-    // setup rolls the whole agent creation back.
-    await expect(agentOn(scoped, 'sess-broken', 'damaged')).rejects.toThrow(PresetMountError)
+    // unloadable shape gets the same early agent-preset/invalid — and a
+    // rejected setup rolls the whole agent creation back.
+    await expect(agentOn(scoped, 'sess-broken', 'damaged'))
+      .rejects.toMatchObject({ code: 'agent-preset/invalid' })
     await expect(agentOn(scoped, 'sess-broken-2', 'damaged')).rejects.toThrow(/not valid YAML/)
     expect(livePresetMounts().filter(mount => mount.presetId === 'damaged')).toHaveLength(0)
   })
@@ -454,7 +453,6 @@ describe('the preset file is an input, never a persistence target', () => {
     await scoped.plugin(SystemPrompt, { persona: '' })
     await scoped.plugin(ToolRuntime)
     await scoped.plugin(AgentRegistry)
-    await scoped.plugin(SessionProjectionRegistry)
     await scoped.plugin(AgentLoop, { agents: [] })
     await scoped.plugin(AgentPresets, { default: 'self-disposing', roots: [{ path: root, trust: 'user' as const }], includeShippedRoot: false, includeUserRoot: false })
 
@@ -643,7 +641,6 @@ describe('replacing a composition', () => {
     await scoped.plugin(SystemPrompt, { persona: '' })
     await scoped.plugin(ToolRuntime)
     await scoped.plugin(AgentRegistry)
-    await scoped.plugin(SessionProjectionRegistry)
     await scoped.plugin(AgentLoop, { agents: [] })
     await scoped.plugin(AgentPresets, { default: 'first', roots: [{ path: root, trust: 'user' as const }], includeShippedRoot: false, includeUserRoot: false })
     const handle = await scoped.agents.create({
@@ -773,7 +770,7 @@ describe('editing a composition file', () => {
       ensureStanding(preset: { id: string; trust: 'user'; path: string }): Promise<unknown>
     }
     await expect(racer.ensureStanding({ id: 'unstampable', trust: 'user', path }))
-      .rejects.toThrow(PresetMountError)
+      .rejects.toMatchObject({ code: 'agent-preset/invalid' })
     expect(livePresetMounts().filter(mount => mount.presetId === 'unstampable')).toHaveLength(0)
   })
 

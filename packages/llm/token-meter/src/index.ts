@@ -6,8 +6,9 @@
 
 import { Context, Service } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
-import { BlockAssembler, deepFreeze } from '@deepseek-ai/dsh-llm'
+import { BlockAssembler } from '@deepseek-ai/dsh-llm'
 import type { LlmImageRequestPricing, Message, TokenUsage } from '@deepseek-ai/dsh-llm'
+import { deepFreeze } from '@deepseek-ai/dsh-util-values'
 import type { EpochHeader, Session, SessionEvent } from '@deepseek-ai/dsh-session'
 import { canonicalHeader, headerEquals, isSurfaceEvent } from '@deepseek-ai/dsh-session'
 // Type-only: activates the `ctx.sessionProjections` Context declaration.

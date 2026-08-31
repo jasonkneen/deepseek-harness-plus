@@ -8,8 +8,9 @@ import z from '@deepseek-ai/schemastery'
 import { z as zod } from 'zod'
 import type { ZodType } from 'zod'
 import type { Branded } from '@deepseek-ai/dsh-brand'
-import { assertNever, deepFreeze, isAgentLoopRequest } from '@deepseek-ai/dsh-llm'
+import { isAgentLoopRequest } from '@deepseek-ai/dsh-llm'
 import type { GenerateOptions } from '@deepseek-ai/dsh-llm'
+import { assertNever, deepFreeze } from '@deepseek-ai/dsh-util-values'
 import type {
   Session,
   SessionEvent,

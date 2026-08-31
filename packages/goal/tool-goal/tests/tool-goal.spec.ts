@@ -12,7 +12,6 @@ import SessionStore, { SESSION_FORMAT_VERSION, Session, SessionId } from '@deeps
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
-import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import type { ToolExecutionResult } from '@deepseek-ai/dsh-tools'
 import * as toolGoal from '@deepseek-ai/dsh-tool-goal'
 import { ReactLoopInbox } from '@deepseek-ai/dsh-agent-loop'
@@ -95,7 +94,6 @@ async function harness(config: toolGoal.Config = {}) {
   await ctx.plugin(SystemPrompt)
   await ctx.plugin(AgentRegistry)
   await ctx.plugin(ToolRuntime)
-  await ctx.plugin(SessionProjectionRegistry)
   ctx.sessionProjections.register(turnBoundaryProjectionDefinition)
   await ctx.plugin(GoalService)
   const fiber = await ctx.plugin(toolGoal, config)

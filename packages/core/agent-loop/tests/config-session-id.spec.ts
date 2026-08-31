@@ -1,4 +1,3 @@
-import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'

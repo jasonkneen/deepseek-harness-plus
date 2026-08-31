@@ -657,9 +657,9 @@ listDescendants(rootSessionId: SessionId, signal?: AbortSignal): Promise<Subagen
  * @param parentSessionId - parent session whose direct children are listed.
  * @param signal - carrier cancellation forwarded to Session queries.
  * @returns the catalog view for that parent.
- * @throws {TypertRemoteFailure} `bad-request` for an empty parent id,
- *   `cancelled` for an aborted read, `subagent-projections-unavailable` when
- *   the deployment has no projection registry, otherwise `internal`.
+ * @throws {RemoteError} `gateway/bad-request` for an empty parent id,
+ *   `gateway/cancelled` for an aborted read, `subagent/projections-unavailable` when
+ *   the deployment has no projection registry, otherwise `gateway/internal`.
  */
 @Remote('list') async remoteExportList(parentSessionId: SessionId, signal: AbortSignal): Promise<SubagentCatalog>
 
@@ -669,13 +669,15 @@ listDescendants(rootSessionId: SessionId, signal?: AbortSignal): Promise<Subagen
  * validated browser zone on the accepted message. Success identifies the
  * message the child's FIFO inbox accepted; later execution is independent of
  * this call.
+ * Image parts are admitted and persisted through the attachment store
+ * before delivery, and the child's model must accept image input.
  * @param request - durable address, minted identity, content, and optional browser zone.
  * @param signal - carrier cancellation, owning the call until inbox acceptance.
  * @returns the accepted message's inbox identity.
- * @throws {TypertRemoteFailure} `bad-request`, `invalid-time-zone`,
- *   `subagent-parent-unavailable`, `subagent-not-resumable`,
- *   `subagent-unauthorized`, `subagent-delivery-unavailable`, `cancelled`, or
- *   `internal`.
+ * @throws {RemoteError} `gateway/bad-request`, `subagent/attachment-invalid`,
+ *   `subagent/invalid-time-zone`, `subagent/parent-unavailable`,
+ *   `subagent/not-resumable`, `subagent/unauthorized`,
+ *   `subagent/delivery-unavailable`, `gateway/cancelled`, or `gateway/internal`.
  */
 @Remote('prompt') async prompt(request: SubagentPromptRequest, signal: AbortSignal): Promise<SubagentPromptReceipt>
 
@@ -689,9 +691,9 @@ listDescendants(rootSessionId: SessionId, signal?: AbortSignal): Promise<Subagen
  * @param parentSessionId - durable direct parent whose authority is claimed.
  * @param mode - required continuable-address discriminator.
  * @returns acknowledgement that the cancel signal was admitted, not that the target is quiescent.
- * @throws {TypertRemoteFailure} `bad-request` for an empty id,
- *   `subagent-unauthorized` when the address does not own the live target,
- *   otherwise `internal`.
+ * @throws {RemoteError} `gateway/bad-request` for an empty id,
+ *   `subagent/unauthorized` when the address does not own the live target,
+ *   otherwise `gateway/internal`.
  */
 @Remote('interruptByParent') interruptByParent( childSessionId: SessionId, parentSessionId: SessionId, mode: 'continuable', ): SubagentInterruptReceipt
 

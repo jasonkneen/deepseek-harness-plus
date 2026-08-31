@@ -1,9 +1,9 @@
 /** Host-only Team state projected incrementally from committed Session events. */
 
 import { z } from 'zod'
+import { brandString } from '@deepseek-ai/dsh-brand'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
-import { SessionId } from '@deepseek-ai/dsh-session'
-import type { SessionEvent, SessionEventMap } from '@deepseek-ai/dsh-session'
+import type { SessionEvent, SessionEventMap, SessionId } from '@deepseek-ai/dsh-session'
 import type { ProjectionDefinition } from '@deepseek-ai/dsh-session-projection'
 import type {
   TeamId,
@@ -21,7 +21,7 @@ import { assertTaskGraphCandidate } from './task-graph.ts'
 
 const nonNegativeSafeInteger = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER)
 const positiveSafeInteger = nonNegativeSafeInteger.min(1)
-const sessionIdSchema = z.string().min(1).transform(value => SessionId(value))
+const sessionIdSchema = z.string().min(1).transform(value => brandString<SessionId>(value))
 const teamIdSchema = z.string().min(1).transform(value => toTeamId(value))
 const numericTaskIdPattern = /^task-(\d+)$/u
 const teamTaskIdSchema = z.string().min(1).refine((value) => {

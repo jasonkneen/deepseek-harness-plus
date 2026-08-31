@@ -1,4 +1,3 @@
-import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 /**
  * Loop-level tool-order determinism: the request/header event — and therefore the frozen

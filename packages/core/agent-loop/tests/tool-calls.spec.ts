@@ -1,4 +1,3 @@
-import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 /**
  * Exercises scheduler ordering and cancellation with deterministic gated tools.
  * ACP expected outputs own transcript-facing coverage.

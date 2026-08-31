@@ -7,4 +7,5 @@
   name: '@deepseek-ai/dsh-web-search-deepseek'
   config:
     apiKey: snapshot-key
+    # The fixture maps this recorded authority to its OS-assigned listener.
     baseURL: http://127.0.0.1:43118/anthropic/v1

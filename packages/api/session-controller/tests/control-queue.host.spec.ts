@@ -20,7 +20,6 @@ async function harness(): Promise<{
   await ctx.plugin(SessionStore)
   await ctx.plugin(SessionProjectionRegistry)
   await ctx.plugin(AgentRegistry)
-  await ctx.plugin(SessionProjectionRegistry)
   const session = ctx.sessions.create(SessionId('queue-session'))
   const agent: Agent = {
     id: session.id, options: {}, session, inbox: unsupportedInbox(), status: 'running', ctx,
@@ -92,9 +91,9 @@ describe('Session control queue projection', () => {
   it('derives queue replacements from the completed projection regardless of registration order', async () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
+    await ctx.plugin(SessionProjectionRegistry)
     await ctx.plugin(AgentRegistry)
     const control = new SessionControlController(ctx)
-    await ctx.plugin(SessionProjectionRegistry)
     const session = ctx.sessions.create(SessionId('late-projection-queue'))
     const agent: Agent = {
       id: session.id, options: {}, session, inbox: unsupportedInbox(), status: 'running', ctx,

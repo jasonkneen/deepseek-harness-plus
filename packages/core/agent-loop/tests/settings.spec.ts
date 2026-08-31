@@ -1,4 +1,3 @@
-import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 /** The `agent-loop` settings section layered over the composition entry. */
 
 import { describe, expect, it } from 'vitest'

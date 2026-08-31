@@ -271,7 +271,9 @@ export function ChatView({
   const visibleSubmissions = useMemo(() => {
     if (pendingSubmissions.length === 0) return pendingSubmissions
     const observed = observedRpcIds(order, nodeStore, inbox)
-    return pendingSubmissions.filter(submission => !observed.has(submission.requestId))
+    return pendingSubmissions.filter(submission => (
+      submission.placement !== 'queued' && !observed.has(submission.requestId)
+    ))
   }, [pendingSubmissions, order, nodeStore, inbox])
   const renderMessageImages = useCallback<RenderMessageImages>(
     owner => renderSlot('conversation.message.images', { ...owner, loadImage }),

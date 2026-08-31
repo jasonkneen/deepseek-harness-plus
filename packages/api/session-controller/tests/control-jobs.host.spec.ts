@@ -40,7 +40,6 @@ async function harness(withJobs: boolean): Promise<{
   await ctx.plugin(SessionStore)
   await ctx.plugin(SessionProjectionRegistry)
   await ctx.plugin(AgentRegistry)
-  await ctx.plugin(SessionProjectionRegistry)
   if (withJobs) {
     await ctx.plugin(LocalJobRegistry)
     ctx.jobs.attachController('session-controller-test')

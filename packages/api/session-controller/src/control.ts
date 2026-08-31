@@ -2,10 +2,12 @@
 
 import type { Context } from '@deepseek-ai/cordis'
 import type { Agent, InboxState } from '@deepseek-ai/dsh-agent'
+import { Deque } from '@deepseek-ai/dsh-deque'
 import type { JobSnapshot } from '@deepseek-ai/dsh-jobs'
 import type {
-  JsonValue, Session, SessionId, UserMessage,
+  Session, SessionId, UserMessage,
 } from '@deepseek-ai/dsh-session'
+import type { JsonValue } from '@deepseek-ai/dsh-util-values'
 import type {
   SessionControlBaseline,
   SessionControlFrame,
@@ -125,13 +127,13 @@ export class SessionControlController {
 }
 
 class ControlQueue {
-  private readonly buffer: SessionControlFrame[] = []
+  private readonly buffer = new Deque<SessionControlFrame>()
   private wake: (() => void) | undefined
   private done = false
 
   push(frame: SessionControlFrame): void {
     if (this.done) return
-    this.buffer.push(frame)
+    this.buffer.pushBack(frame)
     const wake = this.wake
     this.wake = undefined
     wake?.()
@@ -150,14 +152,14 @@ class ControlQueue {
     signal.addEventListener('abort', onAbort, { once: true })
     try {
       while (!this.done && !signal.aborted) {
-        const frame = this.buffer.shift()
+        const frame = this.buffer.popFront()
         if (frame !== undefined) {
           yield frame
           continue
         }
         await new Promise<void>((resolve) => { this.wake = resolve })
       }
-      while (this.buffer.length > 0 && !signal.aborted) yield this.buffer.shift() as SessionControlFrame
+      while (this.buffer.size > 0 && !signal.aborted) yield this.buffer.popFront() as SessionControlFrame
     } finally {
       signal.removeEventListener('abort', onAbort)
       this.end()

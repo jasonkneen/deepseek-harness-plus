@@ -1,4 +1,3 @@
-import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import { ToolCallId, createUserMessage } from '@deepseek-ai/dsh-llm'
 /**
  * Tests for the queue-aware `Agent.cancel()` primitive. The default clears

@@ -2,11 +2,11 @@
 
 import { randomUUID } from 'node:crypto'
 import type { Context } from '@deepseek-ai/cordis'
+import { brandString } from '@deepseek-ai/dsh-brand'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
-import { SessionId } from '@deepseek-ai/dsh-session'
-import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
+import type { Session, SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
 import { errorMessage, TeamError } from './error.ts'
 import type { TeamJournal } from './journal.ts'
 import type { TeamRuntimeLifecycle } from './lifecycle.ts'
@@ -68,7 +68,7 @@ export class TeamMailbox {
     if (this.lifecycle.disposed || event.type !== 'user/message' || event.data.source.kind !== 'team-message') return
     const source = event.data.source
     const acknowledgement = Promise.resolve().then(async () => {
-      const root = this.ctx.agents.get(SessionId(source.teamId))
+      const root = this.ctx.agents.get(brandString<SessionId>(source.teamId))
       if (root !== undefined) await this.checkpointDelivered(root, session, source.messageId)
     }).catch((error: unknown) => {
       this.ctx.logger.warn(`Team message "${source.messageId}" acknowledgement failed: ${errorMessage(error)}`)

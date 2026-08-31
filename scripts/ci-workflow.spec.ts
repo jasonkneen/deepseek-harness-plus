@@ -117,6 +117,35 @@ describe('CI workflow', () => {
     ))
     expect(buildCommands.map(step => step.run)).toContain('pnpm run check:ci:windows-blocking')
 
+    // The four native Windows installs branch on the workspace filesystem:
+    // clone (ReFS block clone) only on ReFS, plain install elsewhere. This
+    // keeps the TS6231 store-path leak (see the Windows ReFS store note) out
+    // of the self-hosted pool without forcing clone onto hosted NTFS, which
+    // rejects copy-on-write. The branch must stay, or a hosted fallback would
+    // fail installs with ERR_PNPM_LINKING_FAILED.
+    for (const [jobName, job] of [['windows-build', windowsBuild], ['windows-coverage', windowsCoverage], ['windows-native-tests', windowsNativeTests], ['windows-observational', windowsObservational]] as const) {
+      const steps = job.steps as unknown[]
+      const install = steps.find((step): step is Record<string, unknown> & { run: string } => (
+        isRecord(step) && step.name === 'Install (immutable)' && typeof step.run === 'string'
+      ))
+      expect(install, `${jobName} must define the filesystem-branched install`).toBeDefined()
+      expect(install!.run).toContain("$fs -eq 'ReFS'")
+      expect(install!.run).toContain('--package-import-method=clone')
+      expect(install!.run).toContain('corepack pnpm install')
+      // The else branch must keep the plain hosted install as a distinct line
+      // (not the corepack clone line, which contains the same substring);
+      // dropping it or making both branches clone would force clone onto
+      // NTFS, which rejects copy-on-write (ERR_PNPM_LINKING_FAILED). The
+      // YAML folded block keeps the first statement on line 1 and folds the
+      // rest with leading two-space indents.
+      const installLines = install!.run.split('\n').map(line => line.trim())
+      expect(installLines).toContain('} else {')
+      expect(installLines.some(line => line === 'pnpm install --frozen-lockfile'), `${jobName} else branch must keep the plain hosted install`).toBe(true)
+      // The ReFS branch must not use the interpolated empty-flag form, which
+      // passes a stray "" positional argument to pnpm.
+      expect(install!.run).not.toContain('$cloneFlag')
+    }
+
     // windows-coverage uses the lower 4-partition profile.
     expect(windowsCoverage.name).toBe('windows node 24 / coverage')
     expect(windowsCoverage.env).toMatchObject({ DSH_COVERAGE_PARTITIONS: '4' })
@@ -150,6 +179,26 @@ describe('CI workflow', () => {
     expect(serialWindows.if).toBe("github.event_name == 'push' && github.ref == 'refs/heads/master'")
     expect(serialWindows['runs-on']).toEqual(['self-hosted', 'dsh-win-ci', 'windows'])
     expect(serialWindows.name).toBe('serial / windows (self-hosted standby)')
+    // Its store must share the ReFS workspace volume for clone; the install
+    // must carry the same filesystem branch as the PR jobs.
+    const serialSteps = serialWindows.steps as unknown[]
+    const serialStore = serialSteps.find((step): step is Record<string, unknown> & { run: string } => (
+      isRecord(step) && step.name === 'Configure persistent pnpm store' && typeof step.run === 'string'
+    ))
+    expect(serialStore).toBeDefined()
+    expect(serialStore!.run).toContain('F:\\.pnpm-store')
+    const serialInstall = serialSteps.find((step): step is Record<string, unknown> & { run: string } => (
+      isRecord(step) && step.name === 'Install (immutable)' && typeof step.run === 'string'
+    ))
+    expect(serialInstall).toBeDefined()
+    expect(serialInstall!.run).toContain("$fs -eq 'ReFS'")
+    expect(serialInstall!.run).toContain('--package-import-method=clone')
+    expect(serialInstall!.run).toContain('corepack pnpm install')
+    // Distinct else-branch line, as for the PR jobs: the corepack clone line
+    // contains the plain-install substring too.
+    expect(serialInstall!.run.split('\n').map(line => line.trim())).toContain('} else {')
+    expect(serialInstall!.run.split('\n').map(line => line.trim())).toContain('pnpm install --frozen-lockfile')
+    expect(serialInstall!.run).not.toContain('$cloneFlag')
 
     // Aggregate: Wine and the required split native jobs are needed;
     // windows-coverage is temporarily non-blocking while Windows ACP
@@ -603,7 +652,7 @@ describe('npm release workflows', () => {
     for (const file of ['release.yml', 'release-vendor.yml']) {
       const workflow = loadWorkflow(`.github/workflows/${file}`)
       if (!isRecord(workflow.jobs)) throw new TypeError(`${file} must define jobs`)
-      expect(Object.keys(workflow.jobs).sort()).toEqual(['pack'])
+      expect(Object.keys(workflow.jobs).sort()).toEqual(file === 'release.yml' ? ['dependencies', 'pack'] : ['pack'])
     }
 
     // publication is workflow_dispatch-only (never a PR check) and keeps the
@@ -617,6 +666,20 @@ describe('npm release workflows', () => {
       expect(publish.environment).toBe('npm-publish')
       expect(publish.concurrency).toMatchObject({ group: 'Release-publish' })
     }
+  })
+
+  it('runs dependency policy and npm layout checks in the DSH release workflow', () => {
+    const workflow = loadWorkflow('.github/workflows/release.yml')
+    const dependencies = workflowJob(workflow, 'dependencies')
+    if (!isRecord(workflow.on) || !Array.isArray(dependencies.steps)) {
+      throw new TypeError('DSH release workflow must define triggers and dependency steps')
+    }
+    const commands = dependencies.steps.flatMap(step =>
+      isRecord(step) && typeof step.run === 'string' ? [step.run] : [])
+
+    expect(Object.keys(workflow.on).sort()).toEqual(['pull_request', 'push', 'workflow_dispatch'])
+    expect(commands).toContain('pnpm run verify-package-dependencies')
+    expect(commands).toContain('pnpm run verify-npm-install-layout')
   })
 })
 

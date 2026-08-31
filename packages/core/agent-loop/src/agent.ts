@@ -21,10 +21,10 @@ import {
   BlockAssembler,
   LlmError,
   createAssistantMessage,
-  deepFreeze,
   errorChain,
   markAgentLoopRequest,
 } from '@deepseek-ai/dsh-llm'
+import { deepFreeze } from '@deepseek-ai/dsh-util-values'
 import type { Scope } from '@deepseek-ai/dsh-scope'
 import { createScope } from '@deepseek-ai/dsh-scope'
 import type { EpochHeader, RequestContext, Session, SessionId, TurnEndReason, UserMessage } from '@deepseek-ai/dsh-session'

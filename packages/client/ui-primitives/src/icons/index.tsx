@@ -761,6 +761,23 @@ export const IconDataOutline16 = ({ size = 16, className }: IconProps) => (
   </svg>
 )
 
+/** IconDataOutline16 without its gear: a three-tier database cylinder. */
+export const IconDatabaseOutline16 = ({ size = 16, className }: IconProps) => (
+  <svg width={size} height={size} className={className} viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <ellipse cx="8" cy="3.6" rx="5.75" ry="2.4" stroke="currentColor" strokeWidth="1.25" />
+    <path d="M2.25 3.6V12.3A5.75 2.4 0 0 0 13.75 12.3V3.6" stroke="currentColor" strokeWidth="1.25" />
+    <path d="M2.25 7.95A5.75 2.4 0 0 0 13.75 7.95" stroke="currentColor" strokeWidth="1.25" />
+  </svg>
+)
+
+/** Thin-stroke clock: outlined dial with square-cut hour and minute hands. */
+export const IconClockOutline16 = ({ size = 16, className }: IconProps) => (
+  <svg width={size} height={size} className={className} viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <circle cx="8" cy="8" r="6.375" stroke="currentColor" strokeWidth="1.25" />
+    <path d="M8 4.4V8.3L10.7 9.85" stroke="currentColor" strokeWidth="1.25" />
+  </svg>
+)
+
 /** ic_send_outline_14 (figma extract): thin-stroke upward send arrow. */
 export const IconSendOutline14 = ({ size = 14, className }: IconProps) => (
   <svg width={size} height={size} className={className} viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg">
