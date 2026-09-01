@@ -19,6 +19,7 @@ import SandboxPolicyService, { setSandboxMode } from '@deepseek-ai/dsh-sandbox-p
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
+import { queueHostSubagentPrompt } from '@deepseek-ai/dsh-subagent/internal'
 import * as SubagentFork from '@deepseek-ai/dsh-subagent-fork-in-process'
 import * as SubagentSpawn from '@deepseek-ai/dsh-subagent-spawn-in-process'
 import ApprovalService from '@deepseek-ai/dsh-user-approval'
@@ -199,10 +200,14 @@ describe('continuable policy inheritance', () => {
     // The parent widens AFTER the child was created; the resumed child keeps
     // the delegation-time snapshot from its own log.
     setSandboxMode(parent.session, 'danger-full-access')
-    await ctx.subagents.followup(parent, started.childId, [{ type: 'text', text: 'continue please' }], {
-      source: { kind: 'user' },
-      signal: new AbortController().signal,
-    })
+    await queueHostSubagentPrompt(
+      ctx.subagents,
+      parent,
+      started.childId,
+      [{ type: 'text', text: 'continue please' }],
+      { kind: 'user' },
+      new AbortController().signal,
+    )
     await waitNoActivation(ctx, started.childId)
 
     const loaded = await ctx.sessionPersistence.load(started.childId)

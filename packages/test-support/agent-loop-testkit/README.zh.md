@@ -76,7 +76,7 @@ const agent = {
 
 ### 设计
 
-`mountAgentLoopTestDependencies` 按固定依赖顺序——LLM、会话、会话投影注册表、系统提示词注册表、工具注册表、agent 注册表——挂载六个服务插件，并刻意在 `AgentLoop` 之前停下，使调用方控制 loop 加载顺序与待测拓扑。[`src/inbox.ts`](src/inbox.ts) 只提供快速失败且不支持操作的占位值，不会重现具体 Inbox 算法。挂载实现位于 [`src/index.ts`](src/index.ts)；[`src/invariant.ts`](src/invariant.ts) 配套入口声明无运行时不变式，因为本包不拥有任何生产事件流或可变数据。
+`mountAgentLoopTestDependencies` 按固定依赖顺序——LLM、会话、会话投影注册表、系统提示词注册表、工具注册表、agent 注册表——挂载六个服务插件，并刻意在 `AgentLoop` 之前停下，使调用方控制 loop 加载顺序与待测拓扑。[`src/inbox.ts`](src/inbox.ts) 只提供快速失败且不支持操作的占位值，不会重现具体 Inbox 算法。挂载实现位于 [`src/index.ts`](src/index.ts)。本测试支持包不持有任何生产事件流或可变数据，因此不发布伴生入口；消费它的测试套件会直接检验其行为。
 
 </details>
 

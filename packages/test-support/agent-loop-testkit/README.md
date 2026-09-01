@@ -76,7 +76,7 @@ This section explains the design of the test utilities; the observable behavior 
 
 ### Design
 
-`mountAgentLoopTestDependencies` mounts six service plugins in a fixed dependency order — LLM, session, session-projection registry, system-prompt registry, tool registry, then agent registry — and deliberately stops before `AgentLoop` itself, so the caller controls loop load order and the topology under test. [`src/inbox.ts`](src/inbox.ts) provides only the fail-fast unsupported placeholder; it does not reproduce the concrete Inbox algorithm. The mounting implementation lives in [`src/index.ts`](src/index.ts); the [`src/invariant.ts`](src/invariant.ts) companion declares no runtime invariant because the package owns no production event stream or mutable data.
+`mountAgentLoopTestDependencies` mounts six service plugins in a fixed dependency order — LLM, session, session-projection registry, system-prompt registry, tool registry, then agent registry — and deliberately stops before `AgentLoop` itself, so the caller controls loop load order and the topology under test. [`src/inbox.ts`](src/inbox.ts) provides only the fail-fast unsupported placeholder; it does not reproduce the concrete Inbox algorithm. The mounting implementation lives in [`src/index.ts`](src/index.ts). No companion is published because this test-support package owns no production event stream or mutable data; consuming test suites exercise its behavior.
 
 </details>
 

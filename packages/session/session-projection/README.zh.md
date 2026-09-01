@@ -88,7 +88,7 @@ const { asOfSeq, values } = ctx.sessionProjections.snapshot(session)
 |---|---|
 | [`src/index.ts`](src/index.ts) | 插件入口：`SessionProjectionRegistry` 服务、`ProjectionDefinition`、快照与检查点机制 |
 | [`src/types.ts`](src/types.ts) | 可合并扩展的 `SessionProjectionMap` 与 `SessionProjectionStateMap` 类型表 |
-| [`src/invariant.ts`](src/invariant.ts) | 不变式伴生插件（无运行时不变式；同步纪律由 schema parse 强制） |
+| — | 不发布运行时不变式伴生入口；同步纪律由 schema parse 强制。 |
 
 ### 驱动与检查点流程
 

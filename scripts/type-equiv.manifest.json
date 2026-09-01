@@ -1308,17 +1308,7 @@
     },
     {
       "doc": "docs/subsystems/subagent.md",
-      "symbol": "CoordinatorMessageSource",
-      "source": "packages/subagent/subagent/src/continuation.ts"
-    },
-    {
-      "doc": "docs/subsystems/subagent.md",
-      "symbol": "SubagentReportMessageSource",
-      "source": "packages/subagent/subagent/src/continuation.ts"
-    },
-    {
-      "doc": "docs/subsystems/subagent.md",
-      "symbol": "SubagentReportDelivery",
+      "symbol": "AgentMessageSource",
       "source": "packages/subagent/subagent/src/continuation.ts"
     },
     {
@@ -1328,12 +1318,7 @@
     },
     {
       "doc": "docs/subsystems/subagent.md",
-      "symbol": "SubagentReportOptions",
-      "source": "packages/subagent/subagent/src/continuation.ts"
-    },
-    {
-      "doc": "docs/subsystems/subagent.md",
-      "symbol": "SubagentFollowupOptions",
+      "symbol": "SubagentSendMessageOptions",
       "source": "packages/subagent/subagent/src/continuation.ts"
     },
     {
