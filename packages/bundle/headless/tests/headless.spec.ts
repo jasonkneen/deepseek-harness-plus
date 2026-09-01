@@ -323,16 +323,20 @@ describe('headless runner', () => {
   })
 
   it('fails when an event below the captured Session length cannot be read', async () => {
+    let capturedLength = 0
     const test = await bench({
       afterPrompt(session, message) {
         appendTurn(session, 1, message, 'unreachable', true)
+        capturedLength = session.seq
         Object.defineProperty(session, 'eventAt', { value: () => undefined })
       },
     })
-    expect(await test.run()).toMatchObject({
+    const result = await test.run()
+    expect(capturedLength).toBeGreaterThan(0)
+    expect(result).toMatchObject({
       code: 1,
       out: '',
-      err: 'dsh: headless summary cannot read seq 0 below captured length 7\n',
+      err: `dsh: headless summary cannot read seq 0 below captured length ${String(capturedLength)}\n`,
     })
     await test.ctx.fiber.dispose()
   })
