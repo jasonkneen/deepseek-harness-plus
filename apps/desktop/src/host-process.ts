@@ -191,6 +191,8 @@ export class DesktopHostProcess {
     this.blockedResponses.clear()
     this.responsePipe?.resume()
     if (child.connected) this.send({ type: 'shutdown' })
+    // Closing the parent-owned write end releases the Host's pending Windows pipe read.
+    this.requestPipe?.destroy()
     const exited = this.exitPromise ?? Promise.resolve()
     const wait = (milliseconds: number): Promise<'timeout'> => new Promise((resolve) => {
       const timer = setTimeout(() => { resolve('timeout') }, milliseconds)
