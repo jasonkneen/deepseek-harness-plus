@@ -23,7 +23,7 @@
   },
   "files": [
     "lib/*.js",
-    "config"
+    "config/desktop.cordis.patch.yml"
   ],
   "dsh": {
     "configTrees": [

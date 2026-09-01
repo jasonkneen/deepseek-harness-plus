@@ -14,6 +14,7 @@ import {
 import { basename, join, resolve } from 'node:path'
 import { parseArgs } from 'node:util'
 import {
+  DESKTOP_DSH_RUNTIME_FILES,
   DESKTOP_PACKAGES_DIR,
   DESKTOP_PACKAGE_SET_FILE,
   parseDesktopCorePackageSet,
@@ -106,13 +107,27 @@ function packedPackages(inputs: readonly string[]): Map<string, PackedDesktopPac
   return available
 }
 
+/**
+ * Require every dsh file used before the Desktop profile can pass its health check.
+ * @param files - Tarball paths rooted at `package/`.
+ * @returns Nothing.
+ */
+export function assertDesktopDshPackageFiles(files: readonly string[]): void {
+  const available = new Set(files)
+  const missing = DESKTOP_DSH_RUNTIME_FILES
+    .map(file => `package/${file}`)
+    .filter(file => !available.has(file))
+  if (missing.length > 0) {
+    throw new Error(`desktop package set: ${DSH_PACKAGE} tarball omits required file(s): ${missing.join(', ')}`)
+  }
+}
+
 /** Prepare `.desktop-build/package-set` from release tarball directories. */
 export function prepareDesktopPackageSet(inputs: readonly string[], output = OUTPUT_ROOT): void {
   const selected = selectDesktopPackageClosure(packedPackages(inputs))
   const dsh = selected.find(packed => packed.manifest.name === DSH_PACKAGE)
-  if (dsh === undefined || !tarballFiles(dsh.tarball).includes('package/lib/desktop-host.js')) {
-    throw new Error(`desktop package set: ${DSH_PACKAGE} tarball does not contain lib/desktop-host.js`)
-  }
+  if (dsh === undefined) throw new Error(`desktop package set: selected closure omits ${DSH_PACKAGE}`)
+  assertDesktopDshPackageFiles(tarballFiles(dsh.tarball))
   rmSync(output, { recursive: true, force: true })
   const packageDir = join(output, DESKTOP_PACKAGES_DIR)
   mkdirSync(packageDir, { recursive: true })

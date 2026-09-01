@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  assertDesktopDshPackageFiles,
   selectDesktopPackageClosure,
   type PackedDesktopPackage,
 } from '../scripts/prepare-package-set.ts'
@@ -37,5 +38,21 @@ describe('desktop package-set selection', () => {
       })],
     ])
     expect(() => selectDesktopPackageClosure(available)).toThrow(/unpacked internal package/u)
+  })
+
+  it('requires the Desktop Host entry and its packaged overlay', () => {
+    const files = [
+      'package/lib/desktop-host.js',
+      'package/config/desktop.cordis.patch.yml',
+    ]
+    expect(() => {
+      assertDesktopDshPackageFiles(files)
+    }).not.toThrow()
+    expect(() => {
+      assertDesktopDshPackageFiles(files.slice(0, 1))
+    }).toThrow(/desktop\.cordis\.patch\.yml/u)
+    expect(() => {
+      assertDesktopDshPackageFiles(files.slice(1))
+    }).toThrow(/desktop-host\.js/u)
   })
 })

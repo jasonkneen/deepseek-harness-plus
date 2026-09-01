@@ -10,6 +10,12 @@ export const DESKTOP_PACKAGE_SET_FILE = 'desktop-packages.json'
 /** Profile-relative directory containing immutable core npm tarballs. */
 export const DESKTOP_PACKAGES_DIR = 'desktop-packages'
 
+/** Package-relative dsh files required to boot the packaged Desktop Host. */
+export const DESKTOP_DSH_RUNTIME_FILES = [
+  'lib/desktop-host.js',
+  'config/desktop.cordis.patch.yml',
+] as const
+
 /** One immutable npm tarball in the Desktop core package set. */
 export interface DesktopCorePackageRecord {
   readonly name: string
