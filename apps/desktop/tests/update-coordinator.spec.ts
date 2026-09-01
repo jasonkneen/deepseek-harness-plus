@@ -74,4 +74,29 @@ describe('desktop update coordinator', () => {
     expect(quitAndInstall).toHaveBeenCalledWith(false, true)
     expect(states.map(state => state.phase)).toEqual(['checking', 'available', 'installing', 'ready'])
   })
+
+  it('queues install behind an in-flight check instead of returning the check result', async () => {
+    const checked = Promise.withResolvers<{
+      isUpdateAvailable: true
+      updateInfo: { version: string }
+    }>()
+    const downloadUpdate = vi.fn(async () => [])
+    const updater = {
+      autoDownload: true,
+      autoInstallOnAppQuit: true,
+      checkForUpdates: vi.fn(() => checked.promise),
+      downloadUpdate,
+      quitAndInstall: vi.fn(),
+    } as unknown as AppUpdater
+    const coordinator = new DesktopUpdateCoordinator(state => state, async () => {}, updater, () => true)
+
+    const checking = coordinator.check()
+    const installing = coordinator.install()
+    expect(downloadUpdate).not.toHaveBeenCalled()
+    checked.resolve({ isUpdateAvailable: true, updateInfo: { version: '1.2.0' } })
+
+    await expect(checking).resolves.toEqual({ phase: 'available', version: '1.2.0' })
+    await expect(installing).resolves.toEqual({ phase: 'ready', version: '1.2.0' })
+    expect(downloadUpdate).toHaveBeenCalledOnce()
+  })
 })

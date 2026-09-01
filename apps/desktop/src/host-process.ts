@@ -46,6 +46,19 @@ function errorOf(reason: unknown, fallback: string): Error {
   return reason instanceof Error ? reason : new Error(fallback)
 }
 
+async function exitsWithin(exit: Promise<void>, milliseconds: number): Promise<boolean> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const timeout = new Promise<false>((resolve) => {
+    timer = setTimeout(() => { resolve(false) }, milliseconds)
+    timer.unref()
+  })
+  try {
+    return await Promise.race([exit.then(() => true), timeout])
+  } finally {
+    if (timer !== undefined) clearTimeout(timer)
+  }
+}
+
 /** Ready facts reported by one installed dsh child. */
 export interface DesktopHostReady {
   readonly protocolVersion: typeof DESKTOP_HOST_PROTOCOL_VERSION
@@ -194,15 +207,12 @@ export class DesktopHostProcess {
     // Closing the parent-owned write end releases the Host's pending Windows pipe read.
     this.requestPipe?.destroy()
     const exited = this.exitPromise ?? Promise.resolve()
-    const wait = (milliseconds: number): Promise<'timeout'> => new Promise((resolve) => {
-      const timer = setTimeout(() => { resolve('timeout') }, milliseconds)
-      timer.unref()
-    })
-    if (await Promise.race([exited.then(() => 'exit' as const), wait(10_000)]) === 'timeout') child.kill('SIGTERM')
-    if (await Promise.race([exited.then(() => 'exit' as const), wait(5_000)]) === 'timeout') {
+    if (!await exitsWithin(exited, 10_000)) child.kill('SIGTERM')
+    if (!await exitsWithin(exited, 5_000)) {
       child.kill('SIGKILL')
-      this.child = undefined
-      throw new Error('dsh desktop host did not stop after termination')
+      if (!await exitsWithin(exited, 5_000)) {
+        throw new Error('dsh desktop host did not exit after SIGKILL')
+      }
     }
     this.child = undefined
     this.requestPipe = undefined

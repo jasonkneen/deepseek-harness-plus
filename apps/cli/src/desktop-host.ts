@@ -411,6 +411,7 @@ async function main(): Promise<void> {
   const decoder = new DesktopHostRequestDecoder()
   const requestBodies = new Map<number, ReadableStreamDefaultController<Uint8Array>>()
   const blockedRequests = new Set<number>()
+  const discardedRequestBodies = new Set<number>()
   const runs = new Set<Promise<void>>()
   let lastStreamId = 0
   let requestedExitCode = 0
@@ -429,6 +430,7 @@ async function main(): Promise<void> {
       for (const body of requestBodies.values()) body.error(stopped)
       requestBodies.clear()
       blockedRequests.clear()
+      discardedRequestBodies.clear()
       requestPipe.destroy()
       closeSync(DESKTOP_REQUEST_PIPE_FD)
       await controller.dispose()
@@ -483,7 +485,16 @@ async function main(): Promise<void> {
       },
     }, body)
     runs.add(run)
-    void run.catch(failTransport).finally(() => { runs.delete(run) })
+    void run.catch(failTransport).finally(() => {
+      runs.delete(run)
+      const openBody = requestBodies.get(frame.streamId)
+      if (openBody === undefined) return
+      openBody.error(new Error('dsh desktop: response completed before the request body ended'))
+      requestBodies.delete(frame.streamId)
+      blockedRequests.delete(frame.streamId)
+      discardedRequestBodies.add(frame.streamId)
+      resumeRequestPipe()
+    })
   }
 
   const handleRequestFrame = (frame: DesktopHostRequestFrame): void => {
@@ -494,6 +505,7 @@ async function main(): Promise<void> {
       case 'data': {
         const body = requestBodies.get(frame.streamId)
         if (body === undefined) {
+          if (discardedRequestBodies.has(frame.streamId)) return
           throw new Error(`dsh desktop: Electron sent body data for inactive stream ${String(frame.streamId)}`)
         }
         body.enqueue(frame.data)
@@ -506,6 +518,7 @@ async function main(): Promise<void> {
       case 'end': {
         const body = requestBodies.get(frame.streamId)
         if (body === undefined) {
+          if (discardedRequestBodies.delete(frame.streamId)) return
           throw new Error(`dsh desktop: Electron ended inactive body stream ${String(frame.streamId)}`)
         }
         body.close()
@@ -522,6 +535,7 @@ async function main(): Promise<void> {
         body?.error(new Error('dsh desktop: Electron canceled the request'))
         requestBodies.delete(frame.streamId)
         blockedRequests.delete(frame.streamId)
+        discardedRequestBodies.delete(frame.streamId)
         controller.cancel(frame.streamId)
         resumeRequestPipe()
         return

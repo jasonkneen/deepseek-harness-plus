@@ -23,6 +23,8 @@
   },
   "files": [
     "lib/*.js",
+    "lib/types/desktop-host.d.ts",
+    "lib/types/desktop-host-wire.d.ts",
     "config/desktop.cordis.patch.yml"
   ],
   "dsh": {

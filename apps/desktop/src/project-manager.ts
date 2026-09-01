@@ -7,6 +7,8 @@ import {
   copyFileSync,
   cpSync,
   existsSync,
+  fsyncSync,
+  ftruncateSync,
   lstatSync,
   mkdirSync,
   openSync,
@@ -17,6 +19,7 @@ import {
   rmSync,
   unlinkSync,
   writeFileSync,
+  writeSync,
 } from 'node:fs'
 import { basename, delimiter, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import {
@@ -75,7 +78,7 @@ export interface DesktopRuntimeExecutables {
 
 /** Hooks that bind project replacement to backend lifecycle and health. */
 export interface DesktopProjectHooks {
-  /** Prove the staged dependency graph before the active backend stops. */
+  /** Prove the staged dependency graph while the active backend is stopped. */
   healthCheck(projectDir: string): Promise<void>
   /** Stop the active backend and await process exit before directory moves. */
   beforeActivate(): Promise<void>
@@ -104,6 +107,10 @@ const PACKAGE_NAME_PATTERN = /^(?:@[a-z0-9][a-z0-9._~-]*\/[a-z0-9][a-z0-9._~-]*|
 const VERSION_PATTERN = /^[0-9A-Za-z][0-9A-Za-z.+_-]*$/u
 const MAX_PNPM_DIAGNOSTIC_BYTES = 64 * 1024
 const DESKTOP_REGISTRY = 'https://registry.npmjs.org/'
+
+function errorOf(reason: unknown, fallback: string): Error {
+  return reason instanceof Error ? reason : new Error(fallback)
+}
 
 function writeJson(path: string, value: unknown): void {
   writeFileSync(path, `${JSON.stringify(value, undefined, 2)}\n`, { mode: 0o600 })
@@ -319,6 +326,8 @@ function inspectPlugin(projectDir: string, requestedName: string): DesktopPlugin
 
 /** Transactional desktop npm project manager. */
 export class DesktopProjectManager {
+  private lockDescriptor: number | undefined
+
   /**
    * @param paths - Electron-owned package state and reserved desktop profile paths.
    * @param runtime - absolute bundled Node.js and pnpm entry paths.
@@ -344,26 +353,11 @@ export class DesktopProjectManager {
       stagingProfile: value.stagingProfile,
       step: value.step,
     }
-    switch (pending.step) {
-      case 'prepared':
-        removeOwnedDirectory(pending.stagingProfile)
-        break
-      case 'active-moved':
-        if (!existsSync(this.paths.profile) && existsSync(this.paths.rollback)) {
-          mkdirSync(dirname(this.paths.profile), { recursive: true })
-          renameSync(this.paths.rollback, this.paths.profile)
-        }
-        removeOwnedDirectory(pending.stagingProfile)
-        break
-      case 'staging-activated':
-        if (!existsSync(this.paths.profile) && existsSync(this.paths.rollback)) {
-          mkdirSync(dirname(this.paths.profile), { recursive: true })
-          renameSync(this.paths.rollback, this.paths.profile)
-        }
-        break
-      default:
-        pending.step satisfies never
+    if (!existsSync(this.paths.profile) && existsSync(this.paths.rollback)) {
+      mkdirSync(dirname(this.paths.profile), { recursive: true })
+      renameSync(this.paths.rollback, this.paths.profile)
     }
+    removeOwnedDirectory(pending.stagingProfile)
     unlinkSync(this.paths.pending)
   }
 
@@ -529,14 +523,14 @@ export class DesktopProjectManager {
     try {
       removeOwnedDirectory(this.paths.rollback)
       mkdirSync(dirname(this.paths.rollback), { recursive: true, mode: 0o700 })
+      writeJson(this.paths.pending, { ...pending, step: 'active-moved' } satisfies DesktopPendingTransaction)
       if (existsSync(this.paths.profile)) {
         renameSync(this.paths.profile, this.paths.rollback)
         activeMoved = true
       }
-      writeJson(this.paths.pending, { ...pending, step: 'active-moved' } satisfies DesktopPendingTransaction)
       mkdirSync(dirname(this.paths.profile), { recursive: true, mode: 0o700 })
-      renameSync(stagingProfile, this.paths.profile)
       writeJson(this.paths.pending, { ...pending, step: 'staging-activated' } satisfies DesktopPendingTransaction)
+      renameSync(stagingProfile, this.paths.profile)
       await hooks.afterActivate()
       unlinkSync(this.paths.pending)
     } catch (error) {
@@ -585,7 +579,21 @@ export class DesktopProjectManager {
         },
         stdio: ['ignore', 'pipe', 'pipe'],
       })
+      const childPid = child.pid
+      if (childPid === undefined) {
+        child.kill('SIGKILL')
+        reject(new Error('desktop project: pnpm did not report a process id'))
+        return
+      }
+      try {
+        this.writeLockOwner(childPid)
+      } catch (error) {
+        child.kill('SIGKILL')
+        reject(errorOf(error, 'desktop project: failed to assign the package transaction lock to pnpm'))
+        return
+      }
       let diagnostics = ''
+      let completed = false
       const appendDiagnostics = (chunk: string): void => {
         diagnostics = (diagnostics + chunk).slice(-MAX_PNPM_DIAGNOSTIC_BYTES)
       }
@@ -593,17 +601,39 @@ export class DesktopProjectManager {
       child.stdout.on('data', appendDiagnostics)
       child.stderr.setEncoding('utf8')
       child.stderr.on('data', appendDiagnostics)
-      child.once('error', reject)
-      child.once('close', (code, signal) => {
-        if (code === 0) {
-          settle()
+      const complete = (settleChild: () => void): void => {
+        if (completed) return
+        completed = true
+        try {
+          this.writeLockOwner(process.pid)
+        } catch (error) {
+          reject(errorOf(error, 'desktop project: failed to return the package transaction lock to Electron'))
           return
         }
-        reject(new Error(
-          `desktop project: pnpm exited with ${String(code ?? signal)}${diagnostics.trim() === '' ? '' : `: ${diagnostics.trim()}`}`,
-        ))
+        settleChild()
+      }
+      child.once('error', (error) => { complete(() => { reject(error) }) })
+      child.once('close', (code, signal) => {
+        complete(() => {
+          if (code === 0) {
+            settle()
+            return
+          }
+          reject(new Error(
+            `desktop project: pnpm exited with ${String(code ?? signal)}${diagnostics.trim() === '' ? '' : `: ${diagnostics.trim()}`}`,
+          ))
+        })
       })
     })
+  }
+
+  private writeLockOwner(pid: number): void {
+    const descriptor = this.lockDescriptor
+    if (descriptor === undefined) throw new Error('desktop project: package transaction lost its lock')
+    const content = Buffer.from(`${String(pid)}\n`)
+    ftruncateSync(descriptor, 0)
+    writeSync(descriptor, content, 0, content.byteLength, 0)
+    fsyncSync(descriptor)
   }
 
   private async withLock<T>(operation: () => Promise<T>): Promise<T> {
@@ -635,9 +665,11 @@ export class DesktopProjectManager {
       }
     }
     try {
-      writeFileSync(descriptor, `${String(process.pid)}\n`)
+      this.lockDescriptor = descriptor
+      this.writeLockOwner(process.pid)
       return await operation()
     } finally {
+      this.lockDescriptor = undefined
       closeSync(descriptor)
       unlinkSync(this.paths.lock)
     }

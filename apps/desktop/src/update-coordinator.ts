@@ -10,7 +10,8 @@ const { autoUpdater } = electronUpdater
 /** Checks, downloads, and installs one complete Desktop release. */
 export class DesktopUpdateCoordinator {
   private availableVersion: string | undefined
-  private operation: Promise<DesktopUpdateState> | undefined
+  private checkOperation: Promise<DesktopUpdateState> | undefined
+  private installOperation: Promise<DesktopUpdateState> | undefined
 
   /**
    * @param publish - state sink for every desktop window.
@@ -32,16 +33,20 @@ export class DesktopUpdateCoordinator {
 
   /** Check the configured Desktop release stream and retain an available version. */
   async check(): Promise<DesktopUpdateState> {
-    if (this.operation !== undefined) return this.operation
-    this.operation = this.doCheck().finally(() => { this.operation = undefined })
-    return this.operation
+    if (this.installOperation !== undefined) return this.installOperation
+    if (this.checkOperation !== undefined) return this.checkOperation
+    this.checkOperation = this.doCheck().finally(() => { this.checkOperation = undefined })
+    return this.checkOperation
   }
 
-  /** Download and install the retained Desktop release. */
+  /** Wait for an in-flight check, then download and install its retained release. */
   async install(): Promise<DesktopUpdateState> {
-    if (this.operation !== undefined) return this.operation
-    this.operation = this.doInstall().finally(() => { this.operation = undefined })
-    return this.operation
+    if (this.installOperation !== undefined) return this.installOperation
+    this.installOperation = (async () => {
+      await this.checkOperation
+      return this.doInstall()
+    })().finally(() => { this.installOperation = undefined })
+    return this.installOperation
   }
 
   private async doCheck(): Promise<DesktopUpdateState> {
@@ -49,13 +54,13 @@ export class DesktopUpdateCoordinator {
     try {
       if (!this.enabled()) {
         this.availableVersion = undefined
-        return this.publish({ phase: 'idle', message: '当前已是最新版本。' })
+        return this.publish({ phase: 'idle' })
       }
       const result = await this.updater.checkForUpdates()
       const version = result?.isUpdateAvailable === true ? result.updateInfo.version : undefined
       this.availableVersion = version
       return version === undefined
-        ? this.publish({ phase: 'idle', message: '当前已是最新版本。' })
+        ? this.publish({ phase: 'idle' })
         : this.publish({ phase: 'available', version })
     } catch (error) {
       this.availableVersion = undefined

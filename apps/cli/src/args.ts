@@ -61,7 +61,7 @@ interface BootOptions {
 const collect = (value: string, previous: string[] = []): string[] => [...previous, value]
 
 function rejectElectronProfile(program: Command, profile: string): void {
-  if (profile === 'desktop') {
+  if (profile.toLowerCase() === 'desktop') {
     program.error('error: profile "desktop" is managed exclusively by the Electron application')
   }
 }

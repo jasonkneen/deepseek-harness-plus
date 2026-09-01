@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto'
-import { existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join, relative, sep } from 'node:path'
+import { dirname, join, relative, sep } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { resolveDesktopPaths } from '../src/paths.ts'
 import {
@@ -91,6 +91,7 @@ const packageVersion = spec => {
   const index = spec.startsWith('@') ? spec.indexOf('@', spec.indexOf('/') + 1) : spec.indexOf('@')
   return index === -1 ? '1.0.0' : spec.slice(index + 1)
 }
+
 if (command === 'add') {
   const spec = args[args.indexOf('add') + 1]
   manifest.dependencies[packageName(spec)] = packageVersion(spec)
@@ -117,6 +118,19 @@ for (const [name, version] of Object.entries(manifest.dependencies)) {
 }
 writeFileSync(join(project, 'pnpm-lock.yaml'), 'lockfileVersion: 9\n')
 if (process.env.TEST_PNPM_LOG) writeFileSync(process.env.TEST_PNPM_LOG, JSON.stringify({ args, env: process.env }))
+`)
+  return path
+}
+
+function writeBlockingFakePnpm(root: string, ready: string, release: string): string {
+  const path = join(root, 'blocking-pnpm.mjs')
+  const delegate = writeFakePnpm(root)
+  writeFileSync(path, `
+import { existsSync, writeFileSync } from 'node:fs'
+import { setTimeout as sleep } from 'node:timers/promises'
+writeFileSync(${JSON.stringify(ready)}, String(process.pid))
+while (!existsSync(${JSON.stringify(release)})) await sleep(10)
+await import(${JSON.stringify(delegate)})
 `)
   return path
 }
@@ -228,6 +242,60 @@ describe('desktop project transactions', () => {
     expect(manager.listPlugins()).toEqual([])
     expect(manager.dshVersion()).toBe('1.0.0')
     expect(starts).toBe(2)
+  })
+
+  it('restores rollback when the active move completed before its journal update', async () => {
+    const root = temporaryRoot()
+    const seed = join(root, 'seed')
+    createTestSeedMetadata(seed, release())
+    writeFileSync(join(seed, 'pnpm-lock.yaml'), 'lockfileVersion: 9\n')
+    archiveStore(seed)
+    writeIntegrity(seed)
+    const paths = resolveDesktopPaths(join(root, '.dsh'))
+    const manager = new DesktopProjectManager(paths, { node: process.execPath, pnpm: writeFakePnpm(root) })
+    await manager.applyRelease(seed, '1.0.0', hooks())
+    await manager.mutate({ type: 'plugin-add', spec: '@scope/plugin@2.0.0' }, hooks())
+    const stagingProfile = join(paths.staging, 'interrupted', 'profile')
+    mkdirSync(stagingProfile, { recursive: true })
+    writeFileSync(join(stagingProfile, 'marker'), 'staging')
+    rmSync(paths.rollback, { recursive: true, force: true })
+    mkdirSync(dirname(paths.rollback), { recursive: true })
+    renameSync(paths.profile, paths.rollback)
+    writeFileSync(paths.pending, `${JSON.stringify({
+      schemaVersion: 1,
+      id: 'interrupted',
+      stagingProfile,
+      step: 'prepared',
+    })}\n`)
+
+    manager.recover()
+
+    expect(manager.listPlugins()).toEqual([{ name: '@scope/plugin', version: '2.0.0' }])
+    expect(existsSync(stagingProfile)).toBe(false)
+    expect(existsSync(paths.pending)).toBe(false)
+  })
+
+  it('records the live pnpm worker as transaction owner until it exits', async () => {
+    const root = temporaryRoot()
+    const seed = join(root, 'seed')
+    const ready = join(root, 'pnpm-ready')
+    const releaseWorker = join(root, 'pnpm-release')
+    createTestSeedMetadata(seed, release())
+    writeFileSync(join(seed, 'pnpm-lock.yaml'), 'lockfileVersion: 9\n')
+    archiveStore(seed)
+    writeIntegrity(seed)
+    const paths = resolveDesktopPaths(join(root, '.dsh'))
+    const runtime = { node: process.execPath, pnpm: writeBlockingFakePnpm(root, ready, releaseWorker) }
+    const manager = new DesktopProjectManager(paths, runtime)
+    const installing = manager.applyRelease(seed, '1.0.0', hooks())
+    await expect.poll(() => existsSync(ready)).toBe(true)
+    const workerPid = Number.parseInt(readFileSync(ready, 'utf8'), 10)
+    expect(readFileSync(paths.lock, 'utf8')).toBe(`${String(workerPid)}\n`)
+    const competing = new DesktopProjectManager(paths, runtime)
+    await expect(competing.applyRelease(seed, '1.0.0', hooks())).rejects.toThrow(/another package transaction is active/u)
+    writeFileSync(releaseWorker, 'continue')
+    await expect(installing).resolves.toBe(true)
+    expect(existsSync(paths.lock)).toBe(false)
   })
 
   it('keeps core packages local while installing plugins from the desktop registry', async () => {

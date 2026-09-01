@@ -16,9 +16,16 @@ import { resolveDesktopPaths } from './paths.ts'
 import { DesktopProjectManager, type DesktopProjectHooks } from './project-manager.ts'
 import { DesktopHostProcess } from './host-process.ts'
 import { DESKTOP_IPC, type DesktopUpdateState } from './ipc.ts'
+import { formatDesktopMessage, resolveDesktopLocale } from './locale.ts'
+import { claimDesktopSingleInstance } from './single-instance.ts'
 import { DesktopUpdateCoordinator } from './update-coordinator.ts'
 
 const SCHEME = 'dsh-app'
+let focusPrimaryWindow = (): void => {}
+
+function errorOf(reason: unknown, fallback: string): Error {
+  return reason instanceof Error ? reason : new Error(fallback)
+}
 
 protocol.registerSchemesAsPrivileged([{
   scheme: SCHEME,
@@ -136,6 +143,8 @@ async function main(): Promise<void> {
   let pluginWindow: BrowserWindow | undefined
   let shellInstallerOwnsQuit = false
   let updateState: DesktopUpdateState = { phase: 'idle' }
+  const locale = resolveDesktopLocale(app.getLocale())
+  const messages = locale.messages
   const appPreload = fileURLToPath(new URL('./preload-app.cjs', import.meta.url))
   const managementPreload = fileURLToPath(new URL('./preload.cjs', import.meta.url))
 
@@ -154,8 +163,34 @@ async function main(): Promise<void> {
   }
   const hooks: DesktopProjectHooks = {
     healthCheck: async (projectDir) => {
-      const probe = await startHost(projectDir)
-      await probe.stop()
+      const active = host
+      host = undefined
+      await active?.stop()
+      let healthFailure: unknown
+      let probe: DesktopHostProcess | undefined
+      try {
+        probe = await startHost(projectDir)
+        await probe.stop()
+      } catch (error) {
+        healthFailure = error
+        await probe?.stop().catch(() => undefined)
+      }
+      let restartFailure: unknown
+      if (active !== undefined) {
+        try {
+          host = await startHost()
+        } catch (error) {
+          restartFailure = error
+        }
+      }
+      if (healthFailure !== undefined && restartFailure !== undefined) {
+        throw new AggregateError([
+          errorOf(healthFailure, 'desktop project: staged health check failed'),
+          errorOf(restartFailure, 'desktop project: active backend restart failed'),
+        ], 'desktop project: staged health check and active backend restart failed')
+      }
+      if (healthFailure !== undefined) throw errorOf(healthFailure, 'desktop project: staged health check failed')
+      if (restartFailure !== undefined) throw errorOf(restartFailure, 'desktop project: active backend restart failed')
     },
     beforeActivate: async () => {
       const active = host
@@ -201,8 +236,12 @@ async function main(): Promise<void> {
       throw new Error('dsh desktop: plugin package changes require a packaged application')
     }
     await manager.mutate(mutation, hooks)
-    mainWindow?.webContents.reload()
+    if (mainWindow !== undefined && !mainWindow.isDestroyed()) mainWindow.webContents.reload()
   }
+  ipcMain.handle(DESKTOP_IPC.localeGet, (event) => {
+    assertDesktopSender(event, ['shell'])
+    return locale
+  })
   ipcMain.handle(DESKTOP_IPC.pluginsList, (event) => {
     assertDesktopSender(event, ['shell'])
     if (development !== undefined) return []
@@ -234,26 +273,42 @@ async function main(): Promise<void> {
   const checkAndPrompt = async (manual: boolean): Promise<void> => {
     const state = await updates.check()
     if (state.phase === 'error') {
-      if (manual) await dialog.showMessageBox({ type: 'error', title: '更新检查失败', message: state.message ?? '未知错误' })
+      if (manual) {
+        await dialog.showMessageBox({
+          type: 'error',
+          title: messages.updateCheckFailedTitle,
+          message: state.message ?? messages.unknownError,
+        })
+      }
       return
     }
     if (state.phase !== 'available') {
-      if (manual) await dialog.showMessageBox({ type: 'info', title: '检查更新', message: state.message ?? '当前已是最新版本。' })
+      if (manual) {
+        await dialog.showMessageBox({
+          type: 'info',
+          title: messages.updateCheckTitle,
+          message: state.message ?? messages.updateCurrent,
+        })
+      }
       return
     }
     const result = await dialog.showMessageBox({
       type: 'info',
-      title: 'DeepSeek Harness 更新',
-      message: '发现可用更新',
-      detail: `DeepSeek Harness ${state.version ?? ''}\n\n新版本绑定匹配的 dsh，安装后将重新启动。`,
-      buttons: ['安装并重启', '稍后'],
+      title: messages.updateTitle,
+      message: messages.updateAvailable,
+      detail: formatDesktopMessage(messages.updateDetail, { version: state.version ?? '' }),
+      buttons: [messages.installAndRestart, messages.later],
       defaultId: 0,
       cancelId: 1,
     })
     if (result.response !== 0) return
     const installed = await updates.install()
     if (installed.phase === 'error') {
-      await dialog.showMessageBox({ type: 'error', title: '更新失败', message: installed.message ?? '未知错误' })
+      await dialog.showMessageBox({
+        type: 'error',
+        title: messages.updateFailedTitle,
+        message: installed.message ?? messages.unknownError,
+      })
     }
   }
 
@@ -264,30 +319,47 @@ async function main(): Promise<void> {
     }
     pluginWindow = createWindow(managementPreload)
     pluginWindow.setSize(900, 620)
-    pluginWindow.setTitle('DeepSeek Harness 桌面插件')
+    pluginWindow.setTitle(messages.pluginWindowTitle)
     pluginWindow.once('ready-to-show', () => { pluginWindow?.show() })
     pluginWindow.once('closed', () => { pluginWindow = undefined })
     void pluginWindow.loadURL(`${SCHEME}://shell/plugin-manager.html`)
   }
 
   Menu.setApplicationMenu(Menu.buildFromTemplate([{
-    label: process.platform === 'darwin' ? app.name : '应用',
+    label: process.platform === 'darwin' ? app.name : messages.application,
     submenu: [
       {
-        label: development === undefined ? '桌面插件…' : '桌面插件…（打包应用中可用）',
+        label: development === undefined ? messages.pluginsMenu : messages.pluginsMenuPackagedOnly,
         accelerator: 'CmdOrCtrl+,',
         enabled: development === undefined,
         click: openPluginWindow,
       },
-      { label: '检查更新…', click: () => { void checkAndPrompt(true) } },
+      { label: messages.checkUpdatesMenu, click: () => { void checkAndPrompt(true) } },
       { type: 'separator' },
       { role: 'quit' },
     ],
   }]))
 
-  mainWindow = createWindow(appPreload)
-  mainWindow.once('ready-to-show', () => { mainWindow?.show() })
-  mainWindow.on('closed', () => { mainWindow = undefined })
+  const createMainWindow = (): BrowserWindow => {
+    const window = createWindow(appPreload)
+    mainWindow = window
+    window.once('ready-to-show', () => { if (!window.isDestroyed()) window.show() })
+    window.on('closed', () => { if (mainWindow === window) mainWindow = undefined })
+    return window
+  }
+  focusPrimaryWindow = () => {
+    const window = mainWindow
+    if (window === undefined || window.isDestroyed()) {
+      const replacement = createMainWindow()
+      void replacement.loadURL(`${SCHEME}://app/index.html`)
+      return
+    }
+    if (window.isMinimized()) window.restore()
+    window.show()
+    window.focus()
+  }
+
+  mainWindow = createMainWindow()
   await mainWindow.loadURL(`${SCHEME}://app/index.html`)
   if (development !== undefined && process.env.DSH_DESKTOP_OPEN_DEVTOOLS !== '0') {
     mainWindow.webContents.openDevTools({ mode: 'detach' })
@@ -296,11 +368,7 @@ async function main(): Promise<void> {
   setTimeout(() => { void checkAndPrompt(false) }, 10_000)
 
   app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) {
-      mainWindow = createWindow(appPreload)
-      mainWindow.once('ready-to-show', () => { mainWindow?.show() })
-      void mainWindow.loadURL(`${SCHEME}://app/index.html`)
-    }
+    if (BrowserWindow.getAllWindows().length === 0) focusPrimaryWindow()
   })
   app.on('window-all-closed', () => {
     if (process.platform !== 'darwin') app.quit()
@@ -315,13 +383,15 @@ async function main(): Promise<void> {
   })
 }
 
-void app.whenReady().then(main).catch(async (error: unknown) => {
+const ownsDesktopInstance = claimDesktopSingleInstance(app, () => { focusPrimaryWindow() })
+
+if (ownsDesktopInstance) void app.whenReady().then(main).catch(async (error: unknown) => {
   const message = error instanceof Error ? error.message : String(error)
   console.error(error)
   const diagnosticFile = process.env.DSH_DESKTOP_DIAGNOSTIC_FILE
   if (diagnosticFile !== undefined) {
     await writeFile(diagnosticFile, `${error instanceof Error ? error.stack ?? message : message}\n`).catch(() => undefined)
   }
-  dialog.showErrorBox('DeepSeek Harness 无法启动', message)
+  dialog.showErrorBox(resolveDesktopLocale(app.getLocale()).messages.startupFailed, message)
   app.exit(1)
 })

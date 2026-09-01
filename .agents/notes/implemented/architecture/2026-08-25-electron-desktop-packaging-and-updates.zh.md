@@ -20,7 +20,7 @@ Electron 拥有保留 profile `.dsh/profiles/desktop`。其中精确的 `@deepse
 
 一个 Desktop 发布号同时标识 Electron 产物及其精确 `@deepseek-ai/dsh` 依赖。发布不能在构建或运行时选择不同的 dsh 版本。因此，即使壳代码没有变化，更新 dsh 也必须产生新的 Electron 发布。
 
-浏览器 Web UI、dsh 后端、现有 `dsh plugin` CLI、用户 npm 和用户 pnpm 都不能修改该 profile。CLI 保留 `desktop` 名称，并拒绝针对它的启动、配置 dump 和插件管理请求。Electron-only GUI 通过 preload 发送结构化安装、删除和更新请求；Electron 只调用其内置 pnpm。
+浏览器 Web UI、dsh 后端、现有 `dsh plugin` CLI、用户 npm 和用户 pnpm 都不能修改该 profile。CLI 保留 `desktop` 名称的所有大小写变体，并拒绝针对它的启动、配置 dump 和插件管理请求。Electron 在项目恢复或 Host 启动前获取进程生命周期单实例锁；后续启动只会聚焦或重建主窗口，不会接触 profile 状态。Electron-only GUI 通过 preload 发送结构化安装、删除和更新请求；Electron 只调用其内置 pnpm。
 
 ## 归属
 
@@ -33,7 +33,7 @@ Electron 拥有保留 profile `.dsh/profiles/desktop`。其中精确的 `@deepse
 | 共享 `.dsh` owner | 会话、设置、凭据、工作区和存储，由其现有锁与格式版本保护 |
 | 通过 npm 安装的 dsh | 自己的可执行安装和用户管理的 profile；不能访问保留 desktop profile 或包状态 |
 
-渲染进程使用 `nodeIntegration: false`、`contextIsolation: true` 和 `sandbox: true`。Preload 暴露类型化 RPC、生命周期、更新与桌面插件操作，而不暴露原始 `ipcRenderer`、文件系统访问、shell 命令或 pnpm 参数。
+渲染进程使用 `nodeIntegration: false`、`contextIsolation: true` 和 `sandbox: true`。Preload 暴露类型化 RPC、生命周期、更新、locale 与桌面插件操作，而不暴露原始 `ipcRenderer`、文件系统访问、shell 命令或 pnpm 参数。Electron 根据应用 locale 选择类型化的中英文字典，并以英文作为 fallback；菜单、原生对话框与插件管理渲染进程使用这些由 locale 持有的文案。
 
 ## 文件系统布局
 
@@ -66,7 +66,9 @@ Electron 拥有保留 profile `.dsh/profiles/desktop`。其中精确的 `@deepse
 
 ## 安装与解析
 
-安装器绝不原地修改活跃 profile。它把 profile 元数据复制到事务暂存目录，使用内置 pnpm 应用精确依赖变更，执行完整健康检查，停止后端，把活跃 profile 移到 `rollback/profile`，把暂存 profile 移到 `.dsh/profiles/desktop`，然后重启。`pending.json` 记录文件系统移动，使启动过程可以完成或反转中断的替换。
+安装器绝不原地修改活跃 profile。它把 profile 元数据复制到事务暂存目录，并使用内置 pnpm 应用精确依赖变更。测试 staging 前，Electron 会停止活跃后端；它单独启动并停止 staging 后端，再在激活前恢复活跃后端，因此两个 Desktop 后端绝不会并发共享 `.dsh` 状态。激活过程再次停止后端，在对应目录移动前先持久化 `pending.json` 的每个下一阶段，把活跃 profile 移到 `rollback/profile`，把暂存 profile 移到 `.dsh/profiles/desktop`，然后重启。恢复过程会结合预写阶段与真实的 active、rollback 和 staging 目录，因此任一个写入与移动间隙中断后仍会保留或恢复一个完整 profile。
+
+进程生命周期 Electron 锁是 Desktop 的权威 owner。包事务锁用于纵深防御，并记录仍能修改包状态的进程：包操作之间记录 Electron，pnpm 运行期间记录已生成的 pnpm PID。Owner 变更通过已经打开的排他锁文件完成截断、写入与同步。如果 Electron 在 pnpm 执行期间终止，后续进程会发现仍存活的 worker，并拒绝启动并发的 store 或 staging 事务；该 worker 退出后，陈旧 PID 才可以恢复。
 
 打包种子是离线安装包，而不是可执行 dsh 目录。它包含发布身份、初始桌面项目 manifest、以 dsh 为根的第一方包闭包描述文件及不可变 tarball、lockfile、完整性清单和所需 store 子集。发布构建要求 Electron 包与根 dsh 包使用相同版本，从正式源码构建生成最终 npm tarball，选择可达的 dsh 与 vendored 包以及 Landlock 入口，并验证 dsh tarball 中的 `lib/desktop-host.js` 入口与 `config/desktop.cordis.patch.yml` overlay。该 overlay 是唯一为了 Desktop 而发布的 CLI 配置文件；示例配置仍留在 tarball 之外。这些 tarball 保持为由各包 `files` manifest 决定内容的正式 `pnpm pack` 结果；Desktop 不删除已发布的声明文件，也不建立第二套包内容策略。manifest 把每个选中的包列为本地直接依赖，关闭对等依赖自动安装，workspace 文件再把每个选中的第一方包 override 到对应本地 tarball。构建会拒绝任何通过 registry 版本解析这些包名的 lockfile。内置 pnpm 关闭全局 virtual store，在禁用生命周期脚本的情况下从 npm 物化外部生产依赖，删除 `node_modules` 以及所有临时 pnpm cache、config 和 state 目录，然后只使用最终 store 执行一次干净的离线安装，并检查两个 Desktop Host 文件。生成清单前会删除第二次生成的 `node_modules` 和临时 pnpm 项目注册。在复制 package set 前与离线安装后都要求两个文件，可防止 Host 入口本身能够加载、却无法组合所需 overlay 的发布进入应用签名阶段。
 
@@ -80,7 +82,7 @@ Electron 拥有保留 profile `.dsh/profiles/desktop`。其中精确的 `@deepse
 
 ## 更新与恢复
 
-Electron 更新只使用一个 `electron-updater` 发布流和签名 `electron-builder` 产物。该版本就是 Desktop 发布版本；不存在独立 dsh manifest、兼容范围或仅更新 dsh 的操作。更新弹窗下载并安装 Electron 产物，然后重启进入新发布。
+Electron 更新只使用一个 `electron-updater` 发布流和签名 `electron-builder` 产物。该版本就是 Desktop 发布版本；不存在独立 dsh manifest、兼容范围或仅更新 dsh 的操作。前台安装会等待正在进行的后台检查，而不会把检查结果复用成安装结果。更新弹窗下载并安装 Electron 产物，然后重启进入新发布。
 
 新发布在打开窗口前从安装包种子校准 dsh，同时保留已安装桌面插件。健康检查覆盖依赖解析、原生模块、壳 API 兼容性、后端启停、Web 资源和客户端启动图。不兼容插件会阻止激活，并保留上一个项目用于回滚。启动过程会明确失败，而不会运行版本不匹配的壳与 dsh。
 

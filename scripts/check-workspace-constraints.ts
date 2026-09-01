@@ -58,7 +58,12 @@ const releaseMemberDirectory = /^(?:packages\/(?!experimental\/)[^/]+\/[^/]+|app
 const desktopApplicationDirectory = 'apps/desktop'
 const localArtifactDirs = new Set(['node_modules'])
 const appPackageFiles: Readonly<Record<string, readonly string[]>> = {
-  '@deepseek-ai/dsh': ['lib/*.js', 'config/desktop.cordis.patch.yml'],
+  '@deepseek-ai/dsh': [
+    'lib/*.js',
+    'lib/types/desktop-host.d.ts',
+    'lib/types/desktop-host-wire.d.ts',
+    'config/desktop.cordis.patch.yml',
+  ],
   // Sourcemaps stay out by payload policy; the worker-preview surface
   // (dist/preview.html and dist/preview/) backs private experimental
   // packages and is not published.
