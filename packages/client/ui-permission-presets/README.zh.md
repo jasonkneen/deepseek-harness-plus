@@ -29,7 +29,7 @@ kind: "package-reference"
 
 ### 选择器
 
-选中即提交 `/permission <preset>` 命令行。带参路径（直接键入 `/permission <preset>`）仍直接切换；装饰只替换裸调用。内置标签在英文界面中是 `Read Only`、`Workspace Write` 和 `Full access`，在中文界面中是「仅可查看」「可写入工作区」和「完全权限」；`custom` 只是显示状态，绝非目标。
+选中即提交 `/permission <preset>` 命令行。带参路径（直接键入 `/permission <preset>`）仍直接切换；装饰只替换裸调用。内置标签在英文界面中是 `Read Only`、`Workspace Write` 和 `Full access`，在中文界面中是「仅可查看」「工作区内修改」和「完全权限」；`custom` 只是显示状态，绝非目标。
 
 ### 设置行
 

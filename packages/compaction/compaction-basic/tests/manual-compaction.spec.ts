@@ -233,8 +233,8 @@ function detachedService(): { ctx: Context; compact: GatedCompactionEngine; flus
   return { ctx, compact: new GatedCompactionEngine(ctx, { auto: false }), flushes: () => flushes }
 }
 
-function compactEvents(session: Session): Array<Session['events'][number]> {
-  return session.events.filter(event => event.type.startsWith('compaction/'))
+function compactEvents(session: Session): SessionEvent[] {
+  return session.snapshotEvents().filter(event => event.type.startsWith('compaction/'))
 }
 
 describe('compactNow through the real loop', () => {
@@ -295,14 +295,14 @@ describe('compactNow through the real loop', () => {
     const result = await compact.compactNow(agent, SIGNAL)
 
     expect(result).not.toBeNull()
-    const start = agent.session.events.findLast(event => event.type === 'compaction/start')
+    const start = agent.session.snapshotEvents().findLast(event => event.type === 'compaction/start')
     const injected = agent.inbox.nextStep.find(message =>
       message.source.kind === 'plugin' && message.source.plugin === 'test')
-    const end = agent.session.events.findLast(event => event.type === 'compaction/end')
+    const end = agent.session.snapshotEvents().findLast(event => event.type === 'compaction/end')
     expect(start).toBeDefined()
     expect(injected).toBeDefined()
     expect(end).toBeDefined()
-    expect(agent.session.events.some(event => event.type === 'user/message'
+    expect(agent.session.snapshotEvents().some(event => event.type === 'user/message'
       && event.data.id === injected?.id)).toBe(false)
 
     agent.followup(createUserMessage({
@@ -334,7 +334,7 @@ describe('compactNow through the real loop', () => {
     expect(attempts).toEqual(['compaction/start', 'compaction/summary'])
     expect(result).not.toBeNull()
     expect(derivedText(agent.session)[0]).toContain('checkpoint')
-    expect(agent.session.events.filter(event => event.type === 'user/message'
+    expect(agent.session.snapshotEvents().filter(event => event.type === 'user/message'
       && event.data.source.kind === 'plugin' && event.data.source.plugin === 'listener')).toHaveLength(0)
     const types = compactEvents(agent.session).map(event => event.type)
     expect(types).toEqual(['compaction/start', 'compaction/summary', 'compaction/end'])
@@ -354,7 +354,7 @@ describe('compactNow through the real loop', () => {
 
     await agent.whenIdle()
     expect(adapter.requests).toHaveLength(2)
-    expect(agent.session.events.some(event => event.type === 'compaction/start')).toBe(false)
+    expect(agent.session.snapshotEvents().some(event => event.type === 'compaction/start')).toBe(false)
   })
 
   it('releases turn admission after a summarizer failure and records the failed attempt', async () => {
@@ -404,14 +404,14 @@ describe('compactNow transaction and failure classification', () => {
     expect(result).not.toBeNull()
     expect(result?.sourceCommandId).toBe(commandId)
     expect(flushes()).toBe(1)
-    expect(session.events.filter(event => event.type === 'turn/start').at(-1)?.data.turn).toBe(7)
-    const start = session.events.findLast(event => event.type === 'compaction/start')
-    const summaryEvent = session.events.findLast(event => event.type === 'compaction/summary')
-    const checkpoint = session.events.findLast(
+    expect(session.snapshotEvents().filter(event => event.type === 'turn/start').at(-1)?.data.turn).toBe(7)
+    const start = session.snapshotEvents().findLast(event => event.type === 'compaction/start')
+    const summaryEvent = session.snapshotEvents().findLast(event => event.type === 'compaction/summary')
+    const checkpoint = session.snapshotEvents().findLast(
       (event): event is SessionEvent<'user/message'> => event.type === 'user/message'
         && isCompactCheckpointSource(event.data.source),
     )
-    const end = session.events.findLast(event => event.type === 'compaction/end')
+    const end = session.snapshotEvents().findLast(event => event.type === 'compaction/end')
     const correlated = { compactionId: result?.compactionId, sourceCommandId: commandId }
     expect(start?.data).toEqual({ ...correlated, turn: null })
     expect(summaryEvent?.data.sourceCommandId).toBe(commandId)
@@ -441,9 +441,9 @@ describe('compactNow transaction and failure classification', () => {
       compactionId: CompactionId('stale-manual-compaction'),
       turn: null,
     })
-    const reloaded = Session.create(SessionId('stale-orphan'), [...original.events])
-    const boundary = reloaded.events.findLast(event => event.type === 'session/end-seed')
-    const orphan = reloaded.events.find(event => event.type === 'compaction/start')
+    const reloaded = Session.create(SessionId('stale-orphan'), original.snapshotEvents())
+    const boundary = reloaded.snapshotEvents().findLast(event => event.type === 'session/end-seed')
+    const orphan = reloaded.snapshotEvents().find(event => event.type === 'compaction/start')
     const agent = fakeAgent(reloaded, () => () => undefined)
 
     expect(boundary?.seq).toBeGreaterThan(orphan?.seq ?? Number.MAX_SAFE_INTEGER)
@@ -460,7 +460,7 @@ describe('compactNow transaction and failure classification', () => {
     })
     original.append('turn/start', { turn: 3 })
     original.append('turn/end', { turn: 3, reason: { kind: 'interrupted' } })
-    const reloaded = Session.create(SessionId('reloaded-orphan'), [...original.events])
+    const reloaded = Session.create(SessionId('reloaded-orphan'), original.snapshotEvents())
     const agent = fakeAgent(reloaded, () => () => undefined)
 
     await expect(compact.compactNow(agent, SIGNAL)).resolves.not.toBeNull()
@@ -563,7 +563,7 @@ describe('compactNow transaction and failure classification', () => {
     expect(session.surface.replaceGeneration).toBe(generation + 1)
     expect(session.surface.nodes).not.toContain(head)
     expect(compactEvents(session).map(event => event.type)).toEqual(['compaction/start', 'compaction/end'])
-    expect(session.events.some(event => event.type === 'user/message'
+    expect(session.snapshotEvents().some(event => event.type === 'user/message'
       && isCompactCheckpointSource(event.data.source))).toBe(false)
   })
 
@@ -582,7 +582,7 @@ describe('compactNow transaction and failure classification', () => {
     expect(causeOf(error).message).toBe('boundary rejected')
     vi.restoreAllMocks()
     expect(flushes()).toBe(0)
-    expect(session.events.findLast(event => event.type.startsWith('compaction/'))?.type)
+    expect(session.snapshotEvents().findLast(event => event.type.startsWith('compaction/'))?.type)
       .toBe('compaction/summary')
     expect(compactEvents(session).filter(event => event.type === 'compaction/start')).toHaveLength(1)
 
@@ -648,7 +648,7 @@ describe('compactNow transaction and failure classification', () => {
     vi.restoreAllMocks()
     expect(error.code).toBe('commit')
     expect(released).toBe(1)
-    const end = session.events.findLast(event => event.type === 'compaction/end')
+    const end = session.snapshotEvents().findLast(event => event.type === 'compaction/end')
     expect(end?.type === 'compaction/end' && end.data.error).toContain('summary record rejected')
     expect(end?.type === 'compaction/end' && end.data.turn).toBeNull()
   })
@@ -684,8 +684,8 @@ describe('compactNow transaction and failure classification', () => {
     const result = await compact.compactNow(agent, SIGNAL)
 
     expect(result).not.toBeNull()
-    expect(session.events.some(event => event.type === 'turn/start')).toBe(false)
-    expect(session.events.find(event => event.type === 'compaction/start')?.data)
+    expect(session.snapshotEvents().some(event => event.type === 'turn/start')).toBe(false)
+    expect(session.snapshotEvents().find(event => event.type === 'compaction/start')?.data)
       .toEqual({ compactionId: result?.compactionId, turn: null })
   })
 
@@ -697,9 +697,9 @@ describe('compactNow transaction and failure classification', () => {
 
     expect((await rejection(compact.compactNow(agent, SIGNAL))).code).toBe('persistence')
     vi.restoreAllMocks()
-    expect(session.events.some(event => event.type === 'compaction/summary')).toBe(true)
-    const start = session.events.findLast(event => event.type === 'compaction/start')
-    const end = session.events.findLast(event => event.type === 'compaction/end')
+    expect(session.snapshotEvents().some(event => event.type === 'compaction/summary')).toBe(true)
+    const start = session.snapshotEvents().findLast(event => event.type === 'compaction/start')
+    const end = session.snapshotEvents().findLast(event => event.type === 'compaction/end')
     expect(end?.data).toEqual({ compactionId: start?.data.compactionId, turn: null })
   })
 
@@ -715,7 +715,7 @@ describe('compactNow transaction and failure classification', () => {
       const reserve = vi.fn(() => testCase.release)
       const measure = vi.spyOn(ctx.tokenMeter, 'measure')
       const agent = fakeAgent(testCase.session, reserve)
-      const before = [...testCase.session.events]
+      const before = testCase.session.snapshotEvents()
       const reason = Object.freeze({ kind: 'cancelled', case: testCase.name })
       const controller = new AbortController()
       controller.abort(reason)
@@ -730,7 +730,7 @@ describe('compactNow transaction and failure classification', () => {
       expect(reserve).not.toHaveBeenCalled()
       expect(measure).not.toHaveBeenCalled()
       expect(compact.calls).toHaveLength(0)
-      expect(testCase.session.events).toEqual(before)
+      expect(testCase.session.snapshotEvents()).toEqual(before)
       vi.restoreAllMocks()
     }
   })
@@ -779,7 +779,7 @@ describe('compactNow transaction and failure classification', () => {
 
     await expect(compact.compactNow(agent, controller.signal)).rejects.toBe(reason)
     expect(compactEvents(session).map(event => event.type)).toEqual(['compaction/start', 'compaction/end'])
-    expect(session.events.some(event => event.type === 'compaction/summary')).toBe(false)
+    expect(session.snapshotEvents().some(event => event.type === 'compaction/summary')).toBe(false)
   })
 
   it('waits for the durability checkpoint before cancellation wins and admission releases', async () => {
@@ -823,7 +823,7 @@ describe('compactNow transaction and failure classification', () => {
 
     await compact.compactNow(agent, SIGNAL)
 
-    const summary = session.events.find(event => event.type === 'compaction/summary')
+    const summary = session.snapshotEvents().find(event => event.type === 'compaction/summary')
     expect(summary?.type === 'compaction/summary' && summary.data.rawOutput).toEqual(compact.rawOutput)
     expect(summary?.type === 'compaction/summary' && summary.data.usage).toEqual(compact.usage)
   })
@@ -838,8 +838,8 @@ describe('compactNow transaction and failure classification', () => {
 
     await compact.compactNow(agent, SIGNAL)
 
-    const start = session.events.findLast(event => event.type === 'compaction/start')
-    const end = session.events.findLast(event => event.type === 'compaction/end')
+    const start = session.snapshotEvents().findLast(event => event.type === 'compaction/start')
+    const end = session.snapshotEvents().findLast(event => event.type === 'compaction/end')
     expect(start).toBeDefined()
     expect(end).toBeDefined()
     expect(end!.time - start!.time).toBeGreaterThan(0)

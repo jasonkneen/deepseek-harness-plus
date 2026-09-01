@@ -93,7 +93,7 @@ The backend is a thin adapter over the OTel JS SDK: it owns capture mode, resour
 
 ### Capture wiring
 
-`FULL` composes the coordinator in `live` mode and lets direct service calls through; `FEEDBACK_ONLY` composes it in `on-demand` mode, gives the coordinator a private backend capability, and triggers `captureSession(session, event.seq)` only for the exact canonical feedback record; `DISABLED` registers nothing but a warning on `feedback/record`. The backend deliberately implements no `flush()`: the batch processor owns ordinary flushing, and forwarding the hint to `forceFlush()` would create the sole source of concurrent flushes whose interaction with shutdown's drain is undocumented.
+`FULL` composes the coordinator in `live` mode and lets direct service calls through; `FEEDBACK_ONLY` composes it in `on-demand` mode, gives the coordinator a private backend capability, and triggers `captureSession(session, event.seq)` only when `session.eventAt(event.seq) === event` confirms the exact canonical feedback record; `DISABLED` registers nothing but a warning on `feedback/record`. The backend deliberately implements no `flush()`: the batch processor owns ordinary flushing, and forwarding the hint to `forceFlush()` would create the sole source of concurrent flushes whose interaction with shutdown's drain is undocumented.
 
 ### Field mapping
 

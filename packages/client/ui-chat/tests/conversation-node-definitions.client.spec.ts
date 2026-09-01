@@ -214,14 +214,16 @@ describe('built-in conversation node Definitions', () => {
     expect(streamed).not.toBe(opening)
   })
 
-  it('bounds each rail preview instead of copying the whole transcript', () => {
+  it('bounds each rail preview at its card budget instead of copying the whole transcript', () => {
     const long = 'x'.repeat(400)
     const value = assembler([
       at(1, 'turn/start', { turn: 1 }),
       at(2, 'user/message', textMessage('user-1', long), { surfaceOp: 'append' }),
     ])
     const items = snapshot(value).navigation.items()
-    expect(items[0]?.prompt.length).toBe(160)
+    // One clipped prompt line: 49 characters plus the trailing ellipsis.
+    expect(items[0]?.prompt.length).toBe(50)
+    expect(items[0]?.prompt.endsWith('…')).toBe(true)
   })
 
   it('classifies reply content separately from reasoning and Tool protocol blocks', () => {

@@ -142,7 +142,7 @@ describe('ReactLoopInbox', () => {
     const childAgent = stubAgent('inbox-fork-child', { ctx, session: child })
     const childInbox = new ReactLoopInbox(ctx.sessionProjections, child, agentEvents(ctx, childAgent))
 
-    expect(child.header.seedLength).toBe(parent.events.length)
+    expect(child.header.seedLength).toBe(parent.snapshotEvents().length)
     expect(childInbox.nextTurn).toEqual([inherited])
 
     const own = createUserMessage({
@@ -246,14 +246,14 @@ describe('ReactLoopInbox', () => {
     const nextStep = createUserMessage({ content: [{ type: 'text', text: 'step' }], source: { kind: 'user' } })
     agent.inbox.append('next-turn', nextTurn)
     agent.inbox.append('next-step', nextStep)
-    const beforeClear = session.events.length
+    const beforeClear = session.snapshotEvents().length
 
     agent.inbox.clear()
 
     expect(agent.inbox.nextTurn).toEqual([])
     expect(agent.inbox.nextStep).toEqual([])
     expect(discarded).toEqual([nextStep, nextTurn])
-    expect(session.events.slice(beforeClear).map(event => event.type === 'agent/inbox/spliced'
+    expect(session.snapshotEvents().slice(beforeClear).map(event => event.type === 'agent/inbox/spliced'
       ? event.data
       : event.type)).toEqual([
       { target: 'next-step', start: 0, removedCount: 1, inserted: [], outcome: 'canceled' },
@@ -261,6 +261,6 @@ describe('ReactLoopInbox', () => {
     ])
 
     agent.inbox.clear()
-    expect(session.events).toHaveLength(beforeClear + 2)
+    expect(session.snapshotEvents()).toHaveLength(beforeClear + 2)
   })
 })

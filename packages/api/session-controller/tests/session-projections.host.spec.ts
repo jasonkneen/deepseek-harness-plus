@@ -409,7 +409,7 @@ describe('session.history projections block', () => {
     expect('test/last-user' in after.projections.values).toBe(false)
     expect(after.projections.values.sessionListMetadata).toEqual({
       blank: true,
-      lastPromptAt: session.events.at(-1)?.time,
+      lastPromptAt: session.eventAt(session.seq - 1)?.time,
     })
   })
 
@@ -443,7 +443,7 @@ describe('session.list projections column', () => {
     expect(row?.projections?.values['test/last-user']).toEqual({ text: 'm0' })
     expect(row?.projections?.values.sessionListMetadata).toEqual({
       blank: false,
-      lastPromptAt: session.events.at(-1)?.time,
+      lastPromptAt: session.eventAt(session.seq - 1)?.time,
     })
     expect(row?.projections?.asOfSeq).toBe(session.seq - 1)
   })
@@ -629,7 +629,7 @@ describe('Session control projection frames', () => {
     return frames
   }
 
-  it('broadcasts a frame per changed unit with the causing seq, and none for same-reference applies', async () => {
+  it('broadcasts changed view references with the causing seq and skips same-reference applies', async () => {
     const { ctx, session } = await harness(true)
     ctx.sessionProjections.register(lastUserUnit())
     const proxy = remote(ctx)
@@ -645,6 +645,7 @@ describe('Session control projection frames', () => {
     now.mockReturnValue(200)
     session.append('turn/start', { turn: 1 })
     now.mockReturnValue(300)
+    // The equal payload is a new object, so Object.is still treats its view as changed.
     seedMessages(session, 1)
     now.mockRestore()
 
