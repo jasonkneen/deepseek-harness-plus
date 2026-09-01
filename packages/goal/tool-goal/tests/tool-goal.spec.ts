@@ -14,10 +14,7 @@ import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
 import type { ToolExecutionResult } from '@deepseek-ai/dsh-tools'
 import * as toolGoal from '@deepseek-ai/dsh-tool-goal'
-import {
-  createInboxFixture,
-  type InboxFixture,
-} from '@deepseek-ai/dsh-agent-loop-testkit'
+import { createInboxStub } from '@deepseek-ai/dsh-agent-loop-testkit'
 
 const testToolSignal = new AbortController().signal
 
@@ -25,7 +22,6 @@ interface StubAgent {
   readonly agent: Agent
   readonly session: Session
   readonly inbox: Inbox
-  readonly fixture: InboxFixture
   setStatus(status: AgentStatus): void
 }
 
@@ -34,7 +30,7 @@ await isolatedInboxCtx.plugin(SessionStore)
 await isolatedInboxCtx.plugin(SessionProjectionRegistry)
 await isolatedInboxCtx.plugin(AgentRegistry)
 
-/** Build one registry-compatible live agent whose injections enter the durable inbox. */
+/** Build one registry-compatible live agent whose injections enter its test Inbox. */
 function stubAgent(rawId: string, supplied?: Session, suppliedCtx?: Context): StubAgent {
   const agentCtx = suppliedCtx ?? isolatedInboxCtx
   const session = supplied ?? (suppliedCtx === undefined
@@ -43,13 +39,13 @@ function stubAgent(rawId: string, supplied?: Session, suppliedCtx?: Context): St
   if (suppliedCtx === undefined) {
     if (agentCtx.sessions.get(session.id) !== session) agentCtx.sessions.enter(session)
   }
-  const fixture = createInboxFixture(agentCtx.sessionProjections, session)
+  const inbox = createInboxStub()
   let status: AgentStatus = 'running'
   const agent: Agent = {
     id: session.id,
     options: {},
     session,
-    inbox: fixture.inbox,
+    inbox,
     get status() { return status },
     ctx: agentCtx,
     send: () => {},
@@ -62,7 +58,7 @@ function stubAgent(rawId: string, supplied?: Session, suppliedCtx?: Context): St
     runMaintenance: task => task(new AbortController().signal),
     whenIdle() { return Promise.resolve() },
   }
-  return { agent, session, inbox: fixture.inbox, fixture, setStatus(value) { status = value } }
+  return { agent, session, inbox, setStatus(value) { status = value } }
 }
 
 /** Open one message-triggered turn with its accepted model-visible input. */
@@ -75,7 +71,7 @@ function openTurn(stub: StubAgent, source: MessageSource, text = 'prompt'): numb
     source,
   })
   stub.agent.inbox.append('next-turn', message)
-  const claimed = stub.fixture.claim('next-turn')
+  const claimed = stub.inbox.splice('next-turn', 0, 1, [])
   if (claimed.length === 0) throw new Error('expected queued turn input')
   stub.session.append('turn/start', { turn })
   for (const admitted of claimed) {

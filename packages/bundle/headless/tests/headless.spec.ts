@@ -9,7 +9,7 @@ import { createAssistantMessage } from '@deepseek-ai/dsh-llm'
 import SessionStore from '@deepseek-ai/dsh-session'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import type { Session, UserMessage } from '@deepseek-ai/dsh-session'
-import { createInboxFixture } from '@deepseek-ai/dsh-agent-loop-testkit'
+import { createInboxStub } from '@deepseek-ai/dsh-agent-loop-testkit'
 import { apply, Config, internals } from '../src/index.ts'
 
 const originalInternals = { ...internals }
@@ -68,21 +68,21 @@ async function bench(script: Script): Promise<{
       const session = ctx.sessions.create(options.sessionId, {
         ...options.meta === undefined ? {} : { meta: options.meta },
       })
-      const fixture = createInboxFixture(ctx.sessionProjections, session)
+      const inbox = createInboxStub()
       let idle = Promise.resolve()
       const agent: Agent = {
         id: session.id,
         options: options.agentOptions ?? {},
         session,
-        inbox: fixture.inbox,
+        inbox,
         status: 'idle',
         ctx: ownerCtx,
         cancel: () => {},
         runMaintenance: () => Promise.reject(new Error('not used')),
         send: () => {},
         followup: (message: UserMessage) => {
-          fixture.inbox.append('next-turn', message)
-          const claimed = fixture.claim('next-turn')
+          inbox.append('next-turn', message)
+          const claimed = inbox.splice('next-turn', 0, 1, [])
           const [prompt] = claimed
           if (prompt === undefined || claimed.length !== 1) throw new Error('scripted Agent expected one claimed prompt')
           idle = Promise.resolve().then(() => script.afterPrompt(session, prompt))

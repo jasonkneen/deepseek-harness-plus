@@ -1,13 +1,20 @@
 import { Context } from '@deepseek-ai/cordis'
-import AgentRegistry from '@deepseek-ai/dsh-agent'
 import type { Agent, Inbox } from '@deepseek-ai/dsh-agent'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
-import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
-import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
-import { describe, expect, it } from 'vitest'
+import { SessionId } from '@deepseek-ai/dsh-session'
+import { afterEach, describe, expect, it } from 'vitest'
 import { SessionControlController } from '../src/control.ts'
 import type { SessionControlFrame } from '../src/types.ts'
-import { createInboxFixture } from '@deepseek-ai/dsh-agent-loop-testkit'
+import {
+  mountAgentLoopTestDependencies,
+  mountAgentLoopTestHarness,
+} from '@deepseek-ai/dsh-agent-loop-testkit'
+
+const ownedContexts = new Set<Context>()
+afterEach(async () => {
+  await Promise.all([...ownedContexts].map(ctx => ctx.fiber.dispose()))
+  ownedContexts.clear()
+})
 
 async function harness(): Promise<{
   ctx: Context
@@ -16,18 +23,11 @@ async function harness(): Promise<{
   inbox: Inbox
 }> {
   const ctx = new Context()
-  await ctx.plugin(SessionStore)
-  await ctx.plugin(SessionProjectionRegistry)
-  await ctx.plugin(AgentRegistry)
-  const session = ctx.sessions.create(SessionId('queue-session'))
-  const { inbox } = createInboxFixture(ctx.sessionProjections, session)
-  const agent: Agent = {
-    id: session.id, options: {}, session, inbox, status: 'running', ctx,
-    send: () => {}, followup: () => {}, steer: () => {}, inject: () => {}, cancel: () => {},
-    runMaintenance: task => task(new AbortController().signal), whenIdle: () => Promise.resolve(),
-  }
-  ctx.agents.register(agent)
-  return { ctx, control: new SessionControlController(ctx), agent, inbox }
+  ownedContexts.add(ctx)
+  await mountAgentLoopTestDependencies(ctx)
+  const loop = await mountAgentLoopTestHarness(ctx)
+  const agent = loop.create(SessionId('queue-session'))
+  return { ctx, control: new SessionControlController(ctx), agent, inbox: agent.inbox }
 }
 
 function message(text: string, source: 'user' | 'plugin' = 'user') {
@@ -88,18 +88,12 @@ describe('Session control queue projection', () => {
 
   it('derives queue replacements from the completed projection regardless of registration order', async () => {
     const ctx = new Context()
-    await ctx.plugin(SessionStore)
-    await ctx.plugin(SessionProjectionRegistry)
-    await ctx.plugin(AgentRegistry)
+    ownedContexts.add(ctx)
+    await mountAgentLoopTestDependencies(ctx)
+    const loop = await mountAgentLoopTestHarness(ctx)
     const control = new SessionControlController(ctx)
-    const session = ctx.sessions.create(SessionId('late-projection-queue'))
-    const { inbox } = createInboxFixture(ctx.sessionProjections, session)
-    const agent: Agent = {
-      id: session.id, options: {}, session, inbox, status: 'running', ctx,
-      send: () => {}, followup: () => {}, steer: () => {}, inject: () => {}, cancel: () => {},
-      runMaintenance: task => task(new AbortController().signal), whenIdle: () => Promise.resolve(),
-    }
-    ctx.agents.register(agent)
+    const agent = loop.create(SessionId('late-projection-queue'))
+    const { inbox } = agent
     const abort = new AbortController()
     const iterator = control.control(abort.signal)[Symbol.asyncIterator]()
     await iterator.next()
@@ -190,6 +184,7 @@ describe('Session control queue projection', () => {
     inbox.append('next-turn', second)
 
     const queues: Extract<SessionControlFrame, { type: 'queue' }>[] = []
+    ownedContexts.delete(ctx)
     await ctx.fiber.dispose()
     for (;;) {
       const next = await iterator.next()

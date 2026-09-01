@@ -12,7 +12,7 @@ import GoalService, {
   foldGoal,
 } from '@deepseek-ai/dsh-goal'
 import type { GoalChangeMeta, GoalRef, GoalSnapshotChangeMeta } from '@deepseek-ai/dsh-goal'
-import { createInboxFixture } from '@deepseek-ai/dsh-agent-loop-testkit'
+import { createInboxStub } from '@deepseek-ai/dsh-agent-loop-testkit'
 
 interface StubAgent {
   agent: Agent
@@ -44,7 +44,7 @@ function stubAgentForSession(session: Session, suppliedCtx?: Context): StubAgent
   if (suppliedCtx === undefined) {
     agentCtx.sessions.enter(session)
   }
-  const { inbox } = createInboxFixture(agentCtx.sessionProjections, session)
+  const inbox = createInboxStub()
   const agent: Agent = {
     id,
     options: {},

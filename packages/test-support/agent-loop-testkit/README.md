@@ -1,5 +1,5 @@
 ---
-description: "Prerequisite mounting, session-backed structural Inbox fixtures, and fail-fast Inbox stubs for agent-loop tests."
+description: "Prerequisite mounting, production AgentLoop drivers, and explicit Inbox stubs for agent-loop tests."
 kind: "package-library"
 ---
 
@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-`dsh-agent-loop-testkit` mounts the standard prerequisite services a test needs before loading the concrete `AgentLoop` — the LLM runtime, session store, session-projection registry, system-prompt registry, tool registry, and agent registry — in dependency order, with one call. The loop itself, adapters, optional plugins, agents, and teardown stay in the test's hands, so each scenario keeps its own load order and topology. It also provides a session-backed structural Inbox fixture for consumer tests and a fail-fast unsupported Inbox placeholder for stubs whose tests do not exercise pending input. Use the package when a test's subject is loop behavior rather than service wiring; tests that probe injection failures or partial topologies mount their dependencies directly. It registers no model-facing behavior of its own.
+`dsh-agent-loop-testkit` mounts the standard prerequisite services a test needs before loading the concrete `AgentLoop` — the LLM runtime, session store, session-projection registry, system-prompt registry, tool registry, and agent registry — in dependency order, with one call. A second helper mounts the production loop and returns a narrow driver for creating real Agents and claiming their real Inbox input. Consumer tests that need only the public queue operations can instead use an explicitly process-local Inbox stub, while tests with no pending-input behavior can use a fail-fast unsupported Inbox. Adapters, optional plugins, load order, and teardown stay in the test's hands. The package registers no model-facing behavior of its own.
 
 ## Table of Contents
 
@@ -25,48 +25,54 @@ English | [中文](README.zh.md)
 <a id="use-this-package"></a>
 ## Use this package
 
-This package gives an AgentLoop test a working service topology before the loop is mounted.
+This package gives an AgentLoop test a working service topology and keeps the choice between production Inbox behavior and a structural stub explicit.
 
-### Minimal example
+### Drive a production Agent
+
+Use `mountAgentLoopTestHarness()` when the test covers durable Inbox events, projection recovery or validation, live Inbox notifications, or loop-driver claims. Mount any load-order-sensitive consumers after the prerequisites and before creating the Agent. The context owns the loop and every Agent returned by the harness.
 
 ```ts
 import { Context } from '@deepseek-ai/cordis'
-import AgentLoop from '@deepseek-ai/dsh-agent-loop'
-import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
+import { SessionId, type UserMessage } from '@deepseek-ai/dsh-session'
+import {
+  mountAgentLoopTestDependencies,
+  mountAgentLoopTestHarness,
+} from '@deepseek-ai/dsh-agent-loop-testkit'
 
 const ctx = new Context()
 
 await mountAgentLoopTestDependencies(ctx)
-// Register the test adapter and any optional plugins here.
-await ctx.plugin(AgentLoop, { agents: [] })
+// Register the test adapter and any load-order-sensitive plugins here.
+const harness = await mountAgentLoopTestHarness(ctx)
+const agent = harness.create(SessionId('test-agent'))
+declare const message: UserMessage
+
+agent.inbox.append('next-turn', message)
+const admitted = harness.claim(agent, 'next-turn', 1)
 ```
 
-The mounting helper activates the LLM, session, session-projection, system-prompt, tool, and agent services in dependency order and returns before the loop is mounted. System-prompt and tool-registry configuration can be forwarded through `options`; the helper provides no test defaults beyond those the services own.
+The dependency helper forwards system-prompt and tool-registry configuration through `options` and provides no test defaults beyond those services' own defaults. A plugin-load failure rejects the helper call; services activated earlier in the sequence remain context-owned and unwind when the context is disposed.
 
-### Build structural Agent stubs
+### Build a structural Agent stub
 
-Use `createInboxFixture(ctx.sessionProjections, session)` when pending input belongs to the test. It returns an `inbox` for the Agent literal and a separate `claim` operation for the test driver. Create the fixture before the Agent literal so the object satisfies the required structural interface from construction onward. Use `unsupportedInbox()` only when the test subject does not exercise pending Agent input; it exposes empty pending lists and throws on every mutation, so an unexpected Inbox dependency fails at its first write.
+Use `createInboxStub()` when the test subject needs mutable pending lists but does not exercise durability, projection validation, live Inbox notifications, or the driver's claim policy. The stub implements the public queue operations with two process-local arrays and never writes to a Session. Use `unsupportedInbox()` when the test subject must not touch pending input; every mutation throws at the first unexpected dependency.
 
 ```ts
-import { createInboxFixture } from '@deepseek-ai/dsh-agent-loop-testkit'
+import { createInboxStub } from '@deepseek-ai/dsh-agent-loop-testkit'
 
-declare const ctx: import('@deepseek-ai/cordis').Context
-declare const session: Parameters<typeof createInboxFixture>[1]
-
-const fixture = createInboxFixture(ctx.sessionProjections, session)
 const agent = {
   // ...
-  inbox: fixture.inbox,
+  inbox: createInboxStub(),
 }
 ```
 
 ### When to use it
 
-Use the mounting helper for tests whose subject is the loop: load order, retries, tool execution, or session behavior on a real prerequisite stack. Mount dependencies directly when a test probes service load order, injection failures, partial topologies, or teardown — the helper hides exactly the wiring such tests must control.
+Use the dependency and loop helpers for tests whose subject is production loop or durable Inbox behavior. Use the structural stub for consumer-domain tests that only need queue editing. Mount dependencies directly when a test probes service injection failures or partial topologies, because the helper hides exactly the wiring those tests must control.
 
 ### What can go wrong
 
-A plugin-load failure rejects the mounting helper call; services activated earlier in the sequence remain owned by your context and unwind with it. The context owns every mounted service, so dispose it after the test.
+The harness mounts no LLM adapter. Register an adapter before sending work that would start a model request. Dispose the owning context after every test so Agents reach quiescence and their scoped registrations unwind.
 
 -----
 
@@ -80,7 +86,7 @@ This section explains the design of the test utilities; the observable behavior 
 
 ### Design
 
-`mountAgentLoopTestDependencies` mounts six service plugins in a fixed dependency order — LLM, session, session-projection registry, system-prompt registry, tool registry, then agent registry — and deliberately stops before `AgentLoop` itself, so the caller controls loop load order and the topology under test. [`src/inbox.ts`](src/inbox.ts) owns a test-only projection definition for the public durable Inbox event and state contract, the structural command facade and driver claim operation, and the fail-fast unsupported placeholder. It does not import the package-internal loop implementation. The mounting implementation lives in [`src/index.ts`](src/index.ts). No companion is published because this test-support package owns no production event stream or mutable data; consuming test suites exercise its behavior.
+`mountAgentLoopTestDependencies` mounts six service plugins in a fixed dependency order — LLM, session, session-projection registry, system-prompt registry, tool registry, then agent registry — and stops before `AgentLoop`, so the caller controls loop load order. `mountAgentLoopTestHarness` mounts the public production plugin, creates Agents through its service, and exposes the production driver's claim operation without exporting the loop's concrete Inbox class or projection definition. [`src/inbox.ts`](src/inbox.ts) contains only the process-local mutable stub and the fail-fast unsupported placeholder; it owns no projection or durable event implementation. The mounting and driver implementation lives in [`src/index.ts`](src/index.ts). No invariant companion is published because the package owns only test helpers and has no independent production observations that can diverge.
 
 </details>
 
@@ -89,11 +95,11 @@ This section explains the design of the test utilities; the observable behavior 
 <a id="further-exploration"></a>
 ## Further Exploration
 
-Read these pages when the package-level contract is not enough. They move from the loop to the services the helper mounts and the tests that use it.
+Read these pages when the package-level behavior is not enough. They move from the loop to the services the helper mounts and the tests that use it.
 
-- [Agent loop package](../../core/agent-loop/README.md) — the concrete loop this helper prepares tests for.
-- [Session package](../../core/session/README.md) — the session store the helper mounts.
-- [LLM package](../../llm/llm/README.md) — the LLM runtime and adapter contract the helper mounts.
+- [Agent loop package](../../core/agent-loop/README.md) — the concrete loop this helper mounts for production behavior.
+- [Session package](../../core/session/README.md) — the durable event log used by production Inbox behavior.
+- [LLM package](../../llm/llm/README.md) — the LLM runtime and adapter interface the helper prepares.
 - [Testing policy](../../../docs/testing.md) — the coverage tiers these tests serve.
 - [Test-support group map](../README.md) — sibling harnesses and support packages.
 
@@ -102,23 +108,22 @@ Read these pages when the package-level contract is not enough. They move from t
 <a id="model-experience"></a>
 ## Model Experience
 
-None, as these test-only utilities neither drive nor modify model requests.
+None, as these test-only utilities neither assemble nor modify model requests.
 
 #### KV Cache effect
 
-None; this package neither assembles nor sends a provider request.
+None; the package itself sends no provider request.
 
 ## Known Limitations and Deferred Work
 
 <a id="known-limitations-and-deferred-work"></a>
 
-
 These limits define what the utilities do not share. They are current package constraints, not a task backlog.
 
-- **Only the mandatory prerequisite spine is shared** — adapters, optional plugins, `AgentLoop`, agents, and context teardown remain caller-owned so scenario-specific ordering stays visible.
-- **The structural fixture emits durable session events only** — it does not reproduce live `agent/inbox/inserted`, `agent/inbox/claimed`, or `agent/inbox/discarded` notifications owned by the loop implementation.
-- **The structural fixture accepts trusted test events** — it does not repeat the production provider's persisted-splice validation; focused `agent-loop` tests own invalid-history coverage.
-- **The unsupported Inbox accepts no mutations** — use `createInboxFixture()` whenever pending input is part of the test subject.
+- **Only the mandatory prerequisite spine is shared** — adapters, optional plugins, scenario-specific load order, and context teardown remain caller-owned.
+- **The production harness has no adapter default** — tests that start the loop must register the route they exercise.
+- **The mutable Inbox stub is process-local only** — use a harness-created Agent whenever durable events, projection recovery or validation, live notifications, or claim policy matter.
+- **The unsupported Inbox accepts no mutations** — use the mutable stub or a harness-created Agent whenever pending input is part of the test subject.
 
 <a id="dev-note"></a>
 ### Dev Note

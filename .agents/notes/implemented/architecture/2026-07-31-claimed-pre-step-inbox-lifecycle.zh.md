@@ -36,7 +36,7 @@ Status: implemented
 
 ## 验证
 
-agent loop（智能体循环）覆盖固定先 `turn/start`、再领取、后 pre-step 的顺序、实时事件的确切载荷、边界平衡的无步骤 reject、最终批次改写、领取后插入的输入、监听器失败、取消，以及最后一个所有者卸载后移除 agent 作用域投影。Inbox 和消费方测试固定纯领取删除、普通删除的 canceled 结果、agent-instructions 的暂存、替换与同一步骤进入、plan/goal/钩子行为、UI 清理、压缩（compaction）、检查点、恢复后的持久投影、对非法持久坐标或跨列表重复标识的拒绝，以及 controller 早于投影注册表注册时仍使用折叠后队列值。生成的事件与类型目录只公开新的 waterfall 与载荷。
+agent loop（智能体循环）覆盖固定先 `turn/start`、再领取、后 pre-step 的顺序、实时事件的确切载荷、边界平衡的无步骤 reject、最终批次改写、领取后插入的输入、监听器失败、取消，以及最后一个所有者卸载后移除 agent 作用域投影。Inbox 和消费方测试固定纯领取删除、普通删除的 canceled 结果、agent-instructions 的暂存、替换与同一步骤进入、plan/goal/钩子行为、UI 清理、压缩（compaction）、检查点、恢复后的持久投影、对非法持久坐标或跨列表重复标识的拒绝，以及 controller 早于投影注册表注册时仍使用折叠后队列值。只有当持久性不属于测试对象时，消费方领域测试才使用进程内 Inbox 桩；领取、持久投影、恢复、校验与实时通知测试通过生产 AgentLoop 测试 harness 创建 Agent，因此测试支持代码不会重新实现该投影。生成的事件与类型目录只公开新的 waterfall 与载荷。
 
 ## 后果
 

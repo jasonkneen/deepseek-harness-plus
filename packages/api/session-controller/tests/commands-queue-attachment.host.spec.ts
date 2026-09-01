@@ -10,7 +10,7 @@ import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import { describe, expect, it, vi } from 'vitest'
 import { ApiSessionAgentController } from '../src/agent.ts'
 import { SessionCommandController } from '../src/commands.ts'
-import { createInboxFixture } from '@deepseek-ai/dsh-agent-loop-testkit'
+import { createInboxStub } from '@deepseek-ai/dsh-agent-loop-testkit'
 import { installSessionReadTestServices, testSessionPersistence } from './test-remote.ts'
 
 async function commandHarness(): Promise<{
@@ -26,7 +26,7 @@ async function commandHarness(): Promise<{
   await ctx.plugin(SessionProjectionRegistry)
   await ctx.plugin(AgentRegistry)
   const session = ctx.sessions.create(SessionId('commands-session'), { meta: { cwd: '/workspace' } })
-  const { inbox } = createInboxFixture(ctx.sessionProjections, session)
+  const inbox = createInboxStub()
   const steer = vi.fn()
   const cancel = vi.fn()
   const agent: Agent = {

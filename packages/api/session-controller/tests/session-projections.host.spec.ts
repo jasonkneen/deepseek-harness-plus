@@ -7,14 +7,13 @@
  * pushed through the control stream.
  */
 
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
 import { z } from 'zod'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
-import type { Agent } from '@deepseek-ai/dsh-agent'
 import { AttachmentStore } from '@deepseek-ai/dsh-attachment'
 import { agentPresetProjectionDefinition } from '@deepseek-ai/dsh-agent-presets'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
@@ -27,8 +26,18 @@ import Storage from '@deepseek-ai/dsh-storage'
 import * as StorageDomain from '@deepseek-ai/dsh-storage-domain'
 import * as StorageJson from '@deepseek-ai/dsh-storage-json'
 import type { SessionControlFrame, SessionFollowFrame } from '@deepseek-ai/dsh-api-session-controller/types'
-import { createInboxFixture } from '@deepseek-ai/dsh-agent-loop-testkit'
+import {
+  mountAgentLoopTestDependencies,
+  mountAgentLoopTestHarness,
+} from '@deepseek-ai/dsh-agent-loop-testkit'
 import { createSessionTestRemote, testSessionPersistence, type TestSessionRemote } from './test-remote.ts'
+
+const ownedContexts = new Set<Context>()
+afterEach(async () => {
+  await Promise.all([...ownedContexts].map(ctx => ctx.fiber.dispose()))
+  ownedContexts.clear()
+})
+let nextHarnessSession = 1
 
 declare module '@deepseek-ai/dsh-session-projection/types' {
   interface SessionProjectionStateMap {
@@ -115,28 +124,28 @@ async function harness(withRegistry: boolean): Promise<{
   readonly claim: (target: 'next-turn' | 'next-step') => UserMessage[]
 }> {
   const ctx = new Context()
-  await ctx.plugin(SessionStore)
-  await ctx.plugin(AgentRegistry)
-  if (withRegistry) await ctx.plugin(SessionProjectionRegistry)
-  const session = ctx.sessions.create(undefined, { meta: { cwd: '/workspace' } })
+  ownedContexts.add(ctx)
   if (!withRegistry) {
+    await ctx.plugin(SessionStore)
+    await ctx.plugin(AgentRegistry)
+    const session = ctx.sessions.create(undefined, { meta: { cwd: '/workspace' } })
     return {
       ctx,
       session,
       claim: () => { throw new Error('inbox is unavailable without the projection registry') },
     }
   }
-  const fixture = createInboxFixture(ctx.sessionProjections, session)
-  const agent: Agent = {
-    id: session.id, options: {}, session, inbox: fixture.inbox, status: 'idle', ctx,
-    send: () => {}, followup: () => {}, steer: () => {}, inject: () => {}, cancel: () => {},
-    runMaintenance: task => task(new AbortController().signal), whenIdle: () => Promise.resolve(),
-  }
-  ctx.agents.register(agent)
+  await mountAgentLoopTestDependencies(ctx)
+  const loop = await mountAgentLoopTestHarness(ctx)
+  const agent = loop.create(
+    SessionId(`session-projections-${String(nextHarnessSession++)}`),
+    {},
+    { cwd: '/workspace' },
+  )
   return {
     ctx,
-    session,
-    claim: fixture.claim,
+    session: agent.session,
+    claim: target => loop.claim(agent, target, 1),
   }
 }
 

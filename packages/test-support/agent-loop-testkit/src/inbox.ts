@@ -1,132 +1,54 @@
-import type { Inbox, InboxState, InboxTarget, InboxWireState } from '@deepseek-ai/dsh-agent'
+import type { Inbox, InboxTarget } from '@deepseek-ai/dsh-agent'
 import type { MessageId } from '@deepseek-ai/dsh-llm'
-import type { Session, SessionEventMap, UserMessage } from '@deepseek-ai/dsh-session'
-import type { ProjectionDefinition } from '@deepseek-ai/dsh-session-projection'
-import type SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
-import { z } from 'zod'
-
-const testInboxProjectionSchema = z.object({
-  'next-turn': z.array(z.custom<UserMessage>()).readonly(),
-  'next-step': z.array(z.custom<UserMessage>()).readonly(),
-}).readonly()
-
-/** Test-only registration for the public durable Inbox event and state contract. */
-const testInboxProjectionDefinition = {
-  key: 'inbox',
-  stateSchema: testInboxProjectionSchema,
-  init: (): InboxState => ({ 'next-turn': [], 'next-step': [] }),
-  apply(state: InboxState, event) {
-    if (event.type !== 'agent/inbox/spliced') return state
-    const { target, start, removedCount = 0, inserted } = event.data
-    const next = [...state[target]]
-    next.splice(start, removedCount, ...inserted)
-    return { ...state, [target]: next }
-  },
-  wire: {
-    viewSchema: testInboxProjectionSchema as unknown as z.ZodType<InboxWireState>,
-    view: (state: InboxState) => state as unknown as InboxWireState,
-  },
-  stateVersion: 1,
-} satisfies ProjectionDefinition<'inbox', InboxState>
-
-/** A structural Inbox test double and its loop-driver operation. */
-export interface InboxFixture {
-  /** Session-backed Inbox exposed to the code under test. */
-  readonly inbox: Inbox
-  /** Remove the batch a test driver admits at one boundary. */
-  readonly claim: (target: InboxTarget) => UserMessage[]
-}
+import type { UserMessage } from '@deepseek-ai/dsh-session'
 
 /**
- * Create a session-backed structural Inbox test double for consumer tests.
- * @param projections - registry that owns the fixture's test projection registration.
- * @param session - session whose durable splices back the test double.
- * @returns the structural Inbox and a separate loop-driver claim operation.
+ * Create a mutable in-memory Inbox stub for tests that exercise only the public
+ * queue operations. Durable events, projection validation, and live Inbox
+ * notifications require a real Agent created by the AgentLoop test harness.
+ * @returns an Inbox backed by two process-local arrays.
  */
-export function createInboxFixture(
-  projections: SessionProjectionRegistry,
-  session: Session,
-): InboxFixture {
-  projections.register(testInboxProjectionDefinition)
-
-  const current = (): InboxState => {
-    const state = projections.stateOf(session, 'inbox')
-    /* v8 ignore next -- createInboxFixture holds the registration for the context lifetime */
-    if (state === undefined) throw new Error('test inbox projection registration is not active')
-    return state
+export function createInboxStub(): Inbox {
+  const pending: Record<InboxTarget, UserMessage[]> = {
+    'next-turn': [],
+    'next-step': [],
   }
 
   const locate = (messageId: MessageId): { target: InboxTarget; index: number } | undefined => {
-    const state = current()
-    const turnIndex = state['next-turn'].findIndex(message => message.id === messageId)
-    if (turnIndex >= 0) return { target: 'next-turn', index: turnIndex }
-    const stepIndex = state['next-step'].findIndex(message => message.id === messageId)
-    return stepIndex < 0 ? undefined : { target: 'next-step', index: stepIndex }
-  }
-
-  const mutate = (
-    target: InboxTarget,
-    start: number,
-    deleteCount: number,
-    inserted: UserMessage[],
-    canceled: boolean,
-  ): UserMessage[] => {
-    const pending = current()[target]
-    const integerStart = Number.isNaN(start) ? 0 : Math.trunc(start)
-    const index = integerStart < 0
-      ? Math.max(pending.length + integerStart, 0)
-      : Math.min(integerStart, pending.length)
-    const integerCount = Number.isNaN(deleteCount) ? 0 : Math.trunc(deleteCount)
-    const count = Math.min(Math.max(integerCount, 0), pending.length - index)
-    if (count === 0 && inserted.length === 0) return []
-    const event: SessionEventMap['agent/inbox/spliced'] = {
-      target,
-      start: index,
-      ...(count === 0 ? {} : { removedCount: count }),
-      inserted,
-      ...(canceled && count > 0 ? { outcome: 'canceled' } : {}),
+    for (const target of ['next-turn', 'next-step'] as const) {
+      const index = pending[target].findIndex(message => message.id === messageId)
+      if (index >= 0) return { target, index }
     }
-    const removed = pending.slice(index, index + count)
-    session.append('agent/inbox/spliced', event)
-    return removed
+    return undefined
   }
 
-  const inbox: Inbox = {
-    get nextTurn() { return current()['next-turn'] },
-    get nextStep() { return current()['next-step'] },
+  return {
+    get nextTurn() { return pending['next-turn'] },
+    get nextStep() { return pending['next-step'] },
     clear() {
-      mutate('next-step', 0, current()['next-step'].length, [], true)
-      mutate('next-turn', 0, current()['next-turn'].length, [], true)
+      pending['next-step'].splice(0)
+      pending['next-turn'].splice(0)
     },
     append(target, message) {
-      mutate(target, current()[target].length, 0, [message], true)
+      pending[target].push(message)
     },
     prepend(target, message) {
-      mutate(target, 0, 0, [message], true)
+      pending[target].unshift(message)
     },
     replace(messageId, message) {
       const location = locate(messageId)
       if (location === undefined) return false
-      mutate(location.target, location.index, 1, [message], true)
+      pending[location.target].splice(location.index, 1, message)
       return true
     },
     remove(messageId) {
       const location = locate(messageId)
       if (location === undefined) return false
-      mutate(location.target, location.index, 1, [], true)
+      pending[location.target].splice(location.index, 1)
       return true
     },
     splice(target, start, deleteCount, inserted) {
-      return mutate(target, start, deleteCount, inserted, true)
-    },
-  }
-
-  return {
-    inbox,
-    claim: (target) => {
-      const claimed = mutate('next-step', 0, current()['next-step'].length, [], false)
-      if (target === 'next-turn') claimed.push(...mutate('next-turn', 0, 1, [], false))
-      return claimed
+      return pending[target].splice(start, deleteCount, ...inserted)
     },
   }
 }
