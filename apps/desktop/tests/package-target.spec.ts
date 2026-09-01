@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   parseDesktopPackageInvocation,
   resolveDesktopPackageTarget,
+  withoutWindowsSigningEnvironment,
 } from '../scripts/package-target.ts'
 
 describe('desktop package target', () => {
@@ -36,5 +37,15 @@ describe('desktop package target', () => {
     expect(parseDesktopPackageInvocation(['--prepare-only'], 'darwin', 'arm64').prepareOnly).toBe(true)
     expect(() => parseDesktopPackageInvocation(['mac-arm64', 'mac-x64'], 'darwin', 'arm64'))
       .toThrow(/at most one target/u)
+  })
+
+  it('keeps Windows signing fields out of build and seed preparation subprocesses', () => {
+    expect(withoutWindowsSigningEnvironment({
+      DSH_DESKTOP_WINDOWS_CER_FILE: 'C:\\release\\server.cer',
+      DSH_DESKTOP_WINDOWS_TOKEN_PIN: 'token-secret',
+      DSH_DESKTOP_WINDOWS_KEY_CONTAINER: 'container',
+      DSH_DESKTOP_WINDOWS_SIGNTOOL: 'C:\\tools\\signtool.exe',
+      DSH_DESKTOP_SHELL_UPDATE_URL: 'https://updates.example.test',
+    })).toEqual({ DSH_DESKTOP_SHELL_UPDATE_URL: 'https://updates.example.test' })
   })
 })

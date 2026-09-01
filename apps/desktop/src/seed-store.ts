@@ -3,6 +3,8 @@
 import { createHash } from 'node:crypto'
 import {
   chmodSync,
+  copyFileSync,
+  cpSync,
   existsSync,
   mkdirSync,
   readdirSync,
@@ -11,6 +13,7 @@ import {
   writeFileSync,
 } from 'node:fs'
 import { join, relative, sep } from 'node:path'
+import { DatabaseSync } from 'node:sqlite'
 import { create, extract, list } from 'tar'
 
 /** Directory containing the seed's uncompressed pnpm store archives. */
@@ -21,6 +24,7 @@ export const SEED_STORE_ARCHIVE_MANIFEST = 'store-archives.json'
 
 const DEFAULT_SHARD_COUNT = 16
 const ARCHIVE_NAME_PATTERN = /^store-[0-9a-f]{2}\.tar$/u
+const STORE_VERSION_PATTERN = /^v\d+$/u
 
 interface SeedStoreArchiveRecord {
   readonly file: string
@@ -110,6 +114,54 @@ export function removePnpmProjectRegistrations(storeRoot: string): void {
   for (const entry of readdirSync(storeRoot, { withFileTypes: true })) {
     if (!entry.isDirectory() || !/^v\d+$/u.test(entry.name)) continue
     rmSync(join(storeRoot, entry.name, 'projects'), { recursive: true, force: true })
+  }
+}
+
+function mergeStoreIndex(source: string, destination: string): void {
+  if (!existsSync(destination)) {
+    copyFileSync(source, destination)
+    return
+  }
+  const database = new DatabaseSync(destination)
+  let attached = false
+  try {
+    database.exec('PRAGMA busy_timeout=5000')
+    database.prepare('ATTACH DATABASE ? AS seed').run(source)
+    attached = true
+    database.exec('BEGIN IMMEDIATE')
+    let committed = false
+    try {
+      database.exec('INSERT OR REPLACE INTO package_index (key, data) SELECT key, data FROM seed.package_index')
+      database.exec('COMMIT')
+      committed = true
+    } finally {
+      if (!committed) database.exec('ROLLBACK')
+    }
+  } finally {
+    if (attached) database.exec('DETACH DATABASE seed')
+    database.close()
+  }
+}
+
+/**
+ * Merge a completely extracted seed store into Desktop's persistent pnpm store.
+ * @param source - Verified temporary store extraction.
+ * @param destination - Desktop-owned persistent pnpm store.
+ */
+export function mergePnpmStore(source: string, destination: string): void {
+  mkdirSync(destination, { recursive: true, mode: 0o700 })
+  const indexPaths = readdirSync(source, { withFileTypes: true })
+    .filter(entry => entry.isDirectory() && STORE_VERSION_PATTERN.test(entry.name)
+      && existsSync(join(source, entry.name, 'index.db')))
+    .map(entry => `${entry.name}/index.db`)
+  const indexes = new Set(indexPaths)
+  cpSync(source, destination, {
+    recursive: true,
+    force: true,
+    filter: path => !indexes.has(relative(source, path).split(sep).join('/')),
+  })
+  for (const path of indexPaths) {
+    mergeStoreIndex(join(source, ...path.split('/')), join(destination, ...path.split('/')))
   }
 }
 

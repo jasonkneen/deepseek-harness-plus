@@ -29,7 +29,7 @@ import {
 } from './core-package-set.ts'
 import type { DesktopPaths } from './paths.ts'
 import { parseDesktopRelease, type DesktopRelease } from './release.ts'
-import { extractPnpmStoreArchives } from './seed-store.ts'
+import { extractPnpmStoreArchives, mergePnpmStore } from './seed-store.ts'
 
 /** Files the package transaction copies between active and staging projects. */
 const DESKTOP_PROJECT_FILES = [
@@ -510,8 +510,7 @@ export class DesktopProjectManager {
     const extractedStore = join(transactionRoot, 'store')
     try {
       extractPnpmStoreArchives(seedDir, extractedStore)
-      mkdirSync(this.paths.pnpm.store, { recursive: true, mode: 0o700 })
-      cpSync(extractedStore, this.paths.pnpm.store, { recursive: true, force: false })
+      mergePnpmStore(extractedStore, this.paths.pnpm.store)
     } finally {
       removeOwnedDirectory(transactionRoot)
     }
@@ -566,6 +565,7 @@ export class DesktopProjectManager {
         this.runtime.pnpm,
         `--config.registry=${DESKTOP_REGISTRY}`,
         `--config.store-dir=${this.paths.pnpm.store}`,
+        '--config.enable-global-virtual-store=false',
         `--config.userconfig=${npmrc}`,
         command,
         ...commandArgs,

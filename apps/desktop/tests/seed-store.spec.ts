@@ -12,10 +12,12 @@ import {
 } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { DatabaseSync } from 'node:sqlite'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
   archivePnpmStore,
   extractPnpmStoreArchives,
+  mergePnpmStore,
   removePnpmProjectRegistrations,
   SEED_STORE_ARCHIVE_DIR,
   SEED_STORE_ARCHIVE_MANIFEST,
@@ -60,6 +62,47 @@ describe('desktop seed store cleanup', () => {
   })
 })
 
+describe('desktop seed store merge', () => {
+  it('preserves installed package records while the verified seed replaces matching records and files', () => {
+    const root = temporaryRoot()
+    const source = join(root, 'source')
+    const destination = join(root, 'destination')
+    for (const store of [source, destination]) {
+      mkdirSync(join(store, 'v11', 'files'), { recursive: true })
+      const database = new DatabaseSync(join(store, 'v11', 'index.db'))
+      database.exec('CREATE TABLE package_index (key TEXT PRIMARY KEY, data BLOB NOT NULL) WITHOUT ROWID')
+      const insert = database.prepare('INSERT INTO package_index (key, data) VALUES (?, ?)')
+      if (store === source) {
+        insert.run('seed-only', Buffer.from('seed'))
+        insert.run('shared', Buffer.from('new'))
+      } else {
+        insert.run('plugin-only', Buffer.from('plugin'))
+        insert.run('shared', Buffer.from('old'))
+      }
+      database.close()
+    }
+    writeFileSync(join(source, 'v11', 'files', 'shared'), 'new')
+    writeFileSync(join(destination, 'v11', 'files', 'shared'), 'old')
+    writeFileSync(join(destination, 'v11', 'files', 'plugin'), 'plugin')
+
+    mergePnpmStore(source, destination)
+
+    const database = new DatabaseSync(join(destination, 'v11', 'index.db'), { readOnly: true })
+    const records = database.prepare('SELECT key, data FROM package_index ORDER BY key').all() as {
+      key: string
+      data: Uint8Array
+    }[]
+    database.close()
+    expect(records.map(record => [record.key, Buffer.from(record.data).toString()])).toEqual([
+      ['plugin-only', 'plugin'],
+      ['seed-only', 'seed'],
+      ['shared', 'new'],
+    ])
+    expect(readFileSync(join(destination, 'v11', 'files', 'shared'), 'utf8')).toBe('new')
+    expect(readFileSync(join(destination, 'v11', 'files', 'plugin'), 'utf8')).toBe('plugin')
+  })
+})
+
 describe('desktop seed store archives', () => {
   it('extracts package bytes and executable modes without retaining loose seed files', () => {
     const root = temporaryRoot()
@@ -77,7 +120,9 @@ describe('desktop seed store archives', () => {
 
     expect(existsSync(store)).toBe(false)
     expect(readFileSync(join(destination, 'v10', 'files', 'package-data'), 'utf8')).toBe('package')
-    expect(statSync(join(destination, 'v10', 'files', 'native-addon')).mode & 0o111).toBe(0o111)
+    if (process.platform !== 'win32') {
+      expect(statSync(join(destination, 'v10', 'files', 'native-addon')).mode & 0o111).toBe(0o111)
+    }
   })
 
   it('produces identical shards for identical paths, bytes, and modes', () => {

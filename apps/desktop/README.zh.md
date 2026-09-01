@@ -27,12 +27,12 @@ dsh 主渲染进程只获得桌面协议标记。独立插件窗口获得结构�
 
 ### Seed 安装
 
-安装包内的 seed 是安装工具包，不是可以直接运行的 `node_modules` 目录。打包过程会生成锁文件、拉取生产依赖图，并用匹配的 Desktop Host 入口完成一次完整离线安装验证。macOS 构建随后用 Developer ID 签署 pnpm 内容寻址 store 中的每个 Mach-O 对象，更新所有受影响的 SHA-512 索引记录，再用一次离线安装证明重写后的 store，最后删除 `node_modules`。签名 seed 保留发布身份、本地第一方 tarball 及其描述文件、项目元数据、锁文件、完整性清单，以及在用户机器上重复该安装所需的 pnpm store 内容。
+安装包内的 seed 是安装工具包，不是可以直接运行的 `node_modules` 目录。打包过程会生成锁文件，在禁用生命周期脚本的情况下在线物化生产依赖图，删除 `node_modules` 以及所有临时 pnpm cache、config 和 state 目录，然后只使用最终 store 完成一次完整离线安装，并验证两个 Desktop Host 文件。macOS 构建随后用 Developer ID 签署 pnpm 内容寻址 store 中的每个 Mach-O 对象，更新所有受影响的 SHA-512 索引记录，再用一次离线安装证明重写后的 store，最后删除 `node_modules`。签名 seed 保留发布身份、本地第一方 tarball 及其描述文件、项目元数据、锁文件、完整性清单，以及在用户机器上重复该安装所需的 pnpm store 内容。
 
 | Seed 内容 | 可写目标或用途 |
 |---|---|
 | `integrity.json` 与 `desktop-packages.json` | 在修改包状态前验证清单记录的每个 seed 文件、本地 tarball 哈希和绑定的 dsh 版本。 |
-| `store-archives.json` 与 `store-archives/*.tar` | 验证确定性的未压缩分片，把它们解包到唯一的 Desktop staging 目录，再把完整结果合并到 `$DSH_HOME/desktop/pnpm/store`，且不移除已经为 Desktop 插件下载的包。 |
+| `store-archives.json` 与 `store-archives/*.tar` | 验证确定性的未压缩分片，把它们解包到唯一的 Desktop staging 目录，替换匹配的不可变 store 文件，并以事务方式把 pnpm 的版本化 SQLite 包索引合并进 `$DSH_HOME/desktop/pnpm/store`，且不移除已经为 Desktop 插件下载的包。 |
 | 项目元数据与 `desktop-packages/` | 复制到唯一的 `$DSH_HOME/desktop/staging/<transaction-id>/profile` 项目。 |
 | 锁文件与本地包映射 | 驱动内置 pnpm 完成安装，且不会从 npm 解析已打包的核心包名。 |
 
@@ -40,7 +40,7 @@ dsh 主渲染进程只获得桌面协议标记。独立插件窗口获得结构�
 
 1. 恢复中断的激活事务日志，验证完整 seed 清单与本地包集，并要求 seed 版本等于 Electron 应用版本。
 2. 如果活跃 profile 已包含该发布与 dsh 版本，则验证其中的本地包集并直接复用，不重新安装。
-3. 否则验证每个归档条目，把全部 store 分片解包到 Desktop 拥有的临时 staging 目录，把完整解包结果合并进私有 store，再创建 staging profile，并通过内置 Node.js 与 pnpm 执行 `pnpm install --offline --frozen-lockfile --trust-lockfile`。
+3. 否则验证每个归档条目，把全部 store 分片解包到 Desktop 拥有的临时 staging 目录，将包文件与 SQLite 包索引记录合并进私有 store，再创建 staging profile，并通过内置 Node.js 与 pnpm 执行 `pnpm install --offline --frozen-lockfile --trust-lockfile`。Seed 记录替换匹配的索引键，插件专属记录继续保留。
 4. Electron 升级时，从旧活跃 profile 读取每个插件的名称和精确版本，再通过现有 Desktop pnpm 状态以 `--offline` 把这些版本加入 staging。首次安装不执行插件恢复。
 5. 启动完整的 staging 后端执行健康检查。在激活前发生安装错误或插件不兼容时，删除 staging 并保持活跃 profile 不变。
 6. 记录目录替换事务，把活跃 profile 移到 `$DSH_HOME/desktop/rollback/profile`，再把 staging 移到 `$DSH_HOME/profiles/desktop`。替换失败时立即恢复旧 profile；替换中断时，下次启动会根据事务日志恢复。
@@ -96,6 +96,22 @@ macOS arm64 命令要求 Apple Silicon。macOS x64 命令可以在 Intel macOS �
 
 macOS 配置使用必填发布环境，不会接受钥匙串中最先发现的证书。空值、格式错误的 Team ID、包含 electron-builder 不支持的 `Developer ID Application:` 前缀的签名身份，以及不完整的公证凭据都会被拒绝。macOS 打包要求已配置的身份及其私钥可用。Seed 准备会把该身份、安全时间戳与 hardened runtime 应用到每个内嵌 Mach-O 文件；应用签名完成后，深度严格检查会拒绝其他叶证书 Authority 或 Team ID，验证通过才生成发布产物。Electron-builder 会在封装前公证应用并钉票，然后签署 DMG。DMG 的 artifact-completion hook 随后会公证它并钉票，再要求其身份、票据与 Gatekeeper 验证全部通过；只有 hook 成功，electron-builder 才能发布该文件。私钥可以来自登录钥匙串或 electron-builder 的标准 `CSC_LINK` 输入；环境中的 `CSC_NAME` 与证书发现顺序都不能选择发布所有者。公证凭据也可以使用 electron-builder 支持的完整 Apple ID 或钥匙串 profile 方式。手动执行 `pnpm --dir apps/desktop run verify:mac-signature -- <path-to-app>` 重复应用检查时，也必须提供两个 macOS 身份变量。
 
+### Windows EV 签名
+
+Windows 发布打包要求 `DSH_DESKTOP_WINDOWS_CER_FILE` 标识公开的 GlobalSign EV 叶证书，要求 `DSH_DESKTOP_WINDOWS_SIGNTOOL` 标识与 SafeNet 兼容的 SignTool 可执行文件，要求 `DSH_DESKTOP_WINDOWS_KEY_CONTAINER` 标识匹配的私钥容器，并要求 `DSH_DESKTOP_WINDOWS_TOKEN_PIN` 包含 SafeNet Token Password。证书文件保留在源码仓库之外，匹配的私钥仍位于 USB Token。运行固定 Windows 目标前设置这四个输入：
+
+```powershell
+$env:DSH_DESKTOP_WINDOWS_CER_FILE = 'C:\path\to\server.cer'
+$env:DSH_DESKTOP_WINDOWS_SIGNTOOL = 'C:\path\to\the\validated\signtool.exe'
+$env:DSH_DESKTOP_WINDOWS_KEY_CONTAINER = '<SafeNet private-key container name>'
+$env:DSH_DESKTOP_WINDOWS_TOKEN_PIN = '<SafeNet Token Password>'
+pnpm run package:desktop:win:x64
+```
+
+打包前插入并解锁 Token。electron-builder hook 把每个产物交给采用 CRLF 的 `scripts/windows-sign.cmd`；该 CMD 只调用一次已配置的 SignTool，并指定 `/f`、SafeNet `/kc "[{{PIN}}]=容器"`、`/csp "eToken Base Cryptographic Provider"`、SHA-256 文件摘要和 DigiCert SHA-256 RFC 3161 时间戳。hook 不会改用 electron-builder 内置的 SignTool，也不会重试失败的签名请求。SignTool、证书、容器、PIN、Token 或签名不可用时，Windows 打包会失败，不会生成未签名产物。
+
+PIN 不能包含 `]`、引号或换行，因为这些字符用于分隔 SafeNet `/kc` 值或对应的 CMD 参数。CMD 会禁用延迟展开，因此包含 `!` 的 PIN 可以原样到达 SafeNet。打包流程不会把任何 `DSH_DESKTOP_WINDOWS_*` 字段传给构建与 seed 准备子进程；它只向 electron-builder 提供四个配置输入，在其他字段已经清理的环境中只向签名 CMD 提供经过校验的签名字段，在 SignTool 启动前清除这些字段，并遮盖 SignTool 诊断。SafeNet 仍要求 PIN 出现在 SignTool 进程命令行中。只能在连接了物理 Token 的受控 self-hosted Windows runner 上把它注入为临时 secret；绝不能提交该值、把它写进 `.env`，或持久保存为 Windows 用户或系统环境变量。
+
 使用对应的 `:dir` 命令可以生成可直接运行的应用目录，而不是安装包，例如：
 
 ```sh
@@ -111,7 +127,7 @@ pnpm run prepare:desktop
 
 这条诊断命令是另一种停止位置，并非两条命令构建流程的前半段。之后执行 `package:desktop*` 时仍会重新完成正式构建与准备，避免使用陈旧的 dsh 包、运行时文件或 seed 内容。
 
-每条打包命令都会先执行仓库的正式构建，打包 dsh 与 vendored 包族，并打包 Landlock 入口，然后再准备发布资源。`prepare:packages` 选择以 `@deepseek-ai/dsh` 为根的第一方生产依赖闭包，验证 dsh tarball 同时包含 `lib/desktop-host.js` 与 `config/desktop.cordis.patch.yml`，把选中的 tarball 复制到种子输入，并记录其大小与 SHA-512 完整性。该 overlay 是唯一为了 Desktop 而发布的 CLI 配置文件；示例配置仍留在 tarball 之外。这些 tarball 是正式的 `pnpm pack` 输出，因此各包的 `files` manifest 决定发布内容：Desktop 不增加第二套过滤规则，会保留 `lib/types` 等已发布声明，也不会独立删除或增加 source map。Registry 解析、包路径、manifest 和非原生字节仍由 npm 管理。在 macOS 上，`prepare:seed` 会用公司 Developer ID 签名字节替换每个 Mach-O CAS 对象，把它们写到新的 SHA-512 路径，并以事务方式重写所有基础或 side-effects 索引引用；它保留完整包文件集，包括包内附带的架构变体。根 dsh 包与 Electron 包必须使用同一版本，但构建 Desktop 应用前不再要求 dsh 已发布到 npm。`prepare:runtime` 从 Node.js 官方发行服务下载 Node.js 24.17.0，在解压前验证其 SHA-256 条目，并在兼容的构建宿主上执行准备完成的二进制文件以验证其报告版本。它复制桌面包声明的 pnpm 版本，并把两个运行时版本记录进发布种子。`prepare:seed` 生成本地核心包映射，使用内置 pnpm 从 npm 拉取外部生产依赖，证明依赖图可以离线安装且包含两个 Desktop Host 文件，在适用时执行 macOS 重写，再通过一次离线安装证明重写后的 store，删除临时 pnpm 项目注册，然后把松散 store 替换为 16 个确定性的未压缩 tar 分片。它会解包这些最终分片，并在生成清单前验证每个内嵌 macOS 签名。后续 GUI 插件操作保留本地核心包映射，同时从固定的 Desktop npm registry 解析插件包及其外部依赖。`electron-builder` 把平台产物写到 `apps/desktop/.desktop-build/artifacts`。
+每条打包命令都会先执行仓库的正式构建，打包 dsh 与 vendored 包族，并打包 Landlock 入口，然后再准备发布资源。`prepare:packages` 选择以 `@deepseek-ai/dsh` 为根的第一方生产依赖闭包，验证 dsh tarball 同时包含 `lib/desktop-host.js` 与 `config/desktop.cordis.patch.yml`，把选中的 tarball 复制到种子输入，并记录其大小与 SHA-512 完整性。该 overlay 是唯一为了 Desktop 而发布的 CLI 配置文件；示例配置仍留在 tarball 之外。这些 tarball 是正式的 `pnpm pack` 输出，因此各包的 `files` manifest 决定发布内容：Desktop 不增加第二套过滤规则，会保留 `lib/types` 等已发布声明，也不会独立删除或增加 source map。Registry 包同样在 pnpm 内容寻址 store 中保留其发布的包字节。根 dsh 包与 Electron 包必须使用同一版本，但构建 Desktop 应用前不再要求 dsh 已发布到 npm。`prepare:runtime` 从 Node.js 官方发行服务下载 Node.js 24.17.0，在解压前验证其 SHA-256 条目，并在兼容的构建宿主上执行准备完成的二进制文件以验证其报告版本。它复制桌面包声明的 pnpm 版本，并把两个运行时版本记录进发布种子。`prepare:seed` 生成本地核心包映射，使用禁用全局 virtual store 的内置 pnpm 从 npm 物化外部生产依赖并禁用生命周期脚本，删除 `node_modules` 以及所有临时 pnpm cache、config 和 state，证明完整依赖图可以离线安装并包含两个 Desktop Host 文件，在适用时执行 macOS 重写，再通过一次离线安装证明重写后的 store，删除临时 pnpm 项目注册，然后把松散 store 替换为 16 个确定性的未压缩 tar 分片。它会解包这些最终分片，并在生成清单前验证每个内嵌 macOS 签名。后续 GUI 插件操作保留本地核心包映射，同时从固定的 Desktop npm registry 解析插件包及其外部依赖。`electron-builder` 把平台产物写到 `apps/desktop/.desktop-build/artifacts`。
 
 未压缩产物包含四块相互独立的体积：Electron、离线 seed store 分片与本地 dsh tarball、上游 Node.js 与 pnpm 运行时，以及很小的桌面壳应用。分片不压缩，使外层 DMG、ZIP 或 NSIS 压缩器与差分更新器可以处理稳定的数据区间。文件系统占用不等于安装包下载大小，因此必须分别测量。打包应用首次启动时还会先把 seed store 解包到 `$DSH_HOME/desktop/pnpm/store`，再安装可写 profile，因此发布验证必须同时测量应用与 Harness home 的磁盘占用。
 
@@ -119,7 +135,7 @@ pnpm run prepare:desktop
 
 打包应用会在主窗口打开十秒后检查已配置的发布流；**检查更新…** 菜单项会手动触发同一检查。发现可用版本时，应用打开一个原生确认弹窗。用户确认后，应用下载并验证已签名的 Desktop 发布、停止 dsh 子进程，并把安装与重启交给 electron-updater。下次启动会先校准版本绑定的 seed，再重新打开产品窗口。没有 updater 配置的构建不会发起网络更新请求，并会报告当前已是最新版本。
 
-发布构建通过 `DSH_DESKTOP_SHELL_UPDATE_URL` 配置 electron-updater 使用的 generic 更新服务。设置该变量后，electron-builder 会生成需要与更新 blockmap 和安装包一起发布的频道元数据；未配置的本地构建不会生成该元数据。NSIS 差分包与 macOS ZIP 目标让 electron-updater 可以复用未变化的数据块；供手动安装的 DMG 经过公证，但不生成 blockmap，因为它不是 macOS updater 的载荷。Seed 与桌面壳仍属于同一个签名 Desktop 发布。Windows 签名和 macOS 公证凭据使用 electron-builder 的标准环境变量；必填 Desktop 发布环境选择构建所验证的应用身份与 macOS 签名身份。
+发布构建通过 `DSH_DESKTOP_SHELL_UPDATE_URL` 配置 electron-updater 使用的 generic 更新服务。设置该变量后，electron-builder 会生成需要与更新 blockmap 和安装包一起发布的频道元数据；未配置的本地构建不会生成该元数据。NSIS 差分包与 macOS ZIP 目标让 electron-updater 可以复用未变化的数据块；供手动安装的 DMG 经过公证，但不生成 blockmap，因为它不是 macOS updater 的载荷。Seed 与桌面壳仍属于同一个签名 Desktop 发布。macOS 签名与公证凭据使用 electron-builder 的标准环境变量；Windows EV 签名使用上文所述的公开证书、已验证 SignTool、SafeNet 容器和 runner PIN。必填 Desktop 发布环境选择构建所验证的应用身份与平台签名身份。
 
 ## 底层开发覆盖项
 

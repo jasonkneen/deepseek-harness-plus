@@ -47,15 +47,12 @@ describe('desktop macOS release signature', () => {
     expect(typeof config.artifactBuildCompleted).toBe('function')
   })
 
-  it('does not require macOS identifiers for a Windows target', async () => {
+  it('validates Windows signing without requiring macOS identifiers for a Windows target', async () => {
     const { createElectronBuilderConfig } = await import('../electron-builder.config.mjs')
-    expect(createElectronBuilderConfig({
+    expect(() => createElectronBuilderConfig({
       DSH_DESKTOP_APP_ID: RELEASE_ENVIRONMENT.DSH_DESKTOP_APP_ID,
       DSH_DESKTOP_TARGET_PLATFORM: 'win32',
-    }, 'win32').mac).toMatchObject({
-      identity: undefined,
-      forceCodeSigning: true,
-    })
+    }, 'win32')).toThrow(/DSH_DESKTOP_WINDOWS_CER_FILE/u)
   })
 
   it('accepts the configured authority and team', () => {

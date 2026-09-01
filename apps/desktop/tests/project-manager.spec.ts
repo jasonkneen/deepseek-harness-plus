@@ -200,6 +200,7 @@ describe('desktop project transactions', () => {
     expect(invocation.args).toContain('--offline')
     expect(invocation.args).toContain('--trust-lockfile')
     expect(invocation.args).toContain(`--config.store-dir=${paths.pnpm.store}`)
+    expect(invocation.args).toContain('--config.enable-global-virtual-store=false')
     expect(invocation.args).toContain('--config.registry=https://registry.npmjs.org/')
     expect(invocation.env.NPM_CONFIG_REGISTRY).toBe('https://registry.npmjs.org/')
     expect(invocation.env.NPM_CONFIG_STORE_DIR).toBe(paths.pnpm.store)

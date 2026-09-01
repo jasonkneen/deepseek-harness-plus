@@ -74,6 +74,7 @@ function runPnpm(args: readonly string[]): Promise<void> {
       PNPM,
       '--config.registry=https://registry.npmjs.org/',
       `--config.store-dir=${STORE_ROOT}`,
+      '--config.enable-global-virtual-store=false',
       `--config.userconfig=${userConfig}`,
       command,
       ...commandArgs,
@@ -151,7 +152,10 @@ async function main(): Promise<void> {
       readFileSync(join(SEED_ROOT, 'pnpm-lock.yaml'), 'utf8'),
       readDesktopCorePackageSet(SEED_ROOT, release.version),
     )
-    await runPnpm(['fetch', '--prod', '--frozen-lockfile'])
+    const installedModules = join(SEED_ROOT, 'node_modules')
+    await runPnpm(['install', '--prod', '--frozen-lockfile', '--trust-lockfile', '--ignore-scripts'])
+    rmSync(installedModules, { recursive: true, force: true })
+    rmSync(PNPM_BUILD_STATE, { recursive: true, force: true })
     await verifyOfflineInstallation(release)
     const targetPlatform = process.env.DSH_DESKTOP_TARGET_PLATFORM ?? process.platform
     let signedMachOFiles: number | undefined

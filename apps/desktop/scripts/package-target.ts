@@ -10,6 +10,13 @@ const REPOSITORY_ROOT = resolve(APP_ROOT, '..', '..')
 const DSH_PACK_ROOT = join(REPOSITORY_ROOT, 'dist', 'npm')
 const VENDOR_PACK_ROOT = join(REPOSITORY_ROOT, 'dist', 'npm-vendor')
 const LANDLOCK_PACK_ROOT = join(REPOSITORY_ROOT, 'dist', 'npm-landlock')
+const WINDOWS_SIGNING_ENV_PREFIX = 'DSH_DESKTOP_WINDOWS_'
+const WINDOWS_SIGNING_ENV_NAMES = [
+  'DSH_DESKTOP_WINDOWS_CER_FILE',
+  'DSH_DESKTOP_WINDOWS_KEY_CONTAINER',
+  'DSH_DESKTOP_WINDOWS_SIGNTOOL',
+  'DSH_DESKTOP_WINDOWS_TOKEN_PIN',
+] as const
 
 /** Fixed platform and architecture identifiers exposed by package scripts. */
 export type DesktopPackageTargetName = 'mac-arm64' | 'mac-x64' | 'win-x64'
@@ -45,6 +52,16 @@ const TARGETS: Record<DesktopPackageTargetName, DesktopPackageTarget> = {
     builderPlatform: '--win',
     builderArch: '--x64',
   },
+}
+
+/**
+ * Remove Windows signing configuration from package preparation subprocesses.
+ * @param environment - Packaging command environment.
+ * @returns A copy without Windows signing fields.
+ */
+export function withoutWindowsSigningEnvironment(environment: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  return Object.fromEntries(Object.entries(environment)
+    .filter(([name]) => !name.startsWith(WINDOWS_SIGNING_ENV_PREFIX)))
 }
 
 function isTargetName(value: string): value is DesktopPackageTargetName {
@@ -149,24 +166,29 @@ function runPnpm(
 async function main(): Promise<void> {
   const invocation = parseDesktopPackageInvocation(process.argv.slice(2))
   const { target } = invocation
+  const buildEnv = withoutWindowsSigningEnvironment(process.env)
   const targetEnv: NodeJS.ProcessEnv = {
-    ...process.env,
+    ...buildEnv,
     DSH_DESKTOP_TARGET_PLATFORM: target.platform,
     DSH_DESKTOP_TARGET_ARCH: target.arch,
   }
-  await runPnpm(['run', 'build:official'], process.env, REPOSITORY_ROOT)
-  await runPnpm(['run', 'release:pack', '--family', 'dsh', '--out', DSH_PACK_ROOT], process.env, REPOSITORY_ROOT)
-  await runPnpm(['run', 'release:pack', '--family', 'vendor', '--out', VENDOR_PACK_ROOT], process.env, REPOSITORY_ROOT)
+  const electronBuilderEnv = { ...targetEnv }
+  for (const name of WINDOWS_SIGNING_ENV_NAMES) {
+    if (process.env[name] !== undefined) electronBuilderEnv[name] = process.env[name]
+  }
+  await runPnpm(['run', 'build:official'], buildEnv, REPOSITORY_ROOT)
+  await runPnpm(['run', 'release:pack', '--family', 'dsh', '--out', DSH_PACK_ROOT], buildEnv, REPOSITORY_ROOT)
+  await runPnpm(['run', 'release:pack', '--family', 'vendor', '--out', VENDOR_PACK_ROOT], buildEnv, REPOSITORY_ROOT)
   rmSync(LANDLOCK_PACK_ROOT, { recursive: true, force: true })
   mkdirSync(LANDLOCK_PACK_ROOT, { recursive: true })
-  await runPnpm(['--dir', 'native/landlock-run', 'run', 'build:ts'], process.env, REPOSITORY_ROOT)
+  await runPnpm(['--dir', 'native/landlock-run', 'run', 'build:ts'], buildEnv, REPOSITORY_ROOT)
   await runPnpm([
     '--dir',
     'native/landlock-run/packages/entry',
     'pack',
     '--pack-destination',
     LANDLOCK_PACK_ROOT,
-  ], process.env, REPOSITORY_ROOT)
+  ], buildEnv, REPOSITORY_ROOT)
   await runPnpm(['run', 'prepare:runtime'], targetEnv)
   await runPnpm(['run', 'prepare:packages'], targetEnv)
   await runPnpm(['run', 'prepare:seed'], targetEnv)
@@ -179,7 +201,7 @@ async function main(): Promise<void> {
     target.builderPlatform,
     target.builderArch,
     ...(invocation.directory ? ['--dir'] : []),
-  ], targetEnv)
+  ], electronBuilderEnv)
 }
 
 if (process.argv[1] !== undefined && import.meta.filename === resolve(process.argv[1])) await main()

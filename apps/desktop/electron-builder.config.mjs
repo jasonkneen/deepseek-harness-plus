@@ -5,6 +5,10 @@ import {
 } from './scripts/desktop-release-environment.mjs'
 import { notarizeMacOSDiskImageArtifact } from './scripts/notarize-macos-disk-images.mjs'
 import { verifyMacOSSignatureAfterSign } from './scripts/verify-macos-signature.mjs'
+import {
+  createWindowsTokenSigner,
+  installWindowsNsisBootstrapSigner,
+} from './scripts/windows-sign.mjs'
 
 /**
  * Create electron-builder configuration from one release environment.
@@ -16,8 +20,20 @@ export function createElectronBuilderConfig(env = process.env, hostPlatform = pr
   const appId = resolveDesktopAppId(env)
   const targetPlatform = env.DSH_DESKTOP_TARGET_PLATFORM
   const packagesMacOS = targetPlatform === 'darwin' || (targetPlatform === undefined && hostPlatform === 'darwin')
+  const packagesWindows = targetPlatform === 'win32'
   const macOSSigning = packagesMacOS ? resolveMacOSSigningEnvironment(env) : undefined
   if (packagesMacOS) resolveMacOSNotarizationEnvironment(env)
+  const windowsSigner = packagesWindows
+    ? createWindowsTokenSigner({
+        certificateFile: env.DSH_DESKTOP_WINDOWS_CER_FILE,
+        signTool: env.DSH_DESKTOP_WINDOWS_SIGNTOOL,
+        tokenPin: env.DSH_DESKTOP_WINDOWS_TOKEN_PIN,
+        keyContainer: env.DSH_DESKTOP_WINDOWS_KEY_CONTAINER,
+      })
+    : undefined
+  if (windowsSigner !== undefined) {
+    installWindowsNsisBootstrapSigner({ sign: windowsSigner })
+  }
   const publishUrl = env.DSH_DESKTOP_SHELL_UPDATE_URL
   return {
     appId,
@@ -60,6 +76,11 @@ export function createElectronBuilderConfig(env = process.env, hostPlatform = pr
       )
     },
     win: {
+      forceCodeSigning: true,
+      signtoolOptions: {
+        sign: windowsSigner,
+        signingHashAlgorithms: ['sha256'],
+      },
       target: ['nsis'],
     },
     linux: {
