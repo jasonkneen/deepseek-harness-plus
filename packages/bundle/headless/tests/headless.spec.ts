@@ -2,15 +2,14 @@
 
 import { afterEach, describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
-import AgentRegistry, { agentEvents } from '@deepseek-ai/dsh-agent'
+import AgentRegistry from '@deepseek-ai/dsh-agent'
 import type { Agent, AgentHandle, CreateAgentOptions } from '@deepseek-ai/dsh-agent'
 import AgentDefaultModelConfig from '@deepseek-ai/dsh-agent-default-model'
 import { createAssistantMessage } from '@deepseek-ai/dsh-llm'
 import SessionStore from '@deepseek-ai/dsh-session'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import type { Session, UserMessage } from '@deepseek-ai/dsh-session'
-import { ReactLoopInbox } from '@deepseek-ai/dsh-agent-loop'
-import { unsupportedInbox } from '@deepseek-ai/dsh-agent-loop-testkit'
+import { createInboxFixture } from '@deepseek-ai/dsh-agent-loop-testkit'
 import { apply, Config, internals } from '../src/index.ts'
 
 const originalInternals = { ...internals }
@@ -69,34 +68,32 @@ async function bench(script: Script): Promise<{
       const session = ctx.sessions.create(options.sessionId, {
         ...options.meta === undefined ? {} : { meta: options.meta },
       })
+      const fixture = createInboxFixture(ctx.sessionProjections, session)
       let idle = Promise.resolve()
       const agent: Agent = {
         id: session.id,
         options: options.agentOptions ?? {},
         session,
-        inbox: unsupportedInbox(),
+        inbox: fixture.inbox,
         status: 'idle',
         ctx: ownerCtx,
         cancel: () => {},
         runMaintenance: () => Promise.reject(new Error('not used')),
         send: () => {},
-        followup: () => { throw new Error('scripted Agent Inbox is not initialized') },
+        followup: (message: UserMessage) => {
+          fixture.inbox.append('next-turn', message)
+          const claimed = fixture.claim('next-turn')
+          const [prompt] = claimed
+          if (prompt === undefined || claimed.length !== 1) throw new Error('scripted Agent expected one claimed prompt')
+          idle = Promise.resolve().then(() => script.afterPrompt(session, prompt))
+        },
         steer: () => {},
         inject: () => {},
         whenIdle: () => idle,
       }
       const agentCtx = ownerCtx.extend({ agent })
-      const inbox = new ReactLoopInbox(ctx.sessionProjections, session, agentEvents(ctx, agent))
       Object.assign(agent, {
-        inbox,
         ctx: agentCtx,
-        followup: (message: UserMessage) => {
-          inbox.append('next-turn', message)
-          const claimed = inbox.claim('next-turn', 1)
-          const [prompt] = claimed
-          if (prompt === undefined || claimed.length !== 1) throw new Error('scripted Agent expected one claimed prompt')
-          idle = Promise.resolve().then(() => script.afterPrompt(session, prompt))
-        },
       })
       await options.setup?.(agentCtx)
       script.before?.(session)

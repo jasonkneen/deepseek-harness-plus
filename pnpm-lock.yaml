@@ -8919,6 +8919,10 @@ importers:
         version: link:../../core/tools
 
   packages/test-support/agent-loop-testkit:
+    dependencies:
+      zod:
+        specifier: ^4.4.3
+        version: 4.4.3
     devDependencies:
       '@deepseek-ai/cordis':
         specifier: workspace:^

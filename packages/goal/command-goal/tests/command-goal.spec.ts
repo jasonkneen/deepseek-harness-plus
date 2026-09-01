@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
-import AgentRegistry, { agentEvents } from '@deepseek-ai/dsh-agent'
+import AgentRegistry from '@deepseek-ai/dsh-agent'
 import type { Agent, AgentStatus } from '@deepseek-ai/dsh-agent'
 import CommandRuntime from '@deepseek-ai/dsh-commands'
 import GoalService from '@deepseek-ai/dsh-goal'
@@ -9,8 +9,7 @@ import type { GoalRef } from '@deepseek-ai/dsh-goal'
 import SessionStore, { Session, SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import * as commandGoal from '@deepseek-ai/dsh-command-goal'
-import { ReactLoopInbox } from '@deepseek-ai/dsh-agent-loop'
-import { unsupportedInbox } from '@deepseek-ai/dsh-agent-loop-testkit'
+import { createInboxFixture } from '@deepseek-ai/dsh-agent-loop-testkit'
 
 interface Harness {
   readonly ctx: Context
@@ -23,12 +22,13 @@ interface Harness {
 function stubAgent(ctx: Context, id: string): { agent: Agent; session: Session } {
   // Store-created: the command executor durably logs lifecycle events on it.
   const session = ctx.sessions.create(SessionId(id))
+  const { inbox } = createInboxFixture(ctx.sessionProjections, session)
   let status: AgentStatus = 'idle'
   const agent: Agent = {
     id: session.id,
     options: {},
     session,
-    inbox: unsupportedInbox(),
+    inbox,
     ctx: new Context(),
     get status() { return status },
     send: () => {},
@@ -39,9 +39,6 @@ function stubAgent(ctx: Context, id: string): { agent: Agent; session: Session }
     runMaintenance: task => task(new AbortController().signal),
     whenIdle() { return Promise.resolve() },
   }
-  Object.assign(agent, {
-    inbox: new ReactLoopInbox(ctx.sessionProjections, session, agentEvents(ctx, agent)),
-  })
   return { agent, session }
 }
 

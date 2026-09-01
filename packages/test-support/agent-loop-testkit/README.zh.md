@@ -1,5 +1,5 @@
 ---
-description: "为 Agent 与 agent-loop 测试提供先决依赖挂载和快速失败的 Inbox 桩。"
+description: "为 agent-loop 测试提供先决依赖挂载、基于会话的结构化 Inbox fixture 和快速失败的 Inbox 桩。"
 kind: "package-library"
 ---
 
@@ -9,7 +9,7 @@ kind: "package-library"
 
 ## 概述
 
-`dsh-agent-loop-testkit` 为测试在加载具体 `AgentLoop` 之前所需的全部标准先决服务——LLM（大语言模型）运行时、会话存储、会话投影注册表、系统提示词注册表、工具注册表与 agent（智能体）注册表——按依赖顺序一键挂载。loop 本身、适配器、可选插件、agent 与清理仍由测试掌控，因此每个场景都保持自己的加载顺序与拓扑。它还为不测试待处理输入的 Agent 桩提供一个快速失败且不支持操作的 Inbox 占位值。当测试对象是 loop 行为而非服务接线时使用本包；针对注入失败或部分拓扑的测试会直接挂载其依赖。它自身不注册任何模型可见行为。
+`dsh-agent-loop-testkit` 为测试在加载具体 `AgentLoop` 之前所需的全部标准先决服务——LLM（大语言模型）运行时、会话存储、会话投影注册表、系统提示词注册表、工具注册表与 agent（智能体）注册表——按依赖顺序一键挂载。loop 本身、适配器、可选插件、agent 与清理仍由测试掌控，因此每个场景都保持自己的加载顺序与拓扑。它还为消费方测试提供基于会话的结构化 Inbox fixture，并为不测试待处理输入的桩提供一个快速失败且不支持操作的 Inbox 占位值。当测试对象是 loop 行为而非服务接线时使用本包；针对注入失败或部分拓扑的测试会直接挂载其依赖。它自身不注册任何模型可见行为。
 
 ## 目录
 
@@ -43,16 +43,20 @@ await ctx.plugin(AgentLoop, { agents: [] })
 
 挂载辅助函数按依赖顺序激活 LLM、会话、会话投影、系统提示词、工具与 agent 服务，并在 loop 挂载前返回。系统提示词与工具注册表配置可通过 `options` 转发；除服务自有的默认值外，本辅助函数不提供测试默认值。
 
-### 在 Inbox 测试之外为 Agent 提供桩
+### 构造结构化 Agent 桩
 
-仅当测试对象不涉及待处理的 Agent 输入时才使用 `unsupportedInbox()`。它公开空的待处理列表，并在每次变更时抛错，因此意外的 Inbox 依赖会在首次写入时失败。测试 Inbox 行为时，应改为从 `@deepseek-ai/dsh-agent-loop` 构造 `ReactLoopInbox`。
+当待处理输入属于测试对象时，使用 `createInboxFixture(ctx.sessionProjections, session)`。它会返回供 Agent 对象字面量使用的 `inbox`，以及供测试驱动使用的独立 `claim` 操作。应先创建 fixture，再构造 Agent 对象字面量，使对象从构造开始就满足必需的结构化接口。仅当测试对象不涉及待处理的 Agent 输入时才使用 `unsupportedInbox()`；它公开空的待处理列表，并在每次变更时抛错，因此意外的 Inbox 依赖会在首次写入时失败。
 
 ```ts
-import { unsupportedInbox } from '@deepseek-ai/dsh-agent-loop-testkit'
+import { createInboxFixture } from '@deepseek-ai/dsh-agent-loop-testkit'
 
+declare const ctx: import('@deepseek-ai/cordis').Context
+declare const session: Parameters<typeof createInboxFixture>[1]
+
+const fixture = createInboxFixture(ctx.sessionProjections, session)
 const agent = {
   // ...
-  inbox: unsupportedInbox(),
+  inbox: fixture.inbox,
 }
 ```
 
@@ -76,7 +80,7 @@ const agent = {
 
 ### 设计
 
-`mountAgentLoopTestDependencies` 按固定依赖顺序——LLM、会话、会话投影注册表、系统提示词注册表、工具注册表、agent 注册表——挂载六个服务插件，并刻意在 `AgentLoop` 之前停下，使调用方控制 loop 加载顺序与待测拓扑。[`src/inbox.ts`](src/inbox.ts) 只提供快速失败且不支持操作的占位值，不会重现具体 Inbox 算法。挂载实现位于 [`src/index.ts`](src/index.ts)。本测试支持包不持有任何生产事件流或可变数据，因此不发布伴生入口；消费它的测试套件会直接检验其行为。
+`mountAgentLoopTestDependencies` 按固定依赖顺序——LLM、会话、会话投影注册表、系统提示词注册表、工具注册表、agent 注册表——挂载六个服务插件，并刻意在 `AgentLoop` 之前停下，使调用方控制 loop 加载顺序与待测拓扑。[`src/inbox.ts`](src/inbox.ts) 持有针对公开持久 Inbox 事件与状态约定的测试专用投影定义、结构化命令 facade、驱动方 claim 操作，以及快速失败且不支持操作的占位值。它不会导入包内部的 loop 实现。挂载实现位于 [`src/index.ts`](src/index.ts)。本测试支持包不持有任何生产事件流或可变数据，因此不发布伴生入口；消费它的测试套件会直接检验其行为。
 
 </details>
 
@@ -112,7 +116,9 @@ const agent = {
 这些限制说明辅助工具不共享什么。它们是当前包约束，不是任务积压。
 
 - **只共享必需的先决主干**——适配器、可选插件、`AgentLoop`、agent 与上下文清理仍由调用方负责，以使特定场景的挂载顺序清晰可见。
-- **不支持操作的 Inbox 不接受变更**——只要待处理输入属于测试对象，就应使用具体 `ReactLoopInbox`。
+- **结构化 fixture 只发出持久会话事件**——它不会复现由 loop 实现持有的实时 `agent/inbox/inserted`、`agent/inbox/claimed` 或 `agent/inbox/discarded` 通知。
+- **结构化 fixture 接受受信的测试事件**——它不会重复生产 provider 的持久 splice 校验；无效历史覆盖由聚焦的 `agent-loop` 测试持有。
+- **不支持操作的 Inbox 不接受变更**——只要待处理输入属于测试对象，就应使用 `createInboxFixture()`。
 
 <a id="dev-note"></a>
 ### 开发备注

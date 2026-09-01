@@ -98,7 +98,7 @@ After `agent/request`, `ctx.llm.prepareCall()` validates adapter-owned fields an
 |---|---|
 | [`src/index.ts`](src/index.ts) | Plugin entry: `AgentLoop` service, config schema, declarative agent startup, factory registration |
 | [`src/agent.ts`](src/agent.ts) | The concrete `ReactLoopAgent` driver: inbox, turn/step machine, cancellation |
-| [`src/inbox.ts`](src/inbox.ts) | Exported `ReactLoopInbox`: durable projection, structural commands, and loop-only claim state |
+| [`src/inbox.ts`](src/inbox.ts) | Package-internal `ReactLoopInbox`: durable projection, structural commands, and loop-only claim state |
 | [`src/tool-calls.ts`](src/tool-calls.ts) | Tool scheduling: exclusive barriers and the bounded parallel pool |
 | [`src/runtime-context.ts`](src/runtime-context.ts) | Per-step runtime-context snapshot handling |
 | [`src/constants.ts`](src/constants.ts) | `DEFAULT_MAX_PARALLEL_TOOL_CALLS` |
@@ -110,7 +110,7 @@ Creation is one rollback-covered transaction: construct a private session, concr
 
 ### Turn and step flow
 
-The driver owns one agent for its lifetime and runs inside `ctx.agents.withInitiator(agent, ...)`. Its `ReactLoopInbox` constructor registers the standard `inbox` projection on the agent scope, then uses that projection for structural commands and loop-only claims; focused consumer tests construct the exported class to exercise the same implementation. Registry reference counting keeps the shared key active until the last agent scope unloads. At a turn boundary the driver opens the durable turn, then atomically claims pending next-step input plus one queued prompt; between steps it claims only next-step input. `agent/pre-step` decides what enters the step. An entered decision appends its complete `user/message` batch before the driver can claim again, while a rejected decision appends none. Each successful model call appends one `assistant/message` anchor citing its chunk seqs, and a cancelled stream appends an `interrupted: true` anchor with the delivered prefix so the next request contains what the user saw. Within a step, exclusive calls form barriers and parallel-safe calls use the bounded rolling pool; policy, durable results, and result context remain model-ordered.
+The driver owns one agent for its lifetime and runs inside `ctx.agents.withInitiator(agent, ...)`. Its package-internal `ReactLoopInbox` constructor registers the standard `inbox` projection on the agent scope, then uses that projection for structural commands and loop-only claims. Registry reference counting keeps the shared key active until the last agent scope unloads. At a turn boundary the driver opens the durable turn, then atomically claims pending next-step input plus one queued prompt; between steps it claims only next-step input. `agent/pre-step` decides what enters the step. An entered decision appends its complete `user/message` batch before the driver can claim again, while a rejected decision appends none. Each successful model call appends one `assistant/message` anchor citing its chunk seqs, and a cancelled stream appends an `interrupted: true` anchor with the delivered prefix so the next request contains what the user saw. Within a step, exclusive calls form barriers and parallel-safe calls use the bounded rolling pool; policy, durable results, and result context remain model-ordered.
 
 ### Failure and cancellation
 

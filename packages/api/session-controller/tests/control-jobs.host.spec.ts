@@ -1,5 +1,5 @@
 import { Context } from '@deepseek-ai/cordis'
-import AgentRegistry, { agentEvents } from '@deepseek-ai/dsh-agent'
+import AgentRegistry from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { JobOutcome } from '@deepseek-ai/dsh-jobs'
 import LocalJobRegistry from '@deepseek-ai/dsh-jobs-local'
@@ -9,7 +9,6 @@ import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import { describe, expect, it } from 'vitest'
 import { SessionControlController } from '../src/control.ts'
 import type { SessionControlFrame } from '../src/types.ts'
-import { ReactLoopInbox } from '@deepseek-ai/dsh-agent-loop'
 import { unsupportedInbox } from '@deepseek-ai/dsh-agent-loop-testkit'
 
 type BaselineFrame = Extract<SessionControlFrame, { type: 'baseline' }>
@@ -60,8 +59,6 @@ async function harness(withJobs: boolean): Promise<{
     runMaintenance: task => task(new AbortController().signal),
     whenIdle: () => Promise.resolve(),
   }
-  const inbox = new ReactLoopInbox(ctx.sessionProjections, session, agentEvents(ctx, agent))
-  Object.assign(agent, { inbox })
   ctx.agents.register(agent)
   const control = new SessionControlController(ctx)
   await new Promise(resolve => setTimeout(resolve, 0))

@@ -9,7 +9,7 @@
 
 | 事件 | 模式 | 声明位置 | 派发方 | 监听方 |
 | --- | --- | --- | --- | --- |
-| `agent-loop/config-start-failed` | `emit` | [`packages/core/agent-loop/src/index.ts:241`](../packages/core/agent-loop/src/index.ts) | [`agent-loop`](../packages/core/agent-loop) (`events.dispatch`) | - |
+| `agent-loop/config-start-failed` | `emit` | [`packages/core/agent-loop/src/index.ts:239`](../packages/core/agent-loop/src/index.ts) | [`agent-loop`](../packages/core/agent-loop) (`events.dispatch`) | - |
 | `agent-preset/selected` | `emit` | [`packages/preset/agent-presets/src/types.ts:80`](../packages/preset/agent-presets/src/types.ts) | [`agent-presets`](../packages/preset/agent-presets) (`emit`) | `remotes` |
 | `agent/created` | `emit` | [`packages/core/agent/src/runtime-types.ts:220`](../packages/core/agent/src/runtime-types.ts) | [`agent`](../packages/core/agent) (`events.dispatch`) | [`agent-presets`](../packages/preset/agent-presets), [`file-reference-local`](../packages/context/file-reference-local), [`goal-round-driver`](../packages/goal/goal-round-driver), [`schedule`](../packages/schedule/schedule), `tool-agent-team`, [`tool-subagent`](../packages/subagent/tool-subagent) |
 | `agent/disposed` | `emit` | [`packages/core/agent/src/runtime-types.ts:229`](../packages/core/agent/src/runtime-types.ts) | [`agent`](../packages/core/agent) (`events.dispatch`) | [`agent-loop`](../packages/core/agent-loop), [`file-reference-local`](../packages/context/file-reference-local), [`goal-round-driver`](../packages/goal/goal-round-driver), [`subagent`](../packages/subagent/subagent), `tool-agent-team`, [`tool-subagent`](../packages/subagent/tool-subagent) |

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
 import AgentRegistry, { agentEvents } from '@deepseek-ai/dsh-agent'
-import type { Agent, AgentStatus } from '@deepseek-ai/dsh-agent'
+import type { Agent, AgentStatus, Inbox } from '@deepseek-ai/dsh-agent'
 import { turnBoundaryProjectionDefinition } from '@deepseek-ai/dsh-agent-loop'
 import GoalService, { GoalId } from '@deepseek-ai/dsh-goal'
 import type { GoalRef } from '@deepseek-ai/dsh-goal'
@@ -14,15 +14,18 @@ import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
 import type { ToolExecutionResult } from '@deepseek-ai/dsh-tools'
 import * as toolGoal from '@deepseek-ai/dsh-tool-goal'
-import { ReactLoopInbox } from '@deepseek-ai/dsh-agent-loop'
-import { unsupportedInbox } from '@deepseek-ai/dsh-agent-loop-testkit'
+import {
+  createInboxFixture,
+  type InboxFixture,
+} from '@deepseek-ai/dsh-agent-loop-testkit'
 
 const testToolSignal = new AbortController().signal
 
 interface StubAgent {
   readonly agent: Agent
   readonly session: Session
-  readonly inbox: ReactLoopInbox
+  readonly inbox: Inbox
+  readonly fixture: InboxFixture
   setStatus(status: AgentStatus): void
 }
 
@@ -40,12 +43,13 @@ function stubAgent(rawId: string, supplied?: Session, suppliedCtx?: Context): St
   if (suppliedCtx === undefined) {
     if (agentCtx.sessions.get(session.id) !== session) agentCtx.sessions.enter(session)
   }
+  const fixture = createInboxFixture(agentCtx.sessionProjections, session)
   let status: AgentStatus = 'running'
   const agent: Agent = {
     id: session.id,
     options: {},
     session,
-    inbox: unsupportedInbox(),
+    inbox: fixture.inbox,
     get status() { return status },
     ctx: agentCtx,
     send: () => {},
@@ -58,9 +62,7 @@ function stubAgent(rawId: string, supplied?: Session, suppliedCtx?: Context): St
     runMaintenance: task => task(new AbortController().signal),
     whenIdle() { return Promise.resolve() },
   }
-  const inbox = new ReactLoopInbox(agentCtx.sessionProjections, session, agentEvents(agentCtx, agent))
-  Object.assign(agent, { inbox })
-  return { agent, session, inbox, setStatus(value) { status = value } }
+  return { agent, session, inbox: fixture.inbox, fixture, setStatus(value) { status = value } }
 }
 
 /** Open one message-triggered turn with its accepted model-visible input. */
@@ -73,7 +75,7 @@ function openTurn(stub: StubAgent, source: MessageSource, text = 'prompt'): numb
     source,
   })
   stub.agent.inbox.append('next-turn', message)
-  const claimed = stub.inbox.claim('next-turn', turn)
+  const claimed = stub.fixture.claim('next-turn')
   if (claimed.length === 0) throw new Error('expected queued turn input')
   stub.session.append('turn/start', { turn })
   for (const admitted of claimed) {

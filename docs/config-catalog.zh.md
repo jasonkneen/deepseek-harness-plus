@@ -113,7 +113,7 @@ export interface Config {
 
 依赖：[`AgentOptions`](subsystems/core.zh.md) · [`SessionId`](subsystems/core.zh.md)
 
-来源：[`packages/core/agent-loop/src/index.ts:313`](../packages/core/agent-loop/src/index.ts)
+来源：[`packages/core/agent-loop/src/index.ts:311`](../packages/core/agent-loop/src/index.ts)
 
 <a id="deepseek-aidsh-agent-presets"></a>
 

@@ -1,5 +1,5 @@
 import { Context } from '@deepseek-ai/cordis'
-import AgentRegistry, { agentEvents } from '@deepseek-ai/dsh-agent'
+import AgentRegistry from '@deepseek-ai/dsh-agent'
 import type { Agent, Inbox, ModelSelectionRef } from '@deepseek-ai/dsh-agent'
 import { AttachmentError, AttachmentId } from '@deepseek-ai/dsh-attachment'
 import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
@@ -10,8 +10,7 @@ import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import { describe, expect, it, vi } from 'vitest'
 import { ApiSessionAgentController } from '../src/agent.ts'
 import { SessionCommandController } from '../src/commands.ts'
-import { ReactLoopInbox } from '@deepseek-ai/dsh-agent-loop'
-import { unsupportedInbox } from '@deepseek-ai/dsh-agent-loop-testkit'
+import { createInboxFixture } from '@deepseek-ai/dsh-agent-loop-testkit'
 import { installSessionReadTestServices, testSessionPersistence } from './test-remote.ts'
 
 async function commandHarness(): Promise<{
@@ -27,13 +26,14 @@ async function commandHarness(): Promise<{
   await ctx.plugin(SessionProjectionRegistry)
   await ctx.plugin(AgentRegistry)
   const session = ctx.sessions.create(SessionId('commands-session'), { meta: { cwd: '/workspace' } })
+  const { inbox } = createInboxFixture(ctx.sessionProjections, session)
   const steer = vi.fn()
   const cancel = vi.fn()
   const agent: Agent = {
     id: session.id,
     options: {},
     session,
-    inbox: unsupportedInbox(),
+    inbox,
     status: 'running',
     ctx,
     send: () => {},
@@ -44,8 +44,6 @@ async function commandHarness(): Promise<{
     runMaintenance: task => task(new AbortController().signal),
     whenIdle: () => Promise.resolve(),
   }
-  const inbox = new ReactLoopInbox(ctx.sessionProjections, session, agentEvents(ctx, agent))
-  Object.assign(agent, { inbox })
   ctx.agents.register(agent)
   ctx.provide('workspaceRegistry', { get: () => undefined, list: () => [] } as never)
   ctx.provide('agentDefaultModel', {
