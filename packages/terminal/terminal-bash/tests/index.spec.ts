@@ -51,8 +51,10 @@ function config(): ResolvedConfig {
 
 function agent(ctx: Context, cwd?: string): Agent {
   const id = SessionId('agent')
-  const session = Session.create(id, undefined, { version: 0, id, createdAt: 0, ...cwd === undefined ? {} : { cwd } })
-  const agent: Agent = {
+  const session = Session.create(id, undefined, {
+    version: 0, id, createdAt: 0, isSeeded: false, ...cwd === undefined ? {} : { cwd },
+  })
+  return {
     id, options: {}, session, inbox: unsupportedInbox(),
     status: 'idle',
     ctx,
@@ -61,7 +63,6 @@ function agent(ctx: Context, cwd?: string): Agent {
     runMaintenance: task => task(new AbortController().signal),
     whenIdle: () => Promise.resolve(),
   }
-  return agent
 }
 
 function terminalHandle(): SubprocessTerminalHandle {

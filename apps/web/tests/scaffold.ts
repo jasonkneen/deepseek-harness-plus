@@ -67,6 +67,7 @@ import SessionStore, {
   packChunkRuns,
   SESSION_FORMAT_VERSION,
   SessionId,
+  SessionSeq,
   type Session,
   type SessionEvent,
   type SessionHeader,
@@ -801,8 +802,20 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
  * in-memory record-mode harvest, so the on-disk zstd default never matters.
  */
 function rawSessionLog(session: Session): string {
+  const header = session.header
   return [
-    JSON.stringify({ type: 'session', ...session.header }),
+    JSON.stringify({
+      type: 'session',
+      version: header.version,
+      id: header.id,
+      createdAt: header.createdAt,
+      ...header.cwd === undefined ? {} : { cwd: header.cwd },
+      ...header.parentSession === undefined ? {} : { parentSession: header.parentSession },
+      ...header.isSeeded ? { seedLength: Number(session.inheritedEventCount) } : {},
+      ...header.origin === undefined ? {} : { origin: header.origin },
+      ...header.delegationDepth === undefined ? {} : { delegationDepth: header.delegationDepth },
+      ...header.agentPreset === undefined ? {} : { agentPreset: header.agentPreset },
+    }),
     ...packChunkRuns(session.snapshotEvents()).map(record => JSON.stringify(record)),
     '',
   ].join('\n')
@@ -1030,6 +1043,7 @@ export async function seedSession(
     id: SessionId(id),
     createdAt: Date.now() - 60_000,
     cwd: scaffold.workspaceCwd,
+    isSeeded: false,
     delegationDepth: 0,
     ...agentPreset === undefined ? {} : { agentPreset },
   }
@@ -1054,11 +1068,12 @@ export async function seedBlankSession(
     id: SessionId(id),
     createdAt: Date.now() - 60_000,
     cwd,
+    isSeeded: false,
     delegationDepth: 0,
   }
   await persistSeedSession(scaffold, meta, [{
     type: 'session/end-seed',
-    seq: 0,
+    seq: SessionSeq(0),
     time: meta.createdAt,
     data: {},
   }])

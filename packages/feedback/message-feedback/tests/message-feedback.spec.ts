@@ -62,7 +62,11 @@ describe('MessageFeedbackService public contract', () => {
     })
 
     const fixture = messageFixture('corrupt-session')
-    persistence.setDurable({ meta: fixture.session.header, events: fixture.session.snapshotEvents() })
+    persistence.setDurable({
+      meta: fixture.session.header,
+      inheritedEventCount: fixture.session.inheritedEventCount,
+      events: fixture.session.snapshotEvents(),
+    })
     const corruption = new Error('stored log checksum mismatch')
     persistence.inspectFailure = corruption
     await expect(ctx.messageFeedback.list({ sessionId: fixture.session.id })).rejects.toBe(corruption)
@@ -518,9 +522,14 @@ describe('MessageFeedbackService durability ordering', () => {
     const fixture = messageFixture('cold-prefix')
     persistence.logical.set(fixture.session.id, {
       meta: fixture.session.header,
+      inheritedEventCount: fixture.session.inheritedEventCount,
       events: fixture.session.snapshotEvents(),
     })
-    persistence.setDurable({ meta: fixture.session.header, events: [] })
+    persistence.setDurable({
+      meta: fixture.session.header,
+      inheritedEventCount: fixture.session.inheritedEventCount,
+      events: [],
+    })
 
     await expect(ctx.messageFeedback.put({
       sessionId: fixture.session.id,

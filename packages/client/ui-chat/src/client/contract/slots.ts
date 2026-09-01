@@ -1,5 +1,6 @@
 /** Chat-owned Slot declarations and composed component props. */
 import type { MessageId } from '@deepseek-ai/dsh-llm/brand'
+import type { SessionSeq } from '@deepseek-ai/dsh-session/types'
 import type {
   ConversationTurnDataMap, MessageImageLoader, MessageImagesOwnerProps, RenderMessageImages, TurnLocation,
 } from '@deepseek-ai/dsh-client-ui-conversation/client'
@@ -119,7 +120,7 @@ export interface ChatViewInjected {
   openFile: (path: string) => Promise<void>
   loadOlder: () => void
   /** Jump loader: page history back through seq; resolves when the window covers it. */
-  loadThrough: (seq: number) => Promise<void>
+  loadThrough: (seq: SessionSeq) => Promise<void>
   loadImage: MessageImageLoader
   chatScroll: {
     save: (position: ChatScrollPosition | null) => void

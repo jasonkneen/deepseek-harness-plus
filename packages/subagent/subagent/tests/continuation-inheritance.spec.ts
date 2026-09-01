@@ -164,7 +164,8 @@ describe('continuable policy inheritance', () => {
     await waitNoActivation(ctx, started.childId)
 
     const loaded = await ctx.sessionPersistence.load(started.childId)
-    expect(loaded.meta.seedLength).toBeGreaterThan(0)
+    expect(loaded.meta.isSeeded).toBe(true)
+    expect(loaded.inheritedEventCount).toBeGreaterThan(0)
     expect(policyEvents(loaded.events)).toMatchObject([
       { type: 'approval/policy', data: { policy: 'never', source: 'delegation' } },
     ])
@@ -236,7 +237,8 @@ describe('continuable policy inheritance', () => {
     await waitNoActivation(ctx, started.childId)
 
     const loaded = await ctx.sessionPersistence.load(started.childId)
-    expect(loaded.meta.seedLength).toBeGreaterThan(0)
+    expect(loaded.meta.isSeeded).toBe(true)
+    expect(loaded.inheritedEventCount).toBeGreaterThan(0)
     expect(loaded.events.filter(event => event.type === 'sandbox/mode')).toMatchObject([
       { data: { mode: 'workspace-write' } },
       { data: { mode: 'read-only', source: 'delegation' } },

@@ -32,7 +32,8 @@ import type {
 } from '@deepseek-ai/dsh-agent'
 import { ReasoningEffortId, boundContextSummary, contentHasImage, createUserMessage, errorChain } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, MessageId, MessageSource } from '@deepseek-ai/dsh-llm'
-import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
+import { SessionLogOffset } from '@deepseek-ai/dsh-session'
+import type { SessionEvent, SessionId, SessionLogOffset as SessionLogOffsetType } from '@deepseek-ai/dsh-session'
 import type { SessionPersistence } from '@deepseek-ai/dsh-session-persistence'
 import type { SessionObservation, SessionQueryEngine } from '@deepseek-ai/dsh-session-query'
 import type { ToolRestriction } from '@deepseek-ai/dsh-tools'
@@ -240,6 +241,8 @@ interface MaterializeInputs {
   create?: {
     seed: readonly SessionEvent[]
     meta: NonNullable<CreateAgentOptions['meta']>
+    /** Exact parent-log prefix length inside {@link seed}. */
+    inheritedEventCount: SessionLogOffsetType
     /** Policy captured at the delegation boundary: the parent's sandbox override plus the approval pin. */
     delegatedPolicies: DelegatedPolicyOverrides
   }
@@ -460,7 +463,7 @@ export class SubagentContinuationManager {
     spec.signal.throwIfAborted()
     this.assertAdmitting(parent)
 
-    const lineageSeedLength = prepared.seed?.length ?? 0
+    const inheritedEventCount = SessionLogOffset(prepared.seed?.length ?? 0)
     const seed = seedDescriptorTurn(childId, prepared.seed, descriptor)
     const messageId = await this.locks.run(childId, async () => {
       spec.signal.throwIfAborted()
@@ -479,7 +482,12 @@ export class SubagentContinuationManager {
         childId,
         provider: spec.provider,
         parent,
-        create: { seed, meta: childSessionMeta(parent, childDepth, lineageSeedLength), delegatedPolicies },
+        create: {
+          seed,
+          meta: childSessionMeta(parent, childDepth, prepared.seed !== undefined),
+          inheritedEventCount,
+          delegatedPolicies,
+        },
         agentOptions,
         composition: { persona: request.persona, toolFilter: request.toolFilter },
         signal: spec.signal,
@@ -987,9 +995,7 @@ export class SubagentContinuationManager {
     // Fold only the child's own suffix: a fork seed replays the parent's log,
     // which may carry an ANCESTOR's descriptor when the parent is itself a
     // continuable child.
-    const descriptor = foldSubagentDescriptor(
-      source.events.slice(source.header.seedLength ?? 0),
-    )
+    const descriptor = foldSubagentDescriptor(source.events.slice(source.inheritedEventCount))
     if (descriptor === undefined || descriptor.mode !== 'continuable') {
       throw new SubagentError(
         `subagent "${childId}" has no supported continuation state and cannot be resumed; choose a different target`,
@@ -1143,6 +1149,7 @@ export class SubagentContinuationManager {
         sessionId: childId,
         meta: create.meta,
         seed: create.seed,
+        inheritedEventCount: create.inheritedEventCount,
         agentOptions: inputs.agentOptions,
         signal: inputs.signal,
         setup,

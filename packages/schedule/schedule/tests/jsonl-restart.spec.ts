@@ -106,7 +106,7 @@ describe('Schedule production JSONL restart', () => {
     await handle.agent.whenIdle()
     await expect(restarted.sessions.flush(handle.agent.session)).resolves.toBe(true)
     const dispatchedStored = await restarted.sessionPersistence.inspect(sessionId)
-    expect(foldScheduleEvents(dispatchedStored.events, dispatchedStored.meta.seedLength ?? 0).active)
+    expect(foldScheduleEvents(dispatchedStored.events, dispatchedStored.inheritedEventCount).active)
       .toEqual([])
     const dispatches = dispatchedStored.events.filter(event =>
       event.type === 'schedule/change' && event.data.operation === 'dispatch')

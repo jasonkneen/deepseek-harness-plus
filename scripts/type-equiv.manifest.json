@@ -475,6 +475,26 @@
       "source": "packages/core/session/src/types.ts"
     },
     {
+      "doc": "docs/subsystems/session.md",
+      "symbol": "SessionSeq",
+      "source": "packages/core/session/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/session.md",
+      "symbol": "SessionLogOffset",
+      "source": "packages/core/session/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/session.md",
+      "symbol": "SessionSeqCursor",
+      "source": "packages/core/session/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/session.md",
+      "symbol": "OptionalSessionSeq",
+      "source": "packages/core/session/src/types.ts"
+    },
+    {
       "doc": "docs/subsystems/todo.md",
       "symbol": "TodoItem",
       "source": "packages/todo/tool-todo/src/types.ts"
@@ -563,7 +583,17 @@
     },
     {
       "doc": "docs/subsystems/persistence.md",
+      "symbol": "SessionStorageMetadata",
+      "source": "packages/session/session-persistence/src/index.ts"
+    },
+    {
+      "doc": "docs/subsystems/persistence.md",
       "symbol": "SessionInspection",
+      "source": "packages/session/session-persistence/src/index.ts"
+    },
+    {
+      "doc": "docs/subsystems/persistence.md",
+      "symbol": "SessionEventSuffix",
       "source": "packages/session/session-persistence/src/index.ts"
     },
     {

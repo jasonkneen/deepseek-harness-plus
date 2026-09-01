@@ -39,8 +39,8 @@ async function setup(home: string, config: toolSkill.Config = {}): Promise<Conte
 
 function agentForCwd(cwd: string): Agent {
   const id = SessionId(`tool-skill-${cwd}`)
-  const session = Session.create(id, [], { version: 0, id, createdAt: 0, cwd })
-  const agent: Agent = {
+  const session = Session.create(id, [], { version: 0, id, createdAt: 0, cwd, isSeeded: false })
+  return {
     ctx: new Context(),
     id,
     options: {},
@@ -55,7 +55,6 @@ function agentForCwd(cwd: string): Agent {
     runMaintenance: task => task(new AbortController().signal),
     whenIdle: () => Promise.resolve(),
   }
-  return agent
 }
 
 function sessionAgent(session: Session, id = 'tool-skill-agent'): Agent {

@@ -308,8 +308,7 @@ export class TeamMailbox {
 
   /** Whether a target Session already contains the durable message identity. */
   private targetRecorded(session: Session, messageId: TeamMessageId): boolean {
-    const suffix = session.snapshotEvents(session.header.seedLength ?? 0)
-    return messageAccepted(suffix, message => message.source.kind === 'team-message'
+    return messageAccepted(session.ownEvents(), message => message.source.kind === 'team-message'
       && message.source.messageId === messageId)
   }
 
@@ -329,7 +328,7 @@ export class TeamMailbox {
   ): Promise<boolean | undefined> {
     try {
       const stored = await this.ctx.sessionPersistence.inspect(targetId, signal)
-      const suffix = stored.events.slice(stored.meta.seedLength ?? 0)
+      const suffix = stored.events.slice(stored.inheritedEventCount)
       return messageAccepted(suffix, message => message.source.kind === 'team-message'
         && message.source.messageId === messageId)
     } catch (error: unknown) {

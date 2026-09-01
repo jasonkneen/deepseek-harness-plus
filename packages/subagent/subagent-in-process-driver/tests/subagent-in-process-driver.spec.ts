@@ -204,7 +204,8 @@ describe('startInProcessRun', () => {
     const result = await run.result
     expect(text(result.output)).toBe('child answer')
     const child = ctx.agents.get(run.id)!
-    expect(child.session.header.seedLength).toBe(seed.length)
+    expect(child.session.header.isSeeded).toBe(true)
+    expect(child.session.inheritedEventCount).toBe(seed.length)
     expect(child.session.snapshotEvents().slice(0, seed.length)).toEqual(seed)
     await run.dispose()
   })

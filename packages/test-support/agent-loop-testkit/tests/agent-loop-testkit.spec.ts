@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
-import { Session, SessionId } from '@deepseek-ai/dsh-session'
+import { Session, SessionId, SessionSeq } from '@deepseek-ai/dsh-session'
 import { renderPrompt } from '@deepseek-ai/dsh-system-prompt'
 import {
   createInboxStub,
@@ -85,7 +85,7 @@ describe('dsh-agent-loop-testkit', () => {
     expect(() => { agent.inbox.append('next-step', turn) }).toThrow(`message "${turn.id}" is already pending`)
     const invalid = Session.create(SessionId('invalid-persisted-inbox'), [{
       type: 'agent/inbox/spliced',
-      seq: 0,
+      seq: SessionSeq(0),
       time: 1,
       data: { target: 'next-turn', start: 99, inserted: [] },
     }])

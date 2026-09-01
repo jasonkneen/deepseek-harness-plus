@@ -152,9 +152,8 @@ describe('dsh-tool-subagent-control', () => {
     const loaded = await ctx.sessionPersistence.load(started.childId)
     const promptIndex = loaded.events.findIndex(event => event.type === 'user/message'
       && event.data.content.some(block => block.type === 'text' && block.text === 'fork task'))
-    const seedLength = loaded.meta.seedLength
-    if (seedLength === undefined) throw new Error('expected a forked Session seed')
-    expect(promptIndex).toBeGreaterThanOrEqual(seedLength)
+    expect(loaded.meta.isSeeded).toBe(true)
+    expect(promptIndex).toBeGreaterThanOrEqual(loaded.inheritedEventCount)
     const prompt = loaded.events[promptIndex]
     if (prompt?.type !== 'user/message') throw new Error('expected the initial fork task')
     const texts = prompt.data.content.flatMap(block => block.type === 'text' ? [block.text] : [])

@@ -508,7 +508,8 @@ describe('SubagentRuntime.startContinuable', () => {
     // rather than restarting at 1, so the replayed child log stays balanced.
     expect(descriptorIndex).toBeGreaterThanOrEqual(0)
     expect(childTurn?.type === 'turn/start' && childTurn.data.turn).toBe(2)
-    expect(loaded.meta.seedLength).toBeGreaterThan(0)
+    expect(loaded.meta.isSeeded).toBe(true)
+    expect(loaded.inheritedEventCount).toBeGreaterThan(0)
   })
 
   it('records the declared persona in the descriptor and reapplies it on cold resume', async () => {

@@ -142,7 +142,7 @@ describe('ReactLoopInbox', () => {
     const childAgent = stubAgent('inbox-fork-child', { ctx, session: child })
     const childInbox = new ReactLoopInbox(ctx.sessionProjections, child, agentEvents(ctx, childAgent))
 
-    expect(child.header.seedLength).toBe(parent.snapshotEvents().length)
+    expect(child.inheritedEventCount).toBe(parent.snapshotEvents().length)
     expect(childInbox.nextTurn).toEqual([inherited])
 
     const own = createUserMessage({

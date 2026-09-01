@@ -10,7 +10,7 @@ import type { Agent, AgentHandle } from '@deepseek-ai/dsh-agent'
 import { composeEntries, loadOverlayPatches } from '@deepseek-ai/dsh-app-boot'
 import { ToolCallId, createUserMessage, LlmAdapter } from '@deepseek-ai/dsh-llm'
 import type { GenerateOptions, StreamChunk } from '@deepseek-ai/dsh-llm'
-import { SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
+import { SessionId, SessionLogOffset, type SessionEvent } from '@deepseek-ai/dsh-session'
 import {
   ScheduleId,
   createEveryScheduleRecord,
@@ -615,8 +615,12 @@ describe.skipIf(MODE === 'record')('web e2e: active Schedule catalog', () => {
     await workspace.attachSession(CATALOG_SESSION_ID)
 
     // Seed the zero-I/O list view before the Session is opened.
-    const catalog = await scaffold.ctx.sessionPersistence.readFrom(CATALOG_SESSION_ID, 0)
-    scaffold.ctx.sessionProjectionCache.coldSnapshot(catalog.meta, catalog.events)
+    const catalog = await scaffold.ctx.sessionPersistence.readFrom(CATALOG_SESSION_ID, SessionLogOffset(0))
+    scaffold.ctx.sessionProjectionCache.coldSnapshot(
+      catalog.meta,
+      catalog.inheritedEventCount,
+      catalog.events,
+    )
 
     browser = await chromium.launch()
     page = await browser.newPage({

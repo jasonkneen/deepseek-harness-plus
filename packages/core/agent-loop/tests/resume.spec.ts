@@ -5,8 +5,8 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import LlmRuntime from '@deepseek-ai/dsh-llm'
-import SessionStore, { SESSION_FORMAT_VERSION, Session, SessionId, SessionPreparation } from '@deepseek-ai/dsh-session'
-import type { SessionEvent, SessionHeader } from '@deepseek-ai/dsh-session'
+import SessionStore, { SESSION_FORMAT_VERSION, Session, SessionId, SessionLogOffset, SessionPreparation, SessionSeq } from '@deepseek-ai/dsh-session'
+import type { SessionEvent, SessionHeader, SessionLogOffset as SessionLogOffsetType } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
 import AgentRegistry, { type Agent } from '@deepseek-ai/dsh-agent'
@@ -45,8 +45,8 @@ async function persistSession(sessionId: SessionId): Promise<string> {
   // balanced completed turn is the smallest resumable log and avoids running
   // the model merely to construct this lifecycle fixture.
   const seed: SessionEvent[] = [
-    { type: 'turn/start', seq: 0, time: 1, data: { turn: 1 } },
-    { type: 'turn/end', seq: 1, time: 2, data: { turn: 1, reason: { kind: 'completed' } } },
+    { type: 'turn/start', seq: SessionSeq(0), time: 1, data: { turn: 1 } },
+    { type: 'turn/end', seq: SessionSeq(1), time: 2, data: { turn: 1, reason: { kind: 'completed' } } },
   ]
   const session = ctx.sessions.create(sessionId, { seed })
   await ctx.sessions.flush(session)
@@ -57,11 +57,16 @@ async function persistSession(sessionId: SessionId): Promise<string> {
 /** Build a detached preparation for lifecycle-race test doubles. */
 function preparationFromSnapshot(
   ctx: Context,
-  snapshot: { meta: SessionHeader; events: readonly SessionEvent[] },
+  snapshot: {
+    meta: SessionHeader
+    inheritedEventCount: SessionLogOffsetType
+    events: readonly SessionEvent[]
+  },
 ): SessionPreparation {
   return SessionPreparation.create(ctx.sessions.prepare(snapshot.meta.id, {
     seed: structuredClone(snapshot.events) as SessionEvent[],
     meta: structuredClone(snapshot.meta),
+    inheritedEventCount: snapshot.inheritedEventCount,
     seedSource: 'persistence',
   }))
 }
@@ -98,6 +103,7 @@ describe('the session-persistence Agent Note: AgentLoop factory create/resume', 
       version: SESSION_FORMAT_VERSION,
       id: sessionId,
       createdAt: 1,
+      isSeeded: false,
     })
     await first.ctx.sessionPersistence.append(sessionId, [
       {
@@ -565,27 +571,26 @@ describe('the session-persistence Agent Note: AgentLoop factory create/resume', 
   })
 
   it('resume of a forked session preserves the lineage, seed boundary, and delegation depth in the header', async () => {
-    // Lifecycle 1: persist a FORKED session (carries parentSession + seedLength
-    // in its header) by creating it with a complete-turn seed — the write path
+    // Lifecycle 1: persist a FORKED session (carries parentSession + isSeeded
+    // in its header and an exact Session-owned cut) with a complete-turn seed — the write path
     // materializes the fork (header + seed) on disk.
     const seed: SessionEvent[] = [
-      { type: 'turn/start', seq: 0, time: 1, data: { turn: 1 } },
-      { type: 'turn/end', seq: 1, time: 2, data: { turn: 1, reason: { kind: 'completed' } } },
+      { type: 'turn/start', seq: SessionSeq(0), time: 1, data: { turn: 1 } },
+      { type: 'turn/end', seq: SessionSeq(1), time: 2, data: { turn: 1, reason: { kind: 'completed' } } },
     ]
     const adapter1 = new MockAdapter([textResponse('a')])
     const { ctx: ctx1, root } = await persistentHarness(adapter1)
     const forked = ctx1.sessions.create(SessionId('forked-sess'), {
       seed,
-      meta: { cwd: '/w', parentSession: SessionId('parent-sess'), seedLength: seed.length, delegationDepth: 1 },
+      inheritedEventCount: SessionLogOffset(seed.length),
+      meta: { cwd: '/w', parentSession: SessionId('parent-sess'), isSeeded: true, delegationDepth: 1 },
     })
     await ctx1.sessions.flush(forked)
     await ctx1.fiber.dispose()
 
-    // Lifecycle 2: resume it; the parentSession + seedLength header survives the
-    // round-trip (exercises resume's parentSession- and seedLength-present
-    // branches). seedLength must come from the PERSISTED header, not from the
-    // resume seed length (which is the whole stored log, not the original
-    // boundary).
+    // Lifecycle 2: resume it; parentSession, isSeeded, and the exact cut survive
+    // the round-trip. The inherited count must come from persisted storage,
+    // not the resume seed length (the whole stored log).
     const adapter2 = new MockAdapter([textResponse('b')])
     const ctx2 = new Context()
     await ctx2.plugin(LlmRuntime)
@@ -600,7 +605,8 @@ describe('the session-persistence Agent Note: AgentLoop factory create/resume', 
     const a2 = (await ctx2.agents.resume({ resumeSessionId: SessionId('forked-sess') })).agent
     expect(a2.session.header.parentSession).toBe('parent-sess')
     expect(a2.session.header.cwd).toBe('/w')
-    expect(a2.session.header.seedLength).toBe(seed.length)
+    expect(a2.session.header.isSeeded).toBe(true)
+    expect(a2.session.inheritedEventCount).toBe(seed.length)
     // The recursion budget survives resume — a dropped depth would let a
     // resumed child delegate as if it were top-level.
     expect(a2.session.header.delegationDepth).toBe(1)

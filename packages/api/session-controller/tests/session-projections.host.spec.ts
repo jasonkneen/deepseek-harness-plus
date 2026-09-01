@@ -17,7 +17,7 @@ import AgentRegistry from '@deepseek-ai/dsh-agent'
 import { AttachmentStore } from '@deepseek-ai/dsh-attachment'
 import { agentPresetProjectionDefinition } from '@deepseek-ai/dsh-agent-presets'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
-import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
+import SessionStore, { SessionId, SessionLogOffset, SessionSeq } from '@deepseek-ai/dsh-session'
 import type { Session, SessionEvent, UserMessage } from '@deepseek-ai/dsh-session'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import type { ProjectionDefinition } from '@deepseek-ai/dsh-session-projection'
@@ -162,6 +162,38 @@ function seedMessages(session: Session, count: number): void {
 const remote = (ctx: Context) => createSessionTestRemote(ctx, { defaultModelSelection: () => ({ provider: 'p', model: 'm' }), cwd: '/tmp' })
 
 describe('session.history projections block', () => {
+  it('keeps the v0 numeric seed cut on the wire while logical headers expose only lineage', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    await ctx.plugin(AgentRegistry)
+    await ctx.plugin(SessionProjectionRegistry)
+    const parent = ctx.sessions.create(SessionId('wire-seed-parent'), { meta: { cwd: '/workspace' } })
+    parent.append('turn/start', { turn: 1 })
+    parent.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+    const inheritedEventCount = parent.seq
+    const child = ctx.sessions.create(SessionId('wire-seed-child'), {
+      seed: parent.snapshotEvents(),
+      inheritedEventCount,
+      meta: {
+        cwd: '/workspace',
+        parentSession: parent.id,
+        isSeeded: true,
+      },
+    })
+
+    const snapshot = await opening(remote(ctx), child.id)
+
+    expect(snapshot.header).toEqual({
+      version: 0,
+      id: child.id,
+      createdAt: child.header.createdAt,
+      cwd: '/workspace',
+      parentSession: parent.id,
+      seedLength: inheritedEventCount,
+    })
+    expect(snapshot.header).not.toHaveProperty('isSeeded')
+  })
+
   it('tracks pending and used model selections across repeated request headers', async () => {
     const { ctx, session } = await harness(true)
     remote(ctx)
@@ -206,20 +238,20 @@ describe('session.history projections block', () => {
   it('reconstructs a cold persisted queue without publishing or resuming an Agent', async () => {
     const { ctx } = await harness(true)
     const coldId = SessionId('cold-persisted-queue')
-    const meta = { version: 0 as const, id: coldId, createdAt: 1, cwd: '/tmp' }
+    const meta = { version: 0 as const, id: coldId, createdAt: 1, cwd: '/tmp', isSeeded: false }
     const message = createUserMessage({
       content: [{ type: 'text', text: 'survive process restart' }],
       source: { kind: 'user' },
     })
     const events: SessionEvent[] = [{
       type: 'agent/inbox/spliced',
-      seq: 0,
+      seq: SessionSeq(0),
       time: 2,
       data: { target: 'next-turn', start: 0, inserted: [message] },
     }]
     ctx.provide('sessionPersistence', testSessionPersistence(ctx, {
       list: () => Promise.resolve([meta]),
-      inspect: () => Promise.resolve({ meta, events }),
+      inspect: () => Promise.resolve({ meta, events, inheritedEventCount: SessionLogOffset(0) }),
     }) as never)
     const snapshot = await opening(remote(ctx), coldId)
 
@@ -416,7 +448,7 @@ describe('session.history projections block', () => {
     expect('test/last-user' in after.projections.values).toBe(false)
     expect(after.projections.values.sessionListMetadata).toEqual({
       blank: true,
-      lastPromptAt: session.eventAt(session.seq - 1)?.time,
+      lastPromptAt: session.eventAt(SessionSeq(session.seq - 1))?.time,
     })
   })
 
@@ -450,7 +482,7 @@ describe('session.list projections column', () => {
     expect(row?.projections?.values['test/last-user']).toEqual({ text: 'm0' })
     expect(row?.projections?.values.sessionListMetadata).toEqual({
       blank: false,
-      lastPromptAt: session.eventAt(session.seq - 1)?.time,
+      lastPromptAt: session.eventAt(SessionSeq(session.seq - 1))?.time,
     })
     expect(row?.projections?.asOfSeq).toBe(session.seq - 1)
   })
@@ -512,7 +544,7 @@ describe('session.list projections column', () => {
       cachedSnapshot: (meta: { id: unknown; createdAt: number }) =>
         (meta.id === coldId && meta.createdAt === 5
           ? {
-            asOfSeq: 7,
+            asOfSeq: SessionSeq(7),
             values: {
               'test/last-user': { text: 'cached' },
               sessionListMetadata: { blank: false, lastPromptAt: 6 },

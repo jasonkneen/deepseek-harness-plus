@@ -207,8 +207,12 @@ describe('Team identity and provisioning', () => {
     const fresh = await spawn(ctx, lead, 'fresh-worker')
     await waitNoAgent(ctx, fresh.member.id)
 
-    expect((await ctx.sessionPersistence.inspect(forked.member.id)).meta.seedLength).toBeGreaterThan(0)
-    expect((await ctx.sessionPersistence.inspect(fresh.member.id)).meta.seedLength ?? 0).toBe(0)
+    const forkedInspection = await ctx.sessionPersistence.inspect(forked.member.id)
+    const freshInspection = await ctx.sessionPersistence.inspect(fresh.member.id)
+    expect(forkedInspection.meta.isSeeded).toBe(true)
+    expect(forkedInspection.inheritedEventCount).toBeGreaterThan(0)
+    expect(freshInspection.meta.isSeeded).toBe(false)
+    expect(freshInspection.inheritedEventCount).toBe(0)
     expect(ctx.agentTeams.listMembers(lead).map(row => [row.name, row.context, row.status])).toEqual([
       ['lead', undefined, 'idle'],
       ['fork-worker', 'fork', 'inactive'],
@@ -455,7 +459,8 @@ describe('Team identity and provisioning', () => {
     const handle = await ctx.agents.create({
       sessionId: SessionId('ordinary-fork'),
       seed: lead.session.snapshotEvents(),
-      meta: { parentSession: lead.id, seedLength: lead.session.seq },
+      inheritedEventCount: lead.session.seq,
+      meta: { parentSession: lead.id, isSeeded: true },
       agentOptions: { provider: 'mock', model: 'mock' },
     })
 
