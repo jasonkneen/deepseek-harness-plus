@@ -143,6 +143,25 @@ describe('headless runner', () => {
     await test.ctx.fiber.dispose()
   })
 
+  it('ignores durable inbox events before the first owned turn', async () => {
+    const test = await bench({
+      afterPrompt(session, message) {
+        session.append('agent/inbox/spliced', {
+          target: 'next-turn',
+          start: 0,
+          inserted: [message],
+        })
+        appendTurn(session, 1, message, 'answer after inbox activity', true)
+      },
+    })
+    expect(await test.run()).toMatchObject({
+      code: 0,
+      out: 'answer after inbox activity\n',
+      err: '',
+    })
+    await test.ctx.fiber.dispose()
+  })
+
   it('waits for asynchronously appended events instead of racing Agent idleness', async () => {
     const test = await bench({
       afterPrompt: async (session, message) => {
