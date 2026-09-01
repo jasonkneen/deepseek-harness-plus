@@ -591,10 +591,10 @@ export class SessionProjectionRegistry extends Service {
   private cellFor(registration: Registration, session: Session): UnitCell {
     let cell = registration.cells.get(session)
     if (cell === undefined) {
-      cell = this.buildCell(registration.def, session.header, session.events)
+      cell = this.buildCell(registration.def, session.header, session.snapshotEvents())
       registration.cells.set(session, cell)
     } else {
-      this.advanceCell(registration.def, cell, session.events, session.seq - 1)
+      this.advanceCell(registration.def, cell, session, session.seq - 1)
     }
     return cell
   }
@@ -603,12 +603,12 @@ export class SessionProjectionRegistry extends Service {
   private advanceCell(
     def: ErasedDefinition,
     cell: UnitCell,
-    events: readonly SessionEvent[],
+    session: Session,
     throughSeq: number,
   ): void {
     if (cell.observedSeq >= throughSeq) return
     for (let seq = cell.observedSeq + 1; seq <= throughSeq; seq++) {
-      const event = events[seq]
+      const event = session.eventAt(seq)
       if (event === undefined || event.seq !== seq) {
         throw new Error(`session projection ${JSON.stringify(def.key)} cannot advance across missing seq ${String(seq)}`)
       }
@@ -630,10 +630,10 @@ export class SessionProjectionRegistry extends Service {
       if (cell === undefined) {
         // Late build mid-stream: fold history before this event (seq = log
         // index, so the prefix slice is exact), then take the normal gate.
-        cell = this.buildCell(registration.def, session.header, session.events.slice(0, event.seq))
+        cell = this.buildCell(registration.def, session.header, session.snapshotEvents(0, event.seq))
         registration.cells.set(session, cell)
       } else {
-        this.advanceCell(registration.def, cell, session.events, event.seq - 1)
+        this.advanceCell(registration.def, cell, session, event.seq - 1)
       }
       const previousState = cell.state
       const next = registration.def.apply(previousState, event)

@@ -132,6 +132,15 @@ const LANG_ALIASES = new Map<string, string>([
   ['lua', 'lua'],
 ])
 
+/**
+ * Whether a language hint can use the shared syntax highlighter.
+ * @param lang - Language hint from a code surface.
+ * @returns Whether the hint resolves to a supported grammar.
+ */
+export function supportsHighlighting(lang: string | undefined): boolean {
+  return lang !== undefined && LANG_ALIASES.has(lang.toLowerCase())
+}
+
 /** All token colors resolve through `--shiki-*` custom properties (theme package sheets). */
 const cssVariablesTheme = createCssVariablesTheme({
   name: 'css-variables',

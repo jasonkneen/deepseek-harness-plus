@@ -6,6 +6,7 @@ import {
   StreamingHighlightSession, grammarLoadCount, highlightToHtml, subscribeGrammarLoaded,
 } from './highlight.ts'
 import type { HighlightSpan, StreamingHighlightFrame } from './highlight.ts'
+import { useViewportHighlighting } from './useViewportHighlighting.ts'
 import css from './CodeBlock.module.css'
 
 export interface CodeBlockProps {
@@ -58,6 +59,8 @@ function renderLine(line: readonly HighlightSpan[], index: number): ReactNode {
 
 export function CodeBlock({ code, lang, streaming, className, copyLabel, copiedLabel }: CodeBlockProps) {
   const trimmed = code.endsWith('\n') ? code.slice(0, -1) : code
+  const rootRef = useRef<HTMLDivElement>(null)
+  const highlighting = useViewportHighlighting(rootRef, lang)
   // Re-render when a lazy grammar finishes loading, so a fence that showed plain
   // text while its language's grammar imported picks up highlighting. The
   // snapshot value is opaque; only its change across renders drives the memo.
@@ -78,6 +81,12 @@ export function CodeBlock({ code, lang, streaming, className, copyLabel, copiedL
   } | null>(null)
   const settledRef = useRef(false)
   const streamedBody = useMemo(() => {
+    if (!highlighting) {
+      sessionRef.current = null
+      lineCacheRef.current = null
+      settledRef.current = false
+      return undefined
+    }
     if (streaming !== true) {
       const previous = lineCacheRef.current
       if (previous !== null && previous.code === trimmed && previous.lang === lang) {
@@ -123,12 +132,13 @@ export function CodeBlock({ code, lang, streaming, className, copyLabel, copiedL
       code: trimmed, lang, generation: frame.generation, frame, groups, pending, nextLine, body,
     }
     return body
-  }, [streaming, trimmed, lang, loaded])
+  }, [streaming, highlighting, trimmed, lang, loaded])
   const html = useMemo(
-    () => (streaming !== true && streamedBody === undefined ? highlightToHtml(trimmed, lang) : undefined),
-    [streaming, streamedBody, trimmed, lang, loaded],
+    () => (highlighting && streaming !== true && streamedBody === undefined
+      ? highlightToHtml(trimmed, lang)
+      : undefined),
+    [streaming, highlighting, streamedBody, trimmed, lang, loaded],
   )
-  const rootRef = useRef<HTMLDivElement>(null)
   const [copied, setCopied] = useState(false)
 
   const onCopy = useCallback(() => {
