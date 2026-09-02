@@ -46,7 +46,7 @@ Settings → General exposes a persisted `Normal` / `Compact` conversation-displ
 <a id="scroll-ownership"></a>
 ## Scroll ownership
 
-Chat restores semantic anchors across history prepend and renderer remounts. While the reader is pinned to the floor, `ResizeObserver` follows the new floor and selects the latest loaded Turn without reading row geometry. Once the reader moves away, flow-height changes preserve the top position and the reading-line geometry selects the active Turn. Turn-rail previews paint above sticky Markdown code-block banners, while the rail frame remains inside the transcript band above the composer ([loaded-Turn navigation](../../../.agents/notes/implemented/feature/2026-08-25-loaded-turn-chat-navigation.md)).
+Chat restores semantic anchors across history prepend and renderer remounts. Raw scroll events are throttled; a content resize first settles any queued sample against the new floor, then `ResizeObserver` follows only while the observed-top ledger still assigns bottom ownership. Pinned resize follow selects the latest loaded Turn without reading row geometry. Once the reader moves away, flow-height changes preserve the top position and the reading-line geometry selects the active Turn. Turn-rail previews paint above sticky Markdown code-block banners, while the rail frame remains inside the transcript band above the composer ([reader scroll attribution](../../../.agents/notes/implemented/bug-fix/2026-08-06-reader-scroll-attribution-observed-top-ledger.md), [loaded-Turn navigation](../../../.agents/notes/implemented/feature/2026-08-25-loaded-turn-chat-navigation.md)).
 
 -----
 
