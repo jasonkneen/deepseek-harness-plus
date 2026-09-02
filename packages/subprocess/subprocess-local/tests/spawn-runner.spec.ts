@@ -30,6 +30,7 @@ import {
   parseWindowsStartRequest,
   readLinuxStartupError,
   serializeRunnerError,
+  WINDOWS_START_CANCELLED_CODE,
   writeLinuxStartupError,
 } from '../src/runner-protocol.ts'
 import {
@@ -148,9 +149,14 @@ describe('closed runner protocol', () => {
       expect(statSync(files.startupErrorPath).mode & 0o777).toBe(0o600)
     }
     const result = readLinuxStartupError(files.startupErrorPath)
-    expect(result).toMatchObject({ type: 'error', error: { code: 'ENOENT', path: 'tool', spawnargs: ['x'] } })
+    expect(result).toEqual({
+      type: 'error',
+      error: {
+        name: 'SpawnError', message: 'spawn missing', code: 'ENOENT', syscall: 'spawn tool', path: 'tool',
+      },
+    })
     expect(deserializeRunnerError(result!.error)).toMatchObject({
-      name: 'SpawnError', message: 'spawn missing', code: 'ENOENT', errno: -2,
+      name: 'SpawnError', message: 'spawn missing', code: 'ENOENT', syscall: 'spawn tool', path: 'tool',
     })
     writeFileSync(join(files.directory, '.startup-error.tmp'), 'incomplete')
     cleanupLinuxLaunchFiles(files)
@@ -194,7 +200,6 @@ describe('closed runner protocol', () => {
     expect(() => parseWindowsStartRequest({ type: 'start', cwd: 'C:\\x', env: {}, extra: 1 })).toThrow()
     expect(isWindowsTerminateRequest({ type: 'terminate' })).toBe(true)
     expect(isWindowsTerminateRequest({ type: 'terminate', reason: 'no' })).toBe(false)
-    expect(parseWindowsRunnerResult({ type: 'start-cancelled' })).toEqual({ type: 'start-cancelled' })
     expect(parseWindowsRunnerResult({ type: 'target-exit', exitCode: 7 })).toEqual({
       type: 'target-exit', exitCode: 7,
     })
@@ -204,6 +209,7 @@ describe('closed runner protocol', () => {
     for (const invalid of [
       null,
       { type: 'unknown' },
+      { type: 'start-cancelled' },
       { type: 'start-cancelled', payload: 1 },
       { type: 'target-exit', exitCode: -1 },
       { type: 'target-exit', exitCode: 0, signal: null },
@@ -328,20 +334,21 @@ describe('runner launch inputs', () => {
     expect(launched.stderr).not.toContain('ERR_MODULE_NOT_FOUND')
   })
 
-  it('bounds non-Error and stackless runner failures', () => {
+  it('serializes only the private protocol diagnostic fields', () => {
     expect(serializeRunnerError('plain failure')).toMatchObject({
       name: 'Error', message: 'plain failure',
     })
-    const stackless = new Error('stackless')
-    Reflect.deleteProperty(stackless, 'stack')
-    expect(serializeRunnerError(stackless)).toEqual({ name: 'Error', message: 'stackless' })
+    const detailed = Object.assign(new Error('detailed'), {
+      code: 'ENOENT', errno: -2, syscall: 'spawn tool', path: 'tool', spawnargs: ['arg'],
+    })
+    expect(serializeRunnerError(detailed)).toEqual({
+      name: 'Error', message: 'detailed', code: 'ENOENT', syscall: 'spawn tool', path: 'tool',
+    })
     const minimal = deserializeRunnerError({ name: 'Error', message: 'minimal' })
     expect(minimal).toMatchObject({ name: 'Error', message: 'minimal' })
     expect(minimal).not.toHaveProperty('code')
-    expect(minimal).not.toHaveProperty('errno')
     expect(minimal).not.toHaveProperty('syscall')
     expect(minimal).not.toHaveProperty('path')
-    expect(minimal).not.toHaveProperty('spawnargs')
   })
 
   it('resolves Windows executables with target-cwd and PATH search semantics', () => {
@@ -445,10 +452,8 @@ describe('Linux one-shot exec bootstrap', () => {
         name: 'Error',
         message: 'spawn tool ENOENT',
         code: 'ENOENT',
-        errno: -2,
         syscall: 'spawn tool',
         path: 'tool',
-        spawnargs: ['literal arg'],
       },
     })
   })
@@ -528,17 +533,15 @@ describe('Linux one-shot exec bootstrap', () => {
       throw Object.assign(new Error('EACCES: permission denied'), { code: 'EACCES', errno: -13 })
     })
     await runSpawnRunner(files.requestPath, ['--', 'tool'], hostArgument(new FakeRunnerHost()), internals({ execve }))
-    expect(execve.mock.calls.map(call => call[0])).toEqual(['/usr/bin/tool', '/bin/tool'])
+    expect(execve.mock.calls.map(call => call[0])).toEqual(['/bin/tool', '/usr/bin/tool'])
     expect(readLinuxStartupError(files.startupErrorPath)).toMatchObject({
       type: 'error',
       error: {
         name: 'Error',
         message: 'spawn tool EACCES',
         code: 'EACCES',
-        errno: -13,
         syscall: 'spawn tool',
         path: 'tool',
-        spawnargs: [],
       },
     })
 
@@ -598,10 +601,8 @@ describe('Windows Job runner protocol owner', () => {
         name: 'Error',
         message: 'spawn tool.exe ENOENT',
         code: 'ENOENT',
-        errno: -4058,
         syscall: 'spawn tool.exe',
         path: 'tool.exe',
-        spawnargs: ['literal arg'],
       },
     }])
     expect(host.exitCode).toBe(0)
@@ -634,18 +635,15 @@ describe('Windows Job runner protocol owner', () => {
           name: 'Error',
           message: `${syscall} ${code}`,
           code,
-          errno,
           syscall,
         },
       }])
       const result = parseWindowsRunnerResult(host.sent[0])
       if (result.type !== 'error') throw new Error('expected runner error')
-      expect(result.error.stack?.split('\n')[0]).toBe(`Error: ${syscall} ${code}`)
       if (enriched) {
-        expect(result.error).toMatchObject({ path: program, spawnargs: ['literal arg'] })
+        expect(result.error).toMatchObject({ path: program })
       } else {
         expect(result.error).not.toHaveProperty('path')
-        expect(result.error).not.toHaveProperty('spawnargs')
       }
     }
   })
@@ -661,17 +659,15 @@ describe('Windows Job runner protocol owner', () => {
       type: 'error',
       error: {
         code: 'ENOENT',
-        errno: process.platform === 'win32' ? -4058 : -2,
         path: 'tool.exe',
-        spawnargs: ['literal arg'],
       },
     }])
   })
 
   it.skipIf(process.platform !== 'win32')('preserves native EMFILE and UNKNOWN translations', async () => {
-    for (const [win32Code, code, errno, enriched] of [
-      [4, 'EMFILE', -4066, true],
-      [999, 'UNKNOWN', -4094, false],
+    for (const [win32Code, code, enriched] of [
+      [4, 'EMFILE', true],
+      [999, 'UNKNOWN', false],
     ] as const) {
       const host = new FakeRunnerHost()
       const native = internals({
@@ -681,15 +677,14 @@ describe('Windows Job runner protocol owner', () => {
       await runWindows(host, native)
       expect(host.sent).toMatchObject([{
         type: 'error',
-        error: { code, errno },
+        error: { code },
       }])
       const result = parseWindowsRunnerResult(host.sent[0])
       if (result.type !== 'error') throw new Error('expected runner error')
       if (enriched) {
-        expect(result.error).toMatchObject({ path: 'tool.exe', spawnargs: ['literal arg'] })
+        expect(result.error).toMatchObject({ path: 'tool.exe' })
       } else {
         expect(result.error).not.toHaveProperty('path')
-        expect(result.error).not.toHaveProperty('spawnargs')
       }
     }
   })
@@ -769,7 +764,7 @@ describe('Windows Job runner protocol owner', () => {
     }
   })
 
-  it('exhausts target-exit, error, and payload-free start-cancelled', async () => {
+  it('exhausts target-exit and strict error results, including start cancellation', async () => {
     const spawnHost = new FakeRunnerHost()
     await runWindows(spawnHost, internals({
       spawnCurrentTokenJobProcess: vi.fn(() => { throw new Win32Error('CreateProcessW', 2) }),
@@ -790,7 +785,14 @@ describe('Windows Job runner protocol owner', () => {
     cancelledHost.emit('message', { type: 'terminate' })
     cancelledHost.emit('message', { type: 'start', cwd: 'C:\\target', env: {} })
     await running
-    expect(cancelledHost.sent).toEqual([{ type: 'start-cancelled' }])
+    expect(cancelledHost.sent).toEqual([{
+      type: 'error',
+      error: {
+        name: 'Error',
+        message: 'subprocess target start was cancelled',
+        code: WINDOWS_START_CANCELLED_CODE,
+      },
+    }])
     expect(native.spawnCurrentTokenJobProcess).not.toHaveBeenCalled()
   })
 
@@ -801,7 +803,14 @@ describe('Windows Job runner protocol owner', () => {
     host.emit('message', { type: 'start', cwd: 'C:\\target', env: {} })
     host.emit('message', { type: 'terminate' })
     await running
-    expect(host.sent).toEqual([{ type: 'start-cancelled' }])
+    expect(host.sent).toEqual([{
+      type: 'error',
+      error: {
+        name: 'Error',
+        message: 'subprocess target start was cancelled',
+        code: WINDOWS_START_CANCELLED_CODE,
+      },
+    }])
     expect(native.spawnCurrentTokenJobProcess).not.toHaveBeenCalled()
   })
 

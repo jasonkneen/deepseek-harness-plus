@@ -226,7 +226,7 @@ export interface SubprocessTerminalForeground {
 
 /**
  * One live terminal process and its owned OS session. Terminal allocation,
- * foreground-group inspection/signalling, and session-tree cleanup are one
+ * foreground-group inspection/signalling, and whole-session quiescence are one
  * deep subprocess primitive because none can be reconstructed from ordinary
  * piped stdio without substrate-specific process control.
  */

@@ -1723,7 +1723,7 @@ describe('query and process disposal', () => {
       .toBe('SECRET_TOKEN close failure')
   })
 
-  it('does not finish disposal before the managed tree exits', async () => {
+  it('does not finish disposal before the managed range is empty', async () => {
     const child = fakeChild({ exitOnTerminate: false })
     let disposed = false
     const disposal = disposeClaudeCodeChild(
@@ -1739,7 +1739,7 @@ describe('query and process disposal', () => {
     expect(disposed).toBe(true)
   })
 
-  it('reports close and tree-wait failures without skipping cleanup', async () => {
+  it('reports close and range-wait failures without skipping cleanup', async () => {
     const waitFailure = fakeChild({
       waitForExitError: new Error('wait boom'),
     })
@@ -1766,7 +1766,7 @@ describe('query and process disposal', () => {
     expect(waitFailure.terminate).toHaveBeenCalledOnce()
   })
 
-  it('reports a tree-wait failure without waiting for a pending direct outcome', async () => {
+  it('reports a range-wait failure without waiting for a pending direct outcome', async () => {
     const waitFailure = new Error('managed range observation failed')
     const child = fakeChild({
       exitOnTerminate: false,

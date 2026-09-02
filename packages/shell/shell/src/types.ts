@@ -179,7 +179,7 @@ export interface ShellProcess {
    */
   readOutput(): ShellProcessRead
   /**
-   * Kill the process group. Returns false when it had already finished
+   * Terminate the provider-managed range. Returns false when it had already finished
    * (no-op); idempotent.
    */
   kill(): boolean

@@ -26,7 +26,7 @@ function spec(argv: string[], graceMs = 100): SubprocessSpawnSpec {
   }
 }
 
-type SpawnFailure = NodeJS.ErrnoException & { path?: string; spawnargs?: string[] }
+type SpawnFailure = NodeJS.ErrnoException & { path?: string }
 
 function directSpawnFailure(argv: readonly string[]): Promise<SpawnFailure> {
   return new Promise((resolve, reject) => {
@@ -165,10 +165,8 @@ describe.skipIf(!linuxNative)('Linux user-systemd native containment', () => {
       name: expectedMissing.name,
       message: expectedMissing.message,
       code: expectedMissing.code,
-      errno: expectedMissing.errno,
       syscall: expectedMissing.syscall,
       path: expectedMissing.path,
-      spawnargs: expectedMissing.spawnargs,
     })
 
     const deniedPath = join(scratch, `not-executable-${Date.now()}`)
@@ -182,10 +180,8 @@ describe.skipIf(!linuxNative)('Linux user-systemd native containment', () => {
       name: expectedDenied.name,
       message: expectedDenied.message,
       code: expectedDenied.code,
-      errno: expectedDenied.errno,
       syscall: expectedDenied.syscall,
       path: expectedDenied.path,
-      spawnargs: expectedDenied.spawnargs,
     })
   })
 

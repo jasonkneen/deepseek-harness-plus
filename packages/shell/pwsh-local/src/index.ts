@@ -122,7 +122,7 @@ export function assertServiceablePwshConfig(config: Config): void {
 
 /**
  * Local PowerShell executor over `ctx.subprocess`. Bounded output, spill
- * files, and process-tree termination are the subprocess service's mechanics;
+ * files, and managed-range termination are the subprocess service's mechanics;
  * this executor supplies their configured budgets per spawn.
  */
 export class PwshLocalExecutor extends ShellExecutor {

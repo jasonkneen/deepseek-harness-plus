@@ -56,18 +56,16 @@ function cleanup(pid: number): void {
   spawnSync('taskkill', ['/PID', String(pid), '/T', '/F'], { stdio: 'ignore' })
 }
 
-type SpawnFailure = NodeJS.ErrnoException & { path?: string; spawnargs?: string[] }
+type SpawnFailure = NodeJS.ErrnoException & { path?: string }
 
 function expectedSpawnFailure(error: SpawnFailure): Record<string, unknown> {
   const expected: Record<string, unknown> = {
     name: error.name,
     message: error.message,
     code: error.code,
-    errno: error.errno,
     syscall: error.syscall,
   }
   if (Object.hasOwn(error, 'path')) expected.path = error.path
-  if (Object.hasOwn(error, 'spawnargs')) expected.spawnargs = error.spawnargs
   return expected
 }
 

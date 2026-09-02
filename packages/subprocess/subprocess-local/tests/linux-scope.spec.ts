@@ -6,6 +6,7 @@ import {
   launchLinuxScope,
   prepareLinuxTerminalScope,
   probeLinuxBootstrap,
+  probeLinuxManager,
   probeLinuxNative,
   probeLinuxScope,
 } from '../src/linux-scope.ts'
@@ -71,7 +72,15 @@ function missingUnit() {
 }
 
 function activeUnit(state = 'active') {
-  return { status: 0, stdout: `${state}\n`, stderr: '' }
+  return { status: 0, stdout: `LoadState=loaded\nActiveState=${state}\n`, stderr: '' }
+}
+
+function unloadedUnit() {
+  return { status: 0, stdout: 'LoadState=not-found\nActiveState=inactive\n', stderr: '' }
+}
+
+function unitState(loadState: string, activeState: string) {
+  return { status: 0, stdout: `LoadState=${loadState}\nActiveState=${activeState}\n`, stderr: '' }
 }
 
 function spec() {
@@ -155,17 +164,40 @@ describe('Linux native capability selection', () => {
   it('uses the default command adapters and runner resolution', () => {
     childProcessMocks.spawnSync.mockReturnValue({ status: 0, error: undefined })
     expect(probeLinuxScope()).toBe(true)
-    expect(childProcessMocks.spawnSync).toHaveBeenCalledTimes(1)
+    expect(probeLinuxManager()).toBe(true)
+    expect(childProcessMocks.spawnSync).toHaveBeenCalledTimes(2)
     expect(probeLinuxBootstrap({ loadLinuxExecve: () => vi.fn() as never })).toBe(true)
     expect(probeLinuxBootstrap({
       runnerInvocation: [process.execPath],
       runnerAvailable: () => true,
     })).toBe(process.platform !== 'win32')
   })
+
+  it('keeps quieting on the transient-scope probe but preserves manager diagnostics', () => {
+    const spawnSync = vi.fn((
+      _command: string,
+      _args: readonly string[],
+      _options: unknown,
+    ) => ({ status: 0, error: undefined }))
+    expect(probeLinuxScope({ spawnSync: spawnSync as never })).toBe(true)
+    expect(probeLinuxManager({ spawnSync: spawnSync as never })).toBe(true)
+    const scopeOptions = spawnSync.mock.calls[0]?.[2] as { env: NodeJS.ProcessEnv }
+    const managerOptions = spawnSync.mock.calls[1]?.[2] as { env: NodeJS.ProcessEnv }
+    expect(scopeOptions.env).toMatchObject({ LC_ALL: 'C', SYSTEMD_LOG_TARGET: 'null' })
+    expect(managerOptions.env).toMatchObject({ LC_ALL: 'C' })
+    expect(managerOptions.env).not.toHaveProperty('SYSTEMD_LOG_TARGET')
+
+    expect(probeLinuxManager({
+      spawnSync: vi.fn(() => ({ status: 1, error: undefined })) as never,
+    })).toBe(false)
+    expect(probeLinuxManager({
+      spawnSync: vi.fn(() => ({ status: null, error: new Error('missing') })) as never,
+    })).toBe(false)
+  })
 })
 
 describe('Linux scope establishment and quiescence', () => {
-  it('does not mistake pre-establishment unit absence for quiescence and rejects after cancellation', async () => {
+  it('does not mistake pre-establishment unit absence for quiescence and settles an empty range after cancellation', async () => {
     const { child, result, requestPath, spawnSync } = launch(async () => missingUnit())
     const waiting = result.owner.waitForExit()
     result.owner.signal('SIGTERM')
@@ -176,13 +208,13 @@ describe('Linux scope establishment and quiescence', () => {
     const direct = expect(result.direct).rejects.toThrow('before its bootstrap consumed')
     child.exit(null, 'SIGTERM')
     await direct
-    await expect(waiting).rejects.toThrow('ended before consuming its launch request')
+    await expect(waiting).resolves.toBeUndefined()
     expect(existsSync(requestPath)).toBe(true)
     result.owner.cleanup?.()
   })
 
   it('accepts request consumption followed by rapid --collect unload as stopped', async () => {
-    const states = [activeUnit(), missingUnit()]
+    const states = [activeUnit(), unloadedUnit()]
     const { child, result, requestPath } = launch(async () => states.shift() ?? missingUnit())
     expect(consumeLinuxLaunchRequest(requestPath)).toEqual({ cwd: '/target', env: { TARGET: 'yes' } })
     const waiting = result.owner.waitForExit()
@@ -233,6 +265,17 @@ describe('Linux scope establishment and quiescence', () => {
     result.owner.cleanup?.()
   })
 
+  it('treats status-zero not-found as pending until the direct launcher proves the range was never created', async () => {
+    const state: { child?: FakeChild } = {}
+    const launched = launch(async () => unloadedUnit(), {
+      sleep: async () => { state.child?.exit(127, null) },
+    })
+    state.child = launched.child
+    await expect(launched.result.owner.waitForExit()).resolves.toBeUndefined()
+    await expect(launched.result.direct).rejects.toThrow('before its bootstrap consumed')
+    launched.result.owner.cleanup?.()
+  })
+
   it('polls promptly before establishment and backs off established active scopes', async () => {
     const delays: number[] = []
     const states = [
@@ -257,11 +300,45 @@ describe('Linux scope establishment and quiescence', () => {
     launched.result.owner.cleanup?.()
   })
 
-  it('reports child termination before request consumption to both result and wait', async () => {
+  it('keeps reloading scopes active and lets terminate wake a backed-off observation', async () => {
+    const states = [activeUnit('reloading'), activeUnit('inactive')]
+    const sleeping = Promise.withResolvers<undefined>()
+    const sleep = vi.fn(async () => {
+      sleeping.resolve(undefined)
+      await new Promise<void>(() => {})
+    })
+    const launched = launch(async () => states.shift() ?? activeUnit('inactive'), { sleep })
+    consumeLinuxLaunchRequest(launched.requestPath)
+    const waiting = launched.result.owner.waitForExit()
+    await sleeping.promise
+    launched.result.owner.signal('SIGTERM')
+    await expect(waiting).resolves.toBeUndefined()
+    expect(sleep).toHaveBeenCalledExactlyOnceWith(50)
+    expect(launched.spawnSync).toHaveBeenCalledOnce()
+    launched.result.owner.cleanup?.()
+  })
+
+  it('skips the next poll delay when terminate arrives during a manager query', async () => {
+    const firstQuery = Promise.withResolvers<ReturnType<typeof activeUnit>>()
+    const query = vi.fn()
+      .mockImplementationOnce(async () => await firstQuery.promise)
+      .mockResolvedValueOnce(activeUnit('inactive'))
+    const sleep = vi.fn(async () => {})
+    const launched = launch(query, { sleep })
+    consumeLinuxLaunchRequest(launched.requestPath)
+    const waiting = launched.result.owner.waitForExit()
+    launched.result.owner.signal('SIGTERM')
+    firstQuery.resolve(activeUnit())
+    await expect(waiting).resolves.toBeUndefined()
+    expect(sleep).not.toHaveBeenCalled()
+    launched.result.owner.cleanup?.()
+  })
+
+  it('reports child termination before request consumption to the direct result and settles the empty range', async () => {
     const { child, result } = launch(async () => missingUnit())
     child.exit(127, null)
     await expect(result.direct).rejects.toThrow('before its bootstrap consumed')
-    await expect(result.owner.waitForExit()).rejects.toThrow('ended before consuming its launch request')
+    await expect(result.owner.waitForExit()).resolves.toBeUndefined()
     result.owner.cleanup?.()
   })
 
@@ -292,6 +369,10 @@ describe('Linux scope establishment and quiescence', () => {
     await expect(unknown.result.owner.waitForExit()).rejects.toThrow('unknown ActiveState')
     unknown.result.owner.cleanup?.()
 
+    const unknownLoad = launch(async () => unitState('masked', 'inactive'))
+    await expect(unknownLoad.result.owner.waitForExit()).rejects.toThrow('unknown state')
+    unknownLoad.result.owner.cleanup?.()
+
     const killFailed = launch(async () => activeUnit(), {
       spawnSync: vi.fn(() => ({ status: 1, stdout: '', stderr: 'permission denied' })) as never,
     })
@@ -303,7 +384,10 @@ describe('Linux scope establishment and quiescence', () => {
   it('reports command-query failures from the default systemctl adapter', async () => {
     childProcessMocks.execFile.mockImplementationOnce((...args: unknown[]) => {
       const callback = args.at(-1) as (error: Error | null, stdout: string, stderr: string) => void
-      callback(null, 'inactive\n', '')
+      const options = args[2] as { env: NodeJS.ProcessEnv }
+      expect(options.env).toMatchObject({ LC_ALL: 'C' })
+      expect(options.env).not.toHaveProperty('SYSTEMD_LOG_TARGET')
+      callback(null, 'LoadState=loaded\nActiveState=inactive\n', 'manager diagnostic remains readable')
       return new EventEmitter()
     })
     const stopped = launch(undefined)
@@ -319,6 +403,19 @@ describe('Linux scope establishment and quiescence', () => {
     const failed = launch(undefined)
     await expect(failed.result.owner.waitForExit()).rejects.toBe(queryError)
     failed.result.owner.cleanup?.()
+  })
+
+  it('rejects malformed, duplicate, incomplete, and extra manager state fields', async () => {
+    for (const [stdout, message] of [
+      ['loaded\nActiveState=active\n', 'malformed state'],
+      ['LoadState=loaded\nLoadState=loaded\nActiveState=active\n', 'duplicate LoadState'],
+      ['LoadState=loaded\n', 'incomplete state'],
+      ['LoadState=loaded\nActiveState=inactive\nOther=value\n', 'incomplete state'],
+    ] as const) {
+      const launched = launch(async () => ({ status: 0, stdout, stderr: '' }))
+      await expect(launched.result.owner.waitForExit()).rejects.toThrow(message)
+      launched.result.owner.cleanup?.()
+    }
   })
 
   it('keeps signal failures scoped to final kill proof and stays idempotent after stop', async () => {

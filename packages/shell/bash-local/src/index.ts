@@ -1,6 +1,6 @@
 /**
  * Local Service Provider for the bash capability seam over the subprocess
- * capability seam. Public commands run as `bash -c` in a managed process group spawned
+ * capability seam. Public commands run as `bash -c` in a provider-managed range
  * through `ctx.subprocess`; subclasses may reuse the same mechanics with an
  * explicit argv. This executor owns command defaulting, deadlines and cause
  * classification, the model-friendly terminal environment, and the model-facing
@@ -93,9 +93,9 @@ export function assertServiceableBashConfig(config: Config): void {
 }
 
 /**
- * Local bash executor over `ctx.subprocess`. Bounded output, spill files, and
- * process-group SIGTERM→SIGKILL escalation are the subprocess service's
- * mechanics; this executor supplies their configured budgets per spawn, so a
+ * Local bash executor over `ctx.subprocess`. Bounded output, spill files,
+ * managed-range SIGTERM→SIGKILL escalation, and quiescence are the subprocess
+ * service's mechanics; this executor supplies their configured budgets per spawn, so a
  * still-running background process stays managed (killed and joined at
  * composition teardown) even across an executor reload.
  */
@@ -247,7 +247,7 @@ export class LocalBashExecutor extends ShellExecutor {
 
   /**
    * Start an explicit argv with the background lifecycle, environment, output,
-   * cancellation, and process-tree ownership semantics of this executor.
+   * cancellation, and managed-range ownership semantics of this executor.
    * Subclasses use this after replacing the public command's shell argv at an
    * execution boundary.
    * @param spec - resolved execution settings and caller-owned command metadata.

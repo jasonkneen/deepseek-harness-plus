@@ -448,6 +448,7 @@ describe('LocalSubprocessRuntime', () => {
       cleanup: vi.fn(),
     }))
     const probeLinuxNative = vi.fn(() => true)
+    const probeLinuxManager = vi.fn(() => true)
     const inspector = {
       foregroundPgid: () => undefined,
       isStdinWaiting: () => false,
@@ -467,6 +468,7 @@ describe('LocalSubprocessRuntime', () => {
     vi.doMock('../src/linux-scope.ts', () => ({
       launchLinuxScope: vi.fn(),
       prepareLinuxTerminalScope,
+      probeLinuxManager,
       probeLinuxNative,
     }))
     let fiber: { dispose(): Promise<void> } | undefined
@@ -545,6 +547,7 @@ describe('LocalSubprocessRuntime', () => {
     vi.doMock('../src/linux-scope.ts', () => ({
       launchLinuxScope: vi.fn(),
       prepareLinuxTerminalScope,
+      probeLinuxManager: () => true,
       probeLinuxNative: () => true,
     }))
     let fiber: { dispose(): Promise<void> } | undefined
@@ -653,7 +656,6 @@ describe('LocalSubprocessRuntime', () => {
   it('reports the platform-specific reason for every fallback mode', async () => {
     for (const [platform, kind, reason, selectedReason] of [
       ['darwin', 'ordinary', 'macOS has no supported persistent process-range owner', undefined],
-      ['linux', 'terminal', 'a modern readable user-systemd scope is unavailable', undefined],
       ['linux', 'ordinary', 'the private Linux subprocess runner is unavailable', 'the private Linux subprocess runner is unavailable'],
       ['win32', 'ordinary', 'the Win32 Job runner is unavailable', undefined],
       ['win32', 'terminal', 'Windows ConPTY remains outside Job containment', undefined],
@@ -677,12 +679,33 @@ describe('LocalSubprocessRuntime', () => {
     }
   })
 
+  it('reports Linux capability failure through the real selector path', async () => {
+    const ctx = new Context()
+    const warning = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => {})
+    const fiber = await ctx.plugin(LocalSubprocessRuntime)
+    const runtime = ctx.subprocess as LocalSubprocessRuntime
+    runtime.internals = { platform: 'linux', linuxNativeAvailable: () => false }
+    try {
+      const select = (runtime as unknown as {
+        selectContainmentMode(kind: 'ordinary' | 'terminal'): 'linux-scope' | 'windows-job' | 'fallback'
+      }).selectContainmentMode.bind(runtime)
+      expect(select('terminal')).toBe('fallback')
+      expect(warning).toHaveBeenCalledWith(expect.stringContaining(
+        'the current user-systemd scope or private bootstrap is unavailable',
+      ))
+    } finally {
+      warning.mockRestore()
+      await fiber.dispose()
+    }
+  })
+
   it('rechecks native prerequisites for every eligible spawn and prepares storage before launch', async () => {
     const linuxLaunch = { kind: 'linux' }
     const windowsLaunch = { kind: 'windows' }
     const launchLinuxScope = vi.fn(() => linuxLaunch)
     const launchWindowsJob = vi.fn(() => windowsLaunch)
     const probeLinuxNative = vi.fn(() => true)
+    const probeLinuxManager = vi.fn(() => true)
     const probeWindowsJob = vi.fn(() => true)
     const prepareManagedProcessBinding = vi.fn(() => ({ spillDir: '/tmp/dsh-test-spill' }))
     const handles = [true, false, false].map((failFirstWait) => {
@@ -711,6 +734,7 @@ describe('LocalSubprocessRuntime', () => {
     vi.doMock('../src/linux-scope.ts', () => ({
       launchLinuxScope,
       prepareLinuxTerminalScope: vi.fn(),
+      probeLinuxManager,
       probeLinuxNative,
     }))
     vi.doMock('../src/windows-job.ts', () => ({ launchWindowsJob, probeWindowsJob }))
@@ -736,7 +760,8 @@ describe('LocalSubprocessRuntime', () => {
       await new Promise(resolve => setImmediate(resolve))
       await linuxRuntime.spawn(spec('true')).done
       await new Promise(resolve => setImmediate(resolve))
-      expect(probeLinuxNative).toHaveBeenCalledTimes(3)
+      expect(probeLinuxNative).toHaveBeenCalledOnce()
+      expect(probeLinuxManager).toHaveBeenCalledTimes(2)
       expect(launchLinuxScope).toHaveBeenCalledTimes(2)
 
       const windowsContext = new Context()
@@ -765,12 +790,13 @@ describe('LocalSubprocessRuntime', () => {
     }
   })
 
-  it('does not cache failed or successful native capability probes', async () => {
+  it('retries failed Linux deep probes, caches the first success, and rechecks the manager', async () => {
     const probeLinuxNative = vi.fn()
       .mockReturnValueOnce(false)
       .mockReturnValueOnce(false)
       .mockReturnValueOnce(false)
       .mockReturnValueOnce(true)
+    const probeLinuxManager = vi.fn()
       .mockReturnValueOnce(false)
       .mockReturnValueOnce(true)
     const probeWindowsJob = vi.fn()
@@ -783,6 +809,7 @@ describe('LocalSubprocessRuntime', () => {
     vi.doMock('../src/linux-scope.ts', () => ({
       launchLinuxScope: vi.fn(),
       prepareLinuxTerminalScope: vi.fn(),
+      probeLinuxManager,
       probeLinuxNative,
     }))
     vi.doMock('../src/windows-job.ts', () => ({ launchWindowsJob: vi.fn(), probeWindowsJob }))
@@ -805,7 +832,8 @@ describe('LocalSubprocessRuntime', () => {
       expect(linuxSelect('ordinary')).toBe('linux-scope')
       expect(linuxSelect('ordinary')).toBe('fallback')
       expect(linuxSelect('ordinary')).toBe('linux-scope')
-      expect(probeLinuxNative).toHaveBeenCalledTimes(6)
+      expect(probeLinuxNative).toHaveBeenCalledTimes(4)
+      expect(probeLinuxManager).toHaveBeenCalledTimes(2)
 
       const windowsContext = new Context()
       vi.spyOn(windowsContext.logger, 'warn').mockImplementation(() => {})

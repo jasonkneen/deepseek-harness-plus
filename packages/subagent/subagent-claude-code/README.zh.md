@@ -47,7 +47,7 @@ dsh --profile <name>
 | `model` | Claude 原生设置 | 为本提供方实例的每次运行固定的可选非空模型名称；省略时不发送 SDK 覆盖 |
 | `env` | `{}` | 叠加在已清理凭据的父环境之上的显式 SDK/CLI 环境 |
 | `permissionMode` | `dontAsk` | 为本提供方实例的每次运行固定的原生非交互权限策略 |
-| `disposeGraceMs` | `3000` | 共享进程树责任方各终止层级之间的宽限 |
+| `disposeGraceMs` | `3000` | 共享 managed-range owner 各终止层级之间的宽限 |
 
 | `permissionMode` 值 | 原生行为 |
 |---|---|
@@ -109,7 +109,7 @@ dsh --profile <name>
 |---|---|
 | [`src/index.ts`](src/index.ts) | 插件入口：config schema、提供方注册 |
 | [`src/run.ts`](src/run.ts) | SDK query 生命周期、结果接受与权限处理 |
-| [`src/process.ts`](src/process.ts) | dispose 时的进程树逐级终止 |
+| [`src/process.ts`](src/process.ts) | dispose 时的 managed-range 逐级终止 |
 | [`cordis.patch.yml`](cordis.patch.yml) | 注册休眠提供方的 Profile patch 层 |
 
 ### 运行流程

@@ -32,6 +32,7 @@ import type { LocalSubprocessHandle, SpawnInternals } from './spawn.ts'
 import {
   launchLinuxScope,
   prepareLinuxTerminalScope,
+  probeLinuxManager,
   probeLinuxNative,
 } from './linux-scope.ts'
 import { launchWindowsJob, probeWindowsJob } from './windows-job.ts'
@@ -56,6 +57,8 @@ export class LocalSubprocessRuntime extends SubprocessRuntime {
   internals: SpawnInternals = {}
   /** Provider-lifetime latch suppressing repeated weaker-containment warnings. */
   private fallbackWarningIssued = false
+  /** Positive-only cache for the expensive Linux bootstrap and scope probe. */
+  private linuxDeepProbePassed = false
   /** Test hook for platform process inspection; production resolves lazily on terminal spawn. */
   terminalInspector: ProcessInspector | undefined
 
@@ -173,7 +176,7 @@ export class LocalSubprocessRuntime extends SubprocessRuntime {
       handle = bindManagedProcess(spec, launch, binding)
     }
     this.live.add(handle)
-    // Release ownership only once the whole TREE is gone, not at direct-child
+    // Release ownership only once the whole managed range is gone, not at direct-child
     // settlement — a TERM-trapping helper that outlives the leader must stay
     // owned so teardown can still escalate it. For the common no-survivor
     // case waitForExit resolves immediately after settlement.
@@ -189,7 +192,14 @@ export class LocalSubprocessRuntime extends SubprocessRuntime {
     const platform = this.internals.platform ?? process.platform
     let fallbackReason: string | undefined
     if (platform === 'linux') {
-      const available = this.internals.linuxNativeAvailable?.() ?? probeLinuxNative()
+      const deepProbe = this.internals.linuxNativeAvailable ?? probeLinuxNative
+      const managerProbe = this.internals.linuxManagerAvailable
+        ?? this.internals.linuxNativeAvailable
+        ?? probeLinuxManager
+      const available = this.linuxDeepProbePassed
+        ? managerProbe()
+        : deepProbe()
+      if (available) this.linuxDeepProbePassed = true
       if (available) return 'linux-scope'
       fallbackReason = 'the current user-systemd scope or private bootstrap is unavailable'
     }
@@ -210,13 +220,11 @@ export class LocalSubprocessRuntime extends SubprocessRuntime {
     this.fallbackWarningIssued = true
     const reason = selectedReason ?? (platform === 'darwin'
       ? 'macOS has no supported persistent process-range owner'
-      : platform === 'linux'
-        ? 'a modern readable user-systemd scope is unavailable'
-        : platform === 'win32'
-          ? kind === 'terminal'
-            ? 'Windows ConPTY remains outside Job containment'
-            : 'the Win32 Job runner is unavailable'
-          : `platform ${platform} has no native managed range`)
+      : platform === 'win32'
+        ? kind === 'terminal'
+          ? 'Windows ConPTY remains outside Job containment'
+          : 'the Win32 Job runner is unavailable'
+        : `platform ${platform} has no native managed range`)
     this.ctx.logger.warn(
       `subprocess-local is using weaker process-tree containment because ${reason}; descendants that escape the process group or direct-parent tree are not guaranteed to terminate or delay waitForExit()`,
     )

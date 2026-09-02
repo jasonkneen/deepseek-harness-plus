@@ -127,13 +127,14 @@ export abstract class SubprocessRuntime extends Service {
    * applies no defaults.
    * @param spec - argv, directory, stdio dispositions, grace, cancellation, and environment.
    * @returns the live process handle (streams/readers, signalling, outcome promise).
+   * @throws synchronously when pre-aborted or when argv, cwd, environment, or grace is invalid before handle creation.
    */
   abstract spawn(spec: SubprocessSpawnSpec): SubprocessHandle
 
   /**
    * Allocate a real terminal and start one owned process session. This is the
    * only non-pipe process primitive: implementations own terminal byte I/O,
-   * foreground groups, signals, and complete session-tree cleanup.
+   * foreground groups, signals, and whole-session quiescence.
    * @param spec - fully specified argv, cwd, environment, dimensions, grace, and allocation cancellation.
    * @returns the live terminal handle after allocation succeeds.
    */

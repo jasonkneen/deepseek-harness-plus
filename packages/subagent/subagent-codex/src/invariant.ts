@@ -16,7 +16,7 @@ export const inject = ['invariants']
 
 /**
  * No runtime invariant: lifecycle pairing belongs to the shared subagent
- * service and process-tree ownership belongs to the subprocess service.
+ * service and managed-range ownership belongs to the subprocess service.
  */
 const install: InvariantInstaller = () => {}
 

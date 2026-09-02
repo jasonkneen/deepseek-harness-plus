@@ -241,6 +241,8 @@ describe('ordinary Job process operations', () => {
       expect(createProcessW).not.toHaveBeenCalled()
     }
 
-    for (const invalid of [null, 0n, -1n, -2n]) expectFailure(invalid as NativePtr | null)
+    for (const invalid of [null, 0n, 0xffff_ffff_ffff_ffffn, 0xffff_ffff_ffff_fffen]) {
+      expectFailure(invalid as NativePtr | null)
+    }
   })
 })

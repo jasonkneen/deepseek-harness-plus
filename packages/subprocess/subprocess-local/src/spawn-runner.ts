@@ -22,6 +22,7 @@ import {
   linuxLaunchFilesFromLocator,
   parseWindowsStartRequest,
   serializeRunnerError,
+  WINDOWS_START_CANCELLED_CODE,
   writeLinuxStartupError,
 } from './runner-protocol.ts'
 import type {
@@ -92,58 +93,50 @@ const defaultInternals: SpawnRunnerInternals = {
 const NODE_SPAWN_DETAIL_CODES = new Set(['EACCES', 'EAGAIN', 'EMFILE', 'ENFILE', 'ENOENT'])
 
 function nodeSpawnError(
-  source: Pick<SerializedRunnerError, 'stack'>,
   syscall: string,
   code: string,
-  errno: number | undefined,
-  details: Pick<SerializedRunnerError, 'path' | 'spawnargs'>,
+  path?: string,
 ): SerializedRunnerError {
   const message = `${syscall} ${code}`
   return {
     name: 'Error',
     message,
-    ...source.stack === undefined ? {} : {
-      stack: source.stack.replace(/^[^\n]*/, () => `Error: ${message}`),
-    },
     code,
-    ...errno === undefined ? {} : { errno },
     syscall,
-    ...details,
+    ...path === undefined ? {} : { path },
   }
 }
 
 function asSpawnError(
   error: unknown,
   program: string,
-  args: readonly string[],
   internals: Pick<SpawnRunnerInternals, 'uvErrorBindings'>,
 ): SerializedRunnerError {
   const serialized = serializeRunnerError(error)
   if (!(error instanceof Win32Error)) {
     return serialized.code === undefined
       ? serialized
-      : nodeSpawnError(serialized, `spawn ${program}`, serialized.code, serialized.errno, {
-        path: program,
-        spawnargs: [...args],
-      })
+      : nodeSpawnError(`spawn ${program}`, serialized.code, program)
   }
   const uv = internals.uvErrorBindings ?? loadUvErrorBindings()
   const errno = uv.translateSystemError(error.win32Code)
   const code = uv.errorName(errno)
   if (NODE_SPAWN_DETAIL_CODES.has(code)) {
-    return nodeSpawnError(serialized, `spawn ${program}`, code, errno, {
-      path: program,
-      spawnargs: [...args],
-    })
+    return nodeSpawnError(`spawn ${program}`, code, program)
   }
-  return nodeSpawnError(serialized, 'spawn', code, errno, {})
+  return nodeSpawnError('spawn', code)
 }
 
-function windowsPathNotFoundError(program: string, args: readonly string[]): SerializedRunnerError {
-  return nodeSpawnError({}, `spawn ${program}`, 'ENOENT', -4058, {
-    path: program,
-    spawnargs: [...args],
-  })
+function windowsPathNotFoundError(program: string): SerializedRunnerError {
+  return nodeSpawnError(`spawn ${program}`, 'ENOENT', program)
+}
+
+function windowsStartCancelledError(): SerializedRunnerError {
+  return {
+    name: 'Error',
+    message: 'subprocess target start was cancelled',
+    code: WINDOWS_START_CANCELLED_CODE,
+  }
 }
 
 function linuxPathNotFoundError(program: string): NodeJS.ErrnoException {
@@ -177,7 +170,7 @@ function execLinuxTarget(
 ): never {
   const program = argv[0] as string
   if (program.includes('/')) return execLinuxFile(program, argv, request.env, internals)
-  const path = request.env.PATH ?? '/usr/bin:/bin'
+  const path = request.env.PATH ?? '/bin:/usr/bin'
   let permissionFailure: Error | undefined
   for (const directory of path.split(':')) {
     const root = directory.startsWith('/')
@@ -220,7 +213,7 @@ function runLinux(
   } catch (error) {
     writeLinuxStartupError(files, {
       type: 'error',
-      error: asSpawnError(error, argv[0] as string, argv.slice(1), internals),
+      error: asSpawnError(error, argv[0] as string, internals),
     })
     host.exitCode = 127
   }
@@ -302,7 +295,7 @@ class WindowsJobRunner {
 
   private async start(request: WindowsStartRequest): Promise<void> {
     if (this.terminateRequested) {
-      await this.publishTerminalResult({ type: 'start-cancelled' }, 0)
+      await this.publishTerminalResult({ type: 'error', error: windowsStartCancelledError() }, 0)
       return
     }
     await new Promise<void>((resolveImmediate) => { setImmediate(resolveImmediate) })
@@ -310,7 +303,7 @@ class WindowsJobRunner {
     // IPC may set this field while start() is suspended above.
     // oxlint-disable-next-line typescript/no-unnecessary-condition
     if (this.terminateRequested) {
-      await this.publishTerminalResult({ type: 'start-cancelled' }, 0)
+      await this.publishTerminalResult({ type: 'error', error: windowsStartCancelledError() }, 0)
       return
     }
     try {
@@ -325,7 +318,7 @@ class WindowsJobRunner {
       if (applicationName === undefined) {
         await this.publishTerminalResult({
           type: 'error',
-          error: windowsPathNotFoundError(command as string, args),
+          error: windowsPathNotFoundError(command as string),
         }, 0)
         return
       }
@@ -351,7 +344,7 @@ class WindowsJobRunner {
       if (this.jobHandle === undefined && error instanceof Win32Error && error.api === 'CreateProcessW') {
         await this.publishTerminalResult({
           type: 'error',
-          error: asSpawnError(error, this.argv[0] as string, this.argv.slice(1), this.internals),
+          error: asSpawnError(error, this.argv[0] as string, this.internals),
         }, 0)
         return
       }

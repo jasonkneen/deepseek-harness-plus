@@ -18,17 +18,17 @@ detached POSIX 进程组、Windows direct-parent 遍历与 PTY 后代扫描只�
 
 ### Linux scope 与 one-shot bootstrap
 
-每次符合条件的 Linux 普通或 PTY spawn 都会重新检查准确 runner 入口、libc `execve` 与 `fcntl` bindings、可读的 user manager 与保留 literal argv 的 transient-scope 支持。正向结果不缓存。native 路径一旦选定，scope、协议、状态查询或 pre-exec failure 都由本次启动报告，绝不切换到 fallback。
+同一 runtime 第一次符合条件的 Linux 普通或 PTY 调用会深入检查准确 runner 入口、libc `execve` 与 `fcntl` bindings、可读的 user manager 与保留 literal argv 的 transient-scope 支持。失败的深度 probe 会重试，第一次成功则会缓存。之后每次符合条件的调用仍会在 target 执行前轻量检查 user manager 是否可达。native 路径一旦选定，scope、协议、状态查询或 pre-exec failure 都由本次启动报告，绝不切换到 fallback。
 
 parent 创建一个 0700 目录，其中的完整 0600 `launch-request.json` 保存最终 target cwd 与环境。私有 `DSH_SUBPROCESS_RUNNER` 值负责定位该 request，runner 则从 provider cwd 与 bootstrap-safe 环境启动。`systemd-run --user --scope --quiet --collect --expand-environment=no` 先把自身进程注册到 scope，再由 one-shot bootstrap 删除并校验 request、切换到 target cwd、恢复完整 target 环境、按 target PATH 规则解析裸可执行文件、清除 fd 0 至 fd 2 的 `FD_CLOEXEC`，并使用原始 argv 调用 libc `execve()`。bootstrap 会原地成为 target 并保留继承的 stdio，不作为常驻 supervisor。
 
-request 被消费或 manager 已观察到 unit 都能建立 scope ownership。在这两项事实出现前，unit absence 仍是未决状态；direct child 在 request 尚未消费时退出表示建立失败。parent 每 50 毫秒检查一次这段未决区间；建立后，active-state 查询按指数增长间隔退避，最多达到既有的 5 秒 systemctl 上限。inactive、failed 或已经被 collect 卸载的 unit 可以证明 range 为空。未知状态与不可读的 manager 结果会使 `waitForExit()` reject，而不是宣称完全停稳。严格的同目录 `startup-error.json` 只承载 request／bootstrap 或 target pre-exec failure，parent 会在可观察生命周期完成时移除本次 spawn 的私有路径。
+request 被消费或 manager 已观察到 loaded unit 都能建立 scope ownership。在这两项事实出现前，只要 direct launcher 仍在运行，unit absence 就保持未决。如果 launcher 退出时 request 仍未消费，direct result 会以 startup failure reject，而 range observation 会记录 scope 从未存在，并成功结算 empty-range wait。parent 每 50 毫秒检查一次这段未决区间；建立后，状态查询按指数增长间隔退避，最多达到既有的 5 秒 systemctl 上限。每次查询同时读取 `LoadState` 与 `ActiveState`：loaded `inactive` 或 `failed`，以及已经建立的 unit 变为 `not-found`/`inactive` 或被 collect 卸载，都能证明 range 为空。`active`、`activating`、`reloading` 与 `deactivating` 仍是非终态。未知或 malformed 组合以及不可读的 manager 结果会使 `waitForExit()` reject，而不是宣称完全停稳。`terminate()` 会唤醒正在休眠的 observer 立即复查。严格的同目录 `startup-error.json` 只承载 request／bootstrap 或 target pre-exec failure，parent 会在可观察生命周期完成时移除本次 spawn 的私有路径。
 
 普通 target result 仍来自同一个 child process。PTY 路径复用同一 request 与 bootstrap，但不增加常驻 runner，因此 `node-pty` PID、进程组、session leader、控制终端、前台 `inputWaiting`、`/dev/tty`、readiness 与 direct terminal outcome 保留既有含义，同时 scope membership 覆盖 `setsid` 与 reparent 后代。
 
 ### Windows runner 与 Job
 
-Windows parent 从 bootstrap cwd 与环境启动 provider runner，把原始 target argv 放在私有 `--` 分隔符之后，并通过 Node IPC 传递恰好一条 start request、幂等 terminate control 与恰好一个 result。runner 的 fd 0 至 fd 2 相互隔离，fd 3 承载 IPC，fd 4 至 fd 6 承载 target stdin、stdout 与 stderr。忽略 stdin 时，fd 4 继承平台 null-device descriptor；其他模式使用 pipe。共享 Win32 层通过 Node 导出的 `uv_get_osfhandle()` 把 fd 4 至 fd 6 映射为 OS handle，拒绝无效结果，临时启用这些 handle 的继承，并通过 `STARTF_USESTDHANDLES` 传入。`spawnCurrentTokenJobProcess` 要求单独解析的 `applicationName` 与完整 target 环境，并使用 `CREATE_UNICODE_ENVIRONMENT` 传入排序、双 NUL 结尾的 UTF-16LE 块，其中包括 `=X:` 驱动器条目，而不修改 runner 环境。suspended target 进入 Job 并恢复后，runner 只关闭 fd 4 至 fd 6；它绝不改写或销毁 Node 标准流。parent 把 pipe carrier stream 作为普通句柄的 stdio 返回，用户字节绝不经过 IPC。
+Windows parent 从 bootstrap cwd 与环境启动 provider runner，把原始 target argv 放在私有 `--` 分隔符之后，并等待 Node 的 runner `spawn` 事件后才发送恰好一条 start request。runner 在 spawn 前报错时，direct launch failure 会原样保留，同时证明 Job range 从未存在，因此 empty-range wait 成功；spawn 后的 infrastructure failure 仍是不确定状态，会使 range settlement reject。除此之外，Node IPC 还承载幂等 terminate control 与恰好一个 result。runner 的 fd 0 至 fd 2 相互隔离，fd 3 承载 IPC，fd 4 至 fd 6 承载 target stdin、stdout 与 stderr。忽略 stdin 时，fd 4 继承平台 null-device descriptor；其他模式使用 pipe。共享 Win32 层通过 Node 导出的 `uv_get_osfhandle()` 把 fd 4 至 fd 6 映射为 OS handle，拒绝 null 以及 Koffi 暴露的 unsigned `UV_INVALID_OS_FILE_HANDLE` 与 `UV_INVALID_FILE_DESCRIPTOR` sentinel，临时启用有效 handle 的继承，并通过 `STARTF_USESTDHANDLES` 传入。`spawnCurrentTokenJobProcess` 要求单独解析的 `applicationName` 与完整 target 环境，并使用 `CREATE_UNICODE_ENVIRONMENT` 传入排序、双 NUL 结尾的 UTF-16LE 块，其中包括 `=X:` 驱动器条目，而不修改 runner 环境。suspended target 进入 Job 并恢复后，runner 只关闭 fd 4 至 fd 6；它绝不改写或销毁 Node 标准流。parent 把 pipe carrier stream 作为普通句柄的 stdio 返回，用户字节绝不经过 IPC。
 
 runner 是 target process handle 与 unnamed Job handle 的唯一 owner。`spawnCurrentTokenJobProcess` 以 suspended 状态创建 target，把它分配给不允许 active breakaway 的 kill-on-close Job，并只在分配后恢复。runner 轮询 direct process 获取 target exit code，并轮询 Job 获取 active-process count。只有 direct result 已通过 IPC send callback 交付且 Job 已报告零 active process 后，runner 才成功退出；parent 只把这次 clean exit 映射成成功的 `waitForExit()`。
 
@@ -38,7 +38,7 @@ parent 会在收到经过校验、只含数字的 `target-exit` 时立即永久�
 
 source 启动通过 TypeScript source launcher 执行包内 runner 入口，built 启动解析 `@deepseek-ai/dsh-subprocess-local/runner` export，Python SDK 单文件可执行程序则从 `@deepseek-ai/dsh` 由打包层拥有的 `runtime-bootstrap.js` 进入。私有 selector 不存在时，该 bootstrap 导入公共 CLI；否则会删除 selector，并分派到同一 subprocess runner core。公共 `dsh` 参数解析器没有隐藏 runner mode，打包也不提供第二个 Node 可执行程序。
 
-selector 是 per-spawn locator 或 sentinel，不是凭据或持久格式。Linux 使用一个严格 request 与一个可选严格 startup-error 文件。Windows 使用一条 IPC channel，承载闭集的 `start` 与 `terminate` request，以及恰好三个 result 分支：只含数字 `exitCode` 的 `target-exit`、携带有界 Node-shaped 字段的 `error`，以及无载荷的 `start-cancelled`；parent 会派生 `signal: null`。取消 reason 不跨 wire 传递，因此 parent 会原样保留第一个本地 reason，包括 `null` 或 `undefined`。缺失、额外、类型错误或未知字段都会 fail closed。target 环境可以包含 selector 名称及其 Windows 大小写变体，因为 provider 会单独传递 target 状态，并且只在私有选择值消费后才恢复该状态。
+selector 是 per-spawn locator 或 sentinel，不是凭据或持久格式。Linux 使用一个严格 request 与一个可选严格 startup-error 文件。Windows 使用一条 IPC channel，承载闭集的 `start` 与 `terminate` request，以及恰好两个 result 分支：只含数字 `exitCode` 的 `target-exit`，以及必含 `name`、`message` 且只允许可选 `code`、`syscall`、`path` 的 `error`；parent 会派生 `signal: null`。提交前取消同样使用 `error`，并携带私有 `DSH_SUBPROCESS_START_CANCELLED` code。取消 reason 不跨 wire 传递，因此 parent 会把该 code 原样映射回第一个本地 reason，包括 `null` 或 `undefined`。缺失、额外、类型错误或未知字段都会 fail closed。target 环境可以包含 selector 名称及其 Windows 大小写变体，因为 provider 会单独传递 target 状态，并且只在私有选择值消费后才恢复该状态。
 
 ### Fallback 与 cleanup
 
@@ -54,8 +54,8 @@ selector 是 per-spawn locator 或 sentinel，不是凭据或持久格式。Linu
 
 ## Verification
 
-- provider 与 Linux 协议测试套件固定同步 NUL 拒绝发生在启动副作用之前、严格 request／error 解码、target cwd 与完整环境恢复、私有变量碰撞、保留 argv 且对 symlink 敏感的 PATH 遍历、为继承 stdio 清除 close-on-exec、pre-exec error ownership、三种 scope 建立状态、建立前快速轮询与建立后有上限的退避，以及 PTY managed-owner 恰好一次 cleanup。
-- Windows 协议与 Win32 测试套件固定恰好三个 result 分支、只含数字的 target exit、原样本地 cancellation reason、access denied 到 `EPERM`／`-4048` 的映射、按序数显式排序的 target 环境块及 `=C:` 保留和双 NUL 结尾、`uv_get_osfhandle()` carrier 映射与无效结果拒绝、null-device ignored-stdin carrier 与非 ignore stdin pipe、result-send 与 IPC-disconnect failure、stdio settlement 前的 direct-result 锁存、active-process 完全停稳，以及唯一 handle cleanup。
+- provider 与 Linux 协议测试套件固定同步 NUL 拒绝发生在启动副作用之前、严格 request／error 解码、target cwd 与完整环境恢复、私有变量碰撞、保留 argv 且对 symlink 敏感的 PATH 遍历、为继承 stdio 清除 close-on-exec、pre-exec error ownership、失败深度 probe 重试与成功深度 probe 缓存及逐调用 manager 检查、三种 scope 建立状态（包括 launcher 退出且 request 未消费）、`LoadState`／`ActiveState` 解析、`reloading`、terminate wake-up、建立后有上限的退避，以及 PTY managed-owner 恰好一次 cleanup。
+- Windows 协议与 Win32 测试套件固定恰好两个 result 分支、只含数字的 target exit、带私有 code 的 start cancellation 与原样本地 reason、缩减到 `name`／`message`／`code`／`syscall`／`path` 的 error record、runner spawn 后才发送 start、spawn 前 failure 的 empty-range settlement、access denied 到 `EPERM`／`-4048` 的映射、按序数显式排序的 target 环境块及 `=C:` 保留和双 NUL 结尾、`uv_get_osfhandle()` carrier 映射与 unsigned invalid sentinel 拒绝、null-device ignored-stdin carrier 与非 ignore stdin pipe、result-send 与 IPC-disconnect failure、stdio settlement 前的 direct-result 锁存、active-process 完全停稳，以及唯一 handle cleanup。
 - 真实 Linux user-systemd 测试会分别通过生产入口运行一条普通命令与一条 `node-pty` `setsid`／reparent 场景。它们证明 scope signalling 与 collection、裸可执行文件查找、逃逸后代终止、range settlement，以及不变的 PTY PID、session、控制终端、前台输入、`/dev/tty`、readiness 与 startup-failure 语义。
 - native Windows 测试证明 suspended creation、resume 前 Job assignment、继承 stdio、默认后代继承、direct result、termination、active-process zero、异常／disconnected runner cleanup、kill-on-close 与同步 host-exit termination。source、built 与 Python packaged 冒烟测试进入同一 runner core。
 - 公共 seam 类型、local 与 E2B provider、LSP 与 subagent 消费方、shell fixture、README、Cordis catalog 与 keyless subprocess API snapshot 都不包含普通 PID；terminal PID 保留。
@@ -72,10 +72,12 @@ selector 是 per-spawn locator 或 sentinel，不是凭据或持久格式。Linu
 
 **在公共 CLI 中解析隐藏 runner 参数，或发布另一个 Node 可执行程序。**不予采用，因为前者扩张公共应用语法，后者扩张分发面。packaging-only bootstrap 保留一个物理可执行程序与两个私有逻辑入口。
 
-**缓存成功的 native probe，或在 native launch 失败后重放命令。**不予采用，因为 user-manager、入口与 Job availability 可以在两次 spawn 之间变化，而一次含糊 failure 之后的 replay 可能执行命令两次。
+**缓存完整的 Linux native 选择结果且不再检查可达性。**不予采用，因为 user-manager availability 可以在两次 spawn 之间变化。runtime 只缓存第一次成功的 bootstrap／scope 深度 probe，并在之后每次符合条件的调用中轻量复查 manager reachability。
+
+**在 native launch 失败后重放命令。**不予采用，因为含糊 failure 可能发生在 target 已经执行之后，重放因此可能把命令执行两次。
 
 ## Consequences
 
-受支持的 Linux 普通与 PTY 启动、Windows 普通启动会在后代逃离进程组或 direct parent 退出后继续拥有它们，同时 direct target result 与 range 完全停稳保持独立。代价是每次 spawn 都需要一个 Linux scope／request 或 Windows runner／IPC／Job 生命周期，而且所选 owner 无法证明 settlement 时会显式失败。
+受支持的 Linux 普通与 PTY 启动、Windows 普通启动会在后代逃离进程组或 direct parent 退出后继续拥有它们，同时 direct target result 与 range 完全停稳保持独立。代价是每次 spawn 都需要一次 Linux manager 检查与 scope／request，或一套 Windows runner／IPC／Job 生命周期，而且所选 owner 无法证明 settlement 时会显式失败。
 
 fallback 宿主继续运行命令，但携带可见的较弱保证。Windows ConPTY、macOS native containment、active breakaway 后代、旧版或缺失的 user-systemd 环境、target replay、持久 runner recovery，以及 JavaScript 无法执行的终止路径均不属于本决策。

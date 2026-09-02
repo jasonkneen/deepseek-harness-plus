@@ -38,7 +38,7 @@ console.log(result.exitCode, result.stdout.text)
 
 ### 后台进程
 
-用已解析的 spec 调用 `start` 即可启动后台进程；它会立即返回句柄，且不应用任何超时。用 `readOutput()` 增量读取输出——连续读取绝不会重复交付，有损读取会指向完整流的 spill 文件。用 `kill()` 终止进程组（进程结束后返回 `false`），并等待 `done` 结算。job id、所有权、轮询与通知属于通用 `ctx.jobs` 运行时，工具层会把句柄注册进去。
+用已解析的 spec 调用 `start` 即可启动后台进程；它会立即返回句柄，且不应用任何超时。用 `readOutput()` 增量读取输出——连续读取绝不会重复交付，有损读取会指向完整流的 spill 文件。用 `kill()` 终止提供方管理的 range（直接命令结束后返回 `false`），并等待 `done` 完成直接命令结算。job id、所有权、轮询与通知属于通用 `ctx.jobs` 运行时，工具层会把句柄注册进去。
 
 ### 请求与已解析 spec
 

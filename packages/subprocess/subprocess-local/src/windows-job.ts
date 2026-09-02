@@ -13,8 +13,8 @@ import type { BoundProcessOwner, ManagedProcessLaunch } from './managed-owner.ts
 import {
   deserializeRunnerError,
   parseWindowsRunnerResult,
+  WINDOWS_START_CANCELLED_CODE,
 } from './runner-protocol.ts'
-import type { WindowsStartRequest } from './runner-protocol.ts'
 import {
   runnerEnvironment,
   runnerInvocationAvailable,
@@ -65,7 +65,6 @@ class WindowsJobOwner implements BoundProcessOwner {
   constructor(
     private readonly runner: RunnerProcess,
     private readonly exited: Promise<void>,
-    private readonly directResultSeen: () => boolean,
     private readonly failInfrastructure: (error: unknown) => void,
   ) {
     void this.exited.catch(() => {})
@@ -80,7 +79,7 @@ class WindowsJobOwner implements BoundProcessOwner {
     this.terminationSent = true
     try {
       this.runner.send?.({ type: 'terminate' }, (error) => {
-        if (error === null || this.directResultSeen() || !this.runner.connected) return
+        if (error === null) return
         this.failInfrastructure(error)
         this.terminateForHostExit()
       })
@@ -139,6 +138,8 @@ export function launchWindowsJob(
   const direct = Promise.withResolvers<SubprocessOutcome>()
   const rangeExit = Promise.withResolvers<void>()
   let resultSeen = false
+  let runnerSpawned = false
+  let runnerNeverCreated = false
   const failInfrastructure = (error: unknown): void => {
     direct.reject(error)
     rangeExit.reject(error)
@@ -147,7 +148,6 @@ export function launchWindowsJob(
   const owner = new WindowsJobOwner(
     child,
     rangeExit.promise,
-    () => resultSeen,
     failInfrastructure,
   )
   child.on('message', (value: unknown) => {
@@ -168,16 +168,37 @@ export function launchWindowsJob(
     resultSeen = true
     if (result.type === 'target-exit') {
       direct.resolve({ exitCode: result.exitCode, signal: null })
-    } else if (result.type === 'start-cancelled') {
+    } else if (result.error.code === WINDOWS_START_CANCELLED_CODE) {
       direct.reject(owner.startCancellationReason())
     } else {
       direct.reject(deserializeRunnerError(result.error))
     }
   })
+  child.once('spawn', () => {
+    runnerSpawned = true
+    try {
+      if (child.send === undefined) throw new Error('subprocess-local: Windows runner has no IPC channel')
+      child.send({ type: 'start', cwd: spec.cwd, env: targetEnv }, (error) => {
+        if (error === null) return
+        failInfrastructure(error)
+        owner.terminateForHostExit()
+      })
+    } catch (error) {
+      failInfrastructure(error)
+      owner.terminateForHostExit()
+    }
+  })
   child.once('error', (error) => {
+    if (!runnerSpawned) {
+      runnerNeverCreated = true
+      direct.reject(error)
+      rangeExit.resolve()
+      return
+    }
     failInfrastructure(error)
   })
   child.once('close', (exitCode, signal) => {
+    if (runnerNeverCreated) return
     const clean = exitCode === 0 && signal === null && resultSeen
     if (clean) {
       rangeExit.resolve()
@@ -193,19 +214,6 @@ export function launchWindowsJob(
     )
     failInfrastructure(error)
   })
-
-  const start: WindowsStartRequest = { type: 'start', cwd: spec.cwd, env: targetEnv }
-  try {
-    if (child.send === undefined) throw new Error('subprocess-local: Windows runner has no IPC channel')
-    child.send(start, (error) => {
-      if (error === null) return
-      failInfrastructure(error)
-      owner.terminateForHostExit()
-    })
-  } catch (error) {
-    failInfrastructure(error)
-    owner.terminateForHostExit()
-  }
 
   return {
     stdin: spec.stdio.stdin === 'ignore' ? null : targetStdin,

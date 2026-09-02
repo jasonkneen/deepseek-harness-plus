@@ -1,7 +1,7 @@
 /**
  * One-shot Claude Code lifecycle: invoke the official Agent SDK, place its
  * real CLI process under the shared subprocess owner, map only strict SDK
- * success to completion, and dispose to whole-tree quiescence.
+ * success to completion, and dispose to whole-range quiescence.
  *
  * @module @deepseek-ai/dsh-subagent-claude-code/run
  */
@@ -156,7 +156,7 @@ export interface ClaudeCodeRunSpec {
   readonly permissionMode: ClaudeCodePermissionMode
   /** Explicit deployment/test environment layered after shared scrubbing. */
   readonly env: Record<string, string>
-  /** Subprocess termination grace passed to the shared process-tree owner. */
+  /** Subprocess termination grace passed to the shared managed-range owner. */
   readonly disposeGraceMs: number
   /** Shared subprocess service spawn operation. */
   readonly spawn: (spec: SubprocessSpawnSpec) => SubprocessHandle
@@ -261,10 +261,10 @@ export async function consumeClaudeQuery(
 }
 
 /**
- * Close the official query, terminate the managed process tree, and wait for
- * the subprocess owner to prove it is gone.
+ * Close the official query, terminate the managed range, and wait for the
+ * subprocess owner to prove it is quiescent.
  * @param query - official SDK query, when creation reached that point.
- * @param child - shared-service handle that owns the CLI process tree, including
+ * @param child - shared-service handle that owns the CLI managed range, including
  * a published handle whose direct result later rejects.
  */
 export async function disposeClaudeCodeChild(

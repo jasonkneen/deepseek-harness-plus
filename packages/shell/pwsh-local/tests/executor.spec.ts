@@ -425,7 +425,7 @@ describe.skipIf(!hasPwsh)('PwshLocalExecutor.start (background process handles)'
     expect(lf(read.delta)).toContain('[stderr]')
   })
 
-  it('kill() terminates the process tree: true once, false after settlement', async () => {
+  it('kill() requests managed-range termination: true once, false after settlement', async () => {
     const { bash } = await setup()
     const proc = bash.start(bash.resolve({ command: 'Start-Sleep -Seconds 60' }))
     expect(proc.kill()).toBe(true)

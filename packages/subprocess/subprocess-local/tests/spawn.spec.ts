@@ -313,18 +313,15 @@ describe('spawnSubprocess', () => {
     expect(result.signal).toBe(process.platform === 'win32' ? null : 'SIGTERM')
   })
 
-  it('throws the raw signal reason when already aborted before spawn', () => {
-    for (const reason of ['too late', null] as const) {
+  it('throws a stable Error when already aborted before spawn', () => {
+    for (const [reason, message] of [
+      ['too late', 'aborted before spawn: too late'],
+      [null, 'aborted before spawn: aborted'],
+    ] as const) {
       const controller = new AbortController()
       controller.abort(reason)
-      let thrown = false
-      try {
-        validateSubprocessSpec(spec('echo hi', { signal: controller.signal }))
-      } catch (error) {
-        thrown = true
-        expect(error).toBe(reason)
-      }
-      expect(thrown).toBe(true)
+      expect(() => { validateSubprocessSpec(spec('echo hi', { signal: controller.signal })) })
+        .toThrow(new Error(message))
     }
   })
 
@@ -1276,21 +1273,15 @@ describe('argv validation', () => {
 })
 
 describe('abort edge cases', () => {
-  it('throws an undefined reason from a reason-less pre-aborted signal unchanged', () => {
+  it('uses a stable fallback for a reason-less pre-aborted signal', () => {
     const bare = {
       aborted: true,
       reason: undefined,
       addEventListener() {},
       removeEventListener() {},
     } as unknown as AbortSignal
-    let thrown = false
-    try {
-      validateSubprocessSpec(spec('echo hi', { signal: bare }))
-    } catch (error) {
-      thrown = true
-      expect(error).toBeUndefined()
-    }
-    expect(thrown).toBe(true)
+    expect(() => { validateSubprocessSpec(spec('echo hi', { signal: bare })) })
+      .toThrow(new Error('aborted before spawn: aborted'))
   })
 
   it.skipIf(process.platform === 'win32')('reports the terminating signal of an externally self-killed command', async () => {

@@ -2246,7 +2246,7 @@ describe('run lifecycle and quiescence', () => {
 })
 
 describe('disposeCodexChild', () => {
-  it('closes stdin, terminates, and waits for the managed tree', async () => {
+  it('closes stdin, terminates, and waits for the managed range', async () => {
     const child = fakeChild()
     const wire = defaultWire(child)
     const end = vi.spyOn(child.toChild, 'end')
@@ -2257,7 +2257,7 @@ describe('disposeCodexChild', () => {
     expect(child.waitForExit).toHaveBeenCalledWith()
   })
 
-  it('does not finish disposal before the managed tree exits', async () => {
+  it('does not finish disposal before the managed range is empty', async () => {
     const child = fakeChild({ exitOnTerminate: false })
     const wire = defaultWire(child)
     let disposed = false
@@ -2292,7 +2292,7 @@ describe('disposeCodexChild', () => {
     expect(child.waitForExit).toHaveBeenCalledOnce()
   })
 
-  it('reports tree-wait failure with safe teardown facts', async () => {
+  it('reports range-wait failure with safe teardown facts', async () => {
     const child = fakeChild({
       waitForExitError: new Error('SECRET_TOKEN wait failure'),
     })

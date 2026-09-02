@@ -357,6 +357,10 @@ interface ProcessStandardHandles {
   stderr: NativePtr
 }
 
+// Koffi exposes PVOID as an unsigned 64-bit bigint on supported Windows hosts.
+const UV_INVALID_OS_FILE_HANDLE = 0xffff_ffff_ffff_ffffn
+const UV_INVALID_FILE_DESCRIPTOR = 0xffff_ffff_ffff_fffen
+
 function inheritedStandardHandles(api: Win32ProcessBindings): ProcessStandardHandles {
   const get = (selector: number, label: string): NativePtr => {
     const handle = api.getStdHandle(selector)
@@ -376,7 +380,11 @@ function targetCarrierHandles(
 ): ProcessStandardHandles {
   const get = (fileDescriptor: number, label: string): NativePtr => {
     const handle = api.uvGetOsfhandle(fileDescriptor)
-    if (isNullPtr(handle) || handle === -1n || handle === -2n) {
+    if (
+      isNullPtr(handle)
+      || handle === UV_INVALID_OS_FILE_HANDLE
+      || handle === UV_INVALID_FILE_DESCRIPTOR
+    ) {
       throw new Error(`uv_get_osfhandle returned an invalid handle for target ${label} fd ${String(fileDescriptor)}`)
     }
     return handle

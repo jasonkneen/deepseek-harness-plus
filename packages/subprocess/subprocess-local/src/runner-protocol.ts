@@ -26,13 +26,13 @@ export interface LinuxLaunchRequest {
 export interface SerializedRunnerError {
   name: string
   message: string
-  stack?: string
   code?: string
-  errno?: number
   syscall?: string
   path?: string
-  spawnargs?: string[]
 }
+
+/** Private error code used to map pre-commit Windows cancellation to the parent-local reason. */
+export const WINDOWS_START_CANCELLED_CODE = 'DSH_SUBPROCESS_START_CANCELLED' as const
 
 /** A Linux pre-exec failure published atomically beside its consumed request. */
 export type LinuxStartupError =
@@ -54,7 +54,6 @@ export interface WindowsTerminateRequest {
 export type WindowsRunnerResult =
   | { type: 'target-exit'; exitCode: number }
   | { type: 'error'; error: SerializedRunnerError }
-  | { type: 'start-cancelled' }
 
 /** Private paths owned by one Linux ordinary or PTY spawn. */
 export interface LinuxLaunchFiles {
@@ -81,17 +80,13 @@ function isSerializedRunnerError(value: unknown): value is SerializedRunnerError
   if (!isRecord(value) || !hasExactKeys(
     value,
     ['name', 'message'],
-    ['stack', 'code', 'errno', 'syscall', 'path', 'spawnargs'],
+    ['code', 'syscall', 'path'],
   )) return false
   return typeof value.name === 'string'
     && typeof value.message === 'string'
-    && (value.stack === undefined || typeof value.stack === 'string')
     && (value.code === undefined || typeof value.code === 'string')
-    && (value.errno === undefined || typeof value.errno === 'number')
     && (value.syscall === undefined || typeof value.syscall === 'string')
     && (value.path === undefined || typeof value.path === 'string')
-    && (value.spawnargs === undefined
-      || (Array.isArray(value.spawnargs) && value.spawnargs.every(entry => typeof entry === 'string')))
 }
 
 function parseErrorResult(value: Record<string, unknown>): LinuxStartupError {
@@ -201,17 +196,13 @@ export function isWindowsTerminateRequest(value: unknown): value is WindowsTermi
 }
 
 /**
- * Strictly parse one of the three Windows direct-result branches.
+ * Strictly parse one of the two Windows direct-result branches.
  * @param value - untrusted IPC payload.
  * @returns validated direct-result message.
  */
 export function parseWindowsRunnerResult(value: unknown): WindowsRunnerResult {
   if (!isRecord(value) || typeof value.type !== 'string') {
     throw new Error('subprocess runner emitted an invalid Windows result')
-  }
-  if (value.type === 'start-cancelled') {
-    if (!hasExactKeys(value, ['type'])) throw new Error('subprocess runner emitted an invalid start-cancelled result')
-    return { type: 'start-cancelled' }
   }
   if (value.type === 'error') return parseErrorResult(value)
   if (value.type === 'target-exit') {
@@ -236,18 +227,13 @@ export function parseWindowsRunnerResult(value: unknown): WindowsRunnerResult {
  */
 export function serializeRunnerError(error: unknown): SerializedRunnerError {
   const source = error instanceof Error ? error : new Error(String(error))
-  const node = source as NodeJS.ErrnoException & { path?: string; spawnargs?: string[] }
+  const node = source as NodeJS.ErrnoException & { path?: string }
   return {
     name: source.name,
     message: source.message,
-    ...typeof source.stack === 'string' ? { stack: source.stack } : {},
     ...typeof node.code === 'string' ? { code: node.code } : {},
-    ...typeof node.errno === 'number' ? { errno: node.errno } : {},
     ...typeof node.syscall === 'string' ? { syscall: node.syscall } : {},
     ...typeof node.path === 'string' ? { path: node.path } : {},
-    ...Array.isArray(node.spawnargs) && node.spawnargs.every(entry => typeof entry === 'string')
-      ? { spawnargs: [...node.spawnargs] }
-      : {},
   }
 }
 
@@ -259,13 +245,10 @@ export function serializeRunnerError(error: unknown): SerializedRunnerError {
 export function deserializeRunnerError(serialized: SerializedRunnerError): Error {
   const error = new Error(serialized.message)
   error.name = serialized.name
-  if (serialized.stack !== undefined) error.stack = serialized.stack
   return Object.assign(error, {
     ...serialized.code === undefined ? {} : { code: serialized.code },
-    ...serialized.errno === undefined ? {} : { errno: serialized.errno },
     ...serialized.syscall === undefined ? {} : { syscall: serialized.syscall },
     ...serialized.path === undefined ? {} : { path: serialized.path },
-    ...serialized.spawnargs === undefined ? {} : { spawnargs: [...serialized.spawnargs] },
   })
 }
 

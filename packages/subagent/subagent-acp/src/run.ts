@@ -67,7 +67,7 @@ export interface AcpRunSpec {
   disposeGraceMs: number
   /**
    * Spawn function from the subprocess seam (`ctx.subprocess.spawn`), so the
-   * child rides the shared scrub, tree-scoped teardown, and service-owned
+   * child rides the shared scrub, managed-range teardown, and service-owned
    * lifetime instead of a package-local child_process path.
    */
   spawn: (spec: SubprocessSpawnSpec) => SubprocessHandle
@@ -170,8 +170,8 @@ function permissionRequestKind(kind: ToolKind | null | undefined): ToolKind | 'u
     : 'unknown'
 }
 
-/** Bounded whole-tree exit wait: polls the handle's tree liveness until it exits or `ms` elapses. */
-async function treeExitsWithin(child: SubprocessHandle, ms: number): Promise<boolean> {
+/** Bounded managed-range exit wait: observes the handle's range until it is empty or `ms` elapses. */
+async function rangeExitsWithin(child: SubprocessHandle, ms: number): Promise<boolean> {
   const controller = new AbortController()
   const timer = setTimeout(() => { controller.abort() }, ms)
   try {
@@ -183,10 +183,10 @@ async function treeExitsWithin(child: SubprocessHandle, ms: number): Promise<boo
 
 /**
  * Cooperative teardown ladder for an out-of-process agent, over the seam's
- * public verbs; resolves only at whole-tree quiescence: stdin EOF (the child's
+ * public verbs; resolves only at whole-range quiescence: stdin EOF (the child's
  * window to flush persistence and reap its own descendants), then the
  * terminate() escalation (SIGTERM → spec grace → SIGKILL) and its
- * whole-tree exit proof.
+ * whole-range exit proof.
  * @param child - the spawned ACP child's handle.
  * @param eofGraceMs - tier-1 window after stdin EOF.
  */
@@ -195,7 +195,7 @@ export async function disposeAcpChild(child: SubprocessHandle, eofGraceMs: numbe
   child.stdin?.end()
   let exited = false
   try {
-    exited = await treeExitsWithin(child, eofGraceMs)
+    exited = await rangeExitsWithin(child, eofGraceMs)
   } catch (error: unknown) {
     failures.push(toError(error))
   }
@@ -325,10 +325,10 @@ function terminalFailure(
 /**
  * Start and publish one ACP child after initialization and session creation.
  * Child failures resolve through the run result. Startup rejects with fixed
- * safe facts after provider-owned cleanup; successful cleanup proves process
- * reap. Cleanup failure preserves startup plus teardown facts for an ordinary
+ * safe facts after provider-owned cleanup; successful cleanup proves managed
+ * range quiescence. Cleanup failure preserves startup plus teardown facts for an ordinary
  * failure, or teardown alone after cancellation, without claiming quiescence.
- * Disposal cancels, kills, and reaps the child.
+ * Disposal cancels, terminates, and settles the child's managed range.
  * @param request - the start request; its signal is the cancellation channel.
  * @param spec - the resolved spawn spec: command/args/cwd, env, permission
  * policy, dispose graces, and the optional error sink.
@@ -508,7 +508,7 @@ export async function startAcpRun(request: SubagentStartRequest, spec: AcpRunSpe
   } catch (error: unknown) {
     request.signal.removeEventListener('abort', onAbort)
     const cancelledBeforeCleanup = flags.cancelled
-    // A child closing its protocol stream can precede whole-tree exit
+    // A child closing its protocol stream can precede whole-range exit
     // observation. Local cancellation does not need the discarded startup
     // classification; other failures use the configured process grace.
     const observedOutcome = !cancelledBeforeCleanup && !(error instanceof AcpRunFailure)

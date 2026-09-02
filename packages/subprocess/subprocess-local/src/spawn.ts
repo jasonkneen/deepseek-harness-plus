@@ -61,6 +61,8 @@ export interface SpawnInternals {
   linuxProcessGroupHasLiveMembers?: (processGroupId: number) => boolean | undefined
   /** Test seam for the per-spawn Linux native prerequisite check. */
   linuxNativeAvailable?: () => boolean
+  /** Test seam for the lightweight Linux user-manager reachability check. */
+  linuxManagerAvailable?: () => boolean
   /** Test seam for the per-spawn Windows native prerequisite check. */
   windowsNativeAvailable?: () => boolean
 }
@@ -342,7 +344,7 @@ export function validateSubprocessSpec(spec: SubprocessSpawnSpec): void {
     throw new Error(`subprocess graceMs must be a positive finite number no greater than ${MAX_TIMER_DELAY_MS}`)
   }
   if (spec.signal?.aborted) {
-    throw spec.signal.reason
+    throw new Error(`aborted before spawn: ${String(spec.signal.reason ?? 'aborted')}`)
   }
   const [program] = spec.argv
   if (program === undefined || program.length === 0) {

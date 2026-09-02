@@ -7,6 +7,7 @@ import {
   probeWindowsJob,
 } from '../src/windows-job.ts'
 import { bindManagedProcess } from '../src/spawn.ts'
+import { WINDOWS_START_CANCELLED_CODE } from '../src/runner-protocol.ts'
 
 class FakeChild extends EventEmitter {
   pid: number | undefined = 432
@@ -60,12 +61,14 @@ const spec = {
 function launch(
   child = new FakeChild(),
   request: Parameters<typeof launchWindowsJob>[0] = spec,
+  emitSpawn = true,
 ) {
   const spawn = vi.fn((_command: string, _args: readonly string[], _options: unknown) => child)
   const result = launchWindowsJob(request, { TARGET: 'yes' }, {
     spawn: spawn as never,
     runnerInvocation: ['C:\\node.exe', 'C:\\runner.js'],
   })
+  if (emitSpawn) child.emit('spawn')
   return { child, result, spawn }
 }
 
@@ -92,6 +95,7 @@ describe('Windows Job capability', () => {
 
       const result = isolated.launchWindowsJob(spec, { TARGET: 'yes' })
       expect(spawn).toHaveBeenCalledOnce()
+      child.emit('spawn')
       child.emit('message', { type: 'target-exit', exitCode: 0 })
       child.connected = false
       child.emit('close', 0, null)
@@ -224,7 +228,12 @@ describe('Windows parent runner contract', () => {
     const reason = new Error('caller aborted')
     cancelled.result.owner.signal('SIGTERM', reason)
     expect(cancelled.child.sent.at(-1)).toEqual({ type: 'terminate' })
-    cancelled.child.emit('message', { type: 'start-cancelled' })
+    cancelled.child.emit('message', {
+      type: 'error',
+      error: {
+        name: 'Error', message: 'subprocess target start was cancelled', code: WINDOWS_START_CANCELLED_CODE,
+      },
+    })
     await expect(cancelled.result.direct).rejects.toBe(reason)
     cancelled.child.connected = false
     cancelled.child.emit('close', 0, null)
@@ -233,14 +242,24 @@ describe('Windows parent runner contract', () => {
     const nullCancelled = launch()
     nullCancelled.result.owner.signal('SIGTERM', null)
     nullCancelled.result.owner.signal('SIGKILL', new Error('later reason'))
-    nullCancelled.child.emit('message', { type: 'start-cancelled' })
+    nullCancelled.child.emit('message', {
+      type: 'error',
+      error: {
+        name: 'Error', message: 'subprocess target start was cancelled', code: WINDOWS_START_CANCELLED_CODE,
+      },
+    })
     await expect(nullCancelled.result.direct).rejects.toBeNull()
     nullCancelled.child.connected = false
     nullCancelled.child.emit('close', 0, null)
     await expect(nullCancelled.result.owner.waitForExit()).resolves.toBeUndefined()
 
     const implicit = launch()
-    implicit.child.emit('message', { type: 'start-cancelled' })
+    implicit.child.emit('message', {
+      type: 'error',
+      error: {
+        name: 'Error', message: 'subprocess target start was cancelled', code: WINDOWS_START_CANCELLED_CODE,
+      },
+    })
     await expect(implicit.result.direct).rejects.toThrow('target start was cancelled')
     implicit.child.connected = false
     implicit.child.emit('close', 0, null)
@@ -281,11 +300,18 @@ describe('Windows parent runner contract', () => {
     await expect(duplicate.result.direct).resolves.toEqual({ exitCode: 0, signal: null })
     await expect(duplicate.result.owner.waitForExit()).rejects.toThrow('more than one direct result')
 
-    const errored = launch()
+    const errored = launch(new FakeChild(), spec, false)
     const spawnError = new Error('runner executable missing')
     errored.child.emit('error', spawnError)
     await expect(errored.result.direct).rejects.toBe(spawnError)
-    await expect(errored.result.owner.waitForExit()).rejects.toBe(spawnError)
+    await expect(errored.result.owner.waitForExit()).resolves.toBeUndefined()
+    errored.child.emit('close', 127, null)
+
+    const postSpawnError = launch()
+    const infrastructureError = new Error('runner failed after spawn')
+    postSpawnError.child.emit('error', infrastructureError)
+    await expect(postSpawnError.result.direct).rejects.toBe(infrastructureError)
+    await expect(postSpawnError.result.owner.waitForExit()).rejects.toBe(infrastructureError)
 
     const sendFailedChild = new FakeChild()
     sendFailedChild.sendError = new Error('IPC send failed')
@@ -334,25 +360,26 @@ describe('Windows parent runner contract', () => {
     await expect(error.result.owner.waitForExit()).rejects.toThrow('send threw')
   })
 
-  it('ignores a terminate callback error after a direct result while the runner is connected', async () => {
+  it('preserves a direct result but rejects range settlement when termination delivery later fails', async () => {
     const child = new FakeChild()
     const launched = launch(child)
     const handle = bindManagedProcess(spec, launched.result)
     await Promise.resolve()
     child.deferSendCallbacks = true
-    child.emit('message', {
-      type: 'error', error: { name: 'Error', message: 'target start failed', code: 'ENOENT' },
-    })
-    await expect(handle.done).rejects.toMatchObject({ code: 'ENOENT' })
+    child.emit('message', { type: 'target-exit', exitCode: 7 })
+    child.targetStdout.end()
+    child.targetStderr.end()
+    await expect(handle.done).resolves.toEqual({ exitCode: 7, signal: null })
+
+    launched.result.owner.signal('SIGTERM')
     expect(child.pendingSendCallbacks).toHaveLength(1)
 
     expect(child.connected).toBe(true)
     child.deliverNextSend(new Error('late EPIPE'))
     await Promise.resolve()
-    expect(child.killed).toEqual([])
-    child.connected = false
-    child.emit('close', 0, null)
-    await expect(handle.waitForExit()).resolves.toBe(true)
+    expect(child.killed).toEqual(['SIGKILL'])
+    await expect(handle.done).resolves.toEqual({ exitCode: 7, signal: null })
+    await expect(handle.waitForExit()).rejects.toThrow('late EPIPE')
   })
 
   it('uses synchronous runner termination for host exit and isolates repeated control', () => {

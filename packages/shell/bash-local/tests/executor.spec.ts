@@ -239,7 +239,7 @@ describe('LocalBashExecutor.start (background process handles)', () => {
     expect(read.delta).toContain('[stderr]')
   })
 
-  it('kill() terminates the process group: true once, false after settlement', async () => {
+  it('kill() requests managed-range termination: true once, false after settlement', async () => {
     const { bash } = await setup()
     const proc = bash.start(bash.resolve({ command: 'sleep 60' }))
     expect(proc.kill()).toBe(true)

@@ -2,6 +2,7 @@ import { spawn } from 'node:child_process'
 import type { Buffer } from 'node:buffer'
 import { existsSync } from 'node:fs'
 import { resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import type { SubprocessSpawnSpec } from '@deepseek-ai/dsh-subprocess'
 import {
@@ -10,6 +11,7 @@ import {
 } from '../src/runner-protocol.ts'
 import {
   runnerEnvironment,
+  runnerInvocationAvailable,
   SUBPROCESS_RUNNER_ENV,
   targetEnvironment,
 } from '../src/runner-launch.ts'
@@ -19,7 +21,7 @@ import { launchWindowsJob } from '../src/windows-job.ts'
 
 const repoRoot = resolve(import.meta.dirname, '../../../..')
 const sourceRunner = resolve(repoRoot, 'packages/subprocess/subprocess-local/src/bin.ts')
-const builtRunner = resolve(repoRoot, 'packages/subprocess/subprocess-local/lib/runner.js')
+const builtRunner = fileURLToPath(import.meta.resolve('@deepseek-ai/dsh-subprocess-local/runner'))
 
 function targetEnv(): Record<string, string> {
   return {
@@ -102,7 +104,9 @@ describe('subprocess-local runner artifacts', () => {
   }, 30_000)
 
   it.skipIf(!existsSync(builtRunner))('executes the built ./runner subpath through the same core', async () => {
-    const result = await execute([process.execPath, builtRunner])
+    const invocation: RunnerInvocation = [process.execPath, builtRunner]
+    expect(runnerInvocationAvailable(invocation)).toBe(true)
+    const result = await execute(invocation)
     expect(result).toEqual({
       status: 0,
       stdout: `${process.execPath}|${repoRoot}|target-collision-restored`,

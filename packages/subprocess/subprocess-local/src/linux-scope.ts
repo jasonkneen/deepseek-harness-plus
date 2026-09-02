@@ -52,7 +52,13 @@ const SYSTEMCTL_TIMEOUT_MS = 5_000
 const SCOPE_INITIAL_POLL_INTERVAL_MS = 50
 const MISSING_UNIT = /\bunit\b[^\r\n]*(?:could not be found|not found|not loaded)/iu
 
-function systemctlEnv(): NodeJS.ProcessEnv {
+function managerEnvironment(): NodeJS.ProcessEnv {
+  const environment = childEnv({ LC_ALL: 'C' })
+  delete environment.SYSTEMD_LOG_TARGET
+  return environment
+}
+
+function quietSystemdEnvironment(): NodeJS.ProcessEnv {
   return childEnv({ LC_ALL: 'C', SYSTEMD_LOG_TARGET: 'null' })
 }
 
@@ -60,7 +66,7 @@ function querySystemctl(command: string, args: readonly string[]): Promise<Syste
   return new Promise((resolveResult) => {
     execFile(command, [...args], {
       encoding: 'utf8',
-      env: systemctlEnv(),
+      env: managerEnvironment(),
       timeout: SYSTEMCTL_TIMEOUT_MS,
     }, (error, stdout, stderr) => {
       const code = error === null ? 0 : (error as Error & { code?: string | number }).code
@@ -115,7 +121,22 @@ export function probeLinuxScope(internals: LinuxScopeInternals = {}): boolean {
     `${unitBase}.scope`,
     '--property=ActiveState',
     '--value',
-  ], { env: systemctlEnv(), stdio: 'ignore', timeout: SYSTEMCTL_TIMEOUT_MS })
+  ], { env: quietSystemdEnvironment(), stdio: 'ignore', timeout: SYSTEMCTL_TIMEOUT_MS })
+  return result.error === undefined && result.status === 0
+}
+
+/**
+ * Confirm that the current user manager remains reachable after a positive deep probe.
+ * @param internals - optional systemctl seam used by tests.
+ * @returns whether one lightweight manager query succeeds.
+ */
+export function probeLinuxManager(internals: LinuxScopeInternals = {}): boolean {
+  const result = (internals.spawnSync ?? spawnSync)(internals.systemctl ?? 'systemctl', [
+    '--user',
+    'show',
+    '--property=Version',
+    '--value',
+  ], { env: managerEnvironment(), stdio: 'ignore', timeout: SYSTEMCTL_TIMEOUT_MS })
   return result.error === undefined && result.status === 0
 }
 
@@ -135,10 +156,12 @@ interface DirectRange {
 }
 
 class SystemdScopeOwner implements BoundProcessOwner {
-  private established = false
+  private establishment: 'pending' | 'established' | 'never-created' = 'pending'
   private stopped = false
   private observation: Promise<void> | undefined
   private killFailure: Error | undefined
+  private wakeGeneration = 0
+  private wakeWaiter: { generation: number; resolve: () => void } | undefined
 
   constructor(
     private readonly unit: string,
@@ -152,8 +175,8 @@ class SystemdScopeOwner implements BoundProcessOwner {
 
   signal(signal: 'SIGTERM' | 'SIGKILL'): void {
     if (this.stopped) return
-    if (!this.established && !existsSync(this.files.requestPath)) this.established = true
-    const directFallbackRequired = !this.established
+    this.observeRequestConsumption()
+    const directFallbackRequired = this.establishment === 'pending'
     if (directFallbackRequired && this.direct.running()) this.direct.signal(signal)
     const result = this.runSync(this.systemctl, [
       '--user',
@@ -161,7 +184,8 @@ class SystemdScopeOwner implements BoundProcessOwner {
       '--kill-whom=all',
       `--signal=${signal}`,
       this.unit,
-    ], { encoding: 'utf8', env: systemctlEnv(), timeout: SYSTEMCTL_TIMEOUT_MS })
+    ], { encoding: 'utf8', env: managerEnvironment(), timeout: SYSTEMCTL_TIMEOUT_MS })
+    this.wakeObservation()
     if (result.error === undefined && result.status === 0) {
       if (signal === 'SIGKILL') this.killFailure = undefined
       return
@@ -189,28 +213,73 @@ class SystemdScopeOwner implements BoundProcessOwner {
         '--kill-whom=all',
         '--signal=SIGKILL',
         this.unit,
-      ], { env: systemctlEnv(), stdio: 'ignore', timeout: SYSTEMCTL_TIMEOUT_MS })
+      ], { env: managerEnvironment(), stdio: 'ignore', timeout: SYSTEMCTL_TIMEOUT_MS })
     } catch {
       // Host exit cannot report one range; the runtime continues with the rest.
     }
   }
 
+  private observeRequestConsumption(): void {
+    if (this.establishment === 'pending' && !existsSync(this.files.requestPath)) {
+      this.establishment = 'established'
+    }
+  }
+
+  private absentUnit(): boolean {
+    this.observeRequestConsumption()
+    if (this.establishment === 'established') return false
+    if (!this.direct.running() && existsSync(this.files.requestPath)) {
+      this.establishment = 'never-created'
+      return false
+    }
+    if (this.killFailure !== undefined) throw this.killFailure
+    return true
+  }
+
+  private parseUnitState(stdout: string): { loadState: string; activeState: string } {
+    const values = new Map<string, string>()
+    for (const line of stdout.split(/\r?\n/u)) {
+      if (line === '') continue
+      const separator = line.indexOf('=')
+      if (separator <= 0) {
+        throw new Error(`systemctl returned malformed state for ${this.unit}: ${JSON.stringify(stdout.trim())}`)
+      }
+      const name = line.slice(0, separator)
+      if (values.has(name)) {
+        throw new Error(`systemctl returned duplicate ${name} for ${this.unit}`)
+      }
+      values.set(name, line.slice(separator + 1))
+    }
+    const loadState = values.get('LoadState')
+    const activeState = values.get('ActiveState')
+    if (values.size !== 2 || loadState === undefined || activeState === undefined) {
+      throw new Error(`systemctl returned incomplete state for ${this.unit}: ${JSON.stringify(stdout.trim())}`)
+    }
+    return { loadState, activeState }
+  }
+
   private async rangeActive(): Promise<boolean> {
-    if (!existsSync(this.files.requestPath)) this.established = true
+    this.observeRequestConsumption()
     const result = await this.query(this.systemctl, [
       '--user',
       'show',
       this.unit,
+      '--property=LoadState',
       '--property=ActiveState',
-      '--value',
     ])
     const output = `${result.stdout}\n${result.stderr}`
     if (result.status === 0) {
-      this.established = true
-      const state = result.stdout.trim()
-      if (state === 'inactive' || state === 'failed') return false
-      if (state !== 'active' && state !== 'activating' && state !== 'deactivating') {
-        throw new Error(`systemctl returned unknown ActiveState for ${this.unit}: ${JSON.stringify(state)}`)
+      const { loadState, activeState } = this.parseUnitState(result.stdout)
+      if (loadState === 'not-found' && activeState === 'inactive') return this.absentUnit()
+      if (loadState !== 'loaded') {
+        throw new Error(
+          `systemctl returned unknown state for ${this.unit}: ${JSON.stringify({ loadState, activeState })}`,
+        )
+      }
+      this.establishment = 'established'
+      if (activeState === 'inactive' || activeState === 'failed') return false
+      if (!['active', 'activating', 'reloading', 'deactivating'].includes(activeState)) {
+        throw new Error(`systemctl returned unknown ActiveState for ${this.unit}: ${JSON.stringify(activeState)}`)
       }
       if (this.killFailure !== undefined) throw this.killFailure
       return true
@@ -219,23 +288,38 @@ class SystemdScopeOwner implements BoundProcessOwner {
       if (result.error !== undefined) throw result.error
       throw new Error(`systemctl could not read ${this.unit}: ${output.trim() || `exit ${String(result.status)}`}`)
     }
-    if (this.established) return false
-    if (!this.direct.running() && existsSync(this.files.requestPath)) {
-      throw new Error(`subprocess scope ${this.unit} ended before consuming its launch request`)
+    return this.absentUnit()
+  }
+
+  private wakeObservation(): void {
+    this.wakeGeneration += 1
+    this.wakeWaiter?.resolve()
+    this.wakeWaiter = undefined
+  }
+
+  private async waitForPoll(delayMs: number, generation: number): Promise<void> {
+    if (generation !== this.wakeGeneration) return
+    const wake = Promise.withResolvers<void>()
+    const waiter = { generation, resolve: wake.resolve }
+    this.wakeWaiter = waiter
+    try {
+      await Promise.race([this.sleep(delayMs), wake.promise])
+    } finally {
+      if (this.wakeWaiter === waiter) this.wakeWaiter = undefined
     }
-    if (this.killFailure !== undefined) throw this.killFailure
-    return true
   }
 
   async waitForExit(): Promise<void> {
     if (this.stopped) return
     this.observation ??= (async () => {
       let pollIntervalMs = SCOPE_INITIAL_POLL_INTERVAL_MS
+      let generation = this.wakeGeneration
       while (await this.rangeActive()) {
-        await this.sleep(pollIntervalMs)
+        await this.waitForPoll(pollIntervalMs, generation)
+        generation = this.wakeGeneration
         // Keep establishment responsive, then reduce systemctl process churn
         // while systemd remains the authoritative owner of an active range.
-        if (this.established) {
+        if (this.establishment === 'established') {
           pollIntervalMs = Math.min(pollIntervalMs * 2, SYSTEMCTL_TIMEOUT_MS)
         }
       }

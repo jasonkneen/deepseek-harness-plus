@@ -292,7 +292,7 @@ export class LspInstance {
     try {
       await this.gracefulShutdown(shutdownDeadline.signal)
     } catch {
-      // Graceful shutdown failed or timed out; process-tree cleanup below remains authoritative.
+      // Graceful shutdown failed or timed out; managed-range cleanup below remains authoritative.
     } finally {
       shutdownDeadline[Symbol.dispose]()
     }
@@ -307,16 +307,15 @@ export class LspInstance {
   }
 
   /**
-   * Terminate the tree (the seam escalates SIGTERM→`killGraceMs`→SIGKILL),
-   * then await leader and helper exit. The awaits are unbounded on purpose:
-   * the seam's escalation already committed to SIGKILL, so quiescence — not
-   * another timer — is the postcondition disposal owes its callers.
+   * Terminate the provider-managed range, then await the direct server result
+   * and whole-range quiescence. The awaits are unbounded on purpose because
+   * quiescence, not another timer, is the postcondition disposal owes callers.
    */
   private async forceTerminate(): Promise<void> {
     this.connection.terminate()
     await Promise.all([
       this.connection.closed,
-      this.connection.waitForProcessTreeExit(),
+      this.connection.waitForManagedRangeExit(),
     ])
   }
 }
