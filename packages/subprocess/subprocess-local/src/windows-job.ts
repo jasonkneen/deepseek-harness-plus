@@ -11,6 +11,7 @@ import {
 } from '@deepseek-ai/dsh-win32-process'
 import type { BoundProcessOwner, ManagedProcessLaunch } from './managed-owner.ts'
 import {
+  type WindowsRunnerResult,
   deserializeRunnerError,
   parseWindowsRunnerResult,
   WINDOWS_START_CANCELLED_CODE,
@@ -65,6 +66,7 @@ class WindowsJobOwner implements BoundProcessOwner {
   constructor(
     private readonly runner: RunnerProcess,
     private readonly exited: Promise<void>,
+    private readonly directResultType: () => WindowsRunnerResult['type'] | undefined,
     private readonly failInfrastructure: (error: unknown) => void,
   ) {
     void this.exited.catch(() => {})
@@ -79,7 +81,7 @@ class WindowsJobOwner implements BoundProcessOwner {
     this.terminationSent = true
     try {
       this.runner.send?.({ type: 'terminate' }, (error) => {
-        if (error === null) return
+        if (error === null || this.directResultType() === 'error') return
         this.failInfrastructure(error)
         this.terminateForHostExit()
       })
@@ -137,7 +139,7 @@ export function launchWindowsJob(
 
   const direct = Promise.withResolvers<SubprocessOutcome>()
   const rangeExit = Promise.withResolvers<void>()
-  let resultSeen = false
+  let directResultType: WindowsRunnerResult['type'] | undefined
   let runnerSpawned = false
   let runnerNeverCreated = false
   const failInfrastructure = (error: unknown): void => {
@@ -148,10 +150,11 @@ export function launchWindowsJob(
   const owner = new WindowsJobOwner(
     child,
     rangeExit.promise,
+    () => directResultType,
     failInfrastructure,
   )
   child.on('message', (value: unknown) => {
-    if (resultSeen) {
+    if (directResultType !== undefined) {
       const error = new Error('subprocess-local: Windows runner emitted more than one direct result')
       failInfrastructure(error)
       owner.terminateForHostExit()
@@ -165,7 +168,7 @@ export function launchWindowsJob(
       owner.terminateForHostExit()
       return
     }
-    resultSeen = true
+    directResultType = result.type
     if (result.type === 'target-exit') {
       direct.resolve({ exitCode: result.exitCode, signal: null })
     } else if (result.error.code === WINDOWS_START_CANCELLED_CODE) {
@@ -199,7 +202,7 @@ export function launchWindowsJob(
   })
   child.once('close', (exitCode, signal) => {
     if (runnerNeverCreated) return
-    const clean = exitCode === 0 && signal === null && resultSeen
+    const clean = exitCode === 0 && signal === null && directResultType !== undefined
     if (clean) {
       rangeExit.resolve()
       return

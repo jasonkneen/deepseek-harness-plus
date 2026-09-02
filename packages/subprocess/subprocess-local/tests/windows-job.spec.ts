@@ -360,6 +360,27 @@ describe('Windows parent runner contract', () => {
     await expect(error.result.owner.waitForExit()).rejects.toThrow('send threw')
   })
 
+  it('accepts clean range settlement after a direct error races redundant termination delivery', async () => {
+    const child = new FakeChild()
+    const launched = launch(child)
+    const handle = bindManagedProcess(spec, launched.result)
+    await Promise.resolve()
+    child.deferSendCallbacks = true
+    child.emit('message', {
+      type: 'error', error: { name: 'Error', message: 'target start failed', code: 'ENOENT' },
+    })
+    await expect(handle.done).rejects.toMatchObject({ code: 'ENOENT' })
+    expect(child.pendingSendCallbacks).toHaveLength(1)
+
+    expect(child.connected).toBe(true)
+    child.deliverNextSend(new Error('late EPIPE'))
+    await Promise.resolve()
+    expect(child.killed).toEqual([])
+    child.connected = false
+    child.emit('close', 0, null)
+    await expect(handle.waitForExit()).resolves.toBe(true)
+  })
+
   it('preserves a direct result but rejects range settlement when termination delivery later fails', async () => {
     const child = new FakeChild()
     const launched = launch(child)
