@@ -309,7 +309,6 @@ export function ChatView({
   const [atBottom, setAtBottom] = useState(() => chatScroll.read() === null)
   const atBottomRef = useRef(atBottom)
   const scrollSamplePendingRef = useRef(false)
-  const flushScrollSampleRef = useRef<(() => void) | null>(null)
   const [, setScrollSampleTick] = useState(0)
   const [activeTurn, setActiveTurn] = useState<number | null>(
     () => turnNavigationItems.at(-1)?.turn ?? null,
@@ -600,14 +599,12 @@ export function ChatView({
       scrollSamplePendingRef.current = true
       sampleTimer ??= window.setTimeout(sample, SCROLL_SAMPLE_INTERVAL_MS)
     }
-    flushScrollSampleRef.current = sample
     el.addEventListener('scroll', onScroll, { passive: true })
     el.addEventListener('scrollend', sample, { passive: true })
     return () => {
       el.removeEventListener('scroll', onScroll)
       el.removeEventListener('scrollend', sample)
       if (sampleTimer !== undefined) window.clearTimeout(sampleTimer)
-      if (flushScrollSampleRef.current === sample) flushScrollSampleRef.current = null
       scrollSamplePendingRef.current = false
     }
   }, [])
@@ -616,12 +613,7 @@ export function ChatView({
   // initializer a function initial value would need never exists.
   const followRef = useRef<(() => void) | null>(null)
   followRef.current = () => {
-    // A resize changes the floor used for ownership. Settle a queued scroll
-    // against that geometry before deciding whether the new floor may follow.
-    if (scrollSamplePendingRef.current) {
-      flushScrollSampleRef.current?.()
-      return
-    }
+    if (scrollSamplePendingRef.current) return
     const local = listRef.current
     if (local !== null && atBottomRef.current) {
       const el = scrollerOf(local)

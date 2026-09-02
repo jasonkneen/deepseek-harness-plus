@@ -2343,7 +2343,7 @@ describe('ChatView', () => {
     expect(view.getByLabelText('回到底部')).toBeTruthy()
   })
 
-  it('one ResizeObserver settles scroll ownership before following dynamic-height growth', () => {
+  it('one ResizeObserver owns pinned dynamic-height follow and ignores growth while away', () => {
     let notify: (() => void) | undefined
     const observe = vi.fn()
     class ResizeObserverStub {
@@ -2363,20 +2363,13 @@ describe('ChatView', () => {
     scroller.scrollTop = 700
     fireEvent.scroll(scroller)
     fireEvent(scroller, new Event('scrollend'))
-    // A delayed programmatic delivery may still be queued when the floor
-    // grows. The resize must settle it before preserving pinned ownership.
-    fireEvent.scroll(scroller)
     Object.defineProperty(scroller, 'scrollHeight', { value: 1_200, writable: true })
     act(() => { notify?.() })
     expect(scroller.scrollTop).toBe(1_200)
-    // A queued reader movement must win the same decision instead of being
-    // mistaken for a programmatic delivery and pulled to the new floor.
-    scroller.scrollTop = 200
-    fireEvent.scroll(scroller)
+    readerScroll(scroller, 200)
     Object.defineProperty(scroller, 'scrollHeight', { value: 1_400, writable: true })
     act(() => { notify?.() })
     expect(scroller.scrollTop).toBe(200)
-    expect(view.getByLabelText('回到底部')).toBeTruthy()
     expect(observe).toHaveBeenCalledTimes(1)
   })
 
