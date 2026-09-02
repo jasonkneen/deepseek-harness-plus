@@ -21,6 +21,7 @@ const projectGraphqlData = ({
   startDate = null,
   startDateField = true,
   startDateType = 'DATE',
+  startDateIsIssueField = false,
 } = {}) => ({
   organization: {
     projectV2: {
@@ -30,7 +31,14 @@ const projectGraphqlData = ({
         nodes: [
           { id: 'status-field-id', name: 'Status', dataType: 'SINGLE_SELECT', options: [] },
           ...(startDateField
-            ? [{ id: 'start-date-field-id', name: 'Start date', dataType: startDateType }]
+            ? [
+                {
+                  id: 'start-date-field-id',
+                  name: 'Start Date',
+                  dataType: startDateType,
+                  isIssueField: startDateIsIssueField,
+                },
+              ]
             : []),
         ],
       },
@@ -258,7 +266,7 @@ test('initializes every referenced Issue only for a PR opened event', async () =
   assert.equal(writes.length, 3)
 })
 
-test('writes an empty Project Start date with the configured field', async (t) => {
+test('writes an empty Project Start Date with the configured field', async (t) => {
   const requests = mockGraphql(t, (request) => {
     if (request.query.includes('query(')) return projectGraphqlData()
     return { updateProjectV2ItemFieldValue: { projectV2Item: { id: 'item-id' } } }
@@ -267,6 +275,10 @@ test('writes an empty Project Start date with the configured field', async (t) =
   await initializeIssueStartDate(42, '2026-08-28')
 
   assert.equal(requests.length, 2)
+  assert.match(requests[0].query, /isIssueField/)
+  assert.doesNotMatch(requests[0].query, /issueField\s*\{/)
+  assert.match(requests[0].query, /ProjectV2ItemFieldDateValue/)
+  assert.match(requests[1].query, /updateProjectV2ItemFieldValue/)
   assert.match(requests[1].query, /value: \{date: \$date\}/)
   assert.deepEqual(requests[1].variables, {
     projectId: 'project-id',
@@ -276,7 +288,7 @@ test('writes an empty Project Start date with the configured field', async (t) =
   })
 })
 
-test('preserves an existing Project Start date', async (t) => {
+test('preserves an existing Project Start Date', async (t) => {
   const requests = mockGraphql(t, () => projectGraphqlData({ startDate: '2026-08-01' }))
 
   await initializeIssueStartDate(42, '2026-08-28')
@@ -284,7 +296,7 @@ test('preserves an existing Project Start date', async (t) => {
   assert.equal(requests.length, 1)
 })
 
-test('adds a referenced Issue to the Project before setting Start date', async (t) => {
+test('adds a referenced Issue to the Project before setting Start Date', async (t) => {
   const requests = mockGraphql(t, (request) => {
     if (request.query.includes('query(')) return projectGraphqlData({ projectItem: false })
     if (request.query.includes('addProjectV2ItemById')) {
@@ -297,17 +309,27 @@ test('adds a referenced Issue to the Project before setting Start date', async (
 
   assert.equal(requests.length, 3)
   assert.deepEqual(requests[1].variables, { projectId: 'project-id', contentId: 'issue-id' })
-  assert.equal(requests[2].variables.itemId, 'new-item-id')
+  assert.deepEqual(requests[2].variables, {
+    projectId: 'project-id',
+    itemId: 'new-item-id',
+    fieldId: 'start-date-field-id',
+    date: '2026-08-28',
+  })
 })
 
-test('rejects a missing or non-Date Start date field', async (t) => {
+test('rejects a missing, non-Date, or Issue-level Start Date field', async (t) => {
   let response = projectGraphqlData({ startDateField: false })
   const requests = mockGraphql(t, () => response)
 
-  await assert.rejects(initializeIssueStartDate(42, '2026-08-28'), /Project 缺少 Start date 字段/)
+  await assert.rejects(initializeIssueStartDate(42, '2026-08-28'), /Project 缺少 Start Date 字段/)
   response = projectGraphqlData({ startDateType: 'TEXT' })
-  await assert.rejects(initializeIssueStartDate(42, '2026-08-28'), /Start date 字段必须为 Date/)
-  assert.equal(requests.length, 2)
+  await assert.rejects(initializeIssueStartDate(42, '2026-08-28'), /Start Date 字段必须为 Date/)
+  response = projectGraphqlData({ startDateIsIssueField: true })
+  await assert.rejects(
+    initializeIssueStartDate(42, '2026-08-28'),
+    /Start Date 字段必须为 Project Date 字段/,
+  )
+  assert.equal(requests.length, 3)
 })
 
 test('does not treat pull request references as Issue associations', () => {

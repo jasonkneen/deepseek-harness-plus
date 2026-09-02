@@ -484,7 +484,7 @@ async function projectContext(number, includeStatusActor = false, includeStartDa
           title
           fields(first: 50) {
             nodes {
-              ... on ProjectV2Field { id name dataType }
+              ... on ProjectV2Field { id name dataType isIssueField }
               ... on ProjectV2SingleSelectField { id name dataType options { id name } }
             }
           }
@@ -544,6 +544,9 @@ async function projectContext(number, includeStatusActor = false, includeStartDa
   if (startDateField && startDateField.dataType !== 'DATE') {
     throw new Error(`Project ${config.startDateField} 字段必须为 Date`)
   }
+  if (startDateField?.isIssueField) {
+    throw new Error(`Project ${config.startDateField} 字段必须为 Project Date 字段`)
+  }
   const item = issue.projectItems.nodes.find((candidate) => candidate.project.id === project.id)
   const latestStatusEvent = issue.timelineItems?.nodes
     ?.filter((event) => event?.project?.id === project.id)
@@ -582,7 +585,7 @@ async function ensureProjectItem(number, includeStartDate = false) {
 }
 
 /**
- * Initialize one Issue's Project Start date when it is empty.
+ * Initialize one Issue's Project Start Date when it is empty.
  * @param {number} number Same-repository Issue number.
  * @param {string} date Date in YYYY-MM-DD form.
  * @returns {Promise<void>} Resolves after the conditional Project update.

@@ -3,7 +3,9 @@
 .slot {
   position: sticky;
   top: 0;
-  z-index: 6;
+  /* Above transcript CodeBlock banners (z-index 6). The rail band excludes
+     the composer, so its preview never needs to cross the footer. */
+  z-index: 7;
   height: 0;
   pointer-events: none;
 }

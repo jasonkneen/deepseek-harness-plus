@@ -17,8 +17,9 @@
  *
  * Legacy bootstrap: when the new tree has no document path, a legacy
  * whole-unit file `<root>/<name>.json` (the pre-per-record layout) seeds
- * per-record documents. Any new document path, including one whose contents
- * are unreadable or stale, suppresses the bootstrap for the whole unit. The
+ * per-record documents only when its unit name and version match the current
+ * descriptor. Any new document path, including one whose contents are
+ * unreadable or stale, suppresses the bootstrap for the whole unit. The
  * legacy file is never changed or deleted.
  * @module @deepseek-ai/dsh-storage-json/src/per-record-unit
  */
@@ -100,9 +101,10 @@ async function loadPerRecordState(descriptor: KvUnitDescriptor, dir: string): Pr
 /**
  * Bootstrap an empty per-record tree from a legacy whole-unit file
  * (`<root>/<name>.json`, the pre-per-record layout). Every declared-table
- * record is copied into a current-version document, while the legacy file is
- * retained unchanged. A missing, foreign (another unit's name), malformed,
- * or non-unit legacy file is left alone; other read failures propagate.
+ * record is copied into a same-version document, while the legacy file is
+ * retained unchanged. A missing, foreign (another unit name or version),
+ * malformed, or non-unit legacy file is left alone; other read failures
+ * propagate.
  * @param descriptor - Static identity and shape of the unit.
  * @param dir - The per-record unit directory (`<root>/<name>`).
  * @param state - The empty tree state; bootstrapped records are added.
@@ -116,16 +118,15 @@ async function bootstrapLegacyUnit(descriptor: KvUnitDescriptor, dir: string, st
     if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
     return
   }
-  // The legacy document is runtime data: only `unit.name` and the tables map
-  // shape are checked here — the record values are migrated as-is and the
-  // domain layer's schemas judge them.
-  let document: { unit?: { name?: unknown }; tables?: unknown }
+  // The legacy document is runtime data: its unit identity and the tables map
+  // shape are checked here; the domain layer's schemas judge record values.
+  let document: { unit?: { name?: unknown; version?: unknown }; tables?: unknown }
   try {
-    document = JSON.parse(text) as { unit?: { name?: unknown }; tables?: unknown }
+    document = JSON.parse(text) as { unit?: { name?: unknown; version?: unknown }; tables?: unknown }
   } catch {
     return // Malformed legacy file: not ours to interpret or delete.
   }
-  if (document.unit?.name !== descriptor.name) return
+  if (document.unit?.name !== descriptor.name || document.unit.version !== descriptor.version) return
   const tables = document.tables
   if (typeof tables !== 'object' || tables === null) return
   const recordsByTable = tables as Record<string, Record<string, unknown>>
