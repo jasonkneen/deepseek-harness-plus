@@ -850,8 +850,9 @@ export class SessionForkError extends Error {
 /**
  * In-memory session store (`ctx.sessions`).
  *
- * Persistence is intentionally not implemented here — persistence plugins
- * subscribe to `session/event` and flush on `session/flush` / dispose.
+ * Persistence is intentionally not implemented here — the agent lifecycle
+ * attaches a session-log writer to each published session's write handle;
+ * a session published outside that lifecycle persists nothing.
  */
 export class SessionStore extends Service {
   private store = new Map<SessionId, SessionEntry>()

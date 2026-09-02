@@ -5,10 +5,9 @@ import { Context } from '@deepseek-ai/cordis'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { agentPresetProjectionDefinition } from '@deepseek-ai/dsh-agent-presets'
-import SessionStore, { SessionId, SessionLogOffset, SessionSeq } from '@deepseek-ai/dsh-session'
+import SessionStore, { SessionLogOffset, SessionId } from '@deepseek-ai/dsh-session'
 import type { SessionEvent, SessionHeader } from '@deepseek-ai/dsh-session'
 import type { SessionObservation } from '@deepseek-ai/dsh-session-query'
-import type { SessionInspection } from '@deepseek-ai/dsh-session-persistence'
 import TypertRegistry from '@deepseek-ai/dsh-typert-registry'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
@@ -53,14 +52,6 @@ function header(id: string, cwd: string | null = '/workspace'): SessionHeader {
   }
 }
 
-function unseededInspection(
-  meta: SessionHeader,
-  events: readonly SessionEvent[] = [],
-): SessionInspection {
-  if (meta.isSeeded) throw new Error('seeded inspection fixtures require an explicit inherited cut')
-  return { meta, inheritedEventCount: SessionLogOffset(0), events }
-}
-
 function providePersistence(ctx: Context, persistence: Record<string, unknown>): () => void {
   return ctx.provide('sessionPersistence', testSessionPersistence(ctx, persistence) as never)
 }
@@ -96,18 +87,22 @@ describe('ApiSession identity failures', () => {
       .rejects.toBeInstanceOf(ApiSessionNotFound)
 
     const inspect = vi.fn(() => Promise.resolve(undefined))
+    const stat = vi.fn(() => Promise.resolve(undefined))
     const disposeMissing = providePersistence(ctx, {
       list: () => Promise.resolve([]),
+      stat,
       inspect,
     })
     await expect(inspectApiSession(ctx, SessionId('missing'))).rejects.toBeInstanceOf(ApiSessionNotFound)
-    expect(inspect).toHaveBeenCalledOnce()
+    // Absence is decided by the stat preflight; the log itself is never opened.
+    expect(stat).toHaveBeenCalledOnce()
+    expect(inspect).not.toHaveBeenCalled()
     disposeMissing()
 
     const listed = header('cwd-less-catalog', null)
     const disposeListed = providePersistence(ctx, {
       list: () => Promise.resolve([listed]),
-      inspect: () => Promise.resolve(unseededInspection(listed)),
+      inspect: () => Promise.resolve({ meta: listed, events: [] }),
     })
     await expect(inspectApiSession(ctx, listed.id)).rejects.toBeInstanceOf(ApiSessionNotFound)
     disposeListed()
@@ -116,7 +111,7 @@ describe('ApiSession identity failures', () => {
     const inspected = header('cwd-less-inspect', null)
     providePersistence(ctx, {
       list: () => Promise.resolve([catalog]),
-      inspect: () => Promise.resolve(unseededInspection(inspected)),
+      inspect: () => Promise.resolve({ meta: inspected, events: [] }),
     })
     await expect(inspectApiSession(ctx, catalog.id)).rejects.toBeInstanceOf(ApiSessionNotFound)
   })
@@ -127,11 +122,14 @@ describe('ApiSession identity failures', () => {
     await ctx.plugin(SessionStore)
     installSessionReadTestServices(ctx)
     const meta = header('signalled-inspection')
-    const inspect = vi.fn(() => Promise.resolve(unseededInspection(meta)))
-    providePersistence(ctx, { inspect })
+    const inspect = vi.fn(() => Promise.resolve({ meta, inheritedEventCount: SessionLogOffset(0), events: [] }))
+    providePersistence(ctx, {
+      list: () => Promise.resolve([meta]),
+      inspect,
+    })
     const signal = new AbortController().signal
 
-    await expect(inspectApiSession(ctx, meta.id, signal)).resolves.toEqual(unseededInspection(meta))
+    await expect(inspectApiSession(ctx, meta.id, signal)).resolves.toEqual({ meta, inheritedEventCount: SessionLogOffset(0), events: [] })
     expect(inspect).toHaveBeenCalledWith(meta.id, signal)
   })
 })
@@ -148,7 +146,6 @@ describe('ApiSession Agent lookup and recovery', () => {
     const observed = {
       source: 'prepared',
       header: meta,
-      inheritedEventCount: SessionLogOffset(0),
       events: [],
       cursor: -1,
       projections: { asOfSeq: -1, values: {} },
@@ -188,7 +185,7 @@ describe('ApiSession Agent lookup and recovery', () => {
     const ordinaryMeta = header('ordinary-race')
     providePersistence(ordinary.ctx, {
       list: () => Promise.resolve([ordinaryMeta]),
-      inspect: () => Promise.resolve(unseededInspection(ordinaryMeta)),
+      inspect: () => Promise.resolve({ meta: ordinaryMeta, events: [] }),
     })
     const winner = agent(ordinary.ctx, ordinaryMeta)
     vi.spyOn(ordinary.ctx.agents, 'resume').mockImplementation(async () => {
@@ -201,7 +198,7 @@ describe('ApiSession Agent lookup and recovery', () => {
     const childMeta = header('child-race')
     providePersistence(child.ctx, {
       list: () => Promise.resolve([childMeta]),
-      inspect: () => Promise.resolve(unseededInspection(childMeta)),
+      inspect: () => Promise.resolve({ meta: childMeta, events: [] }),
     })
     vi.spyOn(child.ctx.agents, 'resume').mockImplementation(async () => {
       child.ctx.sessions.create(childMeta.id, {
@@ -228,7 +225,7 @@ describe('ApiSession Agent lookup and recovery', () => {
     const meta = header('failed')
     providePersistence(failed.ctx, {
       list: () => Promise.resolve([meta]),
-      inspect: () => Promise.resolve(unseededInspection(meta)),
+      inspect: () => Promise.resolve({ meta, events: [] }),
     })
     vi.spyOn(failed.ctx.agents, 'resume').mockRejectedValue(new Error('factory unavailable'))
     await expect(failed.agents.resolveAgent(meta.id)).resolves.toMatchObject({
@@ -242,7 +239,6 @@ describe('ApiSession Agent lookup and recovery', () => {
     const observed = {
       source: 'prepared',
       header: meta,
-      inheritedEventCount: SessionLogOffset(0),
       events: [],
       cursor: -1,
       retain: vi.fn(),
@@ -375,27 +371,27 @@ describe('ApiSession create or adoption', () => {
     const meta = { ...header('stored'), agentPreset: 'minimal' }
     const events = [{
       type: 'agent-preset/selected',
-      seq: SessionSeq(0),
+      seq: 0,
       time: 1,
       data: { agentPreset: 'minimal' },
     }] as SessionEvent[]
     providePersistence(ctx, {
       list: () => Promise.resolve([meta]),
-      inspect: () => Promise.resolve(unseededInspection(meta, events)),
+      inspect: () => Promise.resolve({ meta, events }),
     })
     ctx.provide('agentPresets', {
       resolve: (id?: string) => Promise.resolve({ id: id ?? 'minimal' }),
       mount: () => Promise.resolve(),
     } as never)
-    const resumedSession = ctx.sessions.prepare(meta.id, {
-      seed: structuredClone(events),
-      meta: structuredClone(meta),
-      inheritedEventCount: SessionLogOffset(0),
-      seedSource: 'persistence',
-    })
     const resumed = {
       id: meta.id,
-      session: resumedSession,
+      session: {
+        id: meta.id,
+        header: meta,
+        snapshotEvents: () => events,
+        eventAt: (seq: number) => events[seq],
+        seq: events.length,
+      },
       status: 'idle',
       ctx,
     } as unknown as Agent
@@ -413,7 +409,7 @@ describe('ApiSession create or adoption', () => {
     const childMeta = header('resume-child-race')
     providePersistence(child.ctx, {
       list: () => Promise.resolve([childMeta]),
-      inspect: () => Promise.resolve(unseededInspection(childMeta)),
+      inspect: () => Promise.resolve({ meta: childMeta, events: [] }),
     })
     child.ctx.provide('agentPresets', {
       resolve: () => {
@@ -432,7 +428,7 @@ describe('ApiSession create or adoption', () => {
     const stored = header('stored-cwd-conflict', '/stored')
     providePersistence(conflict.ctx, {
       list: () => Promise.resolve([stored]),
-      inspect: () => Promise.resolve(unseededInspection(stored)),
+      inspect: () => Promise.resolve({ meta: stored, events: [] }),
     })
     await expect(conflict.agents.ensureSession(stored.id, '/requested', true))
       .rejects.toBeInstanceOf(ApiSessionCwdConflict)

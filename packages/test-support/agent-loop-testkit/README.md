@@ -44,7 +44,7 @@ const ctx = new Context()
 await mountAgentLoopTestDependencies(ctx)
 // Register the test adapter and any load-order-sensitive plugins here.
 const harness = await mountAgentLoopTestHarness(ctx)
-const agent = harness.create(SessionId('test-agent'))
+const agent = await harness.create(SessionId('test-agent'))
 declare const message: UserMessage
 
 agent.inbox.append('next-turn', message)

@@ -204,9 +204,9 @@ async function mountFileToolsAndWorkspaceContext(ctx: Context, config: workspace
   return mountWorkspaceContextPlugin(ctx, config)
 }
 
-function stubAgent(cwd?: string, seed: readonly SessionEvent[] = []): TestAgent {
+async function stubAgent(cwd?: string, seed: readonly SessionEvent[] = []): Promise<TestAgent> {
   const id = SessionId(`agent-instructions-${String(nextStubSession++)}`)
-  const agent = isolatedAgentLoop.create(
+  const agent = await isolatedAgentLoop.create(
     id,
     {},
     cwd === undefined ? {} : { cwd },
@@ -512,7 +512,7 @@ describe('workspace context instruction discovery', () => {
       await symlink(join(outside, 'shared.md'), join(root, 'AGENTS.md'))
       const ctx = new Context()
       await mountWorkspaceContext(ctx, { dshHome: home, maxBytes: 65536 })
-      const agent = stubAgent(root)
+      const agent = await stubAgent(root)
 
       await composeBaselinePrefix(ctx, agent)
 
@@ -1039,7 +1039,7 @@ describe('workspace context request injection', () => {
       callId: ToolCallId('missing-turn-boundary'),
       name: 'read',
       arguments: { file_path: 'file.txt' },
-      agent: stubAgent('/virtual/repo'),
+      agent: await stubAgent('/virtual/repo'),
       signal: testToolSignal,
     })
 
@@ -1056,7 +1056,7 @@ describe('workspace context request injection', () => {
     const ctx = new Context()
     try {
       await mountWorkspaceContextPlugin(ctx, { maxBytes: 65536 })
-      const agent = stubAgent('/virtual/repo')
+      const agent = await stubAgent('/virtual/repo')
 
       await composeBaselinePrefix(ctx, agent)
 
@@ -1074,7 +1074,7 @@ describe('workspace context request injection', () => {
       await write(join(root, 'AGENTS.md'), 'repo rule')
       const ctx = new Context()
       await mountWorkspaceContext(ctx, { dshHome: home, maxBytes: 65536 })
-      const agent = stubAgent(root)
+      const agent = await stubAgent(root)
 
       await composeBaselinePrefix(ctx, agent)
 
@@ -1113,7 +1113,7 @@ describe('workspace context request injection', () => {
       await write(join(root, 'AGENTS.md'), 'repo rule')
       const ctx = new Context()
       await mountWorkspaceContext(ctx, { dshHome: home, maxBytes: 65536 })
-      const agent = stubAgent(root)
+      const agent = await stubAgent(root)
 
       const first = await composeBaselinePrefix(ctx, agent)
       const second = await composeBaselinePrefix(ctx, agent)
@@ -1135,12 +1135,12 @@ describe('workspace context request injection', () => {
       await write(join(root, 'AGENTS.md'), 'repo rule')
       const ctx = new Context()
       await mountWorkspaceContext(ctx, { dshHome: home, maxBytes: 65536 })
-      const original = stubAgent(root)
+      const original = await stubAgent(root)
       await composeBaselinePrefix(ctx, original)
 
-      const firstResume = stubAgent(root, original.session.snapshotEvents())
+      const firstResume = await stubAgent(root, original.session.snapshotEvents())
       await composeBaselinePrefix(ctx, firstResume)
-      const secondResume = stubAgent(root, firstResume.session.snapshotEvents())
+      const secondResume = await stubAgent(root, firstResume.session.snapshotEvents())
       await composeBaselinePrefix(ctx, secondResume)
 
       expect(baselineEvents(firstResume)).toHaveLength(1)
@@ -1163,11 +1163,11 @@ describe('workspace context request injection', () => {
       fs.entries.set(join(root, '.git'), { type: 'directory' })
       fs.entries.set(join(root, 'AGENTS.md'), { type: 'file', content: 'repo rule' })
       await mountWorkspaceContextPlugin(ctx, { dshHome: home, maxBytes: 65536 })
-      const original = stubAgent(root)
+      const original = await stubAgent(root)
       await composeBaselinePrefix(ctx, original)
 
       fs.throwOnStat.add(join(root, 'AGENTS.md'))
-      const resumed = stubAgent(root, original.session.snapshotEvents())
+      const resumed = await stubAgent(root, original.session.snapshotEvents())
       await composeBaselinePrefix(ctx, resumed)
 
       expect(baselineEvents(resumed)).toHaveLength(1)
@@ -1190,12 +1190,12 @@ describe('workspace context request injection', () => {
       await write(join(cwd, 'AGENTS.md'), 'package rule')
       const ctx = new Context()
       await mountWorkspaceContext(ctx, { dshHome: home, maxBytes: 700 })
-      const original = stubAgent(cwd)
+      const original = await stubAgent(cwd)
       await composeBaselinePrefix(ctx, original)
 
-      const firstResume = stubAgent(cwd, original.session.snapshotEvents())
+      const firstResume = await stubAgent(cwd, original.session.snapshotEvents())
       await composeBaselinePrefix(ctx, firstResume)
-      const secondResume = stubAgent(cwd, firstResume.session.snapshotEvents())
+      const secondResume = await stubAgent(cwd, firstResume.session.snapshotEvents())
       await composeBaselinePrefix(ctx, secondResume)
 
       expect(baselineEvents(secondResume)).toHaveLength(1)
@@ -1219,11 +1219,11 @@ describe('workspace context request injection', () => {
       await write(join(root, 'AGENTS.md'), 'root '.repeat(200))
       const ctx = new Context()
       await mountWorkspaceContext(ctx, { dshHome: home, maxBytes: 700 })
-      const original = stubAgent(cwd)
+      const original = await stubAgent(cwd)
       await composeBaselinePrefix(ctx, original)
 
       await write(join(cwd, 'AGENTS.md'), 'package rule')
-      const resumed = stubAgent(cwd, original.session.snapshotEvents())
+      const resumed = await stubAgent(cwd, original.session.snapshotEvents())
       await composeBaselinePrefix(ctx, resumed)
 
       expect(baselineEvents(resumed)).toHaveLength(1)
@@ -1252,7 +1252,7 @@ describe('workspace context request injection', () => {
       await write(join(root, 'AGENTS.md'), 'agents rule')
       await write(join(root, 'CLAUDE.md'), 'claude rule')
       await mountWorkspaceContext(originalCtx, { dshHome: home, maxBytes: 65536 })
-      const original = stubAgent(root)
+      const original = await stubAgent(root)
       await composeBaselinePrefix(originalCtx, original)
 
       await mountWorkspaceContext(resumedCtx, {
@@ -1260,7 +1260,7 @@ describe('workspace context request injection', () => {
         maxBytes: 65536,
         instructionFileCandidates: ['CLAUDE.md', 'AGENTS.md'],
       })
-      const resumed = stubAgent(root, original.session.snapshotEvents())
+      const resumed = await stubAgent(root, original.session.snapshotEvents())
       await composeBaselinePrefix(resumedCtx, resumed)
 
       const baselines = baselineEvents(resumed)
@@ -1279,7 +1279,7 @@ describe('workspace context request injection', () => {
         : [])
       expect(new Set(baselineIdentities).size).toBe(2)
 
-      const repeated = stubAgent(root, resumed.session.snapshotEvents())
+      const repeated = await stubAgent(root, resumed.session.snapshotEvents())
       await composeBaselinePrefix(resumedCtx, repeated)
       expect(baselineEvents(repeated)).toHaveLength(2)
     } finally {
@@ -1305,7 +1305,7 @@ describe('workspace context request injection', () => {
         maxBytes: 65536,
         instructionFileCandidates: ['AGENTS.md'],
       })
-      const original = stubAgent(root)
+      const original = await stubAgent(root)
       await composeBaselinePrefix(agentsCtx, original)
 
       await mountWorkspaceContext(claudeCtx, {
@@ -1313,7 +1313,7 @@ describe('workspace context request injection', () => {
         maxBytes: 65536,
         instructionFileCandidates: ['CLAUDE.md'],
       })
-      const claudeResume = stubAgent(root, original.session.snapshotEvents())
+      const claudeResume = await stubAgent(root, original.session.snapshotEvents())
       await composeBaselinePrefix(claudeCtx, claudeResume)
       const claudeBaseline = baselineEvents(claudeResume).at(-1)
       expect(claudeBaseline?.type === 'user/message' && claudeBaseline.data.source.kind === 'agent-instructions'
@@ -1328,7 +1328,7 @@ describe('workspace context request injection', () => {
         maxBytes: 65536,
         instructionFileCandidates: ['AGENTS.md'],
       })
-      const restored = stubAgent(root, claudeResume.session.snapshotEvents())
+      const restored = await stubAgent(root, claudeResume.session.snapshotEvents())
       await composeBaselinePrefix(restoredCtx, restored)
       const restoredBaseline = baselineEvents(restored).at(-1)
       expect(restoredBaseline?.type === 'user/message' && restoredBaseline.data.source.kind === 'agent-instructions'
@@ -1355,7 +1355,7 @@ describe('workspace context request injection', () => {
       await mkdir(join(root, '.git'), { recursive: true })
       await write(join(root, 'AGENTS.md'), 'agents rule')
       await mountWorkspaceContext(originalCtx, { dshHome: home, maxBytes: 65536 })
-      const original = stubAgent(root)
+      const original = await stubAgent(root)
       await composeBaselinePrefix(originalCtx, original)
 
       await mountWorkspaceContext(resumedCtx, {
@@ -1363,7 +1363,7 @@ describe('workspace context request injection', () => {
         maxBytes: 65536,
         instructionFileCandidates: ['POLICY.md'],
       })
-      const resumed = stubAgent(root, original.session.snapshotEvents())
+      const resumed = await stubAgent(root, original.session.snapshotEvents())
       await composeBaselinePrefix(resumedCtx, resumed)
 
       const baselines = baselineEvents(resumed)
@@ -1377,7 +1377,7 @@ describe('workspace context request injection', () => {
         { action: 'remove', scope: sk('.', 'AGENTS.md'), path: 'AGENTS.md' },
       ])
 
-      const repeated = stubAgent(root, resumed.session.snapshotEvents())
+      const repeated = await stubAgent(root, resumed.session.snapshotEvents())
       await composeBaselinePrefix(resumedCtx, repeated)
       expect(baselineEvents(repeated)).toHaveLength(2)
     } finally {
@@ -1396,7 +1396,7 @@ describe('workspace context request injection', () => {
       await write(join(root, 'AGENTS.md'), 'repo rule')
       const ctx = new Context()
       const fiber = await mountWorkspaceContext(ctx, { dshHome: home, maxBytes: 65536 })
-      const original = stubAgent(root)
+      const original = await stubAgent(root)
       await agentEvents(ctx, original).waterfall(
         'agent/pre-step',
         { messages: [], turn: 1, step: 1, signal: AbortSignal.timeout(requestTimeoutMs) },
@@ -1407,7 +1407,7 @@ describe('workspace context request injection', () => {
 
       await fiber.dispose()
       await mountWorkspaceContextPlugin(ctx, { dshHome: home, maxBytes: 65536 })
-      const resumed = stubAgent(root, original.session.snapshotEvents())
+      const resumed = await stubAgent(root, original.session.snapshotEvents())
       agentEvents(ctx, resumed).emit('agent/session-start', { source: 'resume' })
       const claimed = claimInbox(resumed, 'next-step')
       const decision = await agentEvents(ctx, resumed).waterfall(
@@ -1441,7 +1441,7 @@ describe('workspace context request injection', () => {
       await write(join(root, 'AGENTS.md'), 'old repo rule')
       const ctx = new Context()
       const fiber = await mountWorkspaceContext(ctx, { dshHome: home, maxBytes: 65536 })
-      const original = stubAgent(root)
+      const original = await stubAgent(root)
       await agentEvents(ctx, original).waterfall(
         'agent/pre-step',
         { messages: [], turn: 1, step: 1, signal: AbortSignal.timeout(requestTimeoutMs) },
@@ -1453,7 +1453,7 @@ describe('workspace context request injection', () => {
       await write(join(root, 'AGENTS.md'), 'new repo rule')
       await fiber.dispose()
       await mountWorkspaceContextPlugin(ctx, { dshHome: home, maxBytes: 65536 })
-      const resumed = stubAgent(root, original.session.snapshotEvents())
+      const resumed = await stubAgent(root, original.session.snapshotEvents())
       agentEvents(ctx, resumed).emit('agent/session-start', { source: 'resume' })
       const staleClaim = claimInbox(resumed, 'next-step')
       const staleDecision = await agentEvents(ctx, resumed).waterfall(
@@ -1494,7 +1494,7 @@ describe('workspace context request injection', () => {
       await mkdir(join(root, '.git'), { recursive: true })
       await write(join(root, 'AGENTS.md'), 'repo rule')
       await mountWorkspaceContext(originalCtx, { dshHome: home, maxBytes: 65536 })
-      const original = stubAgent(root)
+      const original = await stubAgent(root)
       await agentEvents(originalCtx, original).waterfall(
         'agent/pre-step',
         { messages: [], turn: 1, step: 1, signal: AbortSignal.timeout(requestTimeoutMs) },
@@ -1506,7 +1506,7 @@ describe('workspace context request injection', () => {
       await originalCtx.fiber.dispose()
       if (provideFs) await resumedCtx.plugin(LocalFileSystem, { cwd: '/' })
       await mountWorkspaceContextPlugin(resumedCtx, { dshHome: home, maxBytes })
-      const resumed = stubAgent(root, original.session.snapshotEvents())
+      const resumed = await stubAgent(root, original.session.snapshotEvents())
       agentEvents(resumedCtx, resumed).emit('agent/session-start', { source: 'resume' })
       const claimed = claimInbox(resumed, 'next-step')
       const decision = await agentEvents(resumedCtx, resumed).waterfall(
@@ -1533,7 +1533,7 @@ describe('workspace context request injection', () => {
       await mkdir(join(root, '.git'), { recursive: true })
       const ctx = new Context()
       await mountWorkspaceContext(ctx, { dshHome: home, maxBytes: 65536 })
-      const agent = stubAgent(root)
+      const agent = await stubAgent(root)
       agent.session.append('user/message', createUserMessage({
         content: [{ type: 'text', text: 'stale nested instructions' }],
         source: {
@@ -1567,7 +1567,7 @@ describe('workspace context request injection', () => {
       await write(join(root, 'AGENTS.md'), 'repo rule')
       const ctx = new Context()
       await mountWorkspaceContext(ctx, { dshHome: home, maxBytes: 65536 })
-      const agent = stubAgent(root)
+      const agent = await stubAgent(root)
       agent.session.append('user/message', createUserMessage({
         content: [{ type: 'text', text: 'stale nested instructions' }],
         source: {
@@ -1606,7 +1606,7 @@ describe('workspace context request injection', () => {
       await write(join(root, 'AGENTS.md'), 'repo rule')
       const ctx = new Context()
       await mountWorkspaceContext(ctx, { dshHome: home, maxBytes: 65536 })
-      const agent = stubAgent(root)
+      const agent = await stubAgent(root)
       const prompt = createUserMessage({
         content: [{ type: 'text', text: 'current prompt' }],
         source: { kind: 'user' },
@@ -1641,7 +1641,7 @@ describe('workspace context request injection', () => {
       await write(join(home, 'AGENTS.md'), 'global rule')
       const ctx = new Context()
       await mountFileToolsAndWorkspaceContext(ctx, { dshHome: home, maxBytes: 65536 })
-      const agent = stubAgent(root)
+      const agent = await stubAgent(root)
       await composeBaselinePrefix(ctx, agent)
 
       await write(join(home, 'AGENTS.md'), 'updated global rule')
@@ -1667,7 +1667,7 @@ describe('workspace context request injection', () => {
       await write(join(root, 'AGENTS.md'), 'repo rule')
       const ctx = new Context()
       await mountWorkspaceContext(ctx, { dshHome: home, maxBytes: 65536 })
-      const agent = stubAgent(root)
+      const agent = await stubAgent(root)
       const downstream = { kind: 'reject' as const }
 
       const decision = await agentEvents(ctx, agent).waterfall(
@@ -1694,7 +1694,7 @@ describe('workspace context request injection', () => {
       await write(join(root, 'file.txt'), 'hello')
       const ctx = new Context()
       const fiber = await mountFileToolsAndWorkspaceContext(ctx, { dshHome: home, maxBytes: 65536 })
-      const agent = stubAgent(root)
+      const agent = await stubAgent(root)
       await composeBaselinePrefix(ctx, agent)
 
       // Hot remount over the live session: the durable baseline remains
@@ -1731,7 +1731,7 @@ describe('workspace context request injection', () => {
       const ctx = new Context()
       await ctx.plugin(LocalFileSystem, { cwd: '/' })
       const fiber = await mountWorkspaceContextPlugin(ctx, { dshHome: home, maxBytes: 65536 })
-      const agent = stubAgent(root)
+      const agent = await stubAgent(root)
       await composeBaselinePrefix(ctx, agent)
       const baseline = baselineEvents(agent)[0]
       expect(baseline).toBeDefined()
@@ -1764,7 +1764,7 @@ describe('workspace context request injection', () => {
       await write(join(root, 'AGENTS.md'), 'first post-compaction request rule')
       const ctx = new Context()
       await mountWorkspaceContext(ctx, { dshHome: home, maxBytes: 65536 })
-      const agent = stubAgent(root)
+      const agent = await stubAgent(root)
       await composeBaselinePrefix(ctx, agent)
       const baseline = baselineEvents(agent)[0]
       expect(baseline).toBeDefined()
@@ -1807,13 +1807,13 @@ describe('workspace context request injection', () => {
       await write(join(root, 'AGENTS.md'), 'old root rule')
       const ctx = new Context()
       await mountWorkspaceContext(ctx, { dshHome: home, maxBytes: 65536 })
-      const original = stubAgent(root)
+      const original = await stubAgent(root)
       await composeBaselinePrefix(ctx, original)
 
       // The first resumed pre-step retains the compatible visible baseline and
       // appends only the offline file transition needed to reach current state.
       await write(join(root, 'AGENTS.md'), 'new root rule after offline edit')
-      const resumed = stubAgent(root, original.session.snapshotEvents())
+      const resumed = await stubAgent(root, original.session.snapshotEvents())
 
       // Resume announces its lifecycle start before the first step.
       agentEvents(ctx, resumed).emit('agent/session-start', { source: 'resume' })
@@ -1847,7 +1847,7 @@ describe('workspace context request injection', () => {
       await write(join(cwd, 'AGENTS.md'), 'package rule')
       const ctx = new Context()
       await mountWorkspaceContext(ctx, { dshHome: home, maxBytes: 700 })
-      const agent = stubAgent(cwd)
+      const agent = await stubAgent(cwd)
 
       await composeBaselinePrefix(ctx, agent)
 
@@ -1879,7 +1879,7 @@ describe('workspace context request injection', () => {
         }
       })
 
-      const prefix = await composeBaselinePrefix(ctx, stubAgent(root))
+      const prefix = await composeBaselinePrefix(ctx, await stubAgent(root))
 
       expect(prefix).toHaveLength(2)
       expect(blocksText(prefix[0]?.content)).toContain('Instructions from: AGENTS.md')
@@ -1899,7 +1899,7 @@ describe('workspace context request injection', () => {
       await write(join(root, 'file.txt'), 'hello')
       const ctx = new Context()
       await mountFileToolsAndWorkspaceContext(ctx, { dshHome: home, maxBytes: 65536 })
-      const agent = stubAgent(root)
+      const agent = await stubAgent(root)
 
       await composeBaselinePrefix(ctx, agent)
       await write(join(root, 'AGENTS.md'), 'new root rule with more detail')
@@ -1928,7 +1928,7 @@ describe('workspace context request injection', () => {
       await write(join(root, 'file.txt'), 'hello')
       const ctx = new Context()
       await mountFileToolsAndWorkspaceContext(ctx, { dshHome: home, maxBytes: 65536 })
-      const agent = stubAgent(root)
+      const agent = await stubAgent(root)
 
       await composeBaselinePrefix(ctx, agent)
       await rm(join(root, 'AGENTS.md'))
@@ -1954,7 +1954,7 @@ describe('workspace context request injection', () => {
       await write(join(root, 'AGENTS.md'), 'shared root and global rule')
       const ctx = new Context()
       await mountWorkspaceContext(ctx, { dshHome: root, maxBytes: 65536 })
-      const agent = stubAgent(root)
+      const agent = await stubAgent(root)
 
       await composeBaselinePrefix(ctx, agent)
 
@@ -1974,7 +1974,7 @@ describe('workspace context request injection', () => {
       await write(join(root, 'file.txt'), 'hello')
       const ctx = new Context()
       await mountFileToolsAndWorkspaceContext(ctx, { dshHome: home, maxBytes: 65536 })
-      const agent = stubAgent(root)
+      const agent = await stubAgent(root)
 
       await composeBaselinePrefix(ctx, agent)
 
@@ -1998,7 +1998,7 @@ describe('workspace context request injection', () => {
       await write(join(root, 'AGENTS.md'), 'x'.repeat(1000))
       const ctx = new Context()
       await mountWorkspaceContext(ctx, { dshHome: home, maxBytes })
-      const agent = stubAgent(root)
+      const agent = await stubAgent(root)
 
       await composeBaselinePrefix(ctx, agent)
 
@@ -2033,7 +2033,7 @@ describe('workspace context request injection', () => {
       fs.entries.set(join(root, '.git'), { type: 'directory' })
       fs.entries.set(join(root, 'AGENTS.md'), { type: 'file', content: 'ctx.fs rule' })
       await mountWorkspaceContextPlugin(ctx, { dshHome: home, maxBytes: 65536 })
-      const agent = stubAgent(root)
+      const agent = await stubAgent(root)
 
       await composeBaselinePrefix(ctx, agent)
 
@@ -2056,7 +2056,7 @@ describe('workspace context request injection', () => {
       fs.entries.set(join(root, '.git'), { type: 'directory' })
       fs.entries.set(join(root, 'AGENTS.md'), { type: 'file', content: 'provider-only rule' })
       await mountWorkspaceContextPlugin(ctx, { dshHome: home, maxBytes: 65536 })
-      const agent = stubAgent(root)
+      const agent = await stubAgent(root)
 
       await composeBaselinePrefix(ctx, agent)
 
@@ -2099,7 +2099,7 @@ describe('workspace context request injection', () => {
       fs.entries.set(join(root, 'AGENTS.md'), { type: 'file', content: 'far too large' })
       await mountWorkspaceContextPlugin(ctx, { dshHome: home, maxBytes: 65536, maxSourceBytes: 4 })
 
-      const prefix = await composeBaselinePrefix(ctx, stubAgent(root))
+      const prefix = await composeBaselinePrefix(ctx, await stubAgent(root))
 
       expect(prefix).toEqual([])
       expect(fs.readTargets).toEqual([])
@@ -2124,7 +2124,7 @@ describe('workspace context request injection', () => {
       fs.omitSizes.add(instructionPath)
       await mountWorkspaceContextPlugin(ctx, { dshHome: home, maxBytes: 65536, maxSourceBytes: 4 })
 
-      const prefix = await composeBaselinePrefix(ctx, stubAgent(root))
+      const prefix = await composeBaselinePrefix(ctx, await stubAgent(root))
 
       expect(prefix).toEqual([])
       expect(fs.readTargets).toEqual([instructionPath, instructionPath])
@@ -2148,7 +2148,7 @@ describe('workspace context request injection', () => {
       await mountWorkspaceContextPlugin(ctx, { dshHome: home, maxBytes: 65536 })
       const controller = new AbortController()
       const reason = new Error('cancel prefix')
-      const pending = agentEvents(ctx, stubAgent(root)).waterfall(
+      const pending = agentEvents(ctx, await stubAgent(root)).waterfall(
         'agent/pre-step',
         { messages: [], turn: 1, step: 1, signal: controller.signal },
         () => Promise.resolve({ kind: 'enter' as const, messages: [] }),
@@ -2180,7 +2180,7 @@ describe('workspace context request injection', () => {
       fs.entries.set(join(home, 'AGENTS.md'), { type: 'file', content: 'ctx global rule' })
       fs.entries.set(join(root, 'CLAUDE.md'), { type: 'file', content: 'ctx claude rule' })
       await mountWorkspaceContextPlugin(ctx, { dshHome: home, maxBytes: 65536 })
-      const agent = stubAgent(root)
+      const agent = await stubAgent(root)
 
       await composeBaselinePrefix(ctx, agent)
 
@@ -2206,7 +2206,7 @@ describe('workspace context request injection', () => {
       fs.entries.set(join(root, '.git'), { type: 'directory' })
       fs.entries.set(join(root, 'AGENTS.md'), { type: 'directory' })
       await mountWorkspaceContextPlugin(ctx, { dshHome: home, maxBytes: 65536 })
-      const agent = stubAgent(root)
+      const agent = await stubAgent(root)
 
       await composeBaselinePrefix(ctx, agent)
 
@@ -2229,7 +2229,7 @@ describe('workspace context request injection', () => {
       fs.entries.set(join(root, '.git'), { type: 'directory' })
       fs.entries.set(join(root, 'AGENTS.md'), { type: 'file' })
       await mountWorkspaceContextPlugin(ctx, { dshHome: home, maxBytes: 65536 })
-      const agent = stubAgent(root)
+      const agent = await stubAgent(root)
 
       await composeBaselinePrefix(ctx, agent)
 
@@ -2252,7 +2252,7 @@ describe('workspace context request injection', () => {
       fs.entries.set(join(root, '.git'), { type: 'directory' })
       fs.throwOnStat.add(join(root, 'AGENTS.md'))
       await mountWorkspaceContextPlugin(ctx, { dshHome: home, maxBytes: 65536 })
-      const agent = stubAgent(root)
+      const agent = await stubAgent(root)
 
       await composeBaselinePrefix(ctx, agent)
 
@@ -2274,7 +2274,7 @@ describe('workspace context request injection', () => {
       fs.throwOnStat.add(join(root, 'AGENTS.md'))
       fs.entries.set(join(root, 'CLAUDE.md'), { type: 'file', content: 'claude sibling rule' })
       await mountWorkspaceContextPlugin(ctx, { dshHome: home, maxBytes: 65536 })
-      const agent = stubAgent(root)
+      const agent = await stubAgent(root)
 
       await composeBaselinePrefix(ctx, agent)
 
@@ -2299,7 +2299,7 @@ describe('workspace context request injection', () => {
       fs.throwOnStat.add(join(root, '.git'))
       fs.entries.set(join(root, 'AGENTS.md'), { type: 'file', content: 'repo rule' })
       await mountWorkspaceContextPlugin(ctx, { dshHome: home, maxBytes: 65536 })
-      const agent = stubAgent(root)
+      const agent = await stubAgent(root)
 
       await composeBaselinePrefix(ctx, agent)
 
@@ -2321,8 +2321,8 @@ describe('workspace context request injection', () => {
       await write(join(repoB, 'AGENTS.md'), 'repo B only')
       const ctx = new Context()
       await mountWorkspaceContext(ctx, { dshHome: home, maxBytes: 65536 })
-      const agentA = stubAgent(repoA)
-      const agentB = stubAgent(repoB)
+      const agentA = await stubAgent(repoA)
+      const agentB = await stubAgent(repoB)
 
       await composeBaselinePrefix(ctx, agentA)
       await composeBaselinePrefix(ctx, agentB)
@@ -2349,7 +2349,7 @@ describe('workspace context request injection', () => {
       const ctx = new Context()
       await ctx.plugin(LocalFileSystem, { cwd: '/' })
       await mountWorkspaceContextPlugin(ctx, { maxBytes: 65536 })
-      const agent = stubAgent(cwd)
+      const agent = await stubAgent(cwd)
 
       await composeBaselinePrefix(ctx, agent)
 
@@ -2370,7 +2370,7 @@ describe('workspace context request injection', () => {
       const ctx = new Context()
       await ctx.plugin(LocalFileSystem, { cwd: '/' })
       await mountWorkspaceContextPlugin(ctx, { maxBytes: 65536 })
-      const agent = stubAgent(root)
+      const agent = await stubAgent(root)
 
       await composeBaselinePrefix(ctx, agent)
 
@@ -2391,7 +2391,7 @@ describe('workspace context request injection', () => {
       const ctx = new Context()
       const fiber = await mountWorkspaceContext(ctx, { dshHome: home, maxBytes: 65536 })
       await fiber.dispose()
-      const agent = stubAgent(root)
+      const agent = await stubAgent(root)
 
       await composeBaselinePrefix(ctx, agent)
 
@@ -2410,7 +2410,7 @@ describe('workspace context request injection', () => {
       await write(join(root, 'AGENTS.md'), 'repo rule')
       const ctx = new Context()
       await mountWorkspaceContext(ctx, { dshHome: home, maxBytes: 0 })
-      const agent = stubAgent(root)
+      const agent = await stubAgent(root)
 
       await composeBaselinePrefix(ctx, agent)
 
@@ -2429,7 +2429,7 @@ describe('workspace context request injection', () => {
       await write(join(root, 'AGENTS.md'), 'repo rule')
       const ctx = new Context()
       await mountWorkspaceContext(ctx, { dshHome: home, maxBytes: -1 })
-      const agent = stubAgent(root)
+      const agent = await stubAgent(root)
 
       await composeBaselinePrefix(ctx, agent)
 
@@ -2447,7 +2447,7 @@ describe('workspace context request injection', () => {
       await mkdir(join(root, '.git'), { recursive: true })
       const ctx = new Context()
       await mountWorkspaceContext(ctx, { dshHome: home, maxBytes: 65536 })
-      const agent = stubAgent(root)
+      const agent = await stubAgent(root)
 
       await composeBaselinePrefix(ctx, agent)
 
@@ -2569,7 +2569,7 @@ describe('dynamic nested workspace context injection', () => {
       await mountWorkspaceContextPlugin(ctx, { dshHome: home, maxBytes: 65536 })
       await ctx.plugin(AgentLoop, { agents: [] })
       ctx.llm.registerAdapter(['mock'], adapter)
-      const agent = ctx.agentLoop.create(SessionId('workspace-context-abort'), { provider: 'mock', model: 'mock' }, { cwd: root })
+      const agent = await ctx.agentLoop.create(SessionId('workspace-context-abort'), { provider: 'mock', model: 'mock' }, { cwd: root })
       ctx.tools.register(defineContentToolFixture({
         name: 'abort_step',
         description: 'Abort the current test step.',
@@ -2617,8 +2617,8 @@ describe('dynamic nested workspace context injection', () => {
     expect(state.versions).toEqual(new Map())
   })
 
-  it('creates and releases version-cache state only for non-empty updates', () => {
-    const agent = stubAgent('/repo')
+  it('creates and releases version-cache state only for non-empty updates', async () => {
+    const agent = await stubAgent('/repo')
     const cache: InstructionVersionCache = new WeakMap()
     const change = { action: 'set' as const, scope: sk('.', 'AGENTS.md'), path: 'AGENTS.md', digest: 'digest' }
     applyInstructionVersionUpdates(agent.session, [], cache)
@@ -2650,7 +2650,7 @@ describe('dynamic nested workspace context injection', () => {
         callId: ToolCallId('cancelled-dynamic-read'),
         name: 'read',
         arguments: { file_path: join('pkg', 'file.txt') },
-        agent: stubAgent(root),
+        agent: await stubAgent(root),
         signal: controller.signal,
       })
 
@@ -2680,7 +2680,7 @@ describe('dynamic nested workspace context injection', () => {
       await write(join(root, 'pkg/deep/file.txt'), 'hello')
       const ctx = new Context()
       await mountFileToolsAndWorkspaceContext(ctx, { dshHome: home, maxBytes: 65536 })
-      const agent = stubAgent(root)
+      const agent = await stubAgent(root)
 
       const result = await ctx.tools.execute({
         signal: testToolSignal,
@@ -2725,7 +2725,7 @@ describe('dynamic nested workspace context injection', () => {
       await mkdir(join(root, '.git'), { recursive: true })
       await write(join(root, 'pkg/AGENTS.md'), 'nested package rule')
       await mountFileToolsAndWorkspaceContext(ctx, { dshHome: home, maxBytes: 65536 })
-      const agent = stubAgent(root)
+      const agent = await stubAgent(root)
       const controller = new AbortController()
 
       ctx.emit('tools/result', stubToolExecution({
@@ -2759,7 +2759,7 @@ describe('dynamic nested workspace context injection', () => {
         maxBytes: 65536,
         instructionFileCandidates: ['CLAUDE.local.md', 'AGENTS.md', 'CLAUDE.md'],
       })
-      const agent = stubAgent(root)
+      const agent = await stubAgent(root)
 
       await ctx.tools.execute({
         signal: testToolSignal,
@@ -2792,7 +2792,7 @@ describe('dynamic nested workspace context injection', () => {
       await write(join(root, 'pkg/deep/file.txt'), 'hello')
       const ctx = new Context()
       await mountFileToolsAndWorkspaceContext(ctx, { dshHome: home, maxBytes: 65536 })
-      const agent = stubAgent(root)
+      const agent = await stubAgent(root)
 
       await ctx.tools.execute({
         signal: testToolSignal,
@@ -2835,7 +2835,7 @@ describe('dynamic nested workspace context injection', () => {
         maxBytes: 65536,
         localInstructionFileCandidates: [],
       })
-      const agent = stubAgent(root)
+      const agent = await stubAgent(root)
 
       await ctx.tools.execute({
         signal: testToolSignal,
@@ -2863,7 +2863,7 @@ describe('dynamic nested workspace context injection', () => {
       await write(join(root, 'pkg/deep/file.txt'), 'hello')
       const ctx = new Context()
       await mountFileToolsAndWorkspaceContext(ctx, { dshHome: home, maxBytes: 65536 })
-      const agent = stubAgent(root)
+      const agent = await stubAgent(root)
 
       const first = await ctx.tools.execute({
         signal: testToolSignal,
@@ -2906,7 +2906,7 @@ describe('dynamic nested workspace context injection', () => {
       fs.entries.set(join(root, 'pkg/file.txt'), { type: 'file', content: 'hello' })
       await ctx.plugin(ToolFs)
       await mountWorkspaceContextPlugin(ctx, { dshHome: home, maxBytes: 65536 })
-      const agent = stubAgent(root)
+      const agent = await stubAgent(root)
 
       const first = await ctx.tools.execute({
         signal: testToolSignal,
@@ -2943,7 +2943,7 @@ describe('dynamic nested workspace context injection', () => {
       fs.entries.set(join(root, 'pkg/file.txt'), { type: 'file', content: 'hello' })
       await ctx.plugin(ToolFs)
       await mountWorkspaceContextPlugin(ctx, { dshHome: home, maxBytes: 65536 })
-      const agent = stubAgent(root)
+      const agent = await stubAgent(root)
 
       await ctx.tools.execute({
         signal: testToolSignal,
@@ -2989,8 +2989,8 @@ describe('dynamic nested workspace context injection', () => {
       await ctx.plugin(ToolFs)
       await mountWorkspaceContextPlugin(ctx, { dshHome: home, maxBytes: 65536 })
 
-      const firstAgent = stubAgent(root)
-      const secondAgent = stubAgent(root)
+      const firstAgent = await stubAgent(root)
+      const secondAgent = await stubAgent(root)
       const first = await ctx.tools.execute({
         signal: testToolSignal,
         callId: ToolCallId('read-from-first-session'), name: 'read', arguments: { file_path: join('pkg', 'file.txt') }, agent: firstAgent,
@@ -3021,7 +3021,7 @@ describe('dynamic nested workspace context injection', () => {
       await write(join(root, 'pkg/file.txt'), 'hello')
       const ctx = new Context()
       await mountFileToolsAndWorkspaceContext(ctx, { dshHome: home, maxBytes: 65536 })
-      const agent = stubAgent(root)
+      const agent = await stubAgent(root)
 
       await ctx.tools.execute({
         signal: testToolSignal,
@@ -3064,7 +3064,7 @@ describe('dynamic nested workspace context injection', () => {
       await write(join(root, 'pkg/file.txt'), 'hello')
       const ctx = new Context()
       await mountFileToolsAndWorkspaceContext(ctx, { dshHome: home, maxBytes: 65536 })
-      const agent = stubAgent(root)
+      const agent = await stubAgent(root)
 
       await ctx.tools.execute({
         signal: testToolSignal,
@@ -3102,7 +3102,7 @@ describe('dynamic nested workspace context injection', () => {
       await write(join(root, 'pkg/deep/file.txt'), 'hello')
       const ctx = new Context()
       await mountFileToolsAndWorkspaceContext(ctx, { dshHome: home, maxBytes: 65536 })
-      const agent = stubAgent(root)
+      const agent = await stubAgent(root)
 
       await ctx.tools.execute({
         signal: testToolSignal,
@@ -3134,7 +3134,7 @@ describe('dynamic nested workspace context injection', () => {
         fs.entries.set(join(root, '.git'), { type: 'directory' })
         fs.entries.set(join(root, 'pkg/CLAUDE.md'), { type: 'file', content: 'nested rule' })
         fs.throwOnStat.add(join(root, 'pkg/AGENTS.md'))
-        const agent = stubAgent(root)
+        const agent = await stubAgent(root)
         const agentsScope = sk('pkg', 'AGENTS.md')
         const loaded = baselineInstructionState([{
           absolutePath: join(root, 'pkg/AGENTS.md'),
@@ -3204,7 +3204,7 @@ describe('dynamic nested workspace context injection', () => {
       const fs = ctx.fs as RecordingFileSystem
       fs.entries.set(join(root, '.git'), { type: 'directory' })
       fs.entries.set(join(root, 'AGENTS.md'), { type: 'file', content: 'repo rule' })
-      const agent = stubAgent(root)
+      const agent = await stubAgent(root)
       const rootScope = sk('.', 'AGENTS.md')
       const loaded = baselineInstructionState([{
         absolutePath: join(root, 'AGENTS.md'),
@@ -3249,7 +3249,7 @@ describe('dynamic nested workspace context injection', () => {
       const fs = ctx.fs as RecordingFileSystem
       fs.entries.set(join(root, '.git'), { type: 'directory' })
       fs.throwOnStat.add(join(root, 'pkg/AGENTS.md'))
-      const agent = stubAgent(root)
+      const agent = await stubAgent(root)
       agent.session.append('user/message', createUserMessage({
         content: [{ type: 'text', text: 'removed nested instructions' }],
         source: {
@@ -3289,7 +3289,7 @@ describe('dynamic nested workspace context injection', () => {
       const fs = ctx.fs as RecordingFileSystem
       fs.entries.set(join(root, '.git'), { type: 'directory' })
       fs.entries.set(join(root, 'AGENTS.md'), { type: 'file', content: 'shared rule' })
-      const agent = stubAgent(root)
+      const agent = await stubAgent(root)
       const resolved = resolveConfig({
         dshHome: root,
         maxBytes: 65536,
@@ -3324,7 +3324,7 @@ describe('dynamic nested workspace context injection', () => {
       await write(join(root, 'pkg/file.txt'), 'hello')
       const ctx = new Context()
       await mountFileToolsAndWorkspaceContext(ctx, { dshHome: home, maxBytes: 65536 })
-      const agent = stubAgent(root)
+      const agent = await stubAgent(root)
 
       await ctx.tools.execute({
         signal: testToolSignal,
@@ -3361,7 +3361,7 @@ describe('dynamic nested workspace context injection', () => {
       await write(join(root, 'pkg/file.txt'), 'hello')
       const ctx = new Context()
       await mountFileToolsAndWorkspaceContext(ctx, { dshHome: home, maxBytes: 65536 })
-      const agent = stubAgent(root)
+      const agent = await stubAgent(root)
 
       await ctx.tools.execute({
         signal: testToolSignal,
@@ -3399,7 +3399,7 @@ describe('dynamic nested workspace context injection', () => {
       await write(join(root, 'pkg/file.txt'), 'hello')
       const ctx = new Context()
       await mountFileToolsAndWorkspaceContext(ctx, { dshHome: home, maxBytes: 65536 })
-      const agent = stubAgent(root)
+      const agent = await stubAgent(root)
 
       await ctx.tools.execute({
         signal: testToolSignal,
@@ -3439,7 +3439,7 @@ describe('dynamic nested workspace context injection', () => {
       await write(join(root, 'pkg/file.txt'), 'hello')
       const ctx = new Context()
       await mountFileToolsAndWorkspaceContext(ctx, { dshHome: home, maxBytes: 65536 })
-      const agent = stubAgent(root)
+      const agent = await stubAgent(root)
 
       await ctx.tools.execute({
         signal: testToolSignal,
@@ -3479,7 +3479,7 @@ describe('dynamic nested workspace context injection', () => {
       await write(join(root, 'pkg/file.txt'), 'hello')
       const ctx = new Context()
       await mountFileToolsAndWorkspaceContext(ctx, { dshHome: home, maxBytes: 65536 })
-      const agent = stubAgent(root)
+      const agent = await stubAgent(root)
 
       await ctx.tools.execute({
         signal: testToolSignal,
@@ -3524,7 +3524,7 @@ describe('dynamic nested workspace context injection', () => {
       fs.entries.set(join(root, 'pkg/file.txt'), { type: 'file', content: 'hello' })
       await ctx.plugin(ToolFs)
       await mountWorkspaceContextPlugin(ctx, { dshHome: home, maxBytes: 65536 })
-      const agent = stubAgent(root)
+      const agent = await stubAgent(root)
 
       const first = await ctx.tools.execute({
         signal: testToolSignal,
@@ -3555,7 +3555,7 @@ describe('dynamic nested workspace context injection', () => {
       await write(join(root, 'pkg/deep/file.txt'), 'hello')
       const ctx = new Context()
       await mountFileToolsAndWorkspaceContext(ctx, { dshHome: home, maxBytes: 65536 })
-      const agent = stubAgent(root)
+      const agent = await stubAgent(root)
       const first = await ctx.tools.execute({
         signal: testToolSignal,
         callId: ToolCallId('read-before-resume'),
@@ -3564,7 +3564,7 @@ describe('dynamic nested workspace context injection', () => {
         agent,
       })
       await appendAdditionalContexts(ctx, agent)
-      const resumed = stubAgent(root, agent.session.snapshotEvents())
+      const resumed = await stubAgent(root, agent.session.snapshotEvents())
 
       const afterResume = await ctx.tools.execute({
         signal: testToolSignal,
@@ -3591,14 +3591,14 @@ describe('dynamic nested workspace context injection', () => {
       await write(join(root, 'pkg/file.txt'), 'hello')
       const ctx = new Context()
       await mountFileToolsAndWorkspaceContext(ctx, { dshHome: home, maxBytes: 65536 })
-      const original = stubAgent(root)
+      const original = await stubAgent(root)
       await ctx.tools.execute({
         signal: testToolSignal,
         callId: ToolCallId('read-before-offline-change'), name: 'read', arguments: { file_path: join('pkg', 'file.txt') }, agent: original,
       })
       await appendAdditionalContexts(ctx, original)
       await write(join(root, 'pkg/AGENTS.md'), 'new nested rule after resume')
-      const resumed = stubAgent(root, original.session.snapshotEvents())
+      const resumed = await stubAgent(root, original.session.snapshotEvents())
 
       await composeBaselinePrefix(ctx, resumed)
 
@@ -3622,7 +3622,7 @@ describe('dynamic nested workspace context injection', () => {
       await write(join(root, 'pkg/deep/file.txt'), 'hello')
       const ctx = new Context()
       await mountFileToolsAndWorkspaceContext(ctx, { dshHome: home, maxBytes: 65536 })
-      const agent = stubAgent(root)
+      const agent = await stubAgent(root)
       const first = await ctx.tools.execute({
         signal: testToolSignal,
         callId: ToolCallId('read-before-compact'),
@@ -3674,7 +3674,7 @@ describe('dynamic nested workspace context injection', () => {
       await write(join(root, 'file.txt'), 'hello')
       const ctx = new Context()
       await mountFileToolsAndWorkspaceContext(ctx, { dshHome: home, maxBytes: 65536 })
-      const agent = stubAgent(root)
+      const agent = await stubAgent(root)
       await composeBaselinePrefix(ctx, agent)
       const baseline = baselineEvents(agent)[0]
       expect(baseline).toBeDefined()
@@ -3734,7 +3734,7 @@ describe('dynamic nested workspace context injection', () => {
       await write(join(root, 'pkg/sub/file.txt'), 'subtree file')
       const ctx = new Context()
       await mountFileToolsAndWorkspaceContext(ctx, { dshHome: home, maxBytes: 65536 })
-      const agent = stubAgent(root)
+      const agent = await stubAgent(root)
       await ctx.tools.execute({
         signal: testToolSignal,
         callId: ToolCallId('read-package'),
@@ -3772,7 +3772,7 @@ describe('dynamic nested workspace context injection', () => {
       await write(join(root, 'pkg/sub/file.txt'), 'subtree file')
       const ctx = new Context()
       await mountFileToolsAndWorkspaceContext(ctx, { dshHome: home, maxBytes: 700 })
-      const agent = stubAgent(root)
+      const agent = await stubAgent(root)
       await ctx.tools.execute({
         signal: testToolSignal,
         callId: ToolCallId('read-subtree-omitting-parent'),
@@ -3809,7 +3809,7 @@ describe('dynamic nested workspace context injection', () => {
       await write(join(root, 'pkg/deep/file.txt'), 'hello')
       const ctx = new Context()
       await mountFileToolsAndWorkspaceContext(ctx, { dshHome: home, maxBytes: 65536 })
-      const agent = stubAgent(root)
+      const agent = await stubAgent(root)
       agent.session.append('user/message', createUserMessage({
         content: [
           { type: 'reasoning', text: 'Additional instructions from: pkg/AGENTS.md' },
@@ -3860,7 +3860,7 @@ describe('dynamic nested workspace context injection', () => {
       await write(join(root, 'pkg/deep/file.txt'), 'hello')
       const ctx = new Context()
       await mountFileToolsAndWorkspaceContext(ctx, { dshHome: home, maxBytes: 65536 })
-      const agent = stubAgent(root)
+      const agent = await stubAgent(root)
 
       const rootResult = await ctx.tools.execute({
         signal: testToolSignal,
@@ -3903,7 +3903,7 @@ describe('dynamic nested workspace context injection', () => {
       fs.throwOnRead.add(nested)
       await ctx.plugin(ToolFs)
       await mountWorkspaceContextPlugin(ctx, { dshHome: home, maxBytes: 65536 })
-      const agent = stubAgent(root)
+      const agent = await stubAgent(root)
 
       const result = await ctx.tools.execute({
         signal: testToolSignal,
@@ -3935,7 +3935,7 @@ describe('dynamic nested workspace context injection', () => {
       await write(join(root, 'pkg/deep/file.txt'), 'hello')
       const ctx = new Context()
       await mountFileToolsAndWorkspaceContext(ctx, { dshHome: home, maxBytes: 65536 })
-      const agent = stubAgent(root)
+      const agent = await stubAgent(root)
       ctx.on('tools/post-execute', async () => ({
         kind: 'accept' as const,
         value: {
@@ -3997,7 +3997,7 @@ describe('dynamic nested workspace context injection', () => {
       await write(join(root, 'pkg/deep/file.txt'), 'hello')
       const ctx = new Context()
       await mountFileToolsAndWorkspaceContext(ctx, { dshHome: home, maxBytes: 65536 })
-      const agent = stubAgent(root)
+      const agent = await stubAgent(root)
       ctx.on('tools/post-execute', async () => ({
         kind: 'block' as const,
         feedback: [{ type: 'text' as const, text: 'blocked downstream' }],
@@ -4044,7 +4044,7 @@ describe('dynamic nested workspace context injection', () => {
           : downstream
       })
       await mountWorkspaceContextPlugin(ctx, { dshHome: home, maxBytes: 65536 })
-      const agent = stubAgent(root)
+      const agent = await stubAgent(root)
 
       const blocked = await ctx.tools.execute({
         signal: testToolSignal,
@@ -4113,7 +4113,7 @@ describe('dynamic nested workspace context injection', () => {
           : downstream
       })
       await mountWorkspaceContextPlugin(ctx, { dshHome: home, maxBytes: 65536 })
-      const agent = stubAgent(root)
+      const agent = await stubAgent(root)
 
       const blocked = await ctx.tools.execute({
         signal: testToolSignal,
@@ -4140,7 +4140,7 @@ describe('dynamic nested workspace context injection', () => {
       const fs = ctx.fs as RecordingFileSystem
       fs.entries.set(join(root, '.git'), { type: 'directory' })
       fs.entries.set(join(root, 'pkg/AGENTS.md'), { type: 'file', content: 'nested package rule' })
-      const agent = stubAgent(root)
+      const agent = await stubAgent(root)
       const turnStart = agent.session.append('turn/start', { turn: 1 })
       ctx.emit('session/event', agent.session, turnStart)
       const stepStart = agent.session.append('step/start', { turn: 1, step: 1 })
@@ -4206,7 +4206,7 @@ describe('dynamic nested workspace context injection', () => {
       const fs = ctx.fs as RecordingFileSystem
       fs.entries.set(join(root, '.git'), { type: 'directory' })
       fs.entries.set(join(root, 'pkg/AGENTS.md'), { type: 'file', content: 'nested package rule' })
-      const agent = stubAgent(root)
+      const agent = await stubAgent(root)
       agent.session.append('turn/start', { turn: 1 })
       agent.session.append('step/start', { turn: 1, step: 1 })
       agent.session.append('step/end', { turn: 1, step: 1 })
@@ -4236,7 +4236,7 @@ describe('dynamic nested workspace context injection', () => {
       await ctx.plugin(RecordingFileSystem)
       await mountWorkspaceContextPlugin(ctx, { maxBytes: 65536 })
       const fs = ctx.fs as RecordingFileSystem
-      const agent = stubAgent('/')
+      const agent = await stubAgent('/')
       const plainResult = { callId: ToolCallId('plain'), content: [], isError: false as const, value: null }
       const aborted = new AbortController()
       aborted.abort(new Error('cancelled'))
@@ -4286,7 +4286,7 @@ describe('dynamic nested workspace context injection', () => {
       await mountWorkspaceContextPlugin(ctx, { maxBytes: 65536 })
       const fs = ctx.fs as RecordingFileSystem
       const root = resolve('/')
-      const agent = stubAgent(root)
+      const agent = await stubAgent(root)
       const failure = new Error('projection failed')
       const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => undefined)
       fs.entries.set(join(root, '.git'), { type: 'directory' })
@@ -4324,7 +4324,7 @@ describe('dynamic nested workspace context injection', () => {
         callId: ToolCallId('read-with-disabled-budget'),
         name: 'read',
         arguments: { file_path: join('pkg', 'deep', 'file.txt') },
-        agent: stubAgent(root),
+        agent: await stubAgent(root),
       })
 
       expect(result.isError).toBe(false)
@@ -4350,7 +4350,7 @@ describe('dynamic nested workspace context injection', () => {
       fs.entries.set(join(root, 'pkg/file.txt'), { type: 'file', content: 'hello' })
       await ctx.plugin(ToolFs)
       await mountWorkspaceContextPlugin(ctx, { dshHome: home, maxBytes: 20 })
-      const agent = stubAgent(root)
+      const agent = await stubAgent(root)
 
       const first = await ctx.tools.execute({
         signal: testToolSignal,
@@ -4390,7 +4390,7 @@ describe('dynamic nested workspace context injection', () => {
         callId: ToolCallId('read-missing'),
         name: 'read',
         arguments: { file_path: join('pkg', 'missing.txt') },
-        agent: stubAgent(root),
+        agent: await stubAgent(root),
       })
 
       expect(result.isError).toBe(true)
@@ -4411,7 +4411,7 @@ describe('dynamic nested workspace context injection', () => {
       const ctx = new Context()
       const fiber = await mountFileToolsAndWorkspaceContext(ctx, { dshHome: home, maxBytes: 65536 })
       await fiber.dispose()
-      const agent = stubAgent(root)
+      const agent = await stubAgent(root)
 
       const result = await ctx.tools.execute({
         signal: testToolSignal,
@@ -4447,7 +4447,7 @@ describe('workspace context inbox synchronization', () => {
       await write(join(root, 'AGENTS.md'), 'duplicate baseline')
       const ctx = new Context()
       await mountWorkspaceContext(ctx, { dshHome: home, maxBytes: 65536 })
-      const agent = stubAgent(root)
+      const agent = await stubAgent(root)
       await syncWorkspaceContext(ctx, agent)
       const desired = agent.inbox.nextStep[0]!
       agent.inbox.append('next-step', createUserMessage({ content: desired.content, source: desired.source }))
@@ -4472,7 +4472,7 @@ describe('workspace context inbox synchronization', () => {
       fs.entries.set(join(root, '.git'), { type: 'directory' })
       fs.entries.set(join(root, 'pkg/AGENTS.md'), { type: 'file', content: 'tiny-budget rule' })
       await mountWorkspaceContextPlugin(ctx, { dshHome: home, maxBytes: 1 })
-      const agent = stubAgent(root)
+      const agent = await stubAgent(root)
       ctx.emit('tools/result', stubToolExecution({
         signal: testToolSignal,
         callId: ToolCallId('tiny-budget-touch'), name: 'read', arguments: { file_path: join('pkg', 'file.txt') }, agent,
@@ -4500,7 +4500,7 @@ describe('workspace context inbox synchronization', () => {
       await write(join(root, 'pkg/file.txt'), 'file')
       const ctx = new Context()
       await mountFileToolsAndWorkspaceContext(ctx, { dshHome: home, maxBytes: 65536 })
-      const agent = stubAgent(root)
+      const agent = await stubAgent(root)
       await ctx.tools.execute({
         signal: testToolSignal,
         callId: ToolCallId('pending-v1'), name: 'read', arguments: { file_path: join('pkg', 'file.txt') }, agent,
@@ -4548,7 +4548,7 @@ describe('workspace context inbox synchronization', () => {
       fs.entries.set(join(root, 'a/AGENTS.md'), { type: 'file', content: 'restored A' })
       fs.entries.set(join(root, 'b/AGENTS.md'), { type: 'file', content: 'restored B' })
       await mountWorkspaceContextPlugin(ctx, { dshHome: home, maxBytes: 65536 })
-      const agent = stubAgent(root)
+      const agent = await stubAgent(root)
       const first = stubToolExecution({
         signal: testToolSignal,
         callId: ToolCallId('projected-before-abort'), name: 'read', arguments: { file_path: join('a', 'file.txt') }, agent,
@@ -4588,7 +4588,7 @@ describe('workspace context inbox synchronization', () => {
       fs.entries.set(join(root, 'a/AGENTS.md'), { type: 'file', content: 'scope A' })
       fs.entries.set(join(root, 'b/AGENTS.md'), { type: 'file', content: 'scope B' })
       await mountWorkspaceContextPlugin(ctx, { dshHome: home, maxBytes: 65536 })
-      const agent = stubAgent(root)
+      const agent = await stubAgent(root)
       const first = stubToolExecution({
         signal: testToolSignal,
         callId: ToolCallId('concurrent-a'), name: 'read', arguments: { file_path: join('a', 'file.txt') }, agent,
@@ -4626,13 +4626,13 @@ describe('workspace context inbox synchronization', () => {
       await write(join(root, 'b/file.txt'), 'b')
       const ctx = new Context()
       await mountFileToolsAndWorkspaceContext(ctx, { dshHome: home, maxBytes: 65536 })
-      const original = stubAgent(root)
+      const original = await stubAgent(root)
       await ctx.tools.execute({
         signal: testToolSignal,
         callId: ToolCallId('recover-pending-a'), name: 'read', arguments: { file_path: join('a', 'file.txt') }, agent: original,
       })
       await syncWorkspaceContext(ctx, original)
-      const resumed = stubAgent(root, original.session.snapshotEvents())
+      const resumed = await stubAgent(root, original.session.snapshotEvents())
 
       await ctx.tools.execute({
         signal: testToolSignal,
@@ -4661,7 +4661,7 @@ describe('workspace context inbox synchronization', () => {
       await write(join(root, 'pkg/file.txt'), 'file')
       const ctx = new Context()
       await mountFileToolsAndWorkspaceContext(ctx, { dshHome: home, maxBytes: 65536 })
-      const agent = stubAgent(join(root, 'pkg'))
+      const agent = await stubAgent(join(root, 'pkg'))
       await syncedWorkspaceContext(ctx, agent)
       const claimed = claimInbox(agent, 'next-step')
       await write(join(root, 'pkg/AGENTS.md'), 'new claimed rule with more detail')

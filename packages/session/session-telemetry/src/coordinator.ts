@@ -46,10 +46,10 @@ const handoffCursor = new WeakMap<Session, SessionSeqCursor>()
 /**
  * Install the telemetry capture side onto a context for one backend.
  *
- * Live capture registers the persistence-coordinator listener set plus the
- * `agent/error` relay, all through `ctx.effect()`/`ctx.on()` on the composing
- * fiber, and sweeps already-live sessions (a hot reload does not replay
- * `session/created`). A `session/disposed` captures the session's `shutdown`
+ * Live capture registers its own `session/created` / `session/event` /
+ * `session/disposed` listener set plus the `agent/error` relay, all through
+ * `ctx.effect()`/`ctx.on()` on the composing fiber, and sweeps already-live
+ * sessions (a hot reload does not replay `session/created`). A `session/disposed` captures the session's `shutdown`
  * operational record at its own termination edge and retires it from the
  * adopted set. On-demand capture registers none of those continuous listeners;
  * {@link captureSession} reads the canonical log explicitly and never creates

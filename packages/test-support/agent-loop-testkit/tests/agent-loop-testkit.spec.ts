@@ -66,7 +66,7 @@ describe('dsh-agent-loop-testkit', () => {
     const ctx = new Context()
     await mountAgentLoopTestDependencies(ctx)
     const harness = await mountAgentLoopTestHarness(ctx)
-    const agent = harness.create(SessionId('agent-loop-testkit-inbox'))
+    const agent = await harness.create(SessionId('agent-loop-testkit-inbox'))
     const turn = message('turn')
     const step = message('step')
     const inserted: string[] = []

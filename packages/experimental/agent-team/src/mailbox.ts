@@ -12,6 +12,7 @@ import { queueHostSubagentPrompt } from '@deepseek-ai/dsh-subagent/internal'
 import { errorMessage, TeamError } from './error.ts'
 import type { TeamJournal } from './journal.ts'
 import type { TeamRuntimeLifecycle } from './lifecycle.ts'
+import { readPersistedSession } from './persisted.ts'
 import type { TeamRoster } from './roster.ts'
 import { resolveActiveMember } from './roster.ts'
 import { messageAccepted } from './session-message.ts'
@@ -308,7 +309,8 @@ export class TeamMailbox {
 
   /** Whether a target Session already contains the durable message identity. */
   private targetRecorded(session: Session, messageId: TeamMessageId): boolean {
-    return messageAccepted(session.ownEvents(), message => message.source.kind === 'team-message'
+    const suffix = session.snapshotEvents(session.inheritedEventCount)
+    return messageAccepted(suffix, message => message.source.kind === 'team-message'
       && message.source.messageId === messageId)
   }
 
@@ -320,19 +322,19 @@ export class TeamMailbox {
     ]
   }
 
-  /** Inspect an inactive target before cold resume; uncertainty keeps the mailbox queued. */
+  /** Read an inactive target's durable log before cold resume; uncertainty keeps the mailbox queued. */
   private async persistedTargetRecorded(
     targetId: SessionId,
     messageId: TeamMessageId,
     signal: AbortSignal,
   ): Promise<boolean | undefined> {
     try {
-      const stored = await this.ctx.sessionPersistence.inspect(targetId, signal)
+      const stored = await readPersistedSession(this.ctx.sessionPersistence, targetId, signal)
       const suffix = stored.events.slice(stored.inheritedEventCount)
       return messageAccepted(suffix, message => message.source.kind === 'team-message'
         && message.source.messageId === messageId)
     } catch (error: unknown) {
-      this.ctx.logger.warn(`cannot inspect Team message target "${targetId}": ${errorMessage(error)}`)
+      this.ctx.logger.warn(`cannot read Team message target "${targetId}": ${errorMessage(error)}`)
       return undefined
     }
   }

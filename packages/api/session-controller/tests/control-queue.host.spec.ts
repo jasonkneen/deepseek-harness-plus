@@ -26,7 +26,7 @@ async function harness(): Promise<{
   ownedContexts.add(ctx)
   await mountAgentLoopTestDependencies(ctx)
   const loop = await mountAgentLoopTestHarness(ctx)
-  const agent = loop.create(SessionId('queue-session'))
+  const agent = await loop.create(SessionId('queue-session'))
   return { ctx, control: new SessionControlController(ctx), agent, inbox: agent.inbox }
 }
 
@@ -92,7 +92,7 @@ describe('Session control queue projection', () => {
     await mountAgentLoopTestDependencies(ctx)
     const loop = await mountAgentLoopTestHarness(ctx)
     const control = new SessionControlController(ctx)
-    const agent = loop.create(SessionId('late-projection-queue'))
+    const agent = await loop.create(SessionId('late-projection-queue'))
     const { inbox } = agent
     const abort = new AbortController()
     const iterator = control.control(abort.signal)[Symbol.asyncIterator]()

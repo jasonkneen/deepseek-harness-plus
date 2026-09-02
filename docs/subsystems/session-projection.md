@@ -271,9 +271,9 @@ checkpoint(session: Session): ProjectionCheckpoint
  * yields an end below every watermark and the restore rejects for a full
  * re-read.
  * @param checkpoint - persisted rows for one session (possibly stale or empty).
- * @returns the seq to hand the persistence `readFrom`, or `undefined`
- *   when no unit is registered (no read needed — {@link restore} would
- *   serve empty values regardless).
+ * @returns the offset for the stored-log suffix read (`SessionHandle.read`),
+ *   or `undefined` when no unit is registered (no read needed —
+ *   {@link restore} would serve empty values regardless).
  */
 restoreFloor(checkpoint: ProjectionCheckpoint): SessionLogOffset | undefined
 
@@ -294,8 +294,8 @@ viewCheckpoint( checkpoint: ProjectionCheckpoint, keys?: readonly Extract<keyof 
  * Cold read: fold every persisted unit over a stored log suffix, seeding
  * each from its checkpoint row when usable — the one read recipe (cached
  * state + forward tail replay + `view`) applied without a live `Session`.
- * Call with the events returned by a persistence
- * `readFrom(id, restoreFloor(checkpoint))` and that same floor as
+ * Call with the stored events at or past `restoreFloor(checkpoint)` (a
+ * `SessionHandle.read` slice) and that same floor as
  * `baseSeq`; the floor's one-below anchor makes the supplied end honest,
  * so a shrunk log is detected here. A row is usable iff its
  * `ver` matches the live unit's `stateVersion`, it does not predate `baseSeq`

@@ -183,6 +183,7 @@ describe('SessionHistoryController', () => {
       events: readonly SessionEvent[]
     }>()
     ctx.provide('sessionPersistence', testSessionPersistence(ctx, {
+      list: () => Promise.resolve([header]),
       inspect: () => inspected.promise,
     }) as never)
     const abort = new AbortController()
@@ -468,7 +469,7 @@ describe('SessionHistoryController', () => {
     const { ctx, transport } = await setup()
     const sessionId = SessionId('corrupt-cold')
     const failure = new Error('cold log is corrupt')
-    const header = { version: 0, id: sessionId, createdAt: 1, cwd: '/workspace' }
+    const header = { version: 0, id: sessionId, createdAt: 1, isSeeded: false, cwd: '/workspace' }
     ctx.provide('sessionPersistence', testSessionPersistence(ctx, {
       list: () => Promise.resolve([header]),
       inspect: () => Promise.reject(failure),
@@ -525,8 +526,10 @@ describe('SessionHistoryController', () => {
       .rejects.toMatchObject({ code: 'session/not-found' })
 
     const inspect = vi.fn(() => Promise.resolve(undefined))
+    const stat = vi.fn(() => Promise.resolve(undefined))
     ctx.provide('sessionPersistence', testSessionPersistence(ctx, {
       list: () => Promise.resolve([]),
+      stat,
       inspect,
     }) as never)
     await expect(transport.page({ address: ordinary, throughSeq: -1 }, signal()))
@@ -540,7 +543,9 @@ describe('SessionHistoryController', () => {
       },
       throughSeq: -1,
     }, signal())).rejects.toMatchObject({ code: 'subagent/not-found' })
-    expect(inspect).toHaveBeenCalledTimes(2)
+    // Absence is decided by the stat preflight; no log open is attempted.
+    expect(stat).toHaveBeenCalledTimes(2)
+    expect(inspect).not.toHaveBeenCalled()
   })
 
   it('rejects incomplete cold metadata before serving a source', async () => {

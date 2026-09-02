@@ -63,11 +63,10 @@ import type {
 } from '@deepseek-ai/dsh-llm'
 import type { ReplayHandle } from '@deepseek-ai/dsh-llm-replay'
 import { installLlmReplay, parseSessionLog } from '@deepseek-ai/dsh-llm-replay'
-import SessionStore, {
+import {
   packChunkRuns,
   SESSION_FORMAT_VERSION,
   SessionId,
-  SessionSeq,
   type Session,
   type SessionEvent,
   type SessionHeader,
@@ -951,8 +950,9 @@ export function fixtureIdentity(
 
 /**
  * Seed a recorded session fixture into the scaffold's persistence root
- * through the REAL backend API (throwaway Context + SessionStore + JSONL
- * plugin — the semantic-checkpoint precedent), never raw file writes: no
+ * through the REAL backend API (throwaway Context + JSONL plugin, a
+ * create-handle/append/close write — the semantic-checkpoint precedent),
+ * never raw file writes: no
  * knowledge of bucket hashing, filename encoding, or compression, and
  * malformed session events fail loud at seed time. The fixture's tokenized identity
  * ({{sessionId}}/{{cwd}}) is realized for this world before parsing. Event
@@ -1042,8 +1042,8 @@ export async function seedSession(
     version: SESSION_FORMAT_VERSION,
     id: SessionId(id),
     createdAt: Date.now() - 60_000,
-    cwd: scaffold.workspaceCwd,
     isSeeded: false,
+    cwd: scaffold.workspaceCwd,
     delegationDepth: 0,
     ...agentPreset === undefined ? {} : { agentPreset },
   }
@@ -1057,29 +1057,6 @@ export async function seedSession(
   return meta.id
 }
 
-/** Seed one materialized cold Session whose log has no turn/start event. */
-export async function seedBlankSession(
-  scaffold: WebScaffold,
-  id: string,
-  cwd: string,
-): Promise<SessionId> {
-  const meta: SessionHeader = {
-    version: SESSION_FORMAT_VERSION,
-    id: SessionId(id),
-    createdAt: Date.now() - 60_000,
-    cwd,
-    isSeeded: false,
-    delegationDepth: 0,
-  }
-  await persistSeedSession(scaffold, meta, [{
-    type: 'session/end-seed',
-    seq: SessionSeq(0),
-    time: meta.createdAt,
-    data: {},
-  }])
-  return meta.id
-}
-
 /** Materialize one detached Session fixture through the shipped JSONL provider. */
 async function persistSeedSession(
   scaffold: WebScaffold,
@@ -1088,14 +1065,32 @@ async function persistSeedSession(
 ): Promise<void> {
   const seeder = new Context()
   try {
-    await seeder.plugin(SessionStore)
     // Same root as the booted tree with the plugin's own default compression,
     // so the host's directory-scan list() sees one consistent encoding.
     await seeder.plugin(JsonlSessionPersistence, { root: scaffold.persistenceRoot })
-    await seeder.sessionPersistence.create(meta)
-    await seeder.sessionPersistence.append(meta.id, events)
+    const handle = await seeder.sessionPersistence.create(meta)
+    await handle.append(events)
+    await handle.close()
   } finally {
     await seeder.fiber.dispose()
+  }
+}
+
+/**
+ * Read one stored session's physical event log through a throwaway read
+ * handle. The physical log carries no synthetic closers: a resumed session
+ * shows the closers the loop appended durably, and a never-resumed
+ * interrupted log stays interrupted.
+ * @param scaffold - the booted scaffold whose persistence holds the session.
+ * @param id - the stored session to read.
+ * @returns the stored events.
+ */
+export async function readPersistedEvents(scaffold: WebScaffold, id: SessionId): Promise<readonly SessionEvent[]> {
+  const handle = await scaffold.ctx.sessionPersistence.open(id, 'read')
+  try {
+    return await handle.read()
+  } finally {
+    await handle.close()
   }
 }
 

@@ -31,9 +31,9 @@ export interface AgentLoopTestHarness {
    * @param id - shared Agent and Session identity.
    * @param options - concrete loop options.
    * @param meta - optional fresh-session workspace metadata.
-   * @returns the published production Agent.
+   * @returns the published production Agent after creation completes.
    */
-  create(id: SessionId, options?: AgentOptions, meta?: Pick<SessionHeader, 'cwd'>): Agent
+  create(id: SessionId, options?: AgentOptions, meta?: Pick<SessionHeader, 'cwd'>): Promise<Agent>
   /**
    * Admit pending messages through the production loop driver's claim operation.
    * @param agent - Agent returned by this harness's `create` method.
@@ -87,7 +87,7 @@ export async function mountAgentLoopTestDependencies(
 export async function mountAgentLoopTestHarness(ctx: Context): Promise<AgentLoopTestHarness> {
   await ctx.plugin(AgentLoop, { agents: [] })
   return {
-    create: (id, options = {}, meta = {}) => ctx.agentLoop.create(id, options, meta),
+    create: async (id, options = {}, meta = {}) => ctx.agentLoop.create(id, options, meta),
     claim: (agent, target, turn) => (agent.inbox as DriverInbox).claim(target, turn),
   }
 }
