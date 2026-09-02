@@ -252,15 +252,6 @@ async function respondToSessionExit(
   ].filter(part => part.length > 0).join('\n')
 }
 
-/**
- * The pwsh prompt function that reasserts the backend's controlled prompt.
- * The shared value preserves exact-tail readiness after initialization.
- * `[char]27`/`[char]7` build the OSC bytes at runtime because raw ESC characters
- * in submitted input are unreliable under PSReadLine.
- */
-const PWSH_PROMPT_SETUP =
-  "function prompt { [Console]::Write([char]27 + ']133;D;' + [int]$LASTEXITCODE + [char]7); '" + SHELL_PROMPT + "' }"
-
 function persistentShells(ctx: Context, config: ResolvedConfig): PersistentShells {
   const pending = new WeakMap<Agent, Promise<TerminalSessionId>>()
   const live = new Map<Agent, TerminalSessionId>()
@@ -307,15 +298,8 @@ function persistentShells(ctx: Context, config: ResolvedConfig): PersistentShell
             live.delete(owner)
           }, 'tool-pwsh-persistent owner cache cleanup')
         }
-        const setup = ctx.terminals.startSend(owner, spawned.sessionId, {
-          text: PWSH_PROMPT_SETUP,
-          submit: true,
-          signal: combinedSignal,
-        })
-        const result = await setup.done
-        if (result.sessionStatus.kind === 'exited' || result.waitReason === 'timeout') {
-          throw new Error('persistent pwsh shell did not accept initialization')
-        }
+        // The selected terminal backend owns bootstrap and publishes only a
+        // ready session.
         return spawned.sessionId
       } catch (error: unknown) {
         await reset(owner, 'persistent pwsh initialization failed')

@@ -30,7 +30,7 @@ harness 在 Windows 上没有持久 shell。持久 `bash` 栈按构造就是 POS
 
 新包镜像 `tool-bash-persistent`：同样的 `Config`（`backendType` 默认 `shell`、`timeoutMs`、`maxOutputChars`、`description`）、同样的 owner 作用域 shell 注册表与每 owner 串行队列、同样的超时/中止/退出/重置路径。工具名是 `pwsh`；它与一次性 `tool-pwsh` 永不共挂，因为预设行按平台互斥。
 
-命令经包装器执行：先重置 `$LASTEXITCODE`（可赋值，已实测），通过 `Invoke-Expression` 在反引号转义的双引号字符串中执行 body（`quoteForPwsh`：反引号、引号、`$`、CRLF 与 ESC 转义，输入行上不携带裸控制字符，包装器可在 ConstrainedLanguage 下存活），报告精确原生退出码、PowerShell 终止性错误的 `1` 或成功的 `0`。PSReadLine 会把提交的包装器回显进流——没有 `stty -echo` 的对应物——因此提取会从捕获输出中剥离包装器原文；回显无法伪造完成，因为状态正则要求 END nonce 后紧跟数字，而回显继续是引号字符。prompt 函数重新声明与 backend 兼容的受控提示符（`dsh> `），在工具初始化后保留 `terminal-bash` 的精确尾部就绪路径；跨包测试把两边的 prompt 设置命令固定为相同值。
+命令经包装器执行：先重置 `$LASTEXITCODE`（可赋值，已实测），通过 `Invoke-Expression` 在反引号转义的双引号字符串中执行 body（`quoteForPwsh`：反引号、引号、`$`、CRLF 与 ESC 转义，输入行上不携带裸控制字符，包装器可在 ConstrainedLanguage 下存活），报告精确原生退出码、PowerShell 终止性错误的 `1` 或成功的 `0`。PSReadLine 会把提交的包装器回显进流——没有 `stty -echo` 的对应物——因此提取会从捕获输出中剥离包装器原文；回显无法伪造完成，因为状态正则要求 END nonce 后紧跟数字，而回显继续是引号字符。所选 terminal 后端负责 prompt 引导，并且只发布就绪会话；工具直接使用该会话，不再提交第二次 prompt 定义。真实 Loader 组合测试把静默回退设置在 send 超时之后，因此 Windows 必须通过后端的受控 prompt 路径结算。
 
 ### 组合
 

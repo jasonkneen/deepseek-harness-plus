@@ -5,7 +5,6 @@ import { Session, SessionId } from '@deepseek-ai/dsh-session'
 import AgentRegistry, { Inbox } from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import TerminalSessionService from '@deepseek-ai/dsh-terminal'
-import { PWSH_PROMPT_SETUP as TERMINAL_PWSH_PROMPT_SETUP } from '@deepseek-ai/dsh-terminal-bash'
 import type {
   TerminalBackend,
   TerminalBackendSession,
@@ -92,8 +91,6 @@ type StubMode =
   | 'torn-status'
   | 'finish-torn-status'
   | 'end-only'
-  | 'init-exit'
-  | 'init-timeout'
   | 'spawn-error'
   | 'send-error'
   | 'prompt-after-idle'
@@ -127,16 +124,6 @@ class StubTerminalSession implements TerminalBackendSession {
   startSend(request: TerminalSendRequest): TerminalSendOperation {
     this.sends += 1
     this.requests.push(request)
-    if (request.text.startsWith('function prompt')) {
-      if (this.mode === 'init-exit') {
-        this.statusValue = { kind: 'exited', exitCode: 1, signal: null }
-        return this.operation(Promise.resolve(this.result('', 'session_exit')))
-      }
-      if (this.mode === 'init-timeout') {
-        return this.operation(Promise.resolve(this.result('', 'timeout')))
-      }
-      return this.operation(Promise.resolve(this.result(this.motd, 'stdin_read')))
-    }
     if (this.mode === 'send-error') throw new Error('stub send failed')
     if (this.throwOnSend) throw new Error('PTY session has exited')
     if (this.mode === 'wait-for-abort' || this.mode === 'end-on-abort') {
@@ -347,8 +334,9 @@ describe('tool-pwsh-persistent', () => {
     expect(text(await call(ctx, owner, 'Write-Output one'))).toBe('hello from stub')
     expect(text(await call(ctx, owner, 'Write-Output two'))).toBe('hello from stub')
     expect(stub.sessions).toHaveLength(1)
-    expect(stub.sessions[0]?.sends).toBe(3)
-    expect(stub.sessions[0]?.requests[0]?.text).toBe(TERMINAL_PWSH_PROMPT_SETUP)
+    expect(stub.sessions[0]?.sends).toBe(2)
+    expect(stub.sessions[0]?.requests[0]?.text).toContain('__DSH_PERSISTENT_PWSH_START_')
+    expect(stub.sessions[0]?.requests[0]?.text).not.toContain('function prompt')
 
     const ownerWithoutCwd = agent(ctx, undefined)
     expect(text(await call(ctx, ownerWithoutCwd, 'pwd'))).toBe('hello from stub')
@@ -555,15 +543,6 @@ describe('tool-pwsh-persistent', () => {
       expect(text(await queued)).toBe('hello from stub')
       expect(stub.sessions[0]?.closed).toContain('persistent pwsh command aborted')
       expect(stub.sessions).toHaveLength(2)
-    },
-  )
-
-  it.each(['init-exit', 'init-timeout'] as const)(
-    'fails initialization and closes the unusable shell for %s',
-    async (mode) => {
-      const { ctx, owner, stub } = await setup({ backendType: 'stub' }, mode)
-      expect((await call(ctx, owner, 'pwd')).isError).toBe(true)
-      expect(stub.sessions[0]?.closed).toContain('persistent pwsh initialization failed')
     },
   )
 
