@@ -156,7 +156,7 @@ interface DirectRange {
 }
 
 class SystemdScopeOwner implements BoundProcessOwner {
-  private establishment: 'pending' | 'established' | 'never-created' = 'pending'
+  private establishment: 'pending' | 'established' = 'pending'
   private stopped = false
   private observation: Promise<void> | undefined
   private killFailure: Error | undefined
@@ -229,7 +229,6 @@ class SystemdScopeOwner implements BoundProcessOwner {
     this.observeRequestConsumption()
     if (this.establishment === 'established') return false
     if (!this.direct.running() && existsSync(this.files.requestPath)) {
-      this.establishment = 'never-created'
       return false
     }
     if (this.killFailure !== undefined) throw this.killFailure

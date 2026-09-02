@@ -212,6 +212,23 @@ describe('spawn construction (pure, every platform)', () => {
     expect(output).not.toContain('spawn failed:')
     expect(proc.readOutput().delta).toBe('')
   })
+
+  it('settles an unprintable provider rejection instead of rejecting done', async () => {
+    const ctx = new Context()
+    const subprocess = new CapturingSubprocessRuntime(ctx)
+    await ctx.plugin(PwshLocalExecutor)
+    const providerError = new Error('unprintable provider error')
+    Object.defineProperty(providerError, Symbol.toPrimitive, {
+      value: () => { throw new Error('provider formatting must not escape') },
+    })
+    subprocess.done = Promise.reject(providerError)
+
+    const proc = ctx.shell.start(ctx.shell.resolve({ command: 'Write-Output maybe-ran' }))
+    await expect(proc.done).resolves.toBeUndefined()
+    expect(proc.status).toBe('killed')
+    expect(proc.readOutput().delta).toContain('unprintable provider failure')
+    expect(proc.readOutput().delta).toBe('')
+  })
 })
 
 describe.skipIf(!hasPwsh)('PwshLocalExecutor.run', () => {

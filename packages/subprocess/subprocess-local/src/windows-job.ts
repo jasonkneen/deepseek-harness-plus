@@ -141,7 +141,6 @@ export function launchWindowsJob(
   const rangeExit = Promise.withResolvers<void>()
   let directResultType: WindowsRunnerResult['type'] | undefined
   let runnerSpawned = false
-  let runnerNeverCreated = false
   const failInfrastructure = (error: unknown): void => {
     direct.reject(error)
     rangeExit.reject(error)
@@ -193,7 +192,6 @@ export function launchWindowsJob(
   })
   child.once('error', (error) => {
     if (!runnerSpawned) {
-      runnerNeverCreated = true
       direct.reject(error)
       rangeExit.resolve()
       return
@@ -201,7 +199,7 @@ export function launchWindowsJob(
     failInfrastructure(error)
   })
   child.once('close', (exitCode, signal) => {
-    if (runnerNeverCreated) return
+    if (!runnerSpawned) return
     const clean = exitCode === 0 && signal === null && directResultType !== undefined
     if (clean) {
       rangeExit.resolve()

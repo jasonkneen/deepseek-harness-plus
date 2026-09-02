@@ -323,6 +323,15 @@ describe('spawnSubprocess', () => {
       expect(() => { validateSubprocessSpec(spec('echo hi', { signal: controller.signal })) })
         .toThrow(new Error(message))
     }
+
+    const controller = new AbortController()
+    controller.abort({
+      [Symbol.toPrimitive]() {
+        throw new Error('reason formatting must not escape')
+      },
+    })
+    expect(() => { validateSubprocessSpec(spec('echo hi', { signal: controller.signal })) })
+      .toThrow(new Error('aborted before spawn: aborted'))
   })
 
   it('rejects with a spawn error for a nonexistent cwd', async () => {

@@ -314,7 +314,13 @@ export class PwshLocalExecutor extends ShellExecutor {
       }, (error: unknown) => {
         // Background provider failures settle as killed and surface through the read path.
         proc.status = 'killed'
-        providerFailureNote = `subprocess failed before reporting an outcome: ${String(error)}`
+        let detail = 'unprintable provider failure'
+        try {
+          detail = String(error)
+        } catch {
+          // Provider-owned rejection values cannot make ShellProcess.done reject.
+        }
+        providerFailureNote = `subprocess failed before reporting an outcome: ${detail}`
         this.onProcessDone(proc, providerFailureNote, true, error)
       }),
       readOutput: (): ShellProcessRead => {

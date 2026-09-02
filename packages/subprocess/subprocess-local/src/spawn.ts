@@ -344,7 +344,13 @@ export function validateSubprocessSpec(spec: SubprocessSpawnSpec): void {
     throw new Error(`subprocess graceMs must be a positive finite number no greater than ${MAX_TIMER_DELAY_MS}`)
   }
   if (spec.signal?.aborted) {
-    throw new Error(`aborted before spawn: ${String(spec.signal.reason ?? 'aborted')}`)
+    let reason = 'aborted'
+    try {
+      reason = String(spec.signal.reason ?? reason)
+    } catch {
+      // Arbitrary caller-owned reasons cannot escape the stable Error boundary.
+    }
+    throw new Error(`aborted before spawn: ${reason}`)
   }
   const [program] = spec.argv
   if (program === undefined || program.length === 0) {
