@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto'
 import { existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, relative, sep } from 'node:path'
+import { pathToFileURL } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
 import { resolveDesktopPaths } from '../src/paths.ts'
 import {
@@ -130,7 +131,7 @@ import { existsSync, writeFileSync } from 'node:fs'
 import { setTimeout as sleep } from 'node:timers/promises'
 writeFileSync(${JSON.stringify(ready)}, String(process.pid))
 while (!existsSync(${JSON.stringify(release)})) await sleep(10)
-await import(${JSON.stringify(delegate)})
+await import(${JSON.stringify(pathToFileURL(delegate).href)})
 `)
   return path
 }
