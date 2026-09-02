@@ -5,6 +5,7 @@ import { Session, SessionId } from '@deepseek-ai/dsh-session'
 import AgentRegistry, { Inbox } from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import TerminalSessionService from '@deepseek-ai/dsh-terminal'
+import { PWSH_PROMPT_SETUP as TERMINAL_PWSH_PROMPT_SETUP } from '@deepseek-ai/dsh-terminal-bash'
 import type {
   TerminalBackend,
   TerminalBackendSession,
@@ -107,13 +108,14 @@ const START_PATTERN = /__DSH_PERSISTENT_PWSH_START_[^_]+(?:-[^_]+)*__/
 const END_PATTERN = /__DSH_PERSISTENT_PWSH_END_[^:]+:/
 
 class StubTerminalSession implements TerminalBackendSession {
-  readonly motd = '__DSH_PERSISTENT_PWSH_PROMPT__ '
+  readonly motd = 'dsh> '
   readonly pid = 123
   statusValue: TerminalSessionStatus = { kind: 'running' }
   scrollback = this.motd
   closed: string[] = []
   mode: StubMode
   sends = 0
+  requests: TerminalSendRequest[] = []
   pendingText = ''
   historyTruncated = false
   throwOnSend = false
@@ -124,6 +126,7 @@ class StubTerminalSession implements TerminalBackendSession {
 
   startSend(request: TerminalSendRequest): TerminalSendOperation {
     this.sends += 1
+    this.requests.push(request)
     if (request.text.startsWith('function prompt')) {
       if (this.mode === 'init-exit') {
         this.statusValue = { kind: 'exited', exitCode: 1, signal: null }
@@ -345,6 +348,7 @@ describe('tool-pwsh-persistent', () => {
     expect(text(await call(ctx, owner, 'Write-Output two'))).toBe('hello from stub')
     expect(stub.sessions).toHaveLength(1)
     expect(stub.sessions[0]?.sends).toBe(3)
+    expect(stub.sessions[0]?.requests[0]?.text).toBe(TERMINAL_PWSH_PROMPT_SETUP)
 
     const ownerWithoutCwd = agent(ctx, undefined)
     expect(text(await call(ctx, ownerWithoutCwd, 'pwd'))).toBe('hello from stub')
@@ -366,7 +370,7 @@ describe('tool-pwsh-persistent', () => {
     expect(result).not.toContain('Invoke-Expression')
   })
 
-  it('preserves command output that equals the private shell prompt', async () => {
+  it('preserves command output that equals the controlled shell prompt', async () => {
     const { ctx, owner, stub } = await setup({ backendType: 'stub' })
     await call(ctx, owner, 'warm up')
     const session = stub.sessions[0]!
@@ -408,13 +412,13 @@ describe('tool-pwsh-persistent', () => {
     session.mode = 'prompt-only'
     const promptFallback = text(await call(ctx, owner, 'bad {'))
     expect(promptFallback).toContain('pwsh: synt')
-    expect(promptFallback).not.toContain('DSH_PERSISTENT_PWSH_PROMPT')
+    expect(promptFallback).not.toContain(session.motd)
 
     session.mode = 'prompt-crlf'
     session.scrollback = ''
     const crlfPromptFallback = text(await call(ctx, owner, 'bad {'))
     expect(crlfPromptFallback).toContain('pwsh: synt')
-    expect(crlfPromptFallback).not.toContain('DSH_PERSISTENT_PWSH_PROMPT')
+    expect(crlfPromptFallback).not.toContain(session.motd)
 
     session.mode = 'end-only'
     session.scrollback = ''
@@ -509,7 +513,7 @@ describe('tool-pwsh-persistent', () => {
     const result = text(await call(ctx, owner, 'bad {'))
     expect(result).toContain('partial syntax output')
     expect(result).toContain('pwsh: syntax error')
-    expect(result).not.toContain('DSH_PERSISTENT_PWSH_PROMPT')
+    expect(result).not.toContain(session.motd)
     expect(result).not.toContain('DSH_PERSISTENT_PWSH_START')
   })
 

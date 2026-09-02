@@ -73,7 +73,7 @@ This section explains the design decisions behind the tool and points at the cod
 ### Design philosophy
 
 - **A deliberate twin of `dsh-tool-bash-persistent`.** The session registry, polling loop, and reset contract mirror the persistent bash tool by design ([pwsh persistent PTY Agent Note](../../../.agents/notes/implemented/architecture/2026-08-11-pwsh-persistent-pty.md)).
-- **Prompt-function readiness.** The tool installs its own `prompt` function that prints a BEL-terminated OSC marker plus a printable prompt; the OSC marker carries the last exit code and the printable prompt settles every command, so a model redefinition of `prompt` degrades readiness to the silence tier.
+- **Prompt-function readiness.** The tool reasserts the same controlled `prompt` function as the default pwsh terminal backend. Its BEL-terminated OSC marker carries the last exit code, and its printable `dsh> ` tail lets the backend settle every command through the marker fast path, including on Windows where stdin-wait inspection is unavailable. A model redefinition of `prompt` degrades readiness to the silence tier.
 - **PSReadLine echo stripped by anchoring.** PowerShell renders submitted input back into the stream; the marker-anchored extraction and a wrapper-source strip remove the echo, and a wrapper that wraps across the terminal width may leave a partial echo in partial-output results.
 - **Reset, never repair.** Any uncertain state — an explicit `exit`, a timeout, a send failure, an abort — closes the shell and starts the next call fresh.
 
