@@ -92,7 +92,9 @@ describe.skipIf(!hasPwsh)('persistent pwsh through a real cordis.yml Loader comp
       '    shellDialect: pwsh',
       '    pollIntervalMs: 10',
       '    exactProbeAfterMs: 20',
-      '    idleSilenceMs: 300',
+      // Keep the silence fallback beyond the send timeout: this composition
+      // must observe controlled-prompt readiness instead of inferred idle.
+      '    idleSilenceMs: 120000',
       '    handoffGraceMs: 300',
       '    scrollbackLines: 20000',
       '    timeoutMs: 60000',
@@ -140,7 +142,10 @@ describe.skipIf(!hasPwsh)('persistent pwsh through a real cordis.yml Loader comp
     })
 
     expect(context.tools.schemas().map(schema => schema.name)).toEqual(['pwsh'])
-    await execute('state', '$env:KEEP = "loader"; New-Item -ItemType Directory -Force -Path nested | Out-Null; Set-Location nested')
+    expect(await execute(
+      'state',
+      '$env:KEEP = "loader"; New-Item -ItemType Directory -Force -Path nested | Out-Null; Set-Location nested',
+    )).toBe('')
     const observed = text(await execute('observe', 'Write-Output "cwd=$PWD keep=$env:KEEP"'))
     expect(observed).toContain(`cwd=${join(root, 'nested')} keep=loader`)
     expect(observed).not.toContain('DSH_PERSISTENT_PWSH')
