@@ -162,7 +162,7 @@ async function main(): Promise<void> {
     let macOSSigning: ReturnType<typeof resolveMacOSSigningEnvironment> | undefined
     if (targetPlatform === 'darwin') {
       macOSSigning = resolveMacOSSigningEnvironment(process.env)
-      const signing = signMacOSSeedStore(
+      const signing = await signMacOSSeedStore(
         STORE_ROOT,
         resolveDesktopAppId(process.env),
         macOSSigning,
@@ -172,10 +172,6 @@ async function main(): Promise<void> {
         `desktop seed: signed ${signing.signedFiles} Mach-O files, updated ${signing.updatedIndexRows} pnpm index records, and pruned ${signing.prunedOrphans} native orphans\n`,
       )
       await verifyOfflineInstallation(release)
-      const verified = verifyMacOSSeedStore(STORE_ROOT, macOSSigning)
-      if (verified !== signedMachOFiles) {
-        throw new Error(`desktop seed: verified ${verified} Mach-O files after signing ${signedMachOFiles}`)
-      }
     }
     removePnpmProjectRegistrations(STORE_ROOT)
     archivePnpmStore(SEED_ROOT, STORE_ROOT)

@@ -1,6 +1,6 @@
-/** Verify that a packaged macOS application carries the company release identity. */
+/** Sign seed code and verify that packaged macOS artifacts carry the company release identity. */
 
-import { spawnSync } from 'node:child_process'
+import { spawn, spawnSync } from 'node:child_process'
 import { resolve } from 'node:path'
 import { resolveMacOSSigningEnvironment } from './desktop-release-environment.mjs'
 
@@ -60,6 +60,43 @@ function runAppleCommand(command, args, label) {
 }
 
 /**
+ * Execute one Apple release tool without blocking other independent seed signers.
+ * @param {string} command - Absolute executable path.
+ * @param {readonly string[]} args - Tool arguments.
+ * @param {string} label - Stable diagnostic name.
+ * @returns {Promise<string>} Combined stdout and stderr after process exit.
+ */
+function runAppleCommandAsync(command, args, label) {
+  return new Promise((resolvePromise, reject) => {
+    const child = spawn(command, args, { stdio: ['ignore', 'pipe', 'pipe'] })
+    let stdout = ''
+    let stderr = ''
+    let spawnError
+    child.stdout.setEncoding('utf8')
+    child.stderr.setEncoding('utf8')
+    child.stdout.on('data', chunk => { stdout += chunk })
+    child.stderr.on('data', chunk => { stderr += chunk })
+    child.once('error', error => { spawnError = error })
+    child.once('close', (code, signal) => {
+      if (spawnError !== undefined) {
+        reject(new Error(`desktop macOS signing: could not execute ${label}: ${spawnError.message}`))
+        return
+      }
+      if (signal !== null) {
+        reject(new Error(`desktop macOS signing: ${label} was terminated by ${signal}`))
+        return
+      }
+      if (code !== 0) {
+        const diagnostic = `${stdout}${stderr}`.trim()
+        reject(new Error(`desktop macOS signing: ${label} exited with ${String(code)}${diagnostic === '' ? '' : `: ${diagnostic}`}`))
+        return
+      }
+      resolvePromise(`${stdout}${stderr}`)
+    })
+  })
+}
+
+/**
  * Execute Apple's code-signing tool and return its diagnostic streams.
  * @param {readonly string[]} args - Arguments passed to `/usr/bin/codesign`.
  * @returns {string} Combined stdout and stderr.
@@ -69,22 +106,21 @@ function runCodeSign(args) {
 }
 
 /**
- * Sign one Mach-O file embedded in the seed store and verify Apple's required properties.
+ * Sign one Mach-O file embedded in the seed store.
  * @param {string} path - Writable standalone Mach-O file.
  * @param {string} identifier - Stable code-signing identifier derived from the release app ID and CAS digest.
  * @param {{ signingIdentity: string, teamId: string }} expected - Public release identity.
- * @returns {void}
+ * @returns {Promise<void>} Resolves after codesign exits successfully.
  */
-export function signMacOSSeedCode(path, identifier, expected) {
-  runCodeSign([
+export async function signMacOSSeedCode(path, identifier, expected) {
+  await runAppleCommandAsync('/usr/bin/codesign', [
     '--force',
     '--sign', expected.signingIdentity,
     '--identifier', identifier,
     '--timestamp',
     '--options', 'runtime',
     path,
-  ])
-  verifyMacOSSeedCode(path, expected)
+  ], 'codesign')
 }
 
 /**

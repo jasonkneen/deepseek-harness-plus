@@ -49,7 +49,7 @@ afterEach(() => {
 })
 
 describe('desktop macOS seed store signing', () => {
-  it('rehashes signed Mach-O content, rewrites every package reference, and prunes native orphans', () => {
+  it('rehashes signed Mach-O content, rewrites every package reference, and prunes native orphans', async () => {
     const store = temporaryRoot()
     const native = Buffer.concat([Buffer.from('cffaedfe', 'hex'), Buffer.from('native-code')])
     const nativeCas = casPath(store, native)
@@ -80,13 +80,15 @@ describe('desktop macOS seed store signing', () => {
     }
     database.close()
 
-    const result = signMacOSSeedStore(
+    const result = await signMacOSSeedStore(
       store,
       'com.example.desktop',
       SIGNING_ENVIRONMENT,
-      (path, identifier) => {
-        expect(identifier).toBe(`com.example.desktop.seed.${nativeCas.digest.slice(0, 32)}`)
-        appendFileSync(path, 'signed')
+      {
+        signer: async (path, identifier) => {
+          expect(identifier).toBe(`com.example.desktop.seed.${nativeCas.digest.slice(0, 32)}`)
+          appendFileSync(path, 'signed')
+        },
       },
     )
 
@@ -115,6 +117,117 @@ describe('desktop macOS seed store signing', () => {
     const verified: string[] = []
     expect(verifyMacOSSeedStore(store, SIGNING_ENVIRONMENT, (path) => { verified.push(path) })).toBe(1)
     expect(verified).toHaveLength(1)
+  })
+
+  it('bounds concurrent signing while allowing independent Mach-O files to overlap', async () => {
+    const store = temporaryRoot()
+    const files = new Map<string, { checkedAt: number; digest: string; mode: number; size: number }>()
+    for (let index = 0; index < 6; index += 1) {
+      const body = Buffer.concat([Buffer.from('feedfacf', 'hex'), Buffer.from(`native-${index}`)])
+      const nativeCas = casPath(store, body)
+      createStoreFile(nativeCas.path, body)
+      files.set(`native-${index}.node`, {
+        checkedAt: 1,
+        digest: nativeCas.digest,
+        mode: 0o644,
+        size: body.length,
+      })
+    }
+    const database = new DatabaseSync(join(store, 'v11', 'index.db'))
+    database.exec('CREATE TABLE package_index (key TEXT PRIMARY KEY, data BLOB NOT NULL) WITHOUT ROWID')
+    database.prepare('INSERT INTO package_index (key, data) VALUES (?, ?)')
+      .run('package', packr.pack({ algo: 'sha512', files }))
+    database.close()
+
+    let started = 0
+    let active = 0
+    let maximumActive = 0
+    let releaseSigning = (): void => {}
+    const signingReleased = new Promise<void>((resolve) => { releaseSigning = resolve })
+    let markFirstWaveReady = (): void => {}
+    const firstWaveReady = new Promise<void>((resolve) => { markFirstWaveReady = resolve })
+    const signing = signMacOSSeedStore(store, 'com.example.desktop', SIGNING_ENVIRONMENT, {
+      concurrency: 4,
+      signer: async () => {
+        started += 1
+        active += 1
+        maximumActive = Math.max(maximumActive, active)
+        if (started === 4) markFirstWaveReady()
+        try {
+          await signingReleased
+        } finally {
+          active -= 1
+        }
+      },
+    })
+
+    await firstWaveReady
+    expect({ started, active, maximumActive }).toEqual({ started: 4, active: 4, maximumActive: 4 })
+    releaseSigning()
+    await expect(signing).resolves.toMatchObject({ signedFiles: 6, updatedIndexRows: 1 })
+    expect({ started, active, maximumActive }).toEqual({ started: 6, active: 0, maximumActive: 4 })
+  })
+
+  it('awaits active signers and preserves the store when one signer fails', async () => {
+    const store = temporaryRoot()
+    const originals: { digest: string; path: string }[] = []
+    const files = new Map<string, { checkedAt: number; digest: string; mode: number; size: number }>()
+    for (let index = 0; index < 2; index += 1) {
+      const body = Buffer.concat([Buffer.from('feedfacf', 'hex'), Buffer.from(`native-${index}`)])
+      const nativeCas = casPath(store, body)
+      originals.push(nativeCas)
+      createStoreFile(nativeCas.path, body)
+      files.set(`native-${index}.node`, {
+        checkedAt: 1,
+        digest: nativeCas.digest,
+        mode: 0o644,
+        size: body.length,
+      })
+    }
+    const databasePath = join(store, 'v11', 'index.db')
+    const database = new DatabaseSync(databasePath)
+    database.exec('CREATE TABLE package_index (key TEXT PRIMARY KEY, data BLOB NOT NULL) WITHOUT ROWID')
+    database.prepare('INSERT INTO package_index (key, data) VALUES (?, ?)')
+      .run('package', packr.pack({ algo: 'sha512', files }))
+    database.close()
+    const originalIndex = readFileSync(databasePath)
+
+    let started = 0
+    let settled = 0
+    let releaseSigning = (): void => {}
+    const signingReleased = new Promise<void>((resolve) => { releaseSigning = resolve })
+    let markBothReady = (): void => {}
+    const bothReady = new Promise<void>((resolve) => { markBothReady = resolve })
+    const signing = signMacOSSeedStore(store, 'com.example.desktop', SIGNING_ENVIRONMENT, {
+      concurrency: 2,
+      signer: async () => {
+        started += 1
+        const call = started
+        if (started === 2) markBothReady()
+        try {
+          await signingReleased
+          if (call === 1) throw new Error('signing failed')
+        } finally {
+          settled += 1
+        }
+      },
+    })
+
+    await bothReady
+    releaseSigning()
+    await expect(signing).rejects.toThrow(/signing failed/u)
+    expect({ started, settled }).toEqual({ started: 2, settled: 2 })
+    expect(readFileSync(databasePath)).toEqual(originalIndex)
+    for (const original of originals) expect(existsSync(original.path)).toBe(true)
+  })
+
+  it('rejects an invalid signing worker bound before starting a signer', async () => {
+    const store = temporaryRoot()
+    mkdirSync(join(store, 'v11', 'files'), { recursive: true })
+    await expect(signMacOSSeedStore(store, 'com.example.desktop', SIGNING_ENVIRONMENT, {
+      concurrency: 0,
+      signer: async () => {},
+    })).rejects.toThrow(/positive integer/u)
   })
 
   it('propagates a signature-verification failure', () => {

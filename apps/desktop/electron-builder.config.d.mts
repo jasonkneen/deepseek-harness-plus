@@ -11,17 +11,20 @@ export interface DesktopElectronBuilderConfig {
     readonly writeUpdateInfo: boolean
   }
   readonly artifactBuildCompleted: (artifact: { readonly file: string }) => Promise<void> | undefined
+  readonly publish: readonly [{ readonly provider: 'generic', readonly url: string }]
 }
 
 /**
  * Create electron-builder configuration from one release environment.
  * @param env - Packaging environment.
  * @param hostPlatform - Build-host platform used when no explicit target is present.
+ * @param hostArch - Build-host architecture used when no explicit target is present.
  * @returns electron-builder configuration.
  */
 export function createElectronBuilderConfig(
   env?: NodeJS.ProcessEnv,
   hostPlatform?: NodeJS.Platform,
+  hostArch?: string,
 ): DesktopElectronBuilderConfig
 
 declare const electronBuilderConfig: DesktopElectronBuilderConfig

@@ -9,16 +9,24 @@ import {
   createWindowsTokenSigner,
   installWindowsNsisBootstrapSigner,
 } from './scripts/windows-sign.mjs'
+import { resolveDesktopAutoUpdateConfig } from './scripts/desktop-auto-update-environment.mjs'
 
 /**
  * Create electron-builder configuration from one release environment.
  * @param {NodeJS.ProcessEnv} env - Packaging environment.
  * @param {NodeJS.Platform} hostPlatform - Build-host platform used when no explicit target is present.
+ * @param {string} hostArch - Build-host architecture used when no explicit target is present.
  * @returns {object} electron-builder configuration.
  */
-export function createElectronBuilderConfig(env = process.env, hostPlatform = process.platform) {
+export function createElectronBuilderConfig(
+  env = process.env,
+  hostPlatform = process.platform,
+  hostArch = process.arch,
+) {
   const appId = resolveDesktopAppId(env)
   const targetPlatform = env.DSH_DESKTOP_TARGET_PLATFORM
+  const resolvedPlatform = targetPlatform ?? hostPlatform
+  const resolvedArch = env.DSH_DESKTOP_TARGET_ARCH ?? hostArch
   const packagesMacOS = targetPlatform === 'darwin' || (targetPlatform === undefined && hostPlatform === 'darwin')
   const packagesWindows = targetPlatform === 'win32'
   const macOSSigning = packagesMacOS ? resolveMacOSSigningEnvironment(env) : undefined
@@ -34,7 +42,7 @@ export function createElectronBuilderConfig(env = process.env, hostPlatform = pr
   if (windowsSigner !== undefined) {
     installWindowsNsisBootstrapSigner({ sign: windowsSigner })
   }
-  const publishUrl = env.DSH_DESKTOP_SHELL_UPDATE_URL
+  const update = resolveDesktopAutoUpdateConfig(env, resolvedPlatform, resolvedArch)
   return {
     appId,
     productName: 'DeepSeek Harness',
@@ -92,9 +100,7 @@ export function createElectronBuilderConfig(env = process.env, hostPlatform = pr
       allowToChangeInstallationDirectory: true,
       differentialPackage: true,
     },
-    publish: publishUrl === undefined || publishUrl === ''
-      ? null
-      : [{ provider: 'generic', url: publishUrl }],
+    publish: [{ provider: 'generic', url: update.publicUrl }],
   }
 }
 

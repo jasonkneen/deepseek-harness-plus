@@ -15,16 +15,17 @@ export function assertMacOSSignatureDetails(details: string, expected: MacOSSign
 export function assertMacOSSeedSignatureDetails(details: string, expected: MacOSSigningEnvironment): void
 
 /**
- * Sign one Mach-O file embedded in the seed store and verify Apple's required properties.
+ * Sign one Mach-O file embedded in the seed store.
  * @param path - Writable standalone Mach-O file.
  * @param identifier - Stable code-signing identifier derived from the release app ID and CAS digest.
  * @param expected - Public release identity.
+ * @returns Resolves after codesign exits successfully.
  */
 export function signMacOSSeedCode(
   path: string,
   identifier: string,
   expected: MacOSSigningEnvironment,
-): void
+): Promise<void>
 
 /**
  * Verify one Mach-O file embedded in the seed store.

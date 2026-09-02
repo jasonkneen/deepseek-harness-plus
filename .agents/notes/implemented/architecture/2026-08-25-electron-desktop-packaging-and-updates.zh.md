@@ -72,7 +72,7 @@ Electron 拥有保留 profile `.dsh/profiles/desktop`。其中精确的 `@deepse
 
 打包种子是离线安装包，而不是可执行 dsh 目录。它包含发布身份、初始桌面项目 manifest、以 dsh 为根的第一方包闭包描述文件及不可变 tarball、lockfile、完整性清单和所需 store 子集。发布构建要求 Electron 包与根 dsh 包使用相同版本，从正式源码构建生成最终 npm tarball，选择可达的 dsh 与 vendored 包以及 Landlock 入口，并验证 dsh tarball 中的 `lib/desktop-host.js` 入口与 `config/desktop.cordis.patch.yml` overlay。该 overlay 是唯一为了 Desktop 而发布的 CLI 配置文件；示例配置仍留在 tarball 之外。这些 tarball 保持为由各包 `files` manifest 决定内容的正式 `pnpm pack` 结果；Desktop 不删除已发布的声明文件，也不建立第二套包内容策略。manifest 把每个选中的包列为本地直接依赖，关闭对等依赖自动安装，workspace 文件再把每个选中的第一方包 override 到对应本地 tarball。构建会拒绝任何通过 registry 版本解析这些包名的 lockfile。内置 pnpm 关闭全局 virtual store，在禁用生命周期脚本的情况下从 npm 物化外部生产依赖，删除 `node_modules` 以及所有临时 pnpm cache、config 和 state 目录，然后只使用最终 store 执行一次干净的离线安装，并检查两个 Desktop Host 文件。生成清单前会删除第二次生成的 `node_modules` 和临时 pnpm 项目注册。在复制 package set 前与离线安装后都要求两个文件，可防止 Host 入口本身能够加载、却无法组合所需 overlay 的发布进入应用签名阶段。
 
-种子根据规范化 store 路径，把 pnpm 内容放入 16 个确定性的未压缩 tar 分片。Apple 公证会检查这些归档内的 Mach-O 代码，因此 macOS seed 在分片前会用发布 Developer ID、安全时间戳与 hardened runtime 签署每个内容寻址 Mach-O 对象。签名会改变字节：准备过程把每个对象写到新的 SHA-512 路径，并以事务方式重写 pnpm MessagePack SQLite 索引内全部基础文件和 side-effects 文件引用。第二次离线安装证明 pnpm 可以解析重写后的 store；准备过程随后完成分片、解包最终归档并再次验证签名。包路径和非原生字节保持不变；种子保留包内附带的架构变体，因为删除文件会创建 Desktop 专属的包文件集。种子完整性覆盖分片 manifest 和解包前的每个归档。启动时验证归档路径、条目类型、唯一性和数量，把所有分片解包到唯一且由 Desktop 拥有的 staging 目录，替换匹配的不可变 store 文件，并以事务方式把各 pnpm store 版本的 SQLite `package_index` 合并进 `.dsh/desktop/pnpm/store`。Seed 记录替换匹配的键，为 Desktop 插件下载的记录继续保留。中断的文件合并可能留下有效的不可变缓存内容，但每次 SQLite 合并都是原子的，profile 安装与激活仍必须通过 pnpm 完整性与完整健康检查。
+种子根据规范化 store 路径，把 pnpm 内容放入 16 个确定性的未压缩 tar 分片。Apple 公证会检查这些归档内的 Mach-O 代码，因此 macOS seed 会 staging 每个被引用的内容寻址 Mach-O 对象，最多并发四个独立的 Developer ID 签名进程，并带上安全时间戳与 hardened runtime。任一签名失败后，准备过程会等待已启动的签名进程全部退出，原始 CAS 对象与包索引保持不变。所有签名成功后，准备过程把每个对象写到新的 SHA-512 路径，并以事务方式重写 pnpm MessagePack SQLite 索引内全部基础文件和 side-effects 文件引用。第二次离线安装证明 pnpm 可以解析重写后的 store；准备过程随后完成分片、解包最终归档并验证每个内嵌签名。包路径和非原生字节保持不变；种子保留包内附带的架构变体，因为删除文件会创建 Desktop 专属的包文件集。种子完整性覆盖分片 manifest 和解包前的每个归档。启动时验证归档路径、条目类型、唯一性和数量，把所有分片解包到唯一且由 Desktop 拥有的 staging 目录，替换匹配的不可变 store 文件，并以事务方式把各 pnpm store 版本的 SQLite `package_index` 合并进 `.dsh/desktop/pnpm/store`。Seed 记录替换匹配的键，为 Desktop 插件下载的记录继续保留。中断的文件合并可能留下有效的不可变缓存内容，但每次 SQLite 合并都是原子的，profile 安装与激活仍必须通过 pnpm 完整性与完整健康检查。
 
 启动过程先要求安装包内的发布身份等于 Electron 应用版本，再在启动后端前比较 `.dsh/profiles/desktop/desktop-release.json`、已安装 dsh 包与该发布版本。它在 staging 中通过 `pnpm install --offline --frozen-lockfile --trust-lockfile` 安装新的种子 manifest 与 lockfile。Electron 替换后，启动过程再通过一次离线 pnpm add，从桌面端现有 store 与元数据缓存恢复活跃 profile 记录的每个插件 bundle 精确版本。完整依赖图必须通过同一套健康检查才能激活。
 
@@ -86,7 +86,7 @@ Electron 更新只使用一个 `electron-updater` 发布流和签名 `electron-b
 
 新发布在打开窗口前从安装包种子校准 dsh，同时保留已安装桌面插件。健康检查覆盖依赖解析、原生模块、壳 API 兼容性、后端启停、Web 资源和客户端启动图。不兼容插件会阻止激活，并保留上一个项目用于回滚。启动过程会明确失败，而不会运行版本不匹配的壳与 dsh。
 
-generic 更新服务必须一起发布元数据、安装包和 blockmap。NSIS 差分包与 macOS ZIP 目标让 electron-updater 在平台支持时只下载变化的数据块；应用替换与本地 pnpm staging 事务仍是两个独立操作。
+`DSH_DESKTOP_AUTO_UPDATE_ENV` 默认为测试部署，也可以选择生产部署，并同时决定目标专用的 generic-provider URL 与 COS 目标。发布自动化通过 `DOWNLOAD_TEST_ORIGIN` 提供测试 HTTPS origin，并通过 `DOWNLOAD_TEST_COS_BUCKET` 或 `DOWNLOAD_PROD_COS_BUCKET` 提供各部署的 bucket；可变的测试路由与 COS 存储身份不写入源码，部署基础设施变更时无需发布新代码，而公开的生产 origin 仍固定。打包只解析公开更新 URL、禁止 electron-builder 发布、从子进程环境中删除每个 COS 凭据字段，并且只有在 electron-builder 以及每个签名或公证 hook 成功后才写入完成记录。目标上传还必须提供所选 bucket，随后会先要求完成记录、根 dsh 版本、Desktop 版本、频道元数据版本、产物名称、大小与 SHA-512 全部一致，再读取所选凭据或发送数据。它先上传不可变且带版本的更新载荷与所有独立 blockmap，最后替换 `latest-mac.yml` 或 `latest.yml`，并且不会删除历史对象。NSIS 把 blockmap 嵌入已签名的可执行文件，macOS ZIP 则使用独立 blockmap；两者都让 electron-updater 在平台支持时只下载变化的数据块，而应用替换与本地 pnpm staging 事务仍是两个独立操作。
 
 ## 安全与发布策略
 
@@ -131,6 +131,8 @@ Windows 发布打包通过 `/f` 向已配置且与 SafeNet 兼容的 SignTool �
 
 **提交包含凭据的签名脚本或持久保存 Token Password。** 包含凭据的 CMD 文件、`.env` 或 Windows 用户/系统环境变量都会让 Token Password 以静态形式被读取。已提交的 CMD 只包含环境变量引用，打包步骤则把密码作为 runner 临时 secret 接收。
 
+**让 electron-builder 或通用目录同步直接发布。** 直接发布可能在所有引用产物就绪前暴露频道元数据，可能把陈旧或其他目标的文件混入发布，也无法证明已完成签名的构建仍与当前 dsh 版本一致。目标专用且经过校验的上传可以明确控制发布顺序与发布身份。
+
 ## 结果
 
 - 没有系统 Node.js 或 pnpm 的干净离线机器把种子安装进 `.dsh/profiles/desktop`，并启动可工作的 dsh 会话。
@@ -147,6 +149,7 @@ Windows 发布打包通过 `/f` 向已配置且与 SafeNet 兼容的 SignTool �
 - 不打开回环监听端口，沙箱渲染进程不能访问任意文件系统或 Electron API。
 - Workspace 开发无需下载发布资源即可运行当前已构建代码，未封装安装器的应用验证仍保留生产安装路径。
 - Windows 发布打包要求已验证的 SignTool、EV Token、匹配的公开叶证书、Token Password 和明确的密钥容器，绝不会回退到未签名产物或可导出的密钥文件。
+- 目标更新只有在已完成签名的构建及其引用的每个产物通过发布校验后才能暴露新频道元数据；保留的历史产物继续供差分更新使用。
 - 每个发布阻断平台上的签名已安装产物均能从上一个受支持版本成功更新。
 
 ## 评审决策

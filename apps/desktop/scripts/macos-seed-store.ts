@@ -16,7 +16,7 @@ import {
   unlinkSync,
   writeFileSync,
 } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { availableParallelism, tmpdir } from 'node:os'
 import { basename, dirname, join, relative, sep } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { Packr } from 'msgpackr'
@@ -34,6 +34,7 @@ const MACH_O_MAGICS = new Set([
   'bfbafeca',
 ])
 const CAS_PATH_PATTERN = /^([0-9a-f]{2})\/([0-9a-f]{126})(-exec)?$/u
+const MAX_CONCURRENT_CODE_SIGNERS = 4
 const packr = new Packr({ moreTypes: true, useRecords: true })
 
 interface PnpmStoreFileRecord {
@@ -70,6 +71,12 @@ interface FileReference {
   readonly record: PnpmStoreFileRecord
 }
 
+interface SigningWork {
+  readonly file: CasFile
+  readonly references: readonly FileReference[]
+  readonly temporaryPath: string
+}
+
 /** Summary of native code rewritten in one pnpm store. */
 export interface MacOSSeedStoreSigningResult {
   readonly signedFiles: number
@@ -78,10 +85,16 @@ export interface MacOSSeedStoreSigningResult {
 }
 
 /** A signer used to make one writable Mach-O copy release-valid. */
-export type MacOSSeedCodeSigner = (path: string, identifier: string) => void
+export type MacOSSeedCodeSigner = (path: string, identifier: string) => Promise<void>
 
 /** A verifier used to check one Mach-O file after packaging transport. */
 export type MacOSSeedCodeVerifier = (path: string) => void
+
+/** Optional execution controls for seed-store code signing. */
+export interface MacOSSeedStoreSigningOptions {
+  readonly signer?: MacOSSeedCodeSigner
+  readonly concurrency?: number
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null
@@ -236,11 +249,42 @@ function signedCasPath(versionRoot: string, digest: string, executable: boolean)
   )
 }
 
-function rewriteVersionStore(
+async function runConcurrent<T>(
+  values: readonly T[],
+  concurrency: number,
+  run: (value: T) => Promise<void>,
+): Promise<void> {
+  let next = 0
+  const failure: { error?: unknown; failed: boolean } = { failed: false }
+  const worker = async (): Promise<void> => {
+    while (!failure.failed) {
+      const index = next
+      if (index >= values.length) return
+      next += 1
+      try {
+        await run(values[index] as T)
+      } catch (error) {
+        if (!failure.failed) {
+          failure.failed = true
+          failure.error = error
+        }
+      }
+    }
+  }
+  const workers = Array.from(
+    { length: Math.min(concurrency, values.length) },
+    async () => worker(),
+  )
+  await Promise.all(workers)
+  if (failure.failed) throw failure.error
+}
+
+async function rewriteVersionStore(
   versionRoot: string,
   appId: string,
   signer: MacOSSeedCodeSigner,
-): MacOSSeedStoreSigningResult {
+  concurrency: number,
+): Promise<MacOSSeedStoreSigningResult> {
   const databasePath = join(versionRoot, 'index.db')
   if (!existsSync(databasePath)) {
     throw new Error(`desktop seed signing: pnpm store has no package index: ${databasePath}`)
@@ -248,12 +292,12 @@ function rewriteVersionStore(
   const database = new DatabaseSync(databasePath)
   const workRoot = mkdtempSync(join(tmpdir(), 'dsh-desktop-seed-signing-'))
   const obsoleteFiles = new Set<string>()
-  let signedFiles = 0
   let prunedOrphans = 0
   let rows: readonly DecodedIndexRow[] = []
   try {
     rows = readIndexRows(database)
     const references = fileReferences(rows)
+    const signingWork: SigningWork[] = []
     for (const file of casFiles(versionRoot)) {
       const body = readFileSync(file.path)
       const actualDigest = createHash('sha512').update(body).digest('hex')
@@ -266,28 +310,32 @@ function rewriteVersionStore(
         prunedOrphans += 1
         continue
       }
-      const temporary = join(workRoot, `${signedFiles.toString().padStart(4, '0')}-${basename(file.path)}`)
+      const temporary = join(workRoot, `${signingWork.length.toString().padStart(4, '0')}-${basename(file.path)}`)
       copyFileSync(file.path, temporary)
       chmodSync(temporary, 0o755)
-      signer(temporary, `${appId}.seed.${file.digest.slice(0, 32)}`)
-      const signedBody = readFileSync(temporary)
-      if (!isMachO(temporary)) {
-        throw new Error(`desktop seed signing: signer produced non-Mach-O content for ${file.path}`)
+      signingWork.push({ file, references: fileReferences, temporaryPath: temporary })
+    }
+    await runConcurrent(signingWork, concurrency, async (work) => {
+      await signer(work.temporaryPath, `${appId}.seed.${work.file.digest.slice(0, 32)}`)
+    })
+    for (const work of signingWork) {
+      const signedBody = readFileSync(work.temporaryPath)
+      if (!isMachO(work.temporaryPath)) {
+        throw new Error(`desktop seed signing: signer produced non-Mach-O content for ${work.file.path}`)
       }
       const signedDigest = createHash('sha512').update(signedBody).digest('hex')
-      const mode = file.executable ? 0o755 : 0o644
-      const destination = signedCasPath(versionRoot, signedDigest, file.executable)
+      const mode = work.file.executable ? 0o755 : 0o644
+      const destination = signedCasPath(versionRoot, signedDigest, work.file.executable)
       writeCasFile(destination, signedBody, mode)
       const checkedAt = Date.now()
-      for (const reference of fileReferences) {
+      for (const reference of work.references) {
         reference.record.checkedAt = checkedAt
         reference.record.digest = signedDigest
         reference.record.mode = mode
         reference.record.size = signedBody.length
         reference.row.changed = true
       }
-      if (destination !== file.path) obsoleteFiles.add(file.path)
-      signedFiles += 1
+      if (destination !== work.file.path) obsoleteFiles.add(work.file.path)
     }
     const changedRows = rows.filter(row => row.changed)
     database.exec('BEGIN IMMEDIATE')
@@ -302,7 +350,7 @@ function rewriteVersionStore(
     }
     for (const path of obsoleteFiles) unlinkSync(path)
     database.exec('VACUUM')
-    return { signedFiles, prunedOrphans, updatedIndexRows: changedRows.length }
+    return { signedFiles: signingWork.length, prunedOrphans, updatedIndexRows: changedRows.length }
   } finally {
     database.close()
     rmSync(workRoot, { recursive: true, force: true })
@@ -311,23 +359,31 @@ function rewriteVersionStore(
 
 /**
  * Replace every Mach-O CAS object with a Developer ID signed object and update pnpm's SHA-512 index.
+ * A signer rejection leaves the original CAS objects and package index unchanged.
  * @param storeRoot - Loose pnpm store prepared for the packaged seed.
  * @param appId - Electron application ID used as the signing identifier prefix.
  * @param expected - Company Developer ID identity and Team ID.
- * @param signer - Injectable code signer used by focused tests.
- * @returns Counts for release diagnostics.
+ * @param options - Optional signer and worker bound used by focused tests.
+ * @returns Counts for release diagnostics after every signer completes and the index transaction commits.
  */
-export function signMacOSSeedStore(
+export async function signMacOSSeedStore(
   storeRoot: string,
   appId: string,
   expected: MacOSSigningEnvironment,
-  signer: MacOSSeedCodeSigner = (path, identifier) => {
-    signMacOSSeedCode(path, identifier, expected)
-  },
-): MacOSSeedStoreSigningResult {
+  options: MacOSSeedStoreSigningOptions = {},
+): Promise<MacOSSeedStoreSigningResult> {
   const roots = versionRoots(storeRoot)
   if (roots.length === 0) throw new Error(`desktop seed signing: no pnpm store versions found in ${storeRoot}`)
-  return roots.map(root => rewriteVersionStore(root, appId, signer)).reduce((total, current) => ({
+  const concurrency = options.concurrency ?? Math.min(MAX_CONCURRENT_CODE_SIGNERS, availableParallelism())
+  if (!Number.isSafeInteger(concurrency) || concurrency < 1) {
+    throw new Error(`desktop seed signing: concurrency must be a positive integer; received ${String(concurrency)}`)
+  }
+  const signer = options.signer ?? (async (path, identifier) => {
+    await signMacOSSeedCode(path, identifier, expected)
+  })
+  const results: MacOSSeedStoreSigningResult[] = []
+  for (const root of roots) results.push(await rewriteVersionStore(root, appId, signer, concurrency))
+  return results.reduce((total, current) => ({
     signedFiles: total.signedFiles + current.signedFiles,
     prunedOrphans: total.prunedOrphans + current.prunedOrphans,
     updatedIndexRows: total.updatedIndexRows + current.updatedIndexRows,

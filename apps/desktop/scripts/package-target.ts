@@ -1,15 +1,20 @@
 /** Build one release target with matching Electron, Node.js, and seed architecture. */
 
 import { spawn } from 'node:child_process'
-import { mkdirSync, rmSync } from 'node:fs'
+import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { parseArgs } from 'node:util'
 import { join, resolve } from 'node:path'
+import {
+  desktopBuildRecordFilename,
+  resolveDesktopAutoUpdateConfig,
+} from './desktop-auto-update-environment.mjs'
 
 const APP_ROOT = resolve(import.meta.dirname, '..')
 const REPOSITORY_ROOT = resolve(APP_ROOT, '..', '..')
 const DSH_PACK_ROOT = join(REPOSITORY_ROOT, 'dist', 'npm')
 const VENDOR_PACK_ROOT = join(REPOSITORY_ROOT, 'dist', 'npm-vendor')
 const LANDLOCK_PACK_ROOT = join(REPOSITORY_ROOT, 'dist', 'npm-landlock')
+const ARTIFACTS_ROOT = join(APP_ROOT, '.desktop-build', 'artifacts')
 const WINDOWS_SIGNING_ENV_PREFIX = 'DSH_DESKTOP_WINDOWS_'
 const WINDOWS_SIGNING_ENV_NAMES = [
   'DSH_DESKTOP_WINDOWS_CER_FILE',
@@ -17,6 +22,12 @@ const WINDOWS_SIGNING_ENV_NAMES = [
   'DSH_DESKTOP_WINDOWS_SIGNTOOL',
   'DSH_DESKTOP_WINDOWS_TOKEN_PIN',
 ] as const
+const DESKTOP_UPLOAD_CREDENTIAL_ENV_NAMES = new Set([
+  'DOWNLOAD_TEST_COS_SECRET_ID',
+  'DOWNLOAD_TEST_COS_SECRET_KEY',
+  'DOWNLOAD_PROD_COS_SECRET_ID',
+  'DOWNLOAD_PROD_COS_SECRET_KEY',
+])
 
 /** Fixed platform and architecture identifiers exposed by package scripts. */
 export type DesktopPackageTargetName = 'mac-arm64' | 'mac-x64' | 'win-x64'
@@ -64,8 +75,45 @@ export function withoutWindowsSigningEnvironment(environment: NodeJS.ProcessEnv)
     .filter(([name]) => !name.startsWith(WINDOWS_SIGNING_ENV_PREFIX)))
 }
 
+/**
+ * Remove upload-only COS credentials from every packaging subprocess.
+ * @param environment - Packaging command environment.
+ * @returns A copy without Desktop upload credentials.
+ */
+export function withoutDesktopUploadCredentials(environment: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  return Object.fromEntries(Object.entries(environment)
+    .filter(([name]) => !DESKTOP_UPLOAD_CREDENTIAL_ENV_NAMES.has(name)))
+}
+
 function isTargetName(value: string): value is DesktopPackageTargetName {
   return Object.hasOwn(TARGETS, value)
+}
+
+function packageVersion(path: string, label: string): string {
+  const manifest = JSON.parse(readFileSync(path, 'utf8')) as { version?: unknown }
+  if (typeof manifest.version !== 'string' || manifest.version === '') {
+    throw new Error(`desktop package: ${label} has no version`)
+  }
+  return manifest.version
+}
+
+function writeReleaseRecord(target: DesktopPackageTarget, environment: NodeJS.ProcessEnv): void {
+  const desktopVersion = packageVersion(join(APP_ROOT, 'package.json'), 'desktop package')
+  const dshVersion = packageVersion(join(REPOSITORY_ROOT, 'package.json'), 'dsh package')
+  if (desktopVersion !== dshVersion) {
+    throw new Error(`desktop package: desktop version ${desktopVersion} does not match dsh version ${dshVersion}`)
+  }
+  const update = resolveDesktopAutoUpdateConfig(environment, target.platform, target.arch)
+  const recordPath = join(ARTIFACTS_ROOT, desktopBuildRecordFilename(target.name))
+  const temporaryPath = `${recordPath}.tmp`
+  writeFileSync(temporaryPath, `${JSON.stringify({
+    schemaVersion: 1,
+    target: target.name,
+    version: dshVersion,
+    environment: update.environment,
+    publicUrl: update.publicUrl,
+  }, null, 2)}\n`)
+  renameSync(temporaryPath, recordPath)
 }
 
 /**
@@ -140,6 +188,29 @@ export function parseDesktopPackageInvocation(
   }
 }
 
+/**
+ * Build the electron-builder command arguments for one validated target.
+ * @param target - Supported release target.
+ * @param directory - Whether to stop at an unpacked application directory.
+ * @returns Arguments that keep publishing under the separate validated upload command.
+ */
+export function desktopElectronBuilderArguments(
+  target: DesktopPackageTarget,
+  directory: boolean,
+): readonly string[] {
+  return [
+    'exec',
+    'electron-builder',
+    '--config',
+    'electron-builder.config.mjs',
+    target.builderPlatform,
+    target.builderArch,
+    '--publish',
+    'never',
+    ...(directory ? ['--dir'] : []),
+  ]
+}
+
 function runPnpm(
   args: readonly string[],
   env: NodeJS.ProcessEnv = process.env,
@@ -166,7 +237,12 @@ function runPnpm(
 async function main(): Promise<void> {
   const invocation = parseDesktopPackageInvocation(process.argv.slice(2))
   const { target } = invocation
-  const buildEnv = withoutWindowsSigningEnvironment(process.env)
+  const releaseRecordPath = join(ARTIFACTS_ROOT, desktopBuildRecordFilename(target.name))
+  if (!invocation.prepareOnly) {
+    rmSync(releaseRecordPath, { force: true })
+    rmSync(`${releaseRecordPath}.tmp`, { force: true })
+  }
+  const buildEnv = withoutWindowsSigningEnvironment(withoutDesktopUploadCredentials(process.env))
   const targetEnv: NodeJS.ProcessEnv = {
     ...buildEnv,
     DSH_DESKTOP_TARGET_PLATFORM: target.platform,
@@ -193,15 +269,8 @@ async function main(): Promise<void> {
   await runPnpm(['run', 'prepare:packages'], targetEnv)
   await runPnpm(['run', 'prepare:seed'], targetEnv)
   if (invocation.prepareOnly) return
-  await runPnpm([
-    'exec',
-    'electron-builder',
-    '--config',
-    'electron-builder.config.mjs',
-    target.builderPlatform,
-    target.builderArch,
-    ...(invocation.directory ? ['--dir'] : []),
-  ], electronBuilderEnv)
+  await runPnpm(desktopElectronBuilderArguments(target, invocation.directory), electronBuilderEnv)
+  if (!invocation.directory) writeReleaseRecord(target, electronBuilderEnv)
 }
 
 if (process.argv[1] !== undefined && import.meta.filename === resolve(process.argv[1])) await main()

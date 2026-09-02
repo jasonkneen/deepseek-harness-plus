@@ -18,6 +18,7 @@ const RELEASE_ENVIRONMENT = {
   APPLE_API_KEY: '/private/credentials/AuthKey_TEST123456.p8',
   APPLE_API_KEY_ID: 'TEST123456',
   APPLE_API_ISSUER: '11111111-2222-3333-4444-555555555555',
+  DOWNLOAD_TEST_ORIGIN: 'https://desktop-updates.example.com',
 }
 
 describe('desktop macOS release signature', () => {
@@ -31,7 +32,7 @@ describe('desktop macOS release signature', () => {
 
   it('loads release identifiers from the environment and requires code signing', async () => {
     const { createElectronBuilderConfig } = await import('../electron-builder.config.mjs')
-    const config = createElectronBuilderConfig(RELEASE_ENVIRONMENT, 'darwin')
+    const config = createElectronBuilderConfig(RELEASE_ENVIRONMENT, 'darwin', 'arm64')
     expect(config).toMatchObject({
       appId: RELEASE_ENVIRONMENT.DSH_DESKTOP_APP_ID,
       mac: {
@@ -43,6 +44,10 @@ describe('desktop macOS release signature', () => {
         sign: true,
         writeUpdateInfo: false,
       },
+      publish: [{
+        provider: 'generic',
+        url: 'https://desktop-updates.example.com/_/harness/desktop/stable/mac-arm64/',
+      }],
     })
     expect(typeof config.artifactBuildCompleted).toBe('function')
   })
