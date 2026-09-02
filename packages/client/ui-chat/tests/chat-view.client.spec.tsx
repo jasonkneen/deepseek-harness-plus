@@ -61,6 +61,7 @@ function sessionSnapshot(overrides: Partial<SessionSnapshot> = {}): SessionSnaps
     sessionId: SID,
     queue: [],
     pendingSubmissions: [],
+    pendingEdit: null,
     running: false,
     removed: false,
     openState: 'open',
@@ -259,6 +260,8 @@ function makeHarness(
     read: () => savedScroll,
   }
   const forkAt = vi.fn()
+  const editMessage = vi.fn<(seq: number, expectedLastUserSeq: number, text: string) => Promise<void>>()
+    .mockResolvedValue(undefined)
   // Rows and the harness must observe the same chat-store instance.
   const chat = createChatStore().create()
   const transcriptView = createSnapshotStore<TranscriptViewMode>('compact')
@@ -399,6 +402,7 @@ function makeHarness(
     loadImage: vi.fn(() => Promise.reject(new Error('not used'))),
     chatScroll,
     forkAt,
+    editMessage,
     // Absent-service default; mention tests override with a real resolver.
     fileMentions: () => undefined,
     t,
@@ -426,7 +430,7 @@ function makeHarness(
     set, setSession: session.set, setChat: chatSource.set, ChatView, props,
     openDetails, openFile, loadOlder, loadThrough, openView,
     setOutline: (value: unknown) => { outlineValue = value },
-    chatScroll, forkAt, setSelection, toolOwners,
+    chatScroll, forkAt, editMessage, setSelection, toolOwners,
     setTranscriptView: (mode: TranscriptViewMode) => { transcriptView.set(mode) },
     setNodeRenderer: (renderer: React.ComponentProps<typeof ChatNodeSeat>['renderSlot']) => {
       nodeSlotOverride = renderer
@@ -1876,6 +1880,167 @@ describe('ChatView', () => {
       tail.getAttribute('data-turn-tail'), tail.getAttribute('data-actions-reveal'),
     ]))).toEqual(new Map([['1', 'hover'], ['2', 'always']]))
     expect(view.container.querySelectorAll('[data-chat-flow-kind="user"]')).toHaveLength(2)
+  })
+
+  it('edits only the latest current turn-opening user message with Composer keyboard semantics', async () => {
+    const base = chatSnapshotFixture({
+      nodes: [user(1, 'question'), assistant(2, 'answer'), user(4, 'later')],
+      turnEnds: new Map([[1, 3], [2, 5]]),
+    })
+    const h = makeHarness({}, {}, { ...base, currentSurfaceSeqs: new Set([1, 2, 4]) })
+    const view = render(<h.ChatView {...h.props} />)
+    let scrollHeight = 30
+    vi.spyOn(HTMLTextAreaElement.prototype, 'scrollHeight', 'get').mockImplementation(() => scrollHeight)
+
+    const edits = view.getAllByRole('button', { name: '编辑消息' })
+    expect(edits).toHaveLength(1)
+    fireEvent.click(edits[0]!)
+    const editor = view.getByRole('textbox', { name: '编辑消息' })
+    expect((editor as HTMLTextAreaElement).value).toBe('later')
+    expect((editor as HTMLTextAreaElement).style.height).toBe('80px')
+
+    scrollHeight = 320
+    fireEvent.change(editor, { target: { value: 'edited question' } })
+    expect((editor as HTMLTextAreaElement).style.height).toBe('240px')
+    expect((editor as HTMLTextAreaElement).style.overflowY).toBe('auto')
+
+    scrollHeight = 44
+    fireEvent.change(editor, { target: { value: 'shorter' } })
+    expect((editor as HTMLTextAreaElement).style.height).toBe('80px')
+    expect((editor as HTMLTextAreaElement).style.overflowY).toBe('hidden')
+
+    fireEvent.change(editor, { target: { value: 'edited question' } })
+    fireEvent.keyDown(editor, { key: 'Enter', shiftKey: true })
+    expect(h.editMessage).not.toHaveBeenCalled()
+    fireEvent.keyDown(editor, { key: 'Enter' })
+
+    await waitFor(() => {
+      expect(h.editMessage).toHaveBeenCalledWith(4, 4, 'edited question')
+    })
+    expect(view.queryByRole('textbox', { name: '编辑消息' })).toBeNull()
+  })
+
+  it('withholds Edit from earlier, steering, shadowed, and subagent messages', () => {
+    const base = chatSnapshotFixture({
+      nodes: [user(1, 'current'), steering(2, 'steer', 1), user(4, 'shadowed')],
+    })
+    const h = makeHarness({}, {}, { ...base, currentSurfaceSeqs: new Set([1, 2]) })
+    const view = render(<h.ChatView {...h.props} />)
+    expect(view.queryByRole('button', { name: '编辑消息' })).toBeNull()
+
+    act(() => {
+      h.setSession({
+        subagent: {
+          address: {
+            parentSessionId: 'parent' as never,
+            childSessionId: SID,
+            mode: 'continuable',
+          },
+          parentAvailable: true,
+        },
+      })
+    })
+    expect(view.queryByRole('button', { name: '编辑消息' })).toBeNull()
+  })
+
+  it('cancels with Escape and submits with the inline action', async () => {
+    const base = chatSnapshotFixture({ nodes: [user(1, 'question')] })
+    const h = makeHarness({}, {}, { ...base, currentSurfaceSeqs: new Set([1]) })
+    const view = render(<h.ChatView {...h.props} />)
+
+    fireEvent.click(view.getByRole('button', { name: '编辑消息' }))
+    fireEvent.keyDown(view.getByRole('textbox', { name: '编辑消息' }), { key: 'Escape' })
+    expect(view.queryByRole('textbox', { name: '编辑消息' })).toBeNull()
+    expect(h.editMessage).not.toHaveBeenCalled()
+
+    fireEvent.click(view.getByRole('button', { name: '编辑消息' }))
+    fireEvent.change(view.getByRole('textbox', { name: '编辑消息' }), { target: { value: 'saved' } })
+    fireEvent.click(view.getByRole('button', { name: '保存并重新生成' }))
+    await waitFor(() => {
+      expect(h.editMessage).toHaveBeenCalledWith(1, 1, 'saved')
+    })
+  })
+
+  it('reports an unexpected edit callback failure after closing the editor', async () => {
+    const base = chatSnapshotFixture({ nodes: [user(1, 'question')] })
+    const h = makeHarness({}, {}, { ...base, currentSurfaceSeqs: new Set([1]) })
+    const failure = new Error('client edit failed')
+    h.editMessage.mockRejectedValue(failure)
+    const report = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const view = render(<h.ChatView {...h.props} />)
+
+    fireEvent.click(view.getByRole('button', { name: '编辑消息' }))
+    fireEvent.click(view.getByRole('button', { name: '保存并重新生成' }))
+
+    await waitFor(() => {
+      expect(report).toHaveBeenCalledWith('[ui-chat] message edit failed:', failure)
+    })
+    expect(view.queryByRole('textbox', { name: '编辑消息' })).toBeNull()
+    report.mockRestore()
+  })
+
+  it('cancels inline edit when a Composer submission begins', () => {
+    const base = chatSnapshotFixture({ nodes: [user(1, 'question')] })
+    const h = makeHarness({}, {}, { ...base, currentSurfaceSeqs: new Set([1]) })
+    const view = render(<h.ChatView {...h.props} />)
+    fireEvent.click(view.getByRole('button', { name: '编辑消息' }))
+    expect(view.getByRole('textbox', { name: '编辑消息' })).toBeTruthy()
+
+    act(() => {
+      h.setSession({
+        pendingSubmissions: [{
+          requestId: 'composer-send' as never,
+          placement: 'queued',
+          time: 1,
+          text: 'new message',
+          images: [],
+        }],
+      })
+    })
+
+    expect(view.queryByRole('textbox', { name: '编辑消息' })).toBeNull()
+  })
+
+  it('keeps inline edit open when a pre-existing submission retires', () => {
+    const base = chatSnapshotFixture({ nodes: [user(1, 'question')] })
+    const h = makeHarness({}, {
+      pendingSubmissions: [{
+        requestId: 'older-send' as never,
+        placement: 'queued',
+        time: 1,
+        text: 'already pending',
+        images: [],
+      }],
+    }, { ...base, currentSurfaceSeqs: new Set([1]) })
+    const view = render(<h.ChatView {...h.props} />)
+    fireEvent.click(view.getByRole('button', { name: '编辑消息' }))
+
+    act(() => { h.setSession({ pendingSubmissions: [] }) })
+
+    expect(view.getByRole('textbox', { name: '编辑消息' })).toBeTruthy()
+  })
+
+  it('optimistically replaces the selected message and every later row', () => {
+    const base = chatSnapshotFixture({
+      nodes: [user(1, 'question'), assistant(2, 'old answer'), user(4, 'later')],
+      turnEnds: new Map([[1, 3], [2, 5]]),
+    })
+    const h = makeHarness({}, {
+      pendingEdit: {
+        requestId: 'edit-request' as never,
+        targetSeq: 1,
+        expectedLastUserSeq: 4,
+        text: 'edited question',
+        time: 9_000,
+      },
+    }, { ...base, currentSurfaceSeqs: new Set([1, 2, 4]) })
+    const view = render(<h.ChatView {...h.props} />)
+
+    expect(view.getByText('edited question', { exact: true })).toBeTruthy()
+    expect(view.queryByText('question', { exact: true })).toBeNull()
+    expect(view.queryByText('old answer', { exact: true })).toBeNull()
+    expect(view.queryByText('later', { exact: true })).toBeNull()
+    expect(view.queryByRole('button', { name: '编辑消息' })).toBeNull()
   })
 
   it('the run-time label is withheld when the turn start is outside the window', () => {

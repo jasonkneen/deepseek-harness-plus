@@ -40,6 +40,10 @@ function sessionFakeFor() {
       ok: true,
       value: { attachment: ATTACHMENT, data: Uint8Array.of(1) },
     })),
+    edit: vi.fn<ISession['edit']>(() => Promise.resolve({
+      ok: true,
+      value: { accepted: true, messageSeq: 20 },
+    })),
     prompt: vi.fn<ISession['prompt']>(() => Promise.resolve({ ok: true, value: { accepted: true } })),
     cancel: vi.fn<ISession['cancel']>(() => Promise.resolve({ ok: true, value: { accepted: true } })),
   } satisfies SessionBehaviorOverrides
@@ -109,6 +113,25 @@ describe('Chat inject API', () => {
     await vi.waitFor(() => {
       expect(fork).toHaveBeenCalledWith({ sessionId: ROOT, atSeq: 18, increaseTitle: true })
     })
+    await b.runtime.dispose()
+  })
+
+  it('edits through the Session Controller and surfaces business failures', async () => {
+    const b = await bench()
+    const { injected } = b.chatViewApi(ROOT)
+
+    await expect(injected.editMessage?.(10, 12, 'edited')).resolves.toBeUndefined()
+    expect(b.session.edit).toHaveBeenCalledWith(10, 12, 'edited')
+
+    b.session.edit.mockResolvedValueOnce({
+      ok: false,
+      error: new RemoteError('session/edit-stale', 'stale', {
+        sessionId: ROOT,
+        messageSeq: 10,
+      }),
+    })
+    await expect(injected.editMessage?.(10, 12, 'stale edit'))
+      .rejects.toThrow('message edit failed: session/edit-stale: stale')
     await b.runtime.dispose()
   })
 

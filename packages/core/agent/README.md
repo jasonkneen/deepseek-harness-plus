@@ -44,7 +44,7 @@ await handle.dispose()   // stops the loop, unregisters, removes the session, un
 
 ### Drive an agent's conversation
 
-The handle's methods route identified user-role messages into the agent's inbox. `followup()` queues an ordinary next-turn prompt and wakes the driver; `steer()` submits next-step input and wakes it; `inject()` adds model-facing context without waking the driver, so it lands in the next admitted step. `cancel(cause)` aborts the active activity and, unless `keepInbox` is set, clears pending work; `whenIdle()` resolves after the whole agent reaches quiescence.
+The handle's methods route identified user-role messages into the agent's inbox. `followup()` queues an ordinary next-turn prompt and wakes the driver; `steer()` submits next-step input and wakes it; `inject()` adds model-facing context without waking the driver, so it lands in the next admitted step. The lower-level `send()` can place one message at the front of its target and durably carry non-default Session placement plus messages that must follow it in the same admitted step. `cancel(cause)` aborts the active activity and, unless `keepInbox` is set, clears pending work; `whenIdle()` resolves after the whole agent reaches quiescence.
 
 ```text
 handle.agent.followup({
@@ -82,7 +82,7 @@ The package is built on one separation: the public `Agent` surface and registry 
 
 ### Step admission
 
-`PreStepDecision` is either `{ kind: 'reject' }` or `{ kind: 'enter', messages, startsRequestSeries? }`. The enter branch contains the complete identified, frozen message batch. `startsRequestSeries: true` declares a distinct model-message series; a wrapping listener preserves that declaration and the batch unless it intentionally replaces either one. Claiming removes offered messages from the inbox, while messages inserted after the claim remain pending for a later boundary.
+`PreStepDecision` is either `{ kind: 'reject' }` or `{ kind: 'enter', messages, startsRequestSeries? }`. The enter branch contains the complete identified, frozen message batch. `startsRequestSeries: true` declares a distinct model-message series; a wrapping listener preserves that declaration and the batch unless it intentionally replaces either one. Inbox admission metadata follows its message identity through replacement and replay: the claim expands same-step companion messages in order, while the loop reapplies non-default Session placement only if the corresponding message survives pre-step rewriting. Messages inserted after the claim remain pending for a later boundary.
 
 ### Source map
 
@@ -133,7 +133,7 @@ The package-level contract is enough for most consumers; read these when you nee
 
 #### What the model sees
 
-`followup`, `steer`, and `inject` feed the owning session as identified user-role messages; accepted content becomes part of the derived history the model reads on later steps. `agent/pre-step` and the other declared events let plugins reject a proposed step or add durable request material; this interface contributes no fixed prose itself.
+`followup`, `steer`, and `inject` feed the owning session as identified user-role messages; accepted content becomes part of the derived history the model reads on later steps. A lower-level `send()` admission can carry a non-default surface replacement and ordered companion messages; the loop records the surviving primary and companions as one step batch. The `agent/pre-step` payload exposes those non-default intents so listeners that rewrite the Session surface can defer until a preplanned replacement commits. `agent/pre-step` and the other declared events let plugins reject a proposed step or add durable request material; this interface contributes no fixed prose itself.
 
 #### Token effect
 
@@ -141,7 +141,7 @@ Accepted content becomes retained history or a repeated session prefix; blocked 
 
 #### KV Cache effect
 
-Accepted history and steering are append-only; a blocked submission sends no request. A session prefix remains stable within its loop instance, while a new or resumed instance may establish a different prefix.
+Ordinary accepted history and steering are append-only; a blocked submission sends no request. A non-default surface replacement invalidates reuse from its first replaced message. A session prefix remains stable within its loop instance, while a new or resumed instance may establish a different prefix.
 
 ### Agent-scoped request composition
 

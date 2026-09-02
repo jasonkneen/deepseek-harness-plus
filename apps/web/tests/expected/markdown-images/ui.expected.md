@@ -10,6 +10,8 @@
 - text: Show the Markdown image policy. {{clock}}
 - button "Copy":
   - img
+- button "Edit message":
+  - img
 - heading "Markdown images" [level=2]
 - paragraph:
   - img "Remote test image"

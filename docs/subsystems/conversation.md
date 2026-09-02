@@ -8,7 +8,17 @@ This page defines the data model and the extension path for a business-owned Con
 
 ## Data model and ownership
 
-The Session Controller owns the contiguous loaded logical-event window. Each `SessionEventLikeEntry` is either `{ type: 'event', event: SessionEvent }` or `{ type: 'chunks', event: ChunkRowEvent }`; both inner events expose `type`, `seq`, `time`, and `data`. `ui-conversation` passes these entries to the assembler without opening a second history stream, converting records, or expanding packed members. One `ConversationNodeAssembler` per Session applies every registered Definition and publishes an independent source for each registered view target.
+The Session Controller owns the contiguous loaded logical-event window. Each `SessionEventLikeEntry` is either `{ type: 'event', event: SessionEvent }` or `{ type: 'chunks', event: ChunkRowEvent }`; both inner events expose `type`, `seq`, `time`, and `data`. Before assembly, `ConversationPresentationState` folds explicit `conversationOp` replacements, removes entries in hidden raw-event ranges from every current target, and computes loaded current-surface membership for target-owned actions. A replacement append rebuilds the loaded window atomically, so no target publishes an intermediate mix of old and new generations. Ordinary surface replacements without `conversationOp`, including compaction checkpoints, retain their established human-transcript behavior.
+
+`ui-conversation` passes each retained entry to the assembler without opening a second history stream, converting records, or expanding packed members. One `ConversationNodeAssembler` per Session applies every registered Definition and publishes an independent source for each registered view target.
+
+```ts type-equiv
+/** Current model-surface membership accompanying one Conversation publication. */
+interface ConversationPresentation {
+  /** Loaded surface-event seqs that remain in the current model context. */
+  readonly currentSurfaceSeqs: ReadonlySet<number>
+}
+```
 
 | Concept | Owner and purpose |
 |---|---|

@@ -146,6 +146,10 @@ export function apply(ctx: Context): void {
                 // Fork or child-title failure leaves the source view unchanged.
               })
           },
+          editMessage: async (seq, expectedLastUserSeq, text) => {
+            const result = await session.edit(seq, expectedLastUserSeq, text)
+            if (!result.ok) throw new Error(`message edit failed: ${result.error.code}: ${result.error.message}`)
+          },
         }
       },
     }, ChatView)

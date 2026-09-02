@@ -196,6 +196,8 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
     'session/steer-unavailable': { readonly itemId: MessageId }
     'session/title-invalid': { readonly sessionId: SessionId }
     'session/fork-unavailable': { readonly sessionId: SessionId }
+    'session/edit-unavailable': { readonly sessionId: SessionId; readonly messageSeq: number }
+    'session/edit-stale': { readonly sessionId: SessionId; readonly messageSeq: number }
     'subagent/not-found': {
       readonly parentSessionId: SessionId
       readonly childSessionId: SessionId
@@ -313,6 +315,26 @@ export interface SessionPromptValue {
   readonly accepted: true
 }
 
+/** Replace the latest current turn-opening user message and rerun from that point. */
+export interface SessionEditRequest {
+  /** Client-minted identity persisted on the replacement user message. */
+  readonly requestId: SessionRequestId
+  readonly sessionId: SessionId
+  /** Exact current user-message event selected for editing. */
+  readonly messageSeq: number
+  /** Latest human user-message seq observed when the editor opened. */
+  readonly expectedLastUserSeq: number
+  /** Replacement text; non-text content is retained from the selected message. */
+  readonly text: string
+  readonly clientTimeZone?: string
+}
+
+/** Receipt after the replacement user message commits to the Session log. */
+export interface SessionEditValue {
+  readonly accepted: true
+  readonly messageSeq: number
+}
+
 /** Durable image read request. */
 export interface SessionAttachmentRequest {
   readonly sessionId: SessionId
@@ -403,6 +425,13 @@ export type SessionWireSurfaceOp =
   | 'append'
   | { readonly op: 'replace'; readonly start: number; readonly end: number }
 
+/** Browser wire form of one user-facing conversation replacement. */
+export type SessionWireConversationOp = {
+  readonly op: 'replace'
+  readonly start: number
+  readonly end: number
+}
+
 /** Event-shaped wire representation of one packed chunk row. */
 export type ChunkRowEvent = {
   [Kind in ChunkRow['type']]: {
@@ -431,6 +460,7 @@ export interface SessionWireEvent {
   readonly ignorable?: true
   readonly sourceEventSeqs?: number[]
   readonly surfaceOp?: SessionWireSurfaceOp
+  readonly conversationOp?: SessionWireConversationOp
 }
 
 /** One message-aligned backwards-history request. */

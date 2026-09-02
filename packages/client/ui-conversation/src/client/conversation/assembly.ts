@@ -16,6 +16,7 @@ import type { ConversationSnapshot } from '../contract/snapshot.ts'
 import type { ConversationPromptSnapshot, RequestPromptInspection } from '../contract/request-inspection.ts'
 import { inspectRequestPrompt } from '../contract/request-inspection.ts'
 import { ConversationNodeAssembler } from './assembler.ts'
+import { ConversationPresentationState } from './presentation.ts'
 import { ConversationEventRegistry } from './event-registry.ts'
 import { HistoricalImageCache } from './historical-images.ts'
 import { ConversationViewRegistry } from './view-registry.ts'
@@ -47,6 +48,7 @@ class BoundConversation implements ConversationBinding {
   private revision = -1
   private frame: number | undefined
   private disposeFeed: () => void = () => {}
+  private readonly presentation = new ConversationPresentationState()
 
   constructor(
     feed: SessionEventSource,
@@ -92,7 +94,12 @@ class BoundConversation implements ConversationBinding {
 
   private replace(window: SessionEventWindow): void {
     this.revision = window.revision
-    this.publish(this.assembler.replaceWindow(window.entries, window.hasMore))
+    this.presentation.replace(window.entries)
+    this.publish(this.assembler.replaceWindow(
+      window.entries.filter(entry => this.presentation.visible(entry)),
+      window.hasMore,
+      this.presentation.snapshot(),
+    ))
   }
 
   private accept(window: SessionEventWindow): void {
@@ -104,12 +111,26 @@ class BoundConversation implements ConversationBinding {
     this.revision = window.revision
     switch (window.change.kind) {
       case 'prepend':
-        this.publish(this.assembler.prepend(window.change.entries, window.hasMore))
+        this.presentation.apply(window.change.entries)
+        this.publish(this.assembler.prepend(
+          window.change.entries.filter(entry => this.presentation.visible(entry)),
+          window.hasMore,
+          this.presentation.snapshot(),
+        ))
         return
       case 'append': {
+        const replacesLoadedState = window.change.entries.some(entry =>
+          entry.event.type === 'user/message'
+          && (entry.event.surfaceOp !== 'append' || entry.event.conversationOp !== undefined))
+        if (replacesLoadedState) {
+          this.replace(window)
+          return
+        }
+        this.presentation.apply(window.change.entries)
         let publication: ConversationPublication = 'none'
         for (const event of window.change.entries) {
-          const next = this.assembler.append(event)
+          if (!this.presentation.visible(event)) continue
+          const next = this.assembler.append(event, this.presentation.snapshot())
           if (next === 'immediate' || publication === 'none') publication = next
         }
         this.publish(publication)

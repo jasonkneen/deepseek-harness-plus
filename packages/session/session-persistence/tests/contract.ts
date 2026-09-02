@@ -13,7 +13,9 @@
 
 import { describe, expect, it } from 'vitest'
 import { SessionSeq, SESSION_FORMAT_VERSION, SessionId } from '@deepseek-ai/dsh-session'
-import type { SessionEvent, SessionHeader } from '@deepseek-ai/dsh-session'
+import type {
+  Session, SessionEvent, SessionHeader, SurfaceEventType, SurfaceIntent,
+} from '@deepseek-ai/dsh-session'
 import { MessageId, freezeMessage } from '@deepseek-ai/dsh-llm'
 import {
   SessionAlreadyExistsError,
@@ -95,8 +97,29 @@ function secondTurn(startSeq = 6): SessionEvent[] {
 }
 
 /**
- * Run the backend-agnostic handle contract suite. `make()` MUST return a
- * fresh backend over fresh, empty storage each call.
+ * Append recorded events to a live session while forwarding surface metadata verbatim. The broad
+ * `SessionEvent` union makes the typed marker optional, but the runtime guard must still reject a
+ * surface event whose fixture omitted it; this helper never synthesizes a default.
+ */
+export function appendLog(session: Session, events: readonly SessionEvent[]): void {
+  for (const e of events) {
+    const se = e as SessionEvent<SurfaceEventType>
+    if (se.surfaceOp !== undefined) {
+      const intent: SurfaceIntent = {
+        surfaceOp: se.surfaceOp,
+        ...se.sourceEventSeqs !== undefined ? { sourceEventSeqs: se.sourceEventSeqs } : {},
+        ...se.conversationOp !== undefined ? { conversationOp: se.conversationOp } : {},
+      }
+      session.append(e.type, e.data, intent)
+    } else {
+      session.append(e.type, e.data)
+    }
+  }
+}
+
+/**
+ * Run the backend-agnostic contract suite. `make()` MUST return a fresh, empty
+ * backend each call.
  * @param name - suite label, e.g. `jsonl-none` / `sqlite`.
  * @param make - factory producing one fresh {@link ContractBackend} per test.
  */

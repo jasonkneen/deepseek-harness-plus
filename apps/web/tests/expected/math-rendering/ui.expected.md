@@ -10,6 +10,8 @@
 - text: Render this mathematical proof. {{clock}}
 - button "Copy":
   - img
+- button "Edit message":
+  - img
 - heading "Math rendering" [level=2]
 - paragraph:
   - text: Inline dollar

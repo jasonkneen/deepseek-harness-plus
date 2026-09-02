@@ -58,7 +58,19 @@ interface AgentHandle {
 
 `Agent` 是每个插件（UI、钩子、orchestrator）面向编程的 surface；`ctx.agents.get(id)` 返回它，[发起者作用域](#initiating-agent)携带它。具体实现为 dsh-agent-loop 包内部细节；循环外没有任何组件依赖它。统一的 `send` 方法直接暴露 target 与 wakeup 路由；`followup`、`steer` 与 `inject` 是固定预设的别名方法。
 
-源码：[`packages/core/agent/src/types.ts`](../../packages/core/agent/src/types.ts)
+```ts type-equiv
+/** Optional routing and Session placement for one Agent inbox insertion. */
+interface AgentSendOptions {
+  /** Insert before existing work at the resolved target instead of after it. */
+  position?: 'front' | 'back'
+  /** Non-default placement used when AgentLoop records this exact message. */
+  surfaceIntent?: SurfaceIntent
+  /** Messages recorded immediately after the sent message in the same step. */
+  followingMessages?: readonly UserMessage[]
+}
+```
+
+源码：[`packages/core/agent/src/types.ts`](../../packages/core/agent/src/types.ts)、[`packages/core/agent/src/runtime-types.ts`](../../packages/core/agent/src/runtime-types.ts)
 
 ```ts type-equiv
 /** Public live-agent handle; the runtime face augments its live capabilities. */
@@ -114,8 +126,9 @@ interface Agent {
    * @param message - identified content and the source that supplied it.
    * @param target - the preferred next-turn or next-step inbox boundary.
    * @param wakeup - whether delivery may wake the driver.
+   * @param options - optional queue position, Session placement, and same-step companions.
    */
-  send(message: UserMessage, target: InboxTarget, wakeup: boolean): void
+  send(message: UserMessage, target: InboxTarget, wakeup: boolean, options?: AgentSendOptions): void
 
   /**
    * Queue an ordinary follow-up turn and wake the driver. The item becomes the
@@ -181,7 +194,19 @@ inbox 即投递词汇——agent 以持久投影形式拥有的两条有序待�
 type InboxTarget = 'next-turn' | 'next-step'
 ```
 
-每个待处理入队项就是其 `UserMessage`；`MessageId` 是唯一标识。`Inbox.append`、`prepend`、`replace`、`remove`、`clear`、`splice` 与 `claim` 会记录规范化的持久 `agent/inbox/spliced` 变更，并拒绝重复的待处理 id。`replace(messageId, newMessage)` 与 `remove(messageId)` 通过 `MessageId` 跨两份列表定位待处理消息；替换可以改变标识，并先将旧消息作为 discarded 发布，再将新消息作为 inserted 发布。普通删除和 `clear()` 都表示取消。`claim(target)` 通过纯删除 splice 移除拟进入步骤的批次——全部 `next-step` 输入，外加轮次边界上的一条 `next-turn` 消息——且不发出 discarded 通知；循环另行逐条发出 claimed 通知。UI 投影等整体队列消费方通过持久 splice 重建 `nextTurn` 与 `nextStep`，而跟踪单条消息的消费方使用精确的 `agent/inbox/inserted`、`claimed` 与 `discarded` 通知。
+```ts type-equiv
+/** Durable admission metadata attached to one inserted inbox message. */
+interface InboxAdmission {
+  /** Message identity the metadata follows through queue edits and claim. */
+  readonly messageId: MessageId
+  /** Exact placement applied when AgentLoop records the claimed user message. */
+  readonly surfaceIntent?: SurfaceIntent
+  /** Messages recorded immediately after the identified message in the same step. */
+  readonly followingMessages?: readonly UserMessage[]
+}
+```
+
+每个待处理入队项就是其 `UserMessage`；`MessageId` 是唯一标识。`Inbox.append`、`prepend`、`replace`、`remove`、`clear`、`splice` 与 `claim` 会记录规范化的持久 `agent/inbox/spliced` 变更，并拒绝重复的待处理 id。一次插入可以携带 `InboxAdmission` 元数据：主消息的非默认 Session 放置方式，以及在同一个被领取步骤中紧随其后的有序消息。`replace(messageId, newMessage)` 会把这些元数据转移到新身份。普通删除和 `clear()` 都表示取消。`claim(target)` 通过纯删除 splice 移除拟进入步骤的批次——全部 `next-step` 输入，外加轮次边界上的一条 `next-turn` 消息——展开同一步骤配套消息，并逐条发出 claimed 通知而不把领取视为 discarded。UI 投影等整体队列消费方通过持久 splice 重建 `nextTurn` 与 `nextStep`，而跟踪单条消息的消费方使用精确的 `agent/inbox/inserted`、`claimed` 与 `discarded` 通知。
 
 取消：
 
@@ -224,7 +249,7 @@ pre-step 决策使用与持久 user-role 输入相同、带标识的 `UserMessag
 
 源码：[`packages/core/agent/src/types.ts`](../../packages/core/agent/src/types.ts)
 
-`agent/pre-step` 接收一个 payload，携带独占的已领取批次（`messages`）、拟进入步骤的坐标（`turn`、`step`）与当前轮次的取消 `signal`。首次提案在已打开的轮次内、任何步骤开始前运行；工具 continuation 可以在步骤之间提交空的已领取批次：
+`agent/pre-step` 接收一个 payload，携带独占的已领取批次（`messages`）、按消息标识索引的非默认 Session 放置方式（`surfaceIntents`）、拟进入步骤的坐标（`turn`、`step`）与当前轮次的取消 `signal`。会替换 Session surface 的监听器在该映射包含预定替换时推迟操作。首次提案在已打开的轮次内、任何步骤开始前运行；工具 continuation 可以在步骤之间提交空的已领取批次：
 
 它返回 `PreStepDecision`。reject 不会打开步骤。enter 提供在 `step/start` 后追加的完整消息批次；最终决策省略的已领取消息保持已删除，而领取后插入的输入仍留待后续处理：
 
@@ -962,16 +987,18 @@ Reject a proposed step or replace the messages that enter it. Calling `next()` p
  * `next()` preserves the current messages.
  * @param payload.agent - the agent proposing the step.
  * @param payload.messages - messages removed from the inbox for this step.
+ * @param payload.surfaceIntents - non-default Session placement retained
+ * for claimed primary messages; the standard loop always supplies the map.
  * @param payload.turn - the turn that will own the step.
  * @param payload.step - the step proposed by the loop.
  * @param payload.signal - the current turn's cancellation signal.
  * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
  * @mode waterfall
  */
-'agent/pre-step'(this: Scoped<Agent>, payload: { agent: Agent; messages: UserMessage[]; turn: number; step: number; signal: AbortSignal }, next: () => Promise<PreStepDecision>): Promise<PreStepDecision>
+'agent/pre-step'(this: Scoped<Agent>, payload: { agent: Agent; messages: UserMessage[]; surfaceIntents?: ReadonlyMap<MessageId, SurfaceIntent>; turn: number; step: number; signal: AbortSignal }, next: () => Promise<PreStepDecision>): Promise<PreStepDecision>
 ```
 
-Types: [Scoped](scope.zh.md) · [UserMessage](session.zh.md)
+Types: [MessageId](llm-streaming.zh.md) · [Scoped](scope.zh.md) · [SurfaceIntent](session.zh.md) · [UserMessage](session.zh.md)
 
 Source: [`packages/core/agent/src/runtime-types.ts`](../../packages/core/agent/src/runtime-types.ts)
 

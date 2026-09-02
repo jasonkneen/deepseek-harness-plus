@@ -16,6 +16,8 @@
 - text: "Using ONE run_code program: run bash `echo CODE_ROUND_OK`, then read the file missing.txt catching its error in the program. Return an object with both outcomes. Then reply DONE and stop. {{clock}}"
 - button "Copy":
   - img
+- button "Edit message":
+  - img
 - button "1 tool call" [expanded]:
   - text: 1 tool call
   - img

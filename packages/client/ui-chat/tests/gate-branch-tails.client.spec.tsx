@@ -57,6 +57,7 @@ function sessionSnapshot(): SessionSnapshot {
     sessionId: SID,
     queue: [],
     pendingSubmissions: [],
+    pendingEdit: null,
     running: false,
     removed: false,
     openState: 'open',

@@ -17,6 +17,8 @@
 - button "Copy":
   - img
 - tooltip "Copy"
+- button "Edit message":
+  - img
 - button "Context injection @deepseek-ai/dsh-system-prompt":
   - img
   - img

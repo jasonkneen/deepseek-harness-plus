@@ -1,8 +1,10 @@
-import { memo, useEffect, useMemo, useState } from 'react'
+import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import type { PendingSubmission } from '@deepseek-ai/dsh-api-session-controller/client'
 import type { MessageImageSource } from '@deepseek-ai/dsh-client-ui-conversation/client'
-import { JsonBlock, projectUserText, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
+import {
+  IconCheckOutline16, IconCloseOutline16, JsonBlock, projectUserText, StateDot, Tooltip,
+} from '@deepseek-ai/dsh-client-ui-primitives'
 import type { ChatNodeOwnerProps, ChatNodeViewProps, ChatViewSlotProps } from '../contract/slots.ts'
 import type { ModelRetryNode, TurnErrorNode, UserMessageNode } from '../contract/snapshot.ts'
 import { CompactionItem } from './CompactionItem.tsx'
@@ -11,6 +13,18 @@ import { MessageIconActions } from './MessageIconActions.tsx'
 import css from './MessageItem.module.css'
 
 type UserImage = Extract<UserMessageNode['content'][number], { type: 'image' }>
+
+const MESSAGE_EDIT_MAX_HEIGHT = 240
+const MESSAGE_EDIT_INITIAL_HEIGHT = 80
+
+const NO_MESSAGE_EDIT: NonNullable<ChatNodeOwnerProps['messageEdit']> = {
+  latestUserSeq: -1,
+  current: null,
+  begin: () => {},
+  change: () => {},
+  submit: () => {},
+  cancel: () => {},
+}
 
 function contentParts(content: readonly unknown[]): {
   text: string
@@ -29,6 +43,22 @@ function contentParts(content: readonly unknown[]): {
     else rest.push(block)
   }
   return { text: texts.join(''), images, rest }
+}
+
+function replaceTextContent(content: readonly unknown[], text: string): unknown[] {
+  let replaced = false
+  const result: unknown[] = []
+  for (const block of content) {
+    const candidate = block as { type?: unknown }
+    if (candidate.type !== 'text') {
+      result.push(block)
+      continue
+    }
+    if (replaced) continue
+    replaced = true
+    if (text !== '') result.push({ type: 'text', text })
+  }
+  return result
 }
 
 function retrySeconds(milliseconds: number): number {
@@ -148,7 +178,7 @@ function TurnMaxTokensItem({ t }: {
 
 /** Right-aligned bubble shared by user and steering rows. */
 function UserStyleBubble({
-  content, renderMessageImages, actions, pending = false, echo = false, referenceLabels = [], previewImages, t,
+  content, renderMessageImages, actions, pending = false, echo = false, referenceLabels = [], previewImages, reveal = 'always', t,
 }: {
   content: readonly unknown[]
   renderMessageImages: ChatNodeOwnerProps['renderMessageImages']
@@ -162,6 +192,8 @@ function UserStyleBubble({
   referenceLabels?: readonly string[]
   /** Local submission-echo previews replacing the content-derived image group. */
   previewImages?: readonly MessageImageSource[]
+  /** Whole actions-row visibility: earlier rows reveal on hover, the latest stays shown. */
+  reveal?: 'always' | 'hover'
   t: ChatViewSlotProps['t']
 }): ReactNode {
   const { text, images: contentImages, rest } = contentParts(content)
@@ -173,6 +205,7 @@ function UserStyleBubble({
       className={css.userRow}
       data-pending-steering={pending || undefined}
       data-submission-echo={echo || undefined}
+      data-actions-reveal={reveal}
     >
       <div className={css.userStack}>
         {renderMessageImages({ images, align: 'end' })}
@@ -269,16 +302,149 @@ export function PendingSubmissionBubble({ submission, renderMessageImages, t }: 
   )
 }
 
+/** Optimistic replacement shown from Edit submit until its durable message lands. */
+export function PendingEditBubble({ content, text, time, referenceLabels = [], renderMessageImages, t }: {
+  content: readonly unknown[]
+  text: string
+  time: number
+  referenceLabels?: readonly string[]
+  renderMessageImages: ChatNodeOwnerProps['renderMessageImages']
+  t: ChatViewSlotProps['t']
+}): ReactNode {
+  const replacement = useMemo(() => replaceTextContent(content, text), [content, text])
+  return (
+    <UserStyleBubble
+      content={replacement}
+      referenceLabels={referenceLabels}
+      renderMessageImages={renderMessageImages}
+      echo
+      t={t}
+      actions={copyText => (
+        <MessageIconActions
+          text={copyText}
+          time={time}
+          clock="start"
+          className={css.actions}
+          t={t}
+        />
+      )}
+    />
+  )
+}
+
+function EditingUserBubble({ content, text, referenceLabels = [], renderMessageImages, change, submit, cancel, t }: {
+  content: readonly unknown[]
+  text: string
+  referenceLabels?: readonly string[]
+  renderMessageImages: ChatNodeOwnerProps['renderMessageImages']
+  change: (text: string) => void
+  submit: () => void
+  cancel: () => void
+  t: ChatViewSlotProps['t']
+}): ReactNode {
+  const { images, rest } = contentParts(content)
+  const inputRef = useRef<HTMLTextAreaElement>(null)
+  useLayoutEffect(() => {
+    const input = inputRef.current
+    if (input === null) return
+    input.style.height = '0px'
+    const height = Math.min(MESSAGE_EDIT_MAX_HEIGHT, Math.max(input.scrollHeight, MESSAGE_EDIT_INITIAL_HEIGHT))
+    input.style.height = `${String(height)}px`
+    input.style.overflowY = input.scrollHeight > MESSAGE_EDIT_MAX_HEIGHT ? 'auto' : 'hidden'
+  }, [text])
+  return (
+    <div className={css.userRow} data-message-edit="">
+      <div className={`${css.userStack} ${css.editStack}`}>
+        {renderMessageImages({ images, align: 'end' })}
+        <div className={`${css.bubble} ${css.editBubble}`}>
+          <textarea
+            ref={inputRef}
+            autoFocus
+            className={css.editInput}
+            aria-label={t('message.edit')}
+            value={text}
+            onChange={(event) => { change(event.currentTarget.value) }}
+            onKeyDown={(event) => {
+              if (event.key === 'Escape') {
+                event.preventDefault()
+                cancel()
+              } else if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
+                event.preventDefault()
+                submit()
+              }
+            }}
+          />
+          {rest.map((block, index) => (
+            <JsonBlock key={index} label={t('message.extraBlock')} payload={block} truncatedLabel={total => t('json.truncated', { total })} />
+          ))}
+          <div className={css.editToolbar}>
+            <Tooltip label={t('message.cancelEdit')} side="bottom">
+              <button type="button" className={css.editAction} aria-label={t('message.cancelEdit')} onClick={cancel}>
+                <IconCloseOutline16 />
+              </button>
+            </Tooltip>
+            <Tooltip label={t('message.saveAndRegenerate')} side="bottom">
+              <button
+                type="button"
+                className={`${css.editAction} ${css.editSaveAction}`}
+                aria-label={t('message.saveAndRegenerate')}
+                onClick={submit}
+              >
+                <IconCheckOutline16 />
+              </button>
+            </Tooltip>
+          </div>
+        </div>
+        {referenceLabels.length > 0 && (
+          <div className={css.referenceSummary}>
+            {t('message.referenceSummary', { labels: referenceLabels.join(t('message.referenceSeparator')) })}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 /** User and admitted-steering keyed Chat renderer. */
 export const UserMessageNodeView = memo(function UserMessageNodeView({
-  node, renderMessageImages, t,
+  node, renderMessageImages, useChat, messageEdit, t,
 }: ChatNodeViewProps<'user' | 'steering'>) {
   const data = node.data
+  const edit = messageEdit ?? NO_MESSAGE_EDIT
+  const onCurrentSurface = useChat(snapshot => snapshot.currentSurfaceSeqs?.has(data.seq) === true)
+  // The transcript's last user-authored row keeps its actions row shown, the
+  // same recency gate turn tails use; earlier rows reveal on hover.
+  const isLatestUserRow = useChat((snapshot) => {
+    for (let index = snapshot.order.length - 1; index >= 0; index -= 1) {
+      const candidate = snapshot.nodes.get(snapshot.order[index] ?? '')
+      if (candidate?.kind === 'user' || candidate?.kind === 'steering') return candidate.key === node.key
+    }
+    return true
+  })
+  const editable = messageEdit !== undefined
+    && node.kind === 'user'
+    && onCurrentSurface
+    && data.seq === edit.latestUserSeq
+  if (editable && edit.current?.seq === data.seq) {
+    return (
+      <EditingUserBubble
+        content={data.content}
+        text={edit.current.text}
+        {...data.referenceLabels === undefined ? {} : { referenceLabels: data.referenceLabels }}
+        renderMessageImages={renderMessageImages}
+        change={edit.change}
+        submit={edit.submit}
+        cancel={edit.cancel}
+        t={t}
+      />
+    )
+  }
   return (
     <UserStyleBubble
       content={data.content}
       renderMessageImages={renderMessageImages}
       {...data.referenceLabels === undefined ? {} : { referenceLabels: data.referenceLabels }}
+      reveal={isLatestUserRow ? 'always' : 'hover'}
       t={t}
       actions={text => (
         <MessageIconActions
@@ -286,6 +452,9 @@ export const UserMessageNodeView = memo(function UserMessageNodeView({
           time={data.time}
           clock="start"
           className={css.actions}
+          onEdit={editable && text !== ''
+            ? () => { edit.begin(data.seq, text, edit.latestUserSeq) }
+            : undefined}
           t={t}
         />
       )}

@@ -52,12 +52,26 @@ export interface PendingSubmission {
   readonly images: readonly PendingSubmissionImage[]
 }
 
+/** One local same-session edit awaiting its durable replacement message. */
+export interface PendingEdit {
+  /** RPC identity echoed by the replacement `user/message`. */
+  readonly requestId: SessionRequestId
+  /** Existing user-message event being replaced. */
+  readonly targetSeq: number
+  /** Latest human message observed when edit mode opened. */
+  readonly expectedLastUserSeq: number
+  /** Replacement text submitted by the inline editor. */
+  readonly text: string
+  /** Client wall-clock ms used by the optimistic replacement bubble. */
+  readonly time: number
+}
+
 /** History-open lifecycle of a Session event window. */
 export type OpenState = 'cold' | 'loading' | 'open' | 'error'
 
 /** Send/stop failure surfaced by Session consumers. */
 export interface PromptError {
-  readonly op: 'send' | 'stop'
+  readonly op: 'send' | 'stop' | 'edit'
   readonly error: RemoteFailure
 }
 
@@ -67,6 +81,8 @@ export interface SessionSnapshot {
   readonly queue: readonly QueuedMessage[]
   /** Local prompt-submission echoes not yet observed as durable events or queue occurrences. */
   readonly pendingSubmissions: readonly PendingSubmission[]
+  /** Same-session edit waiting for its replacement user message. */
+  readonly pendingEdit: PendingEdit | null
   readonly running: boolean
   readonly subagent: {
     readonly address: SubagentAddress

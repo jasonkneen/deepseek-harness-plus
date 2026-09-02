@@ -35,6 +35,10 @@
     "./surface": {
       "types": "./lib/types/surface.d.ts",
       "default": "./lib/types/surface.js"
+    },
+    "./conversation": {
+      "types": "./lib/types/conversation.d.ts",
+      "default": "./lib/types/conversation.js"
     }
   },
   "files": [

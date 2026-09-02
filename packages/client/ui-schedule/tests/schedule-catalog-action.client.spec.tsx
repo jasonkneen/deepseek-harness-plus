@@ -53,6 +53,7 @@ function sessionSnapshot(openState: SessionSnapshot['openState']): SessionSnapsh
     sessionId: SESSION,
     queue: [],
     pendingSubmissions: [],
+    pendingEdit: null,
     running: false,
     subagent: null,
     removed: false,

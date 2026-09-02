@@ -4,7 +4,7 @@ import type {
 import type {
   ConversationContextReader, ConversationLocationData, ConversationMatch,
   ConversationNodeContext, ConversationNodeDefinition, ConversationPreviousContext,
-  ConversationLocationDataScope, ConversationPublication, ConversationViewBuilder,
+  ConversationLocationDataScope, ConversationPresentation, ConversationPublication, ConversationViewBuilder,
   ConversationStartMatch,
   ConversationViewDefinition, ConversationViewNode, ConversationViewSnapshotMap,
   ConversationViewSnapshotStore,
@@ -57,6 +57,7 @@ const PUBLICATION_RANK: Record<ConversationPublication, number> = {
 }
 
 const LOCATION_DATA_SCOPES: readonly ConversationLocationDataScope[] = ['step', 'turn']
+const EMPTY_PRESENTATION: ConversationPresentation = { currentSurfaceSeqs: new Set() }
 
 function emptyLocationData(): Record<ConversationLocationDataScope, ConversationLocationData | null> {
   return { step: null, turn: null }
@@ -168,6 +169,7 @@ export class ConversationNodeAssembler implements ConversationViewSnapshotStore 
   private readonly dependents = new Map<string, Set<InternalContext>>()
   private readonly views = new Map<string, ViewState>()
   private readonly activeTargets = new Set<string>()
+  private presentation: ConversationPresentation = EMPTY_PRESENTATION
   private hasMore = false
   private replacePending = true
   private timelineDirty = true
@@ -187,9 +189,14 @@ export class ConversationNodeAssembler implements ConversationViewSnapshotStore 
    * Replace the complete loaded window after open, resync, or gap repair.
    * @param entries - complete contiguous window.
    * @param hasMore - whether older history remains outside the window.
+   * @param presentation - current loaded conversation and model-surface membership.
    * @returns immediate publication request.
    */
-  replaceWindow(entries: readonly SessionEventLikeEntry[], hasMore: boolean): ConversationPublication {
+  replaceWindow(
+    entries: readonly SessionEventLikeEntry[],
+    hasMore: boolean,
+    presentation: ConversationPresentation = EMPTY_PRESENTATION,
+  ): ConversationPublication {
     this.contexts.clear()
     this.contextsByKind.clear()
     this.contextsBySeq.clear()
@@ -200,6 +207,7 @@ export class ConversationNodeAssembler implements ConversationViewSnapshotStore 
     this.revised.clear()
     this.dependents.clear()
     this.hasMore = hasMore
+    this.presentation = presentation
     const sorted = [...entries].sort((left, right) => left.event.seq - right.event.seq)
     for (const entry of sorted) this.inputs.set(entry.event.seq, entry)
     this.locationIndex.rebuild(sorted)
@@ -215,12 +223,17 @@ export class ConversationNodeAssembler implements ConversationViewSnapshotStore 
   /**
    * Add one contiguous live tail event without scanning existing Contexts.
    * @param record - appended Session event entry.
+   * @param presentation - current loaded conversation and model-surface membership.
    * @returns highest requested publication cadence.
    */
-  append(record: SessionLiveEventEntry): ConversationPublication {
+  append(
+    record: SessionLiveEventEntry,
+    presentation: ConversationPresentation = this.presentation,
+  ): ConversationPublication {
     const event = record.event
     if (this.inputs.has(event.seq)) return 'none'
     this.revised.clear()
+    this.presentation = presentation
     this.inputs.set(event.seq, record)
     let publication: ConversationPublication = 'none'
     if (isLocationBoundary(event.type)) {
@@ -245,12 +258,18 @@ export class ConversationNodeAssembler implements ConversationViewSnapshotStore 
    * Add an older page while preserving existing Context and view identities.
    * @param entries - newly loaded older Events.
    * @param hasMore - whether history still precedes the expanded window.
+   * @param presentation - current loaded conversation and model-surface membership.
    * @returns highest requested publication cadence.
    */
-  prepend(entries: readonly SessionEventLikeEntry[], hasMore: boolean): ConversationPublication {
+  prepend(
+    entries: readonly SessionEventLikeEntry[],
+    hasMore: boolean,
+    presentation: ConversationPresentation = this.presentation,
+  ): ConversationPublication {
     this.revised.clear()
     let publication: ConversationPublication = 'none'
     const previousHasMore = this.hasMore
+    this.presentation = presentation
     const fresh = entries
       .filter(entry => !this.inputs.has(entry.event.seq))
       .sort((left, right) => left.event.seq - right.event.seq)
@@ -280,7 +299,7 @@ export class ConversationNodeAssembler implements ConversationViewSnapshotStore 
    */
   rebuildRegistry(): ConversationPublication {
     this.resetViewBuilders()
-    return this.replaceWindow(this.sortedInputs(), this.hasMore)
+    return this.replaceWindow(this.sortedInputs(), this.hasMore, this.presentation)
   }
 
   /**
@@ -300,6 +319,7 @@ export class ConversationNodeAssembler implements ConversationViewSnapshotStore 
         view.snapshot = builder.replace({
           nodes: this.buildTargetNodes(target, this.contextsByTarget.get(target)),
           timeline: this.locationIndex.snapshot(),
+          presentation: this.presentation,
         })
         published = true
       }
@@ -324,6 +344,7 @@ export class ConversationNodeAssembler implements ConversationViewSnapshotStore 
       view.snapshot = builder.apply({
         upserts,
         timeline: this.locationIndex.snapshot(),
+        presentation: this.presentation,
       })
       published = true
     }
@@ -790,6 +811,7 @@ export class ConversationNodeAssembler implements ConversationViewSnapshotStore 
     view.snapshot = builder.replace({
       nodes: this.buildTargetNodes(view.target, this.contextsByTarget.get(view.target)),
       timeline: this.locationIndex.snapshot(),
+      presentation: this.presentation,
     })
   }
 

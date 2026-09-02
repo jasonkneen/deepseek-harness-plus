@@ -444,6 +444,8 @@
 - text: 7/25 {{clock}} m28 7/25 {{clock}}
 - button "Copy":
   - img
+- button "Edit message":
+  - img
 - paragraph: r28
 - button "Copy":
   - img

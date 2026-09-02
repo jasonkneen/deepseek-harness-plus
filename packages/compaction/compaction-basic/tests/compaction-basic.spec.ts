@@ -23,7 +23,7 @@ import type {
   StreamChunk,
   TokenUsage,
 } from '@deepseek-ai/dsh-llm'
-import SessionStore, { Session, SessionId, SessionSeq } from '@deepseek-ai/dsh-session'
+import SessionStore, { Session, SessionId, SessionSeq, type SurfaceIntent } from '@deepseek-ai/dsh-session'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import TokenMeter from '@deepseek-ai/dsh-token-meter'
 import { agentEvents, type Agent, type RequestErrorAction } from '@deepseek-ai/dsh-agent'
@@ -1444,9 +1444,20 @@ describe('default one-shot summarizer', () => {
 })
 
 describe('automatic listener and loader composition', () => {
-  function preStep(ctx: Context, owner: Agent, signal = SIGNAL) {
+  function preStep(
+    ctx: Context,
+    owner: Agent,
+    signal = SIGNAL,
+    surfaceIntents?: ReadonlyMap<Message['id'], SurfaceIntent>,
+  ) {
     return agentEvents(ctx, owner).waterfall(
-      'agent/pre-step', { messages: [], turn: 1, step: 1, signal },
+      'agent/pre-step', {
+        messages: [],
+        ...(surfaceIntents === undefined ? {} : { surfaceIntents }),
+        turn: 1,
+        step: 1,
+        signal,
+      },
       () => Promise.resolve({ kind: 'enter' as const, messages: [] }),
     )
   }
@@ -1478,7 +1489,16 @@ describe('automatic listener and loader composition', () => {
       retainTokens: 180,
     })
     const pressured = conversation(4)
-    await preStep(ctx, agent(pressured, 'unconfigured-agent-fallback'))
+    const appendMessage = createUserMessage({
+      content: [{ type: 'text', text: 'continue' }],
+      source: { kind: 'user' },
+    })
+    await preStep(
+      ctx,
+      agent(pressured, 'unconfigured-agent-fallback'),
+      SIGNAL,
+      new Map([[appendMessage.id, { surfaceOp: 'append' }]]),
+    )
     expect(pressured.snapshotEvents().some(event => event.type === 'compaction/summary')).toBe(true)
 
     const small = conversation(1)
@@ -1497,6 +1517,33 @@ describe('automatic listener and loader composition', () => {
     const compactIfNeeded = vi.spyOn(compact, 'compactIfNeeded')
 
     await expect(preStep(ctx, agent(pressured, MODEL), AbortSignal.abort('step aborted')))
+      .resolves.toEqual({ kind: 'enter', messages: [] })
+
+    expect(compactIfNeeded).not.toHaveBeenCalled()
+    expect(pressured.snapshotEvents().some(event => event.type === 'compaction/start')).toBe(false)
+  })
+
+  it('defers pre-step pressure while a conversation replacement is pending', async () => {
+    const ctx = createContext()
+    const compact = new TestCompactionEngine(ctx, {
+      thresholdRatio: 0.5,
+      retainTokens: 180,
+    })
+    const pressured = conversation(4)
+    const message = createUserMessage({
+      content: [{ type: 'text', text: 'edited' }],
+      source: { kind: 'user' },
+    })
+    const first = pressured.surface.nodes[0]!
+    const last = pressured.surface.nodes.at(-1)!
+    const intent: SurfaceIntent = {
+      surfaceOp: { op: 'replace', start: first, end: last },
+      sourceEventSeqs: [...pressured.surface.nodes],
+      conversationOp: { op: 'replace', start: SessionSeq(0), end: SessionSeq(1) },
+    }
+    const compactIfNeeded = vi.spyOn(compact, 'compactIfNeeded')
+
+    await expect(preStep(ctx, agent(pressured, MODEL), SIGNAL, new Map([[message.id, intent]])))
       .resolves.toEqual({ kind: 'enter', messages: [] })
 
     expect(compactIfNeeded).not.toHaveBeenCalled()

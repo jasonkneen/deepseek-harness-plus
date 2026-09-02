@@ -1,7 +1,7 @@
 import { describe, expect, expectTypeOf, it } from 'vitest'
 import { Context, Service, symbols } from '@deepseek-ai/cordis'
 import { createUserMessage, freezeMessage } from '@deepseek-ai/dsh-llm'
-import { Session, SessionId, type UserMessage } from '@deepseek-ai/dsh-session'
+import { Session, SessionId, SessionSeq, type UserMessage } from '@deepseek-ai/dsh-session'
 import AgentRegistry, {
   agentEvents,
   Inbox,
@@ -39,6 +39,77 @@ function stubAgent(rawId: string, overrides: Partial<Agent> = {}): Agent {
 }
 
 describe('Inbox', () => {
+  it('persists front-inserted surface intent through reconstruction and claim', () => {
+    const session = Session.create(SessionId('surface-intent-inbox'))
+    const inbox = new Inbox(session, { inserted: () => {}, discarded: () => {}, claimed: () => {} })
+    const queued = createUserMessage({ content: [{ type: 'text', text: 'queued' }], source: { kind: 'user' } })
+    const edited = createUserMessage({ content: [{ type: 'text', text: 'edited' }], source: { kind: 'user' } })
+    const context = createUserMessage({ content: [{ type: 'text', text: 'context' }], source: { kind: 'plugin', plugin: 'test' } })
+    const intent = {
+      surfaceOp: { op: 'replace' as const, start: SessionSeq(0), end: SessionSeq(0) },
+      sourceEventSeqs: [SessionSeq(0)],
+      conversationOp: { op: 'replace' as const, start: SessionSeq(0), end: SessionSeq(0) },
+    }
+    inbox.append('next-turn', queued)
+    inbox.splice('next-turn', 0, 0, [edited], [{
+      messageId: edited.id,
+      surfaceIntent: intent,
+      followingMessages: [context],
+    }])
+
+    const restoredSession = Session.create(SessionId('surface-intent-restored'), session.snapshotEvents())
+    const restored = new Inbox(restoredSession, { inserted: () => {}, discarded: () => {}, claimed: () => {} })
+    expect(restored.nextTurn).toEqual([edited, queued])
+    expect(restored.claimWithIntents('next-turn', 1)).toEqual([
+      { message: edited, surfaceIntent: intent },
+      { message: context },
+    ])
+    expect(restored.claimWithIntents('next-turn', 2)).toEqual([{ message: queued }])
+  })
+
+  it('keeps admission metadata through prepend, replacement, and the plain claim API', () => {
+    const session = Session.create(SessionId('surface-intent-mutations'))
+    const inbox = new Inbox(session, { inserted: () => {}, discarded: () => {}, claimed: () => {} })
+    const original = createUserMessage({ content: [{ type: 'text', text: 'original' }], source: { kind: 'user' } })
+    const replacement = createUserMessage({ content: [{ type: 'text', text: 'replacement' }], source: { kind: 'user' } })
+    const step = createUserMessage({ content: [{ type: 'text', text: 'step' }], source: { kind: 'user' } })
+    const transient = createUserMessage({ content: [{ type: 'text', text: 'transient' }], source: { kind: 'user' } })
+    const intent = {
+      surfaceOp: { op: 'replace' as const, start: SessionSeq(0), end: SessionSeq(0) },
+      sourceEventSeqs: [SessionSeq(0)],
+    }
+
+    inbox.prepend('next-turn', original, intent)
+    expect(inbox.replace(original.id, replacement)).toBe(true)
+    inbox.prepend('next-step', transient)
+    expect(inbox.remove(transient.id)).toBe(true)
+    inbox.append('next-step', step, intent)
+
+    expect(inbox.claim('next-turn', 1)).toEqual([step, replacement])
+  })
+
+  it('rejects malformed durable admission metadata', () => {
+    const session = Session.create(SessionId('invalid-inbox-admission'))
+    const inbox = new Inbox(session, { inserted: () => {}, discarded: () => {}, claimed: () => {} })
+    const message = createUserMessage({ content: [{ type: 'text', text: 'message' }], source: { kind: 'user' } })
+    const missing = createUserMessage({ content: [{ type: 'text', text: 'missing' }], source: { kind: 'user' } })
+    const intent = { surfaceOp: 'append' as const }
+
+    expect(() => inbox.splice('next-turn', 0, 0, [message], [
+      { messageId: missing.id, surfaceIntent: intent },
+    ])).toThrow('is not inserted by this splice')
+    expect(() => inbox.splice('next-turn', 0, 0, [message], [
+      { messageId: message.id, surfaceIntent: intent },
+      { messageId: message.id, followingMessages: [missing] },
+    ])).toThrow('is duplicated')
+    expect(() => inbox.splice('next-turn', 0, 0, [message], [
+      { messageId: message.id, followingMessages: null as never },
+    ])).toThrow('invalid following messages')
+    expect(() => inbox.splice('next-turn', 0, 0, [message], [
+      { messageId: message.id },
+    ])).toThrow('carries no metadata')
+  })
+
   it('rejects an invalid durable splice during reconstruction', () => {
     const session = Session.create(SessionId('invalid-inbox-replay'))
     session.append('agent/inbox/spliced', {

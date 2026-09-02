@@ -64,7 +64,7 @@ describe('turn outline projection unit', () => {
     const { ctx, session } = await harness(true)
     expect(outlineOf(ctx, session)).toEqual([])
     expect(ctx.sessionProjections.checkpoint(session).turnOutline)
-      .toEqual({ ver: 2, seq: -1, val: { turns: [], draft: '' } })
+      .toEqual({ ver: 3, seq: -1, val: { turns: [], draft: '' } })
   })
 
   it('folds each turn with its boundary seq, first prompt, and turn-end response', async () => {
@@ -81,6 +81,68 @@ describe('turn outline projection unit', () => {
       { turn: 1, seq: firstBoundary, prompt: 'hello world', response: 'final answer of turn one' },
       { turn: 2, seq: secondBoundary, prompt: 'second prompt', response: '' },
     ])
+  })
+
+  it('removes replaced turns and retains the edit turn as the current outline', async () => {
+    const { ctx, session } = await harness(true)
+    const firstBoundary = session.append('turn/start', { turn: 1 }).seq
+    const firstPrompt = appendPrompt(session, 'first prompt')
+    appendAssistant(session, 1, 1, 'first answer')
+    endTurn(session, 1)
+    session.append('turn/start', { turn: 2 })
+    const secondPrompt = appendPrompt(session, 'second prompt')
+    appendAssistant(session, 2, 1, 'second answer')
+    const oldEnd = endTurn(session, 2)
+    const oldSurface = [...session.surface.nodes]
+    const editBoundary = session.append('turn/start', { turn: 3 }).seq
+    session.append('user/message', createUserMessage({
+      content: [{ type: 'text', text: 'edited prompt' }],
+      source: { kind: 'user' },
+    }), {
+      surfaceOp: { op: 'replace', start: firstPrompt, end: oldSurface.at(-1)! },
+      sourceEventSeqs: oldSurface,
+      conversationOp: { op: 'replace', start: firstBoundary, end: oldEnd },
+    })
+
+    expect(outlineOf(ctx, session)).toEqual([
+      { turn: 3, seq: editBoundary, prompt: 'edited prompt', response: '' },
+    ])
+    expect(secondPrompt).toBeGreaterThan(firstPrompt)
+  })
+
+  it('applies conversation ranges before non-human, already-filled, or empty prompts', () => {
+    const def = turnOutlineProjectionDefinition
+    const state: TurnOutlineState = {
+      turns: [
+        { turn: 1, seq: SessionSeq(0), prompt: 'old', response: 'old answer' },
+        { turn: 2, seq: SessionSeq(10), prompt: 'current', response: '' },
+      ],
+      draft: 'draft',
+    }
+    const replacement = (source: unknown, content: readonly unknown[]): SessionEvent => ({
+      type: 'user/message',
+      seq: SessionSeq(20),
+      time: 0,
+      data: { ...createUserMessage({ content: content as never, source: source as never }) },
+      surfaceOp: { op: 'replace', start: SessionSeq(1), end: SessionSeq(2) },
+      conversationOp: { op: 'replace', start: SessionSeq(0), end: SessionSeq(5) },
+    })
+
+    expect(def.apply(state, replacement({ kind: 'plugin', plugin: 'test' }, [{ type: 'text', text: 'context' }]))).toEqual({
+      turns: [state.turns[1]],
+      draft: 'draft',
+    })
+    expect(def.apply(state, replacement({ kind: 'user' }, [{ type: 'text', text: 'ignored' }]))).toEqual({
+      turns: [state.turns[1]],
+      draft: 'draft',
+    })
+    expect(def.apply({
+      turns: [state.turns[0]!, { turn: 2, seq: SessionSeq(10), prompt: '', response: '' }],
+      draft: 'draft',
+    }, replacement({ kind: 'user' }, [{ type: 'image' }]))).toEqual({
+      turns: [{ turn: 2, seq: 10, prompt: '', response: '' }],
+      draft: 'draft',
+    })
   })
 
   it('keeps the response empty while its turn is still open (draft only commits at turn/end)', async () => {

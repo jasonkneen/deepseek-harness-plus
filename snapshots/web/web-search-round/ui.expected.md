@@ -16,6 +16,8 @@
 - text: Use web_search once with queries ["DeepSeek Harness snapshot search","DeepSeek Harness multi-query search"]. Then reply exactly SEARCH_DONE and stop. {{clock}}
 - button "Copy":
   - img
+- button "Edit message":
+  - img
 - button "1 tool call" [expanded]:
   - text: 1 tool call
   - img

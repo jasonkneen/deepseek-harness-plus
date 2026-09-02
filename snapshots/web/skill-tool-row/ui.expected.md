@@ -14,6 +14,8 @@
 - text: Load the editing-cordis-compositions skill with the skill tool, then reply DONE. {{date}} {{clock}}
 - button "Copy":
   - img
+- button "Edit message":
+  - img
 - button "1 tool call" [expanded]:
   - text: 1 tool call
   - img

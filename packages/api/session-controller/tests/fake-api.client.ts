@@ -11,6 +11,8 @@ import type {
   SessionAddress,
   SessionControlBaseline,
   SessionControlFrame,
+  SessionEditRequest,
+  SessionEditValue,
   SessionFollowFrame,
   SessionFollowRequest,
   SessionPage,
@@ -141,6 +143,8 @@ export class FakeApiClient {
     () => Promise.resolve(ok({ records: [], hasMore: false }))
 
   onPrompt: (payload: unknown) => Promise<RemoteResult<{ accepted: true }>> = () => Promise.resolve(ok({ accepted: true as const }))
+  onEdit: (payload: SessionEditRequest) => Promise<RemoteResult<SessionEditValue>> = () =>
+    Promise.resolve(ok({ accepted: true as const, messageSeq: 0 }))
   onAttachment: (payload: unknown) => Promise<RemoteResult<{ attachment: { attachmentId: never; mediaType: 'image/png'; bytes: number; width: number; height: number }; data: string }>> =
     () => Promise.resolve(ok({ attachment: { attachmentId: 'a' as never, mediaType: 'image/png', bytes: 1, width: 1, height: 1 }, data: 'AA==' }))
   onUpdateQueue: (payload: unknown) => Promise<RemoteResult<{ accepted: true }>> = () => Promise.resolve(ok({ accepted: true as const }))
@@ -224,6 +228,7 @@ export class FakeApiClient {
         rename: payload => this.record('session.rename', payload, this.onRename(payload)),
         fork: payload => this.record('session.fork', payload, this.onFork(payload)),
         prompt: payload => this.record('session.prompt', payload, this.onPrompt(payload)),
+        edit: payload => this.record('session.edit', payload, this.onEdit(payload)),
         attachment: payload => this.record('session.attachment', payload, this.onAttachment(payload)),
         updateQueue: payload => this.record('session.updateQueue', payload, this.onUpdateQueue(payload)),
         cancel: payload => this.record('session.cancel', payload, this.onCancel(payload)),

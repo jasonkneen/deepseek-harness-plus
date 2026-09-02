@@ -39,7 +39,7 @@ interface EventFilterInput {
   readonly timeFrom?: string | undefined
   readonly timeTo?: string | undefined
   readonly eventTypes?: string[] | undefined
-  readonly surfaces?: SessionEventSurface[] | undefined
+  readonly surfaces: SessionEventSurface[]
 }
 
 const sessionSearchParameters = {
@@ -61,8 +61,8 @@ const sessionSearchParameters = {
   event_types: { type: 'array', items: { type: 'string' }, description: 'Event types to include.' },
   event_surfaces: {
     type: 'array',
-    items: { type: 'string', enum: ['current', 'shadowed', 'log-only'] },
-    description: 'Event surfaces to include.',
+    items: { type: 'string', enum: ['current', 'log-only'] },
+    description: 'Current model-surface or active log-only events to include.',
   },
 } as const
 
@@ -76,8 +76,8 @@ const eventSearchParameters = {
   event_types: { type: 'array', items: { type: 'string' }, description: 'Event types to include.' },
   surfaces: {
     type: 'array',
-    items: { type: 'string', enum: ['current', 'shadowed', 'log-only'] },
-    description: 'Event surfaces to include.',
+    items: { type: 'string', enum: ['current', 'log-only'] },
+    description: 'Current model-surface or active log-only events to include.',
   },
 } as const
 
@@ -116,10 +116,8 @@ function buildEventFilters(input: EventFilterInput): SessionEventMetadataFilter[
     assertNonEmptyArray('event_types', input.eventTypes)
     filters.push({ kind: 'type', values: input.eventTypes as SessionEventType[] })
   }
-  if (input.surfaces !== undefined) {
-    assertNonEmptyArray('surfaces', input.surfaces)
-    filters.push({ kind: 'surface', values: input.surfaces })
-  }
+  assertNonEmptyArray('surfaces', input.surfaces)
+  filters.push({ kind: 'surface', values: input.surfaces })
   return filters
 }
 

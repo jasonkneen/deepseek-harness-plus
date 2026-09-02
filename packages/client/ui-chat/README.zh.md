@@ -8,11 +8,12 @@ kind: "package-reference"
 
 ## 概述
 
-Conversation 组装的浏览器 Chat target。本包注册 Chat event definition 与 snapshot 构造、提供 `useChat`、渲染 transcript node 和详情，并拥有 Chat 专属 store、action、本地化与滚动位置恢复；历史图片 URL 通过 Conversation 持有的按会话缓存（`ctx.uiConversation.imageUrl`）解析。其中 Assistant 与 Turn Tail definition 会直接 fold packed Assistant 历史 run，不展开其成员。steering 分类通过持久 splice state 只保留 next-step Inbox ID；next-turn splice 不创建 Chat Context。本地提交回显（`SessionSnapshot.pendingSubmissions`）保留提交开始时选定的区域：transcript 回显位于消息流末尾，steering 回显带 pending-steering 标记，queued 回显不进入 Chat。一旦 user/steering 节点或 queue occurrence 携带回显的 prompt `rpcId`，该回显即在同一渲染中隐藏，因此交接是原子的。
+Conversation 组装的浏览器 Chat target。本包注册 Chat event definition 与 snapshot 构造、提供 `useChat`、渲染 transcript node 和详情，并拥有 Chat 专属 store、action、本地化与滚动位置恢复；历史图片 URL 通过 Conversation 持有的按会话缓存（`ctx.uiConversation.imageUrl`）解析。其中 Assistant 与 Turn Tail definition 会直接 fold packed Assistant 历史 run，不展开其成员。steering 分类通过持久 splice state 只保留 next-step Inbox ID；next-turn splice 不创建 Chat Context。本地提交回显（`SessionSnapshot.pendingSubmissions`）保留提交开始时选定的目标：transcript 回显位于消息流末尾，steering 回显带 pending 标记，queued 回显不进入 Chat。每条回显都在同一次渲染中由其持久 user/steering 节点或 Queue occurrence 接替。`SessionSnapshot.pendingEdit` 同样会在持久编辑代次可渲染前替换选中的后缀。
 
 ## 目录
 
 - [系统提示词行](#system-prompt-row)
+- [消息编辑](#message-editing)
 - [轮次 token 用量](#turn-token-usage)
 - [轮次过程折叠](#turn-process-folding)
 - [滚动归属](#scroll-ownership)
@@ -26,6 +27,15 @@ Conversation 组装的浏览器 Chat target。本包注册 Chat event definition
 ## 系统提示词行
 
 Chat 会为每个非空的初始或恢复请求、显式消息序列起点或真实 system 字段变化显示一行默认折叠的`系统提示词`。同一序列内仅配置或仅工具变化、工具步骤与重试不会重复该行。该行位于请求的用户消息之前，与提供方 envelope 顺序一致；展开后显示保留原始换行的精确模型可见文本。历史窗口不完整时，非初始 header 会保守显示，直到前一页到达；没有系统提示词的 header 不创建该行。
+
+-----
+
+<a id="message-editing"></a>
+## 消息编辑
+
+只有最新的人工消息会显示「编辑消息」，且它必须是普通 Session 中仍位于当前 surface 的轮次开场提示词。更早的消息、被压缩的消息、steering、注入上下文和 direct subagent 对话都不显示该动作。编辑会把气泡替换为铺满 Chat 内容列的 composer 风格输入卡片：使用输入表面背景、边框和阴影，并在卡片内部放置取消／保存操作行。文本框初始高度为 80px，随内容增长至 240px 后改为内部滚动。Enter 提交，Shift+Enter 插入换行，Escape 取消。普通 composer 保持可用；开始另一条提交会关闭行内编辑器。
+
+提交后，编辑消息会立即移到 transcript 末尾，并在 Host 校验和提交替换期间隐藏其后的所有行。失败会恢复持久对话，并通过常规 prompt 错误通道展示。成功的替换使用新时间戳，不显示已编辑标记，也不提供 Undo；保留的附件和会话引用标签继续显示在替换消息上。已有 Session 标题保持不变。
 
 -----
 

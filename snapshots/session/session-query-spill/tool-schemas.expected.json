@@ -408,12 +408,11 @@
           },
           "surfaces": {
             "type": "array",
-            "description": "Event surfaces to include.",
+            "description": "Current model-surface or active log-only events to include.",
             "items": {
               "type": "string",
               "enum": [
                 "current",
-                "shadowed",
                 "log-only"
               ]
             }
@@ -516,12 +515,11 @@
           },
           "event_surfaces": {
             "type": "array",
-            "description": "Event surfaces to include.",
+            "description": "Current model-surface or active log-only events to include.",
             "items": {
               "type": "string",
               "enum": [
                 "current",
-                "shadowed",
                 "log-only"
               ]
             }

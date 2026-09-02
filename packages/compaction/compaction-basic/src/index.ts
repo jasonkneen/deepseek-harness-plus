@@ -146,9 +146,12 @@ export class BasicCompactionEngine extends CompactionEngine {
     }
 
     ctx.on('agent/pre-step', async (
-      { agent, signal },
+      { agent, surfaceIntents, signal },
       next,
     ): Promise<PreStepDecision> => {
+      for (const intent of surfaceIntents?.values() ?? []) {
+        if (intent.surfaceOp !== 'append') return next()
+      }
       if (!signal.aborted) {
         try {
           const result = await this.compactIfNeeded(agent, 'pressure', signal)

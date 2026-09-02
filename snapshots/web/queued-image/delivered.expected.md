@@ -60,6 +60,8 @@
 - text: {{clock}} Continue with the queued comparison {{clock}}
 - button "Copy":
   - img
+- button "Edit message":
+  - img
 - button "Thought for a while":
   - text: Thought for a while
   - img

@@ -12,19 +12,19 @@ Status: implemented
 
 ## 决策
 
-模型投影与人类投影是分开的，而事件属于哪一种由事件自身的标记决定。`dsh-session` 在浏览器安全的 `surface` 模块中导出按两种 `SurfaceOp` 变体划分的谓词 `isAppendSurfaceEvent(event)` 与 `isReplacementSurfaceEvent(event)`。追加来源的事件是 transcript 的持久来源，替换副本仅供模型使用。凡是必须准确发送模型所见内容的部分——`deriveMessages`、token 记账、压缩后端、工具配对、注入上下文的存活判断、跨会话引用投影——都继续读取 `session.surface`。
+模型投影与人类投影是分开的。`dsh-session` 在浏览器安全的 `surface` 模块中导出按两种 `SurfaceOp` 变体划分的谓词 `isAppendSurfaceEvent(event)` 与 `isReplacementSurfaceEvent(event)`。追加来源事件是 transcript 的默认持久来源；除非替换型 `user/message` 携带[同会话用户消息编辑](../feature/2026-09-01-same-session-user-message-edit.zh.md)引入的显式 `conversationOp`，替换副本都只供模型使用。该操作开启一代新的可见对话，并隐藏其声明的原始事件区间而不删除它。凡是必须准确发送模型所见内容的部分——`deriveMessages`、token 记账、压缩后端、工具配对、注入上下文的存活判断、跨会话引用投影——都继续读取 `session.surface`。
 
 终端从追加来源的 surface 事件回放 transcript，并通过 `transcriptToolCallIds` 让被遮蔽步骤的工具卡片保持配对：该函数读取追加来源的 `assistant/message`，而不是 surface 成员关系。已落地的压缩会在其自身日志位置贡献一行暗色 `… earlier context was compacted …`：这行标记报告模型从何处起不再看到那段历史，而不是把它抹掉。带框的检查点载荷从不渲染，且两条路径都按同一个标记对 surface 事件分类，因此实时到达的压缩与恢复后回放同一份日志会产生相同的 transcript。只有回放会重新推导 `tool/call` 的配对关系：调用事件自身不携带标记，其归属继承自公布它的 `assistant/message`，而实时监听器必然刚刚渲染过后者。
 
-检查点通过压缩 seam 自身的约定来识别——`isCompactCheckpointSource`，即 `CompactionEngine` 要求替换用户消息携带的、与后端无关的标记——因此终端依赖的是已声明的词汇，而不是替换的形态。`dsh-session-reference` 已经在用该谓词投影另一个会话的日志；这里只是另一个读者提出同样的问题。其他替换保持静默：被裁剪的 `tool/result` 与重新生成的 `assistant/message` 只是为模型重写一个节点，并不在对话中标出边界。
+检查点通过压缩 seam 自身的约定来识别——`isCompactCheckpointSource`，即 `CompactionEngine` 要求替换用户消息携带的、与后端无关的标记——因此终端依赖的是已声明的词汇，而不是替换的形态。`dsh-session-reference` 已经在用该谓词投影另一个会话的日志；这里只是另一个读者提出同样的问题。没有 `conversationOp` 的替换事件保持静默：被裁剪的 `tool/result` 与重新生成的 `assistant/message` 只是为模型重写一个节点，并不在对话中标出边界。
 
-`session.history` 只把追加来源的消息计入 `maxMessages`。每一页仍是一段连续的原始事件区间，因此压缩的 `compaction/summary` 事件会与引用它的替换留在同一页。
+`session.history` 把追加来源消息与显式对话替换计入 `maxMessages`。每一页仍是一段连续的原始事件区间，因此压缩的 `compaction/summary` 事件会与引用它的替换留在同一页，编辑后的代次也可以保留其隐藏原始区间用于无损回放。
 
-持久事件、RPC 信封、压缩事务与模型可见的 surface 都没有变化，也不需要迁移。
+压缩仍不改变用户可见替换状态。同会话 Edit 增加独立的持久 `conversationOp` 与 RPC 操作，不改变压缩事务。
 
 ## 延后事项
 
-浏览器客户端在[Web transcript 投影笔记](2026-07-30-web-transcript-log-ordered-projection.zh.md)中单独修复：它按日志顺序投影同一份追加来源 transcript 并渲染一个标记组件，同时闭合本次变更打开的分页缺口——因为 `session.history` 不再为检查点消耗额度，它永远不会在检查点与检查点引用的来源事件这个整体内切分，于是一页可以携带一个引用了窗口之外 `surfaceOp.start` 的检查点，而浏览器的 surface fold 会拒绝该范围。这个缺口早于本次变更（此前计数就可能越过检查点进入它所遮蔽的范围），但当检查点是最旧的被计数消息时，旧分页规则会把整段被遮蔽的范围放在同一页。
+浏览器客户端在[Web transcript 投影笔记](2026-07-30-web-transcript-log-ordered-projection.zh.md)中单独修复：它按日志顺序投影默认的追加来源 transcript，在组装前应用显式编辑代次区间，并渲染一个压缩标记组件。它同时闭合本次变更打开的分页缺口——因为 `session.history` 不再为检查点消耗额度，它永远不会在检查点与检查点引用的来源事件这个整体内切分，于是一页可以携带一个引用了窗口之外 `surfaceOp.start` 的检查点，而浏览器的 surface fold 会拒绝该范围。这个缺口早于本次变更（此前计数就可能越过检查点进入它所遮蔽的范围），但当检查点是最旧的被计数消息时，旧分页规则会把整段被遮蔽的范围放在同一页。
 
 终端的[已归档实时压缩进度决策](../../archived/feature/2026-07-30-compaction-progress-visibility.md)使用独立标记对中的事件驱动现有的单格指示器。它既不改变本文所负责的完成标记，也不添加规模信息：检查点的 `sourceEventSeqs` 仍可供经另行论证的计数或区间使用。因此，进度显示既不需要修改标记内容，也不以提取 `renderReplacement(event)` 为前置条件。
 
@@ -38,7 +38,7 @@ Status: implemented
 
 **用 `compaction/*` 括号而不是检查点来推导标记。** 就 transcript 而言被否决：括号是围绕一次操作的一对时间点标记，而 transcript 需要的是 surface 真正发生变化的位置。括号适合作为进度与耗时的来源，而本次变更并不渲染这些。
 
-**像 `session-query` 为搜索所做的那样重新折叠日志来分类事件（`current`／`shadowed`／`log-only`）。** 被否决：折叠回答的是整份日志的问题，而投影问的是逐事件的问题，事件自身的标记已能以常数时间给出答案。
+**像 `session-query` 为搜索所做的那样，通过模型 surface 折叠分类每个替换（`current`／`shadowed`／`log-only`）。** 被否决：压缩的 transcript 成员关系仍是逐事件标记问题。同会话 Edit 改用独立的 `conversationOp`；其整日志折叠回答的是另一项问题——哪一代可见对话是当前代次。
 
 ## 后果
 

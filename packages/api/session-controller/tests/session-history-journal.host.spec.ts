@@ -254,6 +254,51 @@ describe('Session history raw journal', () => {
     expect(page.map(event => event.seq)).toEqual(page.map((_event, index) => third.seq + index))
   })
 
+  it('counts an edit replacement as the current message without pulling its hidden tail into the page', async () => {
+    const { ctx } = await harness()
+    const remote = createSessionTestRemote(ctx, { defaultModelSelection: () => ({ provider: 'p', model: 'm' }), cwd: '/tmp' })
+    const session = ctx.sessions.create(undefined, { meta: { cwd: '/workspace' } })
+    const firstStart = session.append('turn/start', { turn: 1 })
+    const first = appendUserText(session, 'first prompt')
+    appendAssistantText(session, 'first reply', 1)
+    session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+    session.append('turn/start', { turn: 2 })
+    const second = appendUserText(session, 'second prompt')
+    const secondAnswer = appendAssistantText(session, 'second reply', 2)
+    const secondEnd = session.append('turn/end', { turn: 2, reason: { kind: 'completed' } })
+    const shadowed = session.surface.nodes.slice(session.surface.nodes.indexOf(first.seq))
+    session.append('turn/start', { turn: 3 })
+    session.append('user/message', createUserMessage({
+      content: [{ type: 'text', text: 'edited prompt' }], source: { kind: 'user' },
+    }), {
+      surfaceOp: { op: 'replace', start: first.seq, end: secondAnswer.seq },
+      sourceEventSeqs: [...shadowed],
+      conversationOp: { op: 'replace', start: firstStart.seq, end: secondEnd.seq },
+    })
+    const editedAnswer = appendAssistantText(session, 'edited reply', 3)
+
+    const response = await remote.page({
+      address: { kind: 'session', sessionId: session.id },
+      throughSeq: session.seq - 1,
+      maxMessages: 2,
+    })
+    if (!response.ok) throw new Error('unreachable')
+    const messages = pageEvents(response.value)
+      .filter(event => event.type === 'user/message' || event.type === 'assistant/message')
+    expect(messages.map(event => event.seq)).toEqual([editedAnswer.seq - 1, editedAnswer.seq])
+    expect(messages.some(event => event.seq === second.seq)).toBe(false)
+    expect(response.value.hasMore).toBe(true)
+
+    const expanded = await remote.page({
+      address: { kind: 'session', sessionId: session.id },
+      throughSeq: session.seq - 1,
+      maxMessages: 3,
+    })
+    if (!expanded.ok) throw new Error('unreachable')
+    expect(pageEvents(expanded.value).some(event => event.seq === second.seq)).toBe(true)
+    expect(expanded.value.hasMore).toBe(false)
+  })
+
   it('paginates a message with many provenance sources without variadic argument expansion', async () => {
     const { ctx } = await harness()
     const remote = createSessionTestRemote(ctx, { defaultModelSelection: () => ({ provider: 'p', model: 'm' }), cwd: '/tmp' })

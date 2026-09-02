@@ -63,6 +63,7 @@
     "tests/cordis-tool-round.e2e.ts",
     "tests/web-search-round.e2e.ts",
     "tests/message-actions.e2e.ts",
+    "tests/message-edit.e2e.ts",
     "tests/message-feedback.e2e.ts",
     "tests/message-feedback-layout.e2e.ts",
     "tests/markdown-images.e2e.ts",

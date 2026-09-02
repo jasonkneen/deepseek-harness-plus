@@ -87,6 +87,20 @@ export interface ISession {
     requestId?: SessionRequestId,
   ): Promise<RemoteResult<{ accepted: true }>>
   /**
+   * Replace the latest current turn-opening human message and rerun from it.
+   * @param messageSeq - selected durable user-message event.
+   * @param expectedLastUserSeq - optimistic conversation revision captured by the editor.
+   * @param text - replacement text; retained non-text blocks remain Host-owned.
+   * @param signal - optional caller cancellation before admission.
+   * @returns the committed replacement event seq, or a business error.
+   */
+  edit(
+    messageSeq: number,
+    expectedLastUserSeq: number,
+    text: string,
+    signal?: AbortSignal,
+  ): Promise<RemoteResult<{ accepted: true; messageSeq: number }>>
+  /**
    * Resolve one durable image referenced by this session.
    * @param attachmentId - opaque id found in the folded session log.
    * @returns the authenticated reference and decoded bytes.

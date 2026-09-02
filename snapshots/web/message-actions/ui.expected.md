@@ -53,6 +53,8 @@
 - text: Stopped Now give the final answer. 7/25 {{clock}}
 - button "Copy":
   - img
+- button "Edit message":
+  - img
 - paragraph: DONE
 - button "Copy":
   - img

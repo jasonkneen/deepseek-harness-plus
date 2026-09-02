@@ -390,7 +390,7 @@ describe('input validation and translation', () => {
       event_time_from: '2026-07-24T00:00:00Z',
       event_time_to: '2026-07-24T01:00:00Z',
       event_types: ['plugin/open-event'],
-      event_surfaces: ['shadowed'],
+      event_surfaces: ['current', 'log-only'],
     })
     expect(FakeQuery.sessionRequests).toHaveLength(1)
     expect(FakeQuery.sessionRequests[0]).toEqual({
@@ -414,7 +414,7 @@ describe('input validation and translation', () => {
           to: Date.parse('2026-07-24T01:00:00Z'),
         },
         { kind: 'type', values: ['plugin/open-event'] },
-        { kind: 'surface', values: ['shadowed'] },
+        { kind: 'surface', values: ['current', 'log-only'] },
       ],
     })
   })

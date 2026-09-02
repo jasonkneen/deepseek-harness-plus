@@ -86,7 +86,7 @@ interface SessionTitleLlmRequestEventData {
 
 ## 提供方输入与输出
 
-服务会对截至某一修订的合格消息创建快照。提供方返回的 seq 仅可来自该请求；由服务负责的接纳流程会验证顺序、规范化标题、强制执行字节上限，并追加标题及其来源消息 seq 和来源类型。
+服务会对截至某一修订的合格消息创建快照。只有追加来源的人工消息会安排自动工作，因此同会话编辑不会重新生成当前标题；后续普通提示词会从当时的当前对话代次构建提供方请求，并省略被编辑隐藏的提示词。提供方返回的 seq 仅可来自该请求；由服务负责的接纳流程会验证顺序、规范化标题、强制执行字节上限，并追加标题及其来源消息 seq 和来源类型。
 
 ```ts type-equiv
 /** One eligible human text message exposed to title providers. */
@@ -108,7 +108,7 @@ type SessionTitleAutomaticMode = 'first-prompt' | 'all-prompts'
 interface SessionTitleProviderRequest {
   /** Live session being titled. */
   readonly session: Session
-  /** All eligible human messages through this generation revision. */
+  /** Current-generation eligible human messages through this title revision. */
   readonly messages: readonly SessionTitleUserMessage[]
   /** Exact current logged main-request route, when one has been recorded. */
   readonly route?: SessionTitleModelProvenance

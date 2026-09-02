@@ -8,7 +8,7 @@ Source: [`packages/session-query/session-query/src/types.ts`](../../packages/ses
 
 ## Logical records
 
-`SessionRecord` is returned by the cross-corpus list. It exposes source availability independently from the cloned live-preferred header. `SessionEventRecord` is a lightweight raw-log projection; classification uses the same `foldSurface()` transitions as model-history derivation.
+`SessionRecord` is returned by the cross-corpus list. It exposes source availability independently from the cloned live-preferred header. `SessionEventRecord` is a lightweight raw-log projection; classification uses the same `foldSurface()` transitions as model-history derivation and then marks every event in an explicit edited-conversation range as `shadowed`. The raw log remains readable through exact operations.
 
 ```ts type-equiv
 /** Whether an event is current model context, replaced context, or raw-log-only. */
@@ -99,7 +99,7 @@ interface SessionEventRecord {
   type: SessionEventType
   /** Event timestamp in Unix epoch milliseconds. */
   time: number
-  /** Event placement in the folded session surface. */
+  /** Event placement after model-surface and conversation-generation folding. */
   surface: SessionEventSurface
 }
 ```
@@ -146,7 +146,7 @@ interface SessionEventSearchDocument extends SessionEventRecord {
 
 ## Full-text search pages
 
-The combined `ctx.sessionQuery` seam has two full-text scopes. `searchSessions()` groups the corpus by strongest matching event; `searchEvents()` searches one session. Requests bind an opaque cursor to the normalized query, metadata filters, and limit. The event text scan is intentionally absent from provider metadata filters.
+The combined `ctx.sessionQuery` seam has two full-text scopes. `searchSessions()` groups the corpus by strongest matching event; `searchEvents()` searches one session. Requests bind an opaque cursor to the normalized query, metadata filters, and limit. The event text scan is intentionally absent from provider metadata filters. Model-facing tools default both operations to `current` plus `log-only` and do not expose `shadowed`, so edited-away content is excluded without deleting its index records; programmatic callers may still request `shadowed` for diagnostics.
 
 ```ts type-equiv
 /** Provider-owned opaque continuation token returned by session search. */

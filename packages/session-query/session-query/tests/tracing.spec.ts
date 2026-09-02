@@ -308,6 +308,38 @@ describe('session lineage tracing', () => {
 })
 
 describe('session event tracing', () => {
+  it('classifies log-only events hidden by a conversation replacement as shadowed', async () => {
+    const ctx = await queryContext()
+    const session = ctx.sessions.create(SessionId('conversation-trace'))
+    const turnStart = session.append('turn/start', { turn: 1 })
+    session.append('step/start', { turn: 1, step: 1 })
+    const prompt = session.append('user/message', createUserMessage({
+      content: [{ type: 'text', text: 'original' }], source: { kind: 'user' },
+    }), { surfaceOp: 'append' })
+    const call = session.append('tool/call', {
+      turn: 1, step: 1, callId: 'call' as never, name: 'read', arguments: '{}',
+    })
+    const answer = session.append('assistant/message', {
+      turn: 1,
+      step: 1,
+      message: createMessage({
+        role: 'assistant', content: [{ type: 'text', text: 'old answer' }],
+        source: { kind: 'model', provider: 'mock', model: 'mock' },
+      }),
+    }, { surfaceOp: 'append', sourceEventSeqs: [] })
+    const turnEnd = session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+    session.append('user/message', createUserMessage({
+      content: [{ type: 'text', text: 'edited' }], source: { kind: 'user' },
+    }), {
+      surfaceOp: { op: 'replace', start: prompt.seq, end: answer.seq },
+      sourceEventSeqs: [prompt.seq, answer.seq],
+      conversationOp: { op: 'replace', start: turnStart.seq, end: turnEnd.seq },
+    })
+
+    await expect(ctx.sessionQuery.traceEvent({ sessionId: session.id, seq: call.seq }))
+      .resolves.toMatchObject({ target: { surface: 'shadowed' } })
+  })
+
   it('returns direct replacement and cited source-event links in their contract order', async () => {
     const ctx = await queryContext()
     const session = ctx.sessions.create(SessionId('trace'))
