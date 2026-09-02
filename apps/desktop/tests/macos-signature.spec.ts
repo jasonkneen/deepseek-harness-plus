@@ -23,6 +23,10 @@ const RELEASE_ENVIRONMENT = {
   DOWNLOAD_TEST_ORIGIN: 'https://desktop-updates.example.com',
 }
 
+function portablePath(value: string): string {
+  return value.replaceAll('\\', '/')
+}
+
 describe('desktop macOS release signature', () => {
   beforeAll(() => {
     for (const [name, value] of Object.entries(RELEASE_ENVIRONMENT)) vi.stubEnv(name, value)
@@ -35,12 +39,12 @@ describe('desktop macOS release signature', () => {
   it('loads release identifiers from the environment and requires code signing', async () => {
     const { createElectronBuilderConfig } = await import('../electron-builder.config.mjs')
     const config = createElectronBuilderConfig(RELEASE_ENVIRONMENT, 'darwin', 'arm64')
-    expect(config.directories.output).toContain('/.desktop-build/targets/mac-arm64/artifacts')
+    expect(portablePath(config.directories.output)).toContain('/.desktop-build/targets/mac-arm64/artifacts')
     expect(config.extraResources).toHaveLength(2)
     expect(config.extraResources[0]?.to).toBe('runtime')
     expect(config.extraResources[1]?.to).toBe('seed')
-    expect(config.extraResources[0]?.from).toContain('/.desktop-build/targets/mac-arm64/runtime')
-    expect(config.extraResources[1]?.from).toContain('/.desktop-build/targets/mac-arm64/seed')
+    expect(portablePath(config.extraResources[0]?.from ?? '')).toContain('/.desktop-build/targets/mac-arm64/runtime')
+    expect(portablePath(config.extraResources[1]?.from ?? '')).toContain('/.desktop-build/targets/mac-arm64/seed')
     expect(config).toMatchObject({
       appId: RELEASE_ENVIRONMENT.DSH_DESKTOP_APP_ID,
       mac: {

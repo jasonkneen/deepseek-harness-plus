@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   assertDesktopDshPackageFiles,
   selectDesktopPackageClosure,
@@ -10,6 +10,17 @@ function packed(name: string, manifest: Record<string, unknown> = {}): PackedDes
 }
 
 describe('desktop package-set selection', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs()
+  })
+
+  it('does not select a packaging target when imported as a library', async () => {
+    vi.stubEnv('DSH_DESKTOP_TARGET_PLATFORM', 'linux')
+    vi.stubEnv('DSH_DESKTOP_TARGET_ARCH', 'x64')
+    vi.resetModules()
+    await expect(import('../scripts/prepare-package-set.ts')).resolves.toHaveProperty('prepareDesktopPackageSet')
+  })
+
   it('includes only the available internal production closure', () => {
     const available = new Map<string, PackedDesktopPackage>([
       ['@deepseek-ai/dsh', packed('@deepseek-ai/dsh', {

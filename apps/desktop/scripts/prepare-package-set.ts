@@ -27,13 +27,6 @@ import { resolveDesktopTargetBuildPaths } from './desktop-build-paths.mjs'
 const DSH_PACKAGE = '@deepseek-ai/dsh'
 const APP_ROOT = resolve(import.meta.dirname, '..')
 const REPOSITORY_ROOT = resolve(APP_ROOT, '..', '..')
-const BUILD_PATHS = resolveDesktopTargetBuildPaths()
-const OUTPUT_ROOT = BUILD_PATHS.packageSet
-const DEFAULT_INPUTS = [
-  BUILD_PATHS.packedDsh,
-  BUILD_PATHS.packedVendor,
-  BUILD_PATHS.packedLandlock,
-]
 
 const REQUIRED_DEPENDENCY_SECTIONS = ['dependencies', 'peerDependencies'] as const
 const OPTIONAL_DEPENDENCY_SECTION = 'optionalDependencies'
@@ -124,8 +117,8 @@ export function assertDesktopDshPackageFiles(files: readonly string[]): void {
   }
 }
 
-/** Prepare the selected target's package set from its release tarball directories. */
-export function prepareDesktopPackageSet(inputs: readonly string[], output = OUTPUT_ROOT): void {
+/** Prepare a package set from release tarball directories. */
+export function prepareDesktopPackageSet(inputs: readonly string[], output: string): void {
   const selected = selectDesktopPackageClosure(packedPackages(inputs))
   const dsh = selected.find(packed => packed.manifest.name === DSH_PACKAGE)
   if (dsh === undefined) throw new Error(`desktop package set: selected closure omits ${DSH_PACKAGE}`)
@@ -156,12 +149,18 @@ export function prepareDesktopPackageSet(inputs: readonly string[], output = OUT
 }
 
 function main(): void {
+  const buildPaths = resolveDesktopTargetBuildPaths()
+  const defaultInputs = [
+    buildPaths.packedDsh,
+    buildPaths.packedVendor,
+    buildPaths.packedLandlock,
+  ]
   const { values } = parseArgs({
     options: { from: { type: 'string', multiple: true }, out: { type: 'string' } },
     allowPositionals: false,
   })
-  const inputs = (values.from ?? DEFAULT_INPUTS).map(path => resolve(REPOSITORY_ROOT, path))
-  const output = values.out === undefined ? OUTPUT_ROOT : resolve(REPOSITORY_ROOT, values.out)
+  const inputs = (values.from ?? defaultInputs).map(path => resolve(REPOSITORY_ROOT, path))
+  const output = values.out === undefined ? buildPaths.packageSet : resolve(REPOSITORY_ROOT, values.out)
   prepareDesktopPackageSet(inputs, output)
   console.log(`desktop package set: prepared ${output}`)
 }
