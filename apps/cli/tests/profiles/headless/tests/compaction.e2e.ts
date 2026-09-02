@@ -45,7 +45,7 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('compaction: a long session compa
       },
       persistenceRoot: join(workdir, '.sessions'),
     })
-    const agent = ctx.agentLoop.create(SessionId('e2e-compaction'), { provider: 'deepseek-official', model: 'deepseek-v4-flash' })
+    const agent = await ctx.agentLoop.create(SessionId('e2e-compaction'), { provider: 'deepseek-official', model: 'deepseek-v4-flash' })
 
     agent.followup(createUserMessage({
       content: [{
@@ -56,7 +56,7 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('compaction: a long session compa
       }], source: { kind: 'user' } }))
     await waitForIdle(ctx, agent)
 
-    const events = [...agent.session.events]
+    const events = agent.session.snapshotEvents()
 
     // A compaction ran: the start…end bracket landed in the real log.
     const starts = events.filter(e => e.type === 'compaction/start')

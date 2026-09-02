@@ -1,9 +1,9 @@
 /**
  * Pure row-model derivation for tool summary rows: variant classification,
- * one-line summary, expanded-body text, and flattened result output from the
- * frozen call slice. Input material comes from the call ARGUMENTS; output and
- * error material from the settled result node. A supported terminal call gets
- * its expanded body from `terminalCardModel` instead.
+ * one-line summary, expansion-time body input, and flattened result output
+ * from the frozen call slice. Input material comes from the call ARGUMENTS;
+ * output and error material from the settled result node. A supported terminal
+ * call gets its expanded body from `terminalCardModel` instead.
  */
 // The block union's defining home is runtime (fold-product types); this
 // contract only forwards it (type-definition authority stays with the layer
@@ -44,6 +44,11 @@ const TOOL_VARIANTS: Record<string, ToolRowVariant> = {
   // with its own title from TOOL_TITLE_KEYS, not the generic `others` row.
   pwsh: 'bash',
   read: 'read',
+  // read_image is a single-file read: the same browse icon and the same openable
+  // path summary (FILE_PATH_VARIANTS covers `read`), with its own title key below.
+  // Left unclassified it falls to `others`, which titles the row generically and
+  // derives no filePath — so the path the row advertises as openable never is.
+  read_image: 'read',
   web_fetch: 'read',
   web_search: 'search',
   grep: 'search',
@@ -70,6 +75,7 @@ const TOOL_TITLE_KEYS: Record<string, ToolTitleKey> = {
   cordis_stop: 'tool.title.stopCordis',
   cordis_undefine: 'tool.title.removeCordis',
   pwsh: 'tool.title.pwsh',
+  read_image: 'tool.title.readImage',
 }
 
 /**
@@ -92,8 +98,8 @@ export interface ToolRowModel {
    * relative values against the session cwd before opening.
    */
   filePath: string | undefined
-  /** Expanded-body input text (pretty args); null = no input section. */
-  body: string | null
+  /** Original argument JSON retained for expansion-time body formatting. */
+  bodyRaw: string | null
   /** Flattened result text ({@link resultText}); null while running or when the result carries no text. */
   output: string | null
   /** First line of the result text on an error row; null for every other state. */
@@ -196,7 +202,13 @@ function deriveFilePath(variant: ToolRowVariant, argsRaw: string): string | unde
   return picked === undefined ? undefined : firstLine(picked)
 }
 
-function deriveBody(variant: ToolRowVariant, argsRaw: string): string | null {
+/**
+ * Format one argument payload when its generic input body becomes visible.
+ * @param variant - row presentation selected for the Tool name.
+ * @param argsRaw - original argument JSON or incomplete raw text.
+ * @returns display body, or null for empty input.
+ */
+export function formatToolBody(variant: ToolRowVariant, argsRaw: string): string | null {
   if (argsRaw === '') return null
   const parsed = parseArgs(argsRaw)
   if (parsed === undefined) return argsRaw
@@ -238,12 +250,13 @@ export function toolRowModel(toolName: string, block: ToolCallBlock, cwd?: strin
   // would erase the collapsed error row's summary slot.
   const output = done ? (resultText(block) || null) : null
   const errorSummary = state === 'error' && output !== null ? firstLine(output) : null
+  const bodyRaw = argsRaw === '' ? null : argsRaw
   return {
     variant,
     titleKey: toolTitleKey ?? VARIANT_TITLE_KEYS[variant],
     summary,
     filePath: deriveFilePath(variant, argsRaw),
-    body: deriveBody(variant, argsRaw),
+    bodyRaw,
     output,
     errorSummary,
     state,

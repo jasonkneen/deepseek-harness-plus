@@ -117,7 +117,7 @@ Files 模式通过 `maxRequestFilesBytes` 与 `maxImagesPerRequest` 限制保留
 | [`src/file-store.ts`](src/file-store.ts) + [`src/files-api.ts`](src/files-api.ts) | 限定作用域的上传缓存、到期、陈旧 id 恢复、配额清理与远程文件操作 |
 | [`src/serialize.ts`](src/serialize.ts) | 协议序列化：thinking 默认值、Files 或内联图片块、历史规则 |
 | [`src/sse.ts`](src/sse.ts) | 直接 `fetch` 流的 `eventsource-parser` SSE 分帧 |
-| [`src/translate.ts`](src/translate.ts) | 把 SSE 载荷翻译为 harness `StreamChunk` 值 |
+| [`src/translate.ts`](src/translate.ts) | 把 SSE 载荷翻译为 harness `StreamChunk` 值；工具调用的 `id` 与 `name` 是身份，后续分片重复发送空串或 null 时保留已建立的值 |
 | [`src/types.ts`](src/types.ts) | 上述模块共享的协议级类型 |
 
 ### 协议流程
@@ -201,3 +201,5 @@ loop 保留的响应块会追加到下一个请求，并保留其更早的可复
 - `off` 推理强度绝不会以 `reasoning_effort: 'off'` 过线；它序列化为 `thinking: { type: 'disabled' }` 并省略该字段，从而对拒绝未知强度取值的网关保持协议拼写有效。
 
 </details>
+
+**运行时不变式：** 不发布伴生入口。本包没有独立事件序列或可变数据关系，相关约定在所属 seam 强制执行。

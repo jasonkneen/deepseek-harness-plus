@@ -45,7 +45,7 @@ function bashProps(block: RunningToolCall | ToolResultNode): BashRowProps {
 describe('Tool presentation tails', () => {
   it('ToolRow stopped state renders the warning dot in the leading slot', () => {
     const view = render(
-      <ToolRow t={t} variant="bash" icon={<i data-testid="icon" />} title="Bash" summary="s" body={null} state="stopped" />,
+      <ToolRow t={t} variant="bash" icon={<i data-testid="icon" />} title="Bash" summary="s" state="stopped" />,
     )
     expect(view.queryByTestId('icon')).toBeNull()
     expect(view.container.querySelector('[data-state="stopped"]')).not.toBeNull()
@@ -59,6 +59,7 @@ describe('Tool presentation tails', () => {
       content: [], isError: false, subCalls: [],
     }
     const props: GenericToolCardProps = {
+      loadImage: vi.fn(() => Promise.reject(new Error('not used'))),
       callId: 'c5', toolName: 'todo_write', block: settled, openFile: vi.fn(), t,
     }
     const view = render(<GenericToolCard {...props} />)

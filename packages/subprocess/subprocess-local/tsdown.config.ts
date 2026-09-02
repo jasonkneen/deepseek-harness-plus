@@ -3,7 +3,6 @@ import { defineConfig } from 'tsdown'
 export default defineConfig({
   entry: {
     index: 'lib/types/index.js',
-    invariant: 'lib/types/invariant.js',
     runner: 'lib/types/bin.js',
   },
   outDir: 'lib',
