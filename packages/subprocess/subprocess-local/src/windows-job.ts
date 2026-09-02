@@ -11,6 +11,7 @@ import {
 } from '@deepseek-ai/dsh-win32-process'
 import type { BoundProcessOwner, ManagedProcessLaunch } from './managed-owner.ts'
 import {
+  type SerializedRunnerError,
   type WindowsRunnerResult,
   deserializeRunnerError,
   parseWindowsRunnerResult,
@@ -37,6 +38,14 @@ export interface WindowsJobInternals {
 type RunnerProcess = Omit<ReturnType<typeof spawn>, 'send' | 'stdio'> & {
   send?: ReturnType<typeof spawn>['send']
   stdio: Array<Readable | Writable | null>
+}
+
+function isWindowsStartCancellationError(error: SerializedRunnerError): boolean {
+  return error.name === 'Error'
+    && error.message === 'subprocess target start was cancelled'
+    && error.code === undefined
+    && error.syscall === undefined
+    && error.path === undefined
 }
 
 /**
@@ -90,8 +99,10 @@ class WindowsJobOwner implements BoundProcessOwner {
     }
   }
 
-  mapStartFailure(failure: unknown): unknown {
-    return this.cancellationReasonSet ? this.cancellationReason : failure
+  mapStartFailure(failure: unknown, serialized: SerializedRunnerError): unknown {
+    return this.cancellationReasonSet && isWindowsStartCancellationError(serialized)
+      ? this.cancellationReason
+      : failure
   }
 
   async waitForExit(): Promise<void> {
@@ -168,7 +179,7 @@ export function launchWindowsJob(
     if (result.type === 'target-exit') {
       direct.resolve({ exitCode: result.exitCode, signal: null })
     } else {
-      direct.reject(owner.mapStartFailure(deserializeRunnerError(result.error)))
+      direct.reject(owner.mapStartFailure(deserializeRunnerError(result.error), result.error))
     }
   })
   child.once('spawn', () => {

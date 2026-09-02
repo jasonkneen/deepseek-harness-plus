@@ -266,6 +266,32 @@ describe('Windows parent runner contract', () => {
     await expect(implicit.result.owner.waitForExit()).resolves.toBeUndefined()
   })
 
+  it('preserves a strict provider error after a termination request', async () => {
+    const spawned = launch()
+    const localReason = new Error('caller aborted after target commit')
+    spawned.result.owner.signal('SIGTERM', localReason)
+    spawned.child.emit('message', {
+      type: 'error',
+      error: {
+        name: 'Error',
+        message: 'poll failed',
+        code: 'EIO',
+        syscall: 'QueryInformationJobObject',
+      },
+    })
+
+    const failure = await spawned.result.direct.catch((error: unknown) => error)
+    expect(failure).not.toBe(localReason)
+    expect(failure).toMatchObject({
+      message: 'poll failed',
+      code: 'EIO',
+      syscall: 'QueryInformationJobObject',
+    })
+    spawned.child.connected = false
+    spawned.child.emit('close', 127, null)
+    await expect(spawned.result.owner.waitForExit()).rejects.toThrow('exit code 127')
+  })
+
   it('rejects direct and wait for runner error or abnormal runner exit', async () => {
     const failed = launch()
     failed.child.emit('message', {
