@@ -303,9 +303,10 @@ describe('Linux scope establishment and quiescence', () => {
   it('keeps reloading scopes active and lets terminate wake a backed-off observation', async () => {
     const states = [activeUnit('reloading'), activeUnit('inactive')]
     const sleeping = Promise.withResolvers<undefined>()
-    const sleep = vi.fn(async () => {
+    const sleep = vi.fn(async (_delayMs: number, signal?: AbortSignal) => {
       sleeping.resolve(undefined)
-      await new Promise<void>(() => {})
+      if (signal === undefined) throw new Error('missing sleep cancellation signal')
+      await new Promise<void>((resolve) => { signal.addEventListener('abort', () => { resolve() }, { once: true }) })
     })
     const launched = launch(async () => states.shift() ?? activeUnit('inactive'), { sleep })
     consumeLinuxLaunchRequest(launched.requestPath)
@@ -313,7 +314,9 @@ describe('Linux scope establishment and quiescence', () => {
     await sleeping.promise
     launched.result.owner.signal('SIGTERM')
     await expect(waiting).resolves.toBeUndefined()
-    expect(sleep).toHaveBeenCalledExactlyOnceWith(50)
+    expect(sleep).toHaveBeenCalledOnce()
+    expect(sleep.mock.calls[0]?.[0]).toBe(50)
+    expect(sleep.mock.calls[0]?.[1]?.aborted).toBe(true)
     expect(launched.spawnSync).toHaveBeenCalledOnce()
     launched.result.owner.cleanup?.()
   })

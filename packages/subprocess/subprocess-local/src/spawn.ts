@@ -59,12 +59,6 @@ export interface SpawnInternals {
   platform?: NodeJS.Platform
   /** Linux process-group member probe (defaults to `/proc` inspection). */
   linuxProcessGroupHasLiveMembers?: (processGroupId: number) => boolean | undefined
-  /** Test seam for the per-spawn Linux native prerequisite check. */
-  linuxNativeAvailable?: () => boolean
-  /** Test seam for the lightweight Linux user-manager reachability check. */
-  linuxManagerAvailable?: () => boolean
-  /** Test seam for the per-spawn Windows native prerequisite check. */
-  windowsNativeAvailable?: () => boolean
 }
 
 /**

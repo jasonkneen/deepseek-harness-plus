@@ -679,26 +679,6 @@ describe('LocalSubprocessRuntime', () => {
     }
   })
 
-  it('reports Linux capability failure through the real selector path', async () => {
-    const ctx = new Context()
-    const warning = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => {})
-    const fiber = await ctx.plugin(LocalSubprocessRuntime)
-    const runtime = ctx.subprocess as LocalSubprocessRuntime
-    runtime.internals = { platform: 'linux', linuxNativeAvailable: () => false }
-    try {
-      const select = (runtime as unknown as {
-        selectContainmentMode(kind: 'ordinary' | 'terminal'): 'linux-scope' | 'windows-job' | 'fallback'
-      }).selectContainmentMode.bind(runtime)
-      expect(select('terminal')).toBe('fallback')
-      expect(warning).toHaveBeenCalledWith(expect.stringContaining(
-        'the current user-systemd scope or private bootstrap is unavailable',
-      ))
-    } finally {
-      warning.mockRestore()
-      await fiber.dispose()
-    }
-  })
-
   it('rechecks native prerequisites for every eligible spawn and prepares storage before launch', async () => {
     const linuxLaunch = { kind: 'linux' }
     const windowsLaunch = { kind: 'windows' }

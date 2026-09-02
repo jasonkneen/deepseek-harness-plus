@@ -7,7 +7,6 @@ import {
   probeWindowsJob,
 } from '../src/windows-job.ts'
 import { bindManagedProcess } from '../src/spawn.ts'
-import { WINDOWS_START_CANCELLED_CODE } from '../src/runner-protocol.ts'
 
 class FakeChild extends EventEmitter {
   pid: number | undefined = 432
@@ -214,7 +213,7 @@ describe('Windows parent runner contract', () => {
     await expect(handle.waitForExit()).rejects.toThrow('exit code 127')
   })
 
-  it('maps error and preserves raw start-cancellation reasons', async () => {
+  it('maps errors and restores raw start-cancellation reasons from the parent latch', async () => {
     const spawned = launch()
     spawned.child.emit('message', {
       type: 'error', error: { name: 'Error', message: 'missing', code: 'ENOENT' },
@@ -231,7 +230,7 @@ describe('Windows parent runner contract', () => {
     cancelled.child.emit('message', {
       type: 'error',
       error: {
-        name: 'Error', message: 'subprocess target start was cancelled', code: WINDOWS_START_CANCELLED_CODE,
+        name: 'Error', message: 'subprocess target start was cancelled',
       },
     })
     await expect(cancelled.result.direct).rejects.toBe(reason)
@@ -245,7 +244,7 @@ describe('Windows parent runner contract', () => {
     nullCancelled.child.emit('message', {
       type: 'error',
       error: {
-        name: 'Error', message: 'subprocess target start was cancelled', code: WINDOWS_START_CANCELLED_CODE,
+        name: 'Error', message: 'subprocess target start was cancelled',
       },
     })
     await expect(nullCancelled.result.direct).rejects.toBeNull()
@@ -254,13 +253,14 @@ describe('Windows parent runner contract', () => {
     await expect(nullCancelled.result.owner.waitForExit()).resolves.toBeUndefined()
 
     const implicit = launch()
+    implicit.result.owner.signal('SIGTERM')
     implicit.child.emit('message', {
       type: 'error',
       error: {
-        name: 'Error', message: 'subprocess target start was cancelled', code: WINDOWS_START_CANCELLED_CODE,
+        name: 'Error', message: 'subprocess target start was cancelled',
       },
     })
-    await expect(implicit.result.direct).rejects.toThrow('target start was cancelled')
+    await expect(implicit.result.direct).rejects.toBeUndefined()
     implicit.child.connected = false
     implicit.child.emit('close', 0, null)
     await expect(implicit.result.owner.waitForExit()).resolves.toBeUndefined()
@@ -381,7 +381,7 @@ describe('Windows parent runner contract', () => {
     await expect(handle.waitForExit()).resolves.toBe(true)
   })
 
-  it('preserves a direct result but rejects range settlement when termination delivery later fails', async () => {
+  it('accepts clean range settlement when a target result races redundant termination delivery', async () => {
     const child = new FakeChild()
     const launched = launch(child)
     const handle = bindManagedProcess(spec, launched.result)
@@ -398,9 +398,11 @@ describe('Windows parent runner contract', () => {
     expect(child.connected).toBe(true)
     child.deliverNextSend(new Error('late EPIPE'))
     await Promise.resolve()
-    expect(child.killed).toEqual(['SIGKILL'])
+    expect(child.killed).toEqual([])
+    child.connected = false
+    child.emit('close', 0, null)
     await expect(handle.done).resolves.toEqual({ exitCode: 7, signal: null })
-    await expect(handle.waitForExit()).rejects.toThrow('late EPIPE')
+    await expect(handle.waitForExit()).resolves.toBe(true)
   })
 
   it('uses synchronous runner termination for host exit and isolates repeated control', () => {

@@ -192,19 +192,15 @@ export class LocalSubprocessRuntime extends SubprocessRuntime {
     const platform = this.internals.platform ?? process.platform
     let fallbackReason: string | undefined
     if (platform === 'linux') {
-      const deepProbe = this.internals.linuxNativeAvailable ?? probeLinuxNative
-      const managerProbe = this.internals.linuxManagerAvailable
-        ?? this.internals.linuxNativeAvailable
-        ?? probeLinuxManager
       const available = this.linuxDeepProbePassed
-        ? managerProbe()
-        : deepProbe()
+        ? probeLinuxManager()
+        : probeLinuxNative()
       if (available) this.linuxDeepProbePassed = true
       if (available) return 'linux-scope'
       fallbackReason = 'the current user-systemd scope or private bootstrap is unavailable'
     }
     if (kind === 'ordinary' && platform === 'win32') {
-      const available = this.internals.windowsNativeAvailable?.() ?? probeWindowsJob()
+      const available = probeWindowsJob()
       if (available) return 'windows-job'
     }
     this.warnFallback(platform, kind, fallbackReason)

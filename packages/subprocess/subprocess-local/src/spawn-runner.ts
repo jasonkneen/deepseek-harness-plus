@@ -1,7 +1,6 @@
 /** One-shot Linux exec bootstrap and Windows Job-owning subprocess runner. */
 
 import { closeSync } from 'node:fs'
-import koffi from 'koffi'
 import {
   closeHandleChecked,
   isJobEmpty,
@@ -22,7 +21,6 @@ import {
   linuxLaunchFilesFromLocator,
   parseWindowsStartRequest,
   serializeRunnerError,
-  WINDOWS_START_CANCELLED_CODE,
   writeLinuxStartupError,
 } from './runner-protocol.ts'
 import type {
@@ -42,27 +40,6 @@ type RunnerHost = Pick<NodeJS.Process, 'env' | 'exitCode' | 'connected' | 'cwd' 
   send?: NodeJS.Process['send']
 }
 
-interface UvErrorBindings {
-  translateSystemError(systemError: number): number
-  errorName(error: number): string
-}
-
-function loadUvErrorBindings(): UvErrorBindings {
-  const node = koffi.load(null)
-  return {
-    translateSystemError: node.func(
-      'uv_translate_sys_error',
-      'int',
-      ['int'],
-    ),
-    errorName: node.func(
-      'uv_err_name',
-      'str',
-      ['int'],
-    ),
-  }
-}
-
 /** Injectable operations used by the protocol-owner tests. */
 export interface SpawnRunnerInternals {
   execve(file: string, argv: string[], env: Record<string, string>): never
@@ -74,7 +51,6 @@ export interface SpawnRunnerInternals {
   isJobEmpty: typeof isJobEmpty
   terminateJob: typeof terminateJob
   closeHandleChecked: typeof closeHandleChecked
-  uvErrorBindings?: UvErrorBindings
 }
 
 const defaultInternals: SpawnRunnerInternals = {
@@ -90,7 +66,14 @@ const defaultInternals: SpawnRunnerInternals = {
   closeHandleChecked,
 }
 
-const NODE_SPAWN_DETAIL_CODES = new Set(['EACCES', 'EAGAIN', 'EMFILE', 'ENFILE', 'ENOENT'])
+const NODE_SPAWN_DETAIL_CODES = new Set(['EACCES', 'ENOENT'])
+const WINDOWS_SPAWN_ERROR_CODES = new Map<number, string>([
+  [2, 'ENOENT'],
+  [3, 'ENOENT'],
+  [5, 'EPERM'],
+  [193, 'EFTYPE'],
+  [740, 'EACCES'],
+])
 
 function nodeSpawnError(
   syscall: string,
@@ -110,7 +93,6 @@ function nodeSpawnError(
 function asSpawnError(
   error: unknown,
   program: string,
-  internals: Pick<SpawnRunnerInternals, 'uvErrorBindings'>,
 ): SerializedRunnerError {
   const serialized = serializeRunnerError(error)
   if (!(error instanceof Win32Error)) {
@@ -118,9 +100,7 @@ function asSpawnError(
       ? serialized
       : nodeSpawnError(`spawn ${program}`, serialized.code, program)
   }
-  const uv = internals.uvErrorBindings ?? loadUvErrorBindings()
-  const errno = uv.translateSystemError(error.win32Code)
-  const code = uv.errorName(errno)
+  const code = WINDOWS_SPAWN_ERROR_CODES.get(error.win32Code) ?? 'UNKNOWN'
   if (NODE_SPAWN_DETAIL_CODES.has(code)) {
     return nodeSpawnError(`spawn ${program}`, code, program)
   }
@@ -135,7 +115,6 @@ function windowsStartCancelledError(): SerializedRunnerError {
   return {
     name: 'Error',
     message: 'subprocess target start was cancelled',
-    code: WINDOWS_START_CANCELLED_CODE,
   }
 }
 
@@ -213,7 +192,7 @@ function runLinux(
   } catch (error) {
     writeLinuxStartupError(files, {
       type: 'error',
-      error: asSpawnError(error, argv[0] as string, internals),
+      error: asSpawnError(error, argv[0] as string),
     })
     host.exitCode = 127
   }
@@ -344,7 +323,7 @@ class WindowsJobRunner {
       if (this.jobHandle === undefined && error instanceof Win32Error && error.api === 'CreateProcessW') {
         await this.publishTerminalResult({
           type: 'error',
-          error: asSpawnError(error, this.argv[0] as string, this.internals),
+          error: asSpawnError(error, this.argv[0] as string),
         }, 0)
         return
       }

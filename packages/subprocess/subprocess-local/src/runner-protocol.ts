@@ -31,9 +31,6 @@ export interface SerializedRunnerError {
   path?: string
 }
 
-/** Private error code used to map pre-commit Windows cancellation to the parent-local reason. */
-export const WINDOWS_START_CANCELLED_CODE = 'DSH_SUBPROCESS_START_CANCELLED' as const
-
 /** A Linux pre-exec failure published atomically beside its consumed request. */
 export type LinuxStartupError =
   { type: 'error'; error: SerializedRunnerError }

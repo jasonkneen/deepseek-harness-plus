@@ -115,6 +115,7 @@ function makeHandle(pty: FakePty, inspector: ProcessInspector, graceMs: number):
 
 describe('LocalTerminalHandle', () => {
   it('terminates a managed range with TERM when it stops within the grace period', async () => {
+    vi.useFakeTimers()
     const pty = new FakePty()
     const inspector = new FakeInspector()
     const stopped = Promise.withResolvers<undefined>()
@@ -136,6 +137,33 @@ describe('LocalTerminalHandle', () => {
 
     expect(signals).toEqual(['SIGTERM'])
     await expect(handle.done).resolves.toEqual({ exitCode: null, signal: 'SIGTERM' })
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it('cancels the terminal-exit grace when the pty exits first', async () => {
+    vi.useFakeTimers()
+    const pty = new FakePty()
+    const stopped = Promise.withResolvers<undefined>()
+    const signals: Array<'SIGTERM' | 'SIGKILL'> = []
+    const owner: BoundProcessOwner = {
+      signal(signal) {
+        signals.push(signal)
+        if (signal === 'SIGTERM') {
+          stopped.resolve(undefined)
+          setTimeout(() => { pty.emitExit(0, 15) }, 1)
+        }
+      },
+      waitForExit: () => stopped.promise,
+      terminateForHostExit: vi.fn(),
+    }
+    const handle = new LocalTerminalHandle(pty.asPty(), new FakeInspector(), 100, 'linux', owner)
+
+    const terminating = handle.terminate()
+    await vi.advanceTimersByTimeAsync(1)
+    await terminating
+
+    expect(signals).toEqual(['SIGTERM'])
+    expect(vi.getTimerCount()).toBe(0)
   })
 
   it('escalates a managed range to KILL after the TERM grace expires', async () => {

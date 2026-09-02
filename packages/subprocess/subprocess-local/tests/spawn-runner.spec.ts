@@ -30,7 +30,6 @@ import {
   parseWindowsStartRequest,
   readLinuxStartupError,
   serializeRunnerError,
-  WINDOWS_START_CANCELLED_CODE,
   writeLinuxStartupError,
 } from '../src/runner-protocol.ts'
 import {
@@ -106,10 +105,6 @@ function internals(overrides: Partial<SpawnRunnerInternals> = {}): SpawnRunnerIn
     isJobEmpty: vi.fn(() => true),
     terminateJob: vi.fn(),
     closeHandleChecked: vi.fn(),
-    uvErrorBindings: {
-      translateSystemError: vi.fn(systemError => systemError === 2 ? -4058 : -4094),
-      errorName: vi.fn(error => error === -4058 ? 'ENOENT' : 'UNKNOWN'),
-    },
     ...overrides,
   }
 }
@@ -608,26 +603,19 @@ describe('Windows Job runner protocol owner', () => {
     expect(host.exitCode).toBe(0)
   })
 
-  it('uses libuv translation and Node detail-bearing codes for Win32 process-creation errors', async () => {
-    for (const [win32Code, code, errno, enriched, program] of [
-      [2, 'ENOENT', -4058, true, 'tool.exe'],
-      [740, 'EACCES', -4092, true, '$&.exe'],
-      [10035, 'EAGAIN', -4088, true, 'tool.exe'],
-      [4, 'EMFILE', -4066, true, 'tool.exe'],
-      [12345, 'ENFILE', -4061, true, 'tool.exe'],
-      [5, 'EPERM', -4048, false, 'tool.exe'],
-      [193, 'EFTYPE', -4028, false, 'tool.exe'],
-      [999, 'UNKNOWN', -4094, false, 'tool.exe'],
+  it('maps only the promised Win32 process-creation error subset', async () => {
+    for (const [win32Code, code, enriched, program] of [
+      [2, 'ENOENT', true, 'tool.exe'],
+      [3, 'ENOENT', true, 'tool.exe'],
+      [740, 'EACCES', true, '$&.exe'],
+      [5, 'EPERM', false, 'tool.exe'],
+      [193, 'EFTYPE', false, 'tool.exe'],
+      [4, 'UNKNOWN', false, 'tool.exe'],
     ] as const) {
       const host = new FakeRunnerHost()
-      const translateSystemError = vi.fn(() => errno)
-      const errorName = vi.fn(() => code)
       await runWindows(host, internals({
         spawnCurrentTokenJobProcess: vi.fn(() => { throw new Win32Error('CreateProcessW', win32Code) }),
-        uvErrorBindings: { translateSystemError, errorName },
       }), undefined, [program, 'literal arg'])
-      expect(translateSystemError).toHaveBeenCalledExactlyOnceWith(win32Code)
-      expect(errorName).toHaveBeenCalledExactlyOnceWith(errno)
       const syscall = enriched ? `spawn ${program}` : 'spawn'
       expect(host.sent).toMatchObject([{
         type: 'error',
@@ -642,47 +630,6 @@ describe('Windows Job runner protocol owner', () => {
       if (result.type !== 'error') throw new Error('expected runner error')
       if (enriched) {
         expect(result.error).toMatchObject({ path: program })
-      } else {
-        expect(result.error).not.toHaveProperty('path')
-      }
-    }
-  })
-
-  it('loads the error translation functions from Node-linked libuv', async () => {
-    const host = new FakeRunnerHost()
-    const native = internals({
-      spawnCurrentTokenJobProcess: vi.fn(() => { throw new Win32Error('CreateProcessW', 2) }),
-    })
-    Reflect.deleteProperty(native, 'uvErrorBindings')
-    await runWindows(host, native)
-    expect(host.sent).toMatchObject([{
-      type: 'error',
-      error: {
-        code: 'ENOENT',
-        path: 'tool.exe',
-      },
-    }])
-  })
-
-  it.skipIf(process.platform !== 'win32')('preserves native EMFILE and UNKNOWN translations', async () => {
-    for (const [win32Code, code, enriched] of [
-      [4, 'EMFILE', true],
-      [999, 'UNKNOWN', false],
-    ] as const) {
-      const host = new FakeRunnerHost()
-      const native = internals({
-        spawnCurrentTokenJobProcess: vi.fn(() => { throw new Win32Error('CreateProcessW', win32Code) }),
-      })
-      Reflect.deleteProperty(native, 'uvErrorBindings')
-      await runWindows(host, native)
-      expect(host.sent).toMatchObject([{
-        type: 'error',
-        error: { code },
-      }])
-      const result = parseWindowsRunnerResult(host.sent[0])
-      if (result.type !== 'error') throw new Error('expected runner error')
-      if (enriched) {
-        expect(result.error).toMatchObject({ path: 'tool.exe' })
       } else {
         expect(result.error).not.toHaveProperty('path')
       }
@@ -790,7 +737,6 @@ describe('Windows Job runner protocol owner', () => {
       error: {
         name: 'Error',
         message: 'subprocess target start was cancelled',
-        code: WINDOWS_START_CANCELLED_CODE,
       },
     }])
     expect(native.spawnCurrentTokenJobProcess).not.toHaveBeenCalled()
@@ -808,7 +754,6 @@ describe('Windows Job runner protocol owner', () => {
       error: {
         name: 'Error',
         message: 'subprocess target start was cancelled',
-        code: WINDOWS_START_CANCELLED_CODE,
       },
     }])
     expect(native.spawnCurrentTokenJobProcess).not.toHaveBeenCalled()

@@ -14,7 +14,6 @@ import {
   type WindowsRunnerResult,
   deserializeRunnerError,
   parseWindowsRunnerResult,
-  WINDOWS_START_CANCELLED_CODE,
 } from './runner-protocol.ts'
 import {
   runnerEnvironment,
@@ -81,7 +80,7 @@ class WindowsJobOwner implements BoundProcessOwner {
     this.terminationSent = true
     try {
       this.runner.send?.({ type: 'terminate' }, (error) => {
-        if (error === null || this.directResultType() === 'error') return
+        if (error === null || this.directResultType() !== undefined) return
         this.failInfrastructure(error)
         this.terminateForHostExit()
       })
@@ -91,10 +90,8 @@ class WindowsJobOwner implements BoundProcessOwner {
     }
   }
 
-  startCancellationReason(): unknown {
-    return this.cancellationReasonSet
-      ? this.cancellationReason
-      : new Error('subprocess target start was cancelled')
+  mapStartFailure(failure: unknown): unknown {
+    return this.cancellationReasonSet ? this.cancellationReason : failure
   }
 
   async waitForExit(): Promise<void> {
@@ -170,10 +167,8 @@ export function launchWindowsJob(
     directResultType = result.type
     if (result.type === 'target-exit') {
       direct.resolve({ exitCode: result.exitCode, signal: null })
-    } else if (result.error.code === WINDOWS_START_CANCELLED_CODE) {
-      direct.reject(owner.startCancellationReason())
     } else {
-      direct.reject(deserializeRunnerError(result.error))
+      direct.reject(owner.mapStartFailure(deserializeRunnerError(result.error)))
     }
   })
   child.once('spawn', () => {

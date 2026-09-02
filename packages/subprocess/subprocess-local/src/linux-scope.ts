@@ -38,7 +38,7 @@ export interface LinuxScopeInternals {
   resolveRunnerInvocation?: () => RunnerInvocation
   runnerAvailable?: (invocation: RunnerInvocation) => boolean
   loadLinuxExecve?: typeof loadLinuxExecve
-  sleep?: (delayMs: number) => Promise<void>
+  sleep?: (delayMs: number, signal?: AbortSignal) => Promise<void>
 }
 
 interface SystemctlResult {
@@ -82,6 +82,10 @@ function querySystemctl(command: string, args: readonly string[]): Promise<Syste
 
 function unitStem(prefix: string): string {
   return `${prefix}-${String(process.pid)}-${randomBytes(6).toString('hex')}`
+}
+
+function sleepWithAbort(delayMs: number, signal?: AbortSignal): Promise<void> {
+  return sleepMs(delayMs, undefined, { signal })
 }
 
 /**
@@ -170,7 +174,7 @@ class SystemdScopeOwner implements BoundProcessOwner {
     private readonly systemctl: string,
     private readonly runSync: typeof spawnSync,
     private readonly query: (command: string, args: readonly string[]) => Promise<SystemctlResult>,
-    private readonly sleep: (delayMs: number) => Promise<void>,
+    private readonly sleep: (delayMs: number, signal?: AbortSignal) => Promise<void>,
   ) {}
 
   signal(signal: 'SIGTERM' | 'SIGKILL'): void {
@@ -300,10 +304,12 @@ class SystemdScopeOwner implements BoundProcessOwner {
     if (generation !== this.wakeGeneration) return
     const wake = Promise.withResolvers<void>()
     const waiter = { generation, resolve: wake.resolve }
+    const sleepController = new AbortController()
     this.wakeWaiter = waiter
     try {
-      await Promise.race([this.sleep(delayMs), wake.promise])
+      await Promise.race([this.sleep(delayMs, sleepController.signal), wake.promise])
     } finally {
+      sleepController.abort()
       if (this.wakeWaiter === waiter) this.wakeWaiter = undefined
     }
   }
@@ -430,7 +436,7 @@ export function prepareLinuxTerminalScope(
       internals.systemctl ?? 'systemctl',
       internals.spawnSync ?? spawnSync,
       internals.systemctlQuery ?? querySystemctl,
-      internals.sleep ?? sleepMs,
+      internals.sleep ?? sleepWithAbort,
     ),
     resolveOutcome: (outcome) => {
       const startup = readLinuxStartupError(files.startupErrorPath)
@@ -485,7 +491,7 @@ export function launchLinuxScope(
     internals.systemctl ?? 'systemctl',
     internals.spawnSync ?? spawnSync,
     internals.systemctlQuery ?? querySystemctl,
-    internals.sleep ?? sleepMs,
+    internals.sleep ?? sleepWithAbort,
   )
   return {
     stdin: child.stdin,

@@ -13,8 +13,28 @@ import type {
 import type { BoundProcessOwner } from './managed-owner.ts'
 import type { ProcessIdentity, ProcessInspector, ProcessSnapshot } from './process-inspector.ts'
 
-function delay(ms: number): Promise<void> {
-  return new Promise(resolve => setTimeout(resolve, ms))
+function delay(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve) => {
+    const finish = (): void => {
+      clearTimeout(timer)
+      signal?.removeEventListener('abort', finish)
+      resolve()
+    }
+    const timer = setTimeout(finish, ms)
+    signal?.addEventListener('abort', finish, { once: true })
+  })
+}
+
+async function raceWithDelay<T, U>(operation: Promise<T>, ms: number, timeout: U): Promise<T | U> {
+  const controller = new AbortController()
+  try {
+    return await Promise.race([
+      operation,
+      delay(ms, controller.signal).then(() => timeout),
+    ])
+  } finally {
+    controller.abort()
+  }
 }
 
 function signalName(number: number | undefined): NodeJS.Signals | null {
@@ -344,13 +364,10 @@ export class LocalTerminalHandle implements SubprocessTerminalHandle {
   private async closeManagedRange(owner: BoundProcessOwner): Promise<void> {
     owner.signal('SIGTERM')
     const observation = owner.waitForExit()
-    const first = await Promise.race([
-      observation.then(
-        () => ({ kind: 'stopped' as const }),
-        (error: unknown) => ({ kind: 'failed' as const, error }),
-      ),
-      delay(this.graceMs).then(() => ({ kind: 'timeout' as const })),
-    ])
+    const first = await raceWithDelay(observation.then(
+      () => ({ kind: 'stopped' as const }),
+      (error: unknown) => ({ kind: 'failed' as const, error }),
+    ), this.graceMs, { kind: 'timeout' as const })
     if (first.kind !== 'stopped') {
       owner.signal('SIGKILL')
       if (first.kind === 'failed') {
@@ -366,7 +383,7 @@ export class LocalTerminalHandle implements SubprocessTerminalHandle {
       await observation
     }
     if (!this.exited) {
-      await Promise.race([this.done.then(() => undefined), delay(this.graceMs)])
+      await raceWithDelay(this.done.then(() => undefined), this.graceMs, undefined)
     }
     if (!this.exited) throw new Error(`terminal cleanup failed; surviving pid: ${this.pid}`)
   }
