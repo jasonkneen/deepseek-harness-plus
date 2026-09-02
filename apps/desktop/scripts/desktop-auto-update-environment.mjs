@@ -1,5 +1,7 @@
 /** Resolve the Desktop auto-update channel and its Tencent COS destination. */
 
+import { prerelease, valid } from 'semver'
+
 /** Environment variable that selects the Desktop update deployment. */
 export const DESKTOP_AUTO_UPDATE_ENV = 'DSH_DESKTOP_AUTO_UPDATE_ENV'
 
@@ -60,6 +62,24 @@ export function desktopBuildRecordFilename(target) {
     throw new Error(`desktop auto-update: unsupported target ${target}`)
   }
   return `${target}-release.json`
+}
+
+/**
+ * Return the electron-builder channel metadata filename for an application version.
+ * @param {string} version - Desktop semantic version.
+ * @param {NodeJS.Platform} platform - Target platform.
+ * @returns {string} Channel metadata filename emitted for the target.
+ */
+export function desktopUpdateMetadataFilename(version, platform) {
+  if (valid(version) === null) {
+    throw new Error(`desktop auto-update: invalid Desktop version ${JSON.stringify(version)}`)
+  }
+  if (platform !== 'darwin' && platform !== 'win32') {
+    throw new Error(`desktop auto-update: unsupported metadata platform ${platform}`)
+  }
+  const release = prerelease(version)
+  const channel = release === null ? 'latest' : String(release[0])
+  return `${channel}${platform === 'darwin' ? '-mac' : ''}.yml`
 }
 
 /**

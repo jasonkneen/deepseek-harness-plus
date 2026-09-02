@@ -22,15 +22,17 @@ import {
 } from '../src/core-package-set.ts'
 import { capture } from '../../../scripts/release/process.ts'
 import { tarballFiles } from '../../../scripts/release/tarball.ts'
+import { resolveDesktopTargetBuildPaths } from './desktop-build-paths.mjs'
 
 const DSH_PACKAGE = '@deepseek-ai/dsh'
 const APP_ROOT = resolve(import.meta.dirname, '..')
 const REPOSITORY_ROOT = resolve(APP_ROOT, '..', '..')
-const OUTPUT_ROOT = join(APP_ROOT, '.desktop-build', 'package-set')
+const BUILD_PATHS = resolveDesktopTargetBuildPaths()
+const OUTPUT_ROOT = BUILD_PATHS.packageSet
 const DEFAULT_INPUTS = [
-  join(REPOSITORY_ROOT, 'dist', 'npm'),
-  join(REPOSITORY_ROOT, 'dist', 'npm-vendor'),
-  join(REPOSITORY_ROOT, 'dist', 'npm-landlock'),
+  BUILD_PATHS.packedDsh,
+  BUILD_PATHS.packedVendor,
+  BUILD_PATHS.packedLandlock,
 ]
 
 const REQUIRED_DEPENDENCY_SECTIONS = ['dependencies', 'peerDependencies'] as const
@@ -122,7 +124,7 @@ export function assertDesktopDshPackageFiles(files: readonly string[]): void {
   }
 }
 
-/** Prepare `.desktop-build/package-set` from release tarball directories. */
+/** Prepare the selected target's package set from its release tarball directories. */
 export function prepareDesktopPackageSet(inputs: readonly string[], output = OUTPUT_ROOT): void {
   const selected = selectDesktopPackageClosure(packedPackages(inputs))
   const dsh = selected.find(packed => packed.manifest.name === DSH_PACKAGE)

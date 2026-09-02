@@ -10,6 +10,7 @@ import {
   installWindowsNsisBootstrapSigner,
 } from './scripts/windows-sign.mjs'
 import { resolveDesktopAutoUpdateConfig } from './scripts/desktop-auto-update-environment.mjs'
+import { desktopTargetBuildPaths } from './scripts/desktop-build-paths.mjs'
 
 /**
  * Create electron-builder configuration from one release environment.
@@ -43,11 +44,12 @@ export function createElectronBuilderConfig(
     installWindowsNsisBootstrapSigner({ sign: windowsSigner })
   }
   const update = resolveDesktopAutoUpdateConfig(env, resolvedPlatform, resolvedArch)
+  const buildPaths = desktopTargetBuildPaths(update.target)
   return {
     appId,
     productName: 'DeepSeek Harness',
     artifactName: 'deepseek-harness-${version}-${os}-${arch}.${ext}',
-    directories: { output: '.desktop-build/artifacts' },
+    directories: { output: buildPaths.artifacts },
     asar: true,
     files: [
       'lib/*.js',
@@ -56,8 +58,8 @@ export function createElectronBuilderConfig(
       'package.json',
     ],
     extraResources: [
-      { from: '.desktop-build/runtime', to: 'runtime' },
-      { from: '.desktop-build/seed', to: 'seed' },
+      { from: buildPaths.runtime, to: 'runtime' },
+      { from: buildPaths.seed, to: 'seed' },
     ],
     mac: {
       category: 'public.app-category.developer-tools',

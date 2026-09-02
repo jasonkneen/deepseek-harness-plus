@@ -8,13 +8,10 @@ import {
   desktopBuildRecordFilename,
   resolveDesktopAutoUpdateConfig,
 } from './desktop-auto-update-environment.mjs'
+import { desktopTargetBuildPaths } from './desktop-build-paths.mjs'
 
 const APP_ROOT = resolve(import.meta.dirname, '..')
 const REPOSITORY_ROOT = resolve(APP_ROOT, '..', '..')
-const DSH_PACK_ROOT = join(REPOSITORY_ROOT, 'dist', 'npm')
-const VENDOR_PACK_ROOT = join(REPOSITORY_ROOT, 'dist', 'npm-vendor')
-const LANDLOCK_PACK_ROOT = join(REPOSITORY_ROOT, 'dist', 'npm-landlock')
-const ARTIFACTS_ROOT = join(APP_ROOT, '.desktop-build', 'artifacts')
 const WINDOWS_SIGNING_ENV_PREFIX = 'DSH_DESKTOP_WINDOWS_'
 const WINDOWS_SIGNING_ENV_NAMES = [
   'DSH_DESKTOP_WINDOWS_CER_FILE',
@@ -97,14 +94,18 @@ function packageVersion(path: string, label: string): string {
   return manifest.version
 }
 
-function writeReleaseRecord(target: DesktopPackageTarget, environment: NodeJS.ProcessEnv): void {
+function writeReleaseRecord(
+  target: DesktopPackageTarget,
+  environment: NodeJS.ProcessEnv,
+  artifactsRoot: string,
+): void {
   const desktopVersion = packageVersion(join(APP_ROOT, 'package.json'), 'desktop package')
   const dshVersion = packageVersion(join(REPOSITORY_ROOT, 'package.json'), 'dsh package')
   if (desktopVersion !== dshVersion) {
     throw new Error(`desktop package: desktop version ${desktopVersion} does not match dsh version ${dshVersion}`)
   }
   const update = resolveDesktopAutoUpdateConfig(environment, target.platform, target.arch)
-  const recordPath = join(ARTIFACTS_ROOT, desktopBuildRecordFilename(target.name))
+  const recordPath = join(artifactsRoot, desktopBuildRecordFilename(target.name))
   const temporaryPath = `${recordPath}.tmp`
   writeFileSync(temporaryPath, `${JSON.stringify({
     schemaVersion: 1,
@@ -237,7 +238,8 @@ function runPnpm(
 async function main(): Promise<void> {
   const invocation = parseDesktopPackageInvocation(process.argv.slice(2))
   const { target } = invocation
-  const releaseRecordPath = join(ARTIFACTS_ROOT, desktopBuildRecordFilename(target.name))
+  const buildPaths = desktopTargetBuildPaths(target.name)
+  const releaseRecordPath = join(buildPaths.artifacts, desktopBuildRecordFilename(target.name))
   if (!invocation.prepareOnly) {
     rmSync(releaseRecordPath, { force: true })
     rmSync(`${releaseRecordPath}.tmp`, { force: true })
@@ -253,24 +255,24 @@ async function main(): Promise<void> {
     if (process.env[name] !== undefined) electronBuilderEnv[name] = process.env[name]
   }
   await runPnpm(['run', 'build:official'], buildEnv, REPOSITORY_ROOT)
-  await runPnpm(['run', 'release:pack', '--family', 'dsh', '--out', DSH_PACK_ROOT], buildEnv, REPOSITORY_ROOT)
-  await runPnpm(['run', 'release:pack', '--family', 'vendor', '--out', VENDOR_PACK_ROOT], buildEnv, REPOSITORY_ROOT)
-  rmSync(LANDLOCK_PACK_ROOT, { recursive: true, force: true })
-  mkdirSync(LANDLOCK_PACK_ROOT, { recursive: true })
+  await runPnpm(['run', 'release:pack', '--family', 'dsh', '--out', buildPaths.packedDsh], buildEnv, REPOSITORY_ROOT)
+  await runPnpm(['run', 'release:pack', '--family', 'vendor', '--out', buildPaths.packedVendor], buildEnv, REPOSITORY_ROOT)
+  rmSync(buildPaths.packedLandlock, { recursive: true, force: true })
+  mkdirSync(buildPaths.packedLandlock, { recursive: true })
   await runPnpm(['--dir', 'native/landlock-run', 'run', 'build:ts'], buildEnv, REPOSITORY_ROOT)
   await runPnpm([
     '--dir',
     'native/landlock-run/packages/entry',
     'pack',
     '--pack-destination',
-    LANDLOCK_PACK_ROOT,
+    buildPaths.packedLandlock,
   ], buildEnv, REPOSITORY_ROOT)
   await runPnpm(['run', 'prepare:runtime'], targetEnv)
   await runPnpm(['run', 'prepare:packages'], targetEnv)
   await runPnpm(['run', 'prepare:seed'], targetEnv)
   if (invocation.prepareOnly) return
   await runPnpm(desktopElectronBuilderArguments(target, invocation.directory), electronBuilderEnv)
-  if (!invocation.directory) writeReleaseRecord(target, electronBuilderEnv)
+  if (!invocation.directory) writeReleaseRecord(target, electronBuilderEnv, buildPaths.artifacts)
 }
 
 if (process.argv[1] !== undefined && import.meta.filename === resolve(process.argv[1])) await main()

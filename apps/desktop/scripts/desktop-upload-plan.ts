@@ -8,22 +8,21 @@ import { load } from 'js-yaml'
 import type { DesktopPackageTargetName } from './package-target.ts'
 import {
   desktopBuildRecordFilename,
+  desktopUpdateMetadataFilename,
   resolveDesktopUploadConfig,
 } from './desktop-auto-update-environment.mjs'
+import { desktopTargetBuildPaths } from './desktop-build-paths.mjs'
 
 const APP_ROOT = resolve(import.meta.dirname, '..')
 const REPOSITORY_ROOT = resolve(APP_ROOT, '..', '..')
-const ARTIFACTS_ROOT = join(APP_ROOT, '.desktop-build', 'artifacts')
-
 const TARGETS = {
-  'mac-arm64': { platform: 'darwin', arch: 'arm64', os: 'mac', metadata: 'latest-mac.yml' },
-  'mac-x64': { platform: 'darwin', arch: 'x64', os: 'mac', metadata: 'latest-mac.yml' },
-  'win-x64': { platform: 'win32', arch: 'x64', os: 'win', metadata: 'latest.yml' },
+  'mac-arm64': { platform: 'darwin', arch: 'arm64', os: 'mac' },
+  'mac-x64': { platform: 'darwin', arch: 'x64', os: 'mac' },
+  'win-x64': { platform: 'win32', arch: 'x64', os: 'win' },
 } as const satisfies Record<DesktopPackageTargetName, {
   readonly platform: NodeJS.Platform
   readonly arch: string
   readonly os: string
-  readonly metadata: string
 }>
 
 /** One local file and its final object metadata. */
@@ -181,7 +180,7 @@ export async function createDesktopUploadPlan(
   const environment = options.environment ?? process.env
   const repositoryRoot = options.repositoryRoot ?? REPOSITORY_ROOT
   const appRoot = options.appRoot ?? APP_ROOT
-  const artifactsRoot = options.artifactsRoot ?? ARTIFACTS_ROOT
+  const artifactsRoot = options.artifactsRoot ?? desktopTargetBuildPaths(targetName).artifacts
   const dshVersion = await manifestVersion(join(repositoryRoot, 'package.json'), 'dsh package')
   const desktopVersion = await manifestVersion(join(appRoot, 'package.json'), 'desktop package')
   if (dshVersion !== desktopVersion) {
@@ -201,7 +200,8 @@ export async function createDesktopUploadPlan(
     throw new Error(`desktop upload: ${targetName} package completion record does not match dsh ${dshVersion} and ${update.environment} update destination`)
   }
 
-  const metadataPath = join(artifactsRoot, target.metadata)
+  const metadataFilename = desktopUpdateMetadataFilename(dshVersion, target.platform)
+  const metadataPath = join(artifactsRoot, metadataFilename)
   let metadataValue: unknown
   try {
     metadataValue = load(await readFile(metadataPath, 'utf8'))
@@ -209,18 +209,18 @@ export async function createDesktopUploadPlan(
   catch (error) {
     throw new Error(`desktop upload: cannot read update metadata at ${metadataPath}: ${error instanceof Error ? error.message : String(error)}`)
   }
-  const metadata = object(metadataValue, target.metadata)
-  const metadataVersion = stringField(metadata.version, `${target.metadata}.version`)
+  const metadata = object(metadataValue, metadataFilename)
+  const metadataVersion = stringField(metadata.version, `${metadataFilename}.version`)
   if (metadataVersion !== dshVersion) {
-    throw new Error(`desktop upload: ${target.metadata} version ${metadataVersion} does not match current dsh version ${dshVersion}`)
+    throw new Error(`desktop upload: ${metadataFilename} version ${metadataVersion} does not match current dsh version ${dshVersion}`)
   }
   if (!Array.isArray(metadata.files) || metadata.files.length !== 1) {
-    throw new Error(`desktop upload: ${target.metadata}.files must contain exactly one target update file`)
+    throw new Error(`desktop upload: ${metadataFilename}.files must contain exactly one target update file`)
   }
 
   const base = `deepseek-harness-${dshVersion}-${target.os}-${target.arch}`
   const updaterExtension = target.platform === 'darwin' ? 'zip' : 'exe'
-  const updaterInfo = updateFileInfo(metadata.files[0], `${target.metadata}.files[0]`, `${base}.${updaterExtension}`)
+  const updaterInfo = updateFileInfo(metadata.files[0], `${metadataFilename}.files[0]`, `${base}.${updaterExtension}`)
   const updaterPath = await verifyChecksummedArtifact(artifactsRoot, updaterInfo)
   const artifacts: DesktopUploadArtifact[] = []
 
@@ -234,8 +234,8 @@ export async function createDesktopUploadPlan(
     )
   }
   else {
-    const blockMapSize = object(metadata.files[0], `${target.metadata}.files[0]`).blockMapSize
-    numberField(blockMapSize, `${target.metadata}.files[0].blockMapSize`)
+    const blockMapSize = object(metadata.files[0], `${metadataFilename}.files[0]`).blockMapSize
+    numberField(blockMapSize, `${metadataFilename}.files[0].blockMapSize`)
     artifacts.push(uploadArtifact(
       updaterPath,
       update.keyPrefix,

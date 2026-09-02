@@ -28,15 +28,16 @@ import {
   signMacOSSeedStore,
   verifyMacOSSeedStore,
 } from './macos-seed-store.ts'
+import { resolveDesktopTargetBuildPaths } from './desktop-build-paths.mjs'
 
 const APP_ROOT = resolve(import.meta.dirname, '..')
-const BUILD_ROOT = join(APP_ROOT, '.desktop-build')
-const SEED_OUTPUT_ROOT = join(BUILD_ROOT, 'seed')
+const BUILD_PATHS = resolveDesktopTargetBuildPaths()
+const SEED_OUTPUT_ROOT = BUILD_PATHS.seed
 const SEED_ROOT = mkdtempSync(join(tmpdir(), 'dsh-desktop-seed-'))
 const STORE_ROOT = join(SEED_ROOT, 'store')
-const RUNTIME_ROOT = join(BUILD_ROOT, 'runtime')
-const PNPM_BUILD_STATE = join(BUILD_ROOT, 'seed-pnpm')
-const PACKAGE_SET_ROOT = join(BUILD_ROOT, 'package-set')
+const RUNTIME_ROOT = BUILD_PATHS.runtime
+const PNPM_BUILD_STATE = BUILD_PATHS.seedPnpm
+const PACKAGE_SET_ROOT = BUILD_PATHS.packageSet
 const NODE = join(RUNTIME_ROOT, 'node', process.platform === 'win32' ? 'node.exe' : 'node')
 const PNPM = join(RUNTIME_ROOT, 'pnpm', 'bin', 'pnpm.mjs')
 

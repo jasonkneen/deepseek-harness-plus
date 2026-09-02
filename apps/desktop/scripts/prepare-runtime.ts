@@ -5,16 +5,16 @@ import { spawnSync } from 'node:child_process'
 import { cpSync, createReadStream, createWriteStream, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { chmod, readFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
-import { dirname, join, resolve } from 'node:path'
+import { dirname, join } from 'node:path'
 import { pipeline } from 'node:stream/promises'
 import extractZip from 'extract-zip'
 import { extract } from 'tar'
+import { resolveDesktopTargetBuildPaths } from './desktop-build-paths.mjs'
 
 const NODE_VERSION = '24.17.0'
-const APP_ROOT = resolve(import.meta.dirname, '..')
-const BUILD_ROOT = join(APP_ROOT, '.desktop-build')
-const RUNTIME_ROOT = join(BUILD_ROOT, 'runtime')
-const DOWNLOAD_ROOT = join(BUILD_ROOT, 'downloads')
+const BUILD_PATHS = resolveDesktopTargetBuildPaths()
+const RUNTIME_ROOT = BUILD_PATHS.runtime
+const DOWNLOAD_ROOT = BUILD_PATHS.downloads
 
 type RuntimePlatform = 'darwin' | 'linux' | 'win'
 type RuntimeArch = 'arm64' | 'x64'
@@ -52,7 +52,7 @@ async function prepareNode(platform: RuntimePlatform, arch: RuntimeArch): Promis
   const actual = createHash('sha256').update(await readFile(archive)).digest('hex')
   if (actual !== expected) throw new Error(`desktop runtime: checksum mismatch for ${archiveName}`)
 
-  const extraction = join(BUILD_ROOT, 'node-extract')
+  const extraction = BUILD_PATHS.nodeExtract
   rmSync(extraction, { recursive: true, force: true })
   mkdirSync(extraction, { recursive: true })
   if (platform === 'win') await extractZip(archive, { dir: extraction })

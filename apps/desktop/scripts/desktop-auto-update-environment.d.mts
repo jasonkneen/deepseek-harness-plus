@@ -51,6 +51,17 @@ export function resolveDesktopAutoUpdateTarget(
 export function desktopBuildRecordFilename(target: DesktopAutoUpdateTarget): string
 
 /**
+ * Return the electron-builder channel metadata filename for an application version.
+ * @param version - Desktop semantic version.
+ * @param platform - Target platform.
+ * @returns Channel metadata filename emitted for the target.
+ */
+export function desktopUpdateMetadataFilename(
+  version: string,
+  platform: NodeJS.Platform,
+): string
+
+/**
  * Resolve the public updater URL for one release target.
  * @param env - Packaging or upload environment.
  * @param platform - Target Node.js platform.

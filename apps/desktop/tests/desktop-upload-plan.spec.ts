@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { createDesktopUploadPlan } from '../scripts/desktop-upload-plan.ts'
+import { desktopUpdateMetadataFilename } from '../scripts/desktop-auto-update-environment.mjs'
 import type { DesktopPackageTargetName } from '../scripts/package-target.ts'
 
 const temporaryDirectories: string[] = []
@@ -54,7 +55,7 @@ async function fixture(
     await writeFile(join(artifactsRoot, `${base}.zip`), zip)
     await writeFile(join(artifactsRoot, `${base}.zip.blockmap`), 'blockmap')
     await writeFile(join(artifactsRoot, `${base}.dmg`), 'notarized DMG fixture')
-    await writeFile(join(artifactsRoot, 'latest-mac.yml'), `${JSON.stringify({
+    await writeFile(join(artifactsRoot, desktopUpdateMetadataFilename(version, 'darwin')), `${JSON.stringify({
       version,
       files: [{ url: `${base}.zip`, size: Buffer.byteLength(zip), sha512: digest(zip) }],
     })}\n`)
@@ -62,7 +63,7 @@ async function fixture(
   else {
     const executable = 'signed NSIS executable fixture'
     await writeFile(join(artifactsRoot, `${base}.exe`), executable)
-    await writeFile(join(artifactsRoot, 'latest.yml'), `${JSON.stringify({
+    await writeFile(join(artifactsRoot, desktopUpdateMetadataFilename(version, 'win32')), `${JSON.stringify({
       version,
       files: [{
         url: `${base}.exe`,
@@ -116,6 +117,17 @@ describe('desktop upload plan', () => {
       channelMetadata: true,
       cacheControl: 'no-cache',
     })
+  })
+
+  it('uploads the prerelease channel metadata emitted by electron-builder', async () => {
+    const paths = await fixture('mac-arm64', '1.2.3-alpha.4')
+    const plan = await createDesktopUploadPlan('mac-arm64', paths)
+    expect(plan.artifacts.map(artifact => artifact.filename)).toEqual([
+      'deepseek-harness-1.2.3-alpha.4-mac-arm64.dmg',
+      'deepseek-harness-1.2.3-alpha.4-mac-arm64.zip',
+      'deepseek-harness-1.2.3-alpha.4-mac-arm64.zip.blockmap',
+      'alpha-mac.yml',
+    ])
   })
 
   it('validates the Windows installer with its embedded blockmap and production destination', async () => {
