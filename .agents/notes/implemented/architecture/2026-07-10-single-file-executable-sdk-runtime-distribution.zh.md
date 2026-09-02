@@ -21,6 +21,8 @@ exe 使用 [@yao-pkg/pkg](https://github.com/yao-pkg/pkg)（vercel/pkg 归档后
 
 `--sea` 要求构建目标 ≥ node22，exe 统一以 node24 为构建目标；每次 pkg 调用只打包一个构建目标，多平台各调用一次。
 
+`@yao-pkg/pkg` 是精确钉版的根 `devDependency`，经 `pnpm exec pkg` 调用，并以 [`patches/@yao-pkg__pkg@6.21.0.patch`](../../../../patches/@yao-pkg__pkg@6.21.0.patch) 移除 SEA bootstrap 中的 `patchChildProcess` 调用。未打补丁时，pkg 会把 spawn 的 `node` 命令——包括 `-c`/`/c` 标志后的命令串，恰是 Bash 工具的 `bash -c` 形态——改写为 exe 自身，并向每个子进程环境注入 `PKG_EXECPATH`，模型下发的 `node --version` 会静默启动 dsh CLI；Node 自身的 SEA 层没有这种改写，且 SEA 二进制永远启动内嵌应用、无法充当纯 Node。移除该调用后，子进程像普通进程一样经 PATH 解析 `node`（无 Node 的机器如实报 command not found），子进程环境不再出现 `PKG_EXECPATH`，以 `process.execPath` 绝对路径 spawn 的重入不受影响，worker 线程本来就未应用该钩子，`process.pkg` 侧车选择也不受影响。
+
 术语提醒：pkg 的 `/snapshot` VFS 与本仓库测试体系的「快照」（ACP（Agent Client Protocol）回放预期输出、`$DSH_SNAPSHOT`）无关，本文用「VFS」指前者。
 
 ### 对外服务接口是 dsh 应用中的插件
@@ -64,7 +66,7 @@ exe 内支持 `dsh-workflow-worker-thread` 与 `dsh-code-runtime-worker-thread`�
 
 ## 测试
 
-验证面分三层。机制层：`--sea` 链路的实测结论内嵌在「决策」各节（VFS 内 ESM 动态 `import()`、单一 Cordis 实例、明确报错的配置链路、`node:sqlite`、macOS ad-hoc 签名可运行）。SDK 层：完整的无密钥 pytest 套件以 mock 运行时对端覆盖客户端协议、子进程清理、绝对 `cwd` 传递、双载体启动与载体解析；根 CI 在 Python 3.10 上运行全部用例。端到端层：每个平台构建都会把两个 wheel 包安装进 checkout 外的干净 venv，证明版本相同以及已安装模块／可执行文件的位置，再通过默认 SDK 路径、自定义配置、仓库内置的独立 minimal 组合和直接二进制协议，对 mock 端点完成轮次，并校验最终文本与 JSONL。minimal 运行会断言其精确系统提示词与双工具目录，跨调用保留 Bash 状态，并调用编辑器。自定义配置还会通过打包进 VFS 的真实工作线程文件执行 `run_code` 和不启动 agent 的 `workflow`。文件系统搜索场景要求模型通过目标平台的 `-rg` 伴随文件调用 `glob` 与 `grep`。MCP 场景会启动临时外部 stdio server，刻意延迟首次 `tools/list` 响应，随后立即启动第一个 SDK 提示词；该提示词必须看到并调用已发现的工具，从而证明 `initialize` 是真正以 Loader 插件树完全稳定为准的就绪边界，而不是依赖定时 sleep。同一项安装后运行还会经 Python SDK 比较一组检入的 exe 专用快照：无密钥脚本化模型挂载一个会注册工具的 Cordis 插件，从 `run_code` 调用该工具，运行一个直接 spawn 的 subagent 和一个会通过 spawn 启动第二个 subagent 的工作流，随后卸载该插件。该 fixture（测试前置数据）会显式禁用组合包中未使用的 Bash 和本地 skill（技能）发现，使其工具集不依赖仓库外部状态；比较时会规范化 SDK 结果与通知流，以及父会话和两个子会话 JSONL 日志中不透明的消息、agent、工作流运行与会话 ID。可信拉取请求会增加真实提供方双轮文件写入／读取，并要求外部字节、工具调用、已完成原因与持久化日志一致。该 harness 与 ACP 的 `pnpm run test:snapshot` 保持独立，因为二者的协议和构建产物不同。
+验证面分三层。机制层：`--sea` 链路的实测结论内嵌在「决策」各节（VFS 内 ESM 动态 `import()`、单一 Cordis 实例、明确报错的配置链路、`node:sqlite`、macOS ad-hoc 签名可运行）。SDK 层：完整的无密钥 pytest 套件以 mock 运行时对端覆盖客户端协议、子进程清理、绝对 `cwd` 传递、双载体启动与载体解析；根 CI 在 Python 3.10 上运行全部用例。端到端层：每个平台构建都会把两个 wheel 包安装进 checkout 外的干净 venv，证明版本相同以及已安装模块／可执行文件的位置，再通过默认 SDK 路径、自定义配置、仓库内置的独立 minimal 组合和直接二进制协议，对 mock 端点完成轮次，并校验最终文本与 JSONL。minimal 运行会断言其精确系统提示词与双工具目录，跨调用保留 Bash 状态，并调用编辑器。自定义配置还会通过打包进 VFS 的真实工作线程文件执行 `run_code` 和不启动 agent 的 `workflow`。文件系统搜索场景要求模型通过目标平台的 `-rg` 伴随文件调用 `glob` 与 `grep`。spawn-node 场景驱动平台 shell 工具执行以 `node` 开头的命令，要求工具结果给出机器自身的 Node 版本且子进程环境中无 `PKG_EXECPATH`，把打包运行时钉死在「pkg 升级重录 child_process 补丁也不得回归」的行为上。MCP 场景会启动临时外部 stdio server，刻意延迟首次 `tools/list` 响应，随后立即启动第一个 SDK 提示词；该提示词必须看到并调用已发现的工具，从而证明 `initialize` 是真正以 Loader 插件树完全稳定为准的就绪边界，而不是依赖定时 sleep。同一项安装后运行还会经 Python SDK 比较一组检入的 exe 专用快照：无密钥脚本化模型挂载一个会注册工具的 Cordis 插件，从 `run_code` 调用该工具，运行一个直接 spawn 的 subagent 和一个会通过 spawn 启动第二个 subagent 的工作流，随后卸载该插件。该 fixture（测试前置数据）会显式禁用组合包中未使用的 Bash 和本地 skill（技能）发现，使其工具集不依赖仓库外部状态；比较时会规范化 SDK 结果与通知流，以及父会话和两个子会话 JSONL 日志中不透明的消息、agent、工作流运行与会话 ID。可信拉取请求会增加真实提供方双轮文件写入／读取，并要求外部字节、工具调用、已完成原因与持久化日志一致。该 harness 与 ACP 的 `pnpm run test:snapshot` 保持独立，因为二者的协议和构建产物不同。
 
 
 手工驱动注意：`bin` 将 stdin EOF 视为「客户端已离开」并立即 dispose，生命周期较短的管道会中止进行中的轮次——管道驱动必须保持 stdin 打开，直到轮次结束。
@@ -85,4 +87,4 @@ exe 内支持 `dsh-workflow-worker-thread` 与 `dsh-code-runtime-worker-thread`�
 
 **买到的**：目标平台零依赖的单文件分发；插件语义与源码运行严格一致（同一棵真实包树，无转译、无注册表）；对外服务接口、插件集与配置全部收敛到 `cordis.yml` 和一份依赖 manifest 这两个真源；exe 与 `node` 双载体使用同一棵树和相同语义，开发验证无需等待打包；官方 Node 二进制消除了补丁版二进制的供应链顾虑。
 
-**付出的**：产物约 174MB，且源码原样进入 blob（没有字节码混淆；闭源分发诉求需要另行评估）；pkg 的 VFS/模块钩子层仍由社区维护（构建脚本钉死 `@yao-pkg/pkg@6.21.0`，升级需要显式改动）；`--sea` 每个构建目标调用一次（与 CI 每个平台一个任务相匹配，本地多平台构建串行执行）。
+**付出的**：产物约 174MB，且源码原样进入 blob（没有字节码混淆；闭源分发诉求需要另行评估）；pkg 的 VFS/模块钩子层仍由社区维护（`@yao-pkg/pkg` 为精确钉版、带 pnpm 补丁的根 devDependency，升级需重录补丁，属显式改动）；`--sea` 每个构建目标调用一次（与 CI 每个平台一个任务相匹配，本地多平台构建串行执行）。
