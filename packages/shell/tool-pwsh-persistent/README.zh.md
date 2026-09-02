@@ -73,7 +73,7 @@ kind: "package-reference"
 ### 设计理念
 
 - **`dsh-tool-bash-persistent` 的刻意孪生。** 会话注册表、轮询循环与重置约定按设计镜像持久 bash 工具（[pwsh 持久 PTY Agent Note](../../../.agents/notes/implemented/architecture/2026-08-11-pwsh-persistent-pty.zh.md)）。
-- **prompt 函数就绪。** pwsh terminal 后端负责 prompt 引导，并且只在其受控 `prompt` 函数就绪后发布会话。工具直接使用现有 prompt，不再提交第二次定义。BEL 结尾的 OSC 标记携带最后的退出码，可打印的 `dsh> ` 尾部让后端通过标记快路径结算每条命令，包括无法检查 stdin-wait 的 Windows。模型重定义 `prompt` 会把就绪降级到静默层级。
+- **prompt 函数就绪。** pwsh terminal 后端负责 prompt 引导，并且只在其受控 `prompt` 函数就绪后发布会话。工具直接使用现有 prompt，不再提交第二次定义。BEL 结尾的 OSC 标记与可打印的 `dsh> ` 尾部提供快速就绪路径；当宿主无法接受该 prompt 证据时，静默层级仍会结算已完成的命令。模型重定义 `prompt` 也会把就绪降级到静默层级。
 - **PSReadLine 回显靠锚定剥离。** PowerShell 会把提交的输入渲染回流中；标记锚定提取与包装源码剥离移除回显，而跨终端宽度换行的包装可能在部分输出结果中留下部分回显。
 - **重置，而非修复。** 任何不确定状态——显式 `exit`、超时、发送失败、中止——都会关闭 shell 并让下一次调用从全新状态开始。
 

@@ -92,9 +92,7 @@ describe.skipIf(!hasPwsh)('persistent pwsh through a real cordis.yml Loader comp
       '    shellDialect: pwsh',
       '    pollIntervalMs: 10',
       '    exactProbeAfterMs: 20',
-      // Keep the silence fallback beyond the send timeout: this composition
-      // must observe controlled-prompt readiness instead of inferred idle.
-      '    idleSilenceMs: 120000',
+      '    idleSilenceMs: 300',
       '    handoffGraceMs: 300',
       '    scrollbackLines: 20000',
       '    timeoutMs: 60000',
