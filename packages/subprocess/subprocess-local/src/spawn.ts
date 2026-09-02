@@ -546,7 +546,6 @@ export function bindManagedProcess(
   // The caller owns timeout classification; this layer only reacts to abort.
   const onAbort = (): void => { terminateWithReason(spec.signal?.reason) }
   spec.signal?.addEventListener('abort', onAbort, { once: true })
-  if (spec.signal?.aborted === true) onAbort()
 
   // Batch stdin is written and closed up front; process exit and captured
   // output remain authoritative, so write errors (EPIPE) are best-effort.

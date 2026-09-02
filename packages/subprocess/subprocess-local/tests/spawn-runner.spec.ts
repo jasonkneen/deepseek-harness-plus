@@ -153,7 +153,6 @@ describe('closed runner protocol', () => {
     expect(deserializeRunnerError(result!.error)).toMatchObject({
       name: 'SpawnError', message: 'spawn missing', code: 'ENOENT', syscall: 'spawn tool', path: 'tool',
     })
-    writeFileSync(join(files.directory, '.startup-error.tmp'), 'incomplete')
     cleanupLinuxLaunchFiles(files)
     expect(existsSync(files.directory)).toBe(false)
   })
@@ -607,6 +606,7 @@ describe('Windows Job runner protocol owner', () => {
     for (const [win32Code, code, enriched, program] of [
       [2, 'ENOENT', true, 'tool.exe'],
       [3, 'ENOENT', true, 'tool.exe'],
+      [267, 'ENOENT', true, 'tool.exe'],
       [740, 'EACCES', true, '$&.exe'],
       [5, 'EPERM', false, 'tool.exe'],
       [193, 'EFTYPE', false, 'tool.exe'],
@@ -810,27 +810,7 @@ describe('Windows Job runner protocol owner', () => {
     expect(sendFailureHost.exitCode).toBe(127)
   })
 
-  it('handles commit-time termination reentrancy and termination failure', async () => {
-    const reentrantHost = new FakeRunnerHost()
-    const reentrant = internals({
-      closeFileDescriptor: vi.fn((fileDescriptor) => {
-        if (fileDescriptor === 4) reentrantHost.emit('message', { type: 'terminate' })
-      }),
-      pollProcessExit: vi.fn(() => undefined),
-      isJobEmpty: vi.fn(() => false),
-    })
-    const reentrantRun = runSpawnRunner(
-      WINDOWS_RUNNER_SELECTION,
-      ['--', 'tool.exe'],
-      hostArgument(reentrantHost),
-      reentrant,
-    )
-    reentrantHost.emit('message', { type: 'start', cwd: 'C:\\target', env: {} })
-    await new Promise<void>((resolveImmediate) => { setImmediate(resolveImmediate) })
-    expect(reentrant.terminateJob).toHaveBeenCalledTimes(2)
-    reentrantHost.disconnect()
-    await reentrantRun
-
+  it('reports a post-commit termination failure', async () => {
     const failedHost = new FakeRunnerHost()
     const failed = internals({
       pollProcessExit: vi.fn(() => undefined),

@@ -6,15 +6,12 @@ import {
   lstatSync,
   mkdtempSync,
   readFileSync,
-  renameSync,
   rmdirSync,
   unlinkSync,
   writeFileSync,
 } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { basename, dirname, isAbsolute, join } from 'node:path'
-
-const STARTUP_ERROR_TEMPORARY = '.startup-error.tmp'
 
 /** Target state restored by the Linux bootstrap after systemd establishes the scope. */
 export interface LinuxLaunchRequest {
@@ -31,7 +28,7 @@ export interface SerializedRunnerError {
   path?: string
 }
 
-/** A Linux pre-exec failure published atomically beside its consumed request. */
+/** A Linux pre-exec failure published beside its consumed request. */
 export type LinuxStartupError =
   { type: 'error'; error: SerializedRunnerError }
 
@@ -148,14 +145,12 @@ export function consumeLinuxLaunchRequest(requestPath: string): LinuxLaunchReque
 }
 
 /**
- * Atomically publish one strict 0600 Linux pre-exec error.
+ * Publish one strict 0600 Linux pre-exec error.
  * @param files - private paths for this launch.
  * @param error - bounded spawn or runner failure to publish.
  */
 export function writeLinuxStartupError(files: LinuxLaunchFiles, error: LinuxStartupError): void {
-  const temporary = join(files.directory, STARTUP_ERROR_TEMPORARY)
-  writeFileSync(temporary, JSON.stringify(error), { flag: 'wx', mode: 0o600 })
-  renameSync(temporary, files.startupErrorPath)
+  writeFileSync(files.startupErrorPath, JSON.stringify(error), { flag: 'wx', mode: 0o600 })
 }
 
 /**
@@ -262,7 +257,6 @@ export function cleanupLinuxLaunchFiles(files: LinuxLaunchFiles): void {
     for (const path of [
       files.requestPath,
       files.startupErrorPath,
-      join(files.directory, STARTUP_ERROR_TEMPORARY),
     ]) {
       try { unlinkSync(path) } catch (error) {
         if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error

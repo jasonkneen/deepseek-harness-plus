@@ -952,51 +952,11 @@ describe('coverage seams', () => {
     }
   })
 
-  it('delivers an already-aborted managed spawn reason before target settlement', async () => {
-    const reason = null
-    const controller = new AbortController()
-    controller.abort(reason)
-    const signal = vi.fn()
-    const handle = bindManagedProcess(spec('true', {
-      signal: controller.signal,
-      stdio: { stdin: 'ignore', stdout: 'inherit', stderr: 'inherit' },
-    }), {
-      stdin: null,
-      stdout: null,
-      stderr: null,
-      direct: Promise.resolve({ exitCode: 0, signal: null }),
-      owner: {
-        signal,
-        waitForExit: async () => {},
-        terminateForHostExit: vi.fn(),
-      },
-    })
-
-    expect(signal).toHaveBeenCalledExactlyOnceWith('SIGTERM', reason)
-    await expect(handle.done).resolves.toEqual({ exitCode: 0, signal: null })
-    await expect(handle.waitForExit()).resolves.toBe(true)
-  })
-
   it('contains a late wait rejection after an already-aborted observation', async () => {
     const pending = Promise.withResolvers<never>()
     await expect(waitWithAbort(pending.promise, AbortSignal.abort())).resolves.toBe(false)
     pending.reject(new Error('late observation failure'))
     await Promise.resolve()
-  })
-
-  it('closes the abort-listener registration race', async () => {
-    let aborted = false
-    const removeEventListener = vi.fn()
-    const signal = {
-      get aborted() { return aborted },
-      addEventListener(_type: string, listener: () => void) {
-        aborted = true
-        listener()
-      },
-      removeEventListener,
-    } as unknown as AbortSignal
-    await expect(waitWithAbort(new Promise<void>(() => {}), signal)).resolves.toBe(false)
-    expect(removeEventListener).toHaveBeenCalledOnce()
   })
 
   it('taskkillProcessTree ignores an unpublished pid and contains a missing binary', () => {

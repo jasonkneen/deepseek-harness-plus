@@ -70,6 +70,7 @@ const NODE_SPAWN_DETAIL_CODES = new Set(['EACCES', 'ENOENT'])
 const WINDOWS_SPAWN_ERROR_CODES = new Map<number, string>([
   [2, 'ENOENT'],
   [3, 'ENOENT'],
+  [267, 'ENOENT'],
   [5, 'EPERM'],
   [193, 'EFTYPE'],
   [740, 'EACCES'],
@@ -315,9 +316,6 @@ class WindowsJobRunner {
       for (const fileDescriptor of [4, 5, 6]) {
         this.internals.closeFileDescriptor(fileDescriptor)
       }
-      // Descriptor cleanup may synchronously re-enter the IPC handler.
-      // oxlint-disable-next-line typescript/no-unnecessary-condition
-      if (this.terminateRequested) this.terminateOwnedJob()
       this.pollTimer = setInterval(() => { this.poll() }, 10)
     } catch (error) {
       if (this.jobHandle === undefined && error instanceof Win32Error && error.api === 'CreateProcessW') {

@@ -42,7 +42,6 @@ export async function waitWithAbort(pending: Promise<void>, signal?: AbortSignal
   const aborted = Promise.withResolvers<boolean>()
   const onAbort = (): void => { aborted.resolve(false) }
   signal.addEventListener('abort', onAbort, { once: true })
-  if (signal.aborted) onAbort()
   try {
     return await Promise.race([pending.then(() => true), aborted.promise])
   } finally {

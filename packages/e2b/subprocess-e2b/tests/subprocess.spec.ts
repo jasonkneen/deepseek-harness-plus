@@ -1774,9 +1774,37 @@ describe('E2BSubprocessRuntime', () => {
     await expect(handle.done).rejects.toThrow('start failed during disposal')
   })
 
-  it('validates synchronous spawn preconditions', async () => {
-    const { ctx } = await service()
+  it('validates synchronous spawn preconditions before handle or remote work', async () => {
+    const fake = new FakeSandbox()
+    const getSandbox = vi.fn(async () => fake.sandbox)
+    const { ctx } = await service(fake, runtime(fake, getSandbox))
+    const live = (ctx.subprocess as unknown as { live: Set<E2BSubprocessHandle> }).live
     expect(() => ctx.subprocess.spawn(spec({ argv: [] }))).toThrow(/non-empty program/)
-    expect(() => ctx.subprocess.spawn(spec({ signal: AbortSignal.abort('stop') }))).toThrow(/aborted before spawn/)
+    expect(() => ctx.subprocess.spawn(spec({ signal: AbortSignal.abort('stop') })))
+      .toThrow(new Error('aborted before spawn: stop'))
+    expect(() => ctx.subprocess.spawn(spec({ signal: AbortSignal.abort(null) })))
+      .toThrow(new Error('aborted before spawn: aborted'))
+    const throwingReason = { toString: () => { throw new Error('caller reason escaped') } }
+    expect(() => ctx.subprocess.spawn(spec({ signal: AbortSignal.abort(throwingReason) })))
+      .toThrow(new Error('aborted before spawn: aborted'))
+
+    for (const invalid of [
+      spec({ argv: ['bash\0'] }),
+      spec({ argv: ['bash', 'bad\0arg'] }),
+      spec({ cwd: 'bad\0cwd' }),
+      spec({ env: { REMOVED: undefined, 'BAD\0KEY': 'value' } }),
+      spec({ env: { BAD: 'bad\0value' } }),
+    ]) {
+      let thrown: unknown
+      try {
+        ctx.subprocess.spawn(invalid)
+      } catch (error) {
+        thrown = error
+      }
+      expect(thrown).toMatchObject({ name: 'TypeError', code: 'ERR_INVALID_ARG_VALUE' })
+    }
+    expect(getSandbox).not.toHaveBeenCalled()
+    expect(live).toEqual(new Set())
+    expect(fake.directories).toEqual([])
   })
 })
