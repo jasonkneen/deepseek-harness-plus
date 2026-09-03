@@ -17,8 +17,6 @@ const root = resolve(import.meta.dirname, '..')
 
 /** The closure manifest whose dependencies define the executable. */
 const DEPLOY_ROOT_PACKAGE = 'dsh-python-runtime-closure'
-/** The Python runtime-owned source staged as the single-file entry. */
-const ENTRY_SOURCE = 'python/sdk-runtime/runtime-bootstrap.mjs'
 /** The sole executable entry inside the deployed closure. */
 const ENTRY_BIN = 'runtime-bootstrap.mjs'
 /** Python-visible executable basename. */
@@ -306,22 +304,6 @@ class SingleExeBuild {
     } else {
       await Promise.all(DEPLOY_ONLY_DOCS.map(name => rm(join(this.staging, name), { force: true })))
     }
-  }
-
-  /** Copy the Python runtime-owned dispatcher into the deployed closure root. */
-  async stageRuntimeBootstrap(): Promise<void> {
-    const source = resolve(root, ENTRY_SOURCE)
-    const destination = join(this.staging, ENTRY_BIN)
-    if (!existsSync(source)) {
-      throw new Error(`build-exe-for-python-sdk: packaging bootstrap is missing at ${source}.`)
-    }
-    if (this.cli.dryRun) {
-      console.log(`build-exe-for-python-sdk: [dry-run] cp ${source} ${destination}`)
-      return
-    }
-    await copyFile(source, destination)
-    await chmod(destination, 0o755)
-    console.log(`build-exe-for-python-sdk: staged ${destination}`)
   }
 
   /**
@@ -631,7 +613,6 @@ async function main(): Promise<void> {
   await pipeline.verifyClosure()
   await pipeline.build()
   await pipeline.deployStaging()
-  await pipeline.stageRuntimeBootstrap()
   await pipeline.injectPkgConfig()
   const products: string[] = []
   for (const target of cli.targets) products.push(...await pipeline.pack(target))

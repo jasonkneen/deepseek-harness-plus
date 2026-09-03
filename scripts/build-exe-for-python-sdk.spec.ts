@@ -38,6 +38,7 @@ describe('Python runtime executable builder CLI', () => {
 
     expect(existsSync(resolve(root, 'apps/cli/src/runtime-bootstrap.ts'))).toBe(false)
     expect(cliConfig).not.toContain('runtime-bootstrap')
+    expect(cliConfig).toContain("clean: ['lib/*.js']")
     expect(cliTsconfig).not.toContain('packages/subprocess/subprocess-local')
     expect(cliManifest.dependencies).not.toHaveProperty('@deepseek-ai/dsh-subprocess-local')
     expect(cliManifest.devDependencies).toHaveProperty('@deepseek-ai/dsh-subprocess-local')
@@ -59,8 +60,8 @@ describe('Python runtime executable builder CLI', () => {
     expect(result.status).toBe(0)
     expect(result.stdout).toContain(`${process.execPath} C:\\tools\\pnpm.cjs run verify-runtime-closure`)
     expect(result.stdout).toContain(`${process.execPath} C:\\tools\\pnpm.cjs --filter dsh-python-runtime-closure deploy`)
-    expect(result.stdout).toContain('python/sdk-runtime/runtime-bootstrap.mjs')
-    expect(result.stdout).toContain('runtime/node/runtime-bootstrap.mjs')
+    expect(result.stdout).not.toContain(resolve(root, 'python/sdk-runtime/runtime-bootstrap.mjs'))
+    expect(result.stdout).toContain('"bin":"runtime-bootstrap.mjs"')
     expect(result.stdout).toContain(`${process.execPath} C:\\tools\\pnpm.cjs exec pkg`)
     expect(result.stdout).not.toMatch(/pnpm\.cmd/i)
   })

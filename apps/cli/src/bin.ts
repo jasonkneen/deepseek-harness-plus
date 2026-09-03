@@ -7,8 +7,7 @@
 /* v8 ignore file -- built-bin acceptance exercises this self-executing dispatch. */
 
 import { readFileSync } from 'node:fs'
-import { resolve } from 'node:path'
-import { fileURLToPath, pathToFileURL } from 'node:url'
+import { fileURLToPath } from 'node:url'
 import { loadLayeredEnv } from '@deepseek-ai/dsh-app-boot'
 import { parseDshArgs } from './args.ts'
 
@@ -24,11 +23,10 @@ function readVersion(): string {
 
 /**
  * Run the public dsh command-line interface.
- * @param argv - user arguments after the executable name.
  * @returns a promise that settles when the selected command mode finishes.
  */
-export async function runCli(argv: string[] = process.argv.slice(2)): Promise<void> {
-  const invocation = parseDshArgs(argv, readVersion())
+export async function runCli(): Promise<void> {
+  const invocation = parseDshArgs(process.argv.slice(2), readVersion())
 
   switch (invocation.mode) {
     case 'profile': {
@@ -57,7 +55,6 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
   }
 }
 
-const invokedPath = process.argv[1]
-if (invokedPath !== undefined && import.meta.url === pathToFileURL(resolve(invokedPath)).href) {
+if (import.meta.main) {
   await runCli()
 }
