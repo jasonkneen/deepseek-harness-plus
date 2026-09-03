@@ -208,8 +208,7 @@ type OptionalSessionSeq = SessionSeq | null
  * A proper discriminated union over `type` (not independent `type`/`data`
  * unions), so `switch (event.type)` narrows `event.data` without casts.
  *
- * The {@link sourceEventSeqs}, {@link surfaceOp}, and {@link conversationOp}
- * fields are conditional:
+ * The {@link sourceEventSeqs} and {@link surfaceOp} fields are conditional:
  * they only exist on {@link SurfaceEventType} variants (`user/message`,
  * `assistant/message`, `tool/result`).
  * Non-surface events (boundary markers, chunks, usage, errors) never carry
@@ -247,8 +246,6 @@ type SessionEvent<T extends SessionEventType = SessionEventType> = {
     sourceEventSeqs?: SessionSeq[]
     /** How this event entered the surface; absent for non-surface events. */
     surfaceOp?: SurfaceOp
-    /** Raw event range this message replaces in current conversation projections. */
-    conversationOp?: ConversationOp
   } : object)
 }[T]
 ```
@@ -300,48 +297,6 @@ type SurfaceOp =
 
 `'append'` 是常规的尾部追加路径。`replace` 会遮蔽从 `start` 到 `end`（含两端）的 surface 条目（两者都必须是有效的 surface seq；`start === end` 时仅替换单个条目），并在原位置插入新事件。
 
-### `ConversationOp`：当前用户可见对话代次替换
-
-```ts type-equiv
-/**
- * How one message starts a new user-facing conversation generation.
- *
- * The inclusive raw-event range remains in the append-only log but is omitted
- * from current conversation projections. Unlike {@link SurfaceOp}, this range
- * covers every event family rendered by Chat, Trajectory, search, and
- * transcript exporters rather than only model-message surface nodes.
- */
-type ConversationOp = { op: 'replace'; start: SessionSeq; end: SessionSeq }
-```
-
-只有替换型 `user/message` 可以携带 `conversationOp`，且其闭区间必须位于替换事件之前。`foldConversation()` 会合并重叠或相邻区间，成员关系检查则在规范化结果上使用二分查找。
-
-```ts type-equiv
-/** One committed user-facing replacement and the event that committed it. */
-interface ConversationReplacement extends ConversationOp {
-  /** Seq of the replacement `user/message`. */
-  readonly seq: SessionSeq
-}
-```
-
-```ts type-equiv
-/** A merged inclusive interval hidden from the current conversation. */
-interface ConversationHiddenRange {
-  readonly start: SessionSeq
-  readonly end: SessionSeq
-}
-```
-
-```ts type-equiv
-/** Complete result of folding conversation replacements from one event window. */
-interface ConversationFoldResult {
-  /** Replacement operations in event order. */
-  readonly replacements: readonly ConversationReplacement[]
-  /** Sorted, non-overlapping raw-event ranges hidden by those replacements. */
-  readonly hiddenRanges: readonly ConversationHiddenRange[]
-}
-```
-
 ### `SurfaceIntent`：`session.append()` 的参数
 
 ```ts type-equiv
@@ -358,12 +313,10 @@ interface SurfaceIntent {
    * Other surface events require a non-empty set when this field is present.
    */
   sourceEventSeqs?: SessionSeq[]
-  /** Optional user-facing conversation replacement committed with this message. */
-  conversationOp?: ConversationOp
 }
 ```
 
-对 `SurfaceEventType` 事件必填：每个产生消息的事件都必须声明它如何加入 surface（派生模型历史的唯一来源）。面向人类的投影通常读取追加来源事件，使压缩后仍保留历史；显式 `conversationOp` 是一个窄例外，它替换一代用户可见对话，但不从日志删除原事件。非 surface 类型在编译期拒绝 surface 元数据。
+对 `SurfaceEventType` 事件必填：每个产生消息的事件都必须声明它如何加入 surface（派生模型历史的唯一来源）。面向人类的 transcript（文本记录）是另一个投影，读取的是日志中追加来源的事件，因为 surface 会有意遮蔽替换所概括的范围（见 [dsh-session](../../packages/core/session/README.zh.md) 的 `isAppendSurfaceEvent`）。非 surface 类型在编译期拒绝此参数。
 
 只有 `assistant/message` 可以携带存在但为空的 `sourceEventSeqs`；字段不存在时，该事件没有记录这条消息由哪些早期事件产生，但提供方仍可能发出过分片。
 
@@ -537,11 +490,10 @@ declare class Session {
    * @param data - The event payload; must be JSON-serializable.
    * @param opts - Surface metadata: `surfaceOp` controls how the event enters
    *   the ordered surface; `sourceEventSeqs` lists the seq numbers of earlier
-   *   events this one derives from; `conversationOp` lets a replacement user
-   *   message hide one earlier raw-event range from current conversation
-   *   views. REQUIRED for {@link SurfaceEventType} events (every
-   *   message-producing event must declare how it joins the surface, the sole
-   *   source of derived model history) and
+   *   events this one derives from. REQUIRED for
+   *   {@link SurfaceEventType} events (every message-producing event must
+   *   declare how it joins the surface, the sole source of derived model
+   *   history) and
    *   rejected by the compiler for non-surface types like `turn/start` or
    *   `assistant/chunk`.
    * @returns the logged event — its assigned `seq`/`time` plus the SNAPSHOT of
@@ -808,14 +760,6 @@ inspect( sessionId: SessionId, signal?: AbortSignal, ): Promise<SessionInspectio
  * @returns acknowledgement that the Agent accepted the prompt.
  */
 @Remote('prompt') prompt(request: SessionPromptRequest, signal: AbortSignal): Promise<SessionPromptValue>
-
-/**
- * Replace the latest current turn-opening user message and rerun from that point.
- * @param request - target message, optimistic revision, and replacement text.
- * @param signal - caller cancellation before the replacement is admitted.
- * @returns acknowledgement after the replacement message commits.
- */
-@Remote('edit') edit(request: SessionEditRequest, signal: AbortSignal): Promise<SessionEditValue>
 
 /**
  * Read one image proven reachable from the addressed Session log.

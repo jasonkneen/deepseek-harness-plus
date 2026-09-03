@@ -67,7 +67,6 @@ export function sessionSnapshot(sessionId: SessionId): SessionSnapshot {
     sessionId,
     queue: [],
     pendingSubmissions: [],
-    pendingEdit: null,
     running: false,
     subagent: null,
     removed: false,

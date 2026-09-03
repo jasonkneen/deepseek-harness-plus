@@ -94,8 +94,6 @@
 - text: {{clock}} Use only Cordis tools. Call cordis_stop with pluginId "snap-1". After it succeeds, reply exactly CORDIS_UI_DONE and stop. {{clock}}
 - button "Copy":
   - img
-- button "Edit message":
-  - img
 - button "1 tool call" [expanded]:
   - text: 1 tool call
   - img

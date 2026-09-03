@@ -12,7 +12,7 @@ surface 顺序还让另外两个问题成为结构性的。一次替换之后它
 
 ## Decision
 
-`TranscriptAdapter` 取代 `FoldAdapter`，并且从不查询 surface 顺序。它按日志顺序投影保留的原始窗口：append 来源的 surface 事件（`isAppendSurfaceEvent`）落在各自日志位置上，每次落地的压缩检查点对应一个 `CompactionSummaryNode` 标记，[同会话用户消息编辑](../feature/2026-09-01-same-session-user-message-edit.zh.md)则提供显式替换 `user/message`。组装前，该功能的 `conversationOp` 折叠会移除它所标识的先前可见代次。因此，一次落地的压缩会保留它在模型侧遮蔽的对话，而一次 Edit 会有意替换其旧用户可见区间。其他仅模型可见的 replacement 副本不进入记录：被裁剪的 `tool/result` 和重新生成的 `assistant/message` 只为模型重写一个节点，不在对话中标记任何边界。凡必须发送模型所见内容的一切仍读 surface；这是人类投影，两者在两个前端上继续分离。
+`TranscriptAdapter` 取代 `FoldAdapter`，并且从不查询 surface 顺序。它按日志顺序投影原始窗口：每个 append 来源的 surface 事件（`isAppendSurfaceEvent`）落在它自己的日志位置上，外加每次落地的压缩检查点一个 `CompactionSummaryNode` 标记。于是一次落地的压缩会保留它在模型侧遮蔽掉的对话，标记报告模型从哪里开始看不见那段历史，而不是把它抹掉。仅模型可见的 replacement 副本不进入记录：被裁剪的 `tool/result` 和重新生成的 `assistant/message` 只为模型重写一个节点，不在对话中标记任何边界。凡必须发送模型所见内容的一切仍读 surface；这是人类投影，两者现在在两个前端上都已分离。
 
 节点顺序天然按 seq 单调，由此有三个结果。仅日志的 `command/run` / `command/done` 对折叠成 `CommandNode`，按 seq 插入一个本已单调的数组——无锚点，无重排。`Session` 保留被打断的冻结节点的归属，用一次普通排序按其分数 seq 归并，而这现在恰好就是流顺序。检查点所引被遮蔽范围落在窗口之外的窗口没有范围需要解析，因此标记正常渲染且不打印任何日志。
 
@@ -69,7 +69,7 @@ const COMPACT_PLUGIN: CompactionCheckpointSource['plugin'] = 'compact'
 
 `ConversationNode` 增加第八个分支，因此每个穷尽消费方都多一个分支：`MessageItem` 通过新的 `CompactionItem` 渲染标记，trajectory 布局加宽它的“无单元格”分支，使标记不贡献单元格但仍推进耗时游标。
 
-增量性能约定保持不变：一次普通 append 物化一个 node；不改变 node 的 event 保留旧数组引用——因此 chunk 风暴不产生任何开销，也不会重新计算 `nodes()`——未变化的 node 仍保持对象 identity。一次 `conversationOp` append 会有意重建一次已加载窗口，使每个 target 只发布一份完整代次。即使 Edit 隐藏较旧代次，原始窗口仍随 Session 长度增长；这保留了无损分页，但替换重建时需要扫描保留事件。
+性能约定未变，且现在更易表述：一次追加物化一个节点，不改变任何节点的事件保持上一次的数组引用——因此分片风暴零成本、`nodes()` 甚至不会重算——未变化的节点保持其对象标识。窗口仍随会话长度而非随 surface 增长，这正是本修复存在所要做的交换；一次压缩过去恰好为压缩所服务的长会话限制了投影规模。
 
 Web e2e 场景现在围绕它录制的那一轮上的压缩事务播种一次真实的手动命令生命周期，因此 aria 基准经真实宿主与真实浏览器钉住完整行为：录制的提问与完整工具输出仍在屏幕上，其后恰好一条 `compact` 行报告规模，展开后会显示确切摘要。录制本身未被触碰、保持模型真实——回放从录制自身的 surface 派生出手动压缩。
 

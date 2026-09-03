@@ -54,19 +54,7 @@ interface AgentHandle {
 
 `Agent` is the surface every plugin (UI, hooks, orchestrators) programs against; `ctx.agents.get(id)` returns it, and the [initiator scope](#initiating-agent) carries it. The concrete implementation is package-internal to dsh-agent-loop; nothing outside the loop depends on it. The unified `send` method exposes target and wakeup routing directly; `followup`, `steer`, and `inject` are fixed-preset aliases.
 
-```ts type-equiv
-/** Optional routing and Session placement for one Agent inbox insertion. */
-interface AgentSendOptions {
-  /** Insert before existing work at the resolved target instead of after it. */
-  position?: 'front' | 'back'
-  /** Non-default placement used when AgentLoop records this exact message. */
-  surfaceIntent?: SurfaceIntent
-  /** Messages recorded immediately after the sent message in the same step. */
-  followingMessages?: readonly UserMessage[]
-}
-```
-
-Sources: [`packages/core/agent/src/types.ts`](../../packages/core/agent/src/types.ts), [`packages/core/agent/src/runtime-types.ts`](../../packages/core/agent/src/runtime-types.ts)
+Source: [`packages/core/agent/src/types.ts`](../../packages/core/agent/src/types.ts)
 
 ```ts type-equiv
 /** Public live-agent handle; the runtime face augments its live capabilities. */
@@ -122,9 +110,8 @@ interface Agent {
    * @param message - identified content and the source that supplied it.
    * @param target - the preferred next-turn or next-step inbox boundary.
    * @param wakeup - whether delivery may wake the driver.
-   * @param options - optional queue position, Session placement, and same-step companions.
    */
-  send(message: UserMessage, target: InboxTarget, wakeup: boolean, options?: AgentSendOptions): void
+  send(message: UserMessage, target: InboxTarget, wakeup: boolean): void
 
   /**
    * Queue an ordinary follow-up turn and wake the driver. The item becomes the
@@ -190,19 +177,7 @@ The inbox is the delivery vocabulary — two ordered pending-message lists the a
 type InboxTarget = 'next-turn' | 'next-step'
 ```
 
-```ts type-equiv
-/** Durable admission metadata attached to one inserted inbox message. */
-interface InboxAdmission {
-  /** Message identity the metadata follows through queue edits and claim. */
-  readonly messageId: MessageId
-  /** Exact placement applied when AgentLoop records the claimed user message. */
-  readonly surfaceIntent?: SurfaceIntent
-  /** Messages recorded immediately after the identified message in the same step. */
-  readonly followingMessages?: readonly UserMessage[]
-}
-```
-
-Every pending occurrence is its `UserMessage`; `MessageId` is the sole identity. `Inbox.append`, `prepend`, `replace`, `remove`, `clear`, `splice`, and `claim` record normalized durable `agent/inbox/spliced` mutations and reject duplicate pending ids. An insertion may carry `InboxAdmission` metadata: non-default Session placement for its primary message and ordered messages that follow it in the same claimed step. `replace(messageId, newMessage)` transfers that metadata to the new identity. Ordinary removals and `clear()` are cancellations. `claim(target)` removes the proposed step batch — all `next-step` input plus, at a turn boundary, one `next-turn` message — through pure deletion splices, expands same-step companions, and emits per-message claimed notifications without treating the claim as a discard. Whole-queue consumers such as UI projections reconstruct `nextTurn` and `nextStep` from the durable splices, while consumers following one message use the exact `agent/inbox/inserted`, `claimed`, and `discarded` notifications.
+Every pending occurrence is its `UserMessage`; `MessageId` is the sole identity. `Inbox.append`, `prepend`, `replace`, `remove`, `clear`, `splice`, and `claim` record normalized durable `agent/inbox/spliced` mutations and reject duplicate pending ids. `replace(messageId, newMessage)` and `remove(messageId)` locate the pending message across both lists; replacement may change identity and emits the old message as discarded followed by the new message as inserted. Ordinary removals and `clear()` are cancellations. `claim(target)` removes the proposed step batch — all `next-step` input plus, at a turn boundary, one `next-turn` message — through pure deletion splices without emitting discarded notifications, and the loop separately emits per-message claimed notifications. Whole-queue consumers such as UI projections reconstruct `nextTurn` and `nextStep` from the durable splices, while consumers following one message use the exact `agent/inbox/inserted`, `claimed`, and `discarded` notifications.
 
 Cancellation:
 
@@ -241,7 +216,7 @@ Pre-step decisions use the same identified `UserMessage` type as durable user-ro
 
 Source: [`packages/core/agent/src/types.ts`](../../packages/core/agent/src/types.ts)
 
-`agent/pre-step` receives one payload carrying the exclusive claimed batch (`messages`), its non-default Session placement keyed by message identity (`surfaceIntents`), the proposed step's coordinates (`turn`, `step`), and the current turn's cancellation `signal`. A listener that may replace the Session surface defers while the map contains a preplanned replacement. The initial proposal runs inside an open turn before any step; a tool continuation may submit an empty claimed batch between steps:
+`agent/pre-step` receives one payload carrying the exclusive claimed batch (`messages`), the proposed step's coordinates (`turn`, `step`), and the current turn's cancellation `signal`. The initial proposal runs inside an open turn before any step; a tool continuation may submit an empty claimed batch between steps:
 
 It returns a `PreStepDecision`. Reject opens no step. Enter supplies the complete message batch appended after `step/start`; claimed messages omitted by the final decision remain removed, while input inserted after the claim stays pending:
 
@@ -977,18 +952,16 @@ Reject a proposed step or replace the messages that enter it. Calling `next()` p
  * `next()` preserves the current messages.
  * @param payload.agent - the agent proposing the step.
  * @param payload.messages - messages removed from the inbox for this step.
- * @param payload.surfaceIntents - non-default Session placement retained
- * for claimed primary messages; the standard loop always supplies the map.
  * @param payload.turn - the turn that will own the step.
  * @param payload.step - the step proposed by the loop.
  * @param payload.signal - the current turn's cancellation signal.
  * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
  * @mode waterfall
  */
-'agent/pre-step'(this: Scoped<Agent>, payload: { agent: Agent; messages: UserMessage[]; surfaceIntents?: ReadonlyMap<MessageId, SurfaceIntent>; turn: number; step: number; signal: AbortSignal }, next: () => Promise<PreStepDecision>): Promise<PreStepDecision>
+'agent/pre-step'(this: Scoped<Agent>, payload: { agent: Agent; messages: UserMessage[]; turn: number; step: number; signal: AbortSignal }, next: () => Promise<PreStepDecision>): Promise<PreStepDecision>
 ```
 
-Types: [MessageId](llm-streaming.md) · [Scoped](scope.md) · [SurfaceIntent](session.md) · [UserMessage](session.md)
+Types: [Scoped](scope.md) · [UserMessage](session.md)
 
 Source: [`packages/core/agent/src/runtime-types.ts`](../../packages/core/agent/src/runtime-types.ts)
 

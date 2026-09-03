@@ -4,11 +4,9 @@ import type { Context } from '@deepseek-ai/cordis'
 import { Deque } from '@deepseek-ai/dsh-deque'
 import {
   isAppendSurfaceEvent,
-  isConversationReplacementEvent,
   SessionLogOffset,
   SessionSeq,
 } from '@deepseek-ai/dsh-session'
-import { foldConversation, isConversationSeqVisible } from '@deepseek-ai/dsh-session/conversation'
 import { isChunkRow, packChunkRuns, type ChunkRow } from '@deepseek-ai/dsh-session/chunk-rows'
 import type {
   SessionEvent,
@@ -324,18 +322,13 @@ function paginate(
   throughSeq: SessionSeqCursor = events.at(-1)?.seq ?? -1,
 ): { readonly events: SessionEvent[]; readonly hasMore: boolean } {
   const end = SessionLogOffset(Math.min(throughSeq + 1, beforeSeq ?? throughSeq + 1))
-  const conversation = foldConversation(events)
   let count = 0
   let cut = SessionLogOffset(0)
   for (let index = end - 1; index >= 0; index--) {
     const event = events[index] as SessionEvent
-    if (!isConversationSeqVisible(event.seq, conversation.hiddenRanges)) continue
-    if (!MESSAGE_TYPES.has(event.type)
-      || (!isAppendSurfaceEvent(event) && !isConversationReplacementEvent(event))) continue
+    if (!MESSAGE_TYPES.has(event.type) || !isAppendSurfaceEvent(event)) continue
     count++
-    const sources = isConversationReplacementEvent(event)
-      ? undefined
-      : event.sourceEventSeqs
+    const sources = event.sourceEventSeqs
     let groupStart = event.seq
     if (sources !== undefined) {
       for (const source of sources) {

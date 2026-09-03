@@ -95,11 +95,6 @@ export class FixtureSession implements SessionFace {
     throw new Error(`test session "${this.sessionId}": prompt is not stubbed — supply it on the fixture's session face`)
   }
 
-  /** Fail-loud stub; supply `edit` on the fixture's session face to exercise it. */
-  edit(): never {
-    throw new Error(`test session "${this.sessionId}": edit is not stubbed — supply it on the fixture's session face`)
-  }
-
   /**
    * Minimal local-echo registration: mints an identity without touching the
    * fixture snapshot (submission echoes are client-only presentation state).

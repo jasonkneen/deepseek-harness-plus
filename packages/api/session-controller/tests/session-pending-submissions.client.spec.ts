@@ -4,11 +4,11 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import { SessionSeq, type SessionEvent, type SessionId } from '@deepseek-ai/dsh-session/types'
-import { RemoteError, type RemoteResult } from '@deepseek-ai/dsh-typert-protocol'
+import { RemoteError } from '@deepseek-ai/dsh-typert-protocol'
 import { Session } from '../src/client/sessions/session.ts'
 import type { PendingSubmissionRetirement } from '../src/client/contract/session.ts'
 import type { SessionQueuedItem, SessionRequestId } from '../src/types.ts'
-import { FakeApiClient, deferred, err, fakeRemote, ok } from './fake-api.client.ts'
+import { FakeApiClient, err, fakeRemote, ok } from './fake-api.client.ts'
 import { historyValue } from './event-script.client.ts'
 
 const SID = 'fk-s1' as SessionId
@@ -251,63 +251,6 @@ describe('observed retirement', () => {
     expect(frames).toHaveLength(1)
     frames[0]?.(0)
     expect(session.getSnapshot().pendingSubmissions).toEqual([])
-  })
-})
-
-describe('pending edit', () => {
-  it('publishes optimistic state immediately and retires it after the durable replacement', async () => {
-    const { api, session } = makeSession()
-    api.onHistory = () => Promise.resolve(ok(historyValue([])))
-    await session.open()
-    const response = deferred<RemoteResult<{ accepted: true; messageSeq: number }>>()
-    api.onEdit = () => response.promise
-
-    const editing = session.edit(10, 12, 'edited')
-    const pending = session.getSnapshot().pendingEdit
-    expect(pending).toMatchObject({ targetSeq: 10, expectedLastUserSeq: 12, text: 'edited' })
-    const request = api.callsOf('session.edit')[0] as { requestId: SessionRequestId }
-    await api.pushFollow(SID, { type: 'event', event: promptEvent(SessionSeq(0), request.requestId) as never })
-    await settleFrames()
-    expect(session.getSnapshot().pendingEdit).toBeNull()
-
-    response.resolve(ok({ accepted: true, messageSeq: 0 }))
-    await expect(editing).resolves.toEqual(ok({ accepted: true, messageSeq: 0 }))
-  })
-
-  it('restores the durable view and exposes promptError when admission fails', async () => {
-    const { api, session } = makeSession()
-    api.onEdit = () => Promise.resolve(err(new RemoteError(
-      'session/edit-stale',
-      'stale',
-      { sessionId: SID, messageSeq: 10 },
-    )))
-
-    const result = await session.edit(10, 12, 'edited')
-
-    expect(result.ok).toBe(false)
-    expect(session.getSnapshot().pendingEdit).toBeNull()
-    expect(session.getSnapshot().promptError).toMatchObject({ op: 'edit' })
-  })
-
-  it('normalizes a thrown Remote failure and rethrows an unexpected Client fault', async () => {
-    const remoteFailure = new RemoteError('gateway/internal', 'connection failed', {})
-    const failed = makeSession()
-    failed.api.onEdit = () => Promise.reject(remoteFailure)
-
-    await expect(failed.session.edit(10, 12, 'edited')).resolves.toEqual({
-      ok: false,
-      error: remoteFailure,
-    })
-    expect(failed.session.getSnapshot()).toMatchObject({
-      pendingEdit: null,
-      promptError: { op: 'edit', error: remoteFailure },
-    })
-
-    const faulted = makeSession()
-    const fault = new Error('client assembly failed')
-    faulted.api.onEdit = () => Promise.reject(fault)
-    await expect(faulted.session.edit(10, 12, 'edited')).rejects.toBe(fault)
-    expect(faulted.session.getSnapshot()).toMatchObject({ pendingEdit: null, promptError: null })
   })
 })
 

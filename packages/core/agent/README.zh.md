@@ -44,7 +44,7 @@ await handle.dispose()   // stops the loop, unregisters, removes the session, un
 
 ### 驱动 agent 的对话
 
-句柄的方法把带标识的 user 角色消息路由进 agent 的收件箱。`followup()` 排队一条普通的下一个轮次提示词并唤醒驱动器；`steer()` 提交下一步输入并唤醒它；`inject()` 添加面向模型的上下文但不唤醒驱动器，因此它落在下一个被接纳的步骤中。底层 `send()` 可以把一条消息放到目标列表前端，并持久携带非默认 Session 放置方式，以及必须在同一准入步骤中紧随其后的消息。`cancel(cause)` 中止当前活动，并在未设置 `keepInbox` 时清除待处理工作；`whenIdle()` 在整个 agent 达到完全停稳后兑现。
+句柄的方法把带标识的 user 角色消息路由进 agent 的收件箱。`followup()` 排队一条普通的下一个轮次提示词并唤醒驱动器；`steer()` 提交下一步输入并唤醒它；`inject()` 添加面向模型的上下文但不唤醒驱动器，因此它落在下一个被接纳的步骤中。`cancel(cause)` 中止当前活动，并在未设置 `keepInbox` 时清除待处理工作；`whenIdle()` 在整个 agent 达到完全停稳后兑现。
 
 ```text
 handle.agent.followup({
@@ -82,7 +82,7 @@ await handle.agent.whenIdle()
 
 ### 步骤准入
 
-`PreStepDecision` 要么是 `{ kind: 'reject' }`，要么是 `{ kind: 'enter', messages, startsRequestSeries? }`。enter 分支包含完整、带标识且冻结的消息批次。`startsRequestSeries: true` 声明一个独立的模型消息序列；包装下游 enter 的监听器会保留该声明与批次，除非有意替换其中一项。Inbox 准入元数据会随消息标识经历替换与回放：领取时按顺序展开同一步骤的配套消息，而循环仅在对应消息经 pre-step 重写后仍保留时重新应用非默认 Session 放置方式。领取后插入的消息等待后续边界。
+`PreStepDecision` 要么是 `{ kind: 'reject' }`，要么是 `{ kind: 'enter', messages, startsRequestSeries? }`。enter 分支包含完整、带标识且冻结的消息批次。`startsRequestSeries: true` 声明一个独立的模型消息序列；包装下游 enter 的监听器会保留该声明与批次，除非有意替换其中一项。领取会从 inbox 移除候选消息，领取后插入的消息则等待后续边界。
 
 ### 源码地图
 
@@ -133,7 +133,7 @@ await handle.agent.whenIdle()
 
 #### 模型看到什么
 
-`followup`、`steer` 与 `inject` 以带标识的 user 角色消息馈送所属会话；被接纳的内容成为模型在后续步骤中读取的派生历史的一部分。底层 `send()` 准入可以携带非默认 surface 替换和有序配套消息；循环会把仍保留的主消息与配套消息记录为同一个步骤批次。`agent/pre-step` payload 会公开这些非默认 intent，使会重写 Session surface 的监听器能在预定替换提交后再运行。`agent/pre-step` 与其他已声明事件让插件能够拒绝拟进入的步骤或添加持久请求材料；此接口本身不贡献固定文案。
+`followup`、`steer` 与 `inject` 以带标识的 user 角色消息馈送所属会话；被接纳的内容成为模型在后续步骤中读取的派生历史的一部分。`agent/pre-step` 与其他已声明事件让插件能够拒绝拟进入的步骤或添加持久请求材料；此接口本身不贡献固定文案。
 
 #### Token 影响
 
@@ -141,7 +141,7 @@ await handle.agent.whenIdle()
 
 #### KV Cache 影响
 
-普通被接纳历史与 steering 只追加；被阻止的提交不发送请求。非默认 surface 替换会从首条被替换消息起使复用失效。会话前缀在循环实例内保持稳定，而新建或恢复的实例可能建立不同前缀。
+被接纳历史与 steering 只追加；被阻止的提交不发送请求。会话前缀在循环实例内保持稳定，而新建或恢复的实例可能建立不同前缀。
 
 ### Agent 作用域的请求组合
 

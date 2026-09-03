@@ -21,7 +21,7 @@ import type {
   BeginSubmissionInput, PendingSubmissionRetirement, SessionFace, SubmissionHandle,
 } from '../contract/session.ts'
 import type {
-  OpenState, PendingEdit, PendingSubmission, PromptError, SessionSnapshot,
+  OpenState, PendingSubmission, PromptError, SessionSnapshot,
 } from '../contract/snapshot.ts'
 import { MutableSessionEventSource } from '../contract/events.ts'
 import type {
@@ -113,7 +113,6 @@ export class Session implements SessionFace {
   private lastAgentError: string | null = null
   /** Local submission echoes, insertion-ordered (see SessionSnapshot.pendingSubmissions). */
   private pendingSubmissions: readonly PendingSubmission[] = []
-  private pendingEdit: PendingEdit | null = null
   /** Per-echo settlement state; `retiring` latches the first observation so a
    *  queue frame and its durable event cannot both retire one echo. */
   private readonly submissionSettlements = new Map<SessionRequestId, {
@@ -275,45 +274,6 @@ export class Session implements SessionFace {
     if (this.blankBit) {
       this.blankBit = false
       this.options.onEngaged?.(this)
-      this.notifier.markDirty()
-    }
-    return result
-  }
-
-  /** Submit one same-session edit with an immediate optimistic replacement. */
-  async edit(
-    messageSeq: number,
-    expectedLastUserSeq: number,
-    text: string,
-    signal?: AbortSignal,
-  ): Promise<RemoteResult<{ accepted: true; messageSeq: number }>> {
-    const requestId = randomUUID() as SessionRequestId
-    this.pendingEdit = { requestId, targetSeq: messageSeq, expectedLastUserSeq, text, time: Date.now() }
-    this.promptError = null
-    this.lastAgentError = null
-    this.notifier.markDirty()
-    let result: RemoteResult<{ accepted: true; messageSeq: number }>
-    try {
-      result = await this.remote.session.edit({
-        requestId,
-        sessionId: this.sessionId,
-        messageSeq,
-        expectedLastUserSeq,
-        text,
-        clientTimeZone: resolvedClientTimeZone(),
-      }, signal)
-    } catch (error: unknown) {
-      const cleared = this.clearPendingEdit(requestId)
-      if (isRemoteFailure(error)) {
-        this.promptError = { op: 'edit', error }
-        this.notifier.markDirty()
-        return { ok: false, error }
-      }
-      if (cleared) this.notifier.markDirty()
-      throw error
-    }
-    if (!result.ok && this.clearPendingEdit(requestId)) {
-      this.promptError = { op: 'edit', error: result.error }
       this.notifier.markDirty()
     }
     return result
@@ -622,12 +582,6 @@ export class Session implements SessionFace {
 
   // ---- Private ----
 
-  private clearPendingEdit(requestId: SessionRequestId): boolean {
-    if (this.pendingEdit === null || this.pendingEdit.requestId !== requestId) return false
-    this.pendingEdit = null
-    return true
-  }
-
   /** @param generation - openGeneration at launch; stale passes cannot publish after replacement. */
   private async doOpen(generation: number): Promise<void> {
     this.openState = 'loading'
@@ -710,17 +664,6 @@ export class Session implements SessionFace {
 
   /** Retire the matching echo when a durable browser-prompt `user/message` becomes visible. */
   private observeSubmissionEvent(event: { readonly type: string; readonly data?: unknown }): void {
-    if (event.type === 'user/message' && this.pendingEdit !== null) {
-      const source = (event.data as { readonly source?: { readonly rpcId?: unknown } } | undefined)?.source
-      if (source?.rpcId === this.pendingEdit.requestId) {
-        const requestId = this.pendingEdit.requestId
-        scheduleFrame(() => {
-          if (this.pendingEdit?.requestId !== requestId) return
-          this.pendingEdit = null
-          this.notifier.markDirty()
-        })
-      }
-    }
     if (this.submissionSettlements.size === 0 || event.type !== 'user/message') return
     // Structural read: window entries may be compact history records, so the
     // fields are narrowed rather than trusted (same posture as Conversation
@@ -794,7 +737,6 @@ export class Session implements SessionFace {
       sessionId: this.sessionId,
       queue: this.queueMirror.snapshot(),
       pendingSubmissions: this.pendingSubmissions,
-      pendingEdit: this.pendingEdit,
       running: this.running,
       subagent: this.address === undefined
         ? null

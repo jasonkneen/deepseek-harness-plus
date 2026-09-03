@@ -46,7 +46,7 @@ kind: "package-reference"
 
 ### 过滤器
 
-`SessionResultFilter` 按 id、可空 cwd、创建时间范围、可空父级或来源可用性缩小会话范围；`SessionEventResultFilter` 按 seq/时间范围、事件类型、表层或字面文本缩小事件范围。`shadowed` 同时包含模型 surface 替换，以及显式编辑对话区间内的每个事件。过滤器数组使用 AND 连接，同一子句内的列表值使用 OR；空列表值不匹配任何内容，范围包含端点，格式错误的范围或未知的封闭联合值以 `SESSION_QUERY_INVALID_FILTER` 失败。
+`SessionResultFilter` 按 id、可空 cwd、创建时间范围、可空父级或来源可用性缩小会话范围；`SessionEventResultFilter` 按 seq/时间范围、事件类型、表层或字面文本缩小事件范围。过滤器数组使用 AND 连接，同一子句内的列表值使用 OR；空列表值不匹配任何内容，范围包含端点，格式错误的范围或未知的封闭联合值以 `SESSION_QUERY_INVALID_FILTER` 失败。
 
 文本子句是对所提取语义文本的字面、不区分大小写、空白灵活的扫描——而非全文查询。需要任意子字符串召回时使用它；需要排序后的全文结果时使用挂载后端的搜索方法。
 
@@ -81,7 +81,7 @@ kind: "package-reference"
 - **实时优先的逻辑语料库。** 每次读取都解析一个一致的观察：实时 `ctx.sessions` 优先，可选的 `ctx.sessionPersistence` 补充其余部分，冲突的不可变 header 宁可失败也不合并。
 - **脱离存储的结果。** 所有返回的 header、事件与记录都是克隆；不暴露实时状态，也不保留订阅。
 - **精确读取具体，搜索抽象。** 读取、过滤与追踪在此只实现一次；两个全文方法是由后端拥有的唯一抽象表面。
-- **规范的模型与对话折叠。** `listEvents`、`readSurface`、`traceEvent` 与搜索文档都通过 `dsh-session` 对整份日志分类，因此模型 surface 替换和显式编辑对话区间在各检索消费方之间保持一致。
+- **一次规范的表层折叠。** `listEvents`、`readSurface` 与 `traceEvent` 使用同一个 `dsh-session` 折叠校验整个日志，因此搜索与追踪和模型历史推导一致。
 
 决策历史记录在[统一服务决策](../../../.agents/notes/archived/architecture/2026-07-23-unified-session-query-service.md)、[追踪笔记](../../../.agents/notes/implemented/feature/2026-07-13-session-query-tracing.zh.md)与 [SQLite 提供方笔记](../../../.agents/notes/implemented/feature/2026-07-10-sqlite-session-query-provider.zh.md)中。
 
@@ -112,7 +112,7 @@ kind: "package-reference"
 
 ### 读取与追踪
 
-`readSession` 通过 `Session.create` 回放日志，复用恢复的校验。`readSurface`、`listEvents`、`traceEvent` 与语义文档投影共用模型 surface 折叠，随后应用合并后的编辑对话区间；被任一机制隐藏的事件都分类为 `shadowed`。这些折叠会校验从零开始且连续的 seq、标记适用性以及替换或引用完整性；任何违规都以 `SESSION_QUERY_INVALID_SURFACE` 失败。对话成员关系在已排序且互不重叠的区间上使用二分查找，因此每个被分类事件只增加与编辑次数成对数关系的工作量。追踪是一次性的：会话血缘只读取一次语料库并确定性遍历父级与后代树；事件追踪沿位置替换者跟进到最终节点，同时保持被引用源事件链接不传递。
+`readSession` 通过 `Session.create` 回放日志，复用恢复的校验。`readSurface`、`listEvents` 与 `traceEvent` 共用一次 `foldSurface` 遍历，把事件分类为 `current`、`shadowed` 或 `log-only`，并校验从零开始且连续的 seq、表层标记的适用性以及替换或引用完整性；任何违规都以 `SESSION_QUERY_INVALID_SURFACE` 失败。追踪是一次性的：会话血缘只读取一次语料库并确定性遍历父级与后代树；事件追踪沿位置替换者跟进到最终节点，同时保持被引用源事件链接不传递。
 
 </details>
 

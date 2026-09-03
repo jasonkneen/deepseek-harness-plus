@@ -7,7 +7,7 @@ export type { IConversation } from './service.ts'
 export type {
   ConversationContextReader, ConversationLocation,
   ConversationLocationData, ConversationLocationDataScope, ConversationLocationDataSource,
-  ConversationLocationDataStore, ConversationPresentation,
+  ConversationLocationDataStore,
   ConversationMatch, ConversationMatchResult, ConversationNodeContext,
   ConversationNodeDefinition, ConversationPreviousContext, ConversationPublication,
   ConversationStartMatch,

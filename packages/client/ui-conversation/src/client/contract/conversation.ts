@@ -250,12 +250,6 @@ export interface ConversationTimelineSnapshot {
   readonly turns: ReadonlyMap<number, TurnLocation>
 }
 
-/** Current model-surface membership accompanying one Conversation publication. */
-export interface ConversationPresentation {
-  /** Loaded surface-event seqs that remain in the current model context. */
-  readonly currentSurfaceSeqs: ReadonlySet<number>
-}
-
 /** Per-Session incremental builder for one view target. */
 export interface ConversationViewBuilder<Node extends ConversationViewNode = ConversationViewNode, Snapshot = unknown> {
   readonly empty: Snapshot
@@ -267,7 +261,6 @@ export interface ConversationViewBuilder<Node extends ConversationViewNode = Con
   replace(input: {
     readonly nodes: readonly Node[]
     readonly timeline: ConversationTimelineSnapshot
-    readonly presentation?: ConversationPresentation
   }): Snapshot
   /**
    * Apply only Nodes whose materialized values changed in this transaction.
@@ -277,7 +270,6 @@ export interface ConversationViewBuilder<Node extends ConversationViewNode = Con
   apply(input: {
     readonly upserts: readonly Node[]
     readonly timeline: ConversationTimelineSnapshot
-    readonly presentation?: ConversationPresentation
   }): Snapshot
 }
 

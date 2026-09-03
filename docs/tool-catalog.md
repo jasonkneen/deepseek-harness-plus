@@ -1375,11 +1375,12 @@ Search prior events in one authorized session; the current session excludes the 
     },
     "surfaces": {
       "type": "array",
-      "description": "Current model-surface or active log-only events to include.",
+      "description": "Event surfaces to include.",
       "items": {
         "type": "string",
         "enum": [
           "current",
+          "shadowed",
           "log-only"
         ]
       }
@@ -1492,11 +1493,12 @@ Search prior sessions in the caller workspace and return the strongest matching 
     },
     "event_surfaces": {
       "type": "array",
-      "description": "Current model-surface or active log-only events to include.",
+      "description": "Event surfaces to include.",
       "items": {
         "type": "string",
         "enum": [
           "current",
+          "shadowed",
           "log-only"
         ]
       }

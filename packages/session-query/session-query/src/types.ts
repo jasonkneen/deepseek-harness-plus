@@ -65,7 +65,7 @@ export interface SessionEventRecord {
   type: SessionEventType
   /** Event timestamp in Unix epoch milliseconds. */
   time: number
-  /** Event placement after model-surface and conversation-generation folding. */
+  /** Event placement in the folded session surface. */
   surface: SessionEventSurface
 }
 

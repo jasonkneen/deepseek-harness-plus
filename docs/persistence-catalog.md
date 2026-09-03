@@ -48,8 +48,7 @@ export type SurfaceOp =
  * A proper discriminated union over `type` (not independent `type`/`data`
  * unions), so `switch (event.type)` narrows `event.data` without casts.
  *
- * The {@link sourceEventSeqs}, {@link surfaceOp}, and {@link conversationOp}
- * fields are conditional:
+ * The {@link sourceEventSeqs} and {@link surfaceOp} fields are conditional:
  * they only exist on {@link SurfaceEventType} variants (`user/message`,
  * `assistant/message`, `tool/result`).
  * Non-surface events (boundary markers, chunks, usage, errors) never carry
@@ -87,13 +86,11 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
     sourceEventSeqs?: SessionSeq[]
     /** How this event entered the surface; absent for non-surface events. */
     surfaceOp?: SurfaceOp
-    /** Raw event range this message replaces in current conversation projections. */
-    conversationOp?: ConversationOp
   } : object)
 }[T]
 ```
 
-Sources: [`packages/core/session/src/types.ts:368`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:375`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:404`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:449`](../packages/core/session/src/types.ts)
+Sources: [`packages/core/session/src/types.ts:368`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:375`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:404`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:436`](../packages/core/session/src/types.ts)
 
 ## Events
 
@@ -114,13 +111,11 @@ Sources: [`packages/core/session/src/types.ts:368`](../packages/core/session/src
   start: number
   removedCount?: number
   inserted: UserMessage[]
-  /** Optional per-message placement and same-step companions. */
-  admissions?: InboxAdmission[]
   outcome?: 'canceled'
 }
 ```
 
-Source: [`packages/core/agent/src/types.ts:71`](../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:58`](../packages/core/agent/src/types.ts)
 
 ### `agent-preset/*`
 
@@ -678,7 +673,7 @@ Source: [`packages/core/session/src/types.ts:364`](../packages/core/session/src/
 
 Types: [SessionTitleEventData](subsystems/session-title.md)
 
-Source: [`packages/session/session-title/src/index.ts:79`](../packages/session/session-title/src/index.ts)
+Source: [`packages/session/session-title/src/index.ts:77`](../packages/session/session-title/src/index.ts)
 
 <a id="sessiontitle-llm-request--log-only"></a>
 

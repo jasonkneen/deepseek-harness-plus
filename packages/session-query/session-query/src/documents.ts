@@ -2,7 +2,6 @@
 
 import { foldSurface } from '@deepseek-ai/dsh-session'
 import type { SessionEvent, SessionId, SessionSeq } from '@deepseek-ai/dsh-session'
-import { foldConversation, isConversationSeqVisible } from '@deepseek-ai/dsh-session/conversation'
 import type { SessionEventRecord, SessionEventSearchDocument, SessionEventSurface } from './types.ts'
 import { SessionQueryError } from './config.ts'
 import { extractSessionEventText } from './extraction.ts'
@@ -70,10 +69,6 @@ function classifySurface(events: readonly SessionEvent[]): Map<SessionSeq, Sessi
   for (const seq of folded.nodes) result.set(seq, 'current')
   for (const replacement of folded.replacements) {
     for (const seq of replacement.shadowedSeqs) result.set(seq, 'shadowed')
-  }
-  const conversation = foldConversation(events)
-  for (const event of events) {
-    if (!isConversationSeqVisible(event.seq, conversation.hiddenRanges)) result.set(event.seq, 'shadowed')
   }
   return result
 }

@@ -123,16 +123,6 @@
     },
     {
       "doc": "docs/subsystems/core.md",
-      "symbol": "InboxAdmission",
-      "source": "packages/core/agent/src/types.ts"
-    },
-    {
-      "doc": "docs/subsystems/core.md",
-      "symbol": "AgentSendOptions",
-      "source": "packages/core/agent/src/runtime-types.ts"
-    },
-    {
-      "doc": "docs/subsystems/core.md",
       "symbol": "CancelOptions",
       "source": "packages/core/agent/src/runtime-types.ts"
     },
@@ -528,26 +518,6 @@
       "doc": "docs/subsystems/session.md",
       "symbol": "SurfaceOp",
       "source": "packages/core/session/src/types.ts"
-    },
-    {
-      "doc": "docs/subsystems/session.md",
-      "symbol": "ConversationOp",
-      "source": "packages/core/session/src/types.ts"
-    },
-    {
-      "doc": "docs/subsystems/session.md",
-      "symbol": "ConversationReplacement",
-      "source": "packages/core/session/src/conversation.ts"
-    },
-    {
-      "doc": "docs/subsystems/session.md",
-      "symbol": "ConversationHiddenRange",
-      "source": "packages/core/session/src/conversation.ts"
-    },
-    {
-      "doc": "docs/subsystems/session.md",
-      "symbol": "ConversationFoldResult",
-      "source": "packages/core/session/src/conversation.ts"
     },
     {
       "doc": "docs/subsystems/session.md",
@@ -1940,11 +1910,6 @@
       "doc": "docs/subsystems/core.md",
       "symbol": "AgentOptions",
       "source": "packages/core/agent/src/runtime-types.ts"
-    },
-    {
-      "doc": "docs/subsystems/conversation.md",
-      "symbol": "ConversationPresentation",
-      "source": "packages/client/ui-conversation/src/client/contract/conversation.ts"
     },
     {
       "doc": "docs/subsystems/feedback.md",

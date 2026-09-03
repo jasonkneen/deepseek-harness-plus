@@ -28,7 +28,6 @@ const sessionState: SessionState = {
   sessionId: SID,
   queue: [],
   pendingSubmissions: [],
-  pendingEdit: null,
   running: false,
   subagent: null,
   removed: false,

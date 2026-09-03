@@ -111,7 +111,7 @@ const handle = await ctx.agents.create({
 
 ### 轮次与步骤流程
 
-驱动器在其整个生命周期内拥有一个 agent，并在 `ctx.agents.withInitiator(agent, ...)` 内运行。在轮次边界，它先打开持久轮次，再原子领取待处理的 next-step 输入与一条排队提示词；在步骤之间则只领取 next-step 输入。一次被领取的 inbox 准入会把同一步骤配套消息紧接在主消息之后展开。`agent/pre-step` 决定什么进入该步骤，非默认 Session 放置方式则按 `MessageId` 经历监听器重写后继续跟随主消息。pre-step payload 会公开已领取的放置映射，使会修改 surface 的监听器能在预定替换待提交时推迟操作。进入步骤的决定会在驱动器再次领取消息前追加完整的 `user/message` 批次，被拒绝的决定则不追加任何消息。每次成功的模型调用都恰好追加一个引用其分片 seq 的 `assistant/message` 锚点，被取消的流则追加带 `interrupted: true` 的锚点并携带已交付前缀，使下一次请求包含用户看到的内容。在步骤内，独占调用形成屏障，并行安全调用使用有界滚动池；策略、持久结果与结果上下文保持模型顺序。
+驱动器在其整个生命周期内拥有一个 agent，并在 `ctx.agents.withInitiator(agent, ...)` 内运行。在轮次边界，它先打开持久轮次，再原子领取待处理的 next-step 输入与一条排队提示词；在步骤之间则只领取 next-step 输入。`agent/pre-step` 决定什么进入该步骤。进入步骤的决定会在驱动器再次领取消息前追加完整的 `user/message` 批次，被拒绝的决定则不追加任何消息。每次成功的模型调用都恰好追加一个引用其分片 seq 的 `assistant/message` 锚点，被取消的流则追加带 `interrupted: true` 的锚点并携带已交付前缀，使下一次请求包含用户看到的内容。在步骤内，独占调用形成屏障，并行安全调用使用有界滚动池；策略、持久结果与结果上下文保持模型顺序。
 
 ### 失败与取消
 

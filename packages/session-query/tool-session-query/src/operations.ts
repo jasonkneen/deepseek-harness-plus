@@ -74,7 +74,7 @@ async function executeSessionSearch(
     timeFrom: args.event_time_from,
     timeTo: args.event_time_to,
     eventTypes: args.event_types,
-    surfaces: args.event_surfaces ?? ['current', 'log-only'],
+    surfaces: args.event_surfaces,
   })
   const requestedParentIds = toolInput.materializeParentSessionIds(args.parent_session_ids)
   if (requestedParentIds !== undefined || args.include_root_sessions === true) {
@@ -147,7 +147,7 @@ async function executeEventSearch(
     timeFrom: args.time_from,
     timeTo: args.time_to,
     eventTypes: args.event_types,
-    surfaces: args.surfaces ?? ['current', 'log-only'],
+    surfaces: args.surfaces,
   })
   const collected = await collectPages(
     maxResults,

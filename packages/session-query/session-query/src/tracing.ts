@@ -8,7 +8,6 @@ import type {
   SurfaceEvent,
   SurfaceEventType,
 } from '@deepseek-ai/dsh-session'
-import { foldConversation, isConversationSeqVisible } from '@deepseek-ai/dsh-session/conversation'
 import { SessionQueryError } from './config.ts'
 import type {
   SessionEventRecord,
@@ -195,7 +194,6 @@ function analyzeEventLog(
     )
   }
   const current = new Set(folded.nodes)
-  const conversation = foldConversation(events)
   const replacedBy = new Map<SessionSeq, SessionSeq>()
   const replacedEventSeqs = new Map<SessionSeq, SessionSeq[]>()
   for (const replacement of folded.replacements) {
@@ -211,11 +209,9 @@ function analyzeEventLog(
       seq: event.seq,
       type: event.type,
       time: event.time,
-      surface: !isConversationSeqVisible(event.seq, conversation.hiddenRanges)
-        ? 'shadowed'
-        : current.has(event.seq)
-          ? 'current'
-          : replacedBy.has(event.seq) ? 'shadowed' : 'log-only',
+      surface: current.has(event.seq)
+        ? 'current'
+        : replacedBy.has(event.seq) ? 'shadowed' : 'log-only',
     })),
     replacedBy,
     replacedEventSeqs,

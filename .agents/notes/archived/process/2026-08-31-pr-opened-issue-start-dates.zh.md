@@ -1,6 +1,7 @@
 # Agent Note: 在 PR 创建时设置 Issue 开始日期
 
 Status: implemented
+Archived: 2026-09-02
 
 [English](2026-08-31-pr-opened-issue-start-dates.md) | 中文
 

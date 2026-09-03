@@ -84,7 +84,7 @@ const EMPTY_OUTLINE: TurnOutlineState = { turns: [], draft: '' }
 /** The `turnOutline` unit registered on `ctx.sessionProjections` (exported for the unit spec). */
 export const turnOutlineProjectionDefinition = {
   key: 'turnOutline',
-  stateVersion: 3,
+  stateVersion: 2,
   stateSchema: turnOutlineStateSchema,
   init: () => EMPTY_OUTLINE,
   apply: (state, event) => {
@@ -104,24 +104,15 @@ export const turnOutlineProjectionDefinition = {
         }
       }
       case 'user/message': {
-        const conversationOp = event.conversationOp
-        const visibleTurns = conversationOp === undefined
-          ? state.turns
-          : state.turns.filter(entry =>
-            entry.seq < conversationOp.start || entry.seq > conversationOp.end)
         // Only the newest turn can still be waiting for its opening human
         // prompt; later human messages in the same turn (steering) keep the
         // first preview.
-        if (event.data.source.kind !== 'user') {
-          return visibleTurns === state.turns ? state : { turns: visibleTurns, draft: state.draft }
-        }
-        const last = visibleTurns.at(-1)
-        if (last === undefined || last.prompt !== '') {
-          return visibleTurns === state.turns ? state : { turns: visibleTurns, draft: state.draft }
-        }
+        if (event.data.source.kind !== 'user') return state
+        const last = state.turns.at(-1)
+        if (last === undefined || last.prompt !== '') return state
         const prompt = preview(event.data.content, PROMPT_PREVIEW_LIMIT)
-        if (prompt === '') return visibleTurns === state.turns ? state : { turns: visibleTurns, draft: state.draft }
-        return { turns: [...visibleTurns.slice(0, -1), { ...last, prompt }], draft: state.draft }
+        if (prompt === '') return state
+        return { turns: [...state.turns.slice(0, -1), { ...last, prompt }], draft: state.draft }
       }
       case 'assistant/message': {
         // Newest text-bearing message wins; the buffer commits at turn/end.

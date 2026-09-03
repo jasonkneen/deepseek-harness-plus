@@ -95,8 +95,6 @@ export interface ChatSnapshot {
   readonly locations: ChatLocationNodeIndex
   readonly navigation: ChatTurnNavigationIndex
   readonly timeline: ConversationTimelineSnapshot
-  /** Loaded model-surface membership used to gate historical message actions. */
-  readonly currentSurfaceSeqs?: ReadonlySet<number>
   readonly legacy: LegacyConversationSlice
 }
 
@@ -134,7 +132,6 @@ export const EMPTY_CHAT_SNAPSHOT: ChatSnapshot = {
     items: () => EMPTY_LIST,
   },
   timeline: EMPTY_TIMELINE,
-  currentSurfaceSeqs: new Set(),
   legacy: {
     nodes: EMPTY_LIST,
     turnTimings: new Map(),

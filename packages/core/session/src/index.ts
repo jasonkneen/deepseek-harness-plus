@@ -16,7 +16,6 @@ import type { Message } from '@deepseek-ai/dsh-llm'
 import { SESSION_FORMAT_VERSION, SessionLogOffset, SessionSeq } from './types.ts'
 import type { TypertLookup } from '@deepseek-ai/dsh-typert-protocol'
 import type { CreateSessionOptions, EpochHeader, PrepareSessionOptions, RequestContext, SessionEvent, SessionEventMap, SessionEventType, SessionHeader, SessionId, SurfaceIntent, SurfaceEventType } from './types.ts'
-import { validateConversationEvent } from './conversation.ts'
 import { deriveEventMessage, SurfaceManager } from './surface.ts'
 import type { SessionSurface } from './surface.ts'
 import { foldRequestHeader } from './request-header.ts'
@@ -31,16 +30,6 @@ export type { ChunkRow, StorageRecord } from './chunk-rows.ts'
 export type { SessionSurface, SurfaceFoldReplacement, SurfaceFoldResult } from './surface.ts'
 export { deriveEventMessage, foldSurface, isAppendSurfaceEvent, isReplacementSurfaceEvent, isSurfaceEvent, isSurfaceEligibleType } from './surface.ts'
 export { canonicalHeader, foldRequestHeader, headerEquals } from './request-header.ts'
-export {
-  foldConversation,
-  isConversationReplacementEvent,
-  isConversationSeqVisible,
-} from './conversation.ts'
-export type {
-  ConversationFoldResult,
-  ConversationHiddenRange,
-  ConversationReplacement,
-} from './conversation.ts'
 export { KNOWN_SESSION_EVENT_TYPES } from './known-event-types.ts'
 
 declare module '@deepseek-ai/cordis' {
@@ -234,7 +223,6 @@ function assertSessionEventEnvelope(value: Record<string, unknown>, index: numbe
       case 'data':
       case 'surfaceOp':
       case 'sourceEventSeqs':
-      case 'conversationOp':
       case 'ignorable':
         break
       default:
@@ -558,7 +546,6 @@ export class Session {
         // enters `log`, so a failure cannot partially mutate the surface.
         try {
           this.surfaceManager.validateNext(snapshot)
-          validateConversationEvent(this.log, snapshot)
         } catch (error: unknown) {
           throw new Error(`invalid seed event at index ${index}: ${error instanceof Error ? error.message : 'invalid surface metadata'}`)
         }
@@ -655,11 +642,10 @@ export class Session {
    * @param data - The event payload; must be JSON-serializable.
    * @param opts - Surface metadata: `surfaceOp` controls how the event enters
    *   the ordered surface; `sourceEventSeqs` lists the seq numbers of earlier
-   *   events this one derives from; `conversationOp` lets a replacement user
-   *   message hide one earlier raw-event range from current conversation
-   *   views. REQUIRED for {@link SurfaceEventType} events (every
-   *   message-producing event must declare how it joins the surface, the sole
-   *   source of derived model history) and
+   *   events this one derives from. REQUIRED for
+   *   {@link SurfaceEventType} events (every message-producing event must
+   *   declare how it joins the surface, the sole source of derived model
+   *   history) and
    *   rejected by the compiler for non-surface types like `turn/start` or
    *   `assistant/chunk`.
    * @returns the logged event — its assigned `seq`/`time` plus the SNAPSHOT of
@@ -688,7 +674,6 @@ export class Session {
     const surfaceMetadata = {
       ...surfaceOpts?.sourceEventSeqs === undefined ? {} : { sourceEventSeqs: surfaceOpts.sourceEventSeqs },
       ...surfaceOpts?.surfaceOp === undefined ? {} : { surfaceOp: surfaceOpts.surfaceOp },
-      ...surfaceOpts?.conversationOp === undefined ? {} : { conversationOp: surfaceOpts.conversationOp },
     }
     const dataSnapshot = snapshotJsonValue(data)
     if (dataSnapshot === undefined) {
@@ -708,10 +693,9 @@ export class Session {
       seq: SessionSeq(this.log.length),
       time: Date.now(),
       data: dataSnapshot,
-      ...(surfaceMetadataSnapshot as { conversationOp?: unknown; surfaceOp?: unknown; sourceEventSeqs?: unknown }),
+      ...(surfaceMetadataSnapshot as { surfaceOp?: unknown; sourceEventSeqs?: unknown }),
     } as unknown as SessionEvent<T>)
     this.surfaceManager.validateNext(event as SessionEvent)
-    validateConversationEvent(this.log, event as SessionEvent)
 
     if (entry !== undefined) entry.appending = true
     try {

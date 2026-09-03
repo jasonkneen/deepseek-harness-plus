@@ -84,25 +84,10 @@ export interface ChatNodeOwnerProps {
    * rendering closure.
    */
   loadImage: MessageImageLoader
-  messageEdit?: MessageEditController | undefined
   renderMessageImages: RenderMessageImages
   fileMentions: (owner: TurnTailOwnerProps) => MarkdownFileMentions | undefined
   /** Turn-process state when this Node belongs to a projected Turn. */
   turnProcess?: TurnProcessOwnerProps | undefined
-}
-
-/** Session-local inline editor state and actions shared by user-message rows. */
-export interface MessageEditController {
-  readonly latestUserSeq: number
-  readonly current: {
-    readonly seq: number
-    readonly text: string
-    readonly expectedLastUserSeq: number
-  } | null
-  begin: (seq: number, text: string, expectedLastUserSeq: number) => void
-  change: (text: string) => void
-  submit: () => void
-  cancel: () => void
 }
 
 /** Shared presentation state for one Turn-process answer generation. */
@@ -165,7 +150,6 @@ export interface ChatViewInjected {
     read: () => ChatScrollPosition | null
   }
   forkAt: (seq: number) => void
-  editMessage?: ((seq: number, expectedLastUserSeq: number, text: string) => Promise<void>) | undefined
   fileMentions: (owner: TurnTailOwnerProps) => MarkdownFileMentions | undefined
 }
 

@@ -8,7 +8,7 @@
 
 ## 逻辑记录
 
-`SessionRecord` 由全语料库列表返回。它除了克隆的、优先取自 live 源的 header 外，还单独公开各源的可用性。`SessionEventRecord` 是轻量的原始日志投影；分类使用与模型历史推导相同的 `foldSurface()` 状态转换，随后把显式编辑对话区间内的每个事件标记为 `shadowed`。原始日志仍可通过精确操作读取。
+`SessionRecord` 由全语料库列表返回。它除了克隆的、优先取自 live 源的 header 外，还单独公开各源的可用性。`SessionEventRecord` 是轻量的原始日志投影；分类使用与模型历史推导相同的 `foldSurface()` 状态转换。
 
 ```ts type-equiv
 /** Whether an event is current model context, replaced context, or raw-log-only. */
@@ -99,7 +99,7 @@ interface SessionEventRecord {
   type: SessionEventType
   /** Event timestamp in Unix epoch milliseconds. */
   time: number
-  /** Event placement after model-surface and conversation-generation folding. */
+  /** Event placement in the folded session surface. */
   surface: SessionEventSurface
 }
 ```
@@ -146,7 +146,7 @@ interface SessionEventSearchDocument extends SessionEventRecord {
 
 ## 全文搜索结果页
 
-整合后的 `ctx.sessionQuery` seam 提供两个全文搜索范围。`searchSessions()` 按匹配度最强的事件对语料库分组；`searchEvents()` 搜索单个会话。请求将不透明游标与规范化后的查询、元数据过滤器和结果数量上限绑定。提供方的元数据过滤器有意不包含事件文本扫描。面向模型的工具默认让两个操作只查询 `current` 与 `log-only`，且不公开 `shadowed`，因此被编辑替换的内容无需删除索引记录也会被排除；程序化调用方仍可显式请求 `shadowed` 进行诊断。
+整合后的 `ctx.sessionQuery` seam 提供两个全文搜索范围。`searchSessions()` 按匹配度最强的事件对语料库分组；`searchEvents()` 搜索单个会话。请求将不透明游标与规范化后的查询、元数据过滤器和结果数量上限绑定。提供方的元数据过滤器有意不包含事件文本扫描。
 
 ```ts type-equiv
 /** Provider-owned opaque continuation token returned by session search. */

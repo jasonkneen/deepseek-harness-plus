@@ -5,17 +5,11 @@
  */
 
 import type { MessageId } from '@deepseek-ai/dsh-llm'
-import type { Session, SessionEventMap, SurfaceIntent, UserMessage } from '@deepseek-ai/dsh-session'
-import type { InboxAdmission, InboxTarget } from './types.ts'
+import type { Session, SessionEventMap, UserMessage } from '@deepseek-ai/dsh-session'
+import type { InboxTarget } from './types.ts'
 
 /** Mutable state privately owned by an {@link Inbox}. */
 type InboxState = Record<InboxTarget, UserMessage[]>
-
-/** One claimed message plus its optional non-default Session placement. */
-export interface ClaimedInboxMessage {
-  readonly message: UserMessage
-  readonly surfaceIntent?: SurfaceIntent
-}
 
 /** Live notifications committed by inbox mutations. */
 export interface InboxNotifications {
@@ -30,7 +24,6 @@ export interface InboxNotifications {
 /** A replay-once projection that incrementally consumes later inbox splices. */
 export class Inbox {
   private readonly state: InboxState = { 'next-turn': [], 'next-step': [] }
-  private readonly admissions = new Map<MessageId, Omit<InboxAdmission, 'messageId'>>()
 
   constructor(
     private readonly session: Session,
@@ -72,74 +65,36 @@ export class Inbox {
    * each claimed message. The durable splices are pure deletions.
    * @param target - whether this boundary also consumes one queued turn.
    * @param turn - turn that will own the claimed batch.
-   * @returns next-step input followed by the queued turn and any admission companions.
+   * @returns next-step input followed by the queued turn, when requested.
    * @internal - The agent loop's step-boundary operation, not a plugin extension point.
    */
   claim(target: InboxTarget, turn: number): UserMessage[] {
-    return this.claimWithIntents(target, turn).map(entry => entry.message)
-  }
-
-  /**
-   * Remove the complete batch proposed for one step while retaining any
-   * non-default Session placement carried by each message.
-   * @param target - whether this boundary also consumes one queued turn.
-   * @param turn - turn that will own the claimed batch.
-   * @returns claimed primary messages with optional placement and expanded same-step companions.
-   * @internal AgentLoop is the sole production consumer.
-   */
-  claimWithIntents(target: InboxTarget, turn: number): ClaimedInboxMessage[] {
-    const claimedAdmissions = new Map<MessageId, Omit<InboxAdmission, 'messageId'>>()
-    for (const message of this.nextStep) {
-      const admission = this.admissions.get(message.id)
-      if (admission !== undefined) claimedAdmissions.set(message.id, admission)
-    }
-    if (target === 'next-turn') {
-      const message = this.nextTurn[0]
-      const admission = message === undefined ? undefined : this.admissions.get(message.id)
-      if (message !== undefined && admission !== undefined) claimedAdmissions.set(message.id, admission)
-    }
     const claimed = this.mutate('next-step', 0, this.nextStep.length, [], false)
     if (target === 'next-turn') {
       claimed.push(...this.mutate('next-turn', 0, 1, [], false))
     }
-    const entries = claimed.flatMap((message): ClaimedInboxMessage[] => {
-      const admission = claimedAdmissions.get(message.id)
-      return [
-        {
-          message,
-          ...(admission?.surfaceIntent === undefined ? {} : { surfaceIntent: admission.surfaceIntent }),
-        },
-        ...(admission?.followingMessages ?? []).map(following => ({ message: following })),
-      ]
-    })
-    for (const { message } of entries) this.notifications.claimed(message, turn)
-    return entries
+    for (const message of claimed) this.notifications.claimed(message, turn)
+    return claimed
   }
 
   /**
    * Append one message to a pending list and durably record the insertion.
    * @param target - pending list to extend.
    * @param message - message to append.
-   * @param surfaceIntent - optional non-default Session placement retained through claim.
    * @throws if the message identity is already pending.
    */
-  append(target: InboxTarget, message: UserMessage, surfaceIntent?: SurfaceIntent): void {
-    this.splice(target, this.state[target].length, 0, [message], surfaceIntent === undefined
-      ? []
-      : [{ messageId: message.id, surfaceIntent }])
+  append(target: InboxTarget, message: UserMessage): void {
+    this.splice(target, this.state[target].length, 0, [message])
   }
 
   /**
    * Prepend one message to a pending list and durably record the insertion.
    * @param target - pending list to extend.
    * @param message - message to prepend.
-   * @param surfaceIntent - optional non-default Session placement retained through claim.
    * @throws if the message identity is already pending.
    */
-  prepend(target: InboxTarget, message: UserMessage, surfaceIntent?: SurfaceIntent): void {
-    this.splice(target, 0, 0, [message], surfaceIntent === undefined
-      ? []
-      : [{ messageId: message.id, surfaceIntent }])
+  prepend(target: InboxTarget, message: UserMessage): void {
+    this.splice(target, 0, 0, [message])
   }
 
   /**
@@ -154,10 +109,7 @@ export class Inbox {
   replace(messageId: MessageId, newMessage: UserMessage): boolean {
     const location = this.locate(messageId)
     if (location === undefined) return false
-    const admission = this.admissions.get(messageId)
-    this.splice(location.target, location.index, 1, [newMessage], admission === undefined
-      ? []
-      : [{ messageId: newMessage.id, ...admission }])
+    this.splice(location.target, location.index, 1, [newMessage])
     return true
   }
 
@@ -182,7 +134,6 @@ export class Inbox {
    * @param start - splice position.
    * @param deleteCount - maximum number of messages to remove.
    * @param inserted - messages to insert at the resolved position.
-   * @param admissions - optional metadata attached to identified inserted messages.
    * @returns messages removed by the splice.
    */
   splice(
@@ -190,9 +141,8 @@ export class Inbox {
     start: number,
     deleteCount: number,
     inserted: UserMessage[],
-    admissions: InboxAdmission[] = [],
   ): UserMessage[] {
-    return this.mutate(target, start, deleteCount, inserted, true, admissions)
+    return this.mutate(target, start, deleteCount, inserted, true)
   }
 
   /** Locate one pending identity across both owned lists. */
@@ -211,7 +161,6 @@ export class Inbox {
     deleteCount: number,
     inserted: UserMessage[],
     discardRemoved: boolean,
-    admissions: InboxAdmission[] = [],
   ): UserMessage[] {
     const inbox = this.state[target]
     const truncatedStart = Math.trunc(start)
@@ -231,16 +180,11 @@ export class Inbox {
       start: actualStart,
       ...(actualDeleteCount === 0 ? {} : { removedCount: actualDeleteCount }),
       inserted,
-      ...(admissions.length === 0 ? {} : { admissions }),
       ...(outcome === undefined ? {} : { outcome }),
     }
     this.validate(splice)
     const event = this.session.append('agent/inbox/spliced', splice)
     const removed = inbox.splice(actualStart, actualDeleteCount, ...event.data.inserted)
-    for (const message of removed) this.admissions.delete(message.id)
-    for (const { messageId, ...admission } of event.data.admissions ?? []) {
-      this.admissions.set(messageId, admission)
-    }
     if (discardRemoved) {
       for (const message of removed) this.notifications.discarded(message)
     }
@@ -252,12 +196,7 @@ export class Inbox {
   private apply(splice: SessionEventMap['agent/inbox/spliced']): UserMessage[] {
     this.validate(splice)
     const inbox = this.state[splice.target]
-    const removed = inbox.splice(splice.start, splice.removedCount ?? 0, ...splice.inserted)
-    for (const message of removed) this.admissions.delete(message.id)
-    for (const { messageId, ...admission } of splice.admissions ?? []) {
-      this.admissions.set(messageId, admission)
-    }
-    return removed
+    return inbox.splice(splice.start, splice.removedCount ?? 0, ...splice.inserted)
   }
 
   /** Validate one normalized splice against the current projection. */
@@ -276,23 +215,6 @@ export class Inbox {
       : [...this.nextTurn, ...candidate]) {
       if (ids.has(message.id)) throw new Error(`message "${message.id}" is already pending`)
       ids.add(message.id)
-    }
-    const insertedIds = new Set(splice.inserted.map(message => message.id))
-    const admissionIds = new Set<MessageId>()
-    for (const entry of splice.admissions ?? []) {
-      if (!insertedIds.has(entry.messageId)) {
-        throw new Error(`admission message "${entry.messageId}" is not inserted by this splice`)
-      }
-      if (admissionIds.has(entry.messageId)) {
-        throw new Error(`admission message "${entry.messageId}" is duplicated`)
-      }
-      if (entry.followingMessages !== undefined && !Array.isArray(entry.followingMessages)) {
-        throw new Error(`admission message "${entry.messageId}" has invalid following messages`)
-      }
-      if (entry.surfaceIntent === undefined && (entry.followingMessages?.length ?? 0) === 0) {
-        throw new Error(`admission message "${entry.messageId}" carries no metadata`)
-      }
-      admissionIds.add(entry.messageId)
     }
   }
 }

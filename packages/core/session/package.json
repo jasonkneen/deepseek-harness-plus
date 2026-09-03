@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-session",
   "description": "Event-sourced session store for the DeepSeek Harness",
-  "version": "0.1.2-alpha.5",
+  "version": "0.1.2-rc.1",
   "publishConfig": {
     "access": "public"
   },
@@ -35,10 +35,6 @@
     "./surface": {
       "types": "./lib/types/surface.d.ts",
       "default": "./lib/types/surface.js"
-    },
-    "./conversation": {
-      "types": "./lib/types/conversation.d.ts",
-      "default": "./lib/types/conversation.js"
     }
   },
   "files": [

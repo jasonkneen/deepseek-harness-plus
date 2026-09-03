@@ -1,7 +1,7 @@
 import type { Context } from '@deepseek-ai/cordis'
 import { notifySubscribers } from '@deepseek-ai/dsh-client-store'
 import type {
-  ConversationLocation, ConversationPresentation, ConversationTimelineSnapshot, ConversationViewBuilder,
+  ConversationLocation, ConversationTimelineSnapshot, ConversationViewBuilder,
   ConversationViewDefinition,
 } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type { ChatConversationViewNode, ChatNode } from '../contract/chat-nodes.ts'
@@ -20,7 +20,6 @@ const EMPTY_KEYS: readonly string[] = []
 const EMPTY_TURNS: readonly number[] = []
 const EMPTY_ITEMS: readonly TurnNavigationItem[] = []
 const EMPTY_LIST: readonly never[] = []
-const EMPTY_SURFACE_SEQS: ReadonlySet<number> = new Set()
 
 function sameReferences<T>(left: readonly T[], right: readonly T[]): boolean {
   return left.length === right.length && left.every((value, index) => value === right[index])
@@ -769,7 +768,6 @@ export class ChatSnapshotBuilder implements ConversationViewBuilder<ChatConversa
   replace(input: {
     readonly nodes: readonly ChatConversationViewNode[]
     readonly timeline: ConversationTimelineSnapshot
-    readonly presentation?: ConversationPresentation
   }): ChatSnapshot {
     const nodes = this.referenceLabels.replace(input.nodes)
     this.store.replace(nodes)
@@ -778,11 +776,7 @@ export class ChatSnapshotBuilder implements ConversationViewBuilder<ChatConversa
     this.store.replaceProcesses(this.order, this.locations)
     this.navigation.rebuild(input.timeline, this.locations, this.store)
     this.timeline = input.timeline
-    const snapshot = this.snapshot(
-      input.timeline,
-      this.legacy.replace(nodes, input.timeline),
-      input.presentation?.currentSurfaceSeqs ?? EMPTY_SURFACE_SEQS,
-    )
+    const snapshot = this.snapshot(input.timeline, this.legacy.replace(nodes, input.timeline))
     this.store.publish()
     return snapshot
   }
@@ -790,7 +784,6 @@ export class ChatSnapshotBuilder implements ConversationViewBuilder<ChatConversa
   apply(input: {
     readonly upserts: readonly ChatConversationViewNode[]
     readonly timeline: ConversationTimelineSnapshot
-    readonly presentation?: ConversationPresentation
   }): ChatSnapshot {
     const upserts = this.referenceLabels.apply(input.upserts, this.store)
     const processTurns = new Set<number>()
@@ -826,11 +819,7 @@ export class ChatSnapshotBuilder implements ConversationViewBuilder<ChatConversa
       this.navigation.touch(turnsOf(contentOnly), this.locations, this.store)
     }
     this.timeline = input.timeline
-    const snapshot = this.snapshot(
-      input.timeline,
-      this.legacy.apply(upserts, input.timeline),
-      input.presentation?.currentSurfaceSeqs ?? EMPTY_SURFACE_SEQS,
-    )
+    const snapshot = this.snapshot(input.timeline, this.legacy.apply(upserts, input.timeline))
     this.store.publish()
     return snapshot
   }
@@ -838,7 +827,6 @@ export class ChatSnapshotBuilder implements ConversationViewBuilder<ChatConversa
   private snapshot(
     timeline: ConversationTimelineSnapshot,
     legacy = this.legacy.replace(EMPTY_LIST, timeline),
-    currentSurfaceSeqs: ReadonlySet<number> = new Set(),
   ): ChatSnapshot {
     return {
       order: this.order,
@@ -846,7 +834,6 @@ export class ChatSnapshotBuilder implements ConversationViewBuilder<ChatConversa
       locations: this.locations,
       navigation: this.navigation,
       timeline,
-      currentSurfaceSeqs,
       legacy,
     }
   }

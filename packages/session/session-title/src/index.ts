@@ -15,9 +15,7 @@ import type {
   Session,
   SessionEvent,
 } from '@deepseek-ai/dsh-session'
-import { isConversationReplacementEvent, SessionSeq } from '@deepseek-ai/dsh-session'
-import { isAppendSurfaceEvent } from '@deepseek-ai/dsh-session/surface'
-import { foldConversation, isConversationSeqVisible } from '@deepseek-ai/dsh-session/conversation'
+import { SessionSeq } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-session-projection'
 import type { ProjectionDefinition } from '@deepseek-ai/dsh-session-projection'
 import type {} from '@deepseek-ai/dsh-agent'
@@ -97,7 +95,7 @@ export type SessionTitleAutomaticMode = 'first-prompt' | 'all-prompts'
 export interface SessionTitleProviderRequest {
   /** Live session being titled. */
   readonly session: Session
-  /** Current-generation eligible human messages through this title revision. */
+  /** All eligible human messages through this generation revision. */
   readonly messages: readonly SessionTitleUserMessage[]
   /** Exact current logged main-request route, when one has been recorded. */
   readonly route?: SessionTitleModelProvenance
@@ -251,12 +249,8 @@ function collectSessionTitleMessages(
   throughSeq?: SessionSeq,
 ): SessionTitleUserMessage[] {
   const messages: SessionTitleUserMessage[] = []
-  const boundedEvents = throughSeq === undefined
-    ? events
-    : events.filter(event => event.seq <= throughSeq)
-  const conversation = foldConversation(boundedEvents)
-  for (const event of boundedEvents) {
-    if (!isConversationSeqVisible(event.seq, conversation.hiddenRanges)) continue
+  for (const event of events) {
+    if (throughSeq !== undefined && event.seq > throughSeq) break
     const message = sessionTitleUserMessageOf(event)
     if (message !== undefined) messages.push(message)
   }
@@ -345,11 +339,10 @@ export class SessionTitleService extends Service {
 
     ctx.sessionProjections.register<'titleInput', TitleInputState>({
       key: 'titleInput',
-      stateVersion: 4,
+      stateVersion: 3,
       stateSchema: titleInputStateSchema,
       init: () => EMPTY_TITLE_INPUT,
       apply: (state, event) => {
-        if (!isAppendSurfaceEvent(event)) return state
         const message = sessionTitleUserMessageOf(event)
         if (message === undefined) return state
         return {
@@ -440,15 +433,14 @@ export class SessionTitleService extends Service {
       throw new Error(`session "${session.id}" is not live in this store`)
     }
     const registration = this.registration
-    const messages = collectSessionTitleMessages(session.snapshotEvents())
-    const first = messages[0]
-    const last = messages.at(-1)
-    if (registration === undefined || registration.closing || last === undefined) {
+    const input = this.titleInputOf(session)
+    if (registration === undefined || registration.closing || input.lastSeq === null) {
       // Explicit refresh is the unpin even without a provider: a standing
       // user title must not short-circuit ensureFallback into a no-op, so
       // re-derive and append the fallback over it when one is derivable.
       const current = this.get(session)
-      if (current?.source.kind === 'user' && first !== undefined) {
+      const first = input.first
+      if (current?.source.kind === 'user' && first !== null) {
         this.appendFallback(session, first)
         signal?.throwIfAborted()
         return this.get(session)
@@ -462,7 +454,7 @@ export class SessionTitleService extends Service {
     const work = this.activate({
       registration,
       revision,
-      throughSeq: last.seq,
+      throughSeq: input.lastSeq,
     }, state, signal)
     const config = session.requestHeader()?.config
     const route = config === undefined ? undefined : { provider: config.provider, model: config.model }
@@ -505,13 +497,7 @@ export class SessionTitleService extends Service {
   /** Schedule fallback creation and any provider cadence for one eligible event. */
   private onUserMessage(session: Session, event: Extract<SessionEvent, { type: 'user/message' }>): void {
     if (!this.serviceActive()) return
-    if (isConversationReplacementEvent(event)) {
-      this.supersede(this.stateFor(session), 'message edit superseded title generation')
-      return
-    }
-    if (!isAppendSurfaceEvent(event)
-      || event.data.source.kind !== 'user'
-      || sessionTitleUserMessageOf(event) === undefined) return
+    if (event.data.source.kind !== 'user' || sessionTitleUserMessageOf(event) === undefined) return
     // A user rename pins the title: no automatic revision may override it.
     if (this.get(session)?.source.kind === 'user') return
     const registration = this.registration
@@ -811,8 +797,8 @@ export class SessionTitleService extends Service {
     this.assertServiceActive()
     const current = this.get(session)
     if (current !== undefined) return current
-    const first = collectSessionTitleMessages(session.snapshotEvents())[0]
-    if (first === undefined) return undefined
+    const first = this.titleInputOf(session).first
+    if (first === null) return undefined
     const title = fallbackSessionTitle(
       first.text,
       this.config.fallbackMaxWords,

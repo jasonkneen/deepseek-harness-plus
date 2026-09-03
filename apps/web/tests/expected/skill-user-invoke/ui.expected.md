@@ -16,8 +16,6 @@
 - text: /user-invoke-demo and confirm the fixture wiring {{clock}}
 - button "Copy":
   - img
-- button "Edit message":
-  - img
 - button "Thought for a while":
   - text: Thought for a while
   - img

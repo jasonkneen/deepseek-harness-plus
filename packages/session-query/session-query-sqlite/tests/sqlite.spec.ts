@@ -436,56 +436,6 @@ describe('SQLite session search', () => {
     })
   })
 
-  it('classifies every searchable event in an edited conversation range as shadowed', async () => {
-    const ctx = await liveContext({ path: ':memory:' })
-    const oldPrompt = createUserMessage({
-      content: [{ type: 'text', text: 'old prompt' }], source: { kind: 'user' },
-    })
-    const replacement = createUserMessage({
-      content: [{ type: 'text', text: 'edited prompt' }], source: { kind: 'user' },
-    })
-    const events: SessionEvent[] = [
-      { type: 'turn/start', seq: SessionSeq(0), time: 0, data: { turn: 1 } },
-      { type: 'step/start', seq: SessionSeq(1), time: 1, data: { turn: 1, step: 1 } },
-      { type: 'user/message', seq: SessionSeq(2), time: 2, data: oldPrompt, surfaceOp: 'append' },
-      { type: 'tool/call', seq: SessionSeq(3), time: 3, data: { turn: 1, step: 1, callId: 'call' as never, name: 'old tool needle', arguments: '{}' } },
-      {
-        type: 'assistant/message', seq: SessionSeq(4), time: 4,
-        data: {
-          turn: 1,
-          step: 1,
-          message: createAssistantMessage({
-            content: [{ type: 'text', text: 'old answer' }],
-            source: { provider: 'fixture', model: 'fixture' },
-          }),
-        },
-        surfaceOp: 'append',
-        sourceEventSeqs: [],
-      },
-      { type: 'step/end', seq: SessionSeq(5), time: 5, data: { turn: 1, step: 1 } },
-      { type: 'turn/end', seq: SessionSeq(6), time: 6, data: { turn: 1, reason: { kind: 'completed' } } },
-      { type: 'turn/start', seq: SessionSeq(7), time: 7, data: { turn: 2 } },
-      { type: 'step/start', seq: SessionSeq(8), time: 8, data: { turn: 2, step: 1 } },
-      {
-        type: 'user/message', seq: SessionSeq(9), time: 9, data: replacement,
-        surfaceOp: { op: 'replace', start: SessionSeq(2), end: SessionSeq(4) },
-        sourceEventSeqs: [SessionSeq(2), SessionSeq(4)],
-        conversationOp: { op: 'replace', start: SessionSeq(0), end: SessionSeq(6) },
-      },
-    ]
-    ctx.sessions.create(SessionId('edited-search'), { seed: events, meta: { cwd: '/work' } })
-
-    await expect(ctx.sessionQuery.searchEvents({
-      sessionId: SessionId('edited-search'),
-      query: 'old tool needle',
-    })).resolves.toMatchObject({ items: [{ seq: 3, surface: 'shadowed' }] })
-    await expect(ctx.sessionQuery.searchEvents({
-      sessionId: SessionId('edited-search'),
-      query: 'old tool needle',
-      filters: [{ kind: 'surface', values: ['current', 'log-only'] }],
-    })).resolves.toMatchObject({ items: [] })
-  })
-
   it('searches at the supported FTS5 outer-predicate boundary in both scopes', async () => {
     const ctx = await liveContext()
     const session = ctx.sessions.create(SessionId('predicate-boundary'), {

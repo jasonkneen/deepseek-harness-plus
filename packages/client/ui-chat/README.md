@@ -8,12 +8,11 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-The browser Chat target for Conversation assembly. It registers Chat event definitions and snapshot construction, supplies `useChat`, renders transcript nodes and details, and owns Chat-specific stores, actions, localization, and scroll restoration; historical image URLs resolve through the Conversation-owned per-session cache (`ctx.uiConversation.imageUrl`). Its Assistant and Turn Tail definitions fold packed historical Assistant runs without expanding their members. Steering classification retains only next-step Inbox IDs through persistent splice state; next-turn splices create no Chat Context. Local submission echoes (`SessionSnapshot.pendingSubmissions`) retain the destination selected when submission begins: transcript echoes render at the flow tail, steering echoes carry the pending marker, and queued echoes stay out of Chat. Each echo disappears in the same render that exposes its durable user/steering node or Queue occurrence. `SessionSnapshot.pendingEdit` similarly replaces the selected suffix until the durable edited generation is renderable.
+The browser Chat target for Conversation assembly. It registers Chat event definitions and snapshot construction, supplies `useChat`, renders transcript nodes and details, and owns Chat-specific stores, actions, localization, and scroll restoration; historical image URLs resolve through the Conversation-owned per-session cache (`ctx.uiConversation.imageUrl`). Its Assistant and Turn Tail definitions fold packed historical Assistant runs without expanding their members. Steering classification retains only next-step Inbox IDs through persistent splice state; next-turn splices create no Chat Context. Local submission echoes (`SessionSnapshot.pendingSubmissions`) retain the surface selected when the submit begins: transcript echoes render at the flow tail, steering echoes render with the pending-steering marker, and queued echoes stay out of Chat. Each echo is hidden per render once a user/steering node or queue occurrence carries its prompt `rpcId`, so the handoff is atomic.
 
 ## Table of Contents
 
 - [System prompt row](#system-prompt-row)
-- [Message editing](#message-editing)
 - [Turn token usage](#turn-token-usage)
 - [Turn Process Folding](#turn-process-folding)
 - [Scroll ownership](#scroll-ownership)
@@ -27,15 +26,6 @@ The browser Chat target for Conversation assembly. It registers Chat event defin
 ## System prompt row
 
 Chat shows a collapsed `System prompt` row for each non-empty initial or resumed request, explicit message-series start, or real system-field change. It does not repeat the row for same-series config-only or tool-only changes, tool steps, or retries. The row appears before that request's user messages, matching the provider envelope, and expands to the exact model-visible text with its original line breaks. A partial history window renders a non-initial header conservatively until the preceding page arrives; a header without a system prompt creates no row.
-
------
-
-<a id="message-editing"></a>
-## Message editing
-
-Only the latest human message exposes Edit, and only when it is a current-surface, turn-opening prompt in an ordinary Session. Earlier messages, compacted messages, steering, injected context, and direct subagent conversations do not. Edit replaces the bubble with a composer-style input card that fills the Chat content width: input-surface fill, border and elevation, plus an internal cancel/save action row. Its textarea starts at 80px, grows with its content up to 240px, and then scrolls internally. Enter submits, Shift+Enter inserts a newline, and Escape cancels. The normal composer remains enabled; starting another submission closes the inline editor.
-
-Submission moves the edited message to the transcript tail immediately and hides every later row while the Host validates and commits the replacement. A failure restores the durable conversation and appears through the normal prompt-error channel. A successful replacement has a new timestamp and no edited badge or Undo action; its retained attachments and session-reference labels remain on the replacement. The existing Session title is unchanged.
 
 -----
 

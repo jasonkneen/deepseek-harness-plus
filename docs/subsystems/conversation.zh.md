@@ -8,17 +8,7 @@ Conversation 是 Client `SessionEventLikeEntry` window 与浏览器 view 之间�
 
 ## 数据模型与所有权
 
-Session Controller 拥有连续的已加载逻辑 event window。每个 `SessionEventLikeEntry` 都是 `{ type: 'event', event: SessionEvent }` 或 `{ type: 'chunks', event: ChunkRowEvent }`；两种内部 event 都公开 `type`、`seq`、`time` 与 `data`。组装之前，`ConversationPresentationState` 会折叠显式 `conversationOp` 替换，从每个当前 target 中移除隐藏原始事件区间内的 entry，并为 target 自有动作计算已加载的当前 surface 成员关系。一次替换 append 会原子重建已加载窗口，因此任何 target 都不会发布新旧代次混合的中间状态。没有 `conversationOp` 的普通 surface 替换（包括压缩检查点）维持既有的人类 transcript 行为。
-
-`ui-conversation` 把每个被保留的 entry 直接交给 assembler，不另开 history stream、不转换 record，也不展开 packed member。每个 Session 对应一个 `ConversationNodeAssembler`，它应用所有已注册 Definition，并为每个已注册 view target 发布独立 source。
-
-```ts type-equiv
-/** Current model-surface membership accompanying one Conversation publication. */
-interface ConversationPresentation {
-  /** Loaded surface-event seqs that remain in the current model context. */
-  readonly currentSurfaceSeqs: ReadonlySet<number>
-}
-```
+Session Controller 拥有连续的已加载逻辑 event window。每个 `SessionEventLikeEntry` 都是 `{ type: 'event', event: SessionEvent }` 或 `{ type: 'chunks', event: ChunkRowEvent }`；两种内部 event 都公开 `type`、`seq`、`time` 与 `data`。`ui-conversation` 把这些 entry 直接交给 assembler，不另开 history stream、不转换 record，也不展开 packed member。每个 Session 对应一个 `ConversationNodeAssembler`，它应用所有已注册 Definition，并为每个已注册 view target 发布独立 source。
 
 | 概念 | Owner 与用途 |
 |---|---|

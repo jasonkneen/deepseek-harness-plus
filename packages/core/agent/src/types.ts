@@ -5,10 +5,7 @@
  */
 
 import type { UserMessage } from '@deepseek-ai/dsh-llm/types'
-import type { MessageId } from '@deepseek-ai/dsh-llm/brand'
-import type {
-  OptionalSessionSeq, SessionId, SessionSeq, SurfaceIntent,
-} from '@deepseek-ai/dsh-session/types'
+import type { OptionalSessionSeq, SessionId, SessionSeq } from '@deepseek-ai/dsh-session/types'
 import type { TypertContext, TypertLookup } from '@deepseek-ai/dsh-typert-protocol'
 
 /** Public live-agent handle; the runtime face augments its live capabilities. */
@@ -30,16 +27,6 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
 
 /** One of the two ordered pending-message lists owned by an agent. */
 export type InboxTarget = 'next-turn' | 'next-step'
-
-/** Durable admission metadata attached to one inserted inbox message. */
-export interface InboxAdmission {
-  /** Message identity the metadata follows through queue edits and claim. */
-  readonly messageId: MessageId
-  /** Exact placement applied when AgentLoop records the claimed user message. */
-  readonly surfaceIntent?: SurfaceIntent
-  /** Messages recorded immediately after the identified message in the same step. */
-  readonly followingMessages?: readonly UserMessage[]
-}
 
 /**
  * Turn and step boundaries folded from one agent session log.
@@ -73,8 +60,6 @@ declare module '@deepseek-ai/dsh-session/types' {
       start: number
       removedCount?: number
       inserted: UserMessage[]
-      /** Optional per-message placement and same-step companions. */
-      admissions?: InboxAdmission[]
       outcome?: 'canceled'
     }
   }

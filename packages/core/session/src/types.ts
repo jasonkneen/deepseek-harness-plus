@@ -406,16 +406,6 @@ export type SurfaceOp =
   | { op: 'replace'; start: SessionSeq; end: SessionSeq }
 
 /**
- * How one message starts a new user-facing conversation generation.
- *
- * The inclusive raw-event range remains in the append-only log but is omitted
- * from current conversation projections. Unlike {@link SurfaceOp}, this range
- * covers every event family rendered by Chat, Trajectory, search, and
- * transcript exporters rather than only model-message surface nodes.
- */
-export type ConversationOp = { op: 'replace'; start: SessionSeq; end: SessionSeq }
-
-/**
  * Surface placement and cited source-event seqs for {@link Session.append}. Required on
  * message-producing events and forbidden on log-only events.
  */
@@ -428,8 +418,6 @@ export interface SurfaceIntent {
    * Other surface events require a non-empty set when this field is present.
    */
   sourceEventSeqs?: SessionSeq[]
-  /** Optional user-facing conversation replacement committed with this message. */
-  conversationOp?: ConversationOp
 }
 
 /**
@@ -438,8 +426,7 @@ export interface SurfaceIntent {
  * A proper discriminated union over `type` (not independent `type`/`data`
  * unions), so `switch (event.type)` narrows `event.data` without casts.
  *
- * The {@link sourceEventSeqs}, {@link surfaceOp}, and {@link conversationOp}
- * fields are conditional:
+ * The {@link sourceEventSeqs} and {@link surfaceOp} fields are conditional:
  * they only exist on {@link SurfaceEventType} variants (`user/message`,
  * `assistant/message`, `tool/result`).
  * Non-surface events (boundary markers, chunks, usage, errors) never carry
@@ -477,8 +464,6 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
     sourceEventSeqs?: SessionSeq[]
     /** How this event entered the surface; absent for non-surface events. */
     surfaceOp?: SurfaceOp
-    /** Raw event range this message replaces in current conversation projections. */
-    conversationOp?: ConversationOp
   } : object)
 }[T]
 

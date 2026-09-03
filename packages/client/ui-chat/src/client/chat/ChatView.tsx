@@ -7,10 +7,9 @@ import type {
 } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type { SessionSeq } from '@deepseek-ai/dsh-session/types'
 import { Button, IconChevronDownOutline14, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
-import type { ChatViewSlotProps, MessageEditController } from '../contract/slots.ts'
-import type { ChatNode } from '../contract/chat-nodes.ts'
+import type { ChatViewSlotProps } from '../contract/slots.ts'
 import type { ChatSnapshot } from '../contract/snapshot.ts'
-import { PendingEditBubble, PendingSteeringBubble, PendingSubmissionBubble } from './MessageItem.tsx'
+import { PendingSteeringBubble, PendingSubmissionBubble } from './MessageItem.tsx'
 import { ChatNodeSeat } from './ChatNodeSeat.tsx'
 import { TurnNavigator } from './TurnNavigator.tsx'
 import { mergeTurnRailItems, type TurnRailItem } from './turn-rail-items.ts'
@@ -218,17 +217,10 @@ const ChatNodeList = memo(function ChatNodeList({ order, ...seatProps }: ChatNod
 export function ChatView({
   useSession, useChat, useChatNode, useChatNodeProcess, useSessions, useStore, actions, renderSlot,
   sessionId, openFile, loadOlder, loadThrough, loadImage, openView, chatScroll, forkAt, fileMentions,
-  editMessage, useTranscriptView, useProjection, t,
+  useTranscriptView, useProjection, t,
 }: ChatViewSlotProps) {
   const order = useChat(s => s.order)
   const nodeStore = useChat(s => s.nodes)
-  const latestUserSeq = useChat((snapshot) => {
-    for (let index = snapshot.order.length - 1; index >= 0; index -= 1) {
-      const node = snapshot.nodes.get(snapshot.order[index] ?? '') as ChatNode | undefined
-      if (node?.kind === 'user' || node?.kind === 'steering') return node.data.seq
-    }
-    return -1
-  })
   // The rail's items are accumulated in the Chat snapshot, so this selector is
   // both the data and its change signal: the array identity moves only when a
   // Turn enters, leaves, or changes its preview.
@@ -242,9 +234,6 @@ export function ChatView({
   )
   const timeline = useChat(s => s.timeline)
   const inbox = useSession(s => s.queue)
-  const pendingSubmissions = useSession(s => s.pendingSubmissions)
-  const pendingEdit = useSession(s => s.pendingEdit)
-  const ordinarySession = useSession(s => s.subagent === null)
   // Workspace root off the session list row: path summaries display relative to it.
   const cwd = useSessions(s => s.byId[sessionId]?.cwd)
   const running = useSession(s => s.running)
@@ -259,53 +248,6 @@ export function ChatView({
   }, [openView])
   const [fileOpenError, setFileOpenError] = useState<{ path: string; message: string } | null>(null)
   const [fileOpenBusy, setFileOpenBusy] = useState(false)
-  const [editingMessage, setEditingMessage] = useState<{
-    seq: number
-    text: string
-    expectedLastUserSeq: number
-  } | null>(null)
-  const previousSubmissionIds = useRef(
-    new Set(pendingSubmissions.map(submission => submission.requestId)),
-  )
-  useEffect(() => {
-    const previous = previousSubmissionIds.current
-    const next = new Set(pendingSubmissions.map(submission => submission.requestId))
-    previousSubmissionIds.current = next
-    if (pendingSubmissions.some(submission => !previous.has(submission.requestId))) {
-      setEditingMessage(null)
-    }
-  }, [pendingSubmissions])
-  const messageEdit = useMemo<MessageEditController>(() => ({
-    latestUserSeq,
-    current: editingMessage,
-    begin: (seq, text, expectedLastUserSeq) => {
-      setEditingMessage({ seq, text, expectedLastUserSeq })
-    },
-    change: (text) => { setEditingMessage(current => current === null ? null : { ...current, text }) },
-    submit: () => {
-      const current = editingMessage
-      if (current === null || editMessage === undefined) return
-      setEditingMessage(null)
-      void editMessage(current.seq, current.expectedLastUserSeq, current.text).catch((error: unknown) => {
-        // Session business and carrier failures render through promptError; only an unexpected Client fault reaches here.
-        console.error('[ui-chat] message edit failed:', error)
-      })
-    },
-    cancel: () => { setEditingMessage(null) },
-  }), [editMessage, editingMessage, latestUserSeq])
-  const messageEditController = editMessage === undefined || !ordinarySession || pendingEdit !== null
-    ? undefined
-    : messageEdit
-  const pendingEditTarget = pendingEdit === null
-    ? undefined
-    : nodeStore.values().find((node): node is ChatNode<'user'> => {
-      const candidate = node as ChatNode
-      return candidate.kind === 'user' && candidate.data.seq === pendingEdit.targetSeq
-    })
-  const pendingEditIndex = pendingEditTarget === undefined
-    ? -1
-    : order.indexOf(pendingEditTarget.key)
-  const displayedOrder = pendingEditIndex < 0 ? order : order.slice(0, pendingEditIndex)
   // Close/retry must ignore a settlement that started before the latest
   // gesture; otherwise a cancelled in-flight refusal reopens the dialog.
   const fileOpenRequest = useRef(0)
@@ -343,6 +285,7 @@ export function ChatView({
     () => inbox.filter(item => item.placement === 'steering'),
     [inbox],
   )
+  const pendingSubmissions = useSession(s => s.pendingSubmissions)
   // Submission echoes still awaiting their durable counterpart. `order` is the
   // recompute trigger: durable user material always arrives as an append, and
   // every append replaces the order array.
@@ -832,7 +775,7 @@ export function ChatView({
             </div>
           )}
           <ChatNodeList
-            order={displayedOrder}
+            order={order}
             useChatNode={useChatNode}
             useChatNodeProcess={useChatNodeProcess}
             historyIncomplete={hasMore}
@@ -845,24 +788,11 @@ export function ChatView({
             inspectCall={inspectCall}
             forkAt={forkAt}
             loadImage={loadImage}
-            messageEdit={messageEditController}
             renderMessageImages={renderMessageImages}
             fileMentions={fileMentions}
             renderSlot={renderSlot}
             t={t}
           />
-          {pendingEdit !== null && pendingEditTarget !== undefined && (
-            <PendingEditBubble
-              content={pendingEditTarget.data.content}
-              text={pendingEdit.text}
-              time={pendingEdit.time}
-              {...pendingEditTarget.data.referenceLabels === undefined
-                ? {}
-                : { referenceLabels: pendingEditTarget.data.referenceLabels }}
-              renderMessageImages={renderMessageImages}
-              t={t}
-            />
-          )}
           {/* No pending placeholders: questions (ui-user-questions) and approvals
               (ApprovalPanel) both take over the composer, so a flow card would
               double-render the same wait. */}

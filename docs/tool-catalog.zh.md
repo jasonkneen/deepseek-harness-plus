@@ -1381,11 +1381,12 @@ lsp 工具将提供方选择和语言服务器子进程置于 ctx.lsp 之后，�
     },
     "surfaces": {
       "type": "array",
-      "description": "Current model-surface or active log-only events to include.",
+      "description": "Event surfaces to include.",
       "items": {
         "type": "string",
         "enum": [
           "current",
+          "shadowed",
           "log-only"
         ]
       }
@@ -1498,11 +1499,12 @@ lsp 工具将提供方选择和语言服务器子进程置于 ctx.lsp 之后，�
     },
     "event_surfaces": {
       "type": "array",
-      "description": "Current model-surface or active log-only events to include.",
+      "description": "Event surfaces to include.",
       "items": {
         "type": "string",
         "enum": [
           "current",
+          "shadowed",
           "log-only"
         ]
       }

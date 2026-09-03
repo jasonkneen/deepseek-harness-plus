@@ -86,7 +86,7 @@ interface SessionTitleLlmRequestEventData {
 
 ## Provider input and output
 
-The service snapshots eligible messages through one revision. Only append-origin human messages schedule automatic work, so a same-session edit does not regenerate the current title; a later ordinary prompt builds its provider request from the then-current conversation generation and omits edited-away prompts. A provider returns only seqs from that request; service-owned acceptance verifies ordering, normalizes the title, enforces the byte limit, and appends the title with its source-message seqs and source kind.
+The service snapshots eligible messages through one revision. A provider returns only seqs from that request; service-owned acceptance verifies ordering, normalizes the title, enforces the byte limit, and appends the title with its source-message seqs and source kind.
 
 ```ts type-equiv
 /** One eligible human text message exposed to title providers. */
@@ -108,7 +108,7 @@ type SessionTitleAutomaticMode = 'first-prompt' | 'all-prompts'
 interface SessionTitleProviderRequest {
   /** Live session being titled. */
   readonly session: Session
-  /** Current-generation eligible human messages through this title revision. */
+  /** All eligible human messages through this generation revision. */
   readonly messages: readonly SessionTitleUserMessage[]
   /** Exact current logged main-request route, when one has been recorded. */
   readonly route?: SessionTitleModelProvenance

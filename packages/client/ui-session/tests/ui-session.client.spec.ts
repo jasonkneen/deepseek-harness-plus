@@ -75,7 +75,6 @@ function createSessionsBench(_ctx: Context): SessionsBench {
         sessionId: id,
         queue: [],
         pendingSubmissions: [],
-        pendingEdit: null,
         running: false,
         subagent: null,
         removed: false,

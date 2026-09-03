@@ -683,6 +683,38 @@ describe('Issue lifecycle workflow', () => {
     const policyPullRequest = workflowEvent(policy, 'pull_request')
     expect(policyPullRequest.types).toContain('ready_for_review')
   })
+
+  it('uses a read-only Project token only for human pull request policy metadata', () => {
+    const policy = loadWorkflow('.github/workflows/issue-policy.yml')
+    const policyJob = workflowJob(policy, 'policy')
+    if (!Array.isArray(policyJob.steps)) throw new TypeError('Issue policy job must define steps')
+    const steps = policyJob.steps.filter(isRecord)
+    const tokenStep = steps.find(step => step.name === 'Create Project read token')
+    const validateStep = steps.find(step => step.name === 'Validate pull request')
+    const humanPullRequest =
+      "${{ github.event.pull_request.user.type != 'Bot' && github.event.pull_request.user.type != 'App' }}"
+
+    expect(tokenStep).toMatchObject({
+      id: 'app-token',
+      if: humanPullRequest,
+      uses: 'actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1',
+      with: {
+        'client-id': '${{ vars.DSH_ISSUE_APP_CLIENT_ID }}',
+        'private-key': '${{ secrets.DSH_ISSUE_APP_PRIVATE_KEY }}',
+        owner: 'deepseek-harness',
+        repositories: 'deepseek-harness',
+        'permission-issues': 'read',
+        'permission-organization-projects': 'read',
+      },
+    })
+    expect(validateStep).toMatchObject({
+      if: humanPullRequest,
+      env: {
+        GITHUB_TOKEN: '${{ github.token }}',
+        PROJECT_TOKEN: '${{ steps.app-token.outputs.token }}',
+      },
+    })
+  })
 })
 
 describe('npm release workflows', () => {
