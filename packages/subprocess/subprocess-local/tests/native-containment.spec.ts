@@ -149,11 +149,20 @@ describe.skipIf(!linuxNative)('Linux user-systemd native containment', () => {
     const command = `setsid sh -c 'echo $$ > "$1"; trap "" TERM; while :; do sleep 60; done' sh ${JSON.stringify(pidFile)} & wait`
     const request = spec(['bash', '-c', command], 80)
     const handle = bindManagedProcess(request, launchLinuxScope(request, targetEnvironment(request)))
-    const descendant = await waitForPid(pidFile)
-    handle.terminate()
-    await handle.done
-    await expect(handle.waitForExit()).resolves.toBe(true)
-    await waitGone(descendant)
+    let descendant: number | undefined
+    try {
+      descendant = await waitForPid(pidFile)
+      handle.terminate()
+      await handle.done
+      await expect(handle.waitForExit()).resolves.toBe(true)
+      await waitGone(descendant)
+    } finally {
+      handle.terminate()
+      await Promise.allSettled([handle.done, handle.waitForExit()])
+      if (descendant !== undefined) {
+        try { process.kill(descendant, 'SIGKILL') } catch { /* already contained */ }
+      }
+    }
   })
 
   it('preserves Node-shaped ENOENT and EACCES spawn failures without replay', async () => {

@@ -18,6 +18,7 @@ export const WINDOWS_RUNNER_SELECTION = 'windows' as const
 export type RunnerInvocation = [string, ...string[]]
 
 const SOURCE_TSCONFIG_PATH = fileURLToPath(new URL('../../../../tsconfig.base.json', import.meta.url))
+const RUNNER_CONTROL_ENV_PREFIXES = ['NODE_', 'TSX_'] as const
 
 /**
  * Resolve the source, built, or packaged entry that calls the same runner core.
@@ -67,11 +68,19 @@ export function runnerEnvironment(
   invocation?: RunnerInvocation,
 ): NodeJS.ProcessEnv {
   const entry = invocation?.at(-1)
-  return childEnv({
+  const env = childEnv()
+  for (const name of Object.keys(env)) {
+    const normalized = name.toUpperCase()
+    if (RUNNER_CONTROL_ENV_PREFIXES.some(prefix => normalized.startsWith(prefix))) {
+      Reflect.deleteProperty(env, name)
+    }
+  }
+  return {
+    ...env,
     [SUBPROCESS_RUNNER_ENV]: selection,
     SYSTEMD_LOG_TARGET: 'null',
     ...entry?.endsWith('.ts') === true ? { TSX_TSCONFIG_PATH: SOURCE_TSCONFIG_PATH } : {},
-  })
+  }
 }
 
 /**

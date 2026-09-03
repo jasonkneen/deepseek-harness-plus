@@ -276,6 +276,34 @@ describe('runner launch inputs', () => {
     }, true, 17)).toEqual(['ignore', 'ignore', 'ignore', 'ipc', 17, 1, 'pipe'])
   })
 
+  it('removes ambient Node and tsx controls from the bootstrap environment only', () => {
+    vi.stubEnv('NODE_OPTIONS', '--require /tmp/runner-bootstrap-control.cjs')
+    vi.stubEnv('NODE_DEBUG', 'esm')
+    vi.stubEnv('TSX_DISABLE_CACHE', '1')
+    vi.stubEnv('TSX_TSCONFIG_PATH', '/ambient/tsconfig.json')
+    try {
+      const sourceEnv = runnerEnvironment('/tmp/request', [process.execPath, '/repo/bin.ts'])
+      const builtEnv = runnerEnvironment('/tmp/request', [process.execPath, '/repo/runner.js'])
+      expect(sourceEnv.NODE_OPTIONS).toBeUndefined()
+      expect(sourceEnv.NODE_DEBUG).toBeUndefined()
+      expect(sourceEnv.TSX_DISABLE_CACHE).toBeUndefined()
+      expect(sourceEnv.TSX_TSCONFIG_PATH)
+        .toBe(resolve(import.meta.dirname, '../../../..', 'tsconfig.base.json'))
+      expect(builtEnv.NODE_OPTIONS).toBeUndefined()
+      expect(builtEnv.NODE_DEBUG).toBeUndefined()
+      expect(builtEnv.TSX_DISABLE_CACHE).toBeUndefined()
+      expect(builtEnv.TSX_TSCONFIG_PATH).toBeUndefined()
+      expect(targetEnvironment(spec)).toMatchObject({
+        NODE_OPTIONS: '--require /tmp/runner-bootstrap-control.cjs',
+        NODE_DEBUG: 'esm',
+        TSX_DISABLE_CACHE: '1',
+        TSX_TSCONFIG_PATH: '/ambient/tsconfig.json',
+      })
+    } finally {
+      vi.unstubAllEnvs()
+    }
+  })
+
   it('validates every Node-baseline NUL location before launch', () => {
     expect(targetEnvironment(spec)).toMatchObject({ EXPLICIT: 'yes' })
     expect(targetEnvironment({ ...spec, env: { '=C:': 'C:\\target' } }))
@@ -527,7 +555,7 @@ describe('Linux one-shot exec bootstrap', () => {
       throw Object.assign(new Error('EACCES: permission denied'), { code: 'EACCES', errno: -13 })
     })
     await runSpawnRunner(files.requestPath, ['--', 'tool'], hostArgument(new FakeRunnerHost()), internals({ execve }))
-    expect(execve.mock.calls.map(call => call[0])).toEqual(['/bin/tool', '/usr/bin/tool'])
+    expect(execve.mock.calls.map(call => call[0])).toEqual(['/usr/bin/tool', '/bin/tool'])
     expect(readLinuxStartupError(files.startupErrorPath)).toMatchObject({
       type: 'error',
       error: {

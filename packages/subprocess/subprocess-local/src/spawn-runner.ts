@@ -150,7 +150,7 @@ function execLinuxTarget(
 ): never {
   const program = argv[0] as string
   if (program.includes('/')) return execLinuxFile(program, argv, request.env, internals)
-  const path = request.env.PATH ?? '/bin:/usr/bin'
+  const path = request.env.PATH ?? '/usr/bin:/bin'
   let permissionFailure: Error | undefined
   for (const directory of path.split(':')) {
     const root = directory.startsWith('/')
