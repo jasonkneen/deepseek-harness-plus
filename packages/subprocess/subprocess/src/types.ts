@@ -235,7 +235,7 @@ export interface SubprocessTerminalHandle {
   readonly pid: number
   /** UTF-8 terminal output bytes in delivery order; ends after queued output when the terminal exits. */
   readonly output: Readable
-  /** Resolves when the top-level process exits; rejects only for a live transport failure. */
+  /** Resolves when the top-level process exits; rejects for a terminal startup, provider, or live transport failure. */
   readonly done: Promise<SubprocessOutcome>
   /**
    * Write text to the terminal input.
