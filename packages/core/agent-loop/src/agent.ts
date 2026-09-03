@@ -505,7 +505,12 @@ export class ReactLoopAgent implements Agent {
     const startsSeries = startsRequestSeries
       || this.requestSurfaceGeneration !== surfaceGeneration
     if (!this.requestHeaderLogged) {
-      this.session.append('request/header', { header, reason: baseline === undefined ? 'initial' : 'resume' })
+      const reason = baseline === undefined ? 'initial' : 'resume'
+      this.session.append('request/header', {
+        header,
+        reason,
+        ...reason === 'resume' && startsRequestSeries ? { startsSeries: true } : {},
+      })
       this.requestHeaderLogged = true
     } else if (baseline === undefined || !headerEquals(baseline, header)) {
       this.session.append('request/header', {

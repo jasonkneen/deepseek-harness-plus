@@ -579,7 +579,7 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 'request/header': {
   header: EpochHeader
   reason: RequestHeaderReason
-  /** A changed header also begins a distinct model-message series. */
+  /** A `change` or `resume` snapshot also begins a distinct model-message series. */
   startsSeries?: true
 }
 ```

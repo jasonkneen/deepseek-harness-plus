@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-09-03-resume-headers-do-not-repeat-system-prompts.md
-2026-09-03-resume-headers-do-not-repeat-system-prompts.md: 63acf56998276cdaff400186b7c33761eaf63788
-2026-09-03-resume-headers-do-not-repeat-system-prompts.zh.md: 9c09148f74042b70ef03fb92f1d3a2986a055da9
+2026-09-03-resume-headers-do-not-repeat-system-prompts.md: 67e0048051e7842ef629868cb5c006f3b52dcd26
+2026-09-03-resume-headers-do-not-repeat-system-prompts.zh.md: a6d3b7ff628ed23c614a728f8e231ee8ed8e1bce
