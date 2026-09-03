@@ -480,14 +480,20 @@ describe('LocalSubprocessRuntime', () => {
       runtime.internals = { platform: 'linux' }
       runtime.terminalInspector = inspector
 
+      const targetCwd = process.cwd()
       const handle = await runtime.spawnTerminal({
-        argv: ['shell', '--literal'], cwd: process.cwd(), rows: 24, cols: 80, graceMs: 10,
+        argv: ['shell', '--literal'],
+        cwd: targetCwd,
+        rows: 24,
+        cols: 80,
+        graceMs: 10,
+        env: { PWD: '/stale-parent-cwd', TERM: 'xterm-256color', TARGET_VALUE: 'preserved' },
       })
 
       expect(probeLinuxNative).toHaveBeenCalledOnce()
       expect(prepareLinuxTerminalScope).toHaveBeenCalledWith(
         expect.objectContaining({ argv: ['shell', '--literal'] }),
-        expect.any(Object),
+        expect.objectContaining({ PWD: targetCwd, TERM: 'dumb', TARGET_VALUE: 'preserved' }),
       )
       expect(nodePtySpawn).toHaveBeenCalledWith(
         '/usr/bin/systemd-run',

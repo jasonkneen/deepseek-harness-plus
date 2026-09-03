@@ -157,20 +157,21 @@ describe.skipIf(!windowsNative)('Windows Job native containment', () => {
       stdio: { stdin: 'ignore', stdout: 'pipe', stderr: 'pipe' } as const,
     }
     const handle = bindManagedProcess(request, launchWindowsJob(request, targetEnvironment(request)))
-    if (handle.stdout === undefined) throw new Error('expected piped stdout')
-    if (handle.stderr === undefined) throw new Error('expected piped stderr')
-    handle.stdout.resume()
-    handle.stderr.resume()
-    const stdoutEnded = new Promise<void>((resolve, reject) => {
-      handle.stdout?.once('end', resolve)
-      handle.stdout?.once('error', reject)
-    })
-    const stderrEnded = new Promise<void>((resolve, reject) => {
-      handle.stderr?.once('end', resolve)
-      handle.stderr?.once('error', reject)
-    })
-    const descendant = await waitForPid(pidFile)
+    let descendant: number | undefined
     try {
+      if (handle.stdout === undefined) throw new Error('expected piped stdout')
+      if (handle.stderr === undefined) throw new Error('expected piped stderr')
+      handle.stdout.resume()
+      handle.stderr.resume()
+      const stdoutEnded = new Promise<void>((resolve, reject) => {
+        handle.stdout?.once('end', resolve)
+        handle.stdout?.once('error', reject)
+      })
+      const stderrEnded = new Promise<void>((resolve, reject) => {
+        handle.stderr?.once('end', resolve)
+        handle.stderr?.once('error', reject)
+      })
+      descendant = await waitForPid(pidFile)
       await expect(handle.done).resolves.toEqual({ exitCode: 42, signal: null })
       await expect(Promise.race([
         Promise.all([stdoutEnded, stderrEnded]).then(() => true),
@@ -181,13 +182,15 @@ describe.skipIf(!windowsNative)('Windows Job native containment', () => {
         value: 'explicit',
         arg: 'literal $HOME ${UNCHANGED}',
       }))
-      rmSync(targetCwd, { recursive: true })
       await expect(handle.waitForExit(AbortSignal.timeout(30))).resolves.toBe(false)
       handle.terminate()
       await expect(handle.waitForExit()).resolves.toBe(true)
       await waitGone(descendant)
     } finally {
-      cleanup(descendant)
+      handle.terminate()
+      await Promise.allSettled([handle.done, handle.waitForExit()])
+      if (descendant !== undefined) cleanup(descendant)
+      rmSync(targetCwd, { recursive: true, force: true })
     }
   })
 

@@ -245,7 +245,11 @@ export class LocalSubprocessRuntime extends SubprocessRuntime {
     const inspector = this.terminalInspector ?? createProcessInspector()
     const containmentMode = this.selectContainmentMode('terminal')
     const scope = containmentMode === 'linux-scope'
-      ? prepareLinuxTerminalScope(spec, env)
+      ? prepareLinuxTerminalScope(spec, {
+        ...env,
+        PWD: spec.cwd,
+        TERM: 'dumb',
+      })
       : undefined
     if (scope !== undefined) {
       options.cwd = scope.cwd
