@@ -1,15 +1,12 @@
 #!/usr/bin/env node
-/** Packaging-only entry that keeps private runner dispatch outside the public CLI. */
-
-/* v8 ignore file -- packaged-runtime smoke exercises this physical entry. */
+/** Private entry owned by the Python single-file runtime packaging. */
 
 const selectorName = 'DSH_SUBPROCESS_RUNNER'
 const selection = process.env[selectorName]
 
-export {}
-
 if (selection === undefined) {
-  await import('./bin.ts')
+  const { runCli } = await import('@deepseek-ai/dsh/lib/bin.js')
+  await runCli()
 } else {
   Reflect.deleteProperty(process.env, selectorName)
   const { runSelectedSubprocessRunner } = await import('@deepseek-ai/dsh-subprocess-local/runner')

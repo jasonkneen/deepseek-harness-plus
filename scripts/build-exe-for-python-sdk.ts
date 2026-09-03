@@ -17,8 +17,10 @@ const root = resolve(import.meta.dirname, '..')
 
 /** The closure manifest whose dependencies define the executable. */
 const DEPLOY_ROOT_PACKAGE = 'dsh-python-runtime-closure'
-/** The sole application launcher inside the deployed closure. */
-const ENTRY_BIN = 'node_modules/@deepseek-ai/dsh/lib/runtime-bootstrap.js'
+/** The Python runtime-owned source staged as the single-file entry. */
+const ENTRY_SOURCE = 'python/sdk-runtime/runtime-bootstrap.mjs'
+/** The sole executable entry inside the deployed closure. */
+const ENTRY_BIN = 'runtime-bootstrap.mjs'
 /** Python-visible executable basename. */
 const OUTPUT_BASENAME = 'deepseek-harness-sdk-runtime'
 /** Default Node major; SEA mode requires at least Node 22. */
@@ -306,6 +308,22 @@ class SingleExeBuild {
     }
   }
 
+  /** Copy the Python runtime-owned dispatcher into the deployed closure root. */
+  async stageRuntimeBootstrap(): Promise<void> {
+    const source = resolve(root, ENTRY_SOURCE)
+    const destination = join(this.staging, ENTRY_BIN)
+    if (!existsSync(source)) {
+      throw new Error(`build-exe-for-python-sdk: packaging bootstrap is missing at ${source}.`)
+    }
+    if (this.cli.dryRun) {
+      console.log(`build-exe-for-python-sdk: [dry-run] cp ${source} ${destination}`)
+      return
+    }
+    await copyFile(source, destination)
+    await chmod(destination, 0o755)
+    console.log(`build-exe-for-python-sdk: staged ${destination}`)
+  }
+
   /**
    * Restore direct packages that pnpm's legacy hoister places beside the deploy
    * source instead of in the target. The runtime manifest supplies every peer,
@@ -406,7 +424,7 @@ class SingleExeBuild {
       throw new Error(`build-exe-for-python-sdk: ${manifestPath} missing — pnpm deploy did not produce a staged package.`)
     }
     if (!existsSync(join(this.staging, ENTRY_BIN))) {
-      throw new Error(`build-exe-for-python-sdk: ${join(this.staging, ENTRY_BIN)} missing — run without --skip-build so lib/ artifacts exist.`)
+      throw new Error(`build-exe-for-python-sdk: staged bootstrap ${join(this.staging, ENTRY_BIN)} is missing.`)
     }
     const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as Record<string, unknown>
     await writeFile(manifestPath, `${JSON.stringify({ ...manifest, ...patch }, null, 2)}\n`)
@@ -613,6 +631,7 @@ async function main(): Promise<void> {
   await pipeline.verifyClosure()
   await pipeline.build()
   await pipeline.deployStaging()
+  await pipeline.stageRuntimeBootstrap()
   await pipeline.injectPkgConfig()
   const products: string[] = []
   for (const target of cli.targets) products.push(...await pipeline.pack(target))

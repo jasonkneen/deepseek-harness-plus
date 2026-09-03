@@ -70,9 +70,6 @@
     },
     {
       "path": "../../packages/shell/tool-bash"
-    },
-    {
-      "path": "../../packages/subprocess/subprocess-local"
     }
   ]
 }

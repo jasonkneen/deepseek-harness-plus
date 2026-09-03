@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-08-28-subprocess-native-containment.md
-2026-08-28-subprocess-native-containment.md: 108ace2d42cbc7b5286818b420aef584dc3b515a
-2026-08-28-subprocess-native-containment.zh.md: e945d3160cfe543736846758365cbdd0cb605c52
+2026-08-28-subprocess-native-containment.md: 078665c5c9067ff73b2ab25314cb3d430246b695
+2026-08-28-subprocess-native-containment.zh.md: 91ed7a34140172a1b56ab35bb71743d98208cf19
