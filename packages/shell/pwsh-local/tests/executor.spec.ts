@@ -229,6 +229,33 @@ describe('spawn construction (pure, every platform)', () => {
     expect(proc.readOutput().delta).toContain('unprintable provider failure')
     expect(proc.readOutput().delta).toBe('')
   })
+
+  it('preserves an explicit kill stamp and maps an aborted direct outcome to killed', async () => {
+    const ctx = new Context()
+    const subprocess = new CapturingSubprocessRuntime(ctx)
+    await ctx.plugin(PwshLocalExecutor)
+
+    const killedOutcome = Promise.withResolvers<SubprocessOutcome>()
+    subprocess.done = killedOutcome.promise
+    const killed = ctx.shell.start(ctx.shell.resolve({ command: 'Write-Output maybe-ran' }))
+    expect(killed.kill()).toBe(true)
+    killedOutcome.resolve({ exitCode: 0, signal: null })
+    await killed.done
+    expect(killed.status).toBe('killed')
+    expect(killed.exitCode).toBe(0)
+
+    const abortedOutcome = Promise.withResolvers<SubprocessOutcome>()
+    subprocess.done = abortedOutcome.promise
+    const controller = new AbortController()
+    const aborted = ctx.shell.start(ctx.shell.resolve({
+      command: 'Write-Output maybe-ran',
+      signal: controller.signal,
+    }))
+    controller.abort()
+    abortedOutcome.resolve({ exitCode: 0, signal: null })
+    await aborted.done
+    expect(aborted.status).toBe('killed')
+  })
 })
 
 describe.skipIf(!hasPwsh)('PwshLocalExecutor.run', () => {
