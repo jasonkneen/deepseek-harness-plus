@@ -19,7 +19,7 @@ Linux pull request 运行必需的 `node 24 / benchmarks` job，执行 `pnpm run
 | 基准 | 负载 | Gate |
 |---|---|---|
 | `packages/session/session-persistence-jsonl/tests/open-generation.bench.ts` | 200 轮 ×（500 text + 125 reasoning delta）= 127,400 个 released-v0 事件，约 2.8 MB，经冻结 v0 codec 以 packed row 编码 | 迁移的首次 `open()` 在 128 MB 堆下 ≤ 3,000 ms；新进程打开已发布 current generation ≤ 500 ms；三次尝试取最小值 |
-| `packages/client/ui-chat/tests/conversation-fold.bench.client.ts` | 200 个回复，每个紧凑 stream 含 2,000 text + 500 reasoning delta（1,600 条记录中 500,000 个 delta），由真实 `ConversationNodeAssembler` 经全部 Chat Definition fold | 大窗口 fold ≤ 150 ms；大窗口 fold ≤ 每回复 100 delta 的同一窗口的 3 倍 |
+| `packages/client/ui-chat/tests/conversation-fold.bench.client.ts` | 200 个回复，每个紧凑 stream 含 2,000 text + 500 reasoning delta（1,600 条记录中 500,000 个 delta），由真实 `ConversationNodeAssembler` 经全部 Chat Definition fold | 大窗口 fold ≤ 150 ms；大窗口 fold ≤ 每回复 100 delta 的同一窗口的 5 倍 |
 
 在引入该 gate 的提交上于参考机器测得：迁移基准耗尽 128 MB 堆，fold 基准在小窗口与大窗口之间缩放 11 倍，因此两个 gate 都在回归代码上失败，并在两条路径改为 O(records) 工作后通过。
 

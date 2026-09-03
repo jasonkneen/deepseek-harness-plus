@@ -54,10 +54,11 @@ const LARGE_FOLD_BUDGET_MS = 150
 /**
  * Maximum ratio between folding the large and the small window. Both windows
  * hold the same number of events and compact records, so a fold that scales
- * with records stays near 1; a fold that replays every delta grows with the
- * 20× delta count.
+ * with records plus the joined text stays a few times the small fold
+ * (about 2.5× measured); a fold that replays every delta grows with the 20×
+ * delta count (about 11× measured).
  */
-const MAX_DELTA_SCALING = 3
+const MAX_DELTA_SCALING = 5
 
 /** Attempts per workload; the gate compares minima so scheduler noise only adds. */
 const ATTEMPTS = 3
