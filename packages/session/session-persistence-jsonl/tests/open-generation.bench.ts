@@ -21,12 +21,11 @@ const SHAPE = { turns: 200, textDeltas: 500 } as const
  * Wall-clock budget for the migrating first `open()`. The pre-stack backend
  * decoded the same bytes in about 35 ms on the reference machine; a whole
  * artifact migration that validates, transforms, publishes, and re-reads the
- * log under the heap limit below costs about 1 s there and about twice that
- * on the CI runner. The budget leaves headroom above that while staying far
- * below the ~5 s (~10 s on CI) that the repeated-snapshot implementation
- * needed.
+ * log under the heap limit below costs about 1 s there and about 2 s on the
+ * CI runner. The budget doubles the CI cost while staying far below the ~5 s
+ * (~10 s on CI) that the repeated-snapshot implementation needed.
  */
-const MIGRATION_BUDGET_MS = 3_000
+const MIGRATION_BUDGET_MS = 4_000
 
 /**
  * Old-space limit for the migrating child process. Pre-stack decoding of the
