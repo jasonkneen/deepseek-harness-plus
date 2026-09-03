@@ -22,7 +22,7 @@ import LocalJobRegistry from '@deepseek-ai/dsh-jobs-local'
 import * as ToolTasks from '@deepseek-ai/dsh-tool-jobs'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
-import { SessionId, SessionLogOffset, SessionSeq } from '@deepseek-ai/dsh-session'
+import { SESSION_FORMAT_VERSION, SessionId, SessionLogOffset, SessionSeq } from '@deepseek-ai/dsh-session'
 import ApprovalService from '@deepseek-ai/dsh-user-approval'
 import type { ApprovalOutcome } from '@deepseek-ai/dsh-user-approval'
 import { ShellExecutor } from '@deepseek-ai/dsh-shell'
@@ -253,7 +253,7 @@ function sandboxAgent(
     ...ctx === undefined ? {} : { ctx: ctx.plugin(() => {}).ctx },
     session: {
       id,
-      header: { version: 0, id, createdAt: 0, isSeeded: false },
+      header: { version: SESSION_FORMAT_VERSION, id, createdAt: 0, isSeeded: false },
       inheritedEventCount: SessionLogOffset(0),
       firstLiveSeq: SessionLogOffset(0),
       get seq() { return SessionLogOffset(events.length) },
@@ -291,7 +291,7 @@ function registerFakeAgent(ctx: Context, sessionId: string): Agent {
     ctx: scopeFiber.ctx,
     session: {
       id,
-      header: { version: 0, id, createdAt: 0, isSeeded: false },
+      header: { version: SESSION_FORMAT_VERSION, id, createdAt: 0, isSeeded: false },
       inheritedEventCount: SessionLogOffset(0),
       firstLiveSeq: SessionLogOffset(0),
       seq: SessionLogOffset(0),

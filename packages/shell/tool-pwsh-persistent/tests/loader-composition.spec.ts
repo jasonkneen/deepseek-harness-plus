@@ -8,7 +8,7 @@ import { Context } from '@deepseek-ai/cordis'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
 import Include from '@deepseek-ai/cordis-plugin-include'
 import { ToolCallId } from '@deepseek-ai/dsh-llm'
-import { Session, SessionId } from '@deepseek-ai/dsh-session'
+import { SESSION_FORMAT_VERSION, Session, SessionId } from '@deepseek-ai/dsh-session'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import AgentRegistry, { Inbox } from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
@@ -47,7 +47,9 @@ class PassthroughSandbox extends SandboxProvider {
 function agent(ctx: Context, cwd: string): Agent {
   const id = SessionId('persistent-pwsh-loader-agent')
   const scope = ctx.plugin(() => {})
-  const session = Session.create(id, [], { version: 0, id, createdAt: 0, cwd, isSeeded: false })
+  const session = Session.create(id, [], {
+    version: SESSION_FORMAT_VERSION, id, createdAt: 0, cwd, isSeeded: false,
+  })
   const value: Agent = {
     id,
     options: {},
