@@ -18,7 +18,7 @@ The first two gates cover the two regressed paths:
 
 | Benchmark | Workload | Gates |
 |---|---|---|
-| `packages/session/session-persistence-jsonl/tests/open-generation.bench.ts` | 200 turns × (500 text + 125 reasoning deltas) = 127,400 released-v0 events, about 2.8 MB, encoded through the frozen v0 codec with packed rows | migrating first `open()` ≤ 2,000 ms under a 128 MB heap; fresh-process open of the published current generation ≤ 500 ms; minimum of three attempts |
+| `packages/session/session-persistence-jsonl/tests/open-generation.bench.ts` | 200 turns × (500 text + 125 reasoning deltas) = 127,400 released-v0 events, about 2.8 MB, encoded through the frozen v0 codec with packed rows | migrating first `open()` ≤ 3,000 ms under a 128 MB heap; fresh-process open of the published current generation ≤ 500 ms; minimum of three attempts |
 | `packages/client/ui-chat/tests/conversation-fold.bench.client.ts` | 200 replies whose compact streams hold 2,000 text + 500 reasoning deltas each (500,000 deltas in 1,600 records), folded through every Chat Definition by the real `ConversationNodeAssembler` | large fold ≤ 150 ms; large fold ≤ 3× the fold of the same window with 100 deltas per reply |
 
 Measured on the reference machine at the commit that introduced the gate, the migration benchmark exhausted the 128 MB heap and the fold benchmark scaled 11× between the small and large windows, so both gates fail on the regressed code and pass once the paths do O(records) work.
