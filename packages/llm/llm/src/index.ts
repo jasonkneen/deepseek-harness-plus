@@ -7,7 +7,8 @@
  */
 
 import { Context } from '@deepseek-ai/cordis'
-import { Remote, TypertRemoteFailure, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
+import { Remote, RemoteError, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
+import { deepFreeze } from '@deepseek-ai/dsh-util-values'
 import type {
   GenerateOptions,
   LlmConfigurableProvider,
@@ -26,24 +27,27 @@ import { freezeMessage, type Message } from './message.ts'
 import { resolveRetryPolicy } from './retry-policy.ts'
 import type { ResolvedRetryPolicy } from './retry-policy.ts'
 import type { ProviderRequestId } from './brand.ts'
-import { callConfigEquals, deepFreeze } from './call-config.ts'
+import { callConfigEquals } from './call-config.ts'
 import type { LlmCallConfig, LlmCallConfigAdapterDefaults } from './call-config.ts'
 import { HarnessError, INVALID_CREDENTIAL_CODE } from './error.ts'
 import { normalizeLlmFailure } from './adapter-failure.ts'
 import { normalizeApiKey } from './api-key.ts'
-import { contentHasImage, projectImagesForTextModel } from './content.ts'
+import {
+  contentHasFile, contentHasImage, fileHandleText, projectFilesToText, projectImagesForTextModel,
+} from './content.ts'
+import type { FileAttachmentRef } from '@deepseek-ai/dsh-attachment'
 
 export * from './attribution.ts'
 export * from './brand.ts'
-export * from './never.ts'
 export * from './error.ts'
 export * from './api-key.ts'
 export * from './types.ts'
 export * from './content.ts'
+export * from './assistant-stream.ts'
 export * from './message.ts'
 export * from './retry-policy.ts'
 export { BlockAssembler } from './assembler.ts'
-export { callConfigEquals, deepFreeze, isAgentLoopRequest, markAgentLoopRequest } from './call-config.ts'
+export { callConfigEquals, isAgentLoopRequest, markAgentLoopRequest } from './call-config.ts'
 export type { LlmCallConfig, LlmCallConfigAdapterDefaults } from './call-config.ts'
 
 declare module '@deepseek-ai/cordis' {
@@ -615,7 +619,7 @@ export class LlmRuntime extends TypertRemoteService {
    * @param request - endpoint, protocol, and one-shot credential to use.
    * @param signal - caller cancellation supplied by the Remote carrier.
    * @returns advertised models in endpoint order.
-   * @throws TypertRemoteFailure with `model-discovery-failed` when discovery refuses or fails.
+   * @throws RemoteError with `llm/model-discovery-rejected` when discovery refuses or fails.
    */
   @Remote('discoverModels')
   async remoteDiscoverModels(
@@ -626,14 +630,15 @@ export class LlmRuntime extends TypertRemoteService {
     try {
       return await this.discoverModels(settingsNs, request, signal)
     } catch (error: unknown) {
-      throw new TypertRemoteFailure({
-        code: 'model-discovery-failed',
-        message: error instanceof Error ? error.message : String(error),
-        details: {
+      throw new RemoteError(
+        'llm/model-discovery-rejected',
+        error instanceof Error ? error.message : String(error),
+        {
           settingsNs,
           ...request.baseURL === undefined ? {} : { baseURL: request.baseURL },
         },
-      })
+        { cause: error },
+      )
     }
   }
 
@@ -657,6 +662,16 @@ export class LlmRuntime extends TypertRemoteService {
    */
   imageRequestPricing(provider: string, model: string): LlmImageRequestPricing | undefined {
     return this.adapters.get(provider)?.adapter.imageRequestPricing(provider, model)
+  }
+
+  /**
+   * Resolve the exact text one durable file occurrence contributes to every
+   * provider request in the current execution environment.
+   * @param ref - durable verbatim file reference from model history.
+   * @returns the same deterministic handle text used at adapter dispatch.
+   */
+  fileRequestText(ref: FileAttachmentRef): string {
+    return fileHandleText(ref, this.fileReadPath(ref))
   }
 
   /** Detach typed adapter-owned modality metadata. */
@@ -956,6 +971,26 @@ export class LlmRuntime extends TypertRemoteService {
   }
 
   /**
+   * Resolve the current execution-world read path of one durable file
+   * reference through the mounted attachment and filesystem providers.
+   */
+  private fileReadPath(ref: FileAttachmentRef): string | undefined {
+    let hostPath: string | undefined
+    try {
+      hostPath = this.ctx.get('attachments')?.fileHostPath(ref)
+    } catch {
+      // A malformed durable reference degrades this occurrence to the no-path
+      // handle instead of failing every later request over the same log.
+      return undefined
+    }
+    if (hostPath === undefined) return undefined
+    // Structural face: dsh-llm cannot depend on the filesystem package, and
+    // only this one mapping method is consumed.
+    const fs = this.ctx.get('fs') as { processPathFromHostPath(hostPath: string): string | undefined } | undefined
+    return fs?.processPathFromHostPath(hostPath)
+  }
+
+  /**
    * Final adapter boundary. Adapter selection, dispatch, iterator construction,
    * and iteration failures become one terminal failure chunk. Middleware and
    * downstream consumer failures remain thrown plugin or consumer errors.
@@ -992,13 +1027,21 @@ export class LlmRuntime extends TypertRemoteService {
         : Object.isFrozen(options)
           ? deepFreeze({ ...options, ...resolvedConfig })
           : { ...options, ...resolvedConfig }
-      const projectedOptions = modelInfo.inputModalities !== undefined
+      // Files are never dispatched natively: every route receives handle text.
+      let projectedMessages: readonly Message[] = resolvedOptions.messages
+      if (projectedMessages.some(message => contentHasFile(message.content))) {
+        projectedMessages = projectFilesToText(projectedMessages, ref => this.fileReadPath(ref))
+      }
+      if (modelInfo.inputModalities !== undefined
         && !modelInfo.inputModalities.includes('image')
-        && resolvedOptions.messages.some(message => contentHasImage(message.content))
-        ? Object.isFrozen(resolvedOptions)
-          ? deepFreeze({ ...resolvedOptions, messages: projectImagesForTextModel(resolvedOptions.messages) as Message[] })
-          : { ...resolvedOptions, messages: projectImagesForTextModel(resolvedOptions.messages) as Message[] }
-        : resolvedOptions
+        && projectedMessages.some(message => contentHasImage(message.content))) {
+        projectedMessages = projectImagesForTextModel(projectedMessages)
+      }
+      const projectedOptions = projectedMessages === resolvedOptions.messages
+        ? resolvedOptions
+        : Object.isFrozen(resolvedOptions)
+          ? deepFreeze({ ...resolvedOptions, messages: projectedMessages as Message[] })
+          : { ...resolvedOptions, messages: projectedMessages as Message[] }
       const stream = dispatch(this.forAdapter(projectedOptions, adapter))
       iterator = stream[Symbol.asyncIterator]()
     } catch (error: unknown) {

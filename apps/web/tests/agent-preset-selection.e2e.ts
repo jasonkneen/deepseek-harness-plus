@@ -9,7 +9,7 @@
 //
 // Zero model calls: no replay fixture mounts, so a stray stream fails loud.
 import { fileURLToPath } from 'node:url'
-import { mkdir, mkdtemp, realpath, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { Browser, Page } from 'playwright'
@@ -93,7 +93,12 @@ function seedLog(): string {
     at(0, { type: 'turn/start', data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user', rpcId: 'seed' } } } }),
     at(1, {
       type: 'user/message',
-      data: { content: [{ type: 'text', text: 'Seeded turn.' }], source: { kind: 'user', rpcId: 'seed' } },
+      data: {
+        id: '00000000-0000-4000-9000-000000000001',
+        role: 'user',
+        content: [{ type: 'text', text: 'Seeded turn.' }],
+        source: { kind: 'user', rpcId: 'seed' },
+      },
       surfaceOp: 'append',
     }),
     at(2, { type: 'session/title', data: { title: 'Seeded turn', messageSeqs: [1], source: { kind: 'fallback' } } }),
@@ -113,6 +118,7 @@ async function seedSubagent(scaffold: WebScaffold, parentId: SessionId): Promise
   const header: SessionHeader = {
     version: SESSION_FORMAT_VERSION,
     id: childId,
+    isSeeded: false,
     createdAt,
     cwd: scaffold.workspaceCwd,
     parentSession: parentId,
@@ -120,8 +126,8 @@ async function seedSubagent(scaffold: WebScaffold, parentId: SessionId): Promise
     delegationDepth: 1,
     agentPreset: 'minimal',
   }
-  await scaffold.ctx.sessionPersistence.create(header)
-  await scaffold.ctx.sessionPersistence.append(childId, [
+  const handle = await scaffold.ctx.sessionPersistence.create(header)
+  await handle.append([
     {
       type: 'turn/start',
       seq: 0,
@@ -153,6 +159,7 @@ async function seedSubagent(scaffold: WebScaffold, parentId: SessionId): Promise
       data: { turn: 1, reason: { kind: 'completed' } },
     },
   ] as SessionEvent[])
+  await handle.close()
 }
 
 /**
@@ -225,6 +232,7 @@ describe('web e2e: agent-preset selection', () => {
   afterAll(async () => {
     await browser?.close()
     await scaffold?.close()
+    await rm(presetRoot, { recursive: true, force: true })
   })
 
   it('offers the chip on the new-session screen, beside the workspace picker', async () => {

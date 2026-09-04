@@ -8,17 +8,23 @@ This page defines the data model and the extension path for a business-owned Con
 
 ## Data model and ownership
 
-The Session Controller owns the contiguous loaded logical-event window. Each `SessionEventLikeEntry` is either `{ type: 'event', event: SessionEvent }` or `{ type: 'chunks', event: ChunkRowEvent }`; both inner events expose `type`, `seq`, `time`, and `data`. `ui-conversation` passes these entries to the assembler without opening a second history stream, converting records, or expanding packed members. One `ConversationNodeAssembler` per Session applies every registered Definition and publishes an independent source for each registered view target.
+The Session Controller owns the contiguous loaded logical-event window. Each `SessionEventLikeEntry` is either `{ type: 'event', event: SessionEvent }` for one durable event or `{ type: 'transient', event: AssistantLiveChunkEvent }` for one Client-only `assistant/live-chunk` presentation. Both inner events expose `type`, `seq`, `time`, and `data`. `ui-conversation` passes these entries to the assembler without opening a second history stream. One `ConversationNodeAssembler` per Session applies every registered Definition and publishes an independent source for each registered view target.
 
 | Concept | Owner and purpose |
 |---|---|
-| Event Definition | A business package matches one standard event or packed Assistant run at a time, correlates it by stable `(kind, id)`, folds deterministic State, and optionally materializes one target node. |
-| Context | The engine-owned ordered Matches and current State for one `(kind, id)`. A packed run occupies one update Match; update-only evidence may remain pending until pagination supplies its unique scalar start. |
+| Event Definition | A business package matches one durable or Client-only transient event at a time, correlates it by stable `(kind, id)`, folds deterministic State, and optionally materializes one target node. |
+| Context | The engine-owned ordered Matches and current State for one `(kind, id)`. A transient event occupies one update Match; update-only evidence may remain pending until pagination supplies its unique durable start. |
 | Location | The engine-owned Session, Turn, or Step coordinates derived from durable boundary events. Definitions may publish typed data onto one Turn or Step. |
 | View Definition | A target package creates one incremental builder per Session and owns the final snapshot type for that target. |
 | View | A Slot entry such as Chat or Trajectory reads only its target snapshot and renders target-owned nodes. |
 
 Chat and Trajectory may recognize the same durable event family, but each keeps its own Definition State and final node payload. Shared target-neutral machinery is limited to identity routing, ordered replay, Location data, predecessor dependencies, and publication cadence.
+
+## Target activation
+
+Each Session keeps a monotonic set of active targets. Creating or reading a target source does not activate it. The shell explicitly activates its persisted or newly selected View, while another consumer activates a target through its first source subscription. First activation creates that target's builder and calls `replace()` once from the current target-indexed Contexts. Later flushes call `apply()` for every active target, and unsubscription does not remove one.
+
+The shell owns View selection and resolves the registered preferred View or Chat fallback before rendering when a binding is created or selected as current, and after View-roster changes. The assembler receives only the resolved target id and does not select Chat or another default target. A third-party View participates through the same selection and activation operations.
 
 ## Replayable event families
 
@@ -36,7 +42,7 @@ Use the producer-owned branded id type across the process boundary. Put the `Ses
 
 Incremental events are supported. Prefer whole-value checkpoints when the producer can emit them cheaply, because they remain useful when the start is outside the loaded window. Each delta must carry the stable id and produce deterministic State when replayed in ascending log `seq`; it must not depend on live-only memory. If the current history window contains only updates, the assembler keeps a pending Context and builds no State until an older page supplies the start. If the product must render before the start is loaded, a terminal or checkpoint event must carry enough whole fallback state for the Definition to build that result directly; do not recover it by scanning unrelated events.
 
-Historical runs of consecutive same-block `assistant/chunk` deltas arrive as `chunkrow/text-chunks`, `chunkrow/reasoning-chunks`, or `chunkrow/tool-call-chunks`. Their top-level `seq` and `time` identify the first logical member, and their `data` retains each fragment and timestamp gap. These Client-only events can only be updates; `start()` receives a standard `SessionEvent`. A Definition that consumes Assistant deltas handles the relevant packed tags in the same `match()` and `update()` methods, while other Definitions return `null` without expanding the run.
+Live Assistant deltas arrive as Client-only `assistant/live-chunk` updates. Reconnect baselines expand the active process-local compact stream into the same transient events, while durable `assistant/message` and `assistant/attempt` events embed complete compact streams for history replay. Transient events can only be updates; `start()` receives a standard `SessionEvent`. A Definition that consumes Assistant output handles live chunks and durable settlements in the same `match()` and `update()` methods, while unrelated Definitions return `null` without expanding a stream.
 
 ## Definition and typed Chat payload
 
@@ -247,5 +253,6 @@ Add focused tests that establish these outcomes:
 5. Repeated visible deltas preserve `context.key` and publish at most once per animation frame when requested.
 6. The keyed renderer consumes `node.data` and constrained Location hooks only; it does not scan the Session event window, Contexts, or Chat Nodes.
 7. Scalar and packed Assistant history produce the same final State, timing boundaries, and target snapshot, while one packed run remains one Match through replace, prepend, Location replay, and registry rebuild.
+8. Creating a target source performs no builder work; explicit selection or the first subscription performs one complete replacement, later updates reach every active target, and repeated activation performs no replacement.
 
 Use [`packages/client/ui-chat/src/client/conversation-nodes/assistant.ts`](../../packages/client/ui-chat/src/client/conversation-nodes/assistant.ts) for streaming and interruption, [`inbox.ts`](../../packages/client/ui-chat/src/client/conversation-nodes/inbox.ts) plus [`message.ts`](../../packages/client/ui-chat/src/client/conversation-nodes/message.ts) for predecessor queries, and [`packages/client/ui-deliverables`](../../packages/client/ui-deliverables) for a Definition that publishes Turn data without creating its own Node.

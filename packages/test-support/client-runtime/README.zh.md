@@ -9,7 +9,7 @@ kind: "package-library"
 
 ## 概述
 
-`dsh-client-test-runtime` 让浏览器功能测试拥有真实的 jsdom 测试台：它把 Cordis 上下文、渲染器拥有的 slot 注册表与生产 `UiSession` 适配器组装在带类型的 Session 和 Workspace Controller 替身周围。功能套件无需复制生产渲染器或适配器逻辑，即可检验声明、注册、作用域、store、注入、渲染、更新与销毁。套件通过带类型 fixture 发布 Session 生命周期状态、Workspace 状态、projection 值与 Conversation 事件，再使用局部 DOM 快照根、限定范围的 Testing Library 查询与自明的服务缺失检查。它不属于产品插件图（无 `dsh.client`）；feature 包仅以 `devDependencies` 依赖之。
+`dsh-client-test-runtime` 让浏览器功能测试拥有真实的 jsdom 测试台：它把 Cordis 上下文、渲染器拥有的 slot 注册表与生产 `UiSession` 适配器组装在带类型的 Session 和 Workspace Controller 替身周围。默认文件上传替身可满足声明该服务的功能；测试若没有替换它却发起上传，就会明确失败。功能套件无需复制生产渲染器或适配器逻辑，即可检验声明、注册、作用域、store、注入、渲染、更新与销毁。套件通过带类型 fixture 发布 Session 生命周期状态、Workspace 状态、projection 值与 Conversation 事件，再使用局部 DOM 快照根、限定范围的 Testing Library 查询与自明的服务缺失检查。它不属于产品插件图（无 `dsh.client`）；feature 包仅以 `devDependencies` 依赖之。
 
 ## 目录
 
@@ -40,11 +40,27 @@ expect(view.container).toMatchSnapshot()
 await runtime.dispose()
 ```
 
-`mount` 会预检必需服务，缺失时自明报错——先用 `provide(name, value)` 提供额外服务。`storeOf(key, scopeKey)` 返回渲染器交给 slot 组件的实时 store 实例，用于身份与动作驱动写入断言。
+`mount` 会预检必需服务，缺失时自明报错——先用 `provide(name, value)` 提供额外服务。运行时会提供不可用的 `fileUpload` 替身，使装配可以挂载；测试上传行为时，需要在挂载前替换 `runtime.fileUpload.upload`。`storeOf(key, scopeKey)` 返回渲染器交给 slot 组件的实时 store 实例，用于身份与动作驱动写入断言。
 
 ### 局部 DOM 快照
 
 注册的快照序列化器把 CSS-module 哈希类名折回语义名（`_frame_a1b2c3` → `frame`），使 `.snap` 文件只含结构，并把 `<svg>` 内部折叠为 `data-content` 指纹。需要自定义页面 frame 的套件改用 `root.declare(children, Frame)` 而非自动 frame；`dispose()` 沿单一轴拆除视图、feature fiber、已铸 scope 与持久化 store 状态，且幂等。
+
+### 脚本化 Remote 应答与失败
+
+`TestRemote` 是 `ctx.remote` 面的替身：它把自己连同每个被脚本化的命名空间各注册一个服务，使注入 `remote.<name>` 的插件得以解除挂起；`$on` 订阅由显式的测试事件驱动器推动；`$host` 是普通可变字段，套件直接赋值即可脚本化带 home 或非 loopback 的 Host。UI 套件也在本包取用 `RemoteError` 构造器这个值——`dsh-api-remotes` facade 承载不了它，因为从套件发起的值 import 会拉起该装配尚未构建的 `/remote` 产物链。
+
+按 Host 会答的码来脚本化失败，并以生产代码同样的方式断言——判 `code`，绝不判类：
+
+```text
+import { RemoteError } from '@deepseek-ai/dsh-client-test-runtime'
+
+remote.goals.create.mockResolvedValue({
+  ok: false,
+  error: new RemoteError('goal/not-found', 'goal "g1" does not exist', { goalId: 'g1' }),
+})
+expect(view.getByRole('alert')).toHaveTextContent('goal/not-found')
+```
 
 ### 何时使用
 
@@ -78,14 +94,14 @@ await runtime.dispose()
 | [`src/sessions.ts`](src/sessions.ts) + [`src/workspaces.ts`](src/workspaces.ts) | `ISessions`/`IWorkspaces` 测试替身与 `FixtureSession` 行为桩 |
 | [`src/fixtures.ts`](src/fixtures.ts) | 普通 fixture 构造器：会话快照、workspace 列表状态 |
 | [`src/snapshot.ts`](src/snapshot.ts) | DOM 快照序列化器（类名哈希折叠、`<svg>` 指纹） |
-| [`src/remote.ts`](src/remote.ts) | 用于 host RPC 的 `TestRemote` 替身 |
+| [`src/remote.ts`](src/remote.ts) | 用于 host RPC 的 `TestRemote` 替身、`RemoteError` 值转出 |
 | [`src/translate.ts`](src/translate.ts) + [`src/locale-env.ts`](src/locale-env.ts) | 翻译与固定浏览器语言测试辅助 |
 | [`src/settings-scope.ts`](src/settings-scope.ts) | 带测试驱动发布与写入 spy 的 `stubSettingsScope` |
-| [`src/invariant.ts`](src/invariant.ts) | 不变式伴生插件（无运行时不变式；所挂载的生产包拥有各自的不变式） |
+| — | 不发布运行时不变式伴生入口；所挂载的生产包拥有各自的不变式。 |
 
 ### 生命周期
 
-`create()` 构建全新上下文，挂载 slot 与会话注册表，安装渲染器，并提供 session/workspace 替身。`mount` 在启动 fiber 前对照上下文检查每个已声明注入，使缺失提供方自明报错而非永久挂起。`dispose()` 先卸载 React 树，再 dispose feature fiber、释放根注册、dispose 已铸 session scope 并清除持久化 store 状态；每个公共修改器都包裹在 act 中，因此测试无需自行处理 SlotCore 微任务批处理或 React `act`。
+`create()` 构建全新上下文，挂载 slot 与会话注册表，安装渲染器，并提供 session/workspace 替身和明确失败的文件上传替身。`mount` 在启动 fiber 前对照上下文检查每个已声明注入，使缺失提供方自明报错而非永久挂起。`dispose()` 先卸载 React 树，再 dispose feature fiber、释放根注册、dispose 已铸 session scope 并清除持久化 store 状态；每个公共修改器都包裹在 act 中，因此测试无需自行处理 SlotCore 微任务批处理或 React `act`。
 
 </details>
 

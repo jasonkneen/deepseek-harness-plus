@@ -2,48 +2,65 @@ import { readFile, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { Context } from '@deepseek-ai/cordis'
-import { normalizeSessionSnapshot, type NormalizeContext } from '@deepseek-ai/dsh-session-snapshot'
+import {
+  fixtureContext,
+  normalizeSessionSnapshot,
+  normalizeSessionSnapshots,
+  type NormalizeContext,
+} from '@deepseek-ai/dsh-session-snapshot'
 import { LOADER_SMOKE_TEST_TIMEOUT_MS, runLoaderSmoke } from '@deepseek-ai/dsh-loader-smoke'
 import { createUserMessage, ToolCallId , createMessage } from '@deepseek-ai/dsh-llm'
-import SessionStore, { SESSION_FORMAT_VERSION, SessionId, type SessionEvent, type SessionHeader } from '@deepseek-ai/dsh-session'
+import { SessionSeq, SESSION_FORMAT_VERSION, SessionId, type SessionEvent, type SessionHeader } from '@deepseek-ai/dsh-session'
 import JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
+import { logPath } from '../../../../../../packages/session/session-persistence-jsonl/src/format.ts'
 import { describe, expect, it } from 'vitest'
 
 const fixtureDir = join(dirname(fileURLToPath(import.meta.url)), 'expected/semantic-checkpoint')
 const replayFixture = join(fixtureDir, 'replay.jsonl')
 const replayOverride = join(fixtureDir, 'replay.override.json')
 const sessionExpected = join(fixtureDir, 'session.expected.jsonl')
-const configPath = fileURLToPath(new URL('../semantic-checkpoint.cordis.snapshot.yml', import.meta.url))
+const configPath = fileURLToPath(new URL('../semantic-checkpoint-snapshot.patch.yml', import.meta.url))
 const binScript = fileURLToPath(new URL('../../../../../../packages/test-support/loader-smoke/tests/fixtures/headless-driver.ts', import.meta.url))
 const tsconfigPath = fileURLToPath(new URL('../../../../../../tsconfig.json', import.meta.url))
 const sessionId = SessionId('semantic-checkpoint-unknown-outcome')
 const refreshing = process.env.DSH_SNAPSHOT === 'refresh'
 const task = 'Continue safely from the interrupted operation.'
 
+/** Compare one current normalized Session with its generation-aware committed fixture. */
+async function expectSession(actual: string, expectedPath: string): Promise<void> {
+  const expected = await readFile(expectedPath, 'utf8')
+  const parse = (content: string): Record<string, unknown>[] => content.split('\n')
+    .filter(line => line.trim().length > 0)
+    .map(line => JSON.parse(line) as Record<string, unknown>)
+  expect(normalizeSessionSnapshots([actual], fixtureContext(actual)).map(parse))
+    .toEqual(normalizeSessionSnapshots([expected], fixtureContext(expected)).map(parse))
+}
+
 async function seedInterruptedSession(root: string, cwd: string): Promise<string> {
   const ctx = new Context()
-  await ctx.plugin(SessionStore)
   await ctx.plugin(JsonlSessionPersistence, { root, compression: 'none' })
   const meta: SessionHeader = {
     version: SESSION_FORMAT_VERSION,
     id: sessionId,
     createdAt: 1,
+    isSeeded: false,
     cwd,
     delegationDepth: 0,
   }
   const events: SessionEvent[] = [
-    { type: 'turn/start', seq: 0, time: 10, data: { turn: 1 } },
-    { type: 'user/message', seq: 1, time: 11, data: createUserMessage({
+    { type: 'turn/start', seq: SessionSeq(0), time: 10, data: { turn: 1 } },
+    { type: 'user/message', seq: SessionSeq(1), time: 11, data: createUserMessage({
       content: [{ type: 'text', text: 'Perform one side-effecting remote mutation.' }], source: { kind: 'user' },
     }), surfaceOp: 'append' },
-    { type: 'step/start', seq: 2, time: 12, data: { turn: 1, step: 1 } },
+    { type: 'step/start', seq: SessionSeq(2), time: 12, data: { turn: 1, step: 1 } },
     {
       type: 'assistant/message',
-      seq: 3,
+      seq: SessionSeq(3),
       time: 13,
       data: {
         turn: 1,
         step: 1,
+        stream: [],
         message: createMessage({
           role: 'assistant',
           content: [{ type: 'tool-call', id: ToolCallId('unknown-outcome-call'), name: 'write_remote', arguments: '{"value":1}' }],
@@ -57,7 +74,7 @@ async function seedInterruptedSession(root: string, cwd: string): Promise<string
     },
     {
       type: 'tool/call',
-      seq: 4,
+      seq: SessionSeq(4),
       time: 14,
       data: {
         turn: 1,
@@ -69,11 +86,10 @@ async function seedInterruptedSession(root: string, cwd: string): Promise<string
     },
   ]
   try {
-    await ctx.sessionPersistence.create(meta)
-    await ctx.sessionPersistence.append(sessionId, events)
-    const location = ctx.sessionPersistence.locate(meta)
-    if (location === undefined) throw new Error('JSONL backend did not locate the seeded session')
-    return location.path
+    const handle = await ctx.sessionPersistence.create(meta)
+    await handle.append(events)
+    await handle.close()
+    return logPath(root, meta.cwd, meta.id, 'none')
   } finally {
     await ctx.fiber.dispose()
   }
@@ -103,7 +119,7 @@ describe('semantic checkpoint recovery snapshot', () => {
         const normalization: NormalizeContext = { sessionIds: [sessionId], cwd }
         const session = normalizeSessionSnapshot(await readFile(sessionPath, 'utf8'), normalization)
         if (refreshing) await writeFile(sessionExpected, session)
-        expect(session).toBe(await readFile(sessionExpected, 'utf8'))
+        await expectSession(session, sessionExpected)
         expect(session).toContain('TOOL_OUTCOME_UNKNOWN')
         expect(session).toContain('Do not retry blindly.')
       },

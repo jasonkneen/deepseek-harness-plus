@@ -74,6 +74,8 @@ const OVERRIDES: Record<string, { license?: string; repo?: string }> = {
   '@modelcontextprotocol/server-filesystem': { license: 'MIT / Apache-2.0', repo: 'https://github.com/modelcontextprotocol/servers' },
   // No repository field in the published manifest.
   'node-addon-require-builtin': { repo: 'https://www.npmjs.com/package/node-addon-require-builtin' },
+  // No `license` field in the published manifest; the tarball's LICENSE.txt is the MIT text.
+  'fs-ext': { license: 'MIT' },
 }
 
 /**
@@ -88,17 +90,6 @@ const PYTHON_METADATA: Record<string, { license: string; repo: string; role: str
 }
 
 type PythonMetadata = typeof PYTHON_METADATA
-
-/** Tools fetched by scripts at build time, keyed by the pin the script owns. */
-const BUILD_TIME_TOOLS = [
-  {
-    name: '@yao-pkg/pkg',
-    license: 'MIT',
-    repo: 'https://github.com/yao-pkg/pkg',
-    role: 'invoked by `scripts/build-exe-for-python-sdk.ts` to assemble the single-file SDK runtime executable',
-    pinSource: 'scripts/build-exe-for-python-sdk.ts',
-  },
-]
 
 /** The `package.json` fields this generator reads. */
 export interface Manifest {
@@ -279,11 +270,13 @@ const workspaceLinkedManifestCache = new Map<string, VirtualManifest | undefined
  * Resolve the package version selected for a declaring workspace instead of an
  * unrelated historical version that still occupies the shared virtual store.
  * @param name - external package identity.
+ * @param manifests - workspace manifests already loaded by the caller, so one
+ *   load serves every dependency instead of a full re-read per name.
  * @returns the first current workspace link for that package, when installed.
  */
-function workspaceLinkedManifest(name: string): VirtualManifest | undefined {
+function workspaceLinkedManifest(name: string, manifests: Map<string, Manifest>): VirtualManifest | undefined {
   if (workspaceLinkedManifestCache.has(name)) return workspaceLinkedManifestCache.get(name)
-  for (const [path, manifest] of loadWorkspaceManifests().manifests) {
+  for (const [path, manifest] of manifests) {
     if (!ALL_KINDS.some(kind => name in (manifest[kind] ?? {}))) continue
     const linked = resolve(root, dirname(path), 'node_modules', name, 'package.json')
     if (!existsSync(linked)) continue
@@ -296,8 +289,8 @@ function workspaceLinkedManifest(name: string): VirtualManifest | undefined {
 }
 
 /** Resolve one installed external package manifest from either pnpm store. */
-function installedManifest(name: string, expectedVersion?: string): VirtualManifest | undefined {
-  const linked = workspaceLinkedManifest(name)
+function installedManifest(name: string, manifests: Map<string, Manifest>, expectedVersion?: string): VirtualManifest | undefined {
+  const linked = workspaceLinkedManifest(name, manifests)
   if (linked !== undefined && (expectedVersion === undefined || linked.version === expectedVersion)) return linked
   let manifest: (Manifest & { license?: string; repository?: string | { url?: string }; homepage?: string }) | undefined
   // Workspace-local link farms can expose a dependency that is not linked at
@@ -320,9 +313,9 @@ function installedManifest(name: string, expectedVersion?: string): VirtualManif
 }
 
 /** License and repository URL for an installed external package, from the pnpm store. */
-function installedMetadata(name: string): { license: string; repo: string } {
+function installedMetadata(name: string, manifests: Map<string, Manifest>): { license: string; repo: string } {
   const override = OVERRIDES[name]
-  const manifest = installedManifest(name)
+  const manifest = installedManifest(name, manifests)
   const license = override?.license ?? manifest?.license
   const rawRepo = typeof manifest?.repository === 'string' ? manifest.repository : manifest?.repository?.url ?? manifest?.homepage
   const repo = override?.repo ?? normalizeRepo(rawRepo)
@@ -332,8 +325,8 @@ function installedMetadata(name: string): { license: string; repo: string } {
   return { license, repo }
 }
 
-function collectClaudeDistribution(): ClaudeDistribution {
-  const manifest = installedManifest(CLAUDE_AGENT_SDK_PACKAGE)
+function collectClaudeDistribution(manifests: Map<string, Manifest>): ClaudeDistribution {
+  const manifest = installedManifest(CLAUDE_AGENT_SDK_PACKAGE, manifests)
   if (manifest === undefined) {
     throw new Error(
       `gen-third-party-notices: cannot resolve ${CLAUDE_AGENT_SDK_PACKAGE}; run \`pnpm install\`.`,
@@ -342,7 +335,7 @@ function collectClaudeDistribution(): ClaudeDistribution {
   const distribution = claudeDistributionFromManifest(manifest)
   let installedPayloads = 0
   for (const payload of distribution.payloads) {
-    const installed = installedManifest(payload.name, payload.version)
+    const installed = installedManifest(payload.name, manifests, payload.version)
     if (installed === undefined) continue
     installedPayloads += 1
     if (
@@ -383,12 +376,11 @@ function normalizeRepo(raw: string | undefined): string | undefined {
  * by tooling, test infrastructure, the website, or the demo leaves — whatever
  * the declaring section is called — is development-only.
  */
-function collectNpmDeps(): ExternalDep[] {
-  const { manifests, names } = loadWorkspaceManifests()
+function collectNpmDeps(manifests: Map<string, Manifest>, names: Set<string>): ExternalDep[] {
   return [...tierExternalDeps(manifests, names)]
     .filter(([name]) => !FIRST_PARTY.has(name))
     .sort(([a], [b]) => a.localeCompare(b))
-    .map(([name, runtime]) => ({ name, ...installedMetadata(name), runtime }))
+    .map(([name, runtime]) => ({ name, ...installedMetadata(name, manifests), runtime }))
 }
 
 /**
@@ -601,16 +593,6 @@ function collectPatched(): { spec: string; patch: string }[] {
   return Object.entries(workspace.patchedDependencies ?? {}).map(([spec, patch]) => ({ spec, patch }))
 }
 
-/** Verify each build-time tool pin still appears in its owning script. */
-function verifyBuildTimePins(): void {
-  for (const tool of BUILD_TIME_TOOLS) {
-    const text = readFileSync(resolve(root, tool.pinSource), 'utf8')
-    if (!text.includes(tool.name)) {
-      throw new Error(`gen-third-party-notices: ${tool.pinSource} no longer references ${tool.name}; update BUILD_TIME_TOOLS.`)
-    }
-  }
-}
-
 /** SPDX identifiers this project may ship without further review. */
 const PERMISSIVE_LICENSES = new Set(['MIT', 'ISC', 'BSD-2-Clause', 'BSD-3-Clause', 'Apache-2.0', '0BSD', 'Unlicense', 'CC0-1.0', 'BlueOak-1.0.0', 'Python-2.0'])
 
@@ -691,8 +673,11 @@ ${rows.join('\n')}
  * @returns the exact bytes `THIRD_PARTY_NOTICES.md` must hold.
  */
 export function render(): string {
-  verifyBuildTimePins()
-  const npm = collectNpmDeps()
+  // The linked-manifest cache is keyed by name only, so it must not outlive
+  // the manifests map it was resolved from; render() owns that single load.
+  workspaceLinkedManifestCache.clear()
+  const { manifests, names } = loadWorkspaceManifests()
+  const npm = collectNpmDeps(manifests, names)
   const runtimeDeps = npm.filter(dep => dep.runtime)
   const devDeps = npm.filter(dep => !dep.runtime)
   const vendored = collectVendored()
@@ -701,7 +686,7 @@ export function render(): string {
   const claudeDistribution = runtimeDeps.some(
     dep => dep.name === CLAUDE_AGENT_SDK_PACKAGE,
   )
-    ? collectClaudeDistribution()
+    ? collectClaudeDistribution(manifests)
     : undefined
   const nonPermissiveDev = devDeps.filter(dep => !isPermissive(dep.license))
   // A copyleft license reaching a shipped surface is a distribution decision,
@@ -759,12 +744,6 @@ Direct dependencies of the \`pyproject.toml\` manifests, plus \`uv\` as the deve
 | --- | --- | --- |
 ${python.map(dep => `| [\`${dep.name}\`](${dep.repo}) | ${dep.license} | ${dep.role} |`).join('\n')}
 | [\`uv\`](https://github.com/astral-sh/uv) | MIT / Apache-2.0 | development workflow tool |
-
-## Fetched at build time
-
-| Package | License | Role |
-| --- | --- | --- |
-${BUILD_TIME_TOOLS.map(tool => `| [\`${tool.name}\`](${tool.repo}) | ${tool.license} | ${tool.role} |`).join('\n')}
 
 ## First-party native packages
 

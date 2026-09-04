@@ -14,7 +14,7 @@ Web 统计行原先从当前已加载的会话节点推导 token 总量。该窗
 
 这两个值都是普通的持久会话投影状态。当 `ctx.sessionProjections` 存在时，`@deepseek-ai/dsh-token-meter` 会注册两个单元。
 
-`tokenUsage` 将完整持久日志归并为未缓存输入、输出、缓存读取和缓存写入四类计数项。即使后续请求失败，`assistant/chunk` 用量样本仍会保留；`assistant/message` 用量值会替换同一次模型 attempt 的先前样本，不会重复计数。匹配的 `llm/retry-started` 边界会结束该替换作用域，因此复用同一 `(turn, step)` 的重试会贡献一次新的 attempt。推理（reasoning）仍是输出的细分项。压缩和表层替换不会抹除先前的计费用量。
+`tokenUsage` 将完整持久日志归并为未缓存输入、输出、缓存读取和缓存写入四类计数项。它会展开每个 `assistant/message` 或 `assistant/attempt` stream 并采用最后一个 usage sample；message 顶层 usage 优先于其嵌入式 sample，因此不会重复计数。`assistant/attempt` 由此保留失败请求的 usage。匹配的 `llm/retry-started` 边界会打开新 attempt，因此复用同一 `(turn, step)` 的重试会单独贡献用量。推理（reasoning）仍是输出的细分项。compaction 和 surface replacement 不会抹除先前计费。
 
 token-meter 还拥有在持久事件上运行的共享纯 attempt／Turn fold。它采用相同的重试边界，并增加精确单轮次 disclosure 所需的更严格完整性与精确总量检查。展示消费方可以选择完整 Turn 窗口并调用该 fold，但不拥有或复制记账语义。
 
@@ -26,7 +26,7 @@ token-meter 还拥有在持久事件上运行的共享纯 attempt／Turn fold。
 
 两个单元都沿用标准投影生命周期：历史尾页基线、`session/projection` 实时帧、seq 高者胜的客户端存储、JSON 检查点、缓存恢复和单元卸载。系统没有任何 token 专用的历史字段、mux 帧、投影器、修订计数器或客户端栅栏。
 
-Web `StatsLine` 通过标准 `useProjection` 席位读取两者。窗口内节点仍提供轮次和步骤计数，以及 LLM（大语言模型）与工具的墙钟时间：它们回答的是「屏幕上有什么」，按窗口作用域正是正确的。压缩使可见 assistant 步骤归零后，持久 token 与上下文分组仍会保留。缓存写入会计入计费输入和缓存命中率分母。未部署 token-meter 时会去掉 token 分组；只有压力与容量都已知时才显示占用率。
+Web `StatsLine` 通过标准 `useProjection` 席位读取两者。窗口内节点仍提供轮次和步骤计数，以及 LLM（大语言模型）与工具的墙钟时间：它们回答的是「屏幕上有什么」，按窗口作用域正是正确的。压缩使可见 assistant 步骤归零后，持久 token 与上下文分组仍会保留。缓存写入会计入计费输入和缓存命中率分母。未部署 token-meter 时会去掉 token 分组；只有压力与容量都已知时才显示占用率。精确 overflow tooltip 只在统计行非空时挂载测量子组件，并在值变化期间保留同一个 `ResizeObserver`；文本变化只直接测量一次，不替换 observer。
 
 ## 上下文占用率是近似值，而这正是决策本身
 
@@ -58,4 +58,4 @@ token 总量在分页、压缩、回放、重启和重连期间保持稳定，�
 
 占用率在上文记录的意义上是近似值。由于两个字段都是持久的，它在恢复或重连后立即可用；代价是它描述的是最后一条已记录的请求，而不是精确的当前边界。
 
-每个会话日志会为每次路由或已公布容量变化增加一条小型 `request/context` 记录。token-meter 是持久用量语义的正典所有方，包括累计投影中的重试 attempt 分离，以及可复用的精确 attempt／Turn fold；Web Chat 只选择已完整加载的 Turn 并渲染 fold 结果。TUI 未挂载通用投影 seam，因此保留自己的实时逐步骤 map，而独立浏览器 fixture（测试前置数据）会镜像该单元。Connection 与 API Gateway 不携带任何 token 专用代码，不拥有逐会话指标缓存，也不执行测量。浏览器只保留两个通用投影值，不保留连接本地的遥测数据；流式文本增量仍不会迫使统计行重新计算。
+每个会话日志会为每次路由或已公布容量变化增加一条小型 `request/context` 记录。token-meter 是持久用量语义的正典所有方，包括累计投影中的重试 attempt 分离，以及可复用的精确 attempt／Turn fold；Web Chat 只选择已完整加载的 Turn 并渲染 fold 结果。TUI 未挂载通用投影 seam，因此保留自己的实时逐步骤 map，而独立浏览器 fixture（测试前置数据）会镜像该单元。Connection 与 API Gateway 不携带任何 token 专用代码，不拥有逐会话指标缓存，也不执行测量。浏览器只保留两个通用投影值，不保留连接本地的遥测数据；流式文本增量不会迫使统计行重新计算或反复替换布局 observer 订阅。

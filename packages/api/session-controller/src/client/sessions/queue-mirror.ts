@@ -5,8 +5,11 @@ import type { QueuedMessage } from '../contract/snapshot.ts'
 
 const QUEUE_PREVIEW_CHARS = 200
 
+// Attachment blocks are excluded: queue presentation renders them from
+// `content`, so the text preview covers only what has no visual form.
 function previewOf(content: readonly ContentBlock[]): string {
   const flat = content
+    .filter(block => block.type !== 'image' && block.type !== 'file')
     .map(block => (block.type === 'text' ? block.text : `[${block.type}]`))
     .join(' ').replace(/\s+/g, ' ').trim()
   const chars = Array.from(flat)

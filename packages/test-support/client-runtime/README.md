@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-`dsh-client-test-runtime` gives a browser feature spec a real jsdom test bench: it assembles a Cordis context, the renderer-owned slot registry, and the production `UiSession` adapter around typed Session and Workspace Controller doubles. Feature suites exercise declaration, registration, scoping, stores, injection, rendering, updates, and disposal without copying production renderer or adapter logic. Suites publish Session lifecycle state, Workspace state, projection values, and Conversation events through typed fixtures, then use local DOM snapshot roots, scoped Testing Library queries, and fail-loud service checks. It is not part of the product plugin graph (no `dsh.client`); feature packages depend on it in `devDependencies` only.
+`dsh-client-test-runtime` gives a browser feature spec a real jsdom test bench: it assembles a Cordis context, the renderer-owned slot registry, and the production `UiSession` adapter around typed Session and Workspace Controller doubles. A default file-upload stub satisfies features that declare the service and rejects if a test starts an upload without replacing it. Feature suites exercise declaration, registration, scoping, stores, injection, rendering, updates, and disposal without copying production renderer or adapter logic. Suites publish Session lifecycle state, Workspace state, projection values, and Conversation events through typed fixtures, then use local DOM snapshot roots, scoped Testing Library queries, and fail-loud service checks. It is not part of the product plugin graph (no `dsh.client`); feature packages depend on it in `devDependencies` only.
 
 ## Table of Contents
 
@@ -40,11 +40,27 @@ expect(view.container).toMatchSnapshot()
 await runtime.dispose()
 ```
 
-`mount` prechecks required services and fails loud when one is missing — `provide(name, value)` supplies an extra service first. `storeOf(key, scopeKey)` returns the live store instance the renderer hands a slot's component for identity and action-driven-write assertions.
+`mount` prechecks required services and fails loud when one is missing — `provide(name, value)` supplies an extra service first. The runtime provides an unavailable `fileUpload` stub so assemblies can mount; replace `runtime.fileUpload.upload` before mounting when a test exercises upload behavior. `storeOf(key, scopeKey)` returns the live store instance the renderer hands a slot's component for identity and action-driven-write assertions.
 
 ### Local DOM snapshots
 
 A registered snapshot serializer folds CSS-module class hashes (`_frame_a1b2c3` → `frame`) so `.snap` files stay structural, and collapses `<svg>` internals to a `data-content` fingerprint. Suites needing a custom page frame use `root.declare(children, Frame)` instead of the auto frame; `dispose()` tears down views, feature fibers, minted scopes, and persisted store state on one axis and is idempotent.
+
+### Scripting Remote answers and failures
+
+`TestRemote` is the double for the `ctx.remote` face: it registers itself plus one service per scripted namespace so a plugin injecting `remote.<name>` unparks, drives `$on` subscriptions from an explicit test event driver, and exposes `$host` as a plain mutable field a spec assigns to script a homed or non-loopback Host. This package is also where a UI spec takes the `RemoteError` constructor as a value — the `dsh-api-remotes` facade cannot carry it, because a value import from a spec would pull that assembly's unbuilt `/remote` artifact chain.
+
+Script a failure by the code the Host would answer with, and assert the same way production code discriminates — on `code`, never on the class:
+
+```text
+import { RemoteError } from '@deepseek-ai/dsh-client-test-runtime'
+
+remote.goals.create.mockResolvedValue({
+  ok: false,
+  error: new RemoteError('goal/not-found', 'goal "g1" does not exist', { goalId: 'g1' }),
+})
+expect(view.getByRole('alert')).toHaveTextContent('goal/not-found')
+```
 
 ### When to use it
 
@@ -78,14 +94,14 @@ The bench copies no production logic: it mounts the production `SlotRegistry`, p
 | [`src/sessions.ts`](src/sessions.ts) + [`src/workspaces.ts`](src/workspaces.ts) | `ISessions`/`IWorkspaces` test doubles and `FixtureSession` behavior stubs |
 | [`src/fixtures.ts`](src/fixtures.ts) | Plain fixture builders: conversation snapshots, workspace list state |
 | [`src/snapshot.ts`](src/snapshot.ts) | DOM snapshot serializer (class-hash folding, `<svg>` fingerprint) |
-| [`src/remote.ts`](src/remote.ts) | `TestRemote` double for host RPC |
+| [`src/remote.ts`](src/remote.ts) | `TestRemote` double for host RPC, `RemoteError` value re-export |
 | [`src/translate.ts`](src/translate.ts) + [`src/locale-env.ts`](src/locale-env.ts) | Translation and pinned-browser-language test helpers |
 | [`src/settings-scope.ts`](src/settings-scope.ts) | `stubSettingsScope` with test-driven publications and a write spy |
-| [`src/invariant.ts`](src/invariant.ts) | Invariant companion (no runtime invariant; the mounted production packages own theirs) |
+| — | No runtime invariant companion is published; this test-support package owns no production event stream or mutable data — it assembles the runtime SlotRegistry and renderer (whose packages own their invariants) around test doubles; its own behavior is exercised by its package tests. |
 
 ### Lifecycle
 
-`create()` builds a fresh context, mounts the slot and conversation registries, installs the renderer, and provides the session/workspace doubles. `mount` checks every declared injection against the context before starting the fiber, so a missing provider fails loud instead of suspending forever. `dispose()` unmounts React trees first, then disposes feature fibers, releases the root registration, disposes minted session scopes, and clears persisted store state; every public mutator is act-wrapped, so tests never handle SlotCore microtask batching or React `act` themselves.
+`create()` builds a fresh context, mounts the slot and conversation registries, installs the renderer, and provides the session/workspace doubles plus the fail-loud file-upload stub. `mount` checks every declared injection against the context before starting the fiber, so a missing provider fails loud instead of suspending forever. `dispose()` unmounts React trees first, then disposes feature fibers, releases the root registration, disposes minted session scopes, and clears persisted store state; every public mutator is act-wrapped, so tests never handle SlotCore microtask batching or React `act` themselves.
 
 </details>
 

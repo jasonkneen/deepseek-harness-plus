@@ -151,6 +151,7 @@ describe('readCardModel', () => {
 
 describe('GenericToolCard read body', () => {
   const ownerProps = (block: RunningToolCall | ToolResultNode): GenericToolCardProps => ({
+    loadImage: vi.fn(() => Promise.reject(new Error('not used'))),
     callId: 'c1', toolName: 'read', block, openFile: vi.fn(), t,
   })
 
@@ -175,7 +176,7 @@ describe('GenericToolCard read body', () => {
     const view = render(<GenericToolCard {...({
       callId: 'c1', toolName: 'echo', block: settled({
         call: { name: 'echo', argsRaw: '{"text":"x"}' }, meta: undefined,
-      }), openFile: vi.fn(), t,
+      }), openFile: vi.fn(), loadImage: vi.fn(() => Promise.reject(new Error('not used'))), t,
     })} />)
     toggleRow(view)
     expect(view.container.querySelector('[data-read]')).toBeNull()
@@ -311,9 +312,9 @@ describe('DetailsPanel Output section (read)', () => {
         useInput={(() => { throw new Error('unused') })}
         inputActions={{
           setDraft: () => {},
-          addImages: () => true,
-          removeImage: () => {},
-          pruneImages: () => {},
+          addAttachments: () => true,
+          removeAttachment: () => {},
+          pruneAttachments: () => {},
           submit: () => {},
         }}
         useProjection={(() => undefined)}
@@ -361,7 +362,7 @@ describe('DetailsPanel Output section (read)', () => {
   it('abbreviates a leftover POSIX home path on the read card label', () => {
     const view = mount(snapshot({
       nodes: [settled({ meta: readMeta({ path: '/Users/u/notes.md' }) })],
-    }), target, '/tmp/ws', { id: 1, host: { home: '/Users/u' } })
+    }), target, '/tmp/ws', '/Users/u')
     expect(view.getByText('~/notes.md')).toBeTruthy()
   })
 

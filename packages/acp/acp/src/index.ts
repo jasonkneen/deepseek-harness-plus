@@ -16,6 +16,7 @@ import { realpath } from 'node:fs/promises'
 import { isAbsolute, resolve } from 'node:path'
 import { Readable, Writable } from 'node:stream'
 import Schema from '@deepseek-ai/schemastery'
+import { brandString } from '@deepseek-ai/dsh-brand'
 import { errorChain } from '@deepseek-ai/dsh-llm'
 import {
   agent as createAcpAgentApp,
@@ -45,7 +46,7 @@ import {
   type Stream,
 } from '@agentclientprotocol/sdk'
 import type { ModelSelection } from '@deepseek-ai/dsh-agent'
-import { SessionId } from '@deepseek-ai/dsh-session'
+import type { SessionId } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-session-persistence'
 // Side-effect type import: declaration-merges the approval waterfall answered below.
 import type {} from '@deepseek-ai/dsh-user-approval'
@@ -195,7 +196,7 @@ export function apply(ctx: Context, config: AcpConfig): void {
     async newSession(params: NewSessionRequest, signal: AbortSignal): Promise<NewSessionResponse> {
       assertOpen()
       validateWorkspaceParams(params)
-      const sessionId = SessionId(randomUUID())
+      const sessionId = brandString<SessionId>(randomUUID())
       // No preset composition: the ACP bundle keeps the model-facing rows in
       // the host plane, so this agent reads them from the global layer. A
       // deployment that configures a roster has to join one here first
@@ -224,7 +225,8 @@ export function apply(ctx: Context, config: AcpConfig): void {
       try {
         const configOptions = await record.configOptions(signal)
         assertOpen()
-        await persistence.ensureMaterialized(record.agent.session)
+        // The attached log writer's flush materializes an empty session durably.
+        await ctx.sessions.flush(record.agent.session)
         assertOpen()
         return { sessionId, configOptions }
       } catch (error: unknown) {
@@ -237,13 +239,13 @@ export function apply(ctx: Context, config: AcpConfig): void {
     async resumeSession(params: ResumeSessionRequest, signal: AbortSignal): Promise<ResumeSessionResponse> {
       assertOpen()
       validateWorkspaceParams(params)
-      const sessionId = SessionId(params.sessionId)
+      const sessionId = brandString<SessionId>(params.sessionId)
       if (sessions.has(sessionId) || activating.has(sessionId) || ctx.sessions.get(sessionId) !== undefined) {
         throw invalidParams(`session is already active: ${sessionId}`)
       }
       activating.add(sessionId)
       return (async (): Promise<ResumeSessionResponse> => {
-        const persisted = (await persistence.list(signal)).find(header => header.id === sessionId)
+        const persisted = (await persistence.stat(sessionId, { signal }))?.header
         if (persisted === undefined || persisted.origin === 'subagent' || persisted.parentSession !== undefined) {
           throw invalidParams(`session is not resumable: ${sessionId}`)
         }
@@ -298,8 +300,8 @@ export function apply(ctx: Context, config: AcpConfig): void {
       } catch (error: unknown) {
         throw invalidParams((error as Error).message)
       }
-      const listed = await persistence.list(signal)
-      const filtered = await Promise.all(listed.map(async (header) => {
+      const listed = await persistence.list({ signal })
+      const filtered = await Promise.all(listed.map(async ({ header }) => {
         if (
           sessions.has(header.id)
             || activating.has(header.id)
@@ -333,7 +335,7 @@ export function apply(ctx: Context, config: AcpConfig): void {
       signal: AbortSignal,
     ): Promise<SetSessionConfigOptionResponse> {
       assertOpen()
-      const record = requireSession(SessionId(params.sessionId))
+      const record = requireSession(brandString<SessionId>(params.sessionId))
       try {
         return { configOptions: await record.setConfig(params.configId, params.value, signal) }
       } catch (error: unknown) {
@@ -344,7 +346,7 @@ export function apply(ctx: Context, config: AcpConfig): void {
 
     async closeSession(params: CloseSessionRequest): Promise<CloseSessionResponse> {
       assertOpen()
-      const sessionId = SessionId(params.sessionId)
+      const sessionId = brandString<SessionId>(params.sessionId)
       const record = requireSession(sessionId)
       try {
         await record.close('ACP session closed')
@@ -358,12 +360,12 @@ export function apply(ctx: Context, config: AcpConfig): void {
 
     async prompt(params: PromptRequest, requestSignal: AbortSignal): Promise<PromptResponse> {
       assertOpen()
-      const record = requireSession(SessionId(params.sessionId))
+      const record = requireSession(brandString<SessionId>(params.sessionId))
       return record.prompt(params, imagePromptEnabled, requestSignal)
     },
 
     cancel(params: CancelNotification): Promise<void> {
-      sessions.get(SessionId(params.sessionId))?.cancel()
+      sessions.get(brandString<SessionId>(params.sessionId))?.cancel()
       return Promise.resolve()
     },
   }

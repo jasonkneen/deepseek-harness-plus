@@ -2,8 +2,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
-import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-test-runtime'
-import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
+import { bindSnapshotSelector, makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
 import { zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/zh.ts'
 import type {
   ChatConversationViewNode, ConversationNode,
@@ -39,14 +38,21 @@ const t: ChatNodeViewProps['t'] = makeTranslate(zh, commonZh)
 const renderMessageImages: AssistantMarkdownProps['renderMessageImages'] = () => null
 const RETRY_ID = 'retry-fixture' as Extract<ConversationNode, { kind: 'model-retry' }>['retryId']
 
+// Recency scans the whole transcript; a detached fixture is its own latest row.
+const useDetachedChat: ChatNodeViewProps['useChat'] = bindSnapshotSelector({
+  subscribe: () => () => {},
+  getSnapshot: () => ({ order: [], nodes: new Map() }),
+} as never)
+
 interface MessageItemProps {
   readonly node: ConversationNode
   readonly t: ChatNodeViewProps['t']
   readonly referenceLabels?: readonly string[]
+  readonly skillNames?: readonly string[]
 }
 
 /** Legacy-node fixture adapter for the independently registered renderers. */
-function MessageItem({ node, t: translate, referenceLabels }: MessageItemProps) {
+function MessageItem({ node, t: translate, referenceLabels, skillNames }: MessageItemProps) {
   const kind = node.kind === 'assistant' ? 'assistant-step' : node.kind
   const viewNode: ChatConversationViewNode = {
     key: `fixture:${node.kind}:${node.seq}`,
@@ -58,11 +64,15 @@ function MessageItem({ node, t: translate, referenceLabels }: MessageItemProps) 
     visibility: 'visible',
     data: node.kind === 'model-retry'
       ? { attempts: [node], current: node }
-      : (node.kind === 'user' || node.kind === 'steering') && referenceLabels !== undefined
-        ? { ...node, referenceLabels }
+      : (node.kind === 'user' || node.kind === 'steering') && (referenceLabels !== undefined || skillNames !== undefined)
+        ? {
+          ...node,
+          ...(referenceLabels === undefined ? {} : { referenceLabels }),
+          ...(skillNames === undefined ? {} : { skillNames }),
+        }
         : node,
   }
-  const props = { node: viewNode, t: translate, renderMessageImages } as ChatNodeViewProps
+  const props = { node: viewNode, t: translate, renderMessageImages, useChat: useDetachedChat } as ChatNodeViewProps
   switch (node.kind) {
     case 'user':
     case 'steering':
@@ -134,6 +144,22 @@ describe('MessageItem arms', () => {
     expect(files.map(file => file.textContent)).toEqual(['Dockerfile', 'README.md'])
     expect(files.every(file => file.querySelector('svg') !== null)).toBe(true)
     expect(view.container.textContent).toContain('README.md, please.')
+  })
+
+  it('decorates a slash token as a skill chip only when the step resolved that skill', () => {
+    const message = {
+      kind: 'user' as const,
+      seq: 1,
+      time: 1_000,
+      content: [{ type: 'text', text: '/123 then /demo-skill go' }] as never,
+      source: null,
+    }
+    const plain = render(<MessageItem t={t} node={message} />)
+    expect(plain.container.querySelectorAll('[data-ref-chip]').length).toBe(0)
+    const resolved = render(<MessageItem t={t} node={message} skillNames={['demo-skill']} />)
+    const chips = [...resolved.container.querySelectorAll('[data-ref-chip="skill"]')]
+    expect(chips.map(chip => chip.textContent)).toEqual(['/demo-skill'])
+    expect(resolved.container.textContent).toContain('/123 then ')
   })
 
   it('user bubbles expose clock / copy and neither branch nor edit; copy writes the text', () => {
@@ -701,7 +727,7 @@ describe('MessageItem arms', () => {
     // reach it, and the row marker must not claim a form that did not render.
     const cases = [
       { form: 'snapshot', source: { kind: 'plugin', form: 'snapshot', sections: 'not-a-list' }, label: 'plugin' },
-      { form: 'relay', source: { kind: 'subagent-report', form: 'relay' }, label: 'subagent-report' },
+      { form: 'relay', source: { kind: 'agent-message', form: 'relay' }, label: 'agent-message' },
       { form: 'recall', source: { kind: 'session-reference', form: 'recall', references: [{ label: 'x' }] }, label: 'session-reference' },
     ] as const
     for (const { form, source, label } of cases) {
@@ -741,13 +767,13 @@ describe('MessageItem arms', () => {
         kind: 'context',
         seq: 3,
         content: [{ type: 'text', text: 'child report body' }],
-        source: { kind: 'subagent-report', form: 'relay', senderSessionId: 'child-7' },
-        provenance: { role: 'inject', label: 'subagent-report' },
+        source: { kind: 'agent-message', form: 'relay', senderSessionId: 'child-7' },
+        provenance: { role: 'inject', label: 'agent-message' },
         form: 'relay',
       } as never}
       />,
     )
-    fireEvent.click(view.getByRole('button', { name: /^上下文注入\s*subagent-report$/ }))
+    fireEvent.click(view.getByRole('button', { name: /^上下文注入\s*agent-message$/ }))
     expect(view.container.querySelector('[data-context-relay-sender]')?.textContent).toBe('来自会话 child-7')
     expect(view.container.querySelector('[data-context-text]')?.textContent).toBe('child report body')
   })
@@ -1034,5 +1060,31 @@ describe('small branch tails', () => {
       />,
     )
     expect(view.container.textContent).toBe('1 轮 · 1 步| 输入 0 tok · 输出 10 tok')
+  })
+})
+
+describe('user file attachments', () => {
+  it('renders one card per durable file block with its name and compact size', () => {
+    const view = render(
+      <MessageItem
+        t={t}
+        node={{
+          kind: 'user',
+          seq: 1,
+          time: 1_000,
+          content: [
+            { type: 'file', attachment: { attachmentId: 'sha256:cd', name: 'notes.pdf', bytes: 3 * 1024 * 1024 + 200 * 1024 } },
+            { type: 'file', attachment: { attachmentId: 'sha256:ef', name: 'tiny.txt', bytes: 12 } },
+            { type: 'file', attachment: { attachmentId: 'sha256:aa', name: 'mid.csv', bytes: 500 * 1024 } },
+            { type: 'text', text: 'summarize these' },
+          ] as never,
+          source: null,
+        }}
+      />,
+    )
+    expect(view.getByTitle('notes.pdf').textContent).toContain('3.2MB')
+    expect(view.getByTitle('tiny.txt').textContent).toContain('12B')
+    expect(view.getByTitle('mid.csv').textContent).toContain('500KB')
+    expect(view.getByText('summarize these')).toBeTruthy()
   })
 })

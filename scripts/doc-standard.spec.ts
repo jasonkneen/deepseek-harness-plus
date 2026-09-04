@@ -55,7 +55,6 @@ const PACKAGE_LIBRARIES: Readonly<Record<string, string>> = {
   'packages/client/ui-primitives': 'Browser-side UI component library; plain component exports.',
   'packages/client/ui-slots': 'Browser-side slot-map declarations; plain type exports.',
   'packages/client/web': 'Browser application boot library; exports the app entry and static module table.',
-  'packages/code-runtime/code-runtime-python': 'Host-side protocol library for the CPython subprocess runtime.',
   'packages/core/scope': 'Scoped-context primitives; exports functions and types without a plugin entry.',
   'packages/experimental/webworker-packer': 'Build-time VFS image packer and command library.',
   'packages/experimental/webworker-runtime': 'Browser worker runtime library with explicit host entry points.',
@@ -64,6 +63,9 @@ const PACKAGE_LIBRARIES: Readonly<Record<string, string>> = {
   'packages/sandbox/sandbox-windows-acl': 'Windows ACL sandbox library consumed by sandbox-local.',
   'packages/sdk/client': 'Client-process library; the spawned runtime owns plugin behavior.',
   'packages/sdk/protocol': 'Wire-protocol library with type declarations only.',
+  'packages/session/session-format': 'Pure Session format planning, codec dispatch, and lossless JSON library.',
+  'packages/session/session-format-catalog': 'Generated build-static Session format inventory with no plugin registration.',
+  'packages/session/session-format-v0-to-v1': 'Pure released-v0 codec and adjacent migration library.',
   'packages/session/session-telemetry': 'Telemetry Service Definition and capture library; providers mount the backend.',
   'packages/session/session-title-llm': 'Shared LLM title-provider registration and request policy.',
   'packages/subagent/subagent-in-process-driver': 'Shared one-shot child-agent driver used by provider plugins.',
@@ -76,13 +78,16 @@ const PACKAGE_LIBRARIES: Readonly<Record<string, string>> = {
   'packages/typert/generator': 'Build-time generator run outside any agent runtime.',
   'packages/typert/protocol': 'Compiler-independent protocol declarations.',
   'packages/util/atomic-write': 'Zero-dependency filesystem write utility.',
-  'packages/util/brand': 'Type-only branding primitive erased at compile time.',
+  'packages/util/brand': 'Stateless nominal-string and canonical-key constructors.',
   'packages/util/crypto': 'Zero-dependency identifier minting utility.',
+  'packages/util/deque': 'Zero-dependency circular deque utility.',
   'packages/util/home-paths': 'Zero-dependency harness-home path resolver.',
   'packages/util/launch-environment': 'Zero-dependency environment resolver.',
   'packages/util/native-command': 'Host-side subprocess runner utility.',
   'packages/util/output-retention': 'Zero-dependency retention utility.',
+  'packages/util/time': 'Zero-dependency time-zone canonicalization utility.',
   'packages/util/timeout': 'Zero-dependency timeout utility.',
+  'packages/util/values': 'Stateless lossless-JSON and immutable-value helpers.',
   'packages/util/workspace-path': 'Zero-dependency Workspace path formatter.',
 }
 
@@ -162,8 +167,8 @@ describe('dsh-doc skill consolidation', () => {
 
   it('keeps the reference example linked from the skill', () => {
     const skill = readFileSync(resolve(root, '.agents/skills/dsh-doc/SKILL.md'), 'utf8')
-    expect(skill).toContain('session-persistence-sqlite/README.md')
-    expect(skill).toContain('session-persistence-sqlite/README.zh.md')
+    expect(skill).toContain('session-persistence-jsonl/README.md')
+    expect(skill).toContain('session-persistence-jsonl/README.zh.md')
   })
 
   it('defines controlled English as a precision-preserving review discipline', () => {
@@ -249,7 +254,7 @@ describe('dsh-doc skill consolidation', () => {
 })
 
 describe('reference-example README pair', () => {
-  const dir = 'packages/session/session-persistence-sqlite'
+  const dir = 'packages/session/session-persistence-jsonl'
 
   it('keeps exact English/Chinese physical line alignment', () => {
     const sourceLines = readFileSync(resolve(root, dir, 'README.md'), 'utf8').split('\n').length

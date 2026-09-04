@@ -5,24 +5,21 @@ import type {
 import type {
   SessionEventLikeEntry, SessionLiveEventEntry,
 } from '@deepseek-ai/dsh-api-session-controller/client'
-import type {
-  ChunkRowEvent,
-} from '@deepseek-ai/dsh-api-session-controller/types'
 import {
   ConversationNodeAssembler,
   type ConversationNodeDefinition,
   type ConversationViewDefinition,
 } from '@deepseek-ai/dsh-client-ui-conversation/client'
-import { isChunkRow, packChunkRuns, type ChunkRow } from '@deepseek-ai/dsh-session/chunk-rows'
 import type { SessionEvent } from '@deepseek-ai/dsh-session/types'
+import { AssistantStreamAccumulator } from '@deepseek-ai/dsh-llm/assistant-stream'
+import type { StreamChunk } from '@deepseek-ai/dsh-llm'
 import { hasAssistantReplyContent } from '../src/client/contract/assistant-content.ts'
-import { decodeTurnProcess } from '../src/client/contract/turn-process.ts'
 import { assistantDefinition } from '../src/client/conversation-nodes/assistant.ts'
 import { chatViewDefinition } from '../src/client/conversation-nodes/chat-snapshot-builder.ts'
 import { commandDefinition } from '../src/client/conversation-nodes/command.ts'
 import { compactionDefinition } from '../src/client/conversation-nodes/compaction.ts'
 import { unknownFallbackDefinition } from '../src/client/conversation-nodes/fallback.ts'
-import { nextStepInboxDefinition, nextTurnInboxDefinition } from '../src/client/conversation-nodes/inbox.ts'
+import { nextStepInboxDefinition } from '../src/client/conversation-nodes/inbox.ts'
 import { messageDefinition } from '../src/client/conversation-nodes/message.ts'
 import { inspectRequestPrompt } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import { requestPromptDefinition } from '../src/client/conversation-nodes/request-prompt.ts'
@@ -37,7 +34,6 @@ import type {
 } from '../src/client/contract/chat-nodes.ts'
 
 const DEFINITIONS: readonly ConversationNodeDefinition[] = [
-  nextTurnInboxDefinition,
   nextStepInboxDefinition,
   messageDefinition,
   requestPromptDefinition(inspectRequestPrompt),
@@ -74,40 +70,86 @@ function at(
   data: unknown,
   extra: Record<string, unknown> = {},
 ): SessionLiveEventEntry {
+  const payload = type === 'assistant/message' && typeof data === 'object' && data !== null
+    ? { ...(data as Record<string, unknown>), stream: (data as { stream?: unknown }).stream ?? [] }
+    : data
   return {
     type: 'event',
     event: {
       seq,
       time: 1_700_000_000_000 + seq,
       type,
-      data,
+      data: payload,
       ...extra,
     } as unknown as SessionEvent,
   }
 }
 
-function chunkEntry(row: ChunkRow): SessionEventLikeEntry {
-  return {
-    type: 'chunks',
-    event: {
-      type: `chunkrow/${row.type}`,
-      seq: row.seq0,
-      time: row.time0,
-      data: row.data,
-    } as ChunkRowEvent,
-  }
-}
-
 function packedInputs(entries: readonly SessionLiveEventEntry[]): SessionEventLikeEntry[] {
-  return packChunkRuns(entries.map(entry => entry.event)).map((record) => {
-    return isChunkRow(record) ? chunkEntry(record) : { type: 'event', event: record }
-  })
+  const output: SessionEventLikeEntry[] = []
+  let active: {
+    readonly turn: number
+    readonly step: number
+    readonly stream: AssistantStreamAccumulator
+    last: SessionLiveEventEntry
+  } | undefined
+  const flush = (): void => {
+    if (active === undefined) return
+    output.push(at(active.last.event.seq, 'assistant/attempt', {
+      turn: active.turn,
+      step: active.step,
+      stream: active.stream.snapshot(),
+    }, { time: active.last.event.time }))
+    active = undefined
+  }
+  for (const entry of entries) {
+    const event = entry.event as unknown as {
+      readonly type: string
+      readonly time: number
+      readonly data: { readonly turn?: number; readonly step?: number; readonly chunk?: StreamChunk }
+    }
+    if (event.type === 'assistant/live-chunk'
+      && event.data.turn !== undefined
+      && event.data.step !== undefined
+      && event.data.chunk !== undefined) {
+      if (active !== undefined && (active.turn !== event.data.turn || active.step !== event.data.step)) flush()
+      const current = active ?? {
+        turn: event.data.turn,
+        step: event.data.step,
+        stream: new AssistantStreamAccumulator(),
+        last: entry,
+      }
+      active = current
+      current.stream.push({ time: event.time, chunk: event.data.chunk })
+      current.last = entry
+      continue
+    }
+    const current = active
+    if (event.type === 'assistant/message'
+      && current !== undefined
+      && current.turn === event.data.turn
+      && current.step === event.data.step) {
+      output.push({
+        ...entry,
+        event: {
+          ...entry.event,
+          data: { ...entry.event.data, stream: current.stream.snapshot() },
+        } as SessionEvent,
+      })
+      active = undefined
+      continue
+    }
+    flush()
+    output.push(entry)
+  }
+  flush()
+  return output
 }
 
 function assembler(entries: readonly SessionEventLikeEntry[] = [], hasMore = false): ConversationNodeAssembler {
   const value = new ConversationNodeAssembler(new TestEventDefinitions(), new TestViewDefinitions())
   value.replaceWindow(entries, hasMore)
-  value.flush()
+  value.activateTarget('chat')
   return value
 }
 
@@ -119,6 +161,55 @@ function snapshot(value: ConversationNodeAssembler): ChatSnapshot {
 
 function node(value: ChatSnapshot, kind: string): ChatConversationViewNode | undefined {
   return value.nodes.values().find(candidate => candidate.kind === kind)
+}
+
+function comparableSnapshot(value: ChatSnapshot) {
+  const nodes = value.nodes.values()
+  return {
+    order: value.order,
+    nodes: nodes.map(candidate => ({
+      ...candidate,
+      location: candidate.location.kind === 'step'
+        ? {
+          kind: 'step',
+          turn: candidate.location.turn.turn,
+          turnStatus: candidate.location.turn.status,
+          step: candidate.location.step.step,
+          stepStatus: candidate.location.step.status,
+        }
+        : candidate.location.kind === 'turn'
+          ? {
+            kind: 'turn',
+            turn: candidate.location.turn.turn,
+            turnStatus: candidate.location.turn.status,
+          }
+          : { kind: candidate.location.kind },
+    })),
+    processes: nodes.map(candidate => [
+      candidate.key,
+      value.nodes.processSource(candidate.key).getSnapshot(),
+    ]),
+    navigation: value.navigation.items(),
+    legacy: value.legacy,
+  }
+}
+
+function withoutEmbeddedSequenceAnchors(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(withoutEmbeddedSequenceAnchors)
+  if (value instanceof Map) {
+    return new Map([...value].map(([key, entry]) => [key, withoutEmbeddedSequenceAnchors(entry)]))
+  }
+  if (typeof value !== 'object' || value === null) return value
+  return Object.fromEntries(Object.entries(value).map(([key, entry]) => [
+    key,
+    key === 'anchorSeq' || key === 'controlAnchorSeq' || key === 'processStartSeq'
+      ? '<representation-owned-seq>'
+      : withoutEmbeddedSequenceAnchors(entry),
+  ]))
+}
+
+function comparableEmbeddedSnapshot(value: ChatSnapshot): unknown {
+  return withoutEmbeddedSequenceAnchors(comparableSnapshot(value))
 }
 
 function textMessage(id: string, text: string) {
@@ -190,7 +281,7 @@ describe('built-in conversation node Definitions', () => {
       at(1, 'turn/start', { turn: 1 }),
       at(2, 'user/message', textMessage('user-1', 'navigate here'), { surfaceOp: 'append' }),
       at(3, 'step/start', { turn: 1, step: 1 }),
-      at(4, 'assistant/chunk', {
+      at(4, 'assistant/live-chunk', {
         turn: 1,
         step: 1,
         chunk: { type: 'text-delta', index: 0, text: 'first' },
@@ -204,7 +295,7 @@ describe('built-in conversation node Definitions', () => {
 
     // Content-only upsert: the node keeps its key, so the rail's preview has to
     // follow the in-place update rather than the last structural publication.
-    value.append(at(5, 'assistant/chunk', {
+    value.append(at(5, 'assistant/live-chunk', {
       turn: 1,
       step: 1,
       chunk: { type: 'text-delta', index: 0, text: ' and more' },
@@ -215,14 +306,16 @@ describe('built-in conversation node Definitions', () => {
     expect(streamed).not.toBe(opening)
   })
 
-  it('bounds each rail preview instead of copying the whole transcript', () => {
+  it('bounds each rail preview at its card budget instead of copying the whole transcript', () => {
     const long = 'x'.repeat(400)
     const value = assembler([
       at(1, 'turn/start', { turn: 1 }),
       at(2, 'user/message', textMessage('user-1', long), { surfaceOp: 'append' }),
     ])
     const items = snapshot(value).navigation.items()
-    expect(items[0]?.prompt.length).toBe(160)
+    // One clipped prompt line: 49 characters plus the trailing ellipsis.
+    expect(items[0]?.prompt.length).toBe(50)
+    expect(items[0]?.prompt.endsWith('…')).toBe(true)
   })
 
   it('classifies reply content separately from reasoning and Tool protocol blocks', () => {
@@ -244,22 +337,19 @@ describe('built-in conversation node Definitions', () => {
         step: 1,
         source: { kind: 'plugin', plugin: 'context' },
       }, { surfaceOp: 'append' }),
-      at(4, 'assistant/chunk', {
+      at(4, 'assistant/live-chunk', {
         turn: 1, step: 1, chunk: { type: 'reasoning-delta', index: 0, text: 'thinking' },
       }),
-      at(5, 'assistant/chunk', {
+      at(5, 'assistant/live-chunk', {
         turn: 1, step: 1, chunk: { type: 'text-delta', index: 1, text: 'checking' },
       }),
-      at(6, 'assistant/chunk', {
+      at(6, 'assistant/live-chunk', {
         turn: 1,
         step: 1,
         chunk: { type: 'tool-call-delta', index: 2, id: 'call-1', name: 'read', argumentsDelta: '{}' },
       }),
     ])
-    const process = () => {
-      const signature = snapshot(value).timeline.turns.get(1)?.data.get('turn-process')
-      return signature === undefined ? undefined : decodeTurnProcess(signature)
-    }
+    const process = () => snapshot(value).timeline.turns.get(1)?.data.get('turn-process')
     expect(process()).toMatchObject({ processStartSeq: 4, answerAnchorSeq: null, answerStep: null })
     expect(node(snapshot(value), 'turn-process')?.data).toMatchObject({ answerAnchorSeq: null })
 
@@ -271,10 +361,10 @@ describe('built-in conversation node Definitions', () => {
     }, { surfaceOp: 'append' }))
     value.append(at(9, 'step/end', { turn: 1, step: 1 }))
     value.append(at(10, 'step/start', { turn: 1, step: 2 }))
-    value.append(at(11, 'assistant/chunk', {
+    value.append(at(11, 'assistant/live-chunk', {
       turn: 1, step: 2, chunk: { type: 'reasoning-delta', index: 0, text: 'final thinking' },
     }))
-    value.append(at(12, 'assistant/chunk', {
+    value.append(at(12, 'assistant/live-chunk', {
       turn: 1, step: 2, chunk: { type: 'text-delta', index: 1, text: 'final reply' },
     }))
     value.flush()
@@ -293,7 +383,7 @@ describe('built-in conversation node Definitions', () => {
     value.flush()
     expect(process()).toMatchObject({ answerAnchorSeq: null, answerStep: null })
 
-    value.append(at(14, 'assistant/chunk', {
+    value.append(at(14, 'assistant/live-chunk', {
       turn: 1,
       step: 2,
       chunk: { type: 'text-delta', index: 0, text: 'replacement reply' },
@@ -317,23 +407,23 @@ describe('built-in conversation node Definitions', () => {
       }, { surfaceOp: 'append' }),
       at(23, 'step/end', { turn: 2, step: 1 }),
       at(24, 'step/start', { turn: 2, step: 2 }),
-      at(25, 'assistant/chunk', {
+      at(25, 'assistant/live-chunk', {
         turn: 2, step: 2, chunk: { type: 'text-delta', index: 0, text: 'crash partial' },
       }),
       at(26, 'turn/end', { turn: 2, reason: { kind: 'interrupted' } }),
     ])
-    const recoveredSignature = snapshot(recovered).timeline.turns.get(2)?.data.get('turn-process')
-    expect(recoveredSignature === undefined ? undefined : decodeTurnProcess(recoveredSignature))
+    const recoveredProcess = snapshot(recovered).timeline.turns.get(2)?.data.get('turn-process')
+    expect(recoveredProcess)
       .toMatchObject({ answerStep: 2, answerAnchorSeq: 25.1 })
 
     const partialWindow = assembler([
-      at(30, 'assistant/chunk', {
+      at(30, 'assistant/live-chunk', {
         turn: 3, step: 4, chunk: { type: 'text-delta', index: 0, text: 'loaded tail' },
       }),
       at(31, 'step/end', { turn: 3, step: 4 }),
     ], true)
-    const partialSignature = snapshot(partialWindow).timeline.turns.get(3)?.data.get('turn-process')
-    expect(partialSignature === undefined ? undefined : decodeTurnProcess(partialSignature))
+    const partialProcess = snapshot(partialWindow).timeline.turns.get(3)?.data.get('turn-process')
+    expect(partialProcess)
       .toMatchObject({ processStartSeq: 30.1, answerAnchorSeq: 30.1, answerStep: 4 })
   })
 
@@ -364,8 +454,8 @@ describe('built-in conversation node Definitions', () => {
       at(11, 'step/end', { turn: 1, step: 2 }),
       at(12, 'turn/end', { turn: 1, reason: { kind: 'completed' } }),
     ])
-    const signature = snapshot(value).timeline.turns.get(1)?.data.get('turn-process')
-    expect(signature === undefined ? undefined : decodeTurnProcess(signature)).toMatchObject({
+    const process = snapshot(value).timeline.turns.get(1)?.data.get('turn-process')
+    expect(process).toMatchObject({
       messageCount: 1,
       toolCallCount: 1,
       subagentCount: 1,
@@ -388,7 +478,7 @@ describe('built-in conversation node Definitions', () => {
       'user', 'context',
     ])
 
-    value.append(at(5, 'assistant/chunk', {
+    value.append(at(5, 'assistant/live-chunk', {
       turn: 1, step: 1, chunk: { type: 'reasoning-delta', index: 0, text: 'thinking' },
     }))
     value.flush()
@@ -419,6 +509,63 @@ describe('built-in conversation node Definitions', () => {
     ])
   })
 
+  it('replays pending splice chains and scopes steering to the current claim', () => {
+    const first = textMessage('claim-first', 'first')
+    const second = textMessage('claim-second', 'second')
+    const canceled = textMessage('claim-canceled', 'canceled')
+    const requeued = textMessage('claim-requeued', 'requeued')
+    const later = textMessage('claim-later', 'later')
+    const current = snapshot(assembler([
+      at(1, 'agent/inbox/spliced', {
+        target: 'next-step', start: 0, inserted: [first],
+      }),
+      at(2, 'agent/inbox/spliced', {
+        target: 'next-step', start: 1, inserted: [canceled],
+      }),
+      at(3, 'agent/inbox/spliced', {
+        target: 'next-step', start: 1, inserted: [second],
+      }),
+      at(4, 'agent/inbox/spliced', {
+        target: 'next-step', start: 2, removedCount: 1, inserted: [], outcome: 'canceled',
+      }),
+      at(5, 'agent/inbox/spliced', {
+        target: 'next-step', start: 0, removedCount: 2, inserted: [],
+      }),
+      at(6, 'user/message', first, { surfaceOp: 'append' }),
+      at(7, 'user/message', second, { surfaceOp: 'append' }),
+      at(8, 'agent/inbox/spliced', {
+        target: 'next-step', start: 0, inserted: [requeued],
+      }),
+      at(9, 'agent/inbox/spliced', {
+        target: 'next-step', start: 0, removedCount: 1, inserted: [],
+      }),
+      at(10, 'agent/inbox/spliced', {
+        target: 'next-step', start: 0, inserted: [requeued],
+      }),
+      at(11, 'user/message', requeued, { surfaceOp: 'append' }),
+      at(12, 'user/message', canceled, { surfaceOp: 'append' }),
+      at(13, 'agent/inbox/spliced', {
+        target: 'next-step', start: 0, removedCount: 1, inserted: [], outcome: 'canceled',
+      }),
+      at(14, 'agent/inbox/spliced', {
+        target: 'next-step', start: 0, inserted: [later],
+      }),
+      at(15, 'agent/inbox/spliced', {
+        target: 'next-step', start: 0, removedCount: 1, inserted: [],
+      }),
+      at(16, 'user/message', later, { surfaceOp: 'append' }),
+    ]))
+
+    expect(current.order.map(key => current.nodes.get(key)).filter(node =>
+      node?.kind === 'user' || node?.kind === 'steering')).toMatchObject([
+      { kind: 'steering', data: { seq: 6 } },
+      { kind: 'steering', data: { seq: 7 } },
+      { kind: 'user', data: { seq: 11 } },
+      { kind: 'user', data: { seq: 12 } },
+      { kind: 'steering', data: { seq: 16 } },
+    ])
+  })
+
   it('orders a command-started Turn first steering before its process control', () => {
     const steering = textMessage('command-task', 'plan this change')
     const value = assembler([
@@ -431,7 +578,7 @@ describe('built-in conversation node Definitions', () => {
       }),
       at(4, 'user/message', steering, { surfaceOp: 'append' }),
       at(5, 'step/start', { turn: 1, step: 1 }),
-      at(6, 'assistant/chunk', {
+      at(6, 'assistant/live-chunk', {
         turn: 1, step: 1, chunk: { type: 'reasoning-delta', index: 0, text: 'thinking' },
       }),
       at(7, 'step/end', { turn: 1, step: 1 }),
@@ -490,7 +637,7 @@ describe('built-in conversation node Definitions', () => {
         source: { kind: 'plugin', plugin: 'context' },
       }, { surfaceOp: 'append' }),
       at(3, 'step/start', { turn: 1, step: 1 }),
-      at(4, 'assistant/chunk', {
+      at(4, 'assistant/live-chunk', {
         turn: 1, step: 1, chunk: { type: 'reasoning-delta', index: 0, text: 'thinking' },
       }),
     ])
@@ -526,18 +673,23 @@ describe('built-in conversation node Definitions', () => {
     const value = assembler([
       at(40, 'turn/start', { turn: 4 }),
       at(41, 'step/start', { turn: 4, step: 1 }),
-      at(42, 'assistant/chunk', {
+      at(42, 'assistant/live-chunk', {
         turn: 4, step: 1, chunk: { type: 'reasoning-delta', index: 0, text: 'thinking' },
       }),
-      at(43, 'assistant/chunk', {
+      at(43, 'assistant/live-chunk', {
         turn: 4, step: 1, chunk: { type: 'text-delta', index: 1, text: 'answer' },
       }),
     ])
     const read = () => {
-      const signature = snapshot(value).timeline.turns.get(4)?.data.get('turn-process')
-      if (signature === undefined) throw new Error('turn-process signature is unavailable')
-      return decodeTurnProcess(signature)
+      const process = snapshot(value).timeline.turns.get(4)?.data.get('turn-process')
+      if (process === undefined) throw new Error('turn-process data is unavailable')
+      return process
     }
+    const streamingNode = node(snapshot(value), 'assistant-step')
+    if (streamingNode === undefined) throw new Error('streaming Assistant node is unavailable')
+    const processSource = snapshot(value).nodes.processSource(streamingNode.key)
+    let processNotifications = 0
+    processSource.subscribe(() => { processNotifications++ })
     const streaming = read()
     value.append(at(44, 'assistant/message', {
       turn: 4, step: 1, message: assistantMessage('settled-4', 'answer'),
@@ -548,24 +700,95 @@ describe('built-in conversation node Definitions', () => {
     expect(streaming).toMatchObject({ answerAnchorSeq: null, answerStep: null })
     expect(settled.answerAnchorSeq).toBe(44)
     expect(settled.answerStep).toBe(1)
+    expect(processNotifications).toBe(1)
+    expect(processSource.getSnapshot()?.spec.answerAnchorSeq).toBe(44)
+  })
+
+  it('reuses the open Turn-process projection across continuing Assistant chunks', () => {
+    const value = assembler([
+      at(1, 'turn/start', { turn: 1 }),
+      at(2, 'step/start', { turn: 1, step: 1 }),
+      at(3, 'assistant/live-chunk', {
+        turn: 1, step: 1, chunk: { type: 'reasoning-delta', index: 0, text: 'first' },
+      }),
+    ])
+    const before = snapshot(value)
+    const processNode = node(before, 'turn-process')
+    const processData = before.timeline.turns.get(1)?.data.get('turn-process')
+    const assistantNode = node(before, 'assistant-step')
+    if (assistantNode === undefined) throw new Error('Assistant node is unavailable')
+    const processSource = before.nodes.processSource(assistantNode.key)
+    const processPresentation = processSource.getSnapshot()
+    let processNotifications = 0
+    processSource.subscribe(() => { processNotifications++ })
+
+    value.append(at(4, 'assistant/live-chunk', {
+      turn: 1, step: 1, chunk: { type: 'reasoning-delta', index: 0, text: ' second' },
+    }))
+    value.flush()
+
+    const after = snapshot(value)
+    expect(after.timeline.turns.get(1)?.data.get('turn-process')).toBe(processData)
+    expect(node(after, 'turn-process')).toBe(processNode)
+    expect(node(after, 'assistant-step')).not.toBe(assistantNode)
+    expect(processSource.getSnapshot()).toBe(processPresentation)
+    expect(processNotifications).toBe(0)
+  })
+
+  it('notifies process sources only for Nodes in the changed Turn', () => {
+    const value = assembler([
+      at(1, 'turn/start', { turn: 1 }),
+      at(2, 'step/start', { turn: 1, step: 1 }),
+      at(3, 'assistant/message', {
+        turn: 1, step: 1, message: assistantMessage('answer-1', 'first answer'),
+      }, { surfaceOp: 'append' }),
+      at(4, 'step/end', { turn: 1, step: 1 }),
+      at(5, 'turn/end', { turn: 1, reason: { kind: 'completed' } }),
+      at(6, 'turn/start', { turn: 2 }),
+      at(7, 'step/start', { turn: 2, step: 1 }),
+      at(8, 'assistant/live-chunk', {
+        turn: 2, step: 1, chunk: { type: 'reasoning-delta', index: 0, text: 'thinking' },
+      }),
+    ])
+    const assistants = snapshot(value).nodes.values()
+      .filter((candidate): candidate is ChatConversationViewNode & { data: AssistantChatData } => (
+        candidate.kind === 'assistant-step'
+      ))
+    const first = assistants.find(candidate => candidate.data.turn === 1)
+    const second = assistants.find(candidate => candidate.data.turn === 2)
+    if (first === undefined || second === undefined) throw new Error('Assistant fixtures are unavailable')
+    let firstNotifications = 0
+    let secondNotifications = 0
+    snapshot(value).nodes.processSource(first.key).subscribe(() => { firstNotifications++ })
+    snapshot(value).nodes.processSource(second.key).subscribe(() => { secondNotifications++ })
+
+    value.append(at(9, 'assistant/message', {
+      turn: 2, step: 1, message: assistantMessage('answer-2', 'second answer'),
+    }, { surfaceOp: 'append' }))
+    value.append(at(10, 'step/end', { turn: 2, step: 1 }))
+    value.append(at(11, 'turn/end', { turn: 2, reason: { kind: 'completed' } }))
+    value.flush()
+
+    expect(firstNotifications).toBe(0)
+    expect(secondNotifications).toBe(1)
   })
 
   it('anchors a streamed non-text answer from its block start', () => {
     const value = assembler([
       at(50, 'turn/start', { turn: 5 }),
       at(51, 'step/start', { turn: 5, step: 1 }),
-      at(52, 'assistant/chunk', {
+      at(52, 'assistant/live-chunk', {
         turn: 5, step: 1, chunk: { type: 'block-start', index: 0, blockType: 'image' },
       }),
     ])
     const current = snapshot(value)
     const process = node(current, 'turn-process')
     const answer = node(current, 'assistant-step')
-    const signature = current.timeline.turns.get(5)?.data.get('turn-process')
+    const processData = current.timeline.turns.get(5)?.data.get('turn-process')
 
     expect(process?.anchorSeq).toBe(51.9)
     expect(answer?.anchorSeq).toBe(52)
-    expect(signature === undefined ? undefined : decodeTurnProcess(signature))
+    expect(processData)
       .toMatchObject({ answerAnchorSeq: null, answerStep: null })
   })
 
@@ -573,7 +796,7 @@ describe('built-in conversation node Definitions', () => {
     const value = assembler([
       at(1, 'turn/start', { turn: 1 }),
       at(2, 'step/start', { turn: 1, step: 1 }),
-      at(3, 'assistant/chunk', {
+      at(3, 'assistant/live-chunk', {
         turn: 1,
         step: 1,
         chunk: { type: 'text-delta', index: 0, text: 'streaming' },
@@ -582,6 +805,9 @@ describe('built-in conversation node Definitions', () => {
     const runningSnapshot = snapshot(value)
     const running = node(runningSnapshot, 'assistant-step')
     expect(running?.data).toMatchObject({ status: 'running', blocks: [{ kind: 'text', text: 'streaming' }] })
+    expect(running?.location.kind === 'step'
+      ? running.location.step.data.get('assistant-step')
+      : undefined).toBe(running?.data)
     const order = runningSnapshot.order
 
     value.append(at(4, 'assistant/message', {
@@ -596,11 +822,14 @@ describe('built-in conversation node Definitions', () => {
     expect(settled?.key).toBe(running?.key)
     expect(settledSnapshot.order).toBe(order)
     expect(settled?.data).toMatchObject({ status: 'settled', blocks: [{ kind: 'text', text: 'settled' }] })
+    expect(settled?.location.kind === 'step'
+      ? settled.location.step.data.get('assistant-step')
+      : undefined).toBe(settled?.data)
 
     const interruptedValue = assembler([
       at(10, 'turn/start', { turn: 2 }),
       at(11, 'step/start', { turn: 2, step: 1 }),
-      at(12, 'assistant/chunk', {
+      at(12, 'assistant/live-chunk', {
         turn: 2,
         step: 1,
         chunk: { type: 'text-delta', index: 0, text: 'partial' },
@@ -646,7 +875,7 @@ describe('built-in conversation node Definitions', () => {
     const toolOnlyValue = assembler([
       at(30, 'turn/start', { turn: 4 }),
       at(31, 'step/start', { turn: 4, step: 1 }),
-      at(32, 'assistant/chunk', {
+      at(32, 'assistant/live-chunk', {
         turn: 4,
         step: 1,
         chunk: { type: 'tool-call-delta', index: 0, id: 'call-1', name: 'read', argumentsDelta: '' },
@@ -672,7 +901,7 @@ describe('built-in conversation node Definitions', () => {
     const interruptedToolOnlyValue = assembler([
       at(35, 'turn/start', { turn: 5 }),
       at(36, 'step/start', { turn: 5, step: 1 }),
-      at(37, 'assistant/chunk', {
+      at(37, 'assistant/live-chunk', {
         turn: 5,
         step: 1,
         chunk: { type: 'tool-call-delta', index: 0, id: 'call-2', name: 'read', argumentsDelta: '' },
@@ -686,7 +915,7 @@ describe('built-in conversation node Definitions', () => {
     const retryTimingValue = assembler([
       at(50, 'turn/start', { turn: 6 }),
       at(51, 'step/start', { turn: 6, step: 1 }),
-      at(52, 'assistant/chunk', {
+      at(52, 'assistant/live-chunk', {
         turn: 6,
         step: 1,
         chunk: { type: 'text-delta', index: 0, text: 'first attempt' },
@@ -696,7 +925,7 @@ describe('built-in conversation node Definitions', () => {
         policyKey: 'fake-normal', retry: 1, maxRetries: 2, delayMs: 10,
         failure: { code: 'TRANSPORT', message: 'temporary' },
       }),
-      at(54, 'assistant/chunk', {
+      at(54, 'assistant/live-chunk', {
         turn: 6,
         step: 1,
         chunk: { type: 'text-delta', index: 0, text: 'second attempt' },
@@ -711,7 +940,7 @@ describe('built-in conversation node Definitions', () => {
     expect(retryTiming?.timing?.firstTokenTime).toBe(1_700_000_000_052)
 
     const partialWindow = assembler([
-      at(40, 'assistant/chunk', {
+      at(40, 'assistant/live-chunk', {
         turn: 5,
         step: 2,
         chunk: { type: 'text-delta', index: 0, text: 'loaded partial' },
@@ -725,52 +954,56 @@ describe('built-in conversation node Definitions', () => {
     })
   })
 
-  it('folds packed Assistant runs to the same Chat and Turn Tail state as scalar deltas', () => {
+  it('folds packed Assistant runs to the same Chat content and Turn Tail state as scalar deltas', () => {
     const runningHistory = [
       at(1, 'turn/start', { turn: 1 }),
       at(2, 'step/start', { turn: 1, step: 1 }),
-      at(3, 'assistant/chunk', {
+      at(3, 'assistant/live-chunk', {
         turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: '' },
       }, { time: 1_000 }),
-      at(4, 'assistant/chunk', {
+      at(4, 'assistant/live-chunk', {
         turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: '   ' },
       }, { time: 1_000 }),
-      at(5, 'assistant/chunk', {
+      at(5, 'assistant/live-chunk', {
         turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: '\t' },
       }, { time: 995 }),
-      at(6, 'assistant/chunk', {
+      at(6, 'assistant/live-chunk', {
         turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: 'answer' },
       }, { time: 1_004 }),
-      at(7, 'assistant/chunk', {
+      at(7, 'assistant/live-chunk', {
         turn: 1, step: 1, chunk: { type: 'reasoning-delta', index: 1, text: '' },
       }),
-      at(8, 'assistant/chunk', {
+      at(8, 'assistant/live-chunk', {
         turn: 1, step: 1, chunk: { type: 'reasoning-delta', index: 1, text: 'think' },
       }),
-      at(9, 'assistant/chunk', {
+      at(9, 'assistant/live-chunk', {
         turn: 1, step: 1, chunk: { type: 'reasoning-delta', index: 1, text: 'ing' },
       }),
-      at(10, 'assistant/chunk', {
+      at(10, 'assistant/live-chunk', {
         turn: 1, step: 1,
         chunk: { type: 'tool-call-delta', index: 2, id: 'call-1', argumentsDelta: '' },
       }),
-      at(11, 'assistant/chunk', {
+      at(11, 'assistant/live-chunk', {
         turn: 1, step: 1,
         chunk: { type: 'tool-call-delta', index: 2, id: 'call-1', argumentsDelta: '{"x":' },
       }),
-      at(12, 'assistant/chunk', {
+      at(12, 'assistant/live-chunk', {
         turn: 1, step: 1,
         chunk: { type: 'tool-call-delta', index: 2, id: 'call-1', argumentsDelta: '1}' },
       }),
     ]
     const scalar = assembler(runningHistory)
     const packedHistory = packedInputs(runningHistory)
-    expect(packedHistory.filter(input => input.event.type.startsWith('chunkrow/'))).toHaveLength(3)
+    expect(packedHistory).toHaveLength(3)
+    const runningAttempt = packedHistory.at(-1)?.event
+    expect(runningAttempt?.type).toBe('assistant/attempt')
+    if (runningAttempt?.type !== 'assistant/attempt') throw new Error('expected packed running attempt')
+    expect(runningAttempt.data.stream.length).toBeGreaterThan(0)
     const packed = assembler(packedHistory)
 
-    expect(snapshot(packed)).toEqual(snapshot(scalar))
+    expect(comparableEmbeddedSnapshot(snapshot(packed))).toEqual(comparableEmbeddedSnapshot(snapshot(scalar)))
     const running = node(snapshot(packed), 'assistant-step')
-    expect(running).toMatchObject({ anchorSeq: 6 })
+    expect(running).toMatchObject({ anchorSeq: 12 })
     expect(running?.data).toMatchObject({
       time: 1_004,
       blocks: [
@@ -785,7 +1018,7 @@ describe('built-in conversation node Definitions', () => {
       value.append(at(14, 'turn/end', { turn: 1, reason: { kind: 'completed' } }))
       value.flush()
     }
-    expect(snapshot(packed)).toEqual(snapshot(scalar))
+    expect(comparableEmbeddedSnapshot(snapshot(packed))).toEqual(comparableEmbeddedSnapshot(snapshot(scalar)))
     expect(node(snapshot(packed), 'turn-tail')?.anchorSeq).toBe(12.2)
 
     const partialHistory = [
@@ -795,20 +1028,20 @@ describe('built-in conversation node Definitions', () => {
     ]
     const partialScalar = snapshot(assembler(partialHistory, true))
     const partialPacked = snapshot(assembler(packedInputs(partialHistory), true))
-    expect(partialPacked).toEqual(partialScalar)
+    expect(comparableEmbeddedSnapshot(partialPacked)).toEqual(comparableEmbeddedSnapshot(partialScalar))
     expect(node(partialPacked, 'assistant-step')?.data).toMatchObject({ status: 'interrupted' })
     expect(node(partialPacked, 'turn-tail')?.anchorSeq).toBe(12.2)
 
     const finalizedHistory = [
       at(20, 'turn/start', { turn: 2 }),
       at(21, 'step/start', { turn: 2, step: 1 }),
-      at(22, 'assistant/chunk', {
+      at(22, 'assistant/live-chunk', {
         turn: 2, step: 1, chunk: { type: 'text-delta', index: 0, text: '' },
       }, { time: 2_000 }),
-      at(23, 'assistant/chunk', {
+      at(23, 'assistant/live-chunk', {
         turn: 2, step: 1, chunk: { type: 'text-delta', index: 0, text: ' ' },
       }, { time: 1_999 }),
-      at(24, 'assistant/chunk', {
+      at(24, 'assistant/live-chunk', {
         turn: 2, step: 1, chunk: { type: 'text-delta', index: 0, text: 'first' },
       }, { time: 2_000 }),
       at(25, 'llm/retry', {
@@ -816,13 +1049,13 @@ describe('built-in conversation node Definitions', () => {
         policyKey: 'fake-normal', retry: 1, maxRetries: 2, delayMs: 10,
         failure: { code: 'TRANSPORT', message: 'temporary' },
       }),
-      at(26, 'assistant/chunk', {
+      at(26, 'assistant/live-chunk', {
         turn: 2, step: 1, chunk: { type: 'text-delta', index: 0, text: '' },
       }),
-      at(27, 'assistant/chunk', {
+      at(27, 'assistant/live-chunk', {
         turn: 2, step: 1, chunk: { type: 'text-delta', index: 0, text: 'second' },
       }),
-      at(28, 'assistant/chunk', {
+      at(28, 'assistant/live-chunk', {
         turn: 2, step: 1, chunk: { type: 'text-delta', index: 0, text: ' attempt' },
       }),
       at(29, 'assistant/message', {
@@ -830,15 +1063,20 @@ describe('built-in conversation node Definitions', () => {
       }, { surfaceOp: 'append' }),
     ]
     const finalizedScalar = snapshot(assembler(finalizedHistory))
-    const finalizedPacked = snapshot(assembler(packedInputs(finalizedHistory)))
-    expect(finalizedPacked).toEqual(finalizedScalar)
+    const finalizedInputs = packedInputs(finalizedHistory)
+    expect(finalizedInputs.filter(input => input.event.type === 'assistant/attempt')).toHaveLength(1)
+    const finalizedMessage = finalizedInputs.find(input => input.event.type === 'assistant/message')?.event
+    if (finalizedMessage?.type !== 'assistant/message') throw new Error('expected packed final message')
+    expect(finalizedMessage.data.stream.length).toBeGreaterThan(0)
+    const finalizedPacked = snapshot(assembler(finalizedInputs))
+    expect(comparableEmbeddedSnapshot(finalizedPacked)).toEqual(comparableEmbeddedSnapshot(finalizedScalar))
     const finalNode = (node(finalizedPacked, 'assistant-step')?.data as AssistantChatData).finalNode
     expect(finalNode?.timing?.firstTokenTime).toBe(1_999)
 
     const namedToolHistory = [
       at(40, 'turn/start', { turn: 3 }),
       at(41, 'step/start', { turn: 3, step: 1 }),
-      ...[42, 43, 44].map(seq => at(seq, 'assistant/chunk', {
+      ...[42, 43, 44].map(seq => at(seq, 'assistant/live-chunk', {
         turn: 3, step: 1,
         chunk: { type: 'tool-call-delta', index: 0, id: 'call-2', name: 'read', argumentsDelta: '' },
       }, { time: 4_000 + seq - 42 })),
@@ -852,8 +1090,12 @@ describe('built-in conversation node Definitions', () => {
       }, { surfaceOp: 'append' }),
     ]
     const namedToolScalar = snapshot(assembler(namedToolHistory))
-    const namedToolPacked = snapshot(assembler(packedInputs(namedToolHistory)))
-    expect(namedToolPacked).toEqual(namedToolScalar)
+    const namedToolInputs = packedInputs(namedToolHistory)
+    const namedToolMessage = namedToolInputs.find(input => input.event.type === 'assistant/message')?.event
+    if (namedToolMessage?.type !== 'assistant/message') throw new Error('expected packed named-tool message')
+    expect(namedToolMessage.data.stream.length).toBeGreaterThan(0)
+    const namedToolPacked = snapshot(assembler(namedToolInputs))
+    expect(comparableEmbeddedSnapshot(namedToolPacked)).toEqual(comparableEmbeddedSnapshot(namedToolScalar))
     const namedTool = (node(namedToolPacked, 'assistant-step')?.data as AssistantChatData).finalNode
     expect(namedTool?.timing?.firstTokenTime).toBe(4_000)
   })
@@ -1299,7 +1541,7 @@ describe('built-in conversation node Definitions', () => {
 
     expect(kinds()).toEqual(['system-prompt', 'user', 'context'])
 
-    value.append(at(6, 'assistant/chunk', {
+    value.append(at(6, 'assistant/live-chunk', {
       turn: 1, step: 1, chunk: { type: 'reasoning-delta', index: 0, text: 'thinking' },
     }))
     value.flush()
@@ -1522,6 +1764,58 @@ describe('built-in conversation node Definitions', () => {
       messageId: 'steering-reference',
       referenceLabels: ['Research notes'],
     })
+  })
+
+  it('associates a direct message with the skill invocations injected for its step', () => {
+    const skillInvocation = (id: string) => ({
+      ...textMessage(id, 'instructions'),
+      source: { kind: 'skill-invocation', name: 'demo-skill', form: 'instructions' },
+    })
+    const instructions = (id: string) => ({
+      ...textMessage(id, 'workspace rules'),
+      source: { kind: 'agent-instructions', changes: [{ path: 'AGENTS.md' }] },
+    })
+    const value = assembler([
+      at(1, 'turn/start', { turn: 1 }),
+      at(2, 'user/message', textMessage('gesture', '/demo-skill go'), { surfaceOp: 'append' }),
+      at(3, 'step/start', { turn: 1, step: 1 }),
+      at(4, 'user/message', instructions('rules-1'), { surfaceOp: 'append' }),
+      at(5, 'user/message', skillInvocation('skill-body'), { surfaceOp: 'append' }),
+      at(6, 'assistant/message', {
+        turn: 1,
+        step: 1,
+        message: assistantMessage('answer-1', 'done'),
+      }, { surfaceOp: 'append' }),
+      at(7, 'step/end', { turn: 1, step: 1 }),
+      at(8, 'turn/end', { turn: 1, reason: { kind: 'completed' } }),
+      at(9, 'turn/start', { turn: 2 }),
+      at(10, 'user/message', textMessage('later', '/demo-skill again?'), { surfaceOp: 'append' }),
+      at(11, 'step/start', { turn: 2, step: 1 }),
+      at(12, 'user/message', instructions('rules-2'), { surfaceOp: 'append' }),
+    ])
+
+    const users = [...snapshot(value).nodes.values()].filter(candidate => candidate.kind === 'user')
+    expect(users).toHaveLength(2)
+    expect(users[0]?.data).toMatchObject({ skillNames: ['demo-skill'] })
+    expect(users[1]?.data).not.toHaveProperty('skillNames')
+  })
+
+  it('updates an already published direct node when its skill injection arrives', () => {
+    const value = assembler([
+      at(1, 'user/message', textMessage('gesture', '/demo-skill go'), { surfaceOp: 'append' }),
+    ])
+    const before = node(snapshot(value), 'user')
+    expect(before?.data).not.toHaveProperty('skillNames')
+
+    value.append(at(2, 'user/message', {
+      ...textMessage('skill-body', 'instructions'),
+      source: { kind: 'skill-invocation', name: 'demo-skill', form: 'instructions' },
+    }, { surfaceOp: 'append' }))
+    value.flush()
+
+    const after = node(snapshot(value), 'user')
+    expect(after?.key).toBe(before?.key)
+    expect(after?.data).toMatchObject({ skillNames: ['demo-skill'] })
   })
 
   it('keeps replacement copies out of Chat business nodes', () => {

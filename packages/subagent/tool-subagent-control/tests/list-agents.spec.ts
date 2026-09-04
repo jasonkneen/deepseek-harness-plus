@@ -65,7 +65,7 @@ async function setupWith(adapter: MockAdapter | GatedAdapter) {
   await ctx.plugin(SubagentSpawn, { providerName: 'spawn' })
   await ctx.plugin(tool)
   ctx.llm.registerAdapter(['mock'], adapter)
-  const parent = ctx.agentLoop.create(SessionId('parent'), { provider: 'mock', model: 'mock' })
+  const parent = await ctx.agentLoop.create(SessionId('parent'), { provider: 'mock', model: 'mock' })
   parkParent(ctx, parent)
   return { ctx, parent, adapter }
 }
@@ -115,6 +115,8 @@ describe('dsh-tool-subagent-control/list-agents', () => {
     expect(parameters.properties?.scope?.enum).toEqual(['children', 'descendants'])
     expect(parameters.required ?? []).toEqual([])
     expect(schemas[0]!.description).toContain('send_message')
+    expect(schemas[0]!.description).toContain('steers a running child at its nearest step boundary')
+    expect(schemas[0]!.description).not.toContain('send_message` starts a new turn')
     expect(schemas[0]!.description).toContain('interrupt_agent')
   })
 

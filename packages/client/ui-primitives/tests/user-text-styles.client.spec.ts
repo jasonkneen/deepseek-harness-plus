@@ -18,10 +18,19 @@ function declarations(selector: string): string[] {
 }
 
 describe('user-text.module.css font-size axis', () => {
-  it('scales reference glyphs by the shared px delta', () => {
+  it('scales reference glyphs with the consumer font', () => {
     expect(declarations('.refIcon')).toEqual(expect.arrayContaining([
-      'width: calc(16px + var(--dsh-content-font-delta, 0px))',
-      'height: calc(16px + var(--dsh-content-font-delta, 0px))',
+      'width: 1em',
+      'height: 1em',
     ]))
+  })
+
+  it('sets slash chips in the code face at the consumer size', () => {
+    // Skill and command tokens read as code — the family the theme publishes
+    // for code — while the size and line height stay the consumer's, so the
+    // chip rides the bubble line like the plain runs around it.
+    const slashChip = declarations('.slashChip')
+    expect(slashChip.some(declaration => /^font-family: var\(--dsw-font-/.test(declaration))).toBe(true)
+    expect(slashChip.some(declaration => /^(font|font-size|line-height):/.test(declaration))).toBe(false)
   })
 })

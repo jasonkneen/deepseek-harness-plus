@@ -4,7 +4,7 @@ import type { Agent, ModelSelectionRef } from '@deepseek-ai/dsh-agent'
 import { AttachmentError, AttachmentId } from '@deepseek-ai/dsh-attachment'
 import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import { createAssistantMessage, createUserMessage, MessageId } from '@deepseek-ai/dsh-llm'
-import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
+import SessionStore, { SESSION_FORMAT_VERSION, SessionId, SessionLogOffset, SessionSeq } from '@deepseek-ai/dsh-session'
 import type { SessionEvent, SessionHeader } from '@deepseek-ai/dsh-session'
 import { describe, expect, it, vi } from 'vitest'
 import { ApiSessionAgentController } from '../src/agent.ts'
@@ -56,7 +56,7 @@ async function commandHarness(): Promise<{
 }
 
 async function expectFailure(operation: Promise<unknown>, code: string): Promise<void> {
-  await expect(operation).rejects.toMatchObject({ failure: { code } })
+  await expect(operation).rejects.toMatchObject({ code })
 }
 
 describe('Session queue commands', () => {
@@ -79,21 +79,21 @@ describe('Session queue commands', () => {
           },
         }],
       },
-    })), 'attachment-error')
+    })), 'session/attachment-invalid')
     await expectFailure(Promise.resolve().then(() => controller.updateQueue({
       sessionId: SessionId('missing'), itemId: queued.id, action: { kind: 'remove' },
-    })), 'queue-item-not-found')
+    })), 'session/queue-item-not-found')
     await expectFailure(Promise.resolve().then(() => controller.updateQueue({
       sessionId: agent.id, itemId: MessageId('missing'), action: { kind: 'remove' },
-    })), 'queue-item-not-found')
+    })), 'session/queue-item-not-found')
     await expectFailure(Promise.resolve().then(() => controller.updateQueue({
       sessionId: agent.id, itemId: nextStep.id, action: { kind: 'steer' },
-    })), 'steer-unavailable')
+    })), 'session/steer-unavailable')
 
     Object.assign(agent, { status: 'idle' })
     await expectFailure(Promise.resolve().then(() => controller.updateQueue({
       sessionId: agent.id, itemId: queued.id, action: { kind: 'steer' },
-    })), 'steer-unavailable')
+    })), 'session/steer-unavailable')
     expect(controller.updateQueue({
       sessionId: agent.id,
       itemId: queued.id,
@@ -112,9 +112,26 @@ describe('Session queue commands', () => {
     })).toEqual({ accepted: true })
     expect(steer).toHaveBeenCalledWith(steered)
 
+    const queuedFile = createUserMessage({
+      content: [{
+        type: 'file',
+        attachment: { attachmentId: AttachmentId('file-queued'), name: 'queued.txt', bytes: 6 },
+      }],
+      source: { kind: 'user', rpcId: 'file-rpc' as never },
+    })
+    inbox.append('next-turn', queuedFile)
+    expect(controller.updateQueue({
+      sessionId: agent.id, itemId: queuedFile.id, action: { kind: 'steer' },
+    })).toEqual({ accepted: true })
+    expect(steer).toHaveBeenLastCalledWith(queuedFile)
+    expect(queuedFile).toMatchObject({
+      source: { kind: 'user', rpcId: 'file-rpc' },
+      content: [{ type: 'file', attachment: { name: 'queued.txt', bytes: 6 } }],
+    })
+
     await expectFailure(Promise.resolve().then(() => controller.cancel({
       sessionId: SessionId('missing'),
-    })), 'session-not-found')
+    })), 'session/not-found')
     expect(controller.cancel({ sessionId: agent.id })).toEqual({ accepted: true })
     expect(cancel).toHaveBeenCalledWith({ kind: 'user' }, { keepInbox: true })
     await ctx.fiber.dispose()
@@ -131,7 +148,7 @@ function imageRef(id: string): ImageAttachmentRef {
   }
 }
 
-function event(type: string, seq: number, data: unknown): SessionEvent {
+function event(type: string, seq: SessionSeq, data: unknown): SessionEvent {
   return { type, seq, time: seq + 1, data } as SessionEvent
 }
 
@@ -142,10 +159,20 @@ async function persistedController(
   const ctx = new Context()
   await ctx.plugin(SessionStore)
   const sessionId = SessionId('cold-attachment')
-  const meta: SessionHeader = { version: 0, id: sessionId, createdAt: 1, cwd: '/workspace' }
+  const meta: SessionHeader = {
+    version: SESSION_FORMAT_VERSION,
+    id: sessionId,
+    createdAt: 1,
+    cwd: '/workspace',
+    isSeeded: false,
+  }
   ctx.provide('sessionPersistence', testSessionPersistence(ctx, {
     list: () => Promise.resolve([meta]),
-    inspect: () => Promise.resolve({ meta, events }),
+    inspect: () => Promise.resolve({
+      meta,
+      inheritedEventCount: SessionLogOffset(0),
+      events,
+    }),
   }) as never)
   installSessionReadTestServices(ctx)
   ctx.provide('attachments', { readImage } as never)
@@ -160,20 +187,21 @@ describe('Session attachment authorization', () => {
     const inserted = imageRef('inserted')
     const streamed = imageRef('streamed')
     const events = [
-      event('fixture/direct', 0, {
+      { ...event('fixture/direct', SessionSeq(0), {
         content: [null, [], { type: 'tool-result', content: [{ type: 'text', text: 'none' }] }, {
           type: 'tool-result', content: [{ type: 'image', attachment: nested }],
         }],
-      }),
-      { ...event('assistant/message', 1, {
+      }), ignorable: true as const },
+      { ...event('assistant/message', SessionSeq(1), {
         turn: 1,
         step: 1,
+        stream: [],
         message: createAssistantMessage({
           content: [{ type: 'image', attachment: message }],
           source: { provider: 'fixture', model: 'fixture' },
         }),
       }), surfaceOp: 'append' as const },
-      event('agent/inbox/spliced', 2, {
+      event('agent/inbox/spliced', SessionSeq(2), {
         target: 'next-turn',
         start: 0,
         inserted: [createUserMessage({
@@ -181,10 +209,30 @@ describe('Session attachment authorization', () => {
           source: { kind: 'user' },
         })],
       }),
-      event('assistant/chunk', 3, {
+      event('assistant/attempt', SessionSeq(3), {
         turn: 1,
         step: 1,
-        chunk: { type: 'block-end', index: 0, block: { type: 'image', attachment: streamed } },
+        stream: [
+          {
+            type: 'chunk',
+            time: 3,
+            chunk: { type: 'block-start', index: 0, blockType: 'text' },
+          },
+          {
+            type: 'chunk',
+            time: 3,
+            chunk: { type: 'block-end', index: 0, block: { type: 'text', text: '' } },
+          },
+        ],
+      }),
+      event('assistant/attempt', SessionSeq(4), {
+        turn: 1,
+        step: 1,
+        stream: [{
+          type: 'chunk',
+          time: 4,
+          chunk: { type: 'block-end', index: 0, block: { type: 'image', attachment: streamed } },
+        }],
       }),
     ]
     const readImage = vi.fn((ref: ImageAttachmentRef) => Promise.resolve({ ref, data: Uint8Array.of(1) }))
@@ -209,7 +257,7 @@ describe('Session attachment authorization', () => {
     )
     await expectFailure(noPersistenceController.attachment({
       sessionId: SessionId('missing'), attachmentId: AttachmentId('att'),
-    }), 'session-not-found')
+    }), 'session/not-found')
 
     const missing = new Context()
     await missing.plugin(SessionStore)
@@ -225,7 +273,7 @@ describe('Session attachment authorization', () => {
     )
     await expectFailure(missingController.attachment({
       sessionId: SessionId('missing'), attachmentId: 'att' as never,
-    }), 'session-not-found')
+    }), 'session/not-found')
 
     for (const thrown of [
       new AttachmentError('stored image is unavailable', 'ATTACHMENT_NOT_FOUND'),
@@ -233,13 +281,13 @@ describe('Session attachment authorization', () => {
     ]) {
       const ref = imageRef(`failure-${thrown.name}`)
       const fixture = await persistedController(
-        [event('fixture/content', 0, { content: [{ type: 'image', attachment: ref }] })],
+        [event('fixture/content', SessionSeq(0), { content: [{ type: 'image', attachment: ref }] })],
         () => Promise.reject(thrown),
       )
       await expectFailure(fixture.controller.attachment({
         sessionId: fixture.sessionId,
         attachmentId: ref.attachmentId,
-      }), thrown instanceof AttachmentError ? 'attachment-error' : 'internal')
+      }), thrown instanceof AttachmentError ? 'session/attachment-invalid' : 'gateway/internal')
       await fixture.ctx.fiber.dispose()
     }
   })
@@ -257,7 +305,7 @@ describe('Session attachment authorization', () => {
 
     await expectFailure(controller.attachment({
       sessionId: SessionId('unreadable'), attachmentId: AttachmentId('att'),
-    }), 'internal')
+    }), 'gateway/internal')
     await ctx.fiber.dispose()
   })
 })

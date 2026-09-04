@@ -31,8 +31,8 @@ Mount this plugin when a deployment should export session records through OpenTe
 
 | `mode` | Behavior |
 |---|---|
-| `FULL` | Every projected record, including lifecycle ops records, is handed to the OTel SDK immediately |
-| `FEEDBACK_ONLY` | Each `feedback/record` replays, projects, and redacts the canonical session-log suffix through that event; later records wait for another feedback event and remain local if none arrives |
+| `FULL` | Every captured record, including every canonical event and lifecycle ops record, is handed to the OTel SDK immediately |
+| `FEEDBACK_ONLY` | Each `feedback/record` replays, copies, and redacts every canonical event after the handoff cursor through that event; later records wait for another feedback event and remain local if none arrives |
 | `DISABLED` | Default. No coordinator, provider, processor, or exporter is constructed; no telemetry record leaves the process, and a `feedback/record` logs that nothing will be shared |
 
 Programmatic TypeScript configuration uses the exported `SessionTelemetryMode` enum; raw string literals are not assignable. The mounted service discloses the resolved mode through the seam's [`SessionTelemetrySharingStatus`](../session-telemetry/README.md#the-sharing-disclosure) `sharing` property (`full` / `feedback-only` / `disabled`), so the `/feedback` acknowledgement reports whether and how the session is shared — even `DISABLED` discloses `disabled`.
@@ -93,7 +93,7 @@ The backend is a thin adapter over the OTel JS SDK: it owns capture mode, resour
 
 ### Capture wiring
 
-`FULL` composes the coordinator in `live` mode and lets direct service calls through; `FEEDBACK_ONLY` composes it in `on-demand` mode, gives the coordinator a private backend capability, and triggers `captureSession(session, event.seq)` only for the exact canonical feedback record; `DISABLED` registers nothing but a warning on `feedback/record`. The backend deliberately implements no `flush()`: the batch processor owns ordinary flushing, and forwarding the hint to `forceFlush()` would create the sole source of concurrent flushes whose interaction with shutdown's drain is undocumented.
+`FULL` composes the coordinator in `live` mode and lets direct service calls through; `FEEDBACK_ONLY` composes it in `on-demand` mode, gives the coordinator a private backend capability, and triggers `captureSession(session, event.seq)` only when `session.eventAt(event.seq) === event` confirms the exact canonical feedback record; `DISABLED` registers nothing but a warning on `feedback/record`. The backend deliberately implements no `flush()`: the batch processor owns ordinary flushing, and forwarding the hint to `forceFlush()` would create the sole source of concurrent flushes whose interaction with shutdown's drain is undocumented.
 
 ### Field mapping
 
@@ -144,3 +144,5 @@ These limits define where SDK behavior governs and where export guarantees end. 
 None.
 
 </details>
+
+**Runtime invariant:** No companion is published. Mode selection changes capture handoff, SDK setup, and local diagnostics without mutating session or service state an independent companion can compare. Export remains inside the SDK past the backend boundary.

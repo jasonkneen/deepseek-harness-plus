@@ -119,6 +119,7 @@ function wideTableFixture(): string {
   })
   session.append('step/start', { turn: 1, step: 1 })
   session.append('assistant/message', {
+    stream: [],
     turn: 1,
     step: 1,
     message: createMessage({
@@ -135,11 +136,13 @@ function wideTableFixture(): string {
     id: '{{sessionId}}',
     createdAt: 0,
     cwd: '{{cwd}}',
+    isSeeded: false,
+    delegationDepth: 0,
   }
   return [
     JSON.stringify(header),
     // Spaced event times, as the sibling markdown fixtures pin them.
-    ...session.events.map(event => JSON.stringify({
+    ...session.snapshotEvents().map(event => JSON.stringify({
       ...event,
       time: eventTimeOrigin + event.seq * 1_000,
     })),

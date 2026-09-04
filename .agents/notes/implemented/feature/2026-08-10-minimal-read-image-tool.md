@@ -22,11 +22,11 @@ Both image-reading operations live in `dsh-tool-fs` and publish ordinary logged 
 
 - **PR #598's route-scoped design** used a request-ready extension point, per-route schema visibility, reversible projection, and three durable concepts. Shared LLM request projection now handles text-only routes without putting tool registration or session formats into agent-loop.
 - **`agent.inject()` instead of the image-bearing tool result** — routes the image around the tool result as a separate injected user message. Rejected: the image *is* the tool's result; splitting them adds a second logged message with no gain, and the tool-result path already works end to end.
-- **Magic-byte sniffing instead of extension declaration** — sniffing duplicates detection the attachment store already owns (sharp-backed, authoritative). The extension is only a *declaration*; a mismatch fails closed with a rename remedy rather than being silently accepted, which also keeps the model's mental map (file name ↔ content) honest.
+- **Magic-byte sniffing instead of extension declaration** — sniffing duplicates detection the attachment store already owns (sharp-backed, authoritative). The extension is only a *declaration*; a mismatch fails closed with a rename remedy rather than being silently accepted, which also keeps the model's mental map (file name ↔ content) honest. This rejection covers extension-bearing paths; [extension-less image paths](../bug-fix/2026-08-28-read-image-extensionless-paths.md) narrows it — a path that declares nothing is identified from its file signature.
 - **Registering unconditionally and failing on a missing store** — rejected; a deployment without an attachment store cannot ever satisfy the tool, so its schema would be a standing lie. The route gate, by contrast, is per-call state and correctly lives at the execution boundary.
 
 ## Consequences
 
 - The tools refuse execution on a text-only route, while existing images in session history are represented by request-local placeholders.
 - Repeated image results accumulate request cost until request projection or compaction removes them; content addressing deduplicates durable bytes.
-- The tool-result card renders the durable reference, not pixels; inline preview is deferred to the UI packages.
+- The tool-result card now renders the image itself through the browser's `tool.call.images` slot (see [the tool-card image results note](2026-08-20-tool-card-image-results.md)); a UI without the attachment presentation plugin shows the result's envelope text.

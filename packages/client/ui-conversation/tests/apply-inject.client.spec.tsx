@@ -9,11 +9,12 @@ import {
 import type { SessionBehaviorOverrides } from '@deepseek-ai/dsh-client-test-runtime'
 import {
   apply, inject, type ComposerBarInjected, type ConversationInjected,
-  type ConversationSessionInjected, type ViewTab,
+  type ConversationSessionHeaderInjected, type ConversationSessionInjected, type ViewTab,
 } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { WorkspaceId } from '@deepseek-ai/dsh-workspace/types'
 import { createConversationStore } from '../src/client/stores.ts'
+import { RemoteError } from '@deepseek-ai/dsh-client-test-runtime'
 
 usePinnedBrowserLanguages('zh-CN')
 
@@ -32,6 +33,20 @@ function sessionFakeFor() {
 
 async function bench() {
   const runtime = await SlotTestRuntime.create()
+  const rootUpload = vi.fn(() => Promise.resolve({
+    ok: true as const,
+    value: {
+      receiptId: 'root-receipt' as never,
+      file: { attachmentId: 'root-file' as never, name: 'draft.pdf', bytes: 1 },
+    },
+  }))
+  const uploads = new Map<SessionId, (...args: unknown[]) => Promise<unknown>>([[ROOT, rootUpload]])
+  runtime.fileUpload.available = true
+  runtime.fileUpload.upload = (sessionId: SessionId, ...args: unknown[]) => {
+    const upload = uploads.get(sessionId)
+    if (upload === undefined) throw new Error('test file upload has no Session fixture')
+    return upload(...args)
+  }
   runtime.ctx.provide('settingsScope', { bind: () => stubSettingsScope().scope } as never)
   const connectWorkspace = vi.fn(async () => ROOT)
   runtime.ctx.provide('uiWorkspace', { connectWorkspace } as never)
@@ -50,7 +65,7 @@ async function bench() {
 
   const feature = await runtime.mount({ inject: [...inject], apply })
   runtime.renderRoot()
-  const entryOf = (key: 'conversation' | 'conversation.session' | 'conversation.composer.bar') =>
+  const entryOf = (key: 'conversation' | 'conversation.session' | 'conversation.session.header' | 'conversation.composer.bar') =>
     runtime.slots.entries(key)[0]!
   const conversationApi = (id: SessionId) => {
     const entry = entryOf('conversation.session')
@@ -65,6 +80,15 @@ async function bench() {
     const entry = entryOf('conversation')
     return (entry.inject as unknown as (sessionId: SessionId | undefined) => ConversationInjected)(id)
   }
+  const headerApi = (id: SessionId) => {
+    const entry = entryOf('conversation.session.header')
+    const instance = runtime.storeOf('conversation.session.header', id) as ConversationInstance
+    const injected = (entry.inject as unknown as (
+      sessionId: SessionId,
+      actions: ConversationActions,
+    ) => ConversationSessionHeaderInjected)(id, instance.actions)
+    return { instance, injected }
+  }
   const composerApi = (id: SessionId | undefined) => {
     const entry = entryOf('conversation.composer.bar')
     return (entry.inject as unknown as (sessionId: SessionId | undefined) => ComposerBarInjected)(id)
@@ -76,8 +100,8 @@ async function bench() {
   const viewSource = (id: SessionId): ObservableSnapshot<readonly ViewTab[]> =>
     conversationApi(id).injected.hooks.conversationViews
   return {
-    runtime, feature, slots: runtime.slots, entryOf, conversationApi, residentApi, composerApi,
-    inputApi, viewSource, sessionFake, connectWorkspace,
+    runtime, feature, slots: runtime.slots, entryOf, conversationApi, headerApi, residentApi, composerApi,
+    inputApi, viewSource, sessionFake, connectWorkspace, rootUpload, uploads,
   }
 }
 
@@ -86,9 +110,77 @@ describe('Conversation inject API', () => {
     const b = await bench()
     const { injected } = b.conversationApi(ROOT)
     expect(b.sessionFake.loadOlder).not.toHaveBeenCalled()
-    expect(Object.keys(injected)).toEqual(['hooks', 'bindDraftMirror'])
+    expect(Object.keys(injected)).toEqual(['hooks', 'bindDraftMirror', 'openView'])
     expect(b.viewSource(ROOT).getSnapshot()).toEqual([])
     await b.runtime.dispose()
+  })
+
+  it('activates a target before committing an explicit View selection', async () => {
+    const b = await bench()
+    const binding = b.runtime.ctx.uiConversation.binding(ROOT)
+    const activate = vi.spyOn(binding, 'activate')
+    const removeChat = b.slots.register(
+      { name: 'conversation.view', id: 'chat', order: 0 },
+      (() => null) as never,
+    )
+    const removeTrajectory = b.slots.register(
+      { name: 'conversation.view', id: 'trajectory', order: 10 },
+      (() => null) as never,
+    )
+    await Promise.resolve()
+    activate.mockClear()
+
+    const body = b.conversationApi(ROOT)
+    body.injected.openView('trajectory', 'call-1')
+    expect(activate).toHaveBeenLastCalledWith('trajectory')
+    expect(body.instance.store.getSnapshot()).toMatchObject({
+      view: 'trajectory',
+      viewRequest: { view: 'trajectory', focus: 'call-1' },
+    })
+
+    const header = b.headerApi(ROOT)
+    header.injected.selectView('chat')
+    expect(activate).toHaveBeenLastCalledWith('chat')
+    expect(header.instance.store.getSnapshot().view).toBe('chat')
+
+    removeTrajectory()
+    removeChat()
+    await b.runtime.dispose()
+  })
+
+  it('restores the selected View when a cached Session becomes current', async () => {
+    const b = await bench()
+    const binding = b.runtime.ctx.uiConversation.binding(ROOT)
+    const activate = vi.spyOn(binding, 'activate')
+    const removeChat = b.slots.register(
+      { name: 'conversation.view', id: 'chat', order: 0 },
+      (() => null) as never,
+    )
+    let removeCustom: (() => void) | undefined
+    try {
+      await b.runtime.flush()
+      localStorage.setItem(`dsh.conversation.${ROOT}`, JSON.stringify({
+        draft: '', view: 'custom', viewRequest: null,
+      }))
+
+      b.runtime.ctx.uiSession.adapter.resolve(ROOT)
+      expect(activate).toHaveBeenLastCalledWith('chat')
+      activate.mockClear()
+
+      removeCustom = b.slots.register(
+        { name: 'conversation.view', id: 'custom', order: 10 },
+        (() => null) as never,
+      )
+      await b.runtime.flush()
+      expect(activate).not.toHaveBeenCalled()
+
+      await b.runtime.sessions.setCurrent(ROOT)
+      expect(activate).toHaveBeenLastCalledWith('custom')
+    } finally {
+      removeCustom?.()
+      removeChat()
+      await b.runtime.dispose()
+    }
   })
 
   it('submits through the provided input machine and mirrors accepted draft edits', async () => {
@@ -112,7 +204,7 @@ describe('Conversation inject API', () => {
     })
 
     b.sessionFake.prompt.mockResolvedValueOnce({
-      ok: false, error: { code: 'agent-busy', message: 'busy', details: { reason: 'busy' } },
+      ok: false, error: new RemoteError('session/agent-busy', 'busy', { reason: 'busy' }),
     })
     actions.setDraft('retry me')
     actions.submit()
@@ -128,10 +220,35 @@ describe('Conversation inject API', () => {
     expect(b.inputApi(ROOT).state).toBe(state)
 
     b.sessionFake.cancel.mockResolvedValueOnce({
-      ok: false, error: { code: 'internal', message: 'stop failed', details: {} },
+      ok: false, error: new RemoteError('gateway/internal', 'stop failed', {}),
     })
     b.composerApi(ROOT).stop!()
     await vi.waitFor(() => { expect(b.sessionFake.cancel).toHaveBeenCalledOnce() })
+    await b.runtime.dispose()
+  })
+
+  it('releases a draft attachment only after the input shell accepts its removal', async () => {
+    const b = await bench()
+    const composer = b.composerApi(ROOT)
+    expect(composer.addFiles?.([
+      new File([Uint8Array.of(1)], 'draft.pdf', { type: 'application/pdf' }),
+    ])).toBeNull()
+    const controller = b.runtime.ctx.get('conversation') as unknown as {
+      releaseDraftAttachment(id: string): void
+    }
+    const release = vi.spyOn(controller, 'releaseDraftAttachment')
+    const input = b.inputApi(ROOT).actions
+    const remove = vi.spyOn(input, 'removeAttachment').mockReturnValue(false)
+    const draft = composer.resolveDraftAttachments?.(
+      b.inputApi(ROOT).state.getSnapshot().attachmentIds,
+    )[0]
+    if (draft === undefined) throw new Error('missing draft attachment')
+
+    composer.removeAttachment?.(draft.id)
+    expect(release).not.toHaveBeenCalled()
+    remove.mockReturnValueOnce(true)
+    composer.removeAttachment?.(draft.id)
+    expect(release).toHaveBeenCalledWith(draft.id)
     await b.runtime.dispose()
   })
 
@@ -162,6 +279,10 @@ describe('Conversation inject API', () => {
     const resident = b.residentApi(ROOT)
     const { state, actions } = b.inputApi(ROOT)
     actions.setDraft('carry me')
+    expect(b.composerApi(ROOT).addFiles?.([
+      new File([Uint8Array.of(1)], 'draft.pdf', { type: 'application/pdf' }),
+    ])).toBeNull()
+    await vi.waitFor(() => { expect(b.rootUpload).toHaveBeenCalledOnce() })
 
     b.connectWorkspace.mockResolvedValueOnce(ROOT)
     await resident.selectWorkspace('workspace-1' as WorkspaceId)
@@ -169,12 +290,22 @@ describe('Conversation inject API', () => {
     expect(state.getSnapshot().draft).toBe('carry me')
 
     const other = 'other-1' as SessionId
-    await b.runtime.sessions.add({ id: other }, { current: false })
+    const targetUpload = vi.fn(() => Promise.resolve({
+      ok: true,
+      value: {
+        receiptId: 'target-receipt' as never,
+        file: { attachmentId: 'target-file' as never, name: 'draft.pdf', bytes: 1 },
+      },
+    }))
+    b.uploads.set(other, targetUpload)
+    await b.runtime.sessions.add({ id: other, session: {} }, { current: false })
     b.connectWorkspace.mockResolvedValueOnce(other)
     await resident.selectWorkspace('workspace-2' as WorkspaceId)
     expect(b.runtime.sessions.calls).toContainEqual({ method: 'open', args: [other] })
     expect(state.getSnapshot().draft).toBe('')
     expect(b.inputApi(other).state.getSnapshot().draft).toBe('carry me')
+    await vi.waitFor(() => { expect(targetUpload).toHaveBeenCalledOnce() })
+    expect(b.inputApi(other).state.getSnapshot().attachmentIds).toHaveLength(1)
     await b.runtime.dispose()
   })
 

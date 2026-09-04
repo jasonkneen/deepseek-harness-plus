@@ -1,5 +1,5 @@
 // PTC mode browser round trip with nested sub-calls and details selection.
-// Record: DSH_SNAPSHOT=record rewrites session.jsonl, then a keyless
+// Record: DSH_SNAPSHOT=record writes session.v2.jsonl, then a keyless
 // DSH_SNAPSHOT=refresh regenerates ui.expected.md.
 import { readFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
@@ -13,7 +13,7 @@ import {
 } from './scaffold.ts'
 import { connectFreshWorkspace, expandOwningTurnProcess, newEnglishPage, saveFailureShot } from './support.ts'
 
-const FIXTURE = fileURLToPath(new URL('../../../snapshots/web/ptc-round/session.jsonl', import.meta.url))
+const FIXTURE = fileURLToPath(new URL('../../../snapshots/web/ptc-round/session.v2.jsonl', import.meta.url))
 const UI_EXPECTED = fileURLToPath(new URL('../../../snapshots/web/ptc-round/ui.expected.md', import.meta.url))
 const MODE = webSnapshotMode()
 
@@ -30,7 +30,7 @@ describe('web e2e: PTC mode round renders nested sub-calls', () => {
 
   beforeAll(async () => {
     scaffold = await launchWebScaffold({
-      toolsMode: 'ptc',
+      agentPresets: { roots: [], default: 'ptc' },
       compareReplaySession: true,
       ...(MODE === 'record' ? {} : { replayFixture: FIXTURE, paceMs: 15 }),
     })

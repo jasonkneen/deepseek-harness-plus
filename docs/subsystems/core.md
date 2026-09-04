@@ -17,7 +17,7 @@ A turn flows through the six packages in one loop: the driver in [`agent-loop`](
 | `agent-loop/` | The concrete driver implementing the public `Agent` contract (`ctx.agentLoop`) | this page |
 | `scope/` | The scoped-registration primitive the registries and loop build per-agent scoping on | [scope.md](scope.md) |
 
-`scope/` is the one non-service package: a dependency-free library (`createScope`/`scopeOf`/`scopeTarget`) that sits below `session/` and `system-prompt/` in the module graph precisely so they can consume it without a cycle. `agent-loop` is the one concrete implementation of the public `Agent` contract and lives here because it is the harness's default product loop; it runs each driver inside `ctx.agents.withInitiator()`. Extension plugins depend on `agent` — including when they need the initiating Agent — and never on `agent-loop` directly, so the loop stays swappable. The default composition that wires this spine into a runnable agent is [`examples/agent-spine-demo`](../../packages/examples/agent-spine-demo/README.md).
+`scope/` is the one non-service package: a dependency-free library (`createScope`/`scopeOf`/`scopeTarget`) that sits below `session/` and `system-prompt/` in the module graph precisely so they can consume it without a cycle. `agent-loop` is the one concrete implementation of the public `Agent` contract and lives here because it is the harness's default product loop; it runs each driver inside `ctx.agents.withInitiator()`. Extension plugins depend on `agent` — including when they need the initiating Agent — and never on `agent-loop` directly, so the loop stays swappable. [`dsh-base`](../../packages/bundle/base/README.md) is the default product composition, while [`dsh-sdk-minimal`](../../packages/bundle/sdk-minimal/README.md) declares a smaller standalone tree.
 
 ## Creation and ownership
 
@@ -46,7 +46,7 @@ interface AgentHandle {
 }
 ```
 
-`CreateAgentOptions` carries the shared identity and everything a fresh agent needs before publication: session metadata (`meta` — validated `cwd`, fork lineage, seed boundary, origin classification, delegation depth), an optional `seed` replay prefix for forks, per-agent `AgentOptions`, a creation-only cancellation `signal`, and `setup`. `ResumeAgentOptions` is the persisted-identity counterpart: `resumeSessionId`, `agentOptions`, `signal`, and `setup`. The `setup` callback (`AgentSetup`) composes the agent's scoped world while both ids are still unpublished — everything registered through `agentCtx` exists before `agent/created` and the first prompt assembly — and may return a synchronous commit invoked immediately before publication; a setup rejection, commit throw, or owner disposal rolls the transaction back without publishing either id.
+`CreateAgentOptions` carries the shared identity and everything a fresh agent needs before publication: session metadata (`meta` — validated `cwd`, fork lineage, the `isSeeded` marker, origin classification, delegation depth, and `agentPreset`), the exact fork cut in sibling field `inheritedEventCount`, an optional `seed` replay prefix, per-agent `AgentOptions`, a creation-only cancellation `signal`, and `setup`. `ResumeAgentOptions` is the persisted-identity counterpart: `resumeSessionId`, `agentOptions`, `signal`, and `setup`. The `setup` callback (`AgentSetup`) composes the agent's scoped world while both ids are still unpublished — everything registered through `agentCtx` exists before `agent/created` and the first prompt assembly — and may return a synchronous commit invoked immediately before publication; a setup rejection, commit throw, or owner disposal rolls the transaction back without publishing either id.
 
 `AgentFactory` is the creation interface behind the registry: the loop registers its factory via `ctx.agents.setFactory()`, so consumers use `ctx.agents` without depending on the concrete loop package. The exact `create`/`resume` signatures and rollback contracts are in the [generated section](#ctxagents--agentregistry) below.
 
@@ -152,6 +152,44 @@ interface Agent {
 type AgentStatus = 'idle' | 'running'
 ```
 
+```ts type-equiv
+/** One process-local live assistant streaming publication. */
+type AssistantStreamFrame =
+  | {
+    readonly type: 'start'
+    readonly attemptId: LlmAttemptId
+    /** Monotone within one attached Agent lifecycle; replacement restarts at 1. */
+    readonly revision: number
+    readonly turn: number
+    readonly step: number
+  }
+  | {
+    readonly type: 'chunk'
+    readonly attemptId: LlmAttemptId
+    readonly revision: number
+    /** Dense zero-based position within the attempt. */
+    readonly index: number
+    /** Safe-integer timestamp reused by the durable embedded stream. */
+    readonly time: number
+    readonly chunk: StreamChunk
+  }
+  | {
+    readonly type: 'end'
+    readonly attemptId: LlmAttemptId
+    readonly revision: number
+    /** Number of chunk frames emitted by this attempt. */
+    readonly index: number
+    /** Durable settlement committed before this notification, or live abandonment without one. */
+    readonly outcome:
+      | {
+        readonly kind: 'committed'
+        readonly eventType: 'assistant/message' | 'assistant/attempt'
+        readonly seq: SessionSeq
+      }
+      | { readonly kind: 'abandoned' }
+  }
+```
+
 `running` describes the driver-wide drain interval and may span consecutive queued turns; it does not prove a turn is still open. Disposal removes the agent from the registry and emits `agent/disposed`; it is not a terminal status value. `followup()` returns no handle: its `MessageId` identifies durable inbox insertion, claim, and discard facts, not a later assistant output or turn ending. `whenIdle()` observes the whole agent, so callers may call a receipt-to-idle interval a run only when they explicitly own that interval ([decision](../../.agents/notes/implemented/architecture/2026-07-30-followup-enqueue-and-owned-runs.md)).
 
 ```ts type-equiv
@@ -252,7 +290,7 @@ type SessionStartSource = 'startup' | 'resume' | 'clear' | 'compact'
 
 A `Session` is an **append-only log** of typed `SessionEvent`s — the single source of truth. The LLM message history is *derived* from the log (`deriveMessages()`), not stored separately. Every entry carries a monotonic `seq`, a `time`, and a `type`-discriminated `data` payload; surface variants may also list cited earlier events in `sourceEventSeqs` and carry a `surfaceOp`.
 
-The `SessionEvent` envelope's exact conditional fields, the twelve core event variants (`turn/start`, `turn/end`, `step/start`, `step/end`, `user/message`, `assistant/chunk`, `assistant/message`, `tool/call`, `tool/result`, `request/header`, `request/context`, `session/end-seed`), the `deriveMessages()` projection rules, the `TurnEndReason` reasons, and the execution-enclosure and standalone-event rules are on **[session.md](session.md)**. How the log is made durable — the `SessionPersistence` interface, JSONL/SQLite backends, the `session/flush` checkpoint, crash recovery, and `SessionHeader` — is on **[persistence.md](persistence.md)**.
+The `SessionEvent` envelope's exact conditional fields, the twelve core event variants (`turn/start`, `turn/end`, `step/start`, `step/end`, `user/message`, `assistant/message`, `assistant/attempt`, `tool/call`, `tool/result`, `request/header`, `request/context`, `session/end-seed`), the `deriveMessages()` projection rules, the `TurnEndReason` reasons, and the execution-enclosure and standalone-event rules are on **[session.md](session.md)**. How the log is made durable — the `SessionPersistence` interface, JSONL provider, `session/flush` checkpoint, crash recovery, and `SessionHeader` — is on **[persistence.md](persistence.md)**.
 
 ## `ToolDefinition`
 
@@ -301,9 +339,9 @@ Two large discriminated unions are the ones consumers `switch` over most: **`Str
 
 ### Branded IDs
 
-IDs passed between packages are **branded** — structurally strings, but non-interchangeable at the type level (a `SessionId` cannot be passed where a `ToolCallId` is expected). Construction goes through a per-type factory; comparison, logging, and JSON behave as ordinary strings.
+IDs passed between packages are **branded** — structurally strings, but non-interchangeable at the type level (a `SessionId` cannot be passed where a `ToolCallId` is expected). Construction uses the shared `brandString<T>()` helper or an owner-defined validating factory; comparison, logging, and JSON behave as ordinary strings.
 
-The `Branded<B>` primitive lives in its own type-only package, [dsh-brand](../../packages/util/brand) (no runtime code, no harness-package dependency), so any package can brand the ids it owns without depending on an unrelated capability package.
+The `Branded<B>` primitive and stateless constructor live in [dsh-brand](../../packages/util/brand), which has no harness capability dependency. `brandString<T>()` applies a compile-time-only string brand.
 
 Source: [`packages/util/brand/src/index.ts`](../../packages/util/brand/src/index.ts)
 
@@ -356,13 +394,14 @@ Concrete agent factory and driver service.
 /**
  * Create an agent and session under one caller-supplied identity, owned by
  * the accessing fiber. Constructor-driven config calls mint a fresh combined
- * id before entering this boundary.
+ * id before entering this boundary. When a persistence backend is mounted,
+ * the session's durable identity and any seed are stored before publication.
  * @param id - shared agent/session identity.
  * @param options - concrete loop options.
  * @param meta - optional fresh-session workspace metadata.
  * @returns the published running agent.
  */
-create(id: SessionId, options: AgentOptions = {}, meta: Pick<SessionHeader, 'cwd'> = {}): Agent
+async create(id: SessionId, options: AgentOptions = {}, meta: Pick<SessionHeader, 'cwd'> = {}): Promise<Agent>
 
 /**
  * Create an owned agent on a caller-supplied session id.
@@ -409,6 +448,25 @@ async list(): Promise<AgentPreset[]>
  * @returns the rows and the authoring capability.
  */
 @Remote('list') async remoteExportList(): Promise<AgentPresetRoster>
+
+/**
+ * Every preset's composition as flattened plugin rows, for plugin-listing
+ * surfaces beside the roster's own picker.
+ *
+ * A preset with a live standing mount answers from its newest generation's
+ * Loader entries — the composition new sessions join — even when the file
+ * behind it has since been edited into an unreadable state: the mount is
+ * what sessions actually run, so the broken verdict only applies to a
+ * preset nothing composed. One never composed since boot answers from its
+ * file, with `!!js` disabled gates evaluated against the Loader context so
+ * both answers reflect the same host. Reading never mounts: an unmounted
+ * preset is parsed, not composed, so listing a preset's plugins cannot
+ * activate them early. A composition that stopped reading between
+ * discovery's health verdict and this read is reported broken with the
+ * raced reason rather than dropped.
+ * @returns one composition per roster preset, in roster order.
+ */
+async compositionInventory(): Promise<AgentPresetComposition[]>
 
 /**
  * Resolve one preset by id.
@@ -488,8 +546,8 @@ async read(id: string): Promise<string>
  * One preset's composition text with the roster row it belongs to.
  * @param agentPreset - the preset id.
  * @returns the composition beside its trust and published metadata.
- * @throws {TypertRemoteFailure} `bad-request` for an empty id, or
- * `agent-preset-not-found` when no configured root supplies it.
+ * @throws {RemoteError} `gateway/bad-request` for an empty id, or
+ * `agent-preset/not-found` when no configured root supplies it.
  */
 @Remote('read') async readDocument(agentPreset: string): Promise<AgentPresetDocument>
 
@@ -516,8 +574,8 @@ async copy(from: string, id: string, name?: string): Promise<void>
  * @param id - the new preset id.
  * @param name - the copy's optional display name.
  * @returns once the copy is stored.
- * @throws {TypertRemoteFailure} with the corresponding stable preset code
- * and details when the copy is refused.
+ * @throws {RemoteError} with the corresponding stable preset code and
+ * details when the copy is refused.
  */
 @Remote('copy') async remoteExportCopy(from: string, id: string, name?: string): Promise<void>
 
@@ -533,8 +591,8 @@ async remove(id: string): Promise<void>
  * Delete one preset through the Remote API.
  * @param id - the preset id.
  * @returns once the preset is deleted.
- * @throws {TypertRemoteFailure} with the corresponding stable preset code
- * and details when deletion is refused.
+ * @throws {RemoteError} with the corresponding stable preset code and
+ * details when deletion is refused.
  */
 @Remote('deletePreset') async remoteExportDelete(id: string): Promise<void>
 
@@ -585,8 +643,8 @@ async recompose(agentCtx: Context, id: string): Promise<AgentPreset>
  * @param agent - the session's live agent, resolved from the wire identity.
  * @param agentPreset - the preset to compose the agent from instead.
  * @returns the preset id that was recorded.
- * @throws {TypertRemoteFailure} with `bad-request`, `agent-preset-locked`,
- * `agent-preset-not-found`, or `agent-preset-invalid` when refused.
+ * @throws {RemoteError} with `gateway/bad-request`, `agent-preset/locked`,
+ * `agent-preset/not-found`, or `agent-preset/invalid` when refused.
  */
 @Remote('select') async select(agent: Agent, agentPreset: string): Promise<string>
 
@@ -783,6 +841,29 @@ Source: [`packages/core/agent/src/index.ts`](../../packages/core/agent/src/index
 <a id="agent-events"></a>
 
 ### `agent/*` events
+
+<a id="agentassistant-stream--emit"></a>
+
+#### `agent/assistant-stream` — emit
+
+Process-local assistant-stream publication. Chunk frames are transient; the loop appends one final v2 `assistant/message` or `assistant/attempt` with the same stream before a committed end frame.
+
+```ts cordis-catalog
+/**
+ * Process-local assistant-stream publication. Chunk frames are transient;
+ * the loop appends one final v2 `assistant/message` or `assistant/attempt`
+ * with the same stream before a committed end frame.
+ * @param payload.agent - the agent whose attempt produced the frame.
+ * @param payload.frame - one ordered start, chunk, or end publication.
+ * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
+ * @mode emit
+ */
+'agent/assistant-stream'(this: Scoped<Agent>, payload: { agent: Agent; frame: AssistantStreamFrame }): void
+```
+
+Types: [Scoped](scope.md)
+
+Source: [`packages/core/agent/src/runtime-types.ts`](../../packages/core/agent/src/runtime-types.ts)
 
 <a id="agentcreated--emit"></a>
 

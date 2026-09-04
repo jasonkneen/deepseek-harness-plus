@@ -21,8 +21,8 @@ interface UserMessage extends Message {
 /**
  * The merge-extensible, append-only source of truth for an agent interaction.
  * Message history is derived from this log. Every event is lossless JSON and
- * sequence numbers stay contiguous, including raw chunks, so persistence can
- * store the canonical log verbatim.
+ * sequence numbers stay contiguous. Assistant attempt events embed their exact
+ * compact raw streams so persistence stores one durable settlement per attempt.
  */
 interface SessionEventMap {
   /**
@@ -53,8 +53,6 @@ interface SessionEventMap {
    * project their `content` verbatim; `source` tells them apart.
    */
   'user/message': UserMessage
-  /** Raw stream chunk — token-level replay fidelity. */
-  'assistant/chunk': { turn: number; step: number; chunk: StreamChunk }
   /**
    * Assembled assistant message for one step (derived history uses this).
    * Carries the step's `usage` when the adapter reported token accounting, so
@@ -65,7 +63,21 @@ interface SessionEventMap {
    * marker distinguishes that prefix without re-deriving interruption from turn
    * boundaries. An aborted turn with no such event streamed no visible content.
    */
-  'assistant/message': { turn: number; step: number; message: AssistantMessage; usage?: TokenUsage; interrupted?: true }
+  'assistant/message': {
+    turn: number
+    step: number
+    message: AssistantMessage
+    /** Exact timed model stream, compacted without joining delta boundaries. */
+    stream: AssistantStreamRecord[]
+    usage?: TokenUsage
+    interrupted?: true
+  }
+  /**
+   * One model attempt that committed no surface message. The embedded stream
+   * preserves a failed, retried, cancelled, or stream-error attempt that
+   * reached settlement without fabricating model-visible history.
+   */
+  'assistant/attempt': { turn: number; step: number; stream: AssistantStreamRecord[] }
   /**
    * The model requested one tool invocation: `name` with the raw `arguments`
    * JSON string exactly as the model produced it (unparsed). `callId` pairs the
@@ -109,12 +121,12 @@ interface SessionEventMap {
    * Marks the end of a constructor seed. Events before it have smaller seq
    * values and came from the seed (resume, fork, or replay); this lifecycle
    * produced none of them. This log-only event is the durable projection of
-   * {@link Session.firstLiveSeq}. Its payload is empty — position and `time`
-   * carry the meaning.
+   * {@link Session.firstLiveSeq}.
    *
-   * Locate the LAST one in stored history. A seed already ending in one is not
-   * re-marked, so reopening an untouched session does not grow its log per
-   * pickup and the event need not be at the current `firstLiveSeq`.
+   * A fresh fork child owns one `{ inherited: true }` marker at its exact
+   * inherited-prefix cut, even when that prefix ends in an ancestor marker.
+   * The last tagged marker is the current Session's cut; untagged markers keep
+   * ordinary restore and replay lifecycle boundaries.
    *
    * `Session`'s constructor is the only legitimate writer. The invariant
    * companion deliberately constrains nothing here, so a plugin appending one
@@ -127,7 +139,7 @@ interface SessionEventMap {
    * writers — a concurrently live session holds its own boundary elsewhere,
    * so tolerating concurrent writers needs a signal beyond the log.
    */
-  'session/end-seed': Record<string, never>
+  'session/end-seed': { inherited?: true }
 }
 ```
 
@@ -180,6 +192,28 @@ interface RequestContext {
 基于 `type` 的真正可辨识联合（而非独立的 `type`/`data` 联合），因此 `switch (event.type)` 能直接收窄 `event.data`，无需类型断言。`seq` 是日志中的单调递增位置（`seq = log.length`）；`time` 为 epoch 毫秒。
 
 ```ts type-equiv
+/** Sequence number of one existing event in a Session log. */
+type SessionSeq = BrandedNumber<'SessionSeq'>
+```
+
+```ts type-equiv
+/** A Session log gap, prefix length, or read offset, which may equal the event count. */
+type SessionLogOffset = BrandedNumber<'SessionLogOffset'>
+```
+
+```ts type-equiv
+/** Inclusive Session event watermark, or `-1` before any event exists. */
+type SessionSeqCursor = SessionSeq | -1
+```
+
+```ts type-equiv
+/** One existing Session event position, or explicit absence. */
+type OptionalSessionSeq = SessionSeq | null
+```
+
+`SessionSeq(value)` 与 `SessionLogOffset(value)` 只接纳非负安全整数，并拒绝负零。它们仅添加编译期品牌，不改变序列化后的数值；算术会返回普通 `number`，调用方必须按结果的预期角色通过对应构造器重新接纳。
+
+```ts type-equiv
 /**
  * One immutable entry in the session log.
  *
@@ -189,7 +223,7 @@ interface RequestContext {
  * The {@link sourceEventSeqs} and {@link surfaceOp} fields are conditional:
  * they only exist on {@link SurfaceEventType} variants (`user/message`,
  * `assistant/message`, `tool/result`).
- * Non-surface events (boundary markers, chunks, usage, errors) never carry
+ * Non-surface events (boundary markers, attempts, errors) never carry
  * surface metadata — the compiler enforces this at `Session.append()`
  * call sites.
  */
@@ -197,20 +231,28 @@ type SessionEvent<T extends SessionEventType = SessionEventType> = {
   [K in SessionEventType]: {
     type: K
     /** Monotonic sequence number within the session. */
-    seq: number
+    seq: SessionSeq
     /** Unix epoch milliseconds. */
     time: number
     data: SessionEventMap[K]
+    /**
+     * Marks an event a reader may safely skip when it does not recognize
+     * `type`. Absent means required: a reader meeting an unrecognized type
+     * without this marker MUST refuse to reconstruct the session instead of
+     * silently dropping the event, because an unrecognized required event may
+     * change how the rest of the log is interpreted. A writer sets `true` only
+     * on purely informational records whose loss cannot affect reconstruction;
+     * defaulting to required means a forgotten marker over-refuses (an
+     * inconvenience) rather than silently resuming a gutted session.
+     */
+    ignorable?: true
   } & (K extends SurfaceEventType ? {
     /**
-     * Seq numbers of earlier events that this event cites as sources
-     * (e.g. the `assistant/chunk` seqs that built an `assistant/message`,
-     * or the surface nodes shadowed by a compaction replace node). An
-     * `assistant/message` may carry a present empty array for a known empty
-     * provider stream; when the field is absent, the event does not record which
-     * earlier events produced the message.
+     * Seq numbers of earlier events that this event cites as sources, such as
+     * the surface nodes shadowed by a compaction replacement. A v2
+     * `assistant/message` embeds its provider stream and cannot carry this field.
      */
-    sourceEventSeqs?: number[]
+    sourceEventSeqs?: SessionSeq[]
     /** How this event entered the surface; absent for non-surface events. */
     surfaceOp?: SurfaceOp
   } : object)
@@ -219,7 +261,7 @@ type SessionEvent<T extends SessionEventType = SessionEventType> = {
 
 `SessionEventType = keyof SessionEventMap`。由于 `SessionEventMap` 可通过合并扩展，对 `SessionEvent` 的 switch 语句禁止使用 `assertNever`：插件添加的变体是合法的未知值；处理已知 case 后在 `default` 中放行。
 
-对于 `assistant/message`，存在的 `sourceEventSeqs: []` 表示提供方流已知且完整地为空；旧格式或外部事件缺少该字段时，没有记录这条消息由哪些早期事件产生。agent loop 会为每次成功的模型调用写入该字段；其他 surface 事件只要包含该字段，其列表就必须非空。
+V2 `assistant/message` 嵌入 provider stream，不能携带 `sourceEventSeqs`。User 与 tool surface event 可以在 provenance 或 replacement operation 需要时引用完整且非空的唯一较早 event 集合。
 
 <a id="surface-types"></a>
 
@@ -233,7 +275,8 @@ type SessionEvent<T extends SessionEventType = SessionEventType> = {
 /**
  * The subset of {@link SessionEventType} values whose events produce LLM
  * messages and are eligible to appear on the ordered surface. Only these
- * event types may carry {@link SurfaceOp} and {@link SessionEvent.sourceEventSeqs}.
+ * event types may carry {@link SurfaceOp}; user and tool events may also cite
+ * earlier sources through {@link SessionEvent.sourceEventSeqs}.
  */
 type SurfaceEventType =
   | 'user/message'
@@ -259,7 +302,7 @@ type SurfaceEventType =
  */
 type SurfaceOp =
   | 'append'
-  | { op: 'replace'; start: number; end: number }
+  | { op: 'replace'; start: SessionSeq; end: SessionSeq }
 ```
 
 `'append'` 是常规的尾部追加路径。`replace` 会遮蔽从 `start` 到 `end`（含两端）的 surface 条目（两者都必须是有效的 surface seq；`start === end` 时仅替换单个条目），并在原位置插入新事件。
@@ -271,21 +314,20 @@ type SurfaceOp =
  * Surface placement and cited source-event seqs for {@link Session.append}. Required on
  * message-producing events and forbidden on log-only events.
  */
-interface SurfaceIntent {
+type SurfaceIntent<T extends SurfaceEventType = SurfaceEventType> = {
   surfaceOp: SurfaceOp
-  /**
-   * Complete set of known source-event seqs. `assistant/message` may use a
-   * present empty array for a known empty provider stream; when the field is
-   * absent, the event does not record which earlier events produced the message.
-   * Other surface events require a non-empty set when this field is present.
-   */
-  sourceEventSeqs?: number[]
-}
+} & (T extends 'assistant/message' ? {
+  /** V2 Assistant messages embed their provider stream instead of citing source events. */
+  sourceEventSeqs?: never
+} : {
+  /** Complete non-empty set of known earlier source-event seqs. */
+  sourceEventSeqs?: SessionSeq[]
+})
 ```
 
 对 `SurfaceEventType` 事件必填：每个产生消息的事件都必须声明它如何加入 surface（派生模型历史的唯一来源）。面向人类的 transcript（文本记录）是另一个投影，读取的是日志中追加来源的事件，因为 surface 会有意遮蔽替换所概括的范围（见 [dsh-session](../../packages/core/session/README.zh.md) 的 `isAppendSurfaceEvent`）。非 surface 类型在编译期拒绝此参数。
 
-只有 `assistant/message` 可以携带存在但为空的 `sourceEventSeqs`；字段不存在时，该事件没有记录这条消息由哪些早期事件产生，但提供方仍可能发出过分片。
+`assistant/message` 不能携带 `sourceEventSeqs`；它的 `stream` 拥有精确 provider 证据。其他 surface event 不引用较早 event 时省略该字段，需要引用时使用完整非空 list。
 
 ### `SessionSurface`：实时只读 surface 投影
 
@@ -297,7 +339,7 @@ interface SurfaceIntent {
 /** Readonly live projection of the message-producing session events. */
 interface SessionSurface {
   /** Current surface event sequences in model-visible order. */
-  readonly nodes: readonly number[]
+  readonly nodes: readonly SessionSeq[]
   /** Monotonic count of committed positional replacements. */
   readonly replaceGeneration: number
 }
@@ -311,13 +353,13 @@ interface SessionSurface {
 /** One replacement operation observed while folding a session surface. */
 interface SurfaceFoldReplacement {
   /** Seq of the event that replaced the prior surface range. */
-  seq: number
+  seq: SessionSeq
   /** Declared inclusive start seq of the replaced surface range. */
-  start: number
+  start: SessionSeq
   /** Declared inclusive end seq of the replaced surface range. */
-  end: number
+  end: SessionSeq
   /** Actual surface entries removed by the operation, in surface order. */
-  shadowedSeqs: number[]
+  shadowedSeqs: SessionSeq[]
 }
 ```
 
@@ -325,7 +367,7 @@ interface SurfaceFoldReplacement {
 /** Complete result of replaying the surface operations in a session log. */
 interface SurfaceFoldResult {
   /** Current surface event sequences in model-visible order. */
-  nodes: number[]
+  nodes: SessionSeq[]
   /** Replacement operations in event order. */
   replacements: SurfaceFoldReplacement[]
 }
@@ -349,24 +391,27 @@ declare class Session {
   get surface(): SessionSurface;
   /**
    * Detached, deep-frozen creation metadata (format version, cwd, lineage,
-   * seed boundary). Supplied by the store via `ctx.sessions.create()`. When a
+   * and whether fork history exists). Supplied by the store via `ctx.sessions.create()`. When a
    * `Session` is created without a store-owned header, a minimal header is
    * synthesized (stamped with the current {@link SESSION_FORMAT_VERSION}) so
    * `session.header` is always present. Kept out of the event log — it is a
    * storage concern, not replayable conversation state.
    */
   readonly header: SessionHeader;
+  /** Number of leading events inherited from this Session's fork parent. */
+  readonly inheritedEventCount: SessionLogOffset;
   /** The session identity, derived from its durable header's single copy. */
   get id(): SessionId;
   /**
    * The first seq appended IN THIS PROCESS: the length of the constructor
    * seed (0 without one). Events with smaller seq values entered through
    * construction — replay, fork, or resume — and were never published on the
-   * `session/event` firehose (constructor seeds do not emit), so consumers
-   * that replay the log as a publication substitute (telemetry adoption)
-   * start here. Distinct from `header.seedLength`, the DURABLE fork-lineage
-   * boundary: a resumed session's constructor seed is its full stored log,
-   * while its header keeps the original fork value — this field is the
+   * `session/event` firehose (constructor seeds do not emit). This offset marks
+   * the constructor-input boundary for lifecycle ownership and persistence
+   * adoption; consumers that need complete canonical history still start at
+   * seq 0. Distinct from {@link inheritedEventCount}, the DURABLE
+   * fork-lineage cut: a resumed session's constructor seed is its full stored
+   * log, while the inherited count keeps the original fork value — this field is the
    * in-process construction fact.
    *
    * Not persisted itself: a seeded session projects it into the log as the
@@ -379,17 +424,23 @@ declare class Session {
    * When this lifecycle appends the marker, it occupies this seq before the
    * store attaches and therefore does not publish either. Otherwise this seq
    * holds an ordinary published write.
-   */
-  readonly firstLiveSeq: number;
+  */
+  readonly firstLiveSeq: SessionLogOffset;
   /**
    * Create a detached session by validating and snapshotting borrowed seed
    * events and storage metadata.
    * @param id - session identity.
    * @param seed - optional borrowed replay or fork events.
    * @param header - optional borrowed storage metadata.
+   * @param inheritedEventCount - exact fork-inherited prefix length for a seeded header.
    * @returns a detached session.
    */
-  static create(id: SessionId, seed?: readonly SessionEvent[], header?: SessionHeader): Session;
+  static create(
+    id: SessionId,
+    seed?: readonly SessionEvent[],
+    header?: SessionHeader,
+    inheritedEventCount?: SessionLogOffset,
+  ): Session;
   /**
    * Restore a detached session by taking ownership of fresh persistence values.
    * The storage format, event envelopes, sequence continuity, surface transitions,
@@ -397,18 +448,46 @@ declare class Session {
    * @param id - restored session identity.
    * @param seed - fresh detached events whose ownership is transferred.
    * @param header - fresh detached metadata whose ownership is transferred.
+   * @param inheritedEventCount - exact fork-inherited prefix length decoded from storage.
    * @returns a restored detached session.
    */
-  static fromRestore(id: SessionId, seed: readonly SessionEvent[], header: SessionHeader): Session;
+  static fromRestore(
+    id: SessionId,
+    seed: readonly SessionEvent[],
+    header: SessionHeader,
+    inheritedEventCount: SessionLogOffset,
+  ): Session;
   /**
-   * An immutable snapshot of the append-only event log. The snapshot is reused
-   * until the next append; a previously returned array does not grow later.
-   * Events and their nested data are deep-frozen at acceptance, so neither a
-   * cast nor ordinary JavaScript can rewrite durable history.
+   * Return the immutable event stored at one exact sequence number.
+   * @param seq - event sequence number.
+   * @returns the accepted event, or undefined when the log does not contain it.
    */
-  get events(): readonly SessionEvent[];
+  eventAt(seq: SessionSeq): SessionEvent | undefined;
+  /**
+   * Materialize an immutable snapshot of a half-open event sequence range.
+   * A full current snapshot is reused until the next append; every previously
+   * returned snapshot remains stable after later appends.
+   * @param fromSeq - non-negative inclusive sequence number; defaults to the log start.
+   * @param toSeqExclusive - non-negative exclusive sequence number; defaults to the current end.
+   * @returns a frozen array of the selected deeply frozen events.
+   */
+  snapshotEvents(
+    fromSeq: SessionLogOffset = SessionLogOffset(0),
+    toSeqExclusive: SessionLogOffset = this.seq,
+  ): readonly SessionEvent[];
+  /**
+   * Return this Session's events after its fork-inherited prefix.
+   * @returns a fresh array containing child-owned events in log order.
+   */
+  ownEvents(): readonly SessionEvent[];
+  /**
+   * Whether one existing event position is outside the fork-inherited prefix.
+   * @param seq - event position in this Session.
+   * @returns true when the event belongs to this Session rather than its parent.
+   */
+  isOwnSeq(seq: SessionSeq): boolean;
   /** The next event's sequence number — always the log length (the `seq = log.length` contiguity contract). */
-  get seq(): number;
+  get seq(): SessionLogOffset;
   /**
    * Append one typed event to the log and synchronously notify observers via
    * the store-owned, module-private publication hooks. The hot path never blocks
@@ -426,7 +505,8 @@ declare class Session {
    *   declare how it joins the surface, the sole source of derived model
    *   history) and
    *   rejected by the compiler for non-surface types like `turn/start` or
-   *   `assistant/chunk`.
+   *   `assistant/attempt`. Assistant messages embed their exact provider
+   *   stream and cannot cite top-level source events.
    * @returns the logged event — its assigned `seq`/`time` plus the SNAPSHOT of
    *   `data` that entered the log, so reading `event.data` back sees the logged
    *   value, never the caller's still-mutable input.
@@ -436,7 +516,7 @@ declare class Session {
    *   Map/Set/Date/class instance), or when the candidate violates the
    *   canonical surface contract (marker shape and eligibility, unique
    *   earlier source-event references, positional replacement validity, and complete
-   *   shadowed-node coverage). One recursive pass reads, validates, and
+   *   shadowed-node coverage). One iterative pass reads, validates, and
    *   copies each nested value once, so a stateful getter cannot supply one value
    *   to validation and another to storage. The event log is the durable source
    *   of truth, so a bad event fails at the append site rather than later during
@@ -447,13 +527,13 @@ declare class Session {
   append<T extends SessionEventType>(
     type: T,
     data: SessionEventMap[T],
-    ...opts: T extends SurfaceEventType ? [opts: SurfaceIntent] : []
+    ...opts: T extends SurfaceEventType ? [opts: SurfaceIntent<T>] : []
   ): SessionEvent<T>;
   /**
    * The {@link EpochHeader} in force after the log's last header event — the
    * header the NEXT request will be compared against — or undefined before
    * the first `request/header` snapshot. The live, incrementally-maintained
-   * form of `foldRequestHeader(session.events)`: each header event is folded
+   * form of `foldRequestHeader(session.snapshotEvents())`: each header event is folded
    * once, when first seen, so a per-step read costs O(new events).
    * @returns the folded header, or undefined when no header event exists yet.
    */
@@ -498,17 +578,17 @@ declare class Session {
 `Session.deriveMessages()` 将事件日志投影为模型看到的 `Message[]`。它是缓存的（每个 surface 节点在首次出现时投影一次；surface 重写触发重建）且冻结的（每次调用返回一个新数组，引用共享的深冻结消息，因此通过投影修改已记录的历史在类型上不可表达）。`deriveEventMessage(event)` 是折叠所应用的逐节点纯函数，公开暴露以便外部重建器和开发不变式检查能以完全相同的规则投影日志前缀，不会与缓存产生分歧。投影规则：
 
 - `user/message` → 一条携带确切 `content` 的 user 消息；可选 envelope 仅作为日志中的展示元数据保留。
-- `assistant/message` → 一条 assistant 消息，包含生成它的提供方和模型，以及可选的适配器私有回放状态。原始 `assistant/chunk` 事件属于回放/UI 数据，在派生时会被**跳过**（组装后的消息才是权威）。**内容为空的** `assistant/message` 也会跳过：因 max-tokens 而截断且无内容的步骤仍会记录一条 `assistant/message` 来保存用量、提供方和模型，但无内容的 assistant 轮次不得进入提供方 transcript（文本记录）。
+- `assistant/message` → 一条 assistant 消息，包含生成它的提供方和模型，以及可选的适配器私有回放状态。其嵌入式紧凑 stream 是回放、usage 与 UI 证据，而不是第二条 message。**内容为空的** `assistant/message` 也会跳过：因 max-tokens 而截断且无内容的步骤仍会记录一条 `assistant/message` 来保存 stream、usage、提供方和模型，但无内容的 assistant 轮次不得进入提供方 transcript（文本记录）。
 - `tool/result` → 一条携带 `tool-result` 块的 user 消息。
 - `user/message`（注入上下文，即非 `user` 来源）→ 按时间顺序在相应位置生成一条 user-role 消息，并原样承载其 `content`；其类型化 source 标明生产方，并携带所有生产方专用数据。
 
-其余所有事件（`turn/*`、`step/*`、插件所属的 `llm/retry`）均为结构信息，不会投影为消息。token 记账读取每个步骤的 `assistant/chunk { type: 'usage' }` 记录；如果没有用量分片，则将 `assistant/message.usage` 作为已提交步骤的后备。失败的模型请求尝试没有 assistant 消息，因此其用量分片是持久化的记账记录。由于这一尚未发布的格式有意不提供兼容性承诺，seed/load 校验会拒绝没有提供方／模型的请求头和 assistant 消息，而不会猜测历史数据应走的提供方路由。
+其余所有事件（`turn/*`、`step/*`、`assistant/attempt`、插件所属的 `llm/retry`）均为结构信息，不会投影为消息。token 记账会展开每个 `assistant/message` 或 `assistant/attempt` 的嵌入式 stream，message 顶层 `usage` 存在时仍是已提交 message 的权威。失败的模型请求 attempt 因此可以保留提供方 usage，而无需虚构 assistant message。当前逻辑校验会拒绝没有提供方／模型的 request header 和 assistant 消息，而不会猜测路由；受支持的历史表示会在当前 Session 存在前，由其相邻格式迁移边归一化并校验。
 
 ## 活跃会话 fork API
 
 `ctx.sessions.create(id, { seed, meta })` 是底层的回放/fork 原语。对于普通的活跃会话 fork，`SessionStore` 暴露一个策略 API：
 
-- `fork(source, boundary?, childSessionId?)` 接受一个活跃的 `Session` 对象或活跃的 `SessionId`，选取到 `boundary` seq（含）为止的源事件（默认为当前最后一个事件），要求所选前缀结束时没有开放轮次，然后创建一个活跃的子会话，包含深克隆的种子事件和子会话元数据（`parentSession`、`seedLength` 及继承的 `cwd`）。
+- `fork(source, boundary?, childSessionId?)` 接受一个活跃的 `Session` 对象或活跃的 `SessionId`，选取到 `SessionSeq` boundary（含）为止的源事件（默认为当前最后一个事件），要求所选前缀结束时没有开放轮次，然后创建一个活跃的子会话，包含深克隆的 seed event、`parentSession`、`isSeeded: true`、精确 `inheritedEventCount` 及继承的 `cwd`。
 
 显式 `boundary` 允许调用者从任意稳定的轮次间位置 fork，包括之前的 `turn/end` 或更晚的独立纯日志事件，即使源会话有更新的事件或正在进行的轮次。API 拒绝结束于开放轮次内的前缀，而不是静默截断。更广泛的执行关系健全性检查留在既有的 `dsh-invariants` 插件和持久化修复路径中，不在 `fork()` 中重复。`dsh-subagent-fork-in-process` 保留其已完成前缀截断逻辑，因为工具调用时的委托通常在父轮次仍然打开时启动；普通的会话分支应显式指定请求的 boundary。
 
@@ -542,8 +622,10 @@ interface TurnEndReasonMap {
   /** At least one step reached its output-token ceiling, even if a plugin continued the turn. */
   'max-tokens': { kind: 'max-tokens' }
   /**
-   * A persistence backend closed a crash-orphaned turn on reload. The loop never
-   * emits this marker, and the events recorded before the crash remain intact.
+   * A crash-orphaned turn was closed after the fact: agent-loop resume appends
+   * this closer for a stored log whose last turn never ended, and session-query
+   * synthesizes it on cold reads. The loop never emits this marker live, and
+   * the events recorded before the crash remain intact.
    */
   interrupted: { kind: 'interrupted' }
 }
@@ -559,9 +641,9 @@ interface TurnEndReasonMap {
 
 ## 种子结束边界：`session/end-seed`
 
-带种子的会话（恢复、fork 或回放）紧接构造种子之后追加这个仅日志事件，作为自己的第一次实时写入。在它之前的事件具有更小的 seq，且来自种子。它是 `firstLiveSeq` 的持久投影：该字段为持有对象的消费方回答本生命周期的写入从哪里开始，该事件则为只持有存储字节的消费方回答同一问题。payload 为空，因此位置与 `time` 承载全部含义，且不产生任何消息。`Session` 的构造函数是唯一合法的写入方。
+新 fork constructor 要求 seed 等于 inherited prefix，并在精确持久 cut 追加 `session/end-seed { inherited: true }`。restore 会保留该 tagged marker，并且只在完整 stored seed 尚未以 marker 结尾时追加普通 `session/end-seed {}`。两种形式都只进入 log 且不产生 message；`Session` constructor 是唯一合法 writer。
 
-显式传入的空种子会在 seq 0 写入 `session/end-seed`，从而把从空日志恢复的会话与全新会话区分开来。种子本身已以 `session/end-seed` 结尾时不会重复标记，因此重新打开一个未被改动的会话不会每次拾起都增长日志。应定位存储历史中的最后一条 `session/end-seed`，而不是假定 `firstLiveSeq` 处一定有一条：在一次没有产生工作的拾起之后，该事件的 seq 会小于下一个生命周期的 `firstLiveSeq`。
+对于 fork lineage，定位 payload 携带 `inherited: true` 的最后一个 marker；v2 decoding 只在 `SessionHeader.isSeeded` 为 true 时要求该 marker，并从其 seq 推导 `inheritedEventCount`。对于 lifecycle ownership，定位任一形式的最后一个 `session/end-seed`。重新打开已经以任一 marker 结尾的 seed 时，不会再追加普通 marker。
 
 它之所以必要，是因为种子历史与实时工作在字节层面完全相同，这会让任何拥有独立开／闭括号的插件失效：一个未配对的 `compaction/start`，无论写入方是在压缩中途崩溃、还是此刻正在压缩，读起来都一样。在 `session/end-seed` 之前的开启标记来自构造种子，并且属于一个已结束的生命周期，无论结束原因为何（崩溃、进程接替，或从仍在运行的父会话 fork 出来），因此其所有方可以视之为已死。这只覆盖*本*会话继承的括号：另一个并发存活的会话可能在同一段历史上持有开放括号，而它自己的边界在别处，因此容忍并发写入方还需要日志之外的存活信号。核心写入该边界但不从中读取任何内容——括号的词汇表仍归其所属插件，这也正是崩溃修复只关闭轮次／步骤／工具边界而从不处理 `compaction/*` 的原因。
 
@@ -577,7 +659,7 @@ interface TurnEndReasonMap {
 
 ## 持久性约定
 
-持久化后端依赖的约定如下：持久日志无损保存每个事件，**包括** `assistant/chunk`；`seq` 必须连续，因此不能从规范日志中过滤分片。后端可以为事件批次选择自己的存储编码，只要 `load` 返回与追加时完全一致的事件即可（JSONL 后端默认启用的打包分片行就是此类编码；见 [persistence.md](persistence.zh.md)）。所有 `event.data` 都必须可序列化为 JSON；`Session.append` 会从源头强制这一要求（遇到不可序列化数据时抛出），因此错误事件绝不会进入日志，`session.events` 始终与后端可持久化的内容一致。新增会携带不可序列化数据、破坏核心执行嵌套或违反事件所有方声明关系的事件类型，都会构成磁盘格式的破坏性变更。
+持久化后端依赖的约定如下：持久日志无损保存每个事件，每个 Assistant attempt 都是一个 `assistant/message` 或 `assistant/attempt`，其嵌入式紧凑 stream 会保留原始带时间 chunk。`seq` 在这些 settlement 与所有交错事件之间保持连续。后端可以为事件批次选择自己的存储 framing，只要句柄的 `read()` 返回与追加时完全一致的事件即可；当前 JSONL v2 每个事件写一行（见 [persistence.md](persistence.zh.md)）。所有 `event.data` 都必须可序列化为 JSON；`Session.append` 会从源头强制这一要求（遇到不可序列化数据时抛出），因此错误事件绝不会进入日志，`session.snapshotEvents()` 始终与后端可持久化的内容一致。新增会携带不可序列化数据、破坏核心执行嵌套或违反事件所有方声明关系的事件类型，都会构成磁盘格式的破坏性变更。
 
 消费此约定的后端见 [persistence.md](persistence.zh.md)。
 
@@ -615,7 +697,7 @@ resolveAgent(sessionId: SessionId): Promise<ApiSessionAgentResult>
  * @param signal - optional caller cancellation for persistence reads.
  * @returns the current attached state or persisted header and event prefix.
  */
-inspect( sessionId: SessionId, signal?: AbortSignal, ): Promise<{ meta: SessionHeader; events: SessionEvent[] }>
+inspect( sessionId: SessionId, signal?: AbortSignal, ): Promise<SessionInspection>
 
 /**
  * Read all visible Session rows without resuming an Agent.
@@ -664,7 +746,7 @@ inspect( sessionId: SessionId, signal?: AbortSignal, ): Promise<{ meta: SessionH
  * @param request - path after best-effort Session workspace resolution.
  * @param signal - caller lifetime; abort terminates the native command.
  * @returns confirmation after the native opener accepts the path.
- * @throws TypertRemoteFailure when the request is invalid, cancelled, or the opener fails.
+ * @throws RemoteError when the request is invalid, cancelled, or the opener fails.
  */
 @Remote('openWorkspacePath') async openWorkspacePath( request: SessionOpenWorkspacePathRequest, signal: AbortSignal, ): Promise<SessionOpenWorkspacePathValue>
 
@@ -723,7 +805,8 @@ inspect( sessionId: SessionId, signal?: AbortSignal, ): Promise<{ meta: SessionH
  * Follow one Session log from its opening or resume cursor.
  * @param request - durable address and last committed sequence already held by the caller.
  * @param signal - cancellation owned by the Remote stream carrier.
- * @returns a complete opening snapshot followed by gap-free event frames.
+ * @returns a complete opening snapshot followed by gap-free durable event
+ *   frames and optional cursorless assistant-stream frames.
  */
 @Remote({ mode: 'stream' }) follow(request: SessionFollowRequest, signal: AbortSignal): AsyncIterable<SessionFollowFrame>
 
@@ -735,7 +818,7 @@ inspect( sessionId: SessionId, signal?: AbortSignal, ): Promise<{ meta: SessionH
 @Remote({ mode: 'stream' }) control(signal: AbortSignal): AsyncIterable<SessionControlFrame>
 ```
 
-Types: [SessionHeader](persistence.zh.md) · [SessionId](core.zh.md) · [SessionSearchRequest](session-query.zh.md)
+Types: [SessionId](core.zh.md) · [SessionInspection](persistence.zh.md) · [SessionSearchRequest](session-query.zh.md)
 
 Source: [`packages/api/session-controller/src/index.ts`](../../packages/api/session-controller/src/index.ts)
 
@@ -745,7 +828,7 @@ Source: [`packages/api/session-controller/src/index.ts`](../../packages/api/sess
 
 In-memory session store (`ctx.sessions`).
 
-Persistence is intentionally not implemented here — persistence plugins subscribe to `session/event` and flush on `session/flush` / dispose.
+Persistence is intentionally not implemented here — the agent lifecycle attaches a session-log writer to each published session's write handle; a session published outside that lifecycle persists nothing.
 
 ```ts cordis-catalog
 /**
@@ -868,7 +951,7 @@ list(): Session[]
  *   `SessionStore`'s id policy.
  * @returns The created live child session.
  */
-fork(source: SessionForkSource, boundary?: number, childSessionId?: SessionId): Session
+fork(source: SessionForkSource, boundary?: SessionSeq, childSessionId?: SessionId): Session
 ```
 
 Types: [CreateSessionOptions](persistence.zh.md) · [PrepareSessionOptions](persistence.zh.md) · [SessionId](core.zh.md)

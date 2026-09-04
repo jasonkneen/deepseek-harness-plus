@@ -31,8 +31,8 @@ kind: "package-reference"
 
 | `mode` | 行为 |
 |---|---|
-| `FULL` | 每条已投影记录都立即交给 OTel SDK，包括生命周期运维记录 |
-| `FEEDBACK_ONLY` | 每个 `feedback/record` 都会回放权威会话日志中截至该事件的后缀，并进行投影与脱敏；后续记录等待下一个反馈事件；如果没有后续反馈，则留在本地 |
+| `FULL` | 每条已捕获记录都立即交给 OTel SDK，包括每条权威事件与生命周期运维记录 |
+| `FEEDBACK_ONLY` | 每个 `feedback/record` 都会回放、复制并脱敏 handoff 游标之后直至该事件的每条权威事件；后续记录等待下一个反馈事件；如果没有后续反馈，则留在本地 |
 | `DISABLED` | 默认值。不构造协调器、提供方、处理器或导出器；没有遥测记录会离开进程，`feedback/record` 会记录「不会共享任何内容」 |
 
 程序化 TypeScript 配置使用导出的 `SessionTelemetryMode` 枚举；原始字符串字面量不可赋值。已挂载服务通过 seam 的 [`SessionTelemetrySharingStatus`](../session-telemetry/README.zh.md#the-sharing-disclosure) `sharing` 属性披露解析后的模式（`full` / `feedback-only` / `disabled`），因此 `/feedback` 的确认文本可以报告会话是否以及如何被共享——即使 `DISABLED` 也会披露 `disabled`。
@@ -93,7 +93,7 @@ kind: "package-reference"
 
 ### 捕获接线
 
-`FULL` 以 `live` 模式组装协调器，并放行直接服务调用；`FEEDBACK_ONLY` 以 `on-demand` 模式组装协调器，给协调器一个私有后端能力，并且只对权威日志中精确的反馈记录触发 `captureSession(session, event.seq)`；`DISABLED` 除了在 `feedback/record` 上发出警告外不注册任何内容。后端刻意不实现 `flush()`：常规 flush 由批处理器负责，把提示转发给 `forceFlush()` 会成为并发 flush 的唯一来源，而它与关闭排空的交互没有文档。
+`FULL` 以 `live` 模式组装协调器，并放行直接服务调用；`FEEDBACK_ONLY` 以 `on-demand` 模式组装协调器，给协调器一个私有后端能力，并且仅在 `session.eventAt(event.seq) === event` 确认精确的权威反馈记录时触发 `captureSession(session, event.seq)`；`DISABLED` 除了在 `feedback/record` 上发出警告外不注册任何内容。后端刻意不实现 `flush()`：常规 flush 由批处理器负责，把提示转发给 `forceFlush()` 会成为并发 flush 的唯一来源，而它与关闭排空的交互没有文档。
 
 ### 字段映射
 
@@ -144,3 +144,5 @@ kind: "package-reference"
 无。
 
 </details>
+
+**运行时不变式：** 不发布伴生入口。mode 只改变 capture handoff、SDK setup 与本地 diagnostics，不改变可由独立 companion 对照的 Session 或 service 状态。

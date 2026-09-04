@@ -10,7 +10,7 @@ import { join, resolve, sep } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
-import { Session, SessionId } from '@deepseek-ai/dsh-session'
+import { SESSION_FORMAT_VERSION, Session, SessionId } from '@deepseek-ai/dsh-session'
 import SandboxPolicyService, { SANDBOX_MODES, setSandboxMode } from '@deepseek-ai/dsh-sandbox-policy'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import SystemPrompt, { renderContextSnapshot, renderPrompt } from '@deepseek-ai/dsh-system-prompt'
@@ -25,9 +25,10 @@ async function mounted(config: { mode?: 'read-only' | 'workspace-write' | 'dange
 function session(id: string, cwd?: string): Session {
   const sessionId = SessionId(id)
   return Session.create(sessionId, undefined, {
-    version: 0,
+    version: SESSION_FORMAT_VERSION,
     id: sessionId,
     createdAt: 0,
+    isSeeded: false,
     ...cwd === undefined ? {} : { cwd },
   })
 }
@@ -206,7 +207,7 @@ describe('sandbox:policy request context', () => {
   it('reconstructs resumed policy from the session log and omits diagnostics without an agent', async () => {
     const active = session('sess-resume', '/projects/current')
     setSandboxMode(active, 'workspace-write')
-    const resumed = Session.create(active.id, active.events, active.header)
+    const resumed = Session.create(active.id, active.snapshotEvents(), active.header)
     const ctx = await promptMounted({ mode: 'read-only' })
 
     expect(await policyContext(ctx, resumed)).toContain('workspace-write')
@@ -231,7 +232,7 @@ describe('the sandbox/mode session kit', () => {
   it('setSandboxMode appends exactly one sandbox/mode event per switch', () => {
     const session = Session.create(SessionId('sess-write'))
     setSandboxMode(session, 'danger-full-access')
-    const modeEvents = session.events.filter(e => e.type === 'sandbox/mode')
+    const modeEvents = session.snapshotEvents().filter(e => e.type === 'sandbox/mode')
     expect(modeEvents).toHaveLength(1)
     expect(modeEvents[0]?.data).toEqual({ mode: 'danger-full-access' })
   })

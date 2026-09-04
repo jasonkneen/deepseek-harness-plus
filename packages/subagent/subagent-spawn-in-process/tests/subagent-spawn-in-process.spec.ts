@@ -43,7 +43,7 @@ async function setup(script: Script) {
   await ctx.plugin(SubagentRuntime)
   await ctx.plugin(spawn, { providerName: 'spawn' })
   ctx.llm.registerAdapter(['mock'], adapter)
-  const parent = ctx.agentLoop.create(SessionId('parent'), { provider: 'mock', model: 'mock' })
+  const parent = await ctx.agentLoop.create(SessionId('parent'), { provider: 'mock', model: 'mock' })
   return { ctx, parent, adapter }
 }
 
@@ -111,14 +111,14 @@ describe('dsh-subagent-spawn-in-process', () => {
     const { ctx, parent } = await setup([textResponse('parent turn'), textResponse('child sees nothing')])
     parent.followup(createUserMessage({ content: [{ type: 'text', text: 'parent prompt' }], source: { kind: 'user' } }))
     await parent.whenIdle()
-    const parentEventCount = parent.session.events.length
+    const parentEventCount = parent.session.snapshotEvents().length
     expect(parentEventCount).toBeGreaterThan(0)
 
     const run = await start(ctx, 'spawn', { prompt: [{ type: 'text', text: 'child prompt' }], parent })
     await run.result
     const child = ctx.agents.get(run.id)!
     // The child's first user/message is its OWN prompt, not the parent's history.
-    const firstUser = child.session.events.find(e => e.type === 'user/message')
+    const firstUser = child.session.snapshotEvents().find(e => e.type === 'user/message')
     expect(firstUser).toBeDefined()
     await run.dispose()
   })
@@ -334,7 +334,7 @@ describe('dsh-subagent-spawn-in-process', () => {
     await ctx.plugin(SubagentRuntime)
     const fiber = await ctx.plugin(spawn, { providerName: 'spawn' })
     ctx.llm.registerAdapter(['mock'], adapter)
-    const parent = ctx.agentLoop.create(SessionId('parent'), { provider: 'mock', model: 'mock' })
+    const parent = await ctx.agentLoop.create(SessionId('parent'), { provider: 'mock', model: 'mock' })
     const controller = new AbortController()
     const run = await start(ctx, 'spawn', {
       prompt: [{ type: 'text', text: 'q' }],
@@ -362,7 +362,7 @@ describe('dsh-subagent-spawn-in-process', () => {
     await ctx.plugin(SessionProjectionRegistry)
     await ctx.plugin(SubagentRuntime)
     const fiber = await ctx.plugin(spawn, { providerName: 'spawn' })
-    const parent = ctx.agentLoop.create(SessionId('parent'), { provider: 'mock', model: 'mock' })
+    const parent = await ctx.agentLoop.create(SessionId('parent'), { provider: 'mock', model: 'mock' })
     const parentEffects = parent.ctx.fiber.getEffects().length
     const published: string[] = []
     ctx.on('session/created', () => void published.push('session/created'))
@@ -434,7 +434,7 @@ describe('dsh-subagent-spawn-in-process', () => {
       expect((childRequest.tools ?? []).map(t => t.name)).not.toContain('forbidden_tool')
       // …and the attempted call executed as UNKNOWN_TOOL (visible in the log).
       const child = ctx.agents.get(run.id)!
-      const toolResult = child.session.events.find(e => e.type === 'tool/result')!
+      const toolResult = child.session.snapshotEvents().find(e => e.type === 'tool/result')!
       expect(JSON.stringify(toolResult.data)).toContain('unknown tool')
       await run.dispose()
     })

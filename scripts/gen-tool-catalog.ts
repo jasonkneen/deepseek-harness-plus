@@ -33,10 +33,9 @@ import WebRuntime from '@deepseek-ai/dsh-web'
 import * as WebSearchExa from '@deepseek-ai/dsh-web-search-exa'
 import * as WebFetchLocal from '@deepseek-ai/dsh-web-fetch-http'
 import SubagentRuntime from '@deepseek-ai/dsh-subagent'
-import type { SubagentProvider, SubagentReportDelivery } from '@deepseek-ai/dsh-subagent'
+import type { SubagentProvider } from '@deepseek-ai/dsh-subagent'
 import * as ToolSubagentControl from '@deepseek-ai/dsh-tool-subagent-control'
 import * as ToolSubagentListAgents from '@deepseek-ai/dsh-tool-subagent-control/list-agents'
-import * as ToolSubagentReport from '@deepseek-ai/dsh-tool-subagent-report'
 import SkillRegistry from '@deepseek-ai/dsh-skill'
 import * as SkillFileSystem from '@deepseek-ai/dsh-skill-filesystem'
 import LocalJobRegistry from '@deepseek-ai/dsh-jobs-local'
@@ -496,27 +495,6 @@ const TOOL_PACKAGES: ToolPackage[] = [
       'The globally named control tools over continuable background subagents: provider-bound `tool-subagent` instances register distinct delegation tools, while this package registers `send_message` and `interrupt_agent` once, plus `list_agents` from its separately loaded `/list-agents` plugin (whose catalog rows use the sessionProjections and live Agent registries).',
   },
   {
-    pkg: '@deepseek-ai/dsh-tool-subagent-report',
-    dir: 'tool-subagent-report',
-    source: 'packages/subagent/tool-subagent-report/src/index.ts',
-    requires: ['ctx.subagents', 'ctx.systemPrompt', 'a live continuable in-process child Agent'],
-    writes: ['tool/call', 'tool/result', 'a user-role message in the direct parent session'],
-    async mount(ctx) {
-      await ctx.plugin(AgentRegistry)
-      await ctx.plugin(SubagentRuntime)
-      const { reportDelivery } = ToolSubagentReport.Config({}) as { reportDelivery: SubagentReportDelivery }
-      await mountCatalogChildScope(ctx, (childCtx) => {
-        ToolSubagentReport.installReportTool(childCtx, ctx, reportDelivery)
-      })
-    },
-    scope: ctx => catalogChildScopes.get(ctx) as Agent,
-    note:
-      'Registered per continuable in-process child rather than globally, so this schema is visible only '
-      + 'inside such a child and survives its global `toolFilter`. The same contribution installs the '
-      + 'child-scoped `tool:report` prompt section, which this catalog does not render. The parent-facing '
-      + '`send_message` tool is installed independently.',
-  },
-  {
     pkg: '@deepseek-ai/dsh-tool-jobs',
     dir: 'tool-jobs',
     source: 'packages/jobs/tool-jobs/src/index.ts',
@@ -565,7 +543,7 @@ const TOOL_PACKAGES: ToolPackage[] = [
     },
     scope: ctx => catalogChildScopes.get(ctx) as Agent,
     note:
-      'All ten tools are scoped to implicit Team Leads and durable teammates. The shipped dsh-base bundle keeps the package disabled; the documented Agent Teams profile patch enables it while disabling the legacy continuable-child control names.',
+      'All nine tools are scoped to implicit Team Leads and durable teammates. The shipped dsh-base bundle keeps the package disabled; the documented Agent Teams profile patch enables it while disabling the legacy continuable-child control names.',
   },
   {
     pkg: '@deepseek-ai/dsh-tool-todo',

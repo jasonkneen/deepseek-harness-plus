@@ -29,7 +29,7 @@ kind: "package-reference"
 
 ### 指令输入气泡
 
-每条持久的 `/goal` 运行都投影为一个右对齐的等宽用户样式气泡，标签为 `Command input`（或 `指令输入`），渲染在通用命令结果行之前。它不含时间戳、复制或分支操作，重新加载时会依据运行记录重建。
+每条持久的 `/goal` 运行都投影为一个右对齐的用户样式气泡，标签为 `Command input`（或 `指令输入`），渲染在通用命令结果行之前；开头的 `/goal` token 经 ui-primitives 的 `projectUserText` 以等宽代码字体渲染为指令引用 chip，目标文本保持正文字体。它不含时间戳、复制或分支操作，重新加载时会依据运行记录重建。
 
 ### 失败
 
@@ -88,3 +88,5 @@ kind: "package-reference"
 无。
 
 </details>
+
+**运行时不变式：** 不发布伴生入口。插件只注册一个 GoalBar dock，HMR 测试覆盖释放；状态来自 goal projection，本包不持有 store 或跨插件可变状态。

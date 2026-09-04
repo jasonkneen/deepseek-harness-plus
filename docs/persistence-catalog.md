@@ -7,7 +7,7 @@ Every event type that can appear in a session's durable event log: the complete 
 
 This file is GENERATED from source (`scripts/gen-persistence-catalog.ts`) and verified fresh by `pnpm run verify-persistence-catalog` (part of `doc-sync`) — do not edit it by hand. Declaration blocks retain the source declaration and nested property JSDoc, removing only the indentation imposed by a containing interface/module, and use a `ts persistence-catalog` fence (skipped by doc-typecheck because declarations reference types from their owning modules). Type names in a payload link to the page that documents them. See [the persistence-log-catalog Agent Note](../.agents/notes/archived/process/2026-07-04-persistence-log-catalog.md).
 
-The envelope declarations below compose each event's `type`, monotonic `seq`, epoch-ms `time`, `data`, and the conditional `surfaceOp`/`sourceEventSeqs` fields. **surface** marks a `SurfaceEventType` member: it produces an LLM message and declares how it joins the surface list. **log-only** marks everything else: a durable, replayable record with no derived-history contribution. Every payload is JSON-serializable (enforced at `Session.append`), and the whole format is pinned at `SESSION_FORMAT_VERSION = 0` — pre-release, no compatibility implied ([the version stance](subsystems/persistence.md)). Scope: the packages in this repo; a downstream plugin can merge further event types, which are outside this catalog by construction.
+The envelope declarations below compose each event's `type`, monotonic `seq`, epoch-ms `time`, `data`, the optional `ignorable` unknown-type skip marker, and the conditional `surfaceOp`/`sourceEventSeqs` fields. **surface** marks a `SurfaceEventType` member: it produces an LLM message and declares how it joins the surface list. **log-only** marks everything else: a durable, replayable record with no derived-history contribution. Every payload is JSON-serializable (enforced at `Session.append`). Current writers stamp `SESSION_FORMAT_VERSION`; supported historical artifacts reach this current vocabulary through the build-static adjacent migration catalog ([the version lifecycle](subsystems/persistence.md)). Scope: the packages in this repo; a downstream plugin can merge further current-version event types, which are outside this catalog by construction and require an explicit disposition at a later format edge.
 
 ## Event envelope
 
@@ -18,7 +18,8 @@ export type SessionEventType = keyof SessionEventMap
 /**
  * The subset of {@link SessionEventType} values whose events produce LLM
  * messages and are eligible to appear on the ordered surface. Only these
- * event types may carry {@link SurfaceOp} and {@link SessionEvent.sourceEventSeqs}.
+ * event types may carry {@link SurfaceOp}; user and tool events may also cite
+ * earlier sources through {@link SessionEvent.sourceEventSeqs}.
  */
 export type SurfaceEventType =
   | 'user/message'
@@ -40,7 +41,7 @@ export type SurfaceEventType =
  */
 export type SurfaceOp =
   | 'append'
-  | { op: 'replace'; start: number; end: number }
+  | { op: 'replace'; start: SessionSeq; end: SessionSeq }
 
 /**
  * One immutable entry in the session log.
@@ -51,7 +52,7 @@ export type SurfaceOp =
  * The {@link sourceEventSeqs} and {@link surfaceOp} fields are conditional:
  * they only exist on {@link SurfaceEventType} variants (`user/message`,
  * `assistant/message`, `tool/result`).
- * Non-surface events (boundary markers, chunks, usage, errors) never carry
+ * Non-surface events (boundary markers, attempts, errors) never carry
  * surface metadata — the compiler enforces this at `Session.append()`
  * call sites.
  */
@@ -59,27 +60,35 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
   [K in SessionEventType]: {
     type: K
     /** Monotonic sequence number within the session. */
-    seq: number
+    seq: SessionSeq
     /** Unix epoch milliseconds. */
     time: number
     data: SessionEventMap[K]
+    /**
+     * Marks an event a reader may safely skip when it does not recognize
+     * `type`. Absent means required: a reader meeting an unrecognized type
+     * without this marker MUST refuse to reconstruct the session instead of
+     * silently dropping the event, because an unrecognized required event may
+     * change how the rest of the log is interpreted. A writer sets `true` only
+     * on purely informational records whose loss cannot affect reconstruction;
+     * defaulting to required means a forgotten marker over-refuses (an
+     * inconvenience) rather than silently resuming a gutted session.
+     */
+    ignorable?: true
   } & (K extends SurfaceEventType ? {
     /**
-     * Seq numbers of earlier events that this event cites as sources
-     * (e.g. the `assistant/chunk` seqs that built an `assistant/message`,
-     * or the surface nodes shadowed by a compaction replace node). An
-     * `assistant/message` may carry a present empty array for a known empty
-     * provider stream; when the field is absent, the event does not record which
-     * earlier events produced the message.
+     * Seq numbers of earlier events that this event cites as sources, such as
+     * the surface nodes shadowed by a compaction replacement. A v2
+     * `assistant/message` embeds its provider stream and cannot carry this field.
      */
-    sourceEventSeqs?: number[]
+    sourceEventSeqs?: SessionSeq[]
     /** How this event entered the surface; absent for non-surface events. */
     surfaceOp?: SurfaceOp
   } : object)
 }[T]
 ```
 
-Sources: [`packages/core/session/src/types.ts:328`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:335`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:364`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:396`](../packages/core/session/src/types.ts)
+Sources: [`packages/core/session/src/types.ts:379`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:387`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:416`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:447`](../packages/core/session/src/types.ts)
 
 ## Events
 
@@ -178,7 +187,7 @@ Source: [`packages/interaction/user-approval/src/types.ts:55`](../packages/inter
  * The session's approval policy was switched — log-only, durable,
  * replayable, never in the model transcript (the model learns the policy
  * from the runtime-context snapshot and live switch notices). The LAST
- * such event is the session's override ({@link effectiveApprovalPolicy}).
+ * such event is the session's override.
  * `source: 'delegation'` marks an override seeded into a child; an absent
  * source is a runtime switch.
  */
@@ -189,22 +198,24 @@ Source: [`packages/interaction/user-approval/src/types.ts:55`](../packages/inter
 }
 ```
 
-Source: [`packages/interaction/user-approval/src/index.ts:32`](../packages/interaction/user-approval/src/index.ts)
+Source: [`packages/interaction/user-approval/src/index.ts:33`](../packages/interaction/user-approval/src/index.ts)
 
 ### `assistant/*`
 
-<a id="assistantchunk--log-only"></a>
+<a id="assistantattempt--log-only"></a>
 
-#### `assistant/chunk` — log-only
+#### `assistant/attempt` — log-only
 
 ```ts persistence-catalog
-/** Raw stream chunk — token-level replay fidelity. */
-'assistant/chunk': { turn: number; step: number; chunk: StreamChunk }
+/**
+ * One model attempt that committed no surface message. The embedded stream
+ * preserves a failed, retried, cancelled, or stream-error attempt that
+ * reached settlement without fabricating model-visible history.
+ */
+'assistant/attempt': { turn: number; step: number; stream: AssistantStreamRecord[] }
 ```
 
-Types: [StreamChunk](subsystems/llm-streaming.md)
-
-Source: [`packages/core/session/src/types.ts:251`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:313`](../packages/core/session/src/types.ts)
 
 <a id="assistantmessage--surface"></a>
 
@@ -221,12 +232,20 @@ Source: [`packages/core/session/src/types.ts:251`](../packages/core/session/src/
  * marker distinguishes that prefix without re-deriving interruption from turn
  * boundaries. An aborted turn with no such event streamed no visible content.
  */
-'assistant/message': { turn: number; step: number; message: AssistantMessage; usage?: TokenUsage; interrupted?: true }
+'assistant/message': {
+  turn: number
+  step: number
+  message: AssistantMessage
+  /** Exact timed model stream, compacted without joining delta boundaries. */
+  stream: AssistantStreamRecord[]
+  usage?: TokenUsage
+  interrupted?: true
+}
 ```
 
 Types: [TokenUsage](subsystems/llm-streaming.md)
 
-Source: [`packages/core/session/src/types.ts:262`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:299`](../packages/core/session/src/types.ts)
 
 ### `command/*`
 
@@ -245,11 +264,11 @@ Source: [`packages/core/session/src/types.ts:262`](../packages/core/session/src/
   commandId: CommandId
   kind: 'success' | 'error'
   text?: string
-  sourceEventSeq?: number
+  sourceEventSeq?: import('@deepseek-ai/dsh-session/types').SessionSeq
 }
 ```
 
-Source: [`packages/interaction/commands/src/types.ts:103`](../packages/interaction/commands/src/types.ts)
+Source: [`packages/interaction/commands/src/types.ts:110`](../packages/interaction/commands/src/types.ts)
 
 <a id="commandrun--log-only"></a>
 
@@ -269,7 +288,7 @@ Source: [`packages/interaction/commands/src/types.ts:103`](../packages/interacti
 'command/run': { commandId: CommandId; name: string; args?: string; source: CommandSource }
 ```
 
-Source: [`packages/interaction/commands/src/types.ts:96`](../packages/interaction/commands/src/types.ts)
+Source: [`packages/interaction/commands/src/types.ts:103`](../packages/interaction/commands/src/types.ts)
 
 ### `compaction/*`
 
@@ -285,7 +304,7 @@ Source: [`packages/interaction/commands/src/types.ts:96`](../packages/interactio
 'compaction/end': { compactionId: CompactionId; sourceCommandId?: CommandId; turn: number | null; error?: string }
 ```
 
-Source: [`packages/compaction/compaction/src/types.ts:71`](../packages/compaction/compaction/src/types.ts)
+Source: [`packages/compaction/compaction/src/types.ts:72`](../packages/compaction/compaction/src/types.ts)
 
 <a id="compactionprune--log-only"></a>
 
@@ -303,15 +322,15 @@ Source: [`packages/compaction/compaction/src/types.ts:71`](../packages/compactio
  */
 'compaction/prune': {
   /** The replaced range's first and last surface-node seqs (a surface-position span, like {@link CompactionResult.shadowedRange}). */
-  shadowedRange: { start: number; end: number }
+  shadowedRange: { start: SessionSeq; end: SessionSeq }
   /** The seqs of all shadowed surface nodes, in surface order. */
-  shadowedSeqs: number[]
+  shadowedSeqs: SessionSeq[]
   /** Heuristic price of the shadowed content under the token-meter's fixed estimator. */
   shadowedTokenCount: number
 }
 ```
 
-Source: [`packages/compaction/compaction/src/types.ts:81`](../packages/compaction/compaction/src/types.ts)
+Source: [`packages/compaction/compaction/src/types.ts:82`](../packages/compaction/compaction/src/types.ts)
 
 <a id="compactionstart--log-only"></a>
 
@@ -326,7 +345,7 @@ Source: [`packages/compaction/compaction/src/types.ts:81`](../packages/compactio
 'compaction/start': { compactionId: CompactionId; sourceCommandId?: CommandId; turn: number | null }
 ```
 
-Source: [`packages/compaction/compaction/src/types.ts:23`](../packages/compaction/compaction/src/types.ts)
+Source: [`packages/compaction/compaction/src/types.ts:24`](../packages/compaction/compaction/src/types.ts)
 
 <a id="compactionsummary--log-only"></a>
 
@@ -346,8 +365,8 @@ Source: [`packages/compaction/compaction/src/types.ts:23`](../packages/compactio
   compactionId: CompactionId
   sourceCommandId?: CommandId
   summary: ContentBlock[]
-  shadowedRange: { start: number; end: number }
-  shadowedSeqs: number[]
+  shadowedRange: { start: SessionSeq; end: SessionSeq }
+  shadowedSeqs: SessionSeq[]
   shadowedTokenCount: number
   /** The provider route that wrote the summary. */
   provider: string
@@ -380,7 +399,7 @@ Source: [`packages/compaction/compaction/src/types.ts:23`](../packages/compactio
 
 Types: [ContentBlock](subsystems/core.md) · [TokenUsage](subsystems/llm-streaming.md)
 
-Source: [`packages/compaction/compaction/src/types.ts:33`](../packages/compaction/compaction/src/types.ts)
+Source: [`packages/compaction/compaction/src/types.ts:34`](../packages/compaction/compaction/src/types.ts)
 
 ### `feedback/*`
 
@@ -536,7 +555,7 @@ Source: [`packages/interaction/permission-presets/src/index.ts:53`](../packages/
 'plan/mode': { active: boolean }
 ```
 
-Source: [`packages/plan/plan-mode/src/index.ts:47`](../packages/plan/plan-mode/src/index.ts)
+Source: [`packages/plan/plan-mode/src/index.ts:46`](../packages/plan/plan-mode/src/index.ts)
 
 ### `request/*`
 
@@ -552,7 +571,7 @@ Source: [`packages/plan/plan-mode/src/index.ts:47`](../packages/plan/plan-mode/s
 'request/context': RequestContext
 ```
 
-Source: [`packages/core/session/src/types.ts:301`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:352`](../packages/core/session/src/types.ts)
 
 <a id="requestheader--log-only"></a>
 
@@ -571,7 +590,7 @@ Source: [`packages/core/session/src/types.ts:301`](../packages/core/session/src/
 }
 ```
 
-Source: [`packages/core/session/src/types.ts:291`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:342`](../packages/core/session/src/types.ts)
 
 ### `sandbox/*`
 
@@ -625,12 +644,12 @@ Source: [`packages/schedule/schedule/src/types.ts:219`](../packages/schedule/sch
  * Marks the end of a constructor seed. Events before it have smaller seq
  * values and came from the seed (resume, fork, or replay); this lifecycle
  * produced none of them. This log-only event is the durable projection of
- * {@link Session.firstLiveSeq}. Its payload is empty — position and `time`
- * carry the meaning.
+ * {@link Session.firstLiveSeq}.
  *
- * Locate the LAST one in stored history. A seed already ending in one is not
- * re-marked, so reopening an untouched session does not grow its log per
- * pickup and the event need not be at the current `firstLiveSeq`.
+ * A fresh fork child owns one `{ inherited: true }` marker at its exact
+ * inherited-prefix cut, even when that prefix ends in an ancestor marker.
+ * The last tagged marker is the current Session's cut; untagged markers keep
+ * ordinary restore and replay lifecycle boundaries.
  *
  * `Session`'s constructor is the only legitimate writer. The invariant
  * companion deliberately constrains nothing here, so a plugin appending one
@@ -643,10 +662,10 @@ Source: [`packages/schedule/schedule/src/types.ts:219`](../packages/schedule/sch
  * writers — a concurrently live session holds its own boundary elsewhere,
  * so tolerating concurrent writers needs a signal beyond the log.
  */
-'session/end-seed': Record<string, never>
+'session/end-seed': { inherited?: true }
 ```
 
-Source: [`packages/core/session/src/types.ts:324`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:375`](../packages/core/session/src/types.ts)
 
 <a id="sessiontitle--log-only"></a>
 
@@ -662,7 +681,7 @@ Source: [`packages/core/session/src/types.ts:324`](../packages/core/session/src/
 
 Types: [SessionTitleEventData](subsystems/session-title.md)
 
-Source: [`packages/session/session-title/src/index.ts:75`](../packages/session/session-title/src/index.ts)
+Source: [`packages/session/session-title/src/index.ts:77`](../packages/session/session-title/src/index.ts)
 
 <a id="sessiontitle-llm-request--log-only"></a>
 
@@ -675,7 +694,7 @@ Source: [`packages/session/session-title/src/index.ts:75`](../packages/session/s
 
 Types: [SessionTitleLlmRequestEventData](subsystems/session-title.md)
 
-Source: [`packages/session/session-title-llm/src/index.ts:43`](../packages/session/session-title-llm/src/index.ts)
+Source: [`packages/session/session-title-llm/src/index.ts:45`](../packages/session/session-title-llm/src/index.ts)
 
 ### `session-log-deepseek/*`
 
@@ -688,12 +707,14 @@ Source: [`packages/session/session-title-llm/src/index.ts:43`](../packages/sessi
 'session-log-deepseek/delivery-accepted': {
   /** Session identity the accepted delivery carried; inherited fork markers retain the parent's id. */
   sessionId: import('@deepseek-ai/dsh-session/types').SessionId
+  /** Accepted Session format generation; absence identifies version 0. */
+  sessionFormatVersion?: number
   /** Last canonical event included in the accepted request. */
-  throughSeq: number
+  throughSeq: import('@deepseek-ai/dsh-session/types').SessionSeq
 }
 ```
 
-Source: [`packages/session/session-log-deepseek/src/types.ts:26`](../packages/session/session-log-deepseek/src/types.ts)
+Source: [`packages/session/session-log-deepseek/src/types.ts:59`](../packages/session/session-log-deepseek/src/types.ts)
 
 ### `step/*`
 
@@ -706,7 +727,7 @@ Source: [`packages/session/session-log-deepseek/src/types.ts:26`](../packages/se
 'step/end': { turn: number; step: number }
 ```
 
-Source: [`packages/core/session/src/types.ts:241`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:280`](../packages/core/session/src/types.ts)
 
 <a id="stepstart--log-only"></a>
 
@@ -717,7 +738,7 @@ Source: [`packages/core/session/src/types.ts:241`](../packages/core/session/src/
 'step/start': { turn: number; step: number }
 ```
 
-Source: [`packages/core/session/src/types.ts:239`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:278`](../packages/core/session/src/types.ts)
 
 ### `subagent/*`
 
@@ -765,12 +786,12 @@ Source: [`packages/subagent/tool-subagent/src/model-selection-state.ts:17`](../p
 
 ```ts persistence-catalog
 /** Whole teammate lifecycle value, stored only in the Team Lead Session. */
-'team/member': { version: 1; teamId: TeamId; member: TeamMemberSnapshot }
+'team/member': { version: 2; teamId: TeamId; member: TeamMemberSnapshot }
 ```
 
 Types: [TeamId](subsystems/agent-team.md) · [TeamMemberSnapshot](subsystems/agent-team.md)
 
-Source: [`packages/experimental/agent-team/src/types.ts:223`](../packages/experimental/agent-team/src/types.ts)
+Source: [`packages/experimental/agent-team/src/types.ts:221`](../packages/experimental/agent-team/src/types.ts)
 
 <a id="teammessagedelivered--log-only"></a>
 
@@ -779,7 +800,7 @@ Source: [`packages/experimental/agent-team/src/types.ts:223`](../packages/experi
 ```ts persistence-catalog
 /** Durable acknowledgement that the target Session recorded the message. */
 'team/message/delivered': {
-  version: 1
+  version: 2
   teamId: TeamId
   messageId: TeamMessageId
   targetId: SessionId
@@ -788,7 +809,7 @@ Source: [`packages/experimental/agent-team/src/types.ts:223`](../packages/experi
 
 Types: [TeamId](subsystems/agent-team.md) · [TeamMessageId](subsystems/agent-team.md)
 
-Source: [`packages/experimental/agent-team/src/types.ts:229`](../packages/experimental/agent-team/src/types.ts)
+Source: [`packages/experimental/agent-team/src/types.ts:227`](../packages/experimental/agent-team/src/types.ts)
 
 <a id="teammessagequeued--log-only"></a>
 
@@ -796,12 +817,12 @@ Source: [`packages/experimental/agent-team/src/types.ts:229`](../packages/experi
 
 ```ts persistence-catalog
 /** Durable mailbox enqueue, stored before delivery is attempted. */
-'team/message/queued': { version: 1; teamId: TeamId; message: TeamMessageSnapshot }
+'team/message/queued': { version: 2; teamId: TeamId; message: TeamMessageSnapshot }
 ```
 
 Types: [TeamId](subsystems/agent-team.md) · [TeamMessageSnapshot](subsystems/agent-team.md)
 
-Source: [`packages/experimental/agent-team/src/types.ts:227`](../packages/experimental/agent-team/src/types.ts)
+Source: [`packages/experimental/agent-team/src/types.ts:225`](../packages/experimental/agent-team/src/types.ts)
 
 <a id="teamtask--log-only"></a>
 
@@ -809,12 +830,12 @@ Source: [`packages/experimental/agent-team/src/types.ts:227`](../packages/experi
 
 ```ts persistence-catalog
 /** Whole shared-task value, stored only in the Team Lead Session. */
-'team/task': { version: 1; teamId: TeamId; task: TeamTaskSnapshot }
+'team/task': { version: 2; teamId: TeamId; task: TeamTaskSnapshot }
 ```
 
 Types: [TeamId](subsystems/agent-team.md) · [TeamTaskSnapshot](subsystems/agent-team.md)
 
-Source: [`packages/experimental/agent-team/src/types.ts:225`](../packages/experimental/agent-team/src/types.ts)
+Source: [`packages/experimental/agent-team/src/types.ts:223`](../packages/experimental/agent-team/src/types.ts)
 
 ### `todo/*`
 
@@ -848,7 +869,7 @@ Source: [`packages/todo/tool-todo/src/types.ts:31`](../packages/todo/tool-todo/s
 
 Types: [ToolCallId](subsystems/core.md)
 
-Source: [`packages/core/session/src/types.ts:268`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:319`](../packages/core/session/src/types.ts)
 
 <a id="toolcode-dispatch--log-only"></a>
 
@@ -923,7 +944,7 @@ Source: [`packages/core/tools/src/types.ts:40`](../packages/core/tools/src/types
 }
 ```
 
-Source: [`packages/core/session/src/types.ts:280`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:331`](../packages/core/session/src/types.ts)
 
 ### `tool-workflow/*`
 
@@ -1003,7 +1024,7 @@ Source: [`packages/workflow/tool-workflow/src/types.ts:47`](../packages/workflow
 
 Types: [TurnEndReason](subsystems/session.md)
 
-Source: [`packages/core/session/src/types.ts:237`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:276`](../packages/core/session/src/types.ts)
 
 <a id="turnstart--log-only"></a>
 
@@ -1019,7 +1040,7 @@ Source: [`packages/core/session/src/types.ts:237`](../packages/core/session/src/
 'turn/start': { turn: number }
 ```
 
-Source: [`packages/core/session/src/types.ts:228`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:267`](../packages/core/session/src/types.ts)
 
 ### `user/*`
 
@@ -1038,7 +1059,7 @@ Source: [`packages/core/session/src/types.ts:228`](../packages/core/session/src/
 'user/message': UserMessage
 ```
 
-Source: [`packages/core/session/src/types.ts:249`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:288`](../packages/core/session/src/types.ts)
 
 ### `web/*`
 

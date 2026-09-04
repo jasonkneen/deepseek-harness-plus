@@ -57,18 +57,27 @@ async function mount(initialGeneration?: ConnectionGeneration): Promise<Bench> {
         return () => { generationListeners.delete(listener) }
       },
     },
+    state: { getSnapshot: () => 'connected' as const, subscribe: () => () => {} },
     rpc: {
       call: () => Promise.reject(new Error('unexpected generic RPC call')),
     },
+    reconnect: () => {},
     registerGenerationSource: () => () => {},
     start: () => ({ stop: () => {} }),
   }
   ctx.reflect.provide('connection', connection)
+  ctx.reflect.provide('fileUpload', {
+    available: true,
+    post: () => Promise.reject(new Error('unexpected file upload')),
+  })
   ctx.reflect.provide('remote', {
     ...remote,
     $stream: <Item>(options: RemoteStreamOptions<Item>) => (
       new RemoteStream(connection, options)
     ),
+    get $host() {
+      return { home: generation?.host.home, isLoopback: connection.isLoopback }
+    },
     $on: (event: string, listener: RemoteListener) => {
       const eventListeners = listeners.get(event) ?? new Set<RemoteListener>()
       eventListeners.add(listener)

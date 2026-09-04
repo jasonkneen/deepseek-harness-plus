@@ -4,7 +4,7 @@
  * which is the only one of the three that mutates an agent.
  */
 
-import { mkdir, mkdtemp, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
@@ -18,7 +18,7 @@ import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
 import AgentRegistry, { type Agent } from '@deepseek-ai/dsh-agent'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
-import { TypertRemoteFailure, type RemoteFailure } from '@deepseek-ai/dsh-typert-protocol'
+import { remoteErrorOf, type RemoteFailure } from '@deepseek-ai/dsh-typert-protocol'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import AgentPresets, { COMPOSITION_FILE, METADATA_FILE } from '@deepseek-ai/dsh-agent-presets'
 import type { Config } from '@deepseek-ai/dsh-agent-presets'
@@ -34,15 +34,21 @@ const ROOTS = [
 // temp preset directory these tests seed would report the composition broken.
 const VALID = '- id: prompt\n  name: \'@deepseek-ai/dsh-system-prompt\'\n'
 
-afterEach(() => vi.restoreAllMocks())
+/** Every temp preset root created by this file, removed after each test. */
+const roots: string[] = []
+
+afterEach(async () => {
+  vi.restoreAllMocks()
+  for (const root of roots.splice(0)) await rm(root, { recursive: true, force: true })
+})
 
 async function remoteFailure(operation: Promise<unknown>): Promise<RemoteFailure> {
   try {
     await operation
   } catch (error: unknown) {
-    expect(error).toBeInstanceOf(TypertRemoteFailure)
-    if (error instanceof TypertRemoteFailure) return error.failure
-    throw error
+    const failure = remoteErrorOf(error)
+    if (failure === undefined) throw error
+    return failure
   }
   throw new Error('expected the Remote operation to fail')
 }
@@ -92,11 +98,12 @@ async function agentOn(ctx: Context, id: string, presetId?: string): Promise<Age
 
 /** The recorded preset a restart replays, which is what a switch must move. */
 const recordedPreset = (agent: Agent): unknown =>
-  agent.session.events.findLast(event => event.type === 'agent-preset/selected')?.data
+  agent.session.snapshotEvents().findLast(event => event.type === 'agent-preset/selected')?.data
 
 describe('the roster a client reads', () => {
   it('projects path-free rows, marking the default and carrying published metadata', async () => {
     const userRoot = await mkdtemp(join(tmpdir(), 'dsh-preset-remote-'))
+    roots.push(userRoot)
     await mkdir(join(userRoot, 'documented'), { recursive: true })
     await writeFile(join(userRoot, 'documented', COMPOSITION_FILE), VALID)
     await writeFile(join(userRoot, 'documented', METADATA_FILE), 'name: 我的模式\ndescription: 只做检索。\n')
@@ -122,6 +129,7 @@ describe('the roster a client reads', () => {
 
   it('keeps a broken preset on the roster with its reason', async () => {
     const userRoot = await mkdtemp(join(tmpdir(), 'dsh-preset-remote-'))
+    roots.push(userRoot)
     await mkdir(join(userRoot, 'damaged'), { recursive: true })
     const ctx = await harness({
       default: 'standard',
@@ -154,7 +162,7 @@ describe('reading one composition', () => {
     const resolve = vi.spyOn(ctx.agentPresets, 'resolve')
 
     await expect(ctx.agentPresets.readDocument(''))
-      .rejects.toMatchObject({ failure: { code: 'bad-request' } })
+      .rejects.toMatchObject({ code: 'gateway/bad-request' })
     expect(resolve).not.toHaveBeenCalled()
   })
 
@@ -174,6 +182,7 @@ describe('reading one composition', () => {
 
   it('carries the display metadata a preset published', async () => {
     const userRoot = await mkdtemp(join(tmpdir(), 'dsh-preset-remote-'))
+    roots.push(userRoot)
     await mkdir(join(userRoot, 'documented'), { recursive: true })
     await writeFile(join(userRoot, 'documented', COMPOSITION_FILE), VALID)
     await writeFile(join(userRoot, 'documented', METADATA_FILE), 'name: 我的模式\ndescription: 只做检索。\n')
@@ -203,7 +212,7 @@ describe('reading one composition', () => {
     const failure = await remoteFailure(ctx.agentPresets.readDocument('never-existed'))
 
     expect(failure).toMatchObject({
-      code: 'agent-preset-not-found',
+      code: 'agent-preset/not-found',
       details: {
         agentPreset: 'never-existed',
       },
@@ -213,17 +222,12 @@ describe('reading one composition', () => {
     expect(availableOf(failure)).toEqual(expect.arrayContaining(['minimal', 'standard']))
   })
 
-  it('keeps the legacy internal diagnostic for an unrelated read failure', async () => {
+  it('raises an unrelated read failure exactly as it was thrown', async () => {
     const ctx = await harness()
-    vi.spyOn(ctx.agentPresets, 'read').mockRejectedValueOnce(new Error('disk failed'))
+    const thrown = new Error('disk failed')
+    vi.spyOn(ctx.agentPresets, 'read').mockRejectedValueOnce(thrown)
 
-    const failure = await remoteFailure(ctx.agentPresets.readDocument('standard'))
-
-    expect(failure).toEqual({
-      code: 'internal',
-      message: 'agent preset "standard": Error: disk failed',
-      details: {},
-    })
+    await expect(ctx.agentPresets.readDocument('standard')).rejects.toBe(thrown)
   })
 })
 
@@ -238,7 +242,7 @@ describe('authoring over Remote', () => {
       () => ctx.agentPresets.remoteExportCopy('standard', ''),
       () => ctx.agentPresets.remoteExportDelete(''),
     ]) {
-      await expect(operation()).rejects.toMatchObject({ failure: { code: 'bad-request' } })
+      await expect(operation()).rejects.toMatchObject({ code: 'gateway/bad-request' })
     }
     expect(copy).not.toHaveBeenCalled()
     expect(remove).not.toHaveBeenCalled()
@@ -246,6 +250,7 @@ describe('authoring over Remote', () => {
 
   it('copies and deletes through the Remote adapters', async () => {
     const userRoot = await mkdtemp(join(tmpdir(), 'dsh-preset-remote-'))
+    roots.push(userRoot)
     const ctx = await harness({
       default: 'standard',
       roots: [{ path: join(FIXTURES, 'system'), trust: 'system' }, { path: userRoot, trust: 'user' }],
@@ -266,7 +271,7 @@ describe('authoring over Remote', () => {
     const failure = await remoteFailure(ctx.agentPresets.remoteExportCopy('never-existed', 'mine'))
 
     expect(failure).toMatchObject({
-      code: 'agent-preset-not-found',
+      code: 'agent-preset/not-found',
       details: {
         agentPreset: 'never-existed',
       },
@@ -281,14 +286,14 @@ describe('authoring over Remote', () => {
 
     const invalid = await remoteFailure(ctx.agentPresets.remoteExportCopy('standard', '../escape'))
     expect(invalid).toMatchObject({
-      code: 'agent-preset-invalid',
+      code: 'agent-preset/invalid',
       details: { agentPreset: '../escape' },
     })
     expect(reasonOf(invalid)).toContain('must match')
 
     const occupied = await remoteFailure(ctx.agentPresets.remoteExportCopy('standard', 'minimal'))
     expect(occupied).toMatchObject({
-      code: 'agent-preset-invalid',
+      code: 'agent-preset/invalid',
       details: { agentPreset: 'minimal' },
     })
     expect(reasonOf(occupied)).toContain('already exists')
@@ -305,7 +310,7 @@ describe('authoring over Remote', () => {
     const failure = await remoteFailure(ctx.agentPresets.remoteExportCopy('standard', 'mine'))
 
     expect(failure).toMatchObject({
-      code: 'agent-preset-read-only',
+      code: 'agent-preset/read-only',
       details: { agentPreset: 'mine' },
     })
     expect(reasonOf(failure)).toContain('no user-writable preset root')
@@ -316,30 +321,25 @@ describe('authoring over Remote', () => {
 
     const readOnly = await remoteFailure(ctx.agentPresets.remoteExportDelete('standard'))
     expect(readOnly).toMatchObject({
-      code: 'agent-preset-read-only',
+      code: 'agent-preset/read-only',
       details: { agentPreset: 'standard' },
     })
     expect(reasonOf(readOnly)).toContain('ships with the deployment')
 
     const missing = await remoteFailure(ctx.agentPresets.remoteExportDelete('never-existed'))
     expect(missing).toMatchObject({
-      code: 'agent-preset-not-found',
+      code: 'agent-preset/not-found',
       details: { agentPreset: 'never-existed' },
     })
     expect(availableOf(missing)).toEqual(expect.arrayContaining(['minimal', 'standard']))
   })
 
-  it('keeps the legacy internal diagnostic for an unrelated authoring failure', async () => {
+  it('raises an unrelated authoring failure exactly as it was thrown', async () => {
     const ctx = await harness()
-    vi.spyOn(ctx.agentPresets, 'copy').mockRejectedValueOnce(new Error('copy failed'))
+    const thrown = new Error('copy failed')
+    vi.spyOn(ctx.agentPresets, 'copy').mockRejectedValueOnce(thrown)
 
-    const failure = await remoteFailure(ctx.agentPresets.remoteExportCopy('standard', 'mine'))
-
-    expect(failure).toEqual({
-      code: 'internal',
-      message: 'agent preset "mine": Error: copy failed',
-      details: {},
-    })
+    await expect(ctx.agentPresets.remoteExportCopy('standard', 'mine')).rejects.toBe(thrown)
   })
 })
 
@@ -350,7 +350,7 @@ describe('switching one session\'s composition', () => {
     const recompose = vi.spyOn(ctx.agentPresets, 'recompose')
 
     await expect(ctx.agentPresets.select(agent, ''))
-      .rejects.toMatchObject({ failure: { code: 'bad-request' } })
+      .rejects.toMatchObject({ code: 'gateway/bad-request' })
     expect(recompose).not.toHaveBeenCalled()
   })
 
@@ -403,8 +403,8 @@ describe('switching one session\'s composition', () => {
 
     const failure = await remoteFailure(ctx.agentPresets.select(agent, 'minimal'))
 
-    expect(failure).toEqual({
-      code: 'agent-preset-locked',
+    expect(failure).toMatchObject({
+      code: 'agent-preset/locked',
       message: 'session "sel-locked" has already started; its agent preset is fixed',
       details: { sessionId: SessionId('sel-locked'), agentPreset: 'minimal' },
     })
@@ -419,7 +419,7 @@ describe('switching one session\'s composition', () => {
     const failure = await remoteFailure(ctx.agentPresets.select(agent, 'nope'))
 
     expect(failure).toMatchObject({
-      code: 'agent-preset-not-found',
+      code: 'agent-preset/not-found',
       details: { agentPreset: 'nope' },
     })
     expect(availableOf(failure)).toEqual(expect.arrayContaining(['minimal', 'standard']))
@@ -442,6 +442,7 @@ describe('switching one session\'s composition', () => {
 
   it('reports an unusable composition with its discovery reason', async () => {
     const userRoot = await mkdtemp(join(tmpdir(), 'dsh-preset-remote-'))
+    roots.push(userRoot)
     await mkdir(join(userRoot, 'damaged'), { recursive: true })
     const ctx = await harness({
       default: 'standard',
@@ -454,23 +455,18 @@ describe('switching one session\'s composition', () => {
     const failure = await remoteFailure(ctx.agentPresets.select(agent, 'damaged'))
 
     expect(failure).toMatchObject({
-      code: 'agent-preset-invalid',
+      code: 'agent-preset/invalid',
       details: { agentPreset: 'damaged' },
     })
     expect(reasonOf(failure)).not.toBe('')
   })
 
-  it('keeps the legacy internal diagnostic for an unrelated switch failure', async () => {
+  it('raises an unrelated switch failure exactly as it was thrown', async () => {
     const ctx = await harness()
     const agent = await agentOn(ctx, 'sel-internal', 'standard')
-    vi.spyOn(ctx.agentPresets, 'recompose').mockRejectedValueOnce(new Error('mount failed'))
+    const thrown = new Error('mount failed')
+    vi.spyOn(ctx.agentPresets, 'recompose').mockRejectedValueOnce(thrown)
 
-    const failure = await remoteFailure(ctx.agentPresets.select(agent, 'minimal'))
-
-    expect(failure).toEqual({
-      code: 'internal',
-      message: 'failed to select agent preset "minimal": Error: mount failed',
-      details: {},
-    })
+    await expect(ctx.agentPresets.select(agent, 'minimal')).rejects.toBe(thrown)
   })
 })

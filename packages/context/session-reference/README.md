@@ -73,11 +73,11 @@ Preparation reads each referenced session's current surface exactly once, when t
 | [`src/projection.ts`](src/projection.ts) | Current-surface projection and byte-budget retention |
 | [`src/serialization.ts`](src/serialization.ts) | Tag-safe JSON escaping for snapshot payloads |
 | [`src/types.ts`](src/types.ts) | `SessionReferenceInput`/`Candidate` and source types |
-| [`src/invariant.ts`](src/invariant.ts) | Invariant companion for the reference contract |
+| — | No runtime invariant companion is published; preparation returns immutable per-call snapshots validated while they are built, and the agent/session layers own durable context admission, freezing, and replay. |
 
 ### Main flow
 
-The outer `agent/pre-step` listener accepts the step, parses canonical mentions out of direct user messages, then calls `prepare`, which normalizes references (first-mention order, deduplication, self-reference and count rejection), reads every surface in parallel, retains each under `maxReferenceBytes`, and renders the aggregated prompt. Each snapshot is inserted immediately after the message that cited it, and the target log records the readable direct message followed by its sourced context, so source mutation after capture cannot change target replay.
+The outer `agent/pre-step` listener accepts the step, parses canonical mentions out of direct user messages, then calls `prepare`, which normalizes references (first-mention order, deduplication, self-reference and count rejection), reads every surface in parallel, retains each under `maxReferenceBytes`, and renders the aggregated prompt. Each durable source record keeps the frozen `capturedThroughSeq` and records a nonzero `capturedFormatVersion`; absence denotes format v0. Each snapshot is inserted immediately after the message that cited it, and the target log records the readable direct message followed by its sourced context, so source mutation after capture cannot change target replay.
 
 </details>
 

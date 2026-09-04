@@ -38,7 +38,7 @@ import {
 
 const fakeRuntime = fileURLToPath(new URL('../../../sdk/client/tests/fake-runtime.ts', import.meta.url))
 const existingPatch = fileURLToPath(new URL(
-  './fixtures/loader/child.cordis.yml',
+  './fixtures/loader/child.patch.yml',
   import.meta.url,
 ))
 const defaultCreateHarness = runInternals.createHarness.bind(runInternals)
@@ -330,7 +330,7 @@ describe('dsh-subagent-dsh-sdk provider', () => {
     await ctx.fiber.dispose()
   })
 
-  it('keeps streamed text when a malformed final message prevents completion', async () => {
+  it('keeps durable attempt text when a malformed final message prevents completion', async () => {
     const ctx = await setup({ FAKE_MALFORMED_MESSAGE: '1', FAKE_TEXT: 'stream-only answer' })
     const run = await ctx.subagents.start('dsh-sdk', request())
     const result = await run.result
@@ -355,11 +355,10 @@ describe('dsh-subagent-dsh-sdk provider', () => {
     await ctx.fiber.dispose()
   })
 
-  it('keeps streamed text when the terminal message is an empty usage-only step', async () => {
-    // The child streams its answer, then emits an empty-content
-    // assistant/message (the harness loop appends one to host usage on a
-    // max-tokens step that assembled no text blocks). The empty message is
-    // not assistant output and must not erase the streamed answer.
+  it('keeps durable attempt text when the terminal message is an empty usage-only step', async () => {
+    // A prior attempt retained its text without a surface message; the next
+    // max-tokens attempt commits only an empty usage anchor. The empty message
+    // is not Assistant output and must not erase the durable attempt fallback.
     const ctx = await setup({ FAKE_EMPTY_MESSAGE: '1', FAKE_REASON_KIND: 'max-tokens' })
     const run = await ctx.subagents.start('dsh-sdk', request())
     const result = await run.result
@@ -621,9 +620,11 @@ describe('dsh-subagent-dsh-sdk provider', () => {
       provider: 'p',
       model: 'm',
       env: { FAKE_REASON_KIND: reason },
-      shutdownTimeoutMs: 100,
-      disposeEofGraceMs: 200,
-      disposeGraceMs: 200,
+      // Product-default dispose budgets: two real children are reaped under
+      // runner contention, where tight windows misreport slow SIGKILL reaps.
+      shutdownTimeoutMs: DEFAULT_SHUTDOWN_TIMEOUT_MS,
+      disposeEofGraceMs: DEFAULT_DISPOSE_EOF_GRACE_MS,
+      disposeGraceMs: DEFAULT_DISPOSE_GRACE_MS,
     })
     const [errored, unknown] = await Promise.all([start('error'), start('unknown-reason')])
     const [errorResult, unknownResult] = await Promise.all([errored.result, unknown.result])

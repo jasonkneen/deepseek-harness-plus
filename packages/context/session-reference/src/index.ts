@@ -11,6 +11,7 @@ import type { Agent, PreStepDecision } from '@deepseek-ai/dsh-agent'
 import { Remote, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
 import { createUserMessage, freezeMessage } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, UserMessage } from '@deepseek-ai/dsh-llm'
+import { SessionLogOffset } from '@deepseek-ai/dsh-session'
 import type { SessionId } from '@deepseek-ai/dsh-session'
 // Type-only: the `title` projection key plus the live registry and durable
 // cache Context merges — the two projection faces discovery labels from.
@@ -74,6 +75,7 @@ interface PreparedSource {
 interface RenderedSource {
   data: ReferencedSessionData
   stats: ReferenceRetentionStats
+  capturedFormatVersion: number
 }
 
 /** Exact-read consumer that prepares immutable cross-session message context. */
@@ -229,7 +231,12 @@ export class SessionReferenceResolver extends TypertRemoteService {
     if (attached !== undefined && projections !== undefined) {
       return titleOf(projections.snapshot(attached, ['title']))
     }
-    return titleOf(this.ctx.get('sessionProjectionCache')?.cachedSnapshot(record.header, ['title']))
+    if (record.header.isSeeded) return undefined
+    return titleOf(this.ctx.get('sessionProjectionCache')?.cachedSnapshot(
+      record.header,
+      SessionLogOffset(0),
+      ['title'],
+    ))
   }
 
   /**
@@ -300,6 +307,7 @@ export class SessionReferenceResolver extends TypertRemoteService {
       references: rendered.map((source, index) => ({
         sessionId: source.data.sessionId,
         label: source.data.label,
+        capturedFormatVersion: source.capturedFormatVersion,
         capturedThroughSeq: source.data.capturedThroughSeq,
         ...source.stats,
         inputIndex: index,
@@ -322,7 +330,10 @@ export class SessionReferenceResolver extends TypertRemoteService {
           'SESSION_REFERENCE_BUDGET_EXCEEDED',
         )
       }
-      rendered.push(retained)
+      rendered.push({
+        ...retained,
+        capturedFormatVersion: source.snapshot.session.version,
+      })
     }
     return rendered
   }

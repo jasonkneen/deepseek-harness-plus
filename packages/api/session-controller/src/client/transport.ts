@@ -1,18 +1,19 @@
 /** Session-specific adapters for Gateway-owned Remote stream lifecycles. */
 
 import type {} from '@deepseek-ai/dsh-api-session-controller/remote'
-import type { RemoteFailure } from '@deepseek-ai/dsh-typert-protocol'
+import { RemoteError } from '@deepseek-ai/dsh-typert-protocol'
 import {
   RemoteJournalStream,
   RemoteSnapshotStream,
   RemoteStreamCarrierError,
-  RemoteStreamError,
   type ClientRemote,
   type RemoteJournalChange,
   type RemoteJournalFrame,
 } from '@deepseek-ai/dsh-api-gateway/client'
 import type {
   SessionAddress,
+  SessionAssistantStreamBaseline,
+  SessionAssistantStreamFrame,
   SessionControlFrame,
   SessionHistoryRecord,
   SessionPage,
@@ -25,6 +26,7 @@ import {
   historyRecordLastSeq,
 } from './sessions/history-records.ts'
 import type { SessionEventLikeEntry, SessionLiveEventEntry } from './contract/events.ts'
+import type { SessionRemotes } from './sessions/remotes.ts'
 
 export {
   SESSION_SEARCH_RESULT_LIMIT,
@@ -40,6 +42,7 @@ export type SessionRemote = ClientRemote['session']
 /** Opening metadata carried only by a follow snapshot, never by loadOlder pages. */
 interface SessionJournalPage extends SessionPage {
   readonly projections?: SessionProjectionBaseline
+  readonly assistantStream?: SessionAssistantStreamBaseline
 }
 
 /** One complete publication from the Session journal stream. */
@@ -51,23 +54,25 @@ export type SessionJournalChange =
     readonly hasMore: boolean
   }
   | { readonly type: 'append'; readonly entry: SessionLiveEventEntry }
+  | { readonly type: 'assistant-stream'; readonly frame: SessionAssistantStreamFrame }
 
 function toSessionJournalChange(
-  change: RemoteJournalChange<SessionJournalPage, SessionHistoryRecord>,
+  change: RemoteJournalChange<
+    SessionJournalPage, SessionHistoryRecord, SessionAssistantStreamFrame
+  >,
 ): SessionJournalChange {
   switch (change.type) {
     case 'replace':
     case 'prepend':
       return { ...change, entries: historyEntries(change.entries) }
     case 'append': {
-      if (change.entry.type !== 'event') {
-        throw new Error('session live stream emitted a packed history record')
-      }
       return {
         type: 'append',
         entry: change.entry as unknown as SessionLiveEventEntry,
       }
     }
+    case 'notification':
+      return { type: 'assistant-stream', frame: change.notification }
   }
 }
 
@@ -79,8 +84,6 @@ export type SessionControlStream = RemoteSnapshotStream<
   SessionControlBaselineFrame,
   SessionControlDeltaFrame
 >
-
-type SessionStreamRemote = Pick<ClientRemote, '$stream' | 'session'>
 
 /** Domain sinks used by the Host-wide Session control stream. */
 export interface SessionControlStreamOptions {
@@ -109,7 +112,7 @@ export interface SessionEventStreamOptions {
  * @returns an unstarted stream owned by the Client Session runtime.
  */
 export function createSessionControlStream(
-  remote: SessionStreamRemote,
+  remote: SessionRemotes,
   options: SessionControlStreamOptions,
 ): SessionControlStream {
   const stream = remote.$stream<SessionControlFrame>({
@@ -134,7 +137,8 @@ export class SessionEventStream extends RemoteJournalStream<
   SessionJournalPage,
   SessionHistoryRecord,
   number,
-  ClientSessionPageRequest
+  ClientSessionPageRequest,
+  SessionAssistantStreamFrame
 > {
   /**
    * @param remote - generated Session namespace and Gateway stream factory.
@@ -142,7 +146,7 @@ export class SessionEventStream extends RemoteJournalStream<
    * @param options - Session event-window destinations.
    */
   constructor(
-    private readonly remote: SessionStreamRemote,
+    private readonly remote: SessionRemotes,
     private readonly address: SessionAddress,
     options: SessionEventStreamOptions,
   ) {
@@ -167,12 +171,24 @@ export class SessionEventStream extends RemoteJournalStream<
   protected override async * follow(
     request: ClientSessionPageRequest,
     signal: AbortSignal,
-  ): AsyncIterable<RemoteJournalFrame<SessionHistoryRecord, number, SessionJournalPage>> {
+  ): AsyncIterable<RemoteJournalFrame<
+    SessionHistoryRecord, number, SessionJournalPage, SessionAssistantStreamFrame
+  >> {
+    let assistantRevision: number | undefined
     for await (const frame of this.remote.session.follow({
       address: this.address,
+      assistantStream: true,
       ...(request.maxMessages === undefined ? {} : { maxMessages: request.maxMessages }),
     }, signal)) {
       if (frame.type === 'snapshot') {
+        if (frame.assistantStream === undefined) {
+          throw new RemoteError(
+            'gateway/internal',
+            'session assistant stream omitted its opted-in opening baseline',
+            {},
+          )
+        }
+        assistantRevision = frame.assistantStream.revision
         yield {
           type: 'opened',
           cursor: frame.cursor,
@@ -180,8 +196,20 @@ export class SessionEventStream extends RemoteJournalStream<
             records: frame.records,
             hasMore: frame.hasMore,
             projections: frame.projections,
+            assistantStream: frame.assistantStream,
           },
         }
+        continue
+      }
+      if (frame.type === 'assistant-stream') {
+        const expected = (assistantRevision ?? 0) + 1
+        if (frame.frame.revision !== expected) {
+          throw new RemoteStreamCarrierError(
+            `session assistant stream skipped revision ${String(expected)}`,
+          )
+        }
+        assistantRevision = frame.frame.revision
+        yield { type: 'notification', notification: frame.frame }
         continue
       }
       yield { type: 'entry', entry: frame }
@@ -198,13 +226,7 @@ export class SessionEventStream extends RemoteJournalStream<
       { address: this.address, throughSeq, ...request },
       signal,
     )
-    if (!result.ok) {
-      throw new RemoteStreamError(
-        result.error.code,
-        result.error.message,
-        result.error.details,
-      )
-    }
+    if (!result.ok) throw result.error
     return result.value
   }
 
@@ -214,14 +236,4 @@ export class SessionEventStream extends RemoteJournalStream<
   ): ClientSessionPageRequest {
     return request.maxMessages === undefined ? {} : { maxMessages: request.maxMessages }
   }
-}
-
-/**
- * Recover a Host Session failure from a Remote stream terminal error.
- * @param error - value thrown while opening or consuming a Session stream.
- * @returns the Host failure, or `undefined` for carrier and local failures.
- */
-export function sessionStreamFailure(error: unknown): RemoteFailure | undefined {
-  if (!(error instanceof RemoteStreamError)) return undefined
-  return { code: error.code, message: error.message, details: error.details }
 }

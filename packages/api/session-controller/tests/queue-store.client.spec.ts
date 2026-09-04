@@ -6,7 +6,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, UserMessage } from '@deepseek-ai/dsh-llm/types'
-import type { SessionEvent } from '@deepseek-ai/dsh-session/types'
+import { SessionSeq, type SessionEvent } from '@deepseek-ai/dsh-session/types'
 import type { MessageId, RpcId, SessionId } from '@deepseek-ai/dsh-api-remotes/client'
 import type { SessionControlFrame } from '@deepseek-ai/dsh-api-session-controller/types'
 import { Session } from '../src/client/sessions/session.ts'
@@ -73,20 +73,30 @@ describe('Session queue snapshot intake', () => {
     ])
   })
 
-  it('marks mixed-content messages non-editable while retaining their preview', () => {
+  it('marks mixed-content messages non-editable and keeps attachment blocks out of the text preview', () => {
     const session = makeSession()
     session.handleControlFrame(queueFrame([{
       id: 'q-image',
       body: '',
-      content: [{ type: 'text', text: 'hi' }, { type: 'image', data: 'x' } as never],
+      content: [
+        { type: 'text', text: 'hi' },
+        { type: 'image', data: 'x' } as never,
+        { type: 'file', attachment: { attachmentId: 'file-1', name: 'notes.txt', bytes: 5 } } as never,
+      ],
     }]))
     const queue = session.getSnapshot().queue
     expect(typeof queue[0]?.messageId).toBe('string')
     expect(queue).toMatchObject([
       {
         id: 'q-image', placement: 'queued',
-        content: [{ type: 'text', text: 'hi' }, { type: 'image', data: 'x' }],
-        preview: 'hi [image]', text: null,
+        content: [
+          { type: 'text', text: 'hi' },
+          { type: 'image', data: 'x' },
+          { type: 'file', attachment: { attachmentId: 'file-1', name: 'notes.txt', bytes: 5 } },
+        ],
+        // Attachment blocks render from `content`, so the preview carries
+        // only text; other foreign blocks keep their marker.
+        preview: 'hi', text: null,
       },
     ])
   })
@@ -158,12 +168,12 @@ describe('Session queue snapshot intake', () => {
       { id: 's-second', body: '', placement: 'steering', message },
     ]))
     const durable = {
-      seq: 0,
+      seq: SessionSeq(0),
       time: 1_700_000_000_000,
       type: 'user/message',
       surfaceOp: 'append',
       data: message,
-    } as SessionEvent
+    } satisfies SessionEvent
 
     await api.pushFollow(SID, { type: 'event', event: durable as never })
     await vi.waitFor(() => {

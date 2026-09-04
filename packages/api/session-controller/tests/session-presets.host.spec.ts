@@ -1,16 +1,25 @@
 /** Session creation and adoption rules for Agent preset identity. */
 
-import { mkdtempSync, realpathSync } from 'node:fs'
+import { mkdtempSync, realpathSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
 import type { Agent, AgentFactory } from '@deepseek-ai/dsh-agent'
-import { agentPresetProjectionDefinition, UnknownPresetError } from '@deepseek-ai/dsh-agent-presets'
+import { agentPresetProjectionDefinition } from '@deepseek-ai/dsh-agent-presets'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import type { Session } from '@deepseek-ai/dsh-session'
-import { describe, expect, it } from 'vitest'
+import { RemoteError } from '@deepseek-ai/dsh-typert-protocol'
+import { afterEach, describe, expect, it } from 'vitest'
 import { createSessionTestRemote } from './test-remote.ts'
+
+/** Booted contexts and their temp roots, torn down after each test. */
+const contexts: Context[] = []
+const tempDirs: string[] = []
+afterEach(async () => {
+  await Promise.all(contexts.splice(0).map(ctx => ctx.fiber.dispose()))
+  for (const dir of tempDirs.splice(0)) rmSync(dir, { recursive: true, force: true })
+})
 
 function stubAgent(session: Session): Agent {
   return { id: session.id, session, status: 'idle' } as unknown as Agent
@@ -26,7 +35,13 @@ function roster(ids: readonly string[]): unknown {
     defaultId: ids[0],
     resolve: (id?: string) => {
       const wanted = id ?? ids[0] ?? ''
-      if (!ids.includes(wanted)) return Promise.reject(new UnknownPresetError(wanted, ids))
+      if (!ids.includes(wanted)) {
+        return Promise.reject(new RemoteError(
+          'agent-preset/not-found',
+          `agent-presets: preset "${wanted}" not found (available: ${ids.join(', ') || 'none'})`,
+          { agentPreset: wanted, available: ids },
+        ))
+      }
       return Promise.resolve(presetOf(wanted))
     },
     mount: (_ctx: Context, id?: string) => Promise.resolve(presetOf(id ?? ids[0] ?? '')),
@@ -35,7 +50,9 @@ function roster(ids: readonly string[]): unknown {
 
 async function harness(presets?: readonly string[]) {
   const cwd = realpathSync(mkdtempSync(join(tmpdir(), 'dsh-session-preset-')))
+  tempDirs.push(cwd)
   const ctx = new Context()
+  contexts.push(ctx)
   await ctx.plugin(SessionStore)
   await ctx.plugin(AgentRegistry)
   if (presets !== undefined) {
@@ -91,7 +108,7 @@ describe('session.create Agent preset identity', () => {
 
     const response = await remote.create({ sessionId: SessionId('s3'), agentPreset: 'nope' })
 
-    expect(response).toMatchObject({ ok: false, error: { code: 'agent-preset-not-found' } })
+    expect(response).toMatchObject({ ok: false, error: { code: 'agent-preset/not-found' } })
   })
 
   it('refuses to adopt a live Session under a different preset', async () => {
@@ -103,7 +120,7 @@ describe('session.create Agent preset identity', () => {
     expect(response).toMatchObject({
       ok: false,
       error: {
-        code: 'agent-preset-conflict',
+        code: 'agent-preset/conflict',
         details: {
           sessionId: 's4',
           requestedPreset: 'standard',
@@ -153,7 +170,7 @@ describe('session.create Agent preset identity', () => {
     expect(response).toMatchObject({
       ok: false,
       error: {
-        code: 'agent-preset-conflict',
+        code: 'agent-preset/conflict',
         details: {
           sessionId: 's7',
           requestedPreset: 'standard',
