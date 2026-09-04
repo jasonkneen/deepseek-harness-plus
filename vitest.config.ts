@@ -150,7 +150,7 @@ const processBoundTests = [
 export default defineConfig({
   plugins: [pathsPlugin(), standardDecoratorPlugin()],
   test: {
-    setupFiles: ['./scripts/test-invariants.ts'],
+    setupFiles: ['./scripts/test-proxy-environment.ts', './scripts/test-invariants.ts'],
     // .tsx: client component specs (jsdom via per-file @vitest-environment pragma).
     include: testIncludes,
     exclude: platformUnsupportedTests,
@@ -166,7 +166,7 @@ export default defineConfig({
           // MaybeLocal in cjs_lexer::Parse) from worker threads on macOS,
           // Linux, and Windows. Forked workers avoid that shared thread path.
           pool: 'forks',
-          setupFiles: ['./scripts/test-invariants.ts'],
+          setupFiles: ['./scripts/test-proxy-environment.ts', './scripts/test-invariants.ts'],
           include: testIncludes,
           exclude: [
             ...platformUnsupportedTests,
@@ -181,7 +181,7 @@ export default defineConfig({
           name: 'process-bound',
           execArgv: vitestExecArgv,
           pool: 'forks',
-          setupFiles: ['./scripts/test-invariants.ts'],
+          setupFiles: ['./scripts/test-proxy-environment.ts', './scripts/test-invariants.ts'],
           include: processBoundTests,
           exclude: [
             ...platformUnsupportedTests,
@@ -221,8 +221,9 @@ export default defineConfig({
         'packages/client/ui-workspace/src/client/rows/WorkspaceBrowser.tsx',
         'packages/client/ui-renderer/src/client/*',
         // Session object internals retain the runtime GUI debt exemption; the
-        // new Controller entry, transport, Agent scope, and adapters stay gated.
-        'packages/api/session-controller/src/client/sessions/*',
+        // assistant-stream reconciler, Controller entry, transport, Agent scope,
+        // and adapters stay gated.
+        'packages/api/session-controller/src/client/sessions/!(assistant-stream).ts',
         'packages/api/session-controller/src/client/ordered-baseline.ts',
         'packages/api/session-controller/src/client/time-zone.ts',
         // Keep the browser conversation tree under its existing GUI debt

@@ -7,7 +7,7 @@
  * @module dsh-subprocess-local/spawn
  */
 
-import { type ChildProcess, spawn, spawnSync } from 'node:child_process'
+import { type ChildProcess, type SpawnOptions, spawn, spawnSync } from 'node:child_process'
 import type { Readable } from 'node:stream'
 import { randomBytes } from 'node:crypto'
 import { closeSync, mkdtempSync, openSync, unlinkSync, writeSync } from 'node:fs'
@@ -25,6 +25,12 @@ import type {
   SubprocessSpawnSpec,
 } from '@deepseek-ai/dsh-subprocess'
 import { linuxProcessGroupHasLiveMembers } from './process-inspector.ts'
+
+type SpawnProcess = (
+  program: string,
+  args: readonly string[],
+  options: SpawnOptions,
+) => ChildProcess
 
 /**
  * Build a child environment: explicit caller entries override the scrubbed
@@ -46,8 +52,10 @@ export function childEnv(extra?: Readonly<NodeJS.ProcessEnv>): NodeJS.ProcessEnv
   return Object.fromEntries(entries)
 }
 
-/** Injectable knobs so tests can exercise spill and platform behavior deterministically. */
+/** Injectable process, spill, and platform operations. */
 export interface SpawnInternals {
+  /** Process spawner (defaults to `node:child_process` `spawn`). */
+  spawn?: SpawnProcess
   /** Directory for spill files (defaults to the OS temp dir). */
   spillDir?: string
   /** Windows tree-termination runner (defaults to `taskkill /PID <pid> /T /F`). */
@@ -278,7 +286,10 @@ export function taskkillProcessTree(pid: number): void {
   // Outcome deliberately unchecked: an already-absent tree (status 128), exit
   // races, and a missing taskkill binary (spawnSync reports, never throws) are
   // as tolerable here as ESRCH is for a POSIX group signal.
-  spawnSync('taskkill', ['/PID', String(pid), '/T', '/F'], { stdio: 'ignore' })
+  spawnSync('taskkill', ['/PID', String(pid), '/T', '/F'], {
+    stdio: 'ignore',
+    windowsHide: true,
+  })
 }
 
 /**
@@ -329,6 +340,7 @@ export function spawnSubprocess(spec: SubprocessSpawnSpec, internals: SpawnInter
   }
   const spillDir = internals.spillDir ?? privateSpillDir()
   const platform = internals.platform ?? process.platform
+  const spawnProcess = internals.spawn ?? spawn
   const taskkill = internals.taskkill ?? taskkillProcessTree
   const linuxGroupHasLiveMembers = internals.linuxProcessGroupHasLiveMembers ?? linuxProcessGroupHasLiveMembers
 
@@ -347,7 +359,7 @@ export function spawnSubprocess(spec: SubprocessSpawnSpec, internals: SpawnInter
   const stdinMode = spec.stdio.stdin
 
   const env = childEnv(spec.env)
-  const child = spawn(program, args, {
+  const child = spawnProcess(program, args, {
     cwd: spec.cwd,
     env,
     stdio: [
@@ -358,6 +370,7 @@ export function spawnSubprocess(spec: SubprocessSpawnSpec, internals: SpawnInter
     // `detached` gives teardown a tree root on POSIX (its own process group);
     // Windows terminates by root pid through taskkill /T instead.
     detached: platform !== 'win32',
+    windowsHide: platform === 'win32',
   })
 
   const collectStream = (mode: SubprocessOutputMode, stream: Readable | null, label: string): OutputCollector | undefined => {
