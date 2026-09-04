@@ -1,6 +1,6 @@
 # Agent Note: Web 会话日志导出——宿主流式 ZIP 下载
 
-状态：implemented
+Status: implemented
 
 [English](2026-08-10-web-session-log-export.md) | 中文
 

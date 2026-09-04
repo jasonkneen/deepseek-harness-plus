@@ -1,4 +1,4 @@
-# Agent Note（agent 决策记录）：持久化 subagent 目录与 list_agents
+# Agent Note: 持久化 subagent 目录与 list_agents
 
 Status: implemented
 

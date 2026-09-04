@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-08-18-conversation-adaptive-content-width.md
 2026-08-18-conversation-adaptive-content-width.md: 9b0e7afbded296b60b7c283030a537321b36684e
-2026-08-18-conversation-adaptive-content-width.zh.md: f1f424cf9d4ac087518e9f79a365d0052069b999
+2026-08-18-conversation-adaptive-content-width.zh.md: 82273e35ba5fa4bd5768c72323540d6d67189a0c

@@ -1,4 +1,4 @@
-# Agent Note：serial-windows 的 notices 超时预算与 generator store 扫描成本
+# Agent Note: serial-windows 的 notices 超时预算与 generator store 扫描成本
 
 Status: implemented
 

@@ -1,4 +1,4 @@
-# Agent Note：会话快照 envelope 投影
+# Agent Note: 会话快照 envelope 投影
 
 Status: implemented
 

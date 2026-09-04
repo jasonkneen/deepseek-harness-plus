@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-08-12-fix-pwsh-terminal-overlay-dup.md
 2026-08-12-fix-pwsh-terminal-overlay-dup.md: 7a214ea093faf49141c66bfc2cbb065fbeb29825
-2026-08-12-fix-pwsh-terminal-overlay-dup.zh.md: 6d38ca58ad97e5ad04992e54a7938c9fea300863
+2026-08-12-fix-pwsh-terminal-overlay-dup.zh.md: baf284a8018f597ac45fa2852b20d141cc453238

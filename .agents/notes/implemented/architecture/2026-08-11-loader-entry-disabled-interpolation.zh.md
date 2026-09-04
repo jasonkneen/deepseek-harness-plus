@@ -1,4 +1,4 @@
-# Agent Note：Loader 插值条目 `disabled` 字段
+# Agent Note: Loader 插值条目 `disabled` 字段
 
 Status: implemented
 

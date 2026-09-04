@@ -1,4 +1,4 @@
-# Agent Note：Goal Round 收尾消息
+# Agent Note: Goal Round 收尾消息
 
 Status: implemented
 

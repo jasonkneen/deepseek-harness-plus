@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-08-26-web-trigger-menu-presentation-polish.md
 2026-08-26-web-trigger-menu-presentation-polish.md: 07417b29e3bd520fe488fd463a44c373f694f383
-2026-08-26-web-trigger-menu-presentation-polish.zh.md: dc84c5396451d9ac504e360e8aa8e4fe858297ef
+2026-08-26-web-trigger-menu-presentation-polish.zh.md: 2f031461517a8f6bb07c9e9def16ad94d4d4eebe

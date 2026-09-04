@@ -1,4 +1,4 @@
-# Agent Note：Windows coverage lane 的确定性断言与 dispose 预算
+# Agent Note: Windows coverage lane 的确定性断言与 dispose 预算
 
 Status: implemented
 

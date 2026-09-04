@@ -1,4 +1,4 @@
-# Agent Note：工具卡片的图像结果
+# Agent Note: 工具卡片的图像结果
 
 Status: implemented
 

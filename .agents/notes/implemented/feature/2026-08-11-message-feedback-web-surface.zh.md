@@ -1,4 +1,4 @@
-# Agent Note：消息反馈的 Web 界面
+# Agent Note: 消息反馈的 Web 界面
 
 Status: implemented
 

@@ -1,4 +1,4 @@
-# Agent Note：单测删除自己创建的 dsh-* 临时目录
+# Agent Note: 单测删除自己创建的 dsh-* 临时目录
 
 Status: implemented
 

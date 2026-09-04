@@ -1,4 +1,4 @@
-# Agent Note：Web 触发菜单呈现打磨
+# Agent Note: Web 触发菜单呈现打磨
 
 Status: implemented
 

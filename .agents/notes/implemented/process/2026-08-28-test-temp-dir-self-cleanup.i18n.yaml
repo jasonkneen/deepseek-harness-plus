@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/process/2026-08-28-test-temp-dir-self-cleanup.md
 2026-08-28-test-temp-dir-self-cleanup.md: 175fe82b0ad01c2afda3abb5f66ff455045a3cd6
-2026-08-28-test-temp-dir-self-cleanup.zh.md: c2fcd07d1619d1556ac99b336f27b89a5f46e426
+2026-08-28-test-temp-dir-self-cleanup.zh.md: e56ab31c3e226dd8d2ce13685d7b6cfbf05a4323

@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-08-02-web-thinking-tail-scroll.md
 2026-08-02-web-thinking-tail-scroll.md: 38c27274b2c85974044c2bb467c1519e19bfd148
-2026-08-02-web-thinking-tail-scroll.zh.md: bf637228b3a793f318fa5a5d7b0968ecd8e081d5
+2026-08-02-web-thinking-tail-scroll.zh.md: 942d8aa1365055ce5b038b9bf962d3751e32d3c6

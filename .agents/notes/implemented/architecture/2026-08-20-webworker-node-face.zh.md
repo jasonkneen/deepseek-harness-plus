@@ -1,6 +1,6 @@
-# Agent Note：worker 的 Node 面——builtin、VFS 与 shell 进程层
+# Agent Note: worker 的 Node 面——builtin、VFS 与 shell 进程层
 
-状态：已实施
+Status: implemented
 
 [English](2026-08-20-webworker-node-face.md) | 中文
 

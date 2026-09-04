@@ -1,4 +1,4 @@
-# Agent Note：pi-ai 模型自行声明输入模态，未声明即为文本
+# Agent Note: pi-ai 模型自行声明输入模态，未声明即为文本
 
 Status: implemented
 

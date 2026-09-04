@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/testing/2026-08-13-python-minimal-model-visible-snapshot.md
 2026-08-13-python-minimal-model-visible-snapshot.md: 1cef57c440ddd2209628016ab550174b448587bc
-2026-08-13-python-minimal-model-visible-snapshot.zh.md: fbbb3bd6f4c3edadb61a02eebbae3dfaa97cb8e7
+2026-08-13-python-minimal-model-visible-snapshot.zh.md: 0d2cc327cf623dcec1d4b861726ffc47d6c97727

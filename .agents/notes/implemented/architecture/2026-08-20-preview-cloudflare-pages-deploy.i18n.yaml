@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-08-20-preview-cloudflare-pages-deploy.md
 2026-08-20-preview-cloudflare-pages-deploy.md: 38b2834d612153d235d3b0aaffead3bd2b33eec7
-2026-08-20-preview-cloudflare-pages-deploy.zh.md: 3ebb8eba95666729ee1021ffe2c958dad40aed1c
+2026-08-20-preview-cloudflare-pages-deploy.zh.md: 7268217f01dc11e220ba1f6bc7364072e2ab842a

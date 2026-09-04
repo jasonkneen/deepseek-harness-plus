@@ -1,6 +1,6 @@
-# Agent Note：基于 prompt rpcId 的本地提交回显
+# Agent Note: 基于 prompt rpcId 的本地提交回显
 
-状态：implemented
+Status: implemented
 
 [English](2026-08-26-local-submission-echoes.md) | 中文
 

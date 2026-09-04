@@ -1,6 +1,6 @@
-# Agent Note：Turn 尾部统计 pill 与锚定弹层
+# Agent Note: Turn 尾部统计 pill 与锚定弹层
 
-状态：已实现
+Status: implemented
 
 [English](2026-08-28-web-turn-stat-pills.md) | 中文
 

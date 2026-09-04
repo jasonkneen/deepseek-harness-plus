@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-08-20-webworker-pack-lowering-and-preview.md
 2026-08-20-webworker-pack-lowering-and-preview.md: 24dd5ba6e3eb633253321b219781b537f1faf429
-2026-08-20-webworker-pack-lowering-and-preview.zh.md: 5ee59e9a508767be928e2de804514b6357fe4ffd
+2026-08-20-webworker-pack-lowering-and-preview.zh.md: 1976c7e5915fd132d2477167deff2bc21b8859d1

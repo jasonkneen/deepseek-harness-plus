@@ -1,4 +1,4 @@
-# Agent Note：主页鲸鱼 hover 游动变形
+# Agent Note: 主页鲸鱼 hover 游动变形
 
 Status: implemented
 

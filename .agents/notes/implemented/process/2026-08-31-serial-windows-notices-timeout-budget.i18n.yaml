@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/process/2026-08-31-serial-windows-notices-timeout-budget.md
 2026-08-31-serial-windows-notices-timeout-budget.md: 184004122bf8050fa00038b7c57ae680748463f8
-2026-08-31-serial-windows-notices-timeout-budget.zh.md: 4fc00ed25cc24ef76e43a0099a362b8be0e59e3e
+2026-08-31-serial-windows-notices-timeout-budget.zh.md: f6a68dabcfeaad5121b4be8a11f04201698ec00a

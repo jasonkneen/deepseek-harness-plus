@@ -1,6 +1,6 @@
-# Agent Note：首次使用引导的接管界面框架移入步骤自身
+# Agent Note: 首次使用引导的接管界面框架移入步骤自身
 
-状态：已实现
+Status: implemented
 
 [English](2026-08-06-onboarding-step-owned-takeover-chrome.md) | 中文
 

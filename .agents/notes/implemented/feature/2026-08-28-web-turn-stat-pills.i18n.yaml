@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-08-28-web-turn-stat-pills.md
 2026-08-28-web-turn-stat-pills.md: 2661c228b9a5a7b55ba3698cf3ee2b4c76701bbc
-2026-08-28-web-turn-stat-pills.zh.md: 5cc889b9f743eefeac1343b70743c23392efc908
+2026-08-28-web-turn-stat-pills.zh.md: 70387819965b0389b2fc6e33f506c65e4586d083

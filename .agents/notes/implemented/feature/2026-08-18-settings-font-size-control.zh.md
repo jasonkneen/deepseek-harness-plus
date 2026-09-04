@@ -1,6 +1,6 @@
-# Agent Note：Settings 支撑的会话正文字号
+# Agent Note: Settings 支撑的会话正文字号
 
-状态：已实现
+Status: implemented
 
 [English](2026-08-18-settings-font-size-control.md) | 中文
 

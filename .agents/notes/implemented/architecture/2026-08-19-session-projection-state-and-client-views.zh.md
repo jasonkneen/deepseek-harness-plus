@@ -1,6 +1,6 @@
-# Agent Note：拆分会话投影状态与客户端视图
+# Agent Note: 拆分会话投影状态与客户端视图
 
-状态：已实现
+Status: implemented
 
 [English](2026-08-19-session-projection-state-and-client-views.md) | 中文
 

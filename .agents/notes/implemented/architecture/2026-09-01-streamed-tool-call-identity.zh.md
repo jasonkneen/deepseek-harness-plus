@@ -1,4 +1,4 @@
-# Agent Note：流式工具调用身份不被空续传分片抹除
+# Agent Note: 流式工具调用身份不被空续传分片抹除
 
 Status: implemented
 

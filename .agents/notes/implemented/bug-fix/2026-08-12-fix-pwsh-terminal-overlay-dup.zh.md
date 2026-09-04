@@ -1,4 +1,4 @@
-# Agent Note：修复 pwsh 终端 overlay 的重复 loader 冲突
+# Agent Note: 修复 pwsh 终端 overlay 的重复 loader 冲突
 
 Status: implemented
 

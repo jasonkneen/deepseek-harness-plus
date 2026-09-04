@@ -1,4 +1,4 @@
-# Agent Note：文档站的纯 Markdown 孪生页与 llms.txt
+# Agent Note: 文档站的纯 Markdown 孪生页与 llms.txt
 
 Status: implemented
 

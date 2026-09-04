@@ -1,6 +1,6 @@
-# Agent Note：pack 期 lowering 与单构建 preview
+# Agent Note: pack 期 lowering 与单构建 preview
 
-状态：已实施
+Status: implemented
 
 [English](2026-08-20-webworker-pack-lowering-and-preview.md) | 中文
 

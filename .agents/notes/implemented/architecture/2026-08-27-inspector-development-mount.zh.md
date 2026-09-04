@@ -1,4 +1,4 @@
-# Agent Note：Inspector 开发挂载
+# Agent Note: Inspector 开发挂载
 
 Status: implemented
 

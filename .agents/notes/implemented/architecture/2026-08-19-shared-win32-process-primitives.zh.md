@@ -1,4 +1,4 @@
-# Agent Note：Windows sandbox process primitives 只有一个低层 owner
+# Agent Note: Windows sandbox process primitives 只有一个低层 owner
 
 Status: implemented
 

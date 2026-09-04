@@ -1,4 +1,4 @@
-# Agent Note：Web 输入框改为 Lexical 编辑器（chip 为原子节点）
+# Agent Note: Web 输入框改为 Lexical 编辑器（chip 为原子节点）
 
 Status: implemented
 

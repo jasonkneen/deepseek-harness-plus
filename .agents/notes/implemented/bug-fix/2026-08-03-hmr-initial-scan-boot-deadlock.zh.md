@@ -1,6 +1,6 @@
-# Agent Note：HMR 初始扫描使失败的启动死锁为静默的 exit 13
+# Agent Note: HMR 初始扫描使失败的启动死锁为静默的 exit 13
 
-状态：已实现
+Status: implemented
 
 [English](2026-08-03-hmr-initial-scan-boot-deadlock.md) | 中文
 

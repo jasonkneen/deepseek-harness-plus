@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-08-19-shared-win32-process-primitives.md
 2026-08-19-shared-win32-process-primitives.md: 8765e5f7350dab56ad42169f6e16b55679ca8982
-2026-08-19-shared-win32-process-primitives.zh.md: b21ece8445e8863c08818c42d6c9bf7672813823
+2026-08-19-shared-win32-process-primitives.zh.md: f1cdfd32dae3ef83980fe837b664e44274f05583

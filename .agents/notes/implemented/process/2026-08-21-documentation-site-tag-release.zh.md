@@ -1,4 +1,4 @@
-# Agent Note：文档站从发布 tag 发布
+# Agent Note: 文档站从发布 tag 发布
 
 Status: implemented
 

@@ -1,4 +1,4 @@
-# Agent Note：投影缓存改为每会话文件
+# Agent Note: 投影缓存改为每会话文件
 
 Status: implemented
 

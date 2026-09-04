@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-08-19-projection-cache-per-session-files.md
 2026-08-19-projection-cache-per-session-files.md: 0792ed6cac23d1ae09767f608c74f82430db68e9
-2026-08-19-projection-cache-per-session-files.zh.md: 201146ce8568b66eebf6793fcdc489929a3e4cdb
+2026-08-19-projection-cache-per-session-files.zh.md: 44894a0d52065d7a916252fd6c02ff9f4864ef70

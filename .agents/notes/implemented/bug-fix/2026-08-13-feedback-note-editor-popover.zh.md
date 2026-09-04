@@ -1,4 +1,4 @@
-# Agent Note：反馈备注编辑器以浮层悬浮在对话记录上方
+# Agent Note: 反馈备注编辑器以浮层悬浮在对话记录上方
 
 Status: implemented
 

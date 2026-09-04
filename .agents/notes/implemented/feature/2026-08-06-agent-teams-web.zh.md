@@ -1,6 +1,6 @@
-# Agent Note：实验性 Agent Teams Web 控件
+# Agent Note: 实验性 Agent Teams Web 控件
 
-状态：已实现
+Status: implemented
 
 [English](2026-08-06-agent-teams-web.md) | 中文
 

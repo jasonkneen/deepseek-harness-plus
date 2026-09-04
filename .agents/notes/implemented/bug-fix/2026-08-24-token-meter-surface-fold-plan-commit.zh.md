@@ -1,6 +1,6 @@
-# Agent Note：token-meter surface fold 改为 plan/commit 两段式原地提交
+# Agent Note: token-meter surface fold 改为 plan/commit 两段式原地提交
 
-状态：已实现
+Status: implemented
 
 [English](2026-08-24-token-meter-surface-fold-plan-commit.md) | 中文
 

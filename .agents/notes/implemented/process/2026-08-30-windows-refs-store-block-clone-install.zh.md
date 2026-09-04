@@ -1,4 +1,4 @@
-# Agent Note：Windows 自托管 ReFS store 与块克隆安装
+# Agent Note: Windows 自托管 ReFS store 与块克隆安装
 
 Status: implemented
 

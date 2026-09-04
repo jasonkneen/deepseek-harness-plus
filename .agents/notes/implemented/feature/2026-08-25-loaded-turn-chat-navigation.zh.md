@@ -1,4 +1,4 @@
-# Agent Note：已加载 Turn 的聊天导航
+# Agent Note: 已加载 Turn 的聊天导航
 
 Status: implemented
 

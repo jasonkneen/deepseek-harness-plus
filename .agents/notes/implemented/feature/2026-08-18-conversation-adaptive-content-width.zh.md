@@ -1,4 +1,4 @@
-# Agent Note：会话正文宽度自适应与拖拽调宽
+# Agent Note: 会话正文宽度自适应与拖拽调宽
 
 Status: implemented
 

@@ -1,4 +1,4 @@
-# Agent Note：Settings describe 镜像
+# Agent Note: Settings describe 镜像
 
 Status: implemented
 

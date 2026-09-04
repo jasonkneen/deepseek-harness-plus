@@ -1,4 +1,4 @@
-# Agent Note：Web 思考尾部滚动 —— 折叠态 reasoning 跟随实时输出
+# Agent Note: Web 思考尾部滚动 —— 折叠态 reasoning 跟随实时输出
 
 Status: implemented
 

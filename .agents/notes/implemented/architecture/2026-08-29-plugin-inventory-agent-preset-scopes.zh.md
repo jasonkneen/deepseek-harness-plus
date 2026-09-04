@@ -1,6 +1,6 @@
-# Agent Note：插件清单携带每个 Agent 预设的组合
+# Agent Note: 插件清单携带每个 Agent 预设的组合
 
-状态：已实现
+Status: implemented
 
 [English](2026-08-29-plugin-inventory-agent-preset-scopes.md) | 中文
 

@@ -1,4 +1,4 @@
-# Agent Note：可配置提供方目录不再提供仅以 OAuth 认证的提供方
+# Agent Note: 可配置提供方目录不再提供仅以 OAuth 认证的提供方
 
 Status: implemented
 

@@ -1,4 +1,4 @@
-# Agent Note：Web @ mention 的发现成本与行内容
+# Agent Note: Web @ mention 的发现成本与行内容
 
 Status: implemented
 

@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/process/2026-08-21-documentation-site-tag-release.md
 2026-08-21-documentation-site-tag-release.md: 3f7a9d04a018bdcaefb1f09e5f2410b138c0c8d4
-2026-08-21-documentation-site-tag-release.zh.md: cd1f128bc6e9fb9370162eda95170c7d27ad7b63
+2026-08-21-documentation-site-tag-release.zh.md: 0033492270a648204ec634554549fb908a128aa9

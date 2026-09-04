@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/process/2026-08-30-windows-refs-store-block-clone-install.md
 2026-08-30-windows-refs-store-block-clone-install.md: 086c00453fffada7faef1631e7c270f3270b82d6
-2026-08-30-windows-refs-store-block-clone-install.zh.md: f813ae15a16c9f5cd61b1f7b98a66d74af2115e9
+2026-08-30-windows-refs-store-block-clone-install.zh.md: 6d1a6ad387b59aad18435593cbf6e7383dfa34f0

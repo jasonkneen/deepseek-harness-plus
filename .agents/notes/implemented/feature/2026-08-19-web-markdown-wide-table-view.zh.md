@@ -1,4 +1,4 @@
-# Agent Note：Web markdown 表格按列数填充消息列，宽表突破列宽
+# Agent Note: Web markdown 表格按列数填充消息列，宽表突破列宽
 
 Status: implemented
 

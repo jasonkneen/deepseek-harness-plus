@@ -1,4 +1,4 @@
-# Agent Note：Python 极简组合的模型可见快照
+# Agent Note: Python 极简组合的模型可见快照
 
 Status: implemented
 
