@@ -59,6 +59,19 @@ describe('Python runtime executable builder CLI', () => {
     expect(result.stdout).not.toMatch(/pnpm\.cmd/i)
   })
 
+  it('accepts the macOS x64 pkg target', () => {
+    const result = run(
+      { npm_execpath: 'C:\\tools\\pnpm.cjs' },
+      '--skip-build',
+      '--dry-run',
+      '--targets=node24-macos-x64',
+    )
+
+    expect(result.status).toBe(0)
+    expect(result.stdout).toContain('exec pkg')
+    expect(result.stdout).toContain('--sea --targets node24-macos-x64')
+  })
+
   it('rejects a Windows arm64 product before any build step', () => {
     const result = run(
       { npm_execpath: 'C:\\tools\\pnpm.cjs' },

@@ -207,7 +207,7 @@ class BuildCli {
     return [
       'Usage: pnpm exec tsx scripts/build-exe-for-python-sdk.ts [flags]',
       '',
-      '  --targets=<t1,t2,...>  pkg targets, e.g. node24-linux-x64,node24-linux-arm64,node24-macos-arm64,node24-win-x64.',
+      '  --targets=<t1,t2,...>  pkg targets, e.g. node24-linux-x64,node24-linux-arm64,node24-macos-arm64,node24-macos-x64,node24-win-x64.',
       '                         Default: the host platform only (on node24).',
       '  --skip-build           skip `pnpm run build` (lib/ artifacts must already exist).',
       '  --dry-run              print every command and config patch without executing.',
