@@ -565,10 +565,10 @@ function sameSlashEntry(left: SlashEntry, right: SlashEntry): boolean {
  * tokens its own text carries.
  *
  * The index holds only messages, skill injections, and boundaries, ordered by
- * `anchorSeq`. An apply re-reads just the batches around classification
- * changes and direct-message upserts and never scans the store, so an
- * assistant streaming frame costs nothing here (the append hot path never
- * scans the Chat Nodes).
+ * `anchorSeq`. An apply re-reads just the batches around the Nodes whose
+ * classification changed and never scans the store, so an assistant
+ * streaming frame costs nothing here (the append hot path never scans the
+ * Chat Nodes).
  */
 export class SkillNameProjector {
   private readonly entries = new Map<string, SlashEntry>()
@@ -601,8 +601,8 @@ export class SkillNameProjector {
   }
 
   /**
-   * Fold one incremental upsert set: re-read only the batches around changed
-   * classifications and direct-message upserts.
+   * Fold one incremental upsert set: re-read only the batches around the
+   * Nodes whose classification changed.
    * @param upserts - the changed Nodes.
    * @param store - the resident Nodes, read by key for the messages of an affected batch.
    * @returns the upserts plus any resident message whose names changed.
@@ -617,6 +617,8 @@ export class SkillNameProjector {
       const previous = this.entries.get(node.key)
       if (previous !== undefined) {
         if (next !== null && sameSlashEntry(previous, next)) {
+          // A rebuilt message Node carries Definition state only, never the
+          // names a previous apply attached: re-read its batch.
           if (next.kind === 'message') dirty.push(next.seq)
           continue
         }
