@@ -98,7 +98,7 @@ export class DesktopHostProcess {
   /** Start the child once and resolve only after its complete composition is active. */
   async start(): Promise<DesktopHostReady> {
     if (this.child !== undefined) return this.readyPromise
-    const entry = join(this.projectDir, 'node_modules', '@deepseek-ai', 'dsh', 'lib', 'desktop-host.js')
+    const entry = join(this.projectDir, 'node_modules', '@deepseek-ai', 'dsh-desktop-host', 'lib', 'index.js')
     const child = spawn(this.node, [
       ...(this.inspectPort === undefined ? [] : [`--inspect=127.0.0.1:${String(this.inspectPort)}`]),
       entry,

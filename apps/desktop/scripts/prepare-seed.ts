@@ -9,7 +9,8 @@ import { createSeedMetadata } from '../src/project-manager.ts'
 import { DESKTOP_HOST_PROTOCOL_VERSION } from '../src/host-protocol.ts'
 import { parseDesktopRelease, type DesktopRelease } from '../src/release.ts'
 import {
-  DESKTOP_DSH_RUNTIME_FILES,
+  DESKTOP_HOST_PACKAGE,
+  DESKTOP_HOST_RUNTIME_FILES,
   DESKTOP_PACKAGES_DIR,
   DESKTOP_PACKAGE_SET_FILE,
   readDesktopCorePackageSet,
@@ -128,10 +129,10 @@ async function verifyOfflineInstallation(release: DesktopRelease): Promise<void>
   const installedModules = join(SEED_ROOT, 'node_modules')
   try {
     await runPnpm(['install', '--offline', '--frozen-lockfile', '--trust-lockfile'])
-    const dshRoot = join(installedModules, '@deepseek-ai', 'dsh')
-    for (const file of DESKTOP_DSH_RUNTIME_FILES) {
-      if (!existsSync(join(dshRoot, file))) {
-        throw new Error(`desktop seed: local @deepseek-ai/dsh@${release.version} does not contain ${file}`)
+    const hostRoot = join(installedModules, ...DESKTOP_HOST_PACKAGE.split('/'))
+    for (const file of DESKTOP_HOST_RUNTIME_FILES) {
+      if (!existsSync(join(hostRoot, file))) {
+        throw new Error(`desktop seed: local ${DESKTOP_HOST_PACKAGE}@${release.version} does not contain ${file}`)
       }
     }
   } finally {

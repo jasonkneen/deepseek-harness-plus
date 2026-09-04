@@ -14,11 +14,11 @@ DeepSeek Harness 需要一个复用 Web UI 的 Electron 桌面应用。该应用
 
 ## 决策
 
-交付一个小型 Electron 壳，其中内置上游 Node.js 可执行文件和固定版本的 pnpm。Electron 把 dsh 作为隔离子进程启动，通过两条带版本的分帧字节管道承载 Fetch 元数据及有界的原始请求与响应分块，只用 Node IPC 传递就绪、致命失败和关闭，并通过 `dsh-app://` 提供经过验证的资源；它不会打开监听端口。每个帧都包含固定标记、类型、单调 stream id、负载长度和经过验证的负载。串行 writer 遵守 pipe drain，请求或响应 stream 施加背压时 reader 会全局暂停，取消会关闭匹配的 stream，已退役 stream 的迟到响应帧保持无效。Connection 插件无需 `webServer` 即可提供与载体无关的 RPC 与 Fetch 注册表，Client Modules 则向 shell-owned carrier 提供与广告内容完全一致的组合 bundle 响应；Web 组合为两者挂载可选 HTTP route。渲染进程保留相同的 Fetch、RPC 与 Remote-stream 格式，子进程载体则避免 Base64 膨胀，也不依赖 Electron 与内置上游 Node.js 之间的 V8 序列化兼容性。发送 shutdown 后，Electron 会关闭自己持有的请求管道写端，以便在等待子进程退出前释放 Windows 上仍在进行的管道读取。该设计沿用 [GUI 分层与 RPC 协议 Agent Note](../../archived/architecture/2026-07-19-gui-layering-and-rpc-protocol.md)中的 Electron 预留。
+交付一个小型 Electron 壳，其中内置上游 Node.js 可执行文件和固定版本的 pnpm。Electron 把私有 Desktop Host 包作为隔离子进程启动；该包组合已安装的 dsh 后端与匹配的客户端图。Fetch 元数据及有界的原始请求与响应分块通过两条带版本的分帧字节管道传递，Node IPC 只承载就绪、致命失败和关闭，Electron 通过 `dsh-app://` 提供经过验证的资源；它不会打开监听端口。每个帧都包含固定标记、类型、单调 stream id、负载长度和经过验证的负载。串行 writer 遵守 pipe drain，请求或响应 stream 施加背压时 reader 会全局暂停，取消会关闭匹配的 stream，已退役 stream 的迟到响应帧保持无效。Connection 插件无需 `webServer` 即可提供与载体无关的 RPC 与 Fetch 注册表，Client Modules 则向 shell-owned carrier 提供与广告内容完全一致的组合 bundle 响应；Web 组合为两者挂载可选 HTTP route。渲染进程保留相同的 Fetch、RPC 与 Remote-stream 格式，子进程载体则避免 Base64 膨胀，也不依赖 Electron 与内置上游 Node.js 之间的 V8 序列化兼容性。发送 shutdown 后，Electron 会关闭自己持有的请求管道写端，以便在等待子进程退出前释放 Windows 上仍在进行的管道读取。该设计沿用 [GUI 分层与 RPC 协议 Agent Note](../../archived/architecture/2026-07-19-gui-layering-and-rpc-protocol.md)中的 Electron 预留。
 
-Electron 拥有保留 profile `.dsh/profiles/desktop`。其中精确的 `@deepseek-ai/dsh` 依赖同时提供后端与匹配的 Web UI。dsh 发布及其第一方依赖闭包使用同一次源码构建生成的本地 npm tarball；profile manifest 把每个核心包列为本地 `file:` 依赖，`pnpm-workspace.yaml` 再通过 overrides 重复该映射。桌面插件既是同一 profile 中来自 registry 的其他 npm 依赖，也是有序的 `dsh.profile.bundles` 条目，并从该 profile 唯一的 `node_modules` 解析。
+Electron 拥有保留 profile `.dsh/profiles/desktop`。其中精确的 `@deepseek-ai/dsh` 依赖提供后端与匹配的 Web UI，匹配的私有 `@deepseek-ai/dsh-desktop-host` 依赖则只提供 Electron 子进程入口与组合 overlay。dsh 发布、私有 Host 及其第一方依赖闭包使用同一次源码构建生成的本地 npm tarball；profile manifest 把每个核心包列为本地 `file:` 依赖，`pnpm-workspace.yaml` 再通过 overrides 重复该映射。Host 不进入公共 CLI 包，也不会发布到 npm。桌面插件既是同一 profile 中来自 registry 的其他 npm 依赖，也是有序的 `dsh.profile.bundles` 条目，并从该 profile 唯一的 `node_modules` 解析。
 
-一个 Desktop 发布号同时标识 Electron 产物及其精确 `@deepseek-ai/dsh` 依赖。发布不能在构建或运行时选择不同的 dsh 版本。因此，即使壳代码没有变化，更新 dsh 也必须产生新的 Electron 发布。
+一个 Desktop 发布号同时标识 Electron 产物及其精确的 `@deepseek-ai/dsh` 与 `@deepseek-ai/dsh-desktop-host` 依赖。发布不能在构建或运行时选择不同的核心版本。因此，即使壳代码没有变化，更新 dsh 也必须产生新的 Electron 发布。
 
 浏览器 Web UI、dsh 后端、现有 `dsh plugin` CLI、用户 npm 和用户 pnpm 都不能修改该 profile。CLI 保留 `desktop` 名称的所有大小写变体，并拒绝针对它的启动、配置 dump 和插件管理请求。Electron 在项目恢复或 Host 启动前获取进程生命周期单实例锁；后续启动只会聚焦或重建主窗口，不会接触 profile 状态。Electron-only GUI 通过 preload 发送结构化安装、删除和更新请求；Electron 只调用其内置 pnpm。
 
@@ -29,6 +29,7 @@ Electron 拥有保留 profile `.dsh/profiles/desktop`。其中精确的 `@deepse
 | Electron 壳 | 窗口与子进程生命周期、分帧字节管道、生命周期 IPC、自定义协议、保留 desktop profile、插件 GUI、更新协调、回滚 |
 | 内置 Node.js 与 pnpm | 执行 dsh 并安装桌面项目的精确依赖，不读取用户 `PATH` 或 pnpm 状态 |
 | Desktop profile | 为桌面 dsh 包与桌面插件提供一个依赖图、有序 bundle 列表和一个 `node_modules` |
+| 私有 Desktop Host 包 | 与 dsh 一起安装、但不进入公共 CLI 包或 npm 发布的 Electron 专用子进程入口与组合 overlay |
 | 已安装 dsh 包 | 后端、匹配的 Web UI、启动 manifest、客户端包和产品行为 |
 | 共享 `.dsh` owner | 会话、设置、凭据、工作区和存储，由其现有锁与格式版本保护 |
 | 通过 npm 安装的 dsh | 自己的可执行安装和用户管理的 profile；不能访问保留 desktop profile 或包状态 |
@@ -70,15 +71,15 @@ Electron 拥有保留 profile `.dsh/profiles/desktop`。其中精确的 `@deepse
 
 进程生命周期 Electron 锁是 Desktop 的权威 owner。包事务锁用于纵深防御，并记录仍能修改包状态的进程：包操作之间记录 Electron，pnpm 运行期间记录已生成的 pnpm PID。Owner 变更通过已经打开的排他锁文件完成截断、写入与同步。如果 Electron 在 pnpm 执行期间终止，后续进程会发现仍存活的 worker，并拒绝启动并发的 store 或 staging 事务；该 worker 退出后，陈旧 PID 才可以恢复。
 
-打包种子是离线安装包，而不是可执行 dsh 目录。它包含发布身份、初始桌面项目 manifest、以 dsh 为根的第一方包闭包描述文件及不可变 tarball、lockfile、完整性清单和所需 store 子集。每个 `mac-arm64`、`mac-x64` 和 `win-x64` 构建都在 `.desktop-build/targets/<target>` 下持有自己的打包输入、运行时、包集合、seed、pnpm 准备状态、未打包应用、更新元数据和最终产物；只有不可变且经过校验和验证的 Node.js 下载缓存会被共享。发布构建要求 Electron 包与根 dsh 包使用相同版本，从正式源码构建生成最终 npm tarball，选择可达的 dsh 与 vendored 包以及 Landlock 入口，并验证 dsh tarball 中的 `lib/desktop-host.js` 入口与 `config/desktop.cordis.patch.yml` overlay。该 overlay 是唯一为了 Desktop 而发布的 CLI 配置文件；示例配置仍留在 tarball 之外。这些 tarball 保持为由各包 `files` manifest 决定内容的正式 `pnpm pack` 结果；Desktop 不删除已发布的声明文件，也不建立第二套包内容策略。manifest 把每个选中的包列为本地直接依赖，关闭对等依赖自动安装，workspace 文件再把每个选中的第一方包 override 到对应本地 tarball。目标 Node.js 执行内置 pnpm，因此 pnpm 的操作系统和 CPU 选择会使物化的依赖图与 seed 成为目标专用内容。内置 pnpm 关闭全局 virtual store，在禁用生命周期脚本的情况下从 npm 物化外部生产依赖，删除 `node_modules` 以及所有临时 pnpm cache、config 和 state 目录，然后只使用最终 store 执行一次干净的离线安装，并检查两个 Desktop Host 文件。构建会拒绝任何通过 registry 版本解析本地第一方包名的 lockfile。生成清单前会删除第二次生成的 `node_modules` 和临时 pnpm 项目注册。在复制 package set 前与离线安装后都要求两个文件，可防止 Host 入口本身能够加载、却无法组合所需 overlay 的发布进入应用签名阶段。
+打包 seed 是离线安装包，而不是可执行 dsh 目录。它包含发布身份、初始桌面项目 manifest、分别以 dsh 和私有 Desktop Host 为根的第一方包闭包之并集的描述文件及不可变 tarball、lockfile、完整性清单和所需 store 子集。每个 `mac-arm64`、`mac-x64` 和 `win-x64` 构建都在 `.desktop-build/targets/<target>` 下持有自己的打包输入、运行时、包集合、seed、pnpm 准备状态、未打包应用、更新元数据和最终产物；只有不可变且经过校验和验证的 Node.js 下载缓存会被共享。发布构建要求 Electron 包、根 dsh 包与私有 Host 包使用相同版本，从正式源码构建生成最终 npm tarball，在本地打包私有 Host，选择可达的 dsh、Host 与 vendored 包以及 Landlock 入口，并验证 Host tarball 中包含 `lib/index.js` 与 `config/desktop.cordis.patch.yml`。Host 的 `files` manifest 只包含该运行入口与 overlay，并且该包不会发布到 npm。公共包 tarball 仍是由各包发布 manifest 控制的正式 `pnpm pack` 结果；Desktop 不删除已发布的声明文件，也不建立第二套包内容策略。seed manifest 把每个选中的包列为本地直接依赖，关闭 peer dependency 自动安装，workspace 文件再把每个选中的第一方包 override 到对应本地 tarball。目标 Node.js 执行内置 pnpm，因此 pnpm 的操作系统和 CPU 选择会使物化的依赖图与 seed 成为目标专用内容。内置 pnpm 关闭全局 virtual store，在禁用生命周期脚本的情况下从 npm 物化外部生产依赖，删除 `node_modules` 以及所有临时 pnpm cache、config 和 state 目录，然后只使用最终 store 执行一次干净的离线安装，并检查私有 Host 的入口与 overlay。构建会拒绝任何通过 registry 版本解析本地第一方包名的 lockfile。生成清单前会删除第二次生成的 `node_modules` 和临时 pnpm 项目注册。在复制 package set 前与离线安装后都要求这两个 Host 文件，可防止进程入口能够加载、却无法组合所需 overlay 的发布进入应用签名阶段。
 
 种子根据规范化 store 路径，把 pnpm 内容放入 16 个确定性的未压缩 tar 分片。Apple 公证会检查这些归档内的 Mach-O 代码，因此 macOS seed 会 staging 每个被引用的内容寻址 Mach-O 对象，最多并发四个独立的 Developer ID 签名进程，并带上安全时间戳与 hardened runtime。任一签名失败后，准备过程会等待已启动的签名进程全部退出，原始 CAS 对象与包索引保持不变。所有签名成功后，准备过程把每个对象写到新的 SHA-512 路径，并以事务方式重写 pnpm MessagePack SQLite 索引内全部基础文件和 side-effects 文件引用。第二次离线安装证明 pnpm 可以解析重写后的 store；准备过程随后完成分片、解包最终归档并验证每个内嵌签名。包路径和非原生字节保持不变；种子保留包内附带的架构变体，因为删除文件会创建 Desktop 专属的包文件集。种子完整性覆盖分片 manifest 和解包前的每个归档。启动时验证归档路径、条目类型、唯一性和数量，把所有分片解包到唯一且由 Desktop 拥有的 staging 目录，替换匹配的不可变 store 文件，并以事务方式把各 pnpm store 版本的 SQLite `package_index` 合并进 `.dsh/desktop/pnpm/store`。Seed 记录替换匹配的键，为 Desktop 插件下载的记录继续保留。中断的文件合并可能留下有效的不可变缓存内容，但每次 SQLite 合并都是原子的，profile 安装与激活仍必须通过 pnpm 完整性与完整健康检查。
 
-启动过程先要求安装包内的发布身份等于 Electron 应用版本，再在启动后端前比较 `.dsh/profiles/desktop/desktop-release.json`、已安装 dsh 包与该发布版本。它在 staging 中通过 `pnpm install --offline --frozen-lockfile --trust-lockfile` 安装新的种子 manifest 与 lockfile。Electron 替换后，启动过程再通过一次离线 pnpm add，从桌面端现有 store 与元数据缓存恢复活跃 profile 记录的每个插件 bundle 精确版本。完整依赖图必须通过同一套健康检查才能激活。
+启动过程先要求安装包内的发布身份等于 Electron 应用版本，再在启动后端前比较 `.dsh/profiles/desktop/desktop-release.json`、已安装 dsh 包、已安装 Desktop Host 包与该发布版本。它在 staging 中通过 `pnpm install --offline --frozen-lockfile --trust-lockfile` 安装新的 seed manifest 与 lockfile。Electron 替换后，启动过程再通过一次离线 pnpm add，从桌面端现有 store 与元数据缓存恢复活跃 profile 记录的每个插件 bundle 精确版本。完整依赖图必须通过同一套健康检查才能激活。
 
-插件 GUI 执行等价于 `pnpm add <package> --save-exact`、`pnpm remove <package>` 和精确版本更新的 registry npm 包操作。每次修改都保留本地核心包描述文件、tarball、dsh 依赖和完整 override 映射。Electron 验证已安装包 manifest，并更新 profile 的依赖与有序 bundle 条目；任何渲染进程请求都不能选择 registry、安装目录、生命周期策略或任意 pnpm flag。
+插件 GUI 执行等价于 `pnpm add <package> --save-exact`、`pnpm remove <package>` 和精确版本更新的 registry npm 包操作。每次修改都保留本地核心包描述文件、tarball、dsh 与 Desktop Host 依赖和完整 override 映射。Electron 验证已安装包 manifest，并更新 profile 的依赖与有序 bundle 条目；任何渲染进程请求都不能选择 registry、安装目录、生命周期策略或任意 pnpm flag。
 
-后端与 Loader 把 `.dsh/profiles/desktop/package.json` 作为 profile manifest 和 npm 解析锚点。公共 profile loader 先组合其中的有序 bundle 条目，再应用 Electron 持有的 desktop overlay。dsh、Cordis、桌面插件、插件依赖和 peer dependency 均通过普通 pnpm `node_modules` 图解析。贡献 `dsh.client` 代码的桌面插件只有在完整 profile 通过健康检查后才进入启动 manifest。
+后端与 Loader 把 `.dsh/profiles/desktop/package.json` 作为 profile manifest 和 npm 解析锚点。公共 profile loader 先组合其中的有序 bundle 条目，再由私有 Desktop Host 应用其打包的 overlay。Host、dsh、Cordis、桌面插件、插件依赖和 peer dependency 均通过普通 pnpm `node_modules` 图解析。贡献 `dsh.client` 代码的桌面插件只有在完整 profile 通过健康检查后才进入启动 manifest。
 
 ## 更新与恢复
 
@@ -90,7 +91,7 @@ Electron 更新只使用一个 `electron-updater` 发布流和签名 `electron-b
 
 ## 安全与发布策略
 
-核心 dsh 只能来自签名 Electron 发布内经过完整性记录的本地 npm tarball；pnpm overrides 防止传递核心包回退到 registry。Store 归档经过完整性检查，并在隔离的解包目录中完成全部验证，归档文件随后才能进入可写包状态。插件安装接受桌面策略允许的 registry 包 spec，但绝不接受原始 pnpm 命令。激活前必须具备精确版本、lockfile 完整性、经过评审的 `allowBuilds` 集合、仅限用户的目录权限、遮盖后的诊断和健康检查。
+核心 dsh 与私有 Desktop Host 只能来自签名 Electron 发布内经过完整性记录的本地 npm tarball；pnpm overrides 防止传递核心包回退到 registry。Store 归档经过完整性检查，并在隔离的解包目录中完成全部验证，归档文件随后才能进入可写包状态。插件安装接受桌面策略允许的 registry 包 spec，但绝不接受原始 pnpm 命令。激活前必须具备精确版本、lockfile 完整性、经过评审的 `allowBuilds` 集合、仅限用户的目录权限、遮盖后的诊断和健康检查。
 
 Electron 产物必须签名；macOS 产物必须公证。发布自动化必须通过明确的环境变量提供应用 ID、macOS Developer ID 限定名、预期 Team ID 与一套完整的 notarytool 凭据。配置加载会拒绝缺失或格式错误的标识符和不完整的公证凭据，macOS 打包还会强制签名，避免证书发现过程静默选择其他已安装身份或生成未签名发布。Seed 准备会验证每个内嵌 Mach-O 文件的精确 Authority 与 Team ID，以及时间戳和 hardened-runtime 标记。签名后钩子会执行 Apple 的深度严格应用验证，并要求同一叶证书 Authority 与 Team ID 完全匹配，验证通过后才继续生成产物。Electron-builder 随后公证应用并钉票、签署 DMG。DMG 的 artifact-completion hook 会单独公证每个 DMG 并钉票，再要求其使用配置的身份、具备有效票据并通过 Gatekeeper；只有该 hook 成功，上传事件才会执行。macOS 更新使用签名 ZIP，因此 DMG 不生成 blockmap；否则钉票会让已经生成的 DMG blockmap 失效。自定义协议提供已安装的前端分发目录和活跃模块图点名的客户端文件，并拒绝路径穿越或访问这些根目录之外的内容。插件安装器 API 只对 Electron 拥有的管理 GUI 可用，不存在于浏览器应用或后端 RPC 中。
 
@@ -105,11 +106,11 @@ Windows 发布打包通过 `/f` 向已配置且与 SafeNet 兼容的 SignTool �
 | 表面 | 实现 |
 |---|---|
 | 壳 | `apps/desktop` 负责 Electron 窗口、受限 preload、自定义协议、子进程生命周期、项目事务、插件 GUI、更新协调和 electron-builder 配置。 |
-| 已安装运行时 | `@deepseek-ai/dsh/desktop-host` 从活跃项目启动无端口桌面组合，并通过经过验证的分帧字节管道流式传输 API 与资源响应。 |
+| 已安装运行时 | 私有 `@deepseek-ai/dsh-desktop-host` 从活跃项目启动无端口桌面组合，并通过经过验证的分帧字节管道流式传输 API 与资源响应。 |
 | 包状态 | 发布种子和后续每次修改都通过内置 Node.js 与 pnpm 执行，并使用桌面端拥有的 store、config、cache、state 和 home 路径；核心包从发布 tarball 解析，插件从固定 npm registry 解析。 |
 | 资格验证 | macOS 打包要求已配置的公司身份与公证凭据可用，在解包最终归档后验证每个原生 seed 对象，验证完整应用签名，并要求应用和 DMG 都完成公证且通过 Gatekeeper。Windows 打包要求已配置的公开证书、SafeNet 私钥容器、Token Password 与 SignTool，并验证生成的每个签名。更新托管、跨上一版本的已安装产物测试和各平台 GUI 录制仍是发布环境门槛。 |
 
-`dev:desktop` 会构建当前 workspace，把已构建 CLI 包及其依赖链接投影为一次性项目，使用隔离的 Harness home，打开 Main、Renderer 和 Host 调试器，并在不准备发布资源的情况下启动未打包 Electron。该模式的链接依赖图不是由 pnpm 安装的桌面项目，因此会禁用包修改。固定的 macOS arm64、macOS x64 与 Windows x64 打包命令会把同一目标传给运行时准备、seed 安装和 electron-builder；每条命令还提供未封装安装器的变体，用于在生成安装器前验证发布路径。
+`dev:desktop` 会构建当前 workspace，把已构建 CLI 包、私有 Desktop Host 包及其依赖链接投影为一次性项目，使用隔离的 Harness home，打开 Main、Renderer 和 Host 调试器，并在不准备发布资源的情况下启动未打包 Electron。该模式的链接依赖图不是由 pnpm 安装的桌面项目，因此会禁用包修改。固定的 macOS arm64、macOS x64 与 Windows x64 打包命令会把同一目标传给运行时准备、seed 安装和 electron-builder；每条命令还提供未封装安装器的变体，用于在生成安装器前验证发布路径。
 
 ## 考虑过的替代方案
 

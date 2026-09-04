@@ -25,6 +25,7 @@ import { basename, delimiter, dirname, isAbsolute, join, relative, resolve, sep 
 import {
   DESKTOP_PACKAGES_DIR,
   DESKTOP_PACKAGE_SET_FILE,
+  DESKTOP_HOST_PACKAGE,
   desktopCorePackageOverrides,
   desktopDshPackageSpec,
   readDesktopCorePackageSet,
@@ -370,10 +371,14 @@ export class DesktopProjectManager {
   /** Read the exact dsh version installed in the active desktop project. */
   dshVersion(): string {
     if (!existsSync(this.paths.profile)) throw new Error('desktop project: active profile is not installed')
-    const manifestPath = join(this.paths.profile, 'node_modules', ...DSH_PACKAGE.split('/'), 'package.json')
+    return this.installedPackageVersion(DSH_PACKAGE)
+  }
+
+  private installedPackageVersion(packageName: string): string {
+    const manifestPath = join(this.paths.profile, 'node_modules', ...packageName.split('/'), 'package.json')
     const manifest = readJson(manifestPath)
     if (!isRecord(manifest) || typeof manifest.version !== 'string') {
-      throw new Error('desktop project: installed dsh package has no version')
+      throw new Error(`desktop project: installed ${packageName} package has no version`)
     }
     assertVersion(manifest.version)
     return manifest.version
@@ -396,7 +401,8 @@ export class DesktopProjectManager {
         throw new Error(`desktop project: seed ${target.version} does not match Electron ${electronVersion}`)
       }
       if (existsSync(this.paths.profile) && this.releaseVersion() === target.version
-        && this.dshVersion() === target.version) {
+        && this.dshVersion() === target.version
+        && this.installedPackageVersion(DESKTOP_HOST_PACKAGE) === target.version) {
         verifyDesktopCorePackageSet(this.paths.profile, target.version)
         return false
       }
@@ -707,7 +713,10 @@ export function createDevelopmentProjectMetadata(projectDir: string, release: De
     name: PROJECT_NAME,
     private: true,
     version: '0.0.0',
-    dependencies: { [DSH_PACKAGE]: release.version },
+    dependencies: {
+      [DSH_PACKAGE]: release.version,
+      [DESKTOP_HOST_PACKAGE]: release.version,
+    },
     dsh: { profile: { bundles: [...DESKTOP_PROFILE_BUNDLES] } },
   }
   writeJson(join(projectDir, 'package.json'), manifest)

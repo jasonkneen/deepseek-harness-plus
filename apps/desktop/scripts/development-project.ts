@@ -26,6 +26,8 @@ export interface DevelopmentProjectOptions {
   readonly projectDir: string
   /** Current workspace's `apps/cli` package directory. */
   readonly cliDir: string
+  /** Current workspace's private Desktop Host application directory. */
+  readonly hostDir: string
   /** pnpm's workspace-wide virtual-hoist directory. */
   readonly dependencyDir: string
   /** Release identity written into the disposable project metadata. */
@@ -92,9 +94,15 @@ export function prepareDevelopmentProject(options: DevelopmentProjectOptions): s
   if (!existsSync(options.dependencyDir)) {
     throw new Error('desktop development: workspace dependency links are missing; run pnpm install')
   }
-  const desktopHost = join(options.cliDir, 'lib', 'desktop-host.js')
-  if (!existsSync(desktopHost)) {
-    throw new Error('desktop development: apps/cli/lib/desktop-host.js is missing; run pnpm run build')
+  const hostManifest = readManifest(join(options.hostDir, 'package.json'))
+  if (hostManifest.name !== '@deepseek-ai/dsh-desktop-host' || hostManifest.version !== options.release.version) {
+    throw new Error(
+      `desktop development: apps/desktop-host must be @deepseek-ai/dsh-desktop-host@${options.release.version}, found `
+      + `${String(hostManifest.name)}@${String(hostManifest.version)}`,
+    )
+  }
+  if (!existsSync(join(options.hostDir, 'lib', 'index.js'))) {
+    throw new Error('desktop development: apps/desktop-host/lib/index.js is missing; run pnpm run build')
   }
 
   removeOwnedPath(options.projectDir)
@@ -105,5 +113,8 @@ export function prepareDevelopmentProject(options: DevelopmentProjectOptions): s
   const dshLink = join(destinationModules, '@deepseek-ai', 'dsh')
   removeOwnedPath(dshLink)
   linkDirectory(options.cliDir, dshLink)
+  const hostLink = join(destinationModules, '@deepseek-ai', 'dsh-desktop-host')
+  removeOwnedPath(hostLink)
+  linkDirectory(options.hostDir, hostLink)
   return options.projectDir
 }

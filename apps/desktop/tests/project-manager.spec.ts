@@ -54,19 +54,25 @@ function archiveStore(seed: string): void {
 }
 
 function writeCorePackageSet(seed: string, version: string): void {
-  const body = Buffer.from(`dsh-${version}`)
-  const file = `deepseek-ai-dsh-${version}.tgz`
+  const packages = [
+    { name: '@deepseek-ai/dsh', file: `deepseek-ai-dsh-${version}.tgz`, body: Buffer.from(`dsh-${version}`) },
+    {
+      name: '@deepseek-ai/dsh-desktop-host',
+      file: `deepseek-ai-dsh-desktop-host-${version}.tgz`,
+      body: Buffer.from(`desktop-host-${version}`),
+    },
+  ]
   mkdirSync(join(seed, DESKTOP_PACKAGES_DIR), { recursive: true })
-  writeFileSync(join(seed, DESKTOP_PACKAGES_DIR, file), body)
+  for (const entry of packages) writeFileSync(join(seed, DESKTOP_PACKAGES_DIR, entry.file), entry.body)
   writeFileSync(join(seed, DESKTOP_PACKAGE_SET_FILE), `${JSON.stringify({
     schemaVersion: 1,
-    packages: [{
-      name: '@deepseek-ai/dsh',
+    packages: packages.map(({ name, file, body }) => ({
+      name,
       version,
       file,
       bytes: body.byteLength,
       integrity: `sha512-${createHash('sha512').update(body).digest('base64')}`,
-    }],
+    })),
   })}\n`)
 }
 
@@ -103,7 +109,8 @@ rmSync(join(project, 'node_modules'), { recursive: true, force: true })
 for (const [name, version] of Object.entries(manifest.dependencies)) {
   const packageRoot = join(project, 'node_modules', ...name.split('/'))
   mkdirSync(packageRoot, { recursive: true })
-  const plugin = name !== '@deepseek-ai/dsh'
+  const core = name === '@deepseek-ai/dsh' || name === '@deepseek-ai/dsh-desktop-host'
+  const plugin = !core
   const installedVersion = plugin
     ? version
     : JSON.parse(readFileSync(join(project, 'desktop-release.json'), 'utf8')).version
@@ -112,9 +119,9 @@ for (const [name, version] of Object.entries(manifest.dependencies)) {
     ...(plugin ? { dsh: { bundle: { patch: './bundle.yml' } } } : {}),
   }))
   if (plugin) writeFileSync(join(packageRoot, 'bundle.yml'), '[]\n')
-  else {
+  else if (name === '@deepseek-ai/dsh-desktop-host') {
     mkdirSync(join(packageRoot, 'lib'), { recursive: true })
-    writeFileSync(join(packageRoot, 'lib', 'desktop-host.js'), '')
+    writeFileSync(join(packageRoot, 'lib', 'index.js'), '')
   }
 }
 writeFileSync(join(project, 'pnpm-lock.yaml'), 'lockfileVersion: 9\n')
@@ -180,7 +187,7 @@ describe('desktop package policy', () => {
 })
 
 describe('desktop project transactions', () => {
-  it('installs the offline seed with the bundled runtime and desktop pnpm state', async () => {
+  it('installs the offline seed and reconciles a mismatched private Host', async () => {
     const root = temporaryRoot()
     const seed = join(root, 'seed')
     const log = join(root, 'pnpm-log.json')
@@ -199,6 +206,11 @@ describe('desktop project transactions', () => {
     try {
       await expect(manager.applyRelease(seed, '2.0.0', hooks())).rejects.toThrow(/does not match Electron/u)
       await manager.applyRelease(seed, '1.0.0', hooks())
+      writeFileSync(
+        join(paths.profile, 'node_modules', '@deepseek-ai', 'dsh-desktop-host', 'package.json'),
+        '{"name":"@deepseek-ai/dsh-desktop-host","version":"0.9.0"}\n',
+      )
+      await expect(manager.applyRelease(seed, '1.0.0', hooks())).resolves.toBe(true)
     } finally {
       if (previousLog === undefined) delete process.env.TEST_PNPM_LOG
       else process.env.TEST_PNPM_LOG = previousLog
@@ -209,6 +221,11 @@ describe('desktop project transactions', () => {
     expect(manager.releaseVersion()).toBe('1.0.0')
     expect(paths.profile).toBe(join(root, '.dsh', 'profiles', 'desktop'))
     expect(existsSync(join(paths.profile, 'node_modules', '@deepseek-ai', 'dsh'))).toBe(true)
+    const installedHost = JSON.parse(readFileSync(
+      join(paths.profile, 'node_modules', '@deepseek-ai', 'dsh-desktop-host', 'package.json'),
+      'utf8',
+    )) as { version: string }
+    expect(installedHost.version).toBe('1.0.0')
     expect(existsSync(join(paths.profile, 'desktop-plugins.json'))).toBe(false)
     expect(readFileSync(join(paths.pnpm.store, 'seed-entry'), 'utf8')).toBe('content')
     const invocation = JSON.parse(readFileSync(log, 'utf8')) as { args: string[]; env: Record<string, string> }

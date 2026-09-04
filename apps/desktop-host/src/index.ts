@@ -1,7 +1,7 @@
 /**
  * Electron child-process entry: boots the desktop project without a listening
  * socket and carries API plus validated Web assets over framed byte pipes.
- * @module @deepseek-ai/dsh/desktop-host
+ * @module @deepseek-ai/dsh-desktop-host
  */
 
 import { createRequire } from 'node:module'
@@ -36,9 +36,9 @@ import {
   encodeDesktopResponseError,
   encodeDesktopResponseStart,
   type DesktopHostRequestFrame,
-} from './desktop-host-wire.ts'
+} from './wire.ts'
 
-export { DESKTOP_HOST_PROTOCOL_VERSION } from './desktop-host-wire.ts'
+export { DESKTOP_HOST_PROTOCOL_VERSION } from './wire.ts'
 
 /** One request forwarded from Electron's `dsh-app://` handler. */
 export interface DesktopHostFetchCommand {
@@ -91,9 +91,7 @@ interface PackageManifest {
   readonly version?: string
 }
 
-const INSTALL_ANCHOR = fileURLToPath(new URL('../package.json', import.meta.url))
 const DESKTOP_PATCH = fileURLToPath(new URL('../config/desktop.cordis.patch.yml', import.meta.url))
-const SHIPPED_PRESET_ROOT = fileURLToPath(new URL('../config/agent-presets/', import.meta.url))
 const ROOT_CONFIG = '# Electron desktop composition root; package transactions own this file.\n[]\n'
 const ROOT_CONFIG_FILENAME = 'desktop.cordis.yml'
 const DESKTOP_STREAM_PATH = '/.dsh/remote-stream'
@@ -152,7 +150,8 @@ function isProjectPath(projectDir: string, target: string): boolean {
 }
 
 function desktopPatches(projectDir: string, allowLinkedPackages: boolean): PatchOptions[] {
-  const profile = loadProfileDirectory('dsh desktop', projectDir, INSTALL_ANCHOR)
+  const dshRoot = dirname(packageManifestPath(projectDir, '@deepseek-ai/dsh'))
+  const profile = loadProfileDirectory('dsh desktop', projectDir, join(dshRoot, 'package.json'))
   for (const layer of profile.layers) {
     if (!allowLinkedPackages && !isProjectPath(projectDir, layer.packageDir)) {
       throw new Error(`dsh desktop: profile bundle ${JSON.stringify(layer.packageName)} resolved outside the desktop profile`)
@@ -170,7 +169,7 @@ function desktopPatches(projectDir: string, allowLinkedPackages: boolean): Patch
       id: 'agent-presets',
       config: {
         ...(agentPresets.config ?? {}) as Record<string, unknown>,
-        roots: [{ path: SHIPPED_PRESET_ROOT, trust: 'system' }],
+        roots: [{ path: join(dshRoot, 'config', 'agent-presets'), trust: 'system' }],
       },
     }])
   }

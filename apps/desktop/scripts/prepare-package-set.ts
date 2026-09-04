@@ -1,4 +1,4 @@
-/** Select and copy the local npm tarball closure that supplies Desktop dsh. */
+/** Select and copy the local npm tarball closures that supply Desktop dsh and its private Host. */
 
 import { createHash } from 'node:crypto'
 import {
@@ -14,7 +14,8 @@ import {
 import { basename, join, resolve } from 'node:path'
 import { parseArgs } from 'node:util'
 import {
-  DESKTOP_DSH_RUNTIME_FILES,
+  DESKTOP_HOST_PACKAGE,
+  DESKTOP_HOST_RUNTIME_FILES,
   DESKTOP_PACKAGES_DIR,
   DESKTOP_PACKAGE_SET_FILE,
   parseDesktopCorePackageSet,
@@ -25,6 +26,7 @@ import { tarballFiles } from '../../../scripts/release/tarball.ts'
 import { resolveDesktopTargetBuildPaths } from './desktop-build-paths.mjs'
 
 const DSH_PACKAGE = '@deepseek-ai/dsh'
+const ROOT_PACKAGES = [DSH_PACKAGE, DESKTOP_HOST_PACKAGE] as const
 const APP_ROOT = resolve(import.meta.dirname, '..')
 const REPOSITORY_ROOT = resolve(APP_ROOT, '..', '..')
 
@@ -47,14 +49,13 @@ function dependencyNames(manifest: Readonly<Record<string, unknown>>, section: s
 }
 
 /**
- * Select the complete available first-party dependency closure rooted at dsh.
+ * Select the complete available first-party dependency closures rooted at dsh and its private Host.
  * @param available - Packed packages indexed by package name.
  * @returns Selected packages sorted by name.
  */
 export function selectDesktopPackageClosure(
   available: ReadonlyMap<string, PackedDesktopPackage>,
 ): PackedDesktopPackage[] {
-  if (!available.has(DSH_PACKAGE)) throw new Error(`desktop package set: packed inputs omit ${DSH_PACKAGE}`)
   const selected = new Map<string, PackedDesktopPackage>()
   const visit = (name: string): void => {
     if (selected.has(name)) return
@@ -73,7 +74,10 @@ export function selectDesktopPackageClosure(
       if (available.has(dependency)) visit(dependency)
     }
   }
-  visit(DSH_PACKAGE)
+  for (const name of ROOT_PACKAGES) {
+    if (!available.has(name)) throw new Error(`desktop package set: packed inputs omit ${name}`)
+    visit(name)
+  }
   return [...selected.entries()].sort(([left], [right]) => left.localeCompare(right)).map(([, packed]) => packed)
 }
 
@@ -103,26 +107,26 @@ function packedPackages(inputs: readonly string[]): Map<string, PackedDesktopPac
 }
 
 /**
- * Require every dsh file used before the Desktop profile can pass its health check.
+ * Require every private Host file used before the Desktop profile can pass its health check.
  * @param files - Tarball paths rooted at `package/`.
  * @returns Nothing.
  */
-export function assertDesktopDshPackageFiles(files: readonly string[]): void {
+export function assertDesktopHostPackageFiles(files: readonly string[]): void {
   const available = new Set(files)
-  const missing = DESKTOP_DSH_RUNTIME_FILES
+  const missing = DESKTOP_HOST_RUNTIME_FILES
     .map(file => `package/${file}`)
     .filter(file => !available.has(file))
   if (missing.length > 0) {
-    throw new Error(`desktop package set: ${DSH_PACKAGE} tarball omits required file(s): ${missing.join(', ')}`)
+    throw new Error(`desktop package set: ${DESKTOP_HOST_PACKAGE} tarball omits required file(s): ${missing.join(', ')}`)
   }
 }
 
 /** Prepare a package set from release tarball directories. */
 export function prepareDesktopPackageSet(inputs: readonly string[], output: string): void {
   const selected = selectDesktopPackageClosure(packedPackages(inputs))
-  const dsh = selected.find(packed => packed.manifest.name === DSH_PACKAGE)
-  if (dsh === undefined) throw new Error(`desktop package set: selected closure omits ${DSH_PACKAGE}`)
-  assertDesktopDshPackageFiles(tarballFiles(dsh.tarball))
+  const host = selected.find(packed => packed.manifest.name === DESKTOP_HOST_PACKAGE)
+  if (host === undefined) throw new Error(`desktop package set: selected closure omits ${DESKTOP_HOST_PACKAGE}`)
+  assertDesktopHostPackageFiles(tarballFiles(host.tarball))
   rmSync(output, { recursive: true, force: true })
   const packageDir = join(output, DESKTOP_PACKAGES_DIR)
   mkdirSync(packageDir, { recursive: true })

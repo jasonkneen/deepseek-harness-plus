@@ -15,17 +15,11 @@
     "dsh": "lib/bin.js"
   },
   "exports": {
-    "./desktop-host": {
-      "types": "./lib/types/desktop-host.d.ts",
-      "default": "./lib/desktop-host.js"
-    },
     "./package.json": "./package.json"
   },
   "files": [
     "lib/*.js",
-    "lib/types/desktop-host.d.ts",
-    "lib/types/desktop-host-wire.d.ts",
-    "config/desktop.cordis.patch.yml"
+    "!lib/desktop-host.js"
   ],
   "dsh": {
     "configTrees": [

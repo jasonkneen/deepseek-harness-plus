@@ -87,7 +87,10 @@ async function main(): Promise<void> {
     await runPackageScript('build', REPOSITORY_ROOT)
     await runPackageScript('build', APP_ROOT)
   }
-  for (const path of [join(APP_ROOT, 'lib', 'main.js'), join(REPOSITORY_ROOT, 'apps', 'cli', 'lib', 'desktop-host.js')]) {
+  for (const path of [
+    join(APP_ROOT, 'lib', 'main.js'),
+    join(REPOSITORY_ROOT, 'apps', 'desktop-host', 'lib', 'index.js'),
+  ]) {
     if (!existsSync(path)) throw new Error(`desktop development: missing built artifact ${path}`)
   }
   const version = packageVersion(join(APP_ROOT, 'package.json'), 'desktop package')
@@ -102,6 +105,7 @@ async function main(): Promise<void> {
   const projectDir = prepareDevelopmentProject({
     projectDir: join(DEVELOPMENT_ROOT, 'project'),
     cliDir: join(REPOSITORY_ROOT, 'apps', 'cli'),
+    hostDir: join(REPOSITORY_ROOT, 'apps', 'desktop-host'),
     dependencyDir: join(REPOSITORY_ROOT, 'node_modules', '.pnpm', 'node_modules'),
     release,
   })

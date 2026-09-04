@@ -256,6 +256,13 @@ async function main(): Promise<void> {
   }
   await runPnpm(['run', 'build:official'], buildEnv, REPOSITORY_ROOT)
   await runPnpm(['run', 'release:pack', '--family', 'dsh', '--out', buildPaths.packedDsh], buildEnv, REPOSITORY_ROOT)
+  await runPnpm([
+    '--dir',
+    'apps/desktop-host',
+    'pack',
+    '--pack-destination',
+    buildPaths.packedDsh,
+  ], buildEnv, REPOSITORY_ROOT)
   await runPnpm(['run', 'release:pack', '--family', 'vendor', '--out', buildPaths.packedVendor], buildEnv, REPOSITORY_ROOT)
   rmSync(buildPaths.packedLandlock, { recursive: true, force: true })
   mkdirSync(buildPaths.packedLandlock, { recursive: true })
