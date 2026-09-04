@@ -616,7 +616,12 @@ export class SkillNameProjector {
       const next = slashEntryOf(node)
       const previous = this.entries.get(node.key)
       if (previous !== undefined) {
-        if (next !== null && sameSlashEntry(previous, next)) continue
+        if (next !== null && sameSlashEntry(previous, next)) {
+          // A rebuilt message Node carries Definition state only, never the
+          // names a previous apply attached: re-read its batch.
+          if (next.kind === 'message') dirty.push(next.seq)
+          continue
+        }
         this.remove(previous)
         dirty.push(previous.seq)
       }

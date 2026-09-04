@@ -76,6 +76,19 @@ describe('SkillNameProjector', () => {
     expect(names(out.find(node => node.key === 'user:2'))).toEqual(['demo'])
   })
 
+  it('re-decorates a direct message the assembler re-emits without names', () => {
+    const projector = new SkillNameProjector()
+    const replaced = projector.replace([user(2, '/demo go'), skill(5, 'demo'), assistant(6)])
+    expect(names(replaced[0])).toEqual(['demo'])
+    const store = storeOf(replaced)
+    // A rebuilt message Node carries Definition state only: no skillNames.
+    const rebuilt = user(2, '/demo go')
+    const out = projector.apply([rebuilt], store)
+    expect(out.map(node => node.key)).toEqual(['user:2'])
+    expect(names(out[0])).toEqual(['demo'])
+    expect(store.valuesCalls).toBe(0)
+  })
+
   it('a boundary arriving inside a batch splits it and drops the names past it', () => {
     const projector = new SkillNameProjector()
     const replaced = projector.replace([user(2, '/demo go'), skill(4, 'demo'), user(8, '/demo again')])
