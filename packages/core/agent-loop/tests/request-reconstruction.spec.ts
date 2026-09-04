@@ -660,41 +660,9 @@ describe('request stability across the loop', () => {
     const snapshots = agent2.session.snapshotEvents().filter(e => e.type === 'request/header')
     expect(snapshots).toHaveLength(2)
     expect(snapshots[1]?.data.reason).toBe('resume')
-    expect(snapshots[1]?.data.startsSeries).toBeUndefined()
     // Identical header across the restart: byte-identical continuation.
     expect(adapter2.requests[0]!.system).toEqual(adapter.requests[0]!.system)
     expectPrefixExtension(adapter.requests[0]!, adapter2.requests[0]!)
-  })
-
-  it('retains an explicit series boundary on the first request of a resumed loop', async () => {
-    const adapter = new MockAdapter([textResponse('one')])
-    const ctx = await harness(adapter)
-    const agent = await ctx.agentLoop.create(SessionId('series-gen1'), { provider: 'mock', model: 'mock' })
-    send(agent, 'first')
-    await waitForIdle(ctx, agent)
-
-    const adapter2 = new MockAdapter([textResponse('two')])
-    const ctx2 = await harness(adapter2)
-    ctx2.on('agent/pre-step', async (_payload, next) => {
-      const decision = await next()
-      return decision.kind === 'enter'
-        ? { ...decision, startsRequestSeries: true }
-        : decision
-    })
-    const handle = await ctx2.agents.create({
-      sessionId: SessionId('series-gen2'),
-      seed: agent.session.snapshotEvents(),
-      agentOptions: { provider: 'mock', model: 'mock' },
-    })
-    send(handle.agent, 'second series')
-    await waitForIdle(ctx2, handle.agent)
-
-    expect(handle.agent.session.snapshotEvents().flatMap(event => event.type === 'request/header'
-      ? [{ reason: event.data.reason, startsSeries: event.data.startsSeries }]
-      : [])).toEqual([
-      { reason: 'initial', startsSeries: undefined },
-      { reason: 'resume', startsSeries: true },
-    ])
   })
 
   it('a delegating listener cannot mutate the seed through next() — the fold stays log-true', async () => {

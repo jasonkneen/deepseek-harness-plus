@@ -81,7 +81,7 @@ session.deriveMessages()         // the derived model history
 
 ### 请求 header
 
-`request/header` 存储非历史请求 envelope 的完整规范快照，原因为 `initial`、`resume`、`change` 或 `series`。循环实例基于既有历史发出的首次请求使用 `resume`；其已接纳步骤显式开启独立消息序列时，快照携带 `startsSeries: true`。后续显式消息序列起点或表层替换会在 envelope 不变时写入 `series` 快照；同时发生变化时使用 `startsSeries: true`。同一序列内的步骤、重试与普通后续轮次继承最新快照。`adapterDefaults` 区分由适配器解析的值与显式设置，`foldRequestHeader()` 选择最新快照。这种自包含记录以每个消息序列增加存储为代价，支持局部窗口渲染与精确重建；细节由[可重建请求 Agent Note](../../../.agents/notes/implemented/architecture/2026-07-05-reconstructable-requests.zh.md)负责。
+`request/header` 存储非历史请求 envelope 的完整规范快照，原因为 `initial`、`resume`、`change` 或 `series`。显式消息序列起点或表层替换会在 envelope 不变时写入 `series` 快照；同时发生变化时使用 `startsSeries: true`。同一序列内的步骤、重试与普通后续轮次继承最新快照。`adapterDefaults` 区分由适配器解析的值与显式设置，`foldRequestHeader()` 选择最新快照。这种自包含记录以每个消息序列增加存储为代价，支持局部窗口渲染与精确重建；细节由[可重建请求 Agent Note](../../../.agents/notes/implemented/architecture/2026-07-05-reconstructable-requests.zh.md)负责。
 
 ### 源码地图
 

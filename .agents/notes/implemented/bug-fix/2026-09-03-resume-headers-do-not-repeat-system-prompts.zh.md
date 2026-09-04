@@ -10,11 +10,11 @@ fork Session 会把源会话历史复制到子会话。即使 system 字段与�
 
 ## 决策
 
-持久化 resume header 记录精确重建 Session 所需的请求边界。恢复后的 loop 首次接纳的请求显式开启独立消息序列时，loop 会在 resume 快照上以 `startsSeries: true` 保留该事实。Chat 会把完整 header 与前一条已加载 Request Prompt 比较，只在初始请求、显式消息序列起点或真实 system 字段变化时显示非空系统提示词。内容未变的普通 resume 不创建可见的重复行。
+持久化 resume header 保持不变，因为它记录了精确重建 Session 所需的请求边界。Chat 现在会把完整 header 与前一条已加载 Request Prompt 比较，只在初始请求、显式消息序列起点或真实 system 字段变化时显示非空系统提示词。内容未变的 resume 不创建可见的重复行。
 
 部分历史窗口可能以非初始 header 开头，因缺少前序 header 而无法比较。Chat 会保守渲染该系统提示词。如果 prepend 随后补入相同的前序 header，既有 request-prompt Node 会转为隐藏而不是被撤回；其 key 和页面生命周期内的 anchor 保持稳定。不同的 system 字段仍然可见。
 
-Trajectory 会继续展示每一条请求 header 及其变化分类。提供方请求与重建保持不变；Session event 的唯一差异，是显式声明的恢复后序列边界会携带已有的 `startsSeries` 标记。
+Trajectory 会继续展示每一条请求 header 及其变化分类。本次改动仅限 Chat 展示，不改变提供方请求、Session event 或重建行为。
 
 ## 考虑过的替代方案
 
@@ -26,6 +26,6 @@ Trajectory 会继续展示每一条请求 header 及其变化分类。提供方�
 
 ## 后果
 
-继续 fork 或在 system 字段未变时恢复进程，当前消息序列只保留一行可见的`系统提示词`。显式序列起点（包括恢复后 loop 的首次请求）与真实 system 变化仍会重复该行。部分窗口起初可以显示保守行，并在更早历史加载后将其隐藏，同时保留同一个已物化 Node。
+继续 fork 或在 system 字段未变时恢复进程，当前消息序列只保留一行可见的`系统提示词`。显式序列起点与真实 system 变化仍会重复该行。部分窗口起初可以显示保守行，并在更早历史加载后将其隐藏，同时保留同一个已物化 Node。
 
-单元回归覆盖初始请求、显式序列、未变化 resume、恢复后序列、system 变化与 prepend 场景。Web 录制会话场景包含一条未变化的 resume header，并断言稳定后的 Chat 只渲染一个`系统提示词`控件。
+单元回归覆盖初始请求、显式序列、未变化 resume、system 变化与 prepend 场景。Web 录制会话场景包含一条未变化的 resume header，并断言稳定后的 Chat 只渲染一个`系统提示词`控件。

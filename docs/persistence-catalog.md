@@ -577,7 +577,7 @@ Source: [`packages/core/session/src/types.ts:341`](../packages/core/session/src/
 'request/header': {
   header: EpochHeader
   reason: RequestHeaderReason
-  /** A `change` or `resume` snapshot also begins a distinct model-message series. */
+  /** A changed header also begins a distinct model-message series. */
   startsSeries?: true
 }
 ```

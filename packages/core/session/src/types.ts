@@ -244,11 +244,11 @@ export interface RequestContext {
 
 /**
  * Why a `request/header` snapshot was appended: `'initial'` — the log's first
- * header (a new conversation); `'resume'` — a loop instance's first request over
- * existing header history (process restart, fork seed), with `startsSeries`
- * preserving an explicit series boundary; `'change'` — a later request used a
- * different header, with `startsSeries` preserving a coincident series boundary;
- * `'series'` — an unchanged header began an explicitly distinct message series or followed a surface replacement.
+ * header (a new conversation); `'resume'` — a loop instance's first request
+ * over a log that already has header events (process restart, fork seed);
+ * `'change'` — a later request used a different header, with `startsSeries`
+ * preserving a coincident series boundary; `'series'` — an unchanged header
+ * began an explicitly distinct message series or followed a surface replacement.
  */
 export type RequestHeaderReason = 'initial' | 'resume' | 'change' | 'series'
 
@@ -331,7 +331,7 @@ export interface SessionEventMap {
   'request/header': {
     header: EpochHeader
     reason: RequestHeaderReason
-    /** A `change` or `resume` snapshot also begins a distinct model-message series. */
+    /** A changed header also begins a distinct model-message series. */
     startsSeries?: true
   }
   /**

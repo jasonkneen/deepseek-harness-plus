@@ -88,7 +88,7 @@ The package is the one concrete implementation of the public `Agent` contract. I
 
 ### Request headers and adapter defaults
 
-After `agent/request`, `ctx.llm.prepareCall()` validates adapter-owned fields and resolves reasoning-effort and output-token defaults under the active turn signal. The loop retains that exact adapter through resolution, `request/header` logging, and dispatch. It writes a full header for the first request, a changed envelope, an explicit message-series start, a request after surface replacement, and resume; a resume snapshot carries `startsSeries: true` when its admitted step explicitly begins a distinct series. Unchanged steps, retries, and ordinary later turns in the same series inherit the latest header. Before the next waterfall, the loop removes adapter-default fields so the current route resolves them again, while explicit settings persist. An unhandled route still fails with `NO_ADAPTER`.
+After `agent/request`, `ctx.llm.prepareCall()` validates adapter-owned fields and resolves reasoning-effort and output-token defaults under the active turn signal. The loop retains that exact adapter through resolution, `request/header` logging, and dispatch. It writes a full header for the first request, a changed envelope, an explicit message-series start, a request after surface replacement, and resume; unchanged steps, retries, and ordinary later turns in the same series inherit the latest header. Before the next waterfall, the loop removes adapter-default fields so the current route resolves them again, while explicit settings persist. An unhandled route still fails with `NO_ADAPTER`.
 
 ### Source map
 

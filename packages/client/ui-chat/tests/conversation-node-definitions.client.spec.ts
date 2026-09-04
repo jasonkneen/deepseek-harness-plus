@@ -1362,7 +1362,6 @@ describe('built-in conversation node Definitions', () => {
       }),
       at(5, 'request/header', {
         reason: 'resume',
-        startsSeries: true,
         header: {
           config: { provider: 'fake', model: 'fake', maxTokens: 2_048 },
           system: '# Initial',
@@ -1370,14 +1369,6 @@ describe('built-in conversation node Definitions', () => {
         },
       }),
       at(6, 'request/header', {
-        reason: 'resume',
-        header: {
-          config: { provider: 'fake', model: 'fake', maxTokens: 2_048 },
-          system: '# Initial',
-          tools: expandedTools,
-        },
-      }),
-      at(7, 'request/header', {
         reason: 'change',
         header: {
           config: { provider: 'fake', model: 'fake', maxTokens: 2_048 },
@@ -1392,8 +1383,7 @@ describe('built-in conversation node Definitions', () => {
     expect(prompts.map(prompt => ({ anchorSeq: prompt.anchorSeq, data: prompt.data }))).toEqual([
       { anchorSeq: 1, data: { text: '# Initial' } },
       { anchorSeq: 4, data: { text: '# Initial' } },
-      { anchorSeq: 5, data: { text: '# Initial' } },
-      { anchorSeq: 7, data: { text: '# Updated' } },
+      { anchorSeq: 6, data: { text: '# Updated' } },
     ])
 
     const windowed = assembler([

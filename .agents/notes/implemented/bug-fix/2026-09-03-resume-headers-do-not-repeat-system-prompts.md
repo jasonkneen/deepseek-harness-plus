@@ -10,11 +10,11 @@ Forking a Session copies the source history into the child. The child's first mo
 
 ## Decision
 
-The durable resume header records the request boundary needed for exact Session reconstruction. When the first admitted request of a resumed loop explicitly begins a distinct message series, the loop preserves that fact as `startsSeries: true` on the resume snapshot. Chat compares the full header with the preceding loaded Request Prompt and displays a non-empty system prompt only for the initial request, an explicit message-series start, or a real system-field change. An unchanged ordinary resume does not create a visible repetition.
+The durable resume header remains unchanged because it records the request boundary needed for exact Session reconstruction. Chat now compares that full header with the preceding loaded Request Prompt and displays a non-empty system prompt only for the initial request, an explicit message-series start, or a real system-field change. An unchanged resume does not create a visible repetition.
 
 A partial history window may begin with a non-initial header and lack the predecessor needed for comparison. Chat renders that system prompt conservatively. If prepend later supplies an identical predecessor, the existing request-prompt Node becomes hidden instead of being withdrawn; its key and page-lifetime anchor stay stable. A different system field remains visible.
 
-Trajectory continues to expose every request header and its classified changes. Provider requests and reconstruction stay unchanged; the only Session-event difference is the existing `startsSeries` marker on an explicitly declared resumed-series boundary.
+Trajectory continues to expose every request header and its classified changes. The change is limited to Chat presentation and does not alter provider requests, Session events, or reconstruction.
 
 ## Alternatives considered
 
@@ -26,6 +26,6 @@ Trajectory continues to expose every request header and its classified changes. 
 
 ## Consequences
 
-Continuing a fork or resuming a process with an unchanged system field leaves one visible `System prompt` row for the current message series. Explicit series starts, including the first request of a resumed loop, and real system changes still repeat the row. A partial window can initially show a conservative row and hide it after older history loads, while retaining the same materialized Node.
+Continuing a fork or resuming a process with an unchanged system field leaves one visible `System prompt` row for the current message series. Explicit series starts and real system changes still repeat the row. A partial window can initially show a conservative row and hide it after older history loads, while retaining the same materialized Node.
 
-The unit regressions cover initial, series, unchanged resume, resumed-series, system-change, and prepend cases. The Web recorded-session scenario contains an unchanged resume header and asserts that the settled Chat renders exactly one `System prompt` control.
+The unit regression covers initial, series, unchanged resume, system-change, and prepend cases. The Web recorded-session scenario contains an unchanged resume header and asserts that the settled Chat renders exactly one `System prompt` control.
