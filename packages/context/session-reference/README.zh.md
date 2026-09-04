@@ -89,7 +89,7 @@ kind: "package-reference"
 包级约定不够用时阅读以下页面。它们从共享引用表面进入设计决策与其背后的读取服务。
 
 - [会话引用子系统](../../../docs/subsystems/session-reference.zh.md)——规范 URI、投影规则与稳定的错误分类。
-- [跨会话引用决策记录](../../../.agents/notes/implemented/feature/2026-07-21-cross-session-references.zh.md)——引用约定的设计理由。
+- [跨会话引用决策记录](../../../.agents/notes/archived/feature/2026-07-21-cross-session-references.md)——引用约定的设计理由。
 - [会话查询子系统](../../../docs/subsystems/session-query.zh.md)——提供会话表层的读取服务。
 - [context 组地图](../README.zh.md)——相邻的请求上下文包。
 - [生成的配置目录](../../../docs/config-catalog.zh.md#deepseek-aidsh-session-reference)——每个受支持配置字段及其源声明。

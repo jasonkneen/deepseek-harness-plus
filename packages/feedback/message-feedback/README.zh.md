@@ -109,7 +109,6 @@ kind: "package-reference"
 当包级约定不够用时阅读以下页面。它们从子系统类型与设计边界，逐步进入持久化原语与驱动此服务的浏览器消费方。
 
 - [反馈子系统](../../../docs/subsystems/feedback.zh.md)——公开类型、Remote 契约与 Web 消费方细节。
-- [消息反馈伴随记录决策](../../../.agents/notes/implemented/architecture/2026-08-10-message-feedback-sidecar.zh.md)——让此伴随记录不进入会话日志内容的设计边界。
 - [会话持久化子系统](../../../docs/subsystems/persistence.zh.md)——持久性屏障背后的 handle `read`、`stat` 与 `flush` 语义。
 - [dsh-client-ui-message-feedback](../../client/ui-message-feedback/README.zh.md)——驱动 Host Remote 契约的浏览器消费方。
 - [反馈包映射](../README.zh.md)——逐消息反馈与仅写入日志的采集命令并存的组。

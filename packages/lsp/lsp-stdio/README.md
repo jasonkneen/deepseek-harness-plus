@@ -119,10 +119,9 @@ Initialization advertises UTF-16 positions, workspace folders and configuration,
 <a id="further-exploration"></a>
 ## Further Exploration
 
-Read these pages when the package-level contract is not enough. They move from the shared navigation model to the seam, the tool, and the decision evidence.
+Read these pages when the package-level contract is not enough. They move from the shared navigation model to the seam and the tool.
 
 - [LSP navigation subsystem](../../../docs/subsystems/lsp.md) — operations, coordinates, requests and results, and `LspError` codes.
-- [LSP capability seam Agent Note](../../../.agents/notes/implemented/architecture/2026-07-15-lsp-capability-seam.md) — design rationale, alternatives, and deliberately deferred API.
 - [dsh-lsp](../lsp/README.md) — the seam this provider registers against.
 - [dsh-tool-lsp](../tool-lsp/README.md) — the model-facing tool over the seam.
 - [lsp group map](../README.md) — the three-package family and its related documentation.
