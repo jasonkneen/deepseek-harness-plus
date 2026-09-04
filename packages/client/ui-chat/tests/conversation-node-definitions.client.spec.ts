@@ -1402,7 +1402,7 @@ describe('built-in conversation node Definitions', () => {
     })
   })
 
-  it('materializes series starts and system changes but not same-series config or tool changes', () => {
+  it('materializes series starts and system changes but not unchanged resumes, config, or tool changes', () => {
     const tools = [{ name: 'read', description: 'Read', parameters: { type: 'object' } }]
     const expandedTools = [...tools, { name: 'write', description: 'Write', parameters: { type: 'object' } }]
     const value = assembler([
@@ -1458,7 +1458,6 @@ describe('built-in conversation node Definitions', () => {
     expect(prompts.map(prompt => ({ anchorSeq: prompt.anchorSeq, data: prompt.data }))).toEqual([
       { anchorSeq: 1, data: { text: '# Initial' } },
       { anchorSeq: 4, data: { text: '# Initial' } },
-      { anchorSeq: 5, data: { text: '# Initial' } },
       { anchorSeq: 6, data: { text: '# Updated' } },
     ])
 
@@ -1480,18 +1479,20 @@ describe('built-in conversation node Definitions', () => {
     windowed.prepend([
       at(5, 'request/header', {
         reason: 'initial',
-        header: { config: { provider: 'fake', model: 'fake' }, system: '# Original prompt' },
+        header: { config: { provider: 'fake', model: 'fake' }, system: '# Resumed prompt' },
       }),
     ], false)
     windowed.flush()
     const restored = snapshot(windowed)
-    const restoredPrompts = restored.order.flatMap((key) => {
-      const candidate = restored.nodes.get(key)
-      return candidate?.kind === 'system-prompt' ? [candidate] : []
-    })
-    expect(restoredPrompts.map(prompt => prompt.data)).toEqual([
-      { text: '# Original prompt' },
-      { text: '# Resumed prompt' },
+    const restoredPrompts = restored.nodes.values()
+      .filter(candidate => candidate.kind === 'system-prompt')
+    expect(restoredPrompts.map(prompt => ({
+      anchorSeq: prompt.anchorSeq,
+      visibility: prompt.visibility,
+      data: prompt.data,
+    })).sort((left, right) => left.anchorSeq - right.anchorSeq)).toEqual([
+      { anchorSeq: 5, visibility: 'visible', data: { text: '# Resumed prompt' } },
+      { anchorSeq: 10, visibility: 'hidden', data: { text: '# Resumed prompt' } },
     ])
   })
 
