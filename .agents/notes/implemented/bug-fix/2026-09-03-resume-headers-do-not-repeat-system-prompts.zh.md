@@ -10,11 +10,11 @@ fork Session 会把源会话历史复制到子会话。即使 system 字段与�
 
 ## 决策
 
-持久化 resume header 保持不变，因为它记录了精确重建 Session 所需的请求边界。Chat 现在会把完整 header 与前一条已加载 Request Prompt 比较，只在初始请求、显式消息序列起点或真实 system 字段变化时显示非空系统提示词。内容未变的 resume 不创建可见的重复行。
+持久化 resume header 记录精确重建 Session 所需的请求边界。Chat 会把完整 header 与前一条已加载 Request Prompt 比较，只在初始请求、显式消息序列起点或真实 system 字段变化时显示非空系统提示词。内容未变的 resume 不创建可见的重复行。
 
 部分历史窗口可能以非初始 header 开头，因缺少前序 header 而无法比较。Chat 会保守渲染该系统提示词。如果 prepend 随后补入相同的前序 header，既有 request-prompt Node 会转为隐藏而不是被撤回；其 key 和页面生命周期内的 anchor 保持稳定。不同的 system 字段仍然可见。
 
-Trajectory 会继续展示每一条请求 header 及其变化分类。本次改动仅限 Chat 展示，不改变提供方请求、Session event 或重建行为。
+Trajectory 会展示每一条请求 header 及其变化分类。Chat 展示不会改变提供方请求、Session event 或重建行为。
 
 ## 考虑过的替代方案
 

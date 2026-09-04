@@ -10,11 +10,11 @@ Forking a Session copies the source history into the child. The child's first mo
 
 ## Decision
 
-The durable resume header remains unchanged because it records the request boundary needed for exact Session reconstruction. Chat now compares that full header with the preceding loaded Request Prompt and displays a non-empty system prompt only for the initial request, an explicit message-series start, or a real system-field change. An unchanged resume does not create a visible repetition.
+The durable resume header records the request boundary needed for exact Session reconstruction. Chat compares that full header with the preceding loaded Request Prompt and displays a non-empty system prompt only for the initial request, an explicit message-series start, or a real system-field change. An unchanged resume does not create a visible repetition.
 
 A partial history window may begin with a non-initial header and lack the predecessor needed for comparison. Chat renders that system prompt conservatively. If prepend later supplies an identical predecessor, the existing request-prompt Node becomes hidden instead of being withdrawn; its key and page-lifetime anchor stay stable. A different system field remains visible.
 
-Trajectory continues to expose every request header and its classified changes. The change is limited to Chat presentation and does not alter provider requests, Session events, or reconstruction.
+Trajectory exposes every request header and its classified changes. Chat presentation does not alter provider requests, Session events, or reconstruction.
 
 ## Alternatives considered
 
