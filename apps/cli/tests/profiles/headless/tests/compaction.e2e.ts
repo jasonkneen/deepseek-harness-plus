@@ -31,7 +31,7 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('compaction: a long session compa
       await writeFile(join(workdir, `file${i}.txt`), `This is file number ${i}. `.repeat(50))
     }
 
-    // Reasoning tokens require a larger generation cap than the retained checkpoint.
+    // The eight-section checkpoint and reasoning blocks share the generation budget.
     ctx = await codingHarness(workdir, {
       persona: SYSTEM_PROMPT,
       modelContextWindow: 2000,
@@ -40,7 +40,7 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('compaction: a long session compa
         retainTokens: 400,
         summarizationProvider: '',
         summarizationModel: '',
-        maxTokens: 1024,
+        maxTokens: 2048,
         compactionRetries: 1,
       },
       persistenceRoot: join(workdir, '.sessions'),
@@ -67,7 +67,8 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('compaction: a long session compa
     // It succeeded at least once: a `compaction/summary` event describing the summary and a
     // replace-op user/message (the surface mutation) both landed.
     const summaries = events.filter(e => e.type === 'compaction/summary')
-    expect(summaries.length).toBeGreaterThan(0)
+    const failures = ends.flatMap(event => event.data.error === undefined ? [] : [event.data.error])
+    expect(summaries.length, `compaction failures: ${failures.join('; ')}`).toBeGreaterThan(0)
     const replaceNode = events.find((e) => {
       const se = e as unknown as { type: string; surfaceOp?: unknown }
       return se.type === 'user/message' && typeof se.surfaceOp === 'object' && se.surfaceOp !== null
