@@ -10,7 +10,7 @@
 import { type ChildProcess, type SpawnOptions, spawn, spawnSync } from 'node:child_process'
 import type { Readable } from 'node:stream'
 import { randomBytes } from 'node:crypto'
-import { closeSync, mkdtempSync, openSync, unlinkSync, writeSync } from 'node:fs'
+import { closeSync, mkdtempSync, openSync, rmdirSync, unlinkSync, writeSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { setTimeout as sleepMs } from 'node:timers/promises'
@@ -92,12 +92,26 @@ let defaultSpillDir: string | undefined
 /**
  * The default spill location: a private (0700) per-process directory under
  * the OS tmpdir, created lazily. Predictable world-readable paths would let
- * other local users read command output or pre-create symlinks.
+ * other local users read command output or pre-create symlinks. At a
+ * JavaScript-observable process exit the directory is removed only when it
+ * holds no completed spill file (spill files are retained as full-output
+ * recovery artifacts until an external cleanup).
  */
 function privateSpillDir(): string {
   defaultSpillDir ??= mkdtempSync(join(tmpdir(), 'dsh-subprocess-'))
   return defaultSpillDir
 }
+
+// The per-process spill directory is removed at process exit when it holds no
+// completed spill file: a directory that never spilled is empty and is safe to
+// remove, while a directory holding completed spill files keeps them (their
+// content is retained until an external cleanup). A SIGKILLed process cannot
+// run this at all; its residue is left to OS temp hygiene.
+/* v8 ignore next 4 -- exit listeners run after the coverage dump; removal is verified by the CI /tmp residue measurement. */
+process.once('exit', () => {
+  if (defaultSpillDir === undefined) return
+  try { rmdirSync(defaultSpillDir) } catch { /* best-effort: ENOENT/ENOTEMPTY/EBUSY/EPERM must not change the exit code. */ }
+})
 
 /**
  * Collects one stream with a bounded in-memory tail. With a spill cap, on

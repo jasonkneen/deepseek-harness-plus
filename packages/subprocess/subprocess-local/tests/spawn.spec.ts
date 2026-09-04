@@ -1,8 +1,8 @@
 import { spawn as nodeSpawn, spawnSync as nodeSpawnSync } from 'node:child_process'
-import { mkdtempSync, readFileSync, statSync, unlinkSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync, statSync, unlinkSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
-import { describe, expect, it, vi } from 'vitest'
+import { afterAll, describe, expect, it, vi } from 'vitest'
 import {
   childEnv,
   killGroup,
@@ -87,6 +87,14 @@ vi.mock('node:fs', async (importOriginal) => {
 })
 
 const spillDir = mkdtempSync(join(tmpdir(), 'dsh-subprocess-spec-'))
+
+/** The per-process default spill dir captured by the default-spill test. */
+let defaultSpillDir: string | undefined
+
+afterAll(() => {
+  rmSync(spillDir, { recursive: true, force: true })
+  if (defaultSpillDir !== undefined) rmSync(defaultSpillDir, { recursive: true, force: true })
+})
 
 type SpecOverrides = Partial<Parameters<typeof spawnSubprocess>[0]> & {
   stdoutMaxBytes?: number
@@ -1127,6 +1135,7 @@ describe('environment and spill-file hardening', () => {
       spec('for i in $(seq 1 200); do printf "line-%04d\\n" $i; done', { stdoutMaxBytes: 500, stderrMaxBytes: 500 }),
     ))
     const dir = dirname(result.stdout.spillPath!)
+    defaultSpillDir = dir
     expect(dir).toMatch(/dsh-subprocess-/)
     const mode = statSync(dir).mode & 0o777
     expect(mode).toBe(0o700)
