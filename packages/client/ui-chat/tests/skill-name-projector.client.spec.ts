@@ -66,6 +66,16 @@ describe('SkillNameProjector', () => {
     expect(store.valuesCalls).toBe(0)
   })
 
+  it('retains batch names when the same message is upserted', () => {
+    const projector = new SkillNameProjector()
+    const replaced = projector.replace([user(2, '/demo go'), skill(5, 'demo'), assistant(6)])
+    const store = storeOf(replaced)
+    const out = projector.apply([user(2, '/demo revised')], store)
+    expect(out.map(node => node.key)).toEqual(['user:2'])
+    expect(names(out[0])).toEqual(['demo'])
+    expect(store.valuesCalls).toBe(0)
+  })
+
   it('a late skill injection updates only the direct messages of its batch', () => {
     const projector = new SkillNameProjector()
     const replaced = projector.replace([user(2, '/demo go'), assistant(6), user(10, 'unrelated')])

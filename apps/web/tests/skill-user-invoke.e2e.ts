@@ -114,12 +114,14 @@ describe.skipIf(MODE === 'record')('web e2e: user-explicit skill invocation thro
     const settled = scaffold.whenTurnSettled()
     await composer.fill(`/${SKILL_NAME} ${ARGS_TEXT}`)
     await composer.press('Enter')
+    await settled
 
     // The gesture stays an ordinary user bubble (decorated /name token plus
     // the trailing text), ahead of the injected context.
-    const bubble = page.locator('[data-ref-chip="skill"]').first()
-    await bubble.waitFor({ timeout: 15_000 })
-    expect(await bubble.textContent()).toBe(`/${SKILL_NAME}`)
+    await expect.poll(
+      () => page.locator('[data-ref-chip="skill"]').allTextContents(),
+      { timeout: 15_000 },
+    ).toContain(`/${SKILL_NAME}`)
 
     // The rendered body arrives as a context-injection row named after the
     // skill. Context plus the final answer contributes no summary count, so
@@ -127,7 +129,6 @@ describe.skipIf(MODE === 'record')('web e2e: user-explicit skill invocation thro
     const injectionFlow = page.locator('[data-chat-flow-kind="context"]').filter({ hasText: SKILL_NAME })
     await injectionFlow.waitFor({ state: 'attached', timeout: 15_000 })
     await page.getByText('USER_INVOKE_REPLY', { exact: false }).first().waitFor({ timeout: 20_000 })
-    await settled
     const process = page.getByRole('button', { name: 'Thought for a while', exact: true })
     await process.waitFor({ state: 'visible', timeout: 10_000 })
     await expandOwningTurnProcess(page, injectionFlow)
