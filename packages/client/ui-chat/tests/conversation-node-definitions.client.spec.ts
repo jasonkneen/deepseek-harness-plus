@@ -1766,6 +1766,58 @@ describe('built-in conversation node Definitions', () => {
     })
   })
 
+  it('associates a direct message with the skill invocations injected for its step', () => {
+    const skillInvocation = (id: string) => ({
+      ...textMessage(id, 'instructions'),
+      source: { kind: 'skill-invocation', name: 'demo-skill', form: 'instructions' },
+    })
+    const instructions = (id: string) => ({
+      ...textMessage(id, 'workspace rules'),
+      source: { kind: 'agent-instructions', changes: [{ path: 'AGENTS.md' }] },
+    })
+    const value = assembler([
+      at(1, 'turn/start', { turn: 1 }),
+      at(2, 'user/message', textMessage('gesture', '/demo-skill go'), { surfaceOp: 'append' }),
+      at(3, 'step/start', { turn: 1, step: 1 }),
+      at(4, 'user/message', instructions('rules-1'), { surfaceOp: 'append' }),
+      at(5, 'user/message', skillInvocation('skill-body'), { surfaceOp: 'append' }),
+      at(6, 'assistant/message', {
+        turn: 1,
+        step: 1,
+        message: assistantMessage('answer-1', 'done'),
+      }, { surfaceOp: 'append' }),
+      at(7, 'step/end', { turn: 1, step: 1 }),
+      at(8, 'turn/end', { turn: 1, reason: { kind: 'completed' } }),
+      at(9, 'turn/start', { turn: 2 }),
+      at(10, 'user/message', textMessage('later', '/demo-skill again?'), { surfaceOp: 'append' }),
+      at(11, 'step/start', { turn: 2, step: 1 }),
+      at(12, 'user/message', instructions('rules-2'), { surfaceOp: 'append' }),
+    ])
+
+    const users = [...snapshot(value).nodes.values()].filter(candidate => candidate.kind === 'user')
+    expect(users).toHaveLength(2)
+    expect(users[0]?.data).toMatchObject({ skillNames: ['demo-skill'] })
+    expect(users[1]?.data).not.toHaveProperty('skillNames')
+  })
+
+  it('updates an already published direct node when its skill injection arrives', () => {
+    const value = assembler([
+      at(1, 'user/message', textMessage('gesture', '/demo-skill go'), { surfaceOp: 'append' }),
+    ])
+    const before = node(snapshot(value), 'user')
+    expect(before?.data).not.toHaveProperty('skillNames')
+
+    value.append(at(2, 'user/message', {
+      ...textMessage('skill-body', 'instructions'),
+      source: { kind: 'skill-invocation', name: 'demo-skill', form: 'instructions' },
+    }, { surfaceOp: 'append' }))
+    value.flush()
+
+    const after = node(snapshot(value), 'user')
+    expect(after?.key).toBe(before?.key)
+    expect(after?.data).toMatchObject({ skillNames: ['demo-skill'] })
+  })
+
   it('keeps replacement copies out of Chat business nodes', () => {
     const value = assembler([
       at(1, 'turn/start', { turn: 1 }),
