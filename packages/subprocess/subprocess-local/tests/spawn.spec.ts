@@ -1,3 +1,4 @@
+import { spawn as nodeSpawn, spawnSync as nodeSpawnSync } from 'node:child_process'
 import { mkdtempSync, readFileSync, statSync, unlinkSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
@@ -11,6 +12,11 @@ import {
 } from '../src/spawn.ts'
 import type { SubprocessHandle, SubprocessOutputReader } from '@deepseek-ai/dsh-subprocess'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
+
+vi.mock('node:child_process', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:child_process')>()
+  return { ...actual, spawnSync: vi.fn(actual.spawnSync) }
+})
 
 /**
  * Translate the suite's POSIX command strings into node one-liners on Windows,
@@ -631,6 +637,30 @@ describe('stdio dispositions', () => {
 })
 
 describe('windows tree semantics (injected platform)', () => {
+  it('hides the child window without changing output, exit, stdio, or tree-root options', async () => {
+    let options: Parameters<typeof nodeSpawn>[2]
+    const result = await finish(spawnSubprocess(spec('echo hello'), {
+      spillDir,
+      platform: 'win32',
+      spawn: (program, args, spawnOptions) => {
+        options = spawnOptions
+        return nodeSpawn(program, args, spawnOptions)
+      },
+    }))
+
+    expect(options!).toMatchObject({
+      windowsHide: true,
+      detached: false,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    })
+    expect(result).toMatchObject({
+      exitCode: 0,
+      signal: null,
+      stdout: { text: 'hello\n', truncated: false },
+      stderr: { text: '', truncated: false },
+    })
+  })
+
   it('host-exit termination routes through taskkill immediately', async () => {
     const killed: number[] = []
     const running = spawnSubprocess(spec('exec sleep 60', { graceMs: 60_000 }), {
@@ -773,6 +803,17 @@ describe.skipIf(process.platform === 'win32')('tree-survivor escalation (termina
 })
 
 describe('coverage seams', () => {
+  it('hides the taskkill helper window', () => {
+    const taskkill = vi.mocked(nodeSpawnSync)
+    taskkill.mockReturnValueOnce({} as never)
+    taskkillProcessTree(77)
+    expect(taskkill).toHaveBeenLastCalledWith(
+      'taskkill',
+      ['/PID', '77', '/T', '/F'],
+      { stdio: 'ignore', windowsHide: true },
+    )
+  })
+
   it('taskkillProcessTree ignores non-positive pids and contains a missing binary', () => {
     expect(() => { taskkillProcessTree(-1) }).not.toThrow()
     expect(() => { taskkillProcessTree(0) }).not.toThrow()
