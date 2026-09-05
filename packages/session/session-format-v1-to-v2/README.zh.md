@@ -49,7 +49,7 @@ const eventRecord = releasedV2SessionFormatCodec.encodeEvent(currentEvent)
 
 如果引用指向被消费的 chunk，迁移会失败，而不会把它重定向到语义不同的事件。它会重映射已声明的事件 provenance、surface replacement、command source event、compaction range 与 list，以及 title message list。已经对模型可见的 `session/title-llm-request.messages` 文本会在源校验后保持逐字节不变，因此目标校验不会重新解释该 prompt 中嵌入的旧序号。带 seed 的源若让继承切点切开一个 Assistant attempt，也会迁移失败；目标会用 `session/end-seed { inherited: true }` 标出精确切点。
 
-v2 物理 header 要求 `isSeeded`，且不存储数值切点。编解码器从最后一个 inherited end-seed marker 推导切点，每行写入一个事件，只对 `sourceEventSeqs` 做范围编码，并对普通事件词汇与 payload 扩展保持中立。Released-current restoration 准入 installed Session package 已知的事件 type，以及携带 `ignorable: true` 的未知事件，并校验事件 member 与关系。完整 current restoration 还会把 payload 与嵌入 stream 语义交给 installed Session package。冻结的精确 writer-image 校验器位于 `src/testing`，供 edge fixture 使用。
+v2 物理 header 要求 `isSeeded`，且不存储数值切点。编解码器从最后一个 inherited end-seed marker 推导切点，每行写入一个事件，只对 `sourceEventSeqs` 做范围编码，并对普通事件词汇与 payload 扩展保持中立。Released-current restoration 准入 installed Session package 已知的事件 type，以及携带 `ignorable: true` 的未知事件，并校验事件 member 与关系。普通 Session restore 只检查 runtime 直接依赖的 settlement 字段，不重放嵌入 stream；persistence publication 与冻结的 writer-image fixture validator 保留完整 stream verification。
 
 -----
 

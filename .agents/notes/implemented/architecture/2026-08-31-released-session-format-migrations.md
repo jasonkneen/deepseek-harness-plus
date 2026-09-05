@@ -77,22 +77,9 @@ The JSONL provider scans frame boundaries once, reuses one Zstandard decoder, pa
 
 Current encoding is record based. The provider serializes about 1 MiB of plaintext per main-thread slice, streams it through one Zstandard context with source-error propagation, writes compressed output in 4 MiB batches to an exclusively created same-directory temporary file, and syncs it before publication. A process-wide scheduler admits at most two full verification Workers and hands a released permit directly to the oldest waiter.
 
-Cancellation is observed at the existing approximately 500 ms Decode yield boundary and the approximately 1 MiB encode yield boundary. A queued verifier removes its waiter when cancelled; an active verifier terminates its Worker and awaits exit before releasing the permit. This does not make the underlying file writes newly interruptible, and cancellation never rolls back a generation that has already been published.
+Preparation forwards cancellation through source reads and observes it at the existing approximately 500 ms Decode yield boundary. Once `publish()` starts, encode, Worker verification, and publication do not receive caller cancellation and run to settlement; write open checks its caller signal again afterward. A published generation is never rolled back.
 
-This decision deliberately preserves the existing serial persistence lifecycle:
-
-```text
-read/write open
-  → decode and migrate historical source
-  → encode and sync temporary current generation
-  → Worker verify
-  → recheck source
-  → publish without overwrite
-  → verify/reopen committed generation
-  → return handle
-```
-
-Read-only preparation and write publication are not separated here. Both handle kinds wait for the current generation. That scheduling problem remains independently changeable without restoring the whole-artifact format API.
+The Stage pipeline ends at one prepared current artifact. [Historical Session read preparation](2026-09-05-read-only-session-migration-preparation.md) defines how read open consumes that artifact immediately while write open performs encode, verification, and publication before returning append access.
 
 ### Durable format and publication rules
 
@@ -154,6 +141,8 @@ The current-v2 fast path remains performance-equivalent. The architectural chang
 
 ### Streaming serial migration breakdown
 
+This table records the serial open flow measured for this Stage decision. The current preparation-first scheduling and its measurements are owned by [Historical Session read preparation](2026-09-05-read-only-session-migration-preparation.md).
+
 | Phase | Median |
 |---|---:|
 | Source Decode and migration | 2.784s |
@@ -176,7 +165,7 @@ At least one final current-event array remains necessary because Session restora
 
 Decoded scalar `assistant/chunk` rows receive envelope validation and final target validation, but their complete frozen-v1 source payload-member validation is deferred because that per-event check materially affects Decode and migration time on released logs. Packed Assistant runs remain strictly decoded. The scalar check must be restored only with performance evidence that preserves this migration path's measured behavior.
 
-The serial persistence lifecycle still makes a read open wait for encode, verification, and publication. Separating logical readability from durable write readiness is a follow-up scheduling decision, not another format-pipeline rewrite.
+Read-only access consumes the Stage result before durable publication, while write open reuses the same result and waits for publication before append. The persistence scheduling remains independent from the format pipeline.
 
 Lower generations remain for operator inspection. Retention does not promise downgrade compatibility, automatic fallback, or that an older runtime can safely interpret a newer generation.
 

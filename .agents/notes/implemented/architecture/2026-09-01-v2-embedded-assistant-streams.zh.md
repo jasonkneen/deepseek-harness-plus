@@ -21,7 +21,7 @@ Session format v2 没有顶层 `assistant/chunk` 事件。每个模型 attempt �
 
 `AssistantStreamAccumulator` 对每个 chunk 只快照一次。同一 block 的连续 text、reasoning 或 tool argument delta 会变成一个紧凑 run，包含首个时间戳、精确时间戳间隔和每个原始 delta 对应的一个数组成员。其他 chunk 保留为带时间戳的 raw record。`expandAssistantStream()` 会严格校验并重建精确的带时间序列；压缩绝不会合并 delta 边界。
 
-当前 v2 校验器要求嵌入式 stream 能复现非空 `assistant/message` 的 content、usage 与 replay state。对于没有源 chunk 的已迁移旧 message，空 stream 仍然有效。`assistant/message` 不能携带已停用的 chunk `sourceEventSeqs`；普通 user 与 tool surface provenance 保持可用。
+Migration publication verifier 与冻结的 v2 fixture validator 要求嵌入式 stream 能复现非空 `assistant/message` 的 content、usage 与 replay state。对于没有源 chunk 的已迁移旧 message，空 stream 仍然有效。普通 Session restore 只校验 runtime 直接依赖的 settlement 字段，不展开全部历史 stream；需要展开 compact stream 的 consumer 会在读取时校验 record。`assistant/message` 不能携带已停用的 chunk `sourceEventSeqs`；普通 user 与 tool surface provenance 保持可用。
 
 ### 实时呈现与持久回放
 
@@ -33,7 +33,7 @@ Client event source 原样传递持久 settlement。Chat 与 Trajectory 的 Assi
 
 ### 已发布 v1 到 v2 迁移
 
-相邻迁移会校验完整的冻结 v1 产物，按 turn、step、terminal boundary 与精确 message provenance 对 chunk 分组，再为每个 attempt 替换一个 settlement。成功分组的 chunk 移入其 message。未被认领的分组会在最后一个被消费 chunk 的位置变成 `assistant/attempt`。无关的交错事件保持相对顺序，存活事件获得密集 v2 序号。该迁移边通过 `dsh-llm` 运行时的 `AssistantStreamAccumulator`、`expandAssistantStream` 与 `BlockAssembler` 压缩、展开并重组嵌入 stream，而不持有冻结副本，因为该包拥有 v2 stream 编码。目标校验会自行复核每个迁移后的 `assistant/message` 与其嵌入 stream 是否一致，因此不一致的 v1 日志会作为 unsupported migration 被拒绝并保留源产物，而不是由 installed Session restoration 报告为损坏。日后若某个格式改变 stream 编码，必须把这些 helper 的冻结副本纳入本迁移边。
+相邻迁移会校验完整的冻结 v1 产物，按 turn、step、terminal boundary 与精确 message provenance 对 chunk 分组，再为每个 attempt 替换一个 settlement。成功分组的 chunk 移入其 message。未被认领的分组会在最后一个被消费 chunk 的位置变成 `assistant/attempt`。无关的交错事件保持相对顺序，存活事件获得密集 v2 序号。该迁移边通过 `dsh-llm` 运行时的 `AssistantStreamAccumulator` 压缩嵌入 stream，而不持有冻结副本，因为该包拥有 v2 stream 编码。隔离的 publication verifier 通过 `expandAssistantStream()` 与 `BlockAssembler` 展开并重组写入后的 stream，并在发布前检查每个迁移后的 `assistant/message` 是否与其一致。日后若某个格式改变 stream 编码，必须把这些 helper 的冻结副本纳入本迁移边。
 
 该迁移边会重映射有限的已声明引用清单：信封 provenance、surface replacement 端点、command source event、compaction range 与 shadowed list，以及 title message list。经过校验的 `session/title-llm-request` 模型可见文本会在源序号命名空间中保持逐字节不变，而它的 `messageSeqs` 字段会迁移到 v2 命名空间；因此目标校验不会根据重映射后的序号重建该文本。指向被消费 chunk 的引用会使迁移失败；它绝不会被重定向到含义不同的 settlement。该迁移边也会拒绝切开 attempt 的继承切点。
 
