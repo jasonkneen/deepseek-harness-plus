@@ -35,11 +35,10 @@ kind: "package-group"
 <a id="related-documentation"></a>
 ## 相关文档
 
-先从子系统参考文档了解共享词汇，再看设计决策及其持久日志扩展。
+先从子系统参考文档了解共享词汇，再看设计决策。
 
 - [spill 子系统](../../docs/subsystems/spill.zh.md)——`SaveTextSpill`/`SpillRef` 词汇、归属与后端关系。
 - [工具输出 spill 决策](../../.agents/notes/implemented/architecture/2026-07-08-tool-output-spill-files.zh.md)——存储、保留与工具自有输出处理之间的能力边界。
-- [代码 dispatch-log spill 决策](../../.agents/notes/implemented/feature/2026-07-26-ptc-dispatch-log-spill.zh.md)——为何 `run_code` 子调用结果的持久副本同样设界。
 
 <a id="dev-note"></a>
 ## 开发备注

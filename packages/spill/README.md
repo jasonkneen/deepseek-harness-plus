@@ -35,11 +35,10 @@ Three packages play the spill roles; the subsystem reference owns the exhaustive
 <a id="related-documentation"></a>
 ## Related documentation
 
-Start with the subsystem reference for the shared vocabulary, then the design decision and its durable-log extension.
+Start with the subsystem reference for the shared vocabulary, then the design decision.
 
 - [Spill subsystem](../../docs/subsystems/spill.md) — the `SaveTextSpill`/`SpillRef` vocabulary, ownership, and backend relationships.
 - [Tool output spill decision](../../.agents/notes/implemented/architecture/2026-07-08-tool-output-spill-files.md) — the capability boundary between storage, retention, and tool-owned output handling.
-- [Code dispatch-log spill decision](../../.agents/notes/implemented/feature/2026-07-26-ptc-dispatch-log-spill.md) — why the durable copy of `run_code` sub-call results is bounded too.
 
 <a id="dev-note"></a>
 ## Dev Note

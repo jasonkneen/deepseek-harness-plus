@@ -109,7 +109,6 @@ The service fails closed: disposal drains in-flight writes before closing the do
 Read these pages when the package-level contract is not enough. They move from the subsystem types and design boundary to the persistence primitives and the browser consumer that drives this service.
 
 - [Feedback subsystem](../../../docs/subsystems/feedback.md) — the public types, Remote contract, and Web consumer details.
-- [Message-feedback sidecar decision](../../../.agents/notes/implemented/architecture/2026-08-10-message-feedback-sidecar.md) — the design boundary that keeps this sidecar out of Session-log content.
 - [Session persistence subsystem](../../../docs/subsystems/persistence.md) — the handle `read`, `stat`, and `flush` semantics behind the durability barrier.
 - [dsh-client-ui-message-feedback](../../client/ui-message-feedback/README.md) — the browser consumer that drives the Host Remote contract.
 - [Feedback package map](../README.md) — where per-message feedback sits next to the log-only capture command.
