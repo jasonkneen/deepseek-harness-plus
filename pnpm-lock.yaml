@@ -16,6 +16,9 @@ importers:
 
   .:
     devDependencies:
+      '@deepseek-ai/dsh-package-manifest':
+        specifier: workspace:^
+        version: link:packages/util/package-manifest
       '@deepseek-ai/dsh-tool-session-query':
         specifier: workspace:^
         version: link:packages/session-query/tool-session-query
@@ -973,6 +976,9 @@ importers:
       '@deepseek-ai/dsh-atomic-write':
         specifier: workspace:^
         version: link:../../util/atomic-write
+      '@deepseek-ai/dsh-package-manifest':
+        specifier: workspace:^
+        version: link:../../util/package-manifest
       js-yaml:
         specifier: ^4.2.0
         version: 4.2.0
@@ -1863,6 +1869,9 @@ importers:
       '@deepseek-ai/dsh-invariants':
         specifier: workspace:^
         version: link:../../runtime-diagnostics/invariants
+      '@deepseek-ai/dsh-package-manifest':
+        specifier: workspace:^
+        version: link:../../util/package-manifest
 
   packages/client/store:
     dependencies:
@@ -4907,6 +4916,9 @@ importers:
       '@deepseek-ai/cordis':
         specifier: workspace:^
         version: link:../../../vendor/cordis
+      '@deepseek-ai/dsh-package-manifest':
+        specifier: workspace:^
+        version: link:../../util/package-manifest
       '@types/js-yaml':
         specifier: ^4.0.9
         version: 4.0.9
@@ -9408,6 +9420,12 @@ importers:
         version: link:../../../vendor/cordis
 
   packages/util/output-retention:
+    devDependencies:
+      '@deepseek-ai/cordis':
+        specifier: workspace:^
+        version: link:../../../vendor/cordis
+
+  packages/util/package-manifest:
     devDependencies:
       '@deepseek-ai/cordis':
         specifier: workspace:^

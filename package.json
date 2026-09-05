@@ -161,6 +161,7 @@
     "postinstall": "node scripts/install-lefthook.mjs"
   },
   "devDependencies": {
+    "@deepseek-ai/dsh-package-manifest": "workspace:^",
     "@deepseek-ai/dsh-tool-session-query": "workspace:^",
     "@deepseek-ai/dsh-web-fetch-http": "workspace:^",
     "@stylistic/eslint-plugin": "^5.10.0",
