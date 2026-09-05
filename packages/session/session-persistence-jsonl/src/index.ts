@@ -42,6 +42,7 @@ import {
   compressZstdFrame, createZstdFrameDecoder, decompressZstdFrame, decompressZstdPrefix, scanZstdFrames,
 } from './zstd.ts'
 import { ensureDurableDirectoryWin32, publishNewFileWin32 } from './win32.ts'
+import { verifyCurrentGenerationInWorker } from './migration-verifier.ts'
 import {
   ensureJsonlGenerationCurrent,
   JsonlGenerationNewerVersionError,
@@ -180,15 +181,13 @@ class JsonlSessionPersistence extends SessionPersistence {
     this.compression = config.compression ?? DEFAULT_COMPRESSION
     this.generationFormat = {
       currentVersion: sessionFormatCatalog.currentVersion,
-      migrate: (source) => {
-        const decoded = sessionFormatCatalog.decodeRecoverableArtifact(source.header, source.rows)
-        const current = sessionFormatCatalog.migrate(decoded)
-        return sessionFormatCatalog.encodeCurrent(current)
-      },
-      validateCurrent: (candidate) => {
-        const decoded = sessionFormatCatalog.decodeArtifact(candidate.header, candidate.rows)
-        sessionFormatCatalog.migrate(decoded)
-      },
+      createRestore: header => sessionFormatCatalog.createRestore(header, {
+        recovery: 'recoverable',
+        validation: 'transformed',
+      }),
+      encodeHeader: (header, inheritedEventCount) =>
+        sessionFormatCatalog.encodeCurrentHeader(header, inheritedEventCount),
+      encodeEvent: event => sessionFormatCatalog.encodeCurrentEvent(event),
       isUnsupportedMigrationError: (error): error is SessionFormatUnsupportedMigrationError =>
         error instanceof SessionFormatUnsupportedMigrationError,
     }
@@ -397,8 +396,6 @@ class JsonlSessionPersistence extends SessionPersistence {
       }
     }
     const current = await this.ensureCurrentLog(id, signal, selected)
-    /* v8 ignore next -- supplying a resolved generation makes absence unreachable. */
-    if (current === undefined) throw new SessionPersistenceNotFoundError(id)
     return this.decodeStoredLog(
       current.path,
       id,
@@ -411,12 +408,10 @@ class JsonlSessionPersistence extends SessionPersistence {
   /** Select and, when required, publish one immutable current generation. */
   private async ensureCurrentLog(
     id: SessionId,
-    signal?: AbortSignal,
-    resolved?: ResolvedJsonlGeneration,
-  ): Promise<EnsureJsonlGenerationResult | undefined> {
+    signal: AbortSignal | undefined,
+    selected: ResolvedJsonlGeneration,
+  ): Promise<EnsureJsonlGenerationResult> {
     signal?.throwIfAborted()
-    const selected = resolved ?? await this.findLog(id, signal)
-    if (selected === undefined) return undefined
     try {
       return await ensureJsonlGenerationCurrent({
         sourcePath: selected.sourcePath,
@@ -424,6 +419,7 @@ class JsonlSessionPersistence extends SessionPersistence {
         currentPath: selected.currentPath,
         compression: this.compression,
         format: this.generationFormat,
+        verifyCurrentFile: verifyCurrentGenerationInWorker,
         validateHistoricalHeader: headerValue => this.validateSourceIdentity(
           selected,
           headerValue,
@@ -549,8 +545,8 @@ class JsonlSessionPersistence extends SessionPersistence {
     const selected = await this.findLog(id, signal)
     if (selected === undefined) return undefined
     if (selected.sourceVersion === SESSION_FORMAT_VERSION) return selected.sourcePath
-    const current = await this.ensureCurrentLog(id, signal)
-    return current?.path
+    const current = await this.ensureCurrentLog(id, signal, selected)
+    return current.path
   }
 
   /**
@@ -794,8 +790,14 @@ class JsonlSessionPersistence extends SessionPersistence {
       )
     }
     if (result.status === 'unsupported') {
+      const physicalId = String((value as { id?: unknown }).id)
+      let reason = result.reason
+      /* v8 ignore else -- released historical header migrations cannot refuse after physical decoding. */
+      if (result.storedVersion > SESSION_FORMAT_VERSION) {
+        reason = sessionFormatVersionRefusal(physicalId, result.storedVersion)
+      }
       throw new SessionFormatUnsupportedError(
-        `${result.reason} (raw log: ${selected.sourcePath})`,
+        `${reason} (raw log: ${selected.sourcePath})`,
         { kind: 'jsonl', path: selected.sourcePath },
       )
     }

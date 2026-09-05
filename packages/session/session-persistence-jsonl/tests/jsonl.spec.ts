@@ -19,7 +19,6 @@ import {
 import { runLiveWritePathContract } from '../../session-persistence/tests/live-write-contract.ts'
 import { LIVE_WRITE_BATCH_MAX_DELAY_MS, type JsonlSessionHandle } from '../src/storage.ts'
 import SessionStore from '@deepseek-ai/dsh-session'
-import { releasedV1SessionFormatCodec } from '@deepseek-ai/dsh-session-format-v0-to-v1'
 
 const statRace = vi.hoisted(() => ({
   path: undefined as string | undefined,
@@ -154,15 +153,15 @@ function releasedV1PackedPhysicalLog(header: SessionHeader): string {
         : {}),
     })),
   ]
-  const encoded = releasedV1SessionFormatCodec.encodeArtifact({
-    header: { ...header, version: 1, delegationDepth: header.delegationDepth ?? 0 },
-    inheritedEventCount: 0,
-    events,
-  } as never, { packChunks: true })
-  if (!encoded.rows.some(row => row['type'] === 'text-chunks')) {
-    throw new Error('released v1 test fixture did not produce a packed text row')
+  const packed = {
+    type: 'text-chunks',
+    seq0: 4,
+    time0: 3,
+    data: { turn: 1, step: 1, index: 0, dt: [0, 0], texts: ['hello', '', ''] },
   }
-  return [encoded.header, ...encoded.rows].map(row => JSON.stringify(row)).join('\n') + '\n'
+  const rows = [...events.slice(0, 4), packed, ...events.slice(7)]
+  return [{ ...releasedV0Header(header), version: 1 }, ...rows]
+    .map(row => JSON.stringify(row)).join('\n') + '\n'
 }
 
 /** Create + append + close: persist one whole log through the write handle. */
@@ -273,8 +272,8 @@ describe('JsonlSessionPersistence: format helpers', () => {
   it('ignores retired-header checks for non-object values', () => {
     expect(() => { assertNoRetiredHeaderFields(null) }).not.toThrow()
     expect(() => { assertNoRetiredHeaderFields('header') }).not.toThrow()
-    expect(() => scanLog(Buffer.from('42\n'))).toThrow(/session header/)
-    expect(() => scanLog(Buffer.from('null\n'))).toThrow(/session header/)
+    expect(() => scanLog(Buffer.from('42\n'))).toThrow(/first line is not a JSON object/)
+    expect(() => scanLog(Buffer.from('null\n'))).toThrow(/first line is not a JSON object/)
     expect(() => scanLog(Buffer.from(
       `${JSON.stringify({ type: 'session', version: 2, id: 123 })}\n`,
     ))).toThrow(/first line is not a session header/)
@@ -522,7 +521,7 @@ describe('JsonlSessionPersistence: stored-format refusals', () => {
     // Simulate the race: the header-only stat sees nothing although the full
     // log is present and readable.
     vi.spyOn(ctx.sessionPersistence, 'stat').mockResolvedValue(undefined)
-    const handle = await ctx.sessionPersistence.open(m.id, 'read')
+    const handle = await ctx.sessionPersistence.open(m.id, 'read', { signal: new AbortController().signal })
     try {
       expect(handle.header).toMatchObject({ id: m.id, cwd: '/work' })
       expect(await handle.read()).toEqual(oneTurnLog())
@@ -612,7 +611,6 @@ describe('JsonlSessionPersistence: immutable format generations', () => {
       meta: { ...header, delegationDepth: 0 },
       events: oneTurnLog(),
     })
-
     expect(await readFile(sourcePath)).toEqual(source)
     const current = (await readFile(currentPath, 'utf8')).trimEnd().split('\n')
     expect(JSON.parse(current[0] as string)).toMatchObject({
@@ -720,14 +718,6 @@ describe('JsonlSessionPersistence: immutable format generations', () => {
     expect(await readFile(sourcePath, 'utf8')).toBe(`${JSON.stringify(releasedV0Header(header))}\n`)
   })
 
-  it('reports no current generation when ensure-current finds no stored id', async () => {
-    const storage = ctx.sessionPersistence as unknown as {
-      ensureCurrentLog(id: SessionId, signal?: AbortSignal): Promise<unknown>
-    }
-
-    await expect(storage.ensureCurrentLog(SessionId('missing-generation'))).resolves.toBeUndefined()
-  })
-
   it('opens the migrated successor for append while retaining the historical source', async () => {
     const header = meta('released-v0-write', '/work')
     const sourcePath = historicalLogPath(root, header.cwd, header.id)
@@ -771,6 +761,7 @@ describe('JsonlSessionPersistence: immutable format generations', () => {
     const handle = await ctx.sessionPersistence.create(header, {
       inheritedEventCount: SessionLogOffset(0),
     })
+    expect(handle.inheritedEventCount).toBe(SessionLogOffset(0))
     await handle.append([{
       type: 'session/end-seed', seq: SessionSeq(0), time: 1, data: { inherited: true },
     }])
@@ -1002,16 +993,16 @@ describe('JsonlSessionPersistence: durability and crash semantics', () => {
     const m = meta('opening-claim', '/work')
     await writeLog(ctx.sessionPersistence, m, oneTurnLog())
     const service = ctx.sessionPersistence as unknown as {
-      ensureCurrentLog: (
+      requireStoredLog: (
         id: SessionId,
         signal?: AbortSignal,
         resolved?: unknown,
       ) => Promise<unknown>
     }
-    const original = service.ensureCurrentLog.bind(service)
+    const original = service.requireStoredLog.bind(service)
     const gate = Promise.withResolvers<undefined>()
     const entered = Promise.withResolvers<undefined>()
-    vi.spyOn(service, 'ensureCurrentLog').mockImplementationOnce(async (...args) => {
+    vi.spyOn(service, 'requireStoredLog').mockImplementationOnce(async (...args) => {
       entered.resolve(undefined)
       await gate.promise
       return original(...args)
@@ -1637,18 +1628,34 @@ describe('JsonlSessionPersistence: scanLog unit', () => {
     expect(() => new SessionLogScanner(Buffer.from(`${header}\n${header}\n`))).toThrow(/header-less/)
   })
 
+  it('fails immediately on an invalid row in strict scanner mode', () => {
+    const header = Buffer.from(`${JSON.stringify(toHeaderLine(meta('scanner-strict')))}\n`)
+    const scanner = new SessionLogScanner(header, 'strict')
+    expect(() => { scanner.write(Buffer.from('null\n')) }).toThrow(/invalid committed event/)
+  })
+
+  it('expands valid stored provenance ranges', () => {
+    const log = [
+      JSON.stringify(toHeaderLine(meta('scanner-provenance'))),
+      JSON.stringify({ type: 'external', seq: 0, time: 2, data: null, sourceEventSeqs: [] }),
+      '',
+    ].join('\n')
+    const restored = scanLog(Buffer.from(log)).events[0]
+    expect(restored !== undefined && 'sourceEventSeqs' in restored ? restored.sourceEventSeqs : undefined).toEqual([])
+  })
+
   it('requires the tagged inherited cut to agree with the v2 header lineage', () => {
     const seeded = { ...meta('scanner-seeded-cut'), isSeeded: true }
     const seededHeader = JSON.stringify(toHeaderLine(seeded, SessionLogOffset(0)))
     expect(() => scanLog(Buffer.from(`${seededHeader}\n`)))
-      .toThrow(/seeded v2 header lacks an inherited end-seed marker/)
+      .toThrow(/seeded Session lacks an inherited end-seed marker/)
 
     const unseededHeader = JSON.stringify(toHeaderLine(meta('scanner-unseeded-cut')))
     const inheritedMarker = JSON.stringify({
       type: 'session/end-seed', seq: 0, time: 1, data: { inherited: true },
     })
     expect(() => scanLog(Buffer.from(`${unseededHeader}\n${inheritedMarker}\n`)))
-      .toThrow(/unseeded v2 header contains an inherited end-seed marker/)
+      .toThrow(/unseeded Session contains an inherited end-seed marker/)
   })
 
   it('handles empty writes, boundary newlines, torn fragments, and scanner completion', () => {
@@ -1681,7 +1688,7 @@ describe('JsonlSessionPersistence: scanLog unit', () => {
     expect(() => { committed.write(Buffer.from([
       JSON.stringify({ type: 'turn/end', seq: SessionSeq(1), time: 2, data: { turn: 1, reason: { kind: 'completed' } } }),
       '',
-    ].join('\n'))) }).toThrow(/seq gap in committed region/)
+    ].join('\n'))) }).toThrow(/seq gap/)
   })
 
   it('incrementally scans records split across reusable decoder chunks', () => {
@@ -1806,22 +1813,22 @@ describe('JsonlSessionPersistence: scanLog unit', () => {
     ].join('\n') + '\n'
     // A turn/end exists, so the prefix up to it is committed — but it has a hole.
     // Truncating it would silently drop committed data → unloadable.
-    expect(() => scanLog(Buffer.from(log))).toThrow(/seq gap in committed region/)
+    expect(() => scanLog(Buffer.from(log))).toThrow(/seq gap/)
   })
 
   it('rejects malformed records before a later committed turn/end', () => {
     const corruptRecords = [
-      '{not json',
-      'null',
-      JSON.stringify({ type: 'assistant/message', sourceEventSeqs: [0], data: {} }),
-    ]
-    for (const record of corruptRecords) {
+      ['{not json', /unparsable committed event/],
+      ['null', /invalid committed event/],
+      [JSON.stringify({ type: 'assistant/message', sourceEventSeqs: [0], data: {} }), /invalid committed event/],
+    ] as const
+    for (const [record, message] of corruptRecords) {
       const log = [
         JSON.stringify({ type: 'session', version: SESSION_FORMAT_VERSION, id: 'c', createdAt: 1, isSeeded: false, delegationDepth: 0 }),
         record,
         JSON.stringify({ type: 'turn/end', seq: SessionSeq(1), time: 2, data: { turn: 1, reason: { kind: 'completed' } } }),
       ].join('\n') + '\n'
-      expect(() => scanLog(Buffer.from(log))).toThrow(/unparsable committed event/)
+      expect(() => scanLog(Buffer.from(log))).toThrow(message)
     }
   })
 
@@ -1953,7 +1960,7 @@ describe('JsonlSessionPersistence: nested v2 Assistant streams', () => {
       JSON.stringify({ type: 'text-chunks', seq0: 1, time0: 2, data: { turn: 1, step: 1, index: 0, dt: [1, 1], texts: ['a', 'b', 'c'] } }),
       JSON.stringify({ type: 'turn/end', seq: SessionSeq(4), time: 5, data: { turn: 1, reason: { kind: 'completed' } } }),
     ].join('\n') + '\n'
-    expect(() => scanLog(Buffer.from(logText))).toThrow(/seq gap in committed region/)
+    expect(() => scanLog(Buffer.from(logText))).toThrow(/lacks .*seq/)
   })
 
   it('scanLog treats a malformed removed packed row as a committed seq hole', () => {
@@ -1966,7 +1973,7 @@ describe('JsonlSessionPersistence: nested v2 Assistant streams', () => {
       JSON.stringify({ type: 'text-chunks', seq0: 0, time0: 1, data: { turn: 1, step: 1, index: 0, dt: [], texts: ['a', 'b'] } }),
       JSON.stringify({ type: 'turn/end', seq: SessionSeq(2), time: 3, data: { turn: 1, reason: { kind: 'completed' } } }),
     ].join('\n') + '\n'
-    expect(() => scanLog(Buffer.from(logText))).toThrow(/seq gap in committed region/)
+    expect(() => scanLog(Buffer.from(logText))).toThrow(/lacks .*seq/)
   })
 
   it('scanLog: a packed row with a mid-run seq gap after the last turn/end drops the whole row', () => {
