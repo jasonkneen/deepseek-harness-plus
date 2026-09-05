@@ -1329,7 +1329,7 @@ async function persistSeedSession(
 export async function readPersistedEvents(scaffold: WebScaffold, id: SessionId): Promise<readonly SessionEvent[]> {
   const handle = await scaffold.ctx.sessionPersistence.open(id, 'read')
   try {
-    return await handle.read()
+    return (await handle.read()).events
   } finally {
     await handle.close()
   }

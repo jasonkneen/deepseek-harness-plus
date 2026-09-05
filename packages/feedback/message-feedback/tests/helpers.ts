@@ -162,7 +162,10 @@ class TestPersistence extends SessionPersistence {
         if (this.readFailure !== undefined) throw this.readFailure
         await this.onRead?.()
         const events = stored.events.filter(event => event.seq >= offset)
-        return length === undefined ? events : events.slice(0, length)
+        return {
+          eventState: 'detached',
+          events: structuredClone(length === undefined ? events : events.slice(0, length)),
+        }
       },
       append: async (events) => {
         if (closed) throw new SessionHandleClosedError(stored.meta.id, 'append')

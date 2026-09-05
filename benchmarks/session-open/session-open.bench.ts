@@ -173,7 +173,7 @@ class SessionOpenBenchmarkSuite {
     this.legacySourcePath = this.facts.path
     // Produce one real post-upgrade directory outside every measured interval.
     const templateRoot = await this.createRoot('first-open', 'post-upgrade-template')
-    requireReport(await runWorker(templateRoot, 'phase-migrate'), 'phase-migrate')
+    requireReport(await runWorker(templateRoot, 'agent-resume'), 'agent-resume')
     this.currentSourcePath = join(
       templateRoot,
       SYNTHETIC_SESSION_DIRECTORY,

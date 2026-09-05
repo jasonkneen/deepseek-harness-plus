@@ -231,17 +231,17 @@ class SessionBenchmarkHost {
     const handle = await this.ctx.sessionPersistence.open(SessionId(SYNTHETIC_SESSION_ID), 'read')
     const openMs = performance.now() - phaseStarted
     phaseStarted = performance.now()
-    const persisted = await handle.read()
+    const read = await handle.read()
     await handle.close()
     const readMs = performance.now() - phaseStarted
     phaseStarted = performance.now()
-    const repaired = [...persisted, ...interruptedTurnClosers(persisted)]
-    const seed = repaired.map(event => structuredClone(event))
+    const repaired = [...read.events, ...interruptedTurnClosers(read.events)]
+    const seed = repaired
     const preparation = SessionPreparation.create(this.ctx.sessions.prepare(SessionId(SYNTHETIC_SESSION_ID), {
       seed,
       meta: structuredClone(handle.header),
       inheritedEventCount: handle.inheritedEventCount,
-      seedSource: 'persistence',
+      eventState: read.eventState,
     }))
     this.preparation = preparation
     const sessionRestoreMs = performance.now() - phaseStarted

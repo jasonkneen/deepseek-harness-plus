@@ -22,8 +22,11 @@ import { basename, dirname, join } from 'node:path'
 import { performance } from 'node:perf_hooks'
 import { pipeline, Readable } from 'node:stream'
 import { scheduler } from 'node:timers/promises'
+import { isDeepStrictEqual } from 'node:util'
 import { constants, createZstdCompress } from 'node:zlib'
 import { Session } from '@deepseek-ai/dsh-session'
+import type { SessionEvent } from '@deepseek-ai/dsh-session'
+import { BlockAssembler, expandAssistantStream } from '@deepseek-ai/dsh-llm'
 import type {
   SessionFormatArtifact,
   SessionFormatJsonValue,
@@ -62,8 +65,8 @@ export interface JsonlGenerationFormatAdapter {
   isUnsupportedMigrationError?(error: unknown): error is Error
 }
 
-/** Inputs for ensuring one already-resolved generation has a current successor. */
-export interface EnsureJsonlGenerationOptions {
+/** Inputs for preparing one historical generation and publishing its current successor later. */
+export interface PrepareJsonlMigrationOptions {
   /** Immutable generation selected by the backend resolver. */
   readonly sourcePath: string
   /** Version selected from the source filename and independently checked against its header. */
@@ -101,34 +104,22 @@ export interface JsonlExpectedPrefix {
   readonly digest: string
 }
 
-/** Result of current classification or exclusive publication. */
-export type EnsureJsonlGenerationResult =
-  | {
-    readonly status: 'current'
-    readonly version: number
-    readonly path: string
-    readonly snapshot: JsonlPhysicalSnapshot
-  }
-  | {
-    readonly status: 'migrated'
-    readonly fromVersion: number
-    readonly toVersion: number
-    readonly path: string
-    readonly sourcePath: string
-    readonly snapshot: JsonlPhysicalSnapshot
-  }
+/** A historical source changed after its single decode and migration pass. */
+export class JsonlGenerationSourceChangedError extends Error {
+  override readonly name = 'JsonlGenerationSourceChangedError'
 
-/** A future physical header was readable, but this writer cannot interpret it. */
-export class JsonlGenerationNewerVersionError extends Error {
-  override readonly name = 'JsonlGenerationNewerVersionError'
-
-  constructor(
-    readonly storedVersion: number,
-    readonly currentVersion: number,
-    readonly storedId: string,
-  ) {
-    super(`session log format v${storedVersion} is newer than current v${currentVersion}`)
+  /** @param path - historical generation whose revision changed. */
+  constructor(readonly path: string) {
+    super(`historical session generation changed during migration: "${path}"`)
   }
+}
+
+/** Current logical state prepared independently from durable publication. */
+export interface PreparedJsonlMigration {
+  readonly sourceIdentity: JsonlPhysicalIdentity
+  readonly artifact: SessionFormatArtifact
+  /** Encode, verify, and exclusively publish once; every call shares the same success or failure. */
+  publish(): Promise<JsonlPhysicalIdentity>
 }
 
 /** A historical artifact is intact, but the format edge refuses its contents. */
@@ -172,21 +163,10 @@ export interface JsonlPhysicalIdentity {
   readonly ctimeNs: bigint
 }
 
-/** One revision-stable physical artifact returned to the immediate backend decoder. */
-export interface JsonlPhysicalSnapshot extends StablePhysicalFile {
-  readonly headerValue: Record<string, unknown>
-  readonly headerRecord: Buffer
-}
-
 /** Exact bytes of one stable file revision together with the stat identity that proved it stable. */
 export interface StablePhysicalFile {
   readonly bytes: Buffer
   readonly identity: JsonlPhysicalIdentity
-}
-
-interface JsonlPhysicalHeader {
-  readonly value: Record<string, unknown>
-  readonly record: Buffer
 }
 
 interface GenerationFileSystem {
@@ -219,7 +199,7 @@ export type JsonlGenerationRuntimeOverrides = Partial<Omit<JsonlGenerationIntern
 /** Bound generation operations used by production defaults and deterministic tests. */
 export interface JsonlGenerationRuntime {
   readStable(path: string, signal?: AbortSignal): Promise<StablePhysicalFile>
-  ensure(options: EnsureJsonlGenerationOptions): Promise<EnsureJsonlGenerationResult>
+  prepare(options: PrepareJsonlMigrationOptions): Promise<PreparedJsonlMigration>
   verify(
     path: string,
     compression: JsonlCompression,
@@ -258,10 +238,6 @@ function isErrnoException(error: unknown): error is NodeJS.ErrnoException {
 
 function identity(value: JsonlPhysicalIdentity): string {
   return [value.dev, value.ino, value.size, value.mtimeNs, value.ctimeNs].join(':')
-}
-
-function fingerprint(value: JsonlPhysicalIdentity, bytes: Buffer): string {
-  return `${identity(value)}:${createHash('sha256').update(bytes).digest('hex')}`
 }
 
 /**
@@ -311,10 +287,6 @@ function storedVersion(header: unknown): number {
     throw new Error('corrupt session log: header version is not a non-negative safe integer')
   }
   return version as number
-}
-
-function storedId(header: unknown): string {
-  return String((header as { id?: unknown }).id)
 }
 
 function parseJson(text: string, subject: string): unknown {
@@ -398,10 +370,15 @@ interface StartedMigrationStream {
 
 async function startMigrationStream(
   headerRecord: Buffer,
+  sourceVersion: number,
   format: JsonlGenerationFormatAdapter,
-  validateHistoricalHeader?: EnsureJsonlGenerationOptions['validateHistoricalHeader'],
+  validateHistoricalHeader?: PrepareJsonlMigrationOptions['validateHistoricalHeader'],
 ): Promise<StartedMigrationStream> {
   const value = parseJson(headerRecord.subarray(0, -1).toString('utf8'), 'header line')
+  const version = storedVersion(value)
+  if (version !== sourceVersion) {
+    throw new Error(`resolved JSONL source filename identifies v${sourceVersion}, but its header identifies v${version}`)
+  }
   const header = value as Record<string, unknown>
   const validation = validateHistoricalHeader?.(header)
   if (validation !== undefined) await validation
@@ -430,17 +407,18 @@ async function consumeMigrationBytes(
 async function decodeStreamingMigration(
   bytes: Buffer,
   compression: JsonlCompression,
+  sourceVersion: number,
   format: JsonlGenerationFormatAdapter,
-  validateHistoricalHeader: EnsureJsonlGenerationOptions['validateHistoricalHeader'],
+  validateHistoricalHeader: PrepareJsonlMigrationOptions['validateHistoricalHeader'],
   signal?: AbortSignal,
 ): Promise<SessionFormatArtifact> {
   signal?.throwIfAborted()
   if (compression === 'none') {
     const headerEnd = bytes.indexOf(0x0A)
-    /* v8 ignore next -- ensureCurrent's physical-header preflight already requires this newline. */
     if (headerEnd === -1) throw new Error('empty or header-less session log')
     const stream = await startMigrationStream(
       bytes.subarray(0, headerEnd + 1),
+      sourceVersion,
       format,
       validateHistoricalHeader,
     )
@@ -457,7 +435,6 @@ async function decodeStreamingMigration(
   }
 
   const { frames, tornStart } = scanZstdFrames(bytes)
-  /* v8 ignore next -- ensureCurrent's physical-header preflight already requires a complete header frame. */
   if (frames.length === 0) throw new Error('empty or header-less Zstandard session log')
   const decoder = createZstdFrameDecoder()
   try {
@@ -468,6 +445,7 @@ async function decodeStreamingMigration(
     assertIndependentHeaderFrame(first.value)
     const stream = await startMigrationStream(
       first.value,
+      sourceVersion,
       format,
       validateHistoricalHeader,
     )
@@ -557,11 +535,39 @@ async function verifyCurrentGeneration(
     generation.events,
     generation.meta,
     generation.inheritedEventCount,
+    'detached',
   )
+  assertCurrentAssistantStreams(generation.events)
   return {
     identity: snapshot.identity,
     bytes: snapshot.bytes.length,
     digest: createHash('sha256').update(snapshot.bytes).digest('hex'),
+  }
+}
+
+/** Fully replay embedded streams only inside isolated current-generation verification. */
+function assertCurrentAssistantStreams(events: readonly SessionEvent[]): void {
+  for (const [index, event] of events.entries()) {
+    if (event.type !== 'assistant/message' && event.type !== 'assistant/attempt') continue
+    const assembler = new BlockAssembler()
+    let timed: ReturnType<typeof expandAssistantStream>
+    try {
+      timed = expandAssistantStream(event.data.stream)
+      for (const member of timed) assembler.push(member.chunk)
+    } catch (error: unknown) {
+      throw new Error(`seed ${event.type} at index ${index} has an invalid embedded stream`, { cause: error })
+    }
+    if (event.type === 'assistant/attempt' || timed.length === 0) continue
+    const content = event.data.interrupted === true ? assembler.interruptedBlocks() : assembler.blocks()
+    if (!isDeepStrictEqual(event.data.message.content, content)) {
+      throw new Error(`seed assistant/message at index ${index} content disagrees with its embedded stream`)
+    }
+    if (!isDeepStrictEqual(event.data.usage, assembler.usage)) {
+      throw new Error(`seed assistant/message at index ${index} usage disagrees with its embedded stream`)
+    }
+    if (!isDeepStrictEqual(event.data.message.source.replayState, assembler.replayState)) {
+      throw new Error(`seed assistant/message at index ${index} replay state disagrees with its embedded stream`)
+    }
   }
 }
 
@@ -618,45 +624,6 @@ function assertIndependentHeaderFrame(plaintext: Buffer): void {
   if (plaintext.length === 0 || plaintext.indexOf(0x0A) !== plaintext.length - 1) {
     throw new Error('corrupt Zstandard session log: first frame is not exactly one header line')
   }
-}
-
-function readRawHeader(bytes: Buffer): JsonlPhysicalHeader {
-  const newline = bytes.indexOf(0x0A)
-  if (newline === -1) throw new Error('empty or header-less session log')
-  const record = bytes.subarray(0, newline + 1)
-  const value = parseJson(record.subarray(0, -1).toString('utf8'), 'header line')
-  storedVersion(value)
-  return { value: value as Record<string, unknown>, record }
-}
-
-function readZstdHeader(bytes: Buffer, signal?: AbortSignal): JsonlPhysicalHeader {
-  signal?.throwIfAborted()
-  const first = scanZstdFrames(bytes, 1).frames[0]
-  if (first === undefined) throw new Error('empty or header-less Zstandard session log')
-  const decoder = createZstdFrameDecoder()
-  const decodedFrames = decoder.decode(bytes, [first])
-  try {
-    const decoded = decodedFrames.next()
-    /* v8 ignore next -- one complete frame yields once or the decoder throws. */
-    if (decoded.done) throw new Error('empty or header-less Zstandard session log')
-    signal?.throwIfAborted()
-    assertIndependentHeaderFrame(decoded.value)
-    const record = Buffer.from(decoded.value)
-    const value = parseJson(record.subarray(0, -1).toString('utf8'), 'header line')
-    storedVersion(value)
-    return { value: value as Record<string, unknown>, record }
-  } finally {
-    decodedFrames.return()
-    decoder.close()
-  }
-}
-
-function readPhysicalHeader(
-  bytes: Buffer,
-  compression: JsonlCompression,
-  signal: AbortSignal | undefined,
-): JsonlPhysicalHeader {
-  return compression === 'zstd' ? readZstdHeader(bytes, signal) : readRawHeader(bytes)
 }
 
 function assertGenerationPaths(
@@ -823,7 +790,6 @@ async function removeTemporary(
   try {
     await internals.fs.rm(path)
   } catch (cleanupFailure: unknown) {
-    if (primaryFailure === undefined) throw cleanupFailure
     throw new AggregateError(
       [primaryFailure, cleanupFailure],
       `failed to clean migration temporary "${path}" after an earlier failure`,
@@ -879,19 +845,16 @@ function asError(error: unknown): Error {
 
 async function inspectExpectedCurrent<T>(
   currentPath: string,
-  checkCanonicalTargetName: boolean,
   internals: JsonlGenerationInternals,
   inspect: () => Promise<T>,
 ): Promise<T> {
   try {
-    if (checkCanonicalTargetName) {
-      const expectedName = basename(currentPath)
-      const names = await internals.fs.readdir(dirname(currentPath))
-      if (!names.includes(expectedName)) {
-        const noncanonical = names.find(name => name.toLowerCase() === expectedName.toLowerCase())
-        if (noncanonical !== undefined) {
-          throw new Error(`target resolves to noncanonical directory entry "${noncanonical}"`)
-        }
+    const expectedName = basename(currentPath)
+    const names = await internals.fs.readdir(dirname(currentPath))
+    if (!names.includes(expectedName)) {
+      const noncanonical = names.find(name => name.toLowerCase() === expectedName.toLowerCase())
+      if (noncanonical !== undefined) {
+        throw new Error(`target resolves to noncanonical directory entry "${noncanonical}"`)
       }
     }
     const info = await internals.fs.lstat(currentPath)
@@ -913,39 +876,71 @@ function withOverrides(overrides: JsonlGenerationRuntimeOverrides): JsonlGenerat
   }
 }
 
-async function reopenExpectedCurrent(
-  currentPath: string,
-  staged: StreamedMigrationStage,
-  compression: JsonlCompression,
-  expectedId: string,
-  expectedEventCount: number,
-  verifyCurrentFile: EnsureJsonlGenerationOptions['verifyCurrentFile'],
-  signal: AbortSignal | undefined,
-  checkCanonicalTargetName: boolean,
+async function publishPreparedMigration(
+  options: PrepareJsonlMigrationOptions,
+  suffix: string,
+  artifact: SessionFormatArtifact,
+  sourceIdentity: JsonlPhysicalIdentity,
   internals: JsonlGenerationInternals,
-): Promise<JsonlPhysicalSnapshot> {
-  return inspectExpectedCurrent(currentPath, checkCanonicalTargetName, internals, async () => {
-    const verified = await verifyCurrentFile(
-      currentPath,
+): Promise<JsonlPhysicalIdentity> {
+  await scheduler.yield()
+  const { sourcePath, currentPath, compression, verifyCurrentFile } = options
+  const eventCount = artifact.events.length
+  let staged = await writeSyncedTemp(currentPath, suffix, compression, artifact, options.format, undefined, internals)
+  try {
+    const verifiedStage = await verifyCurrentFile(
+      staged.path,
       compression,
-      expectedId,
-      expectedEventCount,
-      staged,
-      signal,
+      artifact.header.id,
+      eventCount,
     )
-    if (verified.bytes !== staged.bytes || verified.digest !== staged.digest) {
-      throw new Error('target bytes differ from the migrated generation')
+    if (verifiedStage.bytes !== staged.bytes || verifiedStage.digest !== staged.digest) {
+      throw new Error('staged session generation changed during verification')
     }
-    const snapshot = await readStableSnapshot(currentPath, signal, internals.fs)
-    const header = readPhysicalHeader(snapshot.bytes, compression, signal)
-    return { ...snapshot, headerValue: header.value, headerRecord: header.record }
-  })
+    await internals.barrier('before-source-check', 1)
+    const beforePublish = await internals.fs.stat(sourcePath)
+    if (identity(beforePublish) !== identity(sourceIdentity)) {
+      throw new JsonlGenerationSourceChangedError(sourcePath)
+    }
+    const published = await publishCurrentExclusive(staged.path, currentPath, internals)
+    if (published && internals.platform === 'win32') staged = { ...staged, path: '' }
+    await internals.barrier('after-publication', 1)
+    let currentIdentity: JsonlPhysicalIdentity
+    if (published) {
+      if (staged.path !== '') {
+        await removeCommittedTemporary(staged.path, internals)
+        staged = { ...staged, path: '' }
+      }
+      currentIdentity = await internals.fs.stat(currentPath)
+    } else {
+      const winner = await inspectExpectedCurrent(currentPath, internals, async () => {
+        const candidate = await verifyCurrentFile(
+          currentPath,
+          compression,
+          artifact.header.id,
+          eventCount,
+          staged,
+        )
+        if (candidate.bytes !== staged.bytes || candidate.digest !== staged.digest) {
+          throw new Error('target bytes differ from the migrated generation')
+        }
+        return candidate
+      })
+      currentIdentity = winner.identity
+      await removeCommittedTemporary(staged.path, internals)
+      staged = { ...staged, path: '' }
+    }
+    return currentIdentity
+  } catch (error: unknown) {
+    if (staged.path !== '') await removeTemporary(staged.path, error, internals)
+    throw error
+  }
 }
 
-async function ensureCurrent(
-  options: EnsureJsonlGenerationOptions,
+async function prepareMigration(
+  options: PrepareJsonlMigrationOptions,
   internals: JsonlGenerationInternals,
-): Promise<EnsureJsonlGenerationResult> {
+): Promise<PreparedJsonlMigration> {
   const { sourcePath, sourceVersion, currentPath, compression, format, signal } = options
   const suffix = assertGenerationPaths(
     sourcePath,
@@ -954,124 +949,58 @@ async function ensureCurrent(
     format.currentVersion,
     compression,
   )
-  let attempt = 0
-  for (;;) {
-    attempt += 1
-    signal?.throwIfAborted()
-    const source = await readStableSnapshot(sourcePath, signal, internals.fs)
-    const quickHeader = readPhysicalHeader(source.bytes, compression, signal)
-    const quickVersion = storedVersion(quickHeader.value)
-    if (quickVersion !== sourceVersion) {
-      throw new Error(
-        `resolved JSONL source filename identifies v${sourceVersion}, but its header identifies v${quickVersion}: `
-        + sourcePath,
-      )
+  if (sourceVersion >= format.currentVersion) {
+    throw new Error(`migration preparation requires a historical source, got v${sourceVersion}`)
+  }
+  const source = await readStableSnapshot(sourcePath, signal, internals.fs)
+  let artifact: SessionFormatArtifact
+  try {
+    artifact = await decodeStreamingMigration(
+      source.bytes,
+      compression,
+      sourceVersion,
+      format,
+      options.validateHistoricalHeader,
+      signal,
+    )
+  } catch (error: unknown) {
+    if (format.isUnsupportedMigrationError?.(error) === true) {
+      throw new JsonlGenerationUnsupportedMigrationError(sourceVersion, error)
     }
-    if (sourceVersion > format.currentVersion) {
-      throw new JsonlGenerationNewerVersionError(
-        sourceVersion,
-        format.currentVersion,
-        storedId(quickHeader.value),
-      )
-    }
-    if (sourceVersion === format.currentVersion) {
-      return {
-        status: 'current',
-        version: quickVersion,
-        path: sourcePath,
-        snapshot: {
-          ...source,
-          headerValue: quickHeader.value,
-          headerRecord: quickHeader.record,
-        },
+    throw error
+  }
+  if (artifact.header.version !== format.currentVersion) {
+    throw new Error(`format migration returned v${artifact.header.version}, expected v${format.currentVersion}`)
+  }
+  const sourceIdentity = source.identity
+  let publication: Promise<JsonlPhysicalIdentity> | undefined
+  return {
+    sourceIdentity,
+    artifact,
+    publish() {
+      if (publication === undefined) {
+        publication = publishPreparedMigration(
+          options,
+          suffix,
+          artifact,
+          sourceIdentity,
+          internals,
+        )
       }
-    }
-    let artifact: SessionFormatArtifact
-    try {
-      artifact = await decodeStreamingMigration(
-        source.bytes,
-        compression,
-        format,
-        options.validateHistoricalHeader,
-        signal,
-      )
-    } catch (error: unknown) {
-      if (format.isUnsupportedMigrationError?.(error) === true) {
-        throw new JsonlGenerationUnsupportedMigrationError(sourceVersion, error)
-      }
-      throw error
-    }
-    if (artifact.header.version !== format.currentVersion) {
-      throw new Error(`format migration returned v${artifact.header.version}, expected v${format.currentVersion}`)
-    }
-
-    await scheduler.yield()
-    signal?.throwIfAborted()
-    const sourceFingerprint = fingerprint(source.identity, source.bytes)
-    const eventCount = artifact.events.length
-    let staged = await writeSyncedTemp(currentPath, suffix, compression, artifact, format, signal, internals)
-    let failure: unknown
-    try {
-      const verifiedStage = await options.verifyCurrentFile(
-        staged.path,
-        compression,
-        artifact.header.id,
-        eventCount,
-        undefined,
-        signal,
-      )
-      if (verifiedStage.bytes !== staged.bytes || verifiedStage.digest !== staged.digest) {
-        throw new Error('staged session generation changed during verification')
-      }
-      await internals.barrier('before-source-check', attempt)
-      const beforePublish = await readStableSnapshot(sourcePath, signal, internals.fs)
-      if (fingerprint(beforePublish.identity, beforePublish.bytes) !== sourceFingerprint) continue
-
-      const published = await publishCurrentExclusive(staged.path, currentPath, internals)
-      if (published && internals.platform === 'win32') staged = { ...staged, path: '' }
-      await internals.barrier('after-publication', attempt)
-      signal?.throwIfAborted()
-      const committed = await reopenExpectedCurrent(
-        currentPath,
-        staged,
-        compression,
-        artifact.header.id,
-        eventCount,
-        options.verifyCurrentFile,
-        signal,
-        !published,
-        internals,
-      )
-      if (staged.path !== '') {
-        await removeCommittedTemporary(staged.path, internals)
-        staged = { ...staged, path: '' }
-      }
-      return {
-        status: 'migrated',
-        fromVersion: sourceVersion,
-        toVersion: format.currentVersion,
-        path: currentPath,
-        sourcePath,
-        snapshot: committed,
-      }
-    } catch (error: unknown) {
-      failure = error
-      throw error
-    } finally {
-      if (staged.path !== '') await removeTemporary(staged.path, failure, internals)
-    }
+      return publication
+    },
   }
 }
 
 /**
- * Ensure one resolved generation has a current-format successor before returning.
- * @param options - resolved source, current target, format adapter, verification, and cancellation.
- * @returns the current source or the verified and reopened migrated successor.
+ * Decode and migrate one historical generation without writing its successor.
+ * @param options - resolved source, current target, format adapter, and load cancellation.
+ * @returns the current artifact and an idempotent explicit publication operation.
  */
-export function ensureJsonlGenerationCurrent(
-  options: EnsureJsonlGenerationOptions,
-): Promise<EnsureJsonlGenerationResult> {
-  return defaultGenerationRuntime.ensure(options)
+export function prepareJsonlMigration(
+  options: PrepareJsonlMigrationOptions,
+): Promise<PreparedJsonlMigration> {
+  return defaultGenerationRuntime.prepare(options)
 }
 
 /**
@@ -1085,7 +1014,7 @@ export function createJsonlGenerationRuntime(
   const internals = withOverrides(overrides)
   return {
     readStable: (path, signal) => readStableSnapshot(path, signal, internals.fs),
-    ensure: options => ensureCurrent(options, internals),
+    prepare: options => prepareMigration(options, internals),
     verify: (path, compression, expectedId, expectedEventCount, expectedPrefix) => verifyCurrentGeneration(
       path, compression, expectedId, expectedEventCount, internals.fs, expectedPrefix,
     ),

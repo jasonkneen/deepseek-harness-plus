@@ -658,7 +658,7 @@ describe('OpenTelemetrySessionBackend route and feedback', () => {
       expect(ctx.sessions.list()).toEqual([])
       const read = await ctx.sessionPersistence.open(child.id, 'read')
       try {
-        const events = await read.read()
+        const { events } = await read.read()
         expect(events.at(-1)?.type).toBe('feedback/message-put')
         expect(events).toHaveLength(child.seq + 1)
       } finally {

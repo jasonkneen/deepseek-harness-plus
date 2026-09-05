@@ -75,7 +75,7 @@ kind: "package-reference"
 
 ### 读取日志
 
-`open(id, 'read'|'write')` 选择最高规范 generation。当前格式输入走普通快速路径。对于历史输入，两种句柄都会在返回前等待后端单遍解码并迁移源、按有界分片编码同目录临时文件、在 Worker Thread 中校验、复查源修订、以不覆盖方式发布当前后继，并校验和重新打开已提交 generation。源保持逐字节不变。句柄的 `read(offset?, length?)` 按上述持久性规则提供经过验证的连续切片。写 open 会用已验证的存储前缀预热句柄，一个按 revision 为键的有界 memo 让紧接的观察到恢复交接复用该解析。`stat(id)` 与 `list()` 只选择并转换最高 generation 的 header，不读取事件行，也不启动迁移；快照携带所选文件的 `sizeBytes` 与尽力而为的 stat 派生修订号。选择 `compression: 'none'` 后，日志是外部读取方可直接消费的换行分隔文本；压缩默认值必须经后端读取。
+`open(id, 'read'|'write')` 选择最高规范 generation。当前格式输入走普通快速路径。对于历史输入，只读 open 会单遍解码并迁移源、校验当前逻辑结果，然后在不发布后继的情况下返回。写 open 会在可用时复用按 revision 为键的 preparation，否则执行同一套 preparation，再按有界分片编码同目录临时文件、在 Worker Thread 中校验、复查源修订，并在返回前以不覆盖方式发布当前后继。源保持逐字节不变。如果源在 preparation 后发生变化，该次写 open 会失败，已经返回给读方的逻辑历史不会被替换；后续写 open 会针对新的 revision 重新执行 preparation。Backend 在 memo 化前冻结已解码的 event graph，并在此时将其标记为 `shared-frozen`；句柄读取和 slice 即使为空也保留该状态。只有尚未实体化的 pending 空日志报告 `detached`。`stat(id)` 与 `list()` 只选择并转换最高 generation 的 header，不读取事件行，也不启动迁移；快照携带所选文件的 `sizeBytes` 与尽力而为的 stat 派生修订号。选择 `compression: 'none'` 后，日志是外部读取方可直接消费的换行分隔文本；压缩默认值必须经后端读取。
 
 -----
 
@@ -89,7 +89,7 @@ kind: "package-reference"
 
 ### 设计理念
 
-该后端拥有自己完整的存储运行时（`src/storage.ts`）：`JsonlSessionHandle` 承载逐句柄修改链、带固定批处理窗口与 single-flight 排空的已路由实时事件缓冲、单调读取与幂等 close；一个 tracker 持有进程内单写者认领、teardown 清扫所遍历的打开句柄集合，以及后端自己的会话监听器所路由进的已创建但未实体化待定会话。历史正文读取会在构造句柄前执行同一个串行 ensure-current 操作。本包有意只暴露默认插件导出与配置类型——具体类不是具名导出，因此消费方只耦合 `ctx.sessionPersistence`，其可观察行为由共享 seam 测试套件（`runPersistenceContract`/`runLiveWritePathContract`）钉住。其变更令牌是尽力而为的文件修订值：device、inode、size 与纳秒时间戳标识一份日志，供 `stat`/`list`、在并发 append 撕裂读取时重试的稳定读取循环，以及发布前源检查使用。
+该后端拥有自己完整的存储运行时（`src/storage.ts`）：`JsonlSessionHandle` 承载逐句柄修改链、带固定批处理窗口与 single-flight 排空的已路由实时事件缓冲、单调读取与幂等 close；一个 tracker 持有进程内单写者认领、teardown 清扫所遍历的打开句柄集合，以及后端自己的会话监听器所路由进的已创建但未实体化待定会话。历史正文读取共享每个 Session 唯一的一次 Decode/Migrate preparation，按 revision 为键的有界 memo 让紧接的观察到恢复交接复用该解析；backend 在 memo 化前只对每个 event graph 深度冻结一次，因此后续 handle read 无需复制或再次冻结。只有写 open 才发布准备好的后继。本包有意只暴露默认插件导出与配置类型——具体类不是具名导出，因此消费方只耦合 `ctx.sessionPersistence`，其可观察行为由共享 seam 测试套件（`runPersistenceContract`/`runLiveWritePathContract`）钉住。其变更令牌是尽力而为的文件修订值：device、inode、size 与纳秒时间戳标识一份日志，供 `stat`/`list`、在并发 append 撕裂读取时重试的稳定读取循环，以及发布前源检查使用。
 
 ### 物理编码
 

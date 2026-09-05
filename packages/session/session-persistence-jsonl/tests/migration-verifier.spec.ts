@@ -48,10 +48,12 @@ afterEach(() => {
 
 describe('migration verifier Worker lifecycle', () => {
   it('resolves only after terminating a successful Worker', async () => {
-    const verification = verifyCurrentGenerationInWorker('/stage', 'none', 'session', 2)
+    const expectedPrefix = { bytes: 3, digest: 'a'.repeat(64) }
+    const verification = verifyCurrentGenerationInWorker('/stage', 'none', 'session', 2, expectedPrefix)
     const instance = worker()
     expect(instance.options.workerData).toEqual({
       path: '/stage', compression: 'none', expectedId: 'session', expectedEventCount: 2,
+      expectedPrefix,
     })
     instance.emit('message', { ok: true, result })
 

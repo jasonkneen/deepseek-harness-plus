@@ -239,7 +239,7 @@ export class MessageFeedbackService extends TypertRemoteService {
         // Listener participation alone does not prove this Session has a persistence writer.
         const handle = await this.ctx.sessionPersistence.open(sessionId, 'read')
         try {
-          const stored = await handle.read(last?.seq ?? 0, 1)
+          const { events: stored } = await handle.read(last?.seq ?? 0, 1)
           if (!isDeepStrictEqual(
             [handle.header.id, handle.header.createdAt, handle.header.cwd],
             [live.header.id, live.header.createdAt, live.header.cwd],
@@ -254,7 +254,7 @@ export class MessageFeedbackService extends TypertRemoteService {
     }
     const handle = await this.ctx.sessionPersistence.open(sessionId, write ? 'write' : 'read')
     try {
-      const events = await handle.read()
+      const { events } = await handle.read()
       return await operation(events, async (event) => {
         const entry: FeedbackEvent | undefined = event === undefined ? undefined
           : { ...event, seq: SessionSeq(events.length), time: Date.now() }

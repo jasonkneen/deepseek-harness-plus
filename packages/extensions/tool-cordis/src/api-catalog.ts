@@ -1848,7 +1848,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       {
         signature: 'prepare(id?: SessionId, options?: PrepareSessionOptions): Session',
         description: 'Build a session WITHOUT entering it into the store — validate the id/cwd and construct the Session (with its immutable SessionHeader). Pairs with enter + announce: a caller that owns a composite `ctx.effect` (the agent factory) folds the session lifecycle into that ONE effect so a fiber unload tears the session + agent down as a single ORDERED chain rather than as racing sibling effects — which would remove the publication hooks before the driver\'s closing events commit, dropping them.',
-        parameters: [{ name: 'id', description: 'the session id; omitted, the store mints `session-<n>`.' }, { name: 'options', description: 'seed events and/or creation metadata for the header. With `seedSource: \'persistence\'`, metadata and events must be fresh detached graphs whose ownership transfers to this call: they are validated and frozen in place through {@link Session.fromRestore}, so the caller must retain no mutable aliases.' }],
+        parameters: [{ name: 'id', description: 'the session id; omitted, the store mints `session-<n>`.' }, { name: 'options', description: 'seed events and/or creation metadata for the header. With `eventState`, every seed event is either independently owned or any shared value is deeply frozen; {@link Session.fromRestore} validates and adopts those values without copying or freezing them.' }],
         returns: 'the constructed session, NOT yet in the store.',
         throws: ['if a session with `id` already exists, metadata is not a plain lossless-JSON record with valid scalar fields, or `meta.cwd` is a non-absolute path.'],
       },
@@ -4679,7 +4679,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'PrepareSessionOptions',
-    declaration: 'export type PrepareSessionOptions = (CreateSessionOptions & {\n    readonly seedSource?: undefined;\n}) | RestoredSessionOptions;',
+    declaration: 'export type PrepareSessionOptions = (CreateSessionOptions & {\n    readonly eventState?: undefined;\n}) | RestoredSessionOptions;',
   },
   {
     name: 'PresetOption',
@@ -4847,7 +4847,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'RestoredSessionOptions',
-    declaration: 'export interface RestoredSessionOptions {\n    readonly seed: SessionEvent[];\n    readonly meta: SessionHeader;\n    readonly inheritedEventCount: SessionLogOffset;\n    readonly seedSource: \'persistence\';\n}',
+    declaration: 'export interface RestoredSessionOptions {\n    readonly seed: SessionEvent[];\n    readonly meta: SessionHeader;\n    readonly inheritedEventCount: SessionLogOffset;\n    readonly eventState: SessionSeedEventState;\n}',
   },
   {
     name: 'ResumeAgentOptions',
@@ -4939,7 +4939,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'Session',
-    declaration: 'export class Session {\n    get surface(): SessionSurface;\n    readonly header: SessionHeader;\n    readonly inheritedEventCount: SessionLogOffset;\n    get id(): SessionId;\n    readonly firstLiveSeq: SessionLogOffset;\n    static create(id: SessionId, seed?: readonly SessionEvent[], header?: SessionHeader, inheritedEventCount?: SessionLogOffset): Session;\n    static fromRestore(id: SessionId, seed: readonly SessionEvent[], header: SessionHeader, inheritedEventCount: SessionLogOffset): Session;\n    eventAt(seq: SessionSeq): SessionEvent | undefined;\n    snapshotEvents(fromSeq: SessionLogOffset = SessionLogOffset(0), toSeqExclusive: SessionLogOffset = this.seq): readonly SessionEvent[];\n    ownEvents(): readonly SessionEvent[];\n    isOwnSeq(seq: SessionSeq): boolean;\n    get seq(): SessionLogOffset;\n    append<T extends SessionEventType>(type: T, data: SessionEventMap[T], ...opts: T extends SurfaceEventType ? [\n        opts: SurfaceIntent<T>\n    ] : [\n    ]): SessionEvent<T>;\n    requestHeader(): EpochHeader | undefined;\n    requestContext(): RequestContext | undefined;\n    deriveMessages(): Message[];\n    deriveEventMessage(event: SessionEvent): Message | null;\n}',
+    declaration: 'export class Session {\n    get surface(): SessionSurface;\n    readonly header: SessionHeader;\n    readonly inheritedEventCount: SessionLogOffset;\n    get id(): SessionId;\n    readonly firstLiveSeq: SessionLogOffset;\n    static create(id: SessionId, seed?: readonly SessionEvent[], header?: SessionHeader, inheritedEventCount?: SessionLogOffset): Session;\n    static fromRestore(id: SessionId, seed: readonly SessionEvent[], header: SessionHeader, inheritedEventCount: SessionLogOffset, eventState: SessionSeedEventState): Session;\n    eventAt(seq: SessionSeq): SessionEvent | undefined;\n    snapshotEvents(fromSeq: SessionLogOffset = SessionLogOffset(0), toSeqExclusive: SessionLogOffset = this.seq): readonly SessionEvent[];\n    ownEvents(): readonly SessionEvent[];\n    isOwnSeq(seq: SessionSeq): boolean;\n    get seq(): SessionLogOffset;\n    append<T extends SessionEventType>(type: T, data: SessionEventMap[T], ...opts: T extends SurfaceEventType ? [\n        opts: SurfaceIntent<T>\n    ] : [\n    ]): SessionEvent<T>;\n    requestHeader(): EpochHeader | undefined;\n    requestContext(): RequestContext | undefined;\n    deriveMessages(): Message[];\n    deriveEventMessage(event: SessionEvent): Message | null;\n}',
   },
   {
     name: 'SessionAccess',
@@ -5087,7 +5087,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SessionHandle',
-    declaration: 'export interface SessionHandle extends AsyncDisposable {\n    readonly id: SessionId;\n    readonly header: SessionHeader;\n    readonly inheritedEventCount: SessionLogOffset;\n    readonly access: SessionAccess;\n    read(offset?: number, length?: number, options?: SessionHandleReadOptions): Promise<readonly SessionEvent[]>;\n    append(events: readonly SessionEvent[], options?: SessionHandleAppendOptions): Promise<void>;\n    flush(options?: SessionHandleFlushOptions): Promise<void>;\n    close(): Promise<void>;\n}',
+    declaration: 'export interface SessionHandle extends AsyncDisposable {\n    readonly id: SessionId;\n    readonly header: SessionHeader;\n    readonly inheritedEventCount: SessionLogOffset;\n    readonly access: SessionAccess;\n    read(offset?: number, length?: number, options?: SessionHandleReadOptions): Promise<SessionHandleReadResult>;\n    append(events: readonly SessionEvent[], options?: SessionHandleAppendOptions): Promise<void>;\n    flush(options?: SessionHandleFlushOptions): Promise<void>;\n    close(): Promise<void>;\n}',
   },
   {
     name: 'SessionHandleAppendOptions',
@@ -5100,6 +5100,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'SessionHandleReadOptions',
     declaration: 'export interface SessionHandleReadOptions {\n    readonly signal?: AbortSignal;\n}',
+  },
+  {
+    name: 'SessionHandleReadResult',
+    declaration: 'export interface SessionHandleReadResult {\n    readonly eventState: SessionSeedEventState;\n    readonly events: readonly SessionEvent[];\n}',
   },
   {
     name: 'SessionHeader',
@@ -5292,6 +5296,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'SessionSearchValue',
     declaration: 'export interface SessionSearchValue {\n    readonly items: readonly SessionSearchItem[];\n    readonly hasMore: boolean;\n}',
+  },
+  {
+    name: 'SessionSeedEventState',
+    declaration: 'export type SessionSeedEventState = \'detached\' | \'shared-frozen\';',
   },
   {
     name: 'SessionSelectModelRequest',

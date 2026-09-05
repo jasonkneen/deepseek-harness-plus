@@ -77,22 +77,9 @@ JSONL provider 只扫描一次 frame boundary，复用一个 Zstandard decoder�
 
 Current encode 以单条 record 为单位。Provider 在主线程每个 slice 序列化约 1 MiB plaintext，通过一个会传播 source error 的 Zstandard context 流式压缩，以 4 MiB batch 写入同目录排他创建的临时文件，并在 publication 前 sync。进程级 scheduler 最多允许两个完整 verification Worker 并行，并把释放的 permit 直接交给最早的 waiter。
 
-Cancellation 会在现有的约 500 ms Decode yield 边界和约 1 MiB encode yield 边界被观察到。排队 verifier 在取消时会移除自己的 waiter；活动 verifier 会终止 Worker，并等待其退出后再释放 permit。该行为不会让底层文件写入新增可中断能力，取消也绝不会回滚已经发布的 generation。
+Preparation 会把 cancellation 传给 source read，并在现有的约 500 ms Decode yield 边界观察它。`publish()` 一旦开始，encode、Worker verification 与 publication 不接收 caller cancellation，并运行到终态；write open 会在之后再次检查 caller signal。已经发布的 generation 绝不会回滚。
 
-本决策有意保持既有串行 persistence lifecycle：
-
-```text
-read/write open
-  → decode and migrate historical source
-  → encode and sync temporary current generation
-  → Worker verify
-  → recheck source
-  → publish without overwrite
-  → verify/reopen committed generation
-  → return handle
-```
-
-这里不拆分 read-only preparation 与 write publication。两种 handle 都会等待 current generation 完成。该调度问题可以独立调整，不需要恢复 whole-artifact format API。
+Stage pipeline 终止于一份 prepared current artifact。[历史 Session 只读迁移准备](2026-09-05-read-only-session-migration-preparation.zh.md)定义 read open 如何立即消费该 artifact，以及 write open 如何在返回 append 权限前完成 encode、verification 与 publication。
 
 ### Durable format 与 publication 规则
 
@@ -154,6 +141,8 @@ Current-v2 快路径保持性能等价。架构改造不会让 current data 进�
 
 ### Streaming 串行 migration 分段
 
+下表记录该 Stage 决策测量的串行 open 流程。当前 preparation-first 调度及其测量由[历史 Session 只读迁移准备](2026-09-05-read-only-session-migration-preparation.zh.md)记录。
+
 | 阶段 | 中位耗时 |
 |---|---:|
 | Source Decode + migration | 2.784s |
@@ -176,7 +165,7 @@ Format、catalog、edge、JSONL、fixture、replay 与 built-Worker 测试覆盖
 
 解码后的单条 `assistant/chunk` 会接受 envelope 校验与最终 target 校验，但其完整冻结 v1 source payload 成员校验仍处于延期状态，因为这项逐事件检查会显著影响已发布日志的 Decode 与 migration 耗时。Packed Assistant run 仍接受严格解码。只有性能证据表明不会破坏该迁移路径的已测表现时，才能恢复单条 chunk 校验。
 
-串行 persistence lifecycle 仍会让 read open 等待 encode、verification 与 publication。把逻辑 readable 与 durable writable 分开属于后续调度决策，不需要再次改写 format pipeline。
+Read-only access 会在 durable publication 前消费 Stage 结果；write open 则复用同一结果，并在 append 前等待 publication。Persistence 调度仍与 format pipeline 相互独立。
 
 低 generation 为 operator 检查而保留。Retention 不承诺 downgrade compatibility、automatic fallback，也不保证旧 runtime 能安全理解新 generation。
 
