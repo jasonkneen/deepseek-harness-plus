@@ -37,7 +37,7 @@ Normal-heap mode performs a fixed pair of explicit garbage collections after Hos
 
 The performance gate does not duplicate semantic assertions owned by functional tests; it requires only that the target call completes and reaches its measured endpoint. The Client-fold benchmark continues to use the real `ConversationNodeAssembler` and every Chat Definition, and requires both the large window's absolute time and its scaling relative to the small window to remain below fixed budgets.
 
-Budgets are layered. The first-open `open` limit, constrained-heap completion checks, and Client-fold scaling bound reject the known regressions; first-history and Agent-resume limits are broader orchestration ceilings that catch additional overhead without duplicating those component verdicts. Repeated measurements on the target CI runner leave margin for runner noise. Pre-stack commit `0d7ea53743e273930a31e9e2b6ca682f21dd4ca5` is the fixed calibration and review reference; CI does not check out or execute the historical repository. Budgets are reviewed source constants and have no environment-variable override.
+Budgets are calibrated per measured endpoint. Two repeated Node 24.19 x64 CI runs differ by at most 5.2% in their medians; their CPU-heavy wall times are 1.95–2.06× the Node 24.18 arm64 reference run. Source constants record expected reference-machine durations; `ciTimeBudget()` multiplies them by the measured 2× CI time scale and 1.25× variance headroom. The retained-heap and Client-fold scaling budgets use only the 1.25× headroom because neither is a wall-clock duration. The 128 MB completion check remains an independent transient-allocation limit. The resulting first-open time limits, constrained-heap checks, and Client-fold limits all reject the known regressions. Pre-stack commit `0d7ea53743e273930a31e9e2b6ca682f21dd4ca5` is the fixed calibration and review reference; CI does not check out or execute the historical repository. Budgets are reviewed source constants and have no environment-variable override.
 
 ## Calibration evidence
 
@@ -53,6 +53,24 @@ Five-sample medians on the same Node 24 reference machine establish the positive
 | Post-upgrade reopen | Repeated-snapshot regression | 49.2 ms | 50.4 ms | 43.8 ms | 4.5 MB | Completes |
 
 The pre-stack implementation keeps V0 as its current format, so first open does not change its on-disk representation; its native V0 first-history and Agent-resume measurements therefore apply to both lifecycle rows.
+
+The calibrated source budgets are:
+
+| Measurement | Reference expectation | CI budget |
+|---|---:|---:|
+| First-open `open` | 220 ms | 550 ms |
+| Current-generation `open` | 12 ms | 30 ms |
+| Complete read | 8 ms | 20 ms |
+| Session restore | 24 ms | 60 ms |
+| Projection | 14 ms | 35 ms |
+| First-open first history | 220 ms | 550 ms |
+| Current-generation first history | 48 ms | 120 ms |
+| First-open Agent resume | 180 ms | 450 ms |
+| Current-generation Agent resume | 40 ms | 100 ms |
+| Agent retained heap | 26.1 MB | 33 MB |
+| Client-fold absolute time | 16 ms | 40 ms |
+| Client-fold delta scaling | 2.5× | 3.125× |
+| Constrained old space | — | 128 MB |
 
 ## Alternatives considered
 

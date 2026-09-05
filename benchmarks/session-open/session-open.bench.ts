@@ -8,6 +8,10 @@ import {
   runBuiltBenchmarkWorker,
   type BuiltBenchmarkWorkerRun,
 } from '../support/built-worker.ts'
+import {
+  ciTimeBudget,
+  PERFORMANCE_BUDGET_HEADROOM,
+} from '../support/calibration.ts'
 import type {
   SessionOpenBenchmarkScenario,
   SessionOpenWorkerReport,
@@ -38,26 +42,33 @@ const SOURCE_GENERATION_BY_ACCESS = {
   'post-upgrade-reopen': SYNTHETIC_CURRENT_GENERATION,
 } as const satisfies Record<SessionAccessKind, string>
 
-/** Existing CI calibration: optimized migration is about 2 s and the repeated-snapshot path exceeds 4 s. */
-const MIGRATION_OPEN_BUDGET_MS = 4_000
-/** Current-generation open is expected to stay far below one second on the benchmark runner. */
-const REOPEN_OPEN_BUDGET_MS = 500
-/** Complete event reads remain bounded after either opening path. */
-const READ_BUDGET_MS = 500
-/** In-memory Session restore normally takes tens of milliseconds; one second rejects large cloning regressions. */
-const SESSION_RESTORE_BUDGET_MS = 1_000
-/** The fixed production projection set must fold the complete Session within one second. */
-const PROJECTION_BUDGET_MS = 1_000
-/** Coarse Host orchestration ceiling; component and constrained-heap gates reject the known migration regression. */
-const FIRST_OPEN_FIRST_HISTORY_BUDGET_MS = 6_000
-/** An already-published current Session should produce first history without migration-scale work. */
-const REOPEN_FIRST_HISTORY_BUDGET_MS = 500
-/** Coarse Agent orchestration ceiling; component and constrained-heap gates reject the known migration regression. */
-const FIRST_OPEN_AGENT_RESUME_BUDGET_MS = 7_000
-/** An already-published current Session should resume without migration-scale work. */
-const REOPEN_AGENT_RESUME_BUDGET_MS = 500
-/** The 64 MB cap exceeds the 26.1 MB historical-reference median while still detecting retained-graph growth. */
-const AGENT_RETAINED_HEAP_BUDGET_MB = 64
+/** Expected durations on the reference machine before CI scaling and variance headroom. */
+const EXPECTED_MS = {
+  migrationOpen: 220,
+  reopenOpen: 12,
+  read: 8,
+  sessionRestore: 24,
+  projection: 14,
+  firstOpenFirstHistory: 220,
+  reopenFirstHistory: 48,
+  firstOpenAgentResume: 180,
+  reopenAgentResume: 40,
+} as const
+
+const MIGRATION_OPEN_BUDGET_MS = ciTimeBudget(EXPECTED_MS.migrationOpen)
+const REOPEN_OPEN_BUDGET_MS = ciTimeBudget(EXPECTED_MS.reopenOpen)
+const READ_BUDGET_MS = ciTimeBudget(EXPECTED_MS.read)
+const SESSION_RESTORE_BUDGET_MS = ciTimeBudget(EXPECTED_MS.sessionRestore)
+const PROJECTION_BUDGET_MS = ciTimeBudget(EXPECTED_MS.projection)
+const FIRST_OPEN_FIRST_HISTORY_BUDGET_MS = ciTimeBudget(EXPECTED_MS.firstOpenFirstHistory)
+const REOPEN_FIRST_HISTORY_BUDGET_MS = ciTimeBudget(EXPECTED_MS.reopenFirstHistory)
+const FIRST_OPEN_AGENT_RESUME_BUDGET_MS = ciTimeBudget(EXPECTED_MS.firstOpenAgentResume)
+const REOPEN_AGENT_RESUME_BUDGET_MS = ciTimeBudget(EXPECTED_MS.reopenAgentResume)
+/** Historical-reference retained heap before variance headroom. */
+const EXPECTED_AGENT_RETAINED_HEAP_MB = 26.1
+const AGENT_RETAINED_HEAP_BUDGET_MB = Math.ceil(
+  EXPECTED_AGENT_RETAINED_HEAP_MB * PERFORMANCE_BUDGET_HEADROOM,
+)
 
 const WORKER = join(import.meta.dirname, '..', '..', '.dsh-build', 'benchmarks', 'session-open', 'session-open.worker.js')
 

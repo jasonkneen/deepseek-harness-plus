@@ -6,6 +6,10 @@ import {
   runBuiltBenchmarkWorker,
   type BuiltBenchmarkWorkerRun,
 } from '../support/built-worker.ts'
+import {
+  ciTimeBudget,
+  PERFORMANCE_BUDGET_HEADROOM,
+} from '../support/calibration.ts'
 import type { ConversationFoldWorkerReport } from './conversation-fold.worker.client.ts'
 
 /** Replies in the folded window; each carries one reasoning block and one text block. */
@@ -24,14 +28,16 @@ const WORKER_TIMEOUT_MS = 60_000
  * stream records. The budget separates the record-proportional fold from the
  * per-delta replay that needs hundreds of milliseconds for the same window.
  */
-const LARGE_FOLD_BUDGET_MS = 150
+const EXPECTED_LARGE_FOLD_MS = 16
+const LARGE_FOLD_BUDGET_MS = ciTimeBudget(EXPECTED_LARGE_FOLD_MS)
 
 /**
  * Both windows contain equal event and compact-record counts. A fold over
  * records plus joined text measures about 2.5×; replaying every delta measures
  * about 11× as the delta count grows 20×.
  */
-const MAX_DELTA_SCALING = 5
+const EXPECTED_DELTA_SCALING = 2.5
+const MAX_DELTA_SCALING = EXPECTED_DELTA_SCALING * PERFORMANCE_BUDGET_HEADROOM
 
 const WORKER = join(
   import.meta.dirname,

@@ -37,7 +37,7 @@ Session benchmark 使用固定参数合成 released-v0 输入：200 轮，每轮
 
 性能 gate 不重复功能测试的内容断言，只要求目标调用完成并到达对应的可观察终点。Client fold benchmark 继续使用真实 `ConversationNodeAssembler` 与全部 Chat Definition，要求大窗口的绝对时间和相对小窗口的缩放比均低于固定预算。
 
-预算分层发挥作用。First-open `open` 上限、受限堆完成性检查和 Client fold 缩放上限会拒绝已知退化；首屏历史与 Agent resume 上限是更宽松的编排总量限制，用于发现额外开销而不重复组件判定。目标 CI runner 上的重复测量为机器波动保留余量。栈前参考提交固定为 `0d7ea53743e273930a31e9e2b6ca682f21dd4ca5`，只用于校准和评审预算；CI 不 checkout 或执行历史仓库。预算是源码中的受评审常量，不由环境变量覆盖。
+预算按各测量终点分别校准。两次 Node 24.19 x64 CI 运行的中位数最大相差 5.2%；其 CPU 密集型壁钟时间是 Node 24.18 arm64 参考运行的 1.95–2.06 倍。源码常量记录参考机器上的预期耗时；`ciTimeBudget()` 将其乘以实测的 2 倍 CI 时间系数和 1.25 倍波动余量。GC 后增量堆与 Client fold 缩放预算不属于壁钟时间，因此只使用 1.25 倍余量。128 MB 完成性检查仍是独立的瞬时分配限制。由此得到的 first-open 时间上限、受限堆检查与 Client fold 上限都会拒绝已知退化。栈前参考提交固定为 `0d7ea53743e273930a31e9e2b6ca682f21dd4ca5`，只用于校准和评审预算；CI 不 checkout 或执行历史仓库。预算是源码中的受评审常量，不由环境变量覆盖。
 
 ## 校准证据
 
@@ -53,6 +53,24 @@ Session benchmark 使用固定参数合成 released-v0 输入：200 轮，每轮
 | Post-upgrade reopen | 重复 snapshot 退化实现 | 49.2 ms | 50.4 ms | 43.8 ms | 完成 |
 
 栈前实现以 V0 作为当前格式，因此 first open 不改变磁盘表示；它的原生 V0 首屏历史与 Agent resume 测量同时适用于两个生命周期行。
+
+校准后的源码预算如下：
+
+| 测量项 | 参考机预期 | CI 预算 |
+|---|---:|---:|
+| First-open `open` | 220 ms | 550 ms |
+| 当前 generation `open` | 12 ms | 30 ms |
+| 完整 read | 8 ms | 20 ms |
+| Session restore | 24 ms | 60 ms |
+| Projection | 14 ms | 35 ms |
+| First-open 首屏历史 | 220 ms | 550 ms |
+| 当前 generation 首屏历史 | 48 ms | 120 ms |
+| First-open Agent resume | 180 ms | 450 ms |
+| 当前 generation Agent resume | 40 ms | 100 ms |
+| Agent GC 后增量堆 | 26.1 MB | 33 MB |
+| Client fold 绝对时间 | 16 ms | 40 ms |
+| Client fold delta 缩放比 | 2.5× | 3.125× |
+| 受限 old space | — | 128 MB |
 
 ## 考虑过的替代方案
 
