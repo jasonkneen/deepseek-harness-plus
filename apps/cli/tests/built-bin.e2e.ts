@@ -424,9 +424,20 @@ describe.skipIf(!existsSync(dshBin))('dsh BUILT bin (node lib/bin.js, no tsx)', 
     }
   }, SPAWN_TIMEOUT_MS + 30_000)
 
-  it('serves the SDK protocol through the sdk profile and exits after shutdown', async () => {
+  it('serves the SDK protocol with an absolute-path overlay plugin and exits after shutdown', async () => {
     const home = mkdtempSync(join(tmpdir(), 'dsh-built-sdk-'))
-    const child = execa(process.execPath, [dshBin, '--profile', 'sdk'], {
+    const pluginPath = join(home, 'plugin #100%.mjs')
+    const marker = join(home, 'plugin-loaded')
+    writeFileSync(pluginPath, [
+      "import { writeFileSync } from 'node:fs'",
+      'export function apply(ctx, config) { writeFileSync(config.marker, "loaded") }',
+      '',
+    ].join('\n'))
+    const patch = join(home, 'absolute.patch.yml')
+    writeFileSync(patch, JSON.stringify([{ insert: [
+      { id: 'absolute-plugin', name: pluginPath, config: { marker } },
+    ] }]))
+    const child = execa(process.execPath, [dshBin, '--profile', 'sdk', '--patch', patch], {
       cwd: home,
       reject: false,
       timeout: SPAWN_TIMEOUT_MS,
@@ -462,7 +473,8 @@ describe.skipIf(!existsSync(dshBin))('dsh BUILT bin (node lib/bin.js, no tsx)', 
         method: 'initialize',
         params: { cwd: home, provider: 'deepseek-official', model: 'deepseek-v4-flash' },
       })}\n`)
-      expect(await response(1)).toMatchObject({
+      const initialized = await response(1)
+      expect(initialized, `${JSON.stringify(initialized)}\n${stderr}`).toMatchObject({
         jsonrpc: '2.0',
         id: 1,
         result: { serverInfo: { name: 'deepseek-harness-sdk-runtime' } },
@@ -470,8 +482,11 @@ describe.skipIf(!existsSync(dshBin))('dsh BUILT bin (node lib/bin.js, no tsx)', 
       child.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'shutdown' })}\n`)
       expect(await response(2)).toEqual({ jsonrpc: '2.0', id: 2, result: {} })
       const result = await child
-      expect(result.exitCode, `signal=${String(result.signal)}; stderr=${stderr}`).toBe(0)
+      expect(result.timedOut, stderr).toBe(false)
+      expect(result.signal, stderr).toBeUndefined()
+      expect(result.exitCode, stderr).toBe(0)
       expect(stderr).toBe('')
+      expect(readFileSync(marker, 'utf8')).toBe('loaded')
     } finally {
       child.kill('SIGKILL')
       await child
