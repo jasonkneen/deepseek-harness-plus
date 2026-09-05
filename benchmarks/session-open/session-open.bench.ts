@@ -70,7 +70,7 @@ const AGENT_RETAINED_HEAP_BUDGET_MB = Math.ceil(
   EXPECTED_AGENT_RETAINED_HEAP_MB * PERFORMANCE_BUDGET_HEADROOM,
 )
 
-const WORKER = join(import.meta.dirname, '..', '..', '.dsh-build', 'benchmarks', 'session-open', 'session-open.worker.js')
+const WORKER = join(import.meta.dirname, '..', '.dsh-build', 'session-open', 'session-open.worker.js')
 
 type WorkerRun = BuiltBenchmarkWorkerRun<SessionOpenWorkerReport>
 

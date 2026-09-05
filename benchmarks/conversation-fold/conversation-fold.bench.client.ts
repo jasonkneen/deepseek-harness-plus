@@ -42,9 +42,7 @@ const MAX_DELTA_SCALING = EXPECTED_DELTA_SCALING * PERFORMANCE_BUDGET_HEADROOM
 const WORKER = join(
   import.meta.dirname,
   '..',
-  '..',
   '.dsh-build',
-  'benchmarks',
   'conversation-fold',
   'conversation-fold.worker.js',
 )

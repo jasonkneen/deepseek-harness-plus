@@ -17,7 +17,7 @@ export default defineConfig([
   {
     ...shared,
     entry: { 'session-open.worker': 'session-open/session-open.worker.ts' },
-    outDir: '../.dsh-build/benchmarks/session-open',
+    outDir: '.dsh-build/session-open',
     clean: true,
     tsconfig: 'tsconfig.host.json',
   },
@@ -26,7 +26,7 @@ export default defineConfig([
     entry: {
       'conversation-fold.worker': 'conversation-fold/conversation-fold.worker.client.ts',
     },
-    outDir: '../.dsh-build/benchmarks/conversation-fold',
+    outDir: '.dsh-build/conversation-fold',
     clean: true,
     tsconfig: 'tsconfig.client.json',
   },
