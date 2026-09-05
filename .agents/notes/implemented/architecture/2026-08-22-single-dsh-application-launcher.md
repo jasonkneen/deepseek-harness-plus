@@ -34,7 +34,7 @@ Profile manifests own patch reload:
 
 Custom profiles default to `live`. A startup profile still applies its bundle, profile, home-level, and invocation `--patch` layers, but it does not watch them after boot. `dsh-base` inserts the module-HMR row disabled; a profile with a tested source-module reload lifecycle must enable it explicitly. None of the shipped profiles enable server module HMR: `patchReload: live` uses the launcher's config-only watcher while the startup profiles install no watcher. SDK and ACP cannot safely replace their server, agents, persistence, or tool registry inside one owned stdio connection.
 
-The shipped protocol profiles reserve stdout for protocol frames, expose help without starting transport, and route stdin EOF and signals through bounded root disposal. ACP remains automation-only. The SDK JSON-RPC methods, notification fields, and `initialize.serverInfo.name` remain stable. Full-profile model-visible tool and persistence defaults come from `dsh-base`; `sdk-minimal` owns its explicit defaults. Runnable snapshots own the assembled application outputs.
+The shipped protocol profiles reserve stdout for protocol frames, expose help without starting transport, and route stdin EOF and signals through bounded root disposal. ACP remains automation-only. The SDK JSON-RPC methods, notification fields, and `initialize.serverInfo.name` remain stable. Full-profile model-visible tool and persistence defaults come from `dsh-base`, including its [default editor selection](../simplification/2026-09-05-base-default-file-editor.md); `sdk-minimal` owns its explicit defaults. Runnable snapshots own the assembled application outputs.
 
 ### TypeScript SDK customization
 

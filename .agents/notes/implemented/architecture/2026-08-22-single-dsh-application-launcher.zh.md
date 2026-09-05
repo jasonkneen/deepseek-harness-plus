@@ -34,7 +34,7 @@ Profile manifest 负责 patch 重载：
 
 自定义 profile 默认为 `live`。`startup` profile 仍会应用组合包、profile、home 级与调用时 `--patch` 各层，但启动后不会监视这些文件。`dsh-base` 插入的模块 HMR（热模块替换）配置项默认禁用；具有经过验证的源码模块重载生命周期的 profile 必须显式启用它。随附 profile 均不启用服务器模块 HMR：`patchReload: live` 使用启动器的仅配置 watcher，`startup` profile 则不安装 watcher。SDK 与 ACP 无法在一个自有 stdio 连接内安全替换其服务器、agent、持久化或工具注册表。
 
-随附协议 profile 将 stdout 保留给协议帧，显示帮助时不启动 transport，并通过有界根节点 dispose（资源释放）处理 stdin EOF 与信号。ACP 继续仅用于自动化。SDK JSON-RPC 方法、通知字段与 `initialize.serverInfo.name` 保持稳定。完整 profile 的模型可见工具与持久化默认值来自 `dsh-base`；`sdk-minimal` 拥有自己的显式默认值。可运行快照负责固定已组装的应用输出。
+随附协议 profile 将 stdout 保留给协议帧，显示帮助时不启动 transport，并通过有界根节点 dispose（资源释放）处理 stdin EOF 与信号。ACP 继续仅用于自动化。SDK JSON-RPC 方法、通知字段与 `initialize.serverInfo.name` 保持稳定。完整 profile 的模型可见工具与持久化默认值来自 `dsh-base`，包括其[默认编辑器选择](../simplification/2026-09-05-base-default-file-editor.zh.md)；`sdk-minimal` 拥有自己的显式默认值。可运行快照负责固定已组装的应用输出。
 
 ### TypeScript SDK 自定义
 

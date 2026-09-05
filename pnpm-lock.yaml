@@ -1260,9 +1260,6 @@ importers:
       '@deepseek-ai/dsh-tool-skill':
         specifier: workspace:^
         version: link:../../skill/tool-skill
-      '@deepseek-ai/dsh-tool-str-replace-editor':
-        specifier: workspace:^
-        version: link:../../fs/tool-str-replace-editor
       '@deepseek-ai/dsh-tool-subagent':
         specifier: workspace:^
         version: link:../../subagent/tool-subagent
