@@ -99,17 +99,20 @@
     "apps/web/tests/workflow-run.e2e.ts",
     "apps/web/stress-tests/reasoning-chunks.stress.ts",
     "apps/cli/tests/**/*.ts",
+    "benchmarks/**/*.ts",
     "packages/*/*/tests/**/*.ts",
     "scripts/**/*.ts",
     "website/**/*.ts",
     "website/.vitepress/**/*.ts"
   ],
-  // Under packages/client a test file names the face it covers: `*.client.*`
-  // belongs to the Client aggregate, `*.host.spec.ts` to this one. The two
+  // Under packages/client and benchmarks, a test file names the face it covers:
+  // `*.client.*` belongs to the Client aggregate, `*.host.spec.ts` to this one. The two
   // suffixes are mutually exclusive, so each aggregate excludes the other's
   // and the package test glob above needs no per-file entry.
   "exclude": [
     "packages/client/*/src/**",
+    "benchmarks/**/*.client.ts",
+    "benchmarks/**/*.client.tsx",
     "packages/*/*/tests/**/*.client.ts",
     "packages/*/*/tests/**/*.client.tsx",
     "packages/*/*/tests/**/*.client.spec.ts",
