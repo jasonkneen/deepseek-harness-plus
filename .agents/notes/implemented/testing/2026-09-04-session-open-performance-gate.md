@@ -6,33 +6,78 @@ English | [中文](2026-09-04-session-open-performance-gate.zh.md)
 
 ## Problem
 
-The Session format v2 rollout changed two paths whose cost scales with model output: the JSONL backend migrates and publishes a released-v0 log on its first `open()`, and the Client folds each settled reply's embedded compact stream. Neither path had an executed performance check, so a first open that grew from about 35 ms to about 5 s on a 127,400-event synthetic log (and from about 0.3 s to 26 s on a 575,000-chunk real log, with peak RSS of 2.7 GB and heap exhaustion under a 512 MB limit) and a Client fold that grew linearly with streamed deltas instead of compact records both reached master unnoticed. Unit tests use small logs, the coverage gate measures lines, and the existing `test:web:perf` inventory is a manual diagnostic outside CI.
+The Session format v2 rollout changed two paths whose cost scales with model output: the JSONL backend migrates and publishes a released-v0 log, and the Client folds each settled reply's embedded compact stream. Neither path had an executable performance check, so first open grew from about 35 ms to about 5 s on a 127,400-event synthetic log (and from about 0.3 s to 26 s on a 575,000-chunk real log, with 2.7 GB peak RSS and heap exhaustion under a 512 MB limit), while Client fold grew linearly with streamed deltas instead of compact records; these regressions reached master unnoticed.
+
+Measuring only `SessionPersistence.open()` does not stably describe the result for which a user or Host waits. Work can move among `open()`, `SessionHandle.read()`, Session restoration, and projection, while the first history page and cold Agent resume add separate orchestration above those operations. A single `heapUsed` sample without prior GC also cannot distinguish data still retained by the Session from reclaimable migration temporaries.
 
 ## Decision
 
-Linux pull requests run a required `node 24 / benchmarks` job that executes `pnpm run check:ci:bench` → `pnpm run test:bench` → `vitest.bench.config.ts`, which collects `packages/*/*/tests/**/*.bench.ts` and `*.bench.client.ts` and runs one file at a time. The job runs the benchmark lane alone, on the same runner selector and failover switch as the other required Linux workers, and joins the `all checks passed` verdict.
+Linux pull requests run a required `node 24 / benchmarks` job that executes `pnpm run check:ci:bench` → `pnpm run test:bench` → `vitest.bench.config.ts`. The job runs the benchmark lane alone; Vitest runs one file at a time and only prepares input, starts measurement children, aggregates results, and enforces budgets.
 
-Every benchmark synthesizes its input in-process from fixed parameters: numbered prompts, counter tokens, fixed timestamps. Recorded Sessions are never used because they carry user content, differ between machines, and drift as fixtures are re-recorded. Each benchmark documents its budget beside the constant that enforces it, and budgets follow three rules: a wall-clock budget sits a small multiple above the intended cost and well below the regression it guards; a memory budget runs the measured path in a child Node process under a fixed `--max-old-space-size`, so an allocation regression fails as an out-of-memory exit regardless of the runner's physical memory; and a scaling assertion compares two sizes of the same workload so a complexity regression fails on any host speed.
+Required performance gates live under top-level `benchmarks/`, grouped by measured user path rather than package ownership. Host files use `*.bench.ts`, Client-face files use `*.bench.client.ts`, and scenario-specific workers and fixtures stay beside their benchmark without a benchmark suffix. Package-local `.perf.ts` files remain non-gating diagnostics; `scripts/` owns orchestration rather than benchmark cases.
 
-The first two gates cover the two regressed paths:
+The Session benchmarks synthesize a released-v0 input from fixed parameters: 200 turns with 500 text deltas and 125 reasoning deltas per turn, for 127,400 logical events. The input uses Zstandard with fixed logical-row grouping and frame partitioning, so every run processes the same events, bytes, and frame distribution. Setup writes the input into a private temporary directory for each sample before timing starts; benchmarks never use recorded Sessions.
 
-| Benchmark | Workload | Gates |
+Every Session endpoint runs at two user-lifecycle points. `first-open` starts with only the released V0 generation and therefore includes migration and successor publication. Setup produces `post-upgrade-reopen` once through that same production migration outside measurement, then copies both the unchanged V0 predecessor and published V2 successor into each sample root. Reopen samples use a fresh process, so they measure an upgraded user's later disk open without migration or process-local caches.
+
+Each access-kind and endpoint sample runs in a fresh Node child process. Module imports, Host service initialization, and fixture preparation finish before measurement; the measured process performs no extra parse warm-up. Normal-heap mode runs five independent samples, reports every sample plus minimum, median, and maximum, and enforces access-specific fixed budgets against the median. Another child runs the same path under a fixed 128 MB old-space limit and checks only that it completes; extra GC caused by the constrained heap does not enter the normal timing baseline.
+
+The lane contains three independent Session-opening benchmarks and retains the Client-fold benchmark:
+
+| Benchmark | Measured path | Timing metrics |
 |---|---|---|
-| `packages/session/session-persistence-jsonl/tests/open-generation.bench.ts` | 200 turns × (500 text + 125 reasoning deltas) = 127,400 released-v0 events, about 2.8 MB, encoded through the frozen v0 codec with packed rows | migrating first `open()` ≤ 4,000 ms under a 128 MB heap; fresh-process open of the published current generation ≤ 500 ms; minimum of three attempts |
-| `packages/client/ui-chat/tests/conversation-fold.bench.client.ts` | 200 replies whose compact streams hold 2,000 text + 500 reasoning deltas each (500,000 deltas in 1,600 records), folded through every Chat Definition by the real `ConversationNodeAssembler` | large fold ≤ 150 ms; large fold ≤ 5× the fold of the same window with 100 deltas per reply |
+| Phase profile | Executes the real persistence open, handle read, Session restore, and projection for both first open and post-upgrade reopen | `openMs`, `readMs`, `sessionRestoreMs`, and `projectionMs` each have a fixed budget; encoding, writes, verification, and publication awaited by migration all belong to first-open `openMs` |
+| First history | Reads each access kind through the Host Session history controller until it produces the first paginated snapshot | Separate first-open and reopen end-to-end budgets; each includes source stat, reading, restoration, projection, pagination, and snapshot construction, while first open additionally includes migration; both exclude Gateway network transport, Client fold, and browser paint |
+| Agent resume | Calls `ctx.agents.resume()` for each access kind until Agent creation, setup, publication, and loop startup finish | Separate first-open and reopen end-to-end budgets; neither path runs after first-history or reuses that benchmark's cache |
+| Client fold | Folds small and large v2 history windows through the real `ConversationNodeAssembler` and every Chat Definition | The large window's absolute time and scaling relative to the small window each have a fixed budget |
 
-Measured on the reference machine at the commit that introduced the gate, the migration benchmark exhausted the 128 MB heap and the fold benchmark scaled 11× between the small and large windows, so both gates fail on the regressed code and pass once the paths do O(records) work.
+The phase profile invokes each layer's production entry point explicitly and does not copy any decode, migration, restore, or projection algorithm. First-history and Agent-resume each run their real higher-level entry point against fresh first-open and reopen roots, so component measurements do not stand in for end-to-end results and one scenario cannot warm another's process or Session cache. The sum of the four phases is diagnostic only; an outer clock independently measures each end-to-end result.
+
+Normal-heap mode performs a fixed pair of explicit garbage collections after Host initialization and before the cold Session is touched, then records starting memory. It stops operation timing before performing the same garbage-collection sequence while the scenario's intended long-lived objects remain explicitly reachable, then records ending memory. The Agent-resume endpoint retains the Agent, Session, complete events, and normal service caches; its `heapUsed` delta is the primary resident-Session memory budget. Every scenario also reports `external`, `arrayBuffers`, post-GC RSS, and `process.resourceUsage().maxRSS`; the 128 MB mode prevents transient allocation peaks from being hidden by endpoint collection. Explicit garbage-collection time is excluded from operation timing.
+
+The performance gate does not duplicate semantic assertions owned by functional tests; it requires only that the target call completes and reaches its measured endpoint. The Client-fold benchmark continues to use the real `ConversationNodeAssembler` and every Chat Definition, and requires both the large window's absolute time and its scaling relative to the small window to remain below fixed budgets.
+
+Budgets use repeated measurements of the final implementation on the target CI runner, with enough margin for runner noise while remaining below the known regression. Pre-stack commit `0d7ea53743e273930a31e9e2b6ca682f21dd4ca5` is the fixed calibration and review reference; CI does not check out or execute the historical repository. Budgets are reviewed source constants and have no environment-variable override.
+
+## Calibration evidence
+
+The comparison is orthogonal by user lifecycle, not by artifact representation. Both implementations receive the same fixed V0 bytes for first open. For reopen, each implementation reads the format it considers current in a fresh process: the pre-stack reference remains on V0, while the V2 implementation reads its published V2 successor. This intentionally compares the same user's later-open experience rather than two codecs over one data structure.
+
+Five-sample medians on the same Node 24 reference machine establish the positive and negative controls:
+
+| Access kind | Implementation | Four-phase total | First history | Agent resume | 128 MB old space |
+|---|---|---:|---:|---:|---|
+| First open | Pre-stack reference | 249.0 ms | 253.8 ms | 100.7 ms | Completes |
+| First open | Repeated-snapshot regression | 4,197.5 ms | 4,284.8 ms | 4,197.9 ms | Exhausts heap |
+| Post-upgrade reopen | Pre-stack reference | 251.1 ms | 253.8 ms | 100.7 ms | Completes |
+| Post-upgrade reopen | Repeated-snapshot regression | 49.2 ms | 50.4 ms | 43.8 ms | Completes |
+
+The pre-stack implementation keeps V0 as its current format, so first open does not change its on-disk representation; its native V0 first-history and Agent-resume measurements therefore apply to both lifecycle rows.
 
 ## Alternatives considered
 
-**Extend the manual `test:web:perf` inventory.** Rejected: it stays outside CI by design, measures a simplified fold rather than the registered Definitions, and asserts nothing.
+**Check out the historical commit and compare it on every CI run.** Rejected because a historical checkout requires a separate install, and old and current revisions can assign work to different API phases, adding runtime, dependency, and interface drift. A fixed workload with static budgets calibrated against positive and negative controls is easier to reproduce and review.
 
-**Time-only budgets.** Rejected: a single absolute budget either fails on slower runners or passes a regression on faster ones; the heap cap and the scaling ratio give host-independent verdicts, and the wall-clock budget remains as the timeout that the user-visible symptom is about.
+**Measure only first open from V0.** Rejected because migration is a one-time upgrade cost and cannot protect later opens of the settled current generation from regressions. The two access kinds need separate measurements and budgets.
 
-**Benchmark the real recorded corpus.** Rejected: corpus fixtures are small by policy, recorded material must not become a benchmark input, and their re-recording would silently move the baseline.
+**Measure only the four component phases.** Rejected because component measurements locate cost but omit source stat, orchestration, pagination, and snapshot construction, and cannot prove that the complete first-history path remains usable and fast enough.
 
-**Run the benchmarks inside an existing gate aggregate.** Rejected: aggregates run gates concurrently on one runner, so wall-clock measurements would inherit the neighbours' CPU load.
+**Measure only first-history or Agent-resume total time.** Rejected because an end-to-end number protects the result but cannot identify whether storage, reading, Session restoration, or projection regressed; four phase budgets retain actionable attribution.
+
+**Add fine-grained timing instrumentation inside production implementations.** Rejected because those probes would expand production APIs and couple the benchmark to implementation details. Tests use existing service and object boundaries; costs that those boundaries cannot attribute remain part of the end-to-end result.
+
+**Use only time budgets or only post-GC memory.** Rejected because time does not reveal memory regressions, while endpoint live memory cannot expose transient migration spikes. Normal-heap post-GC deltas and constrained-heap completion cover the two risks separately.
+
+**Benchmark the real recorded corpus.** Rejected because corpus fixtures stay small by policy, recorded material must not become benchmark input, and re-recording would silently move the workload.
+
+**Run benchmarks inside an existing gate aggregate.** Rejected because aggregate gates run concurrently on one runner, so wall-clock measurements inherit neighbouring CPU load.
+
+**Keep each cross-package gate under one participating product package.** Rejected because Session opening spans persistence, migration, projection, Host history, and Agent resume; choosing one participant creates misleading ownership and benchmark-only package dependencies. The repository-level tree owns the integrated user path, while package-local diagnostics remain with their implementation.
+
+**Put benchmark cases under `scripts/`.** Rejected because scripts own commands, generators, and orchestration, while a benchmark case owns typed test files, workers, fixtures, budgets, and lifecycle cleanup. A future reporting or calibration command may consume `benchmarks/` without moving the cases there.
 
 ## Consequences
 
-Every pull request pays one more required Linux job of a few minutes, dominated by install time rather than the benchmarks themselves. A change that makes first open or the Client fold slower than its budget, heavier than its heap limit, or proportional to streamed deltas fails in the PR that introduces it, with the measured numbers printed in the job log. A budget change is a reviewed edit of the constant and its rationale comment, never an environment override, and a new benchmark must state which owner-visible path and which regression class it guards. The gate does not measure browser rendering, network transfer, or real recorded Sessions; those remain covered by the manual `test:web:perf` inventory and by review.
+Every pull request pays for one required Linux job; its Session portion runs several short-lived child processes in exchange for cold caches, isolated V8 heaps, explicit GC state, and attributable failures. The repository-level benchmark tree accepts deliberate cross-package test dependencies without changing product package manifests. The fixed Zstandard workload covers both event volume and frame topology; first-open measurements protect the one-time upgrade experience, reopen measurements prevent regressions in later opens, phase budgets locate cost, first-history budgets protect user-visible waiting, Agent-resume budgets and post-GC deltas protect complete cold activation and resident memory, and the 128 MB mode protects the transient allocation ceiling.
+
+The gate does not measure network transfer, browser rendering, or recorded Sessions, and it is not a continuous performance-trend system. A Node or runner change requires resampling the same workload and reviewing the budgets; a business-implementation change must not relax a budget without new positive and negative control data.

@@ -1,5 +1,5 @@
 {
-  // Client-side typecheck aggregate: packages/client tests (.ts and .tsx).
+  // Client-side typecheck aggregate: packages/client tests and top-level Client benchmarks.
   // Split from the host aggregate because both sides merge cordis Context
   // under the same keys (sessions, loader) with different services; shared
   // leaves (session/llm/tools/...) build once and are referenced by
@@ -19,6 +19,8 @@
     "packages/client/*/src/css-modules.d.ts",
     "packages/client/*/tests/**/*.ts",
     "packages/client/*/tests/**/*.tsx",
+    "benchmarks/**/*.client.ts",
+    "benchmarks/**/*.client.tsx",
     "packages/*/*/tests/**/*.client.spec.ts",
     "packages/*/*/tests/**/*.client.spec.tsx",
     "packages/*/*/tests/**/*.client.tsx",

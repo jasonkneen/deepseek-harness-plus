@@ -1,30 +1,29 @@
-/**
- * Deterministic released-v0 Session log synthesized from fixed parameters.
- * The content is generated in-process (numbered prompts, counters, and
- * repeated tokens) so the benchmark input carries no recorded material.
- */
+/** Deterministic released-v0 Zstandard Session input for opening benchmarks. */
 
 import { mkdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { releasedV0SessionFormatCodec } from '@deepseek-ai/dsh-session-format-v0-to-v1'
 import type { SessionFormatEvent } from '@deepseek-ai/dsh-session-format'
+import { compressZstdFrame } from '../../packages/session/session-persistence-jsonl/src/zstd.ts'
 
-/** Fixed workload parameters; every count below is derived from them. */
-export interface SyntheticV0LogShape {
+/** Fixed workload parameters used by every Session-opening scenario. */
+export interface SyntheticV0SessionShape {
   /** Completed turns, each with one user prompt and one streamed assistant reply. */
   readonly turns: number
-  /** `text-delta` chunks per reply; the reply also streams `textDeltas / 4` reasoning deltas. */
+  /** Text deltas per reply; each reply also contains one quarter as many reasoning deltas. */
   readonly textDeltas: number
 }
 
-/** Session id and cwd used by every synthesized log. */
+/** Stable identity and storage location of the synthesized Session. */
 export const SYNTHETIC_SESSION_ID = 'bench-session'
 export const SYNTHETIC_SESSION_CWD = '/bench'
-
-/** Physical directory of the synthesized log below one JSONL root (project slug + session segment). */
 export const SYNTHETIC_SESSION_DIRECTORY = join('--bench--', SYNTHETIC_SESSION_ID)
+export const SYNTHETIC_V0_FILENAME = 'session.jsonl.zstd'
+export const SYNTHETIC_CURRENT_FILENAME = 'session.v2.jsonl.zstd'
 
 const TIME_ZERO = 1_700_000_000_000
+/** One body frame per row preserves the historical many-frame workload deterministically. */
+const ROWS_PER_FRAME = 1
 
 interface SyntheticEvent {
   readonly type: string
@@ -35,12 +34,17 @@ interface SyntheticEvent {
   readonly surfaceOp?: 'append'
 }
 
-/**
- * Build the logical released-v0 events for one shape.
- * @param shape - fixed workload parameters.
- * @returns dense events in log order.
- */
-export function synthesizeReleasedV0Events(shape: SyntheticV0LogShape): readonly SyntheticEvent[] {
+/** Complete metadata returned after writing one synthetic source generation. */
+export interface SyntheticV0SessionWrite {
+  readonly path: string
+  readonly compressedBytes: number
+  readonly logicalBytes: number
+  readonly events: number
+  readonly rows: number
+  readonly frames: number
+}
+
+function synthesizeEvents(shape: SyntheticV0SessionShape): readonly SyntheticEvent[] {
   const events: SyntheticEvent[] = []
   let seq = 0
   let time = TIME_ZERO
@@ -54,9 +58,9 @@ export function synthesizeReleasedV0Events(shape: SyntheticV0LogShape): readonly
   for (let turn = 1; turn <= shape.turns; turn += 1) {
     push('turn/start', { turn })
     push('user/message', {
-      id: `user-${turn}`,
+      id: `user-${String(turn)}`,
       role: 'user',
-      content: [{ type: 'text', text: `prompt ${turn}` }],
+      content: [{ type: 'text', text: `prompt ${String(turn)}` }],
       source: { kind: 'user' },
     }, { surfaceOp: 'append' })
     push('step/start', { turn, step: 1 })
@@ -67,7 +71,7 @@ export function synthesizeReleasedV0Events(shape: SyntheticV0LogShape): readonly
     chunk({ type: 'block-start', index: 0, blockType: 'reasoning' })
     let reasoning = ''
     for (let index = 0; index < reasoningDeltas; index += 1) {
-      const delta = `r${index} `
+      const delta = `r${String(index)} `
       reasoning += delta
       chunk({ type: 'reasoning-delta', index: 0, text: delta })
     }
@@ -75,7 +79,7 @@ export function synthesizeReleasedV0Events(shape: SyntheticV0LogShape): readonly
     chunk({ type: 'block-start', index: 1, blockType: 'text' })
     let text = ''
     for (let index = 0; index < shape.textDeltas; index += 1) {
-      const delta = `w${index} `
+      const delta = `w${String(index)} `
       text += delta
       chunk({ type: 'text-delta', index: 1, text: delta })
     }
@@ -87,7 +91,7 @@ export function synthesizeReleasedV0Events(shape: SyntheticV0LogShape): readonly
       turn,
       step: 1,
       message: {
-        id: `assistant-${turn}`,
+        id: `assistant-${String(turn)}`,
         role: 'assistant',
         content: [{ type: 'reasoning', text: reasoning }, { type: 'text', text }],
         source: { kind: 'model', provider: 'bench', model: 'bench' },
@@ -101,12 +105,16 @@ export function synthesizeReleasedV0Events(shape: SyntheticV0LogShape): readonly
 }
 
 /**
- * Encode one shape as the released-v0 physical JSONL text (packed chunk rows).
- * @param shape - fixed workload parameters.
- * @returns the complete file text plus the logical event count.
+ * Write one deterministic released-v0 Zstandard generation.
+ * @param root - JSONL persistence root.
+ * @param shape - workload size.
+ * @returns physical and logical workload facts.
  */
-export function synthesizeReleasedV0LogText(shape: SyntheticV0LogShape): { readonly text: string; readonly events: number } {
-  const events = synthesizeReleasedV0Events(shape)
+export async function writeSyntheticReleasedV0Session(
+  root: string,
+  shape: SyntheticV0SessionShape,
+): Promise<SyntheticV0SessionWrite> {
+  const events = synthesizeEvents(shape)
   const header = {
     version: 0,
     id: SYNTHETIC_SESSION_ID,
@@ -119,24 +127,29 @@ export function synthesizeReleasedV0LogText(shape: SyntheticV0LogShape): { reado
     { header, inheritedEventCount: 0, events: events as unknown as readonly SessionFormatEvent[] },
     { packChunks: true },
   )
-  const lines = [JSON.stringify(encoded.header), ...encoded.rows.map(row => JSON.stringify(row))]
-  return { text: `${lines.join('\n')}\n`, events: events.length }
-}
-
-/**
- * Write the synthesized raw v0 log where the JSONL backend expects it.
- * @param root - JSONL persistence root directory.
- * @param shape - fixed workload parameters.
- * @returns the written path, byte length, and logical event count.
- */
-export async function writeSyntheticReleasedV0Log(
-  root: string,
-  shape: SyntheticV0LogShape,
-): Promise<{ readonly path: string; readonly bytes: number; readonly events: number }> {
-  const { text, events } = synthesizeReleasedV0LogText(shape)
+  const headerLine = `${JSON.stringify(encoded.header)}\n`
+  const bodyFrames: Buffer[] = []
+  let logicalBytes = Buffer.byteLength(headerLine)
+  for (let index = 0; index < encoded.rows.length; index += ROWS_PER_FRAME) {
+    const rows = encoded.rows.slice(index, index + ROWS_PER_FRAME)
+    const text = `${rows.map(row => JSON.stringify(row)).join('\n')}\n`
+    logicalBytes += Buffer.byteLength(text)
+    bodyFrames.push(await compressZstdFrame(text))
+  }
+  const physical = Buffer.concat([
+    await compressZstdFrame(headerLine),
+    ...bodyFrames,
+  ])
   const directory = join(root, SYNTHETIC_SESSION_DIRECTORY)
   await mkdir(directory, { recursive: true })
-  const path = join(directory, 'session.jsonl')
-  await writeFile(path, text)
-  return { path, bytes: Buffer.byteLength(text), events }
+  const path = join(directory, SYNTHETIC_V0_FILENAME)
+  await writeFile(path, physical)
+  return {
+    path,
+    compressedBytes: physical.byteLength,
+    logicalBytes,
+    events: events.length,
+    rows: encoded.rows.length,
+    frames: encoded.rows.length + 1,
+  }
 }
