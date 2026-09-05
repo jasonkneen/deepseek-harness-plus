@@ -27,7 +27,9 @@ The current v2 validator requires the embedded stream to reproduce a non-empty `
 
 `agent/assistant-stream` publishes process-local start, transient chunk, and end frames. The loop appends the complete `assistant/message` or `assistant/attempt` before a committed end frame names its type and sequence. An abandoned end has no settlement.
 
-The Web follow adapter opts into these process-local frames and adds the last durable sequence observed at each start. It presents chunks as Client-only `assistant/live-chunk` updates between durable cursors, stages only a later matching settlement until the committed end, and reopens follow on a revision gap. A committed end publishes a named settlement delta that removes the attempt's transient matches, adds the durable entry, and replays only affected Conversation Contexts; an abandoned end publishes the same delta without an entry. A reconnect baseline carries the active attempt's durable start cursor and compact prefix. Paged history, replay, telemetry, token accounting, and cold UI assembly read the durable embedded stream rather than the live frames.
+The Web follow adapter opts into these process-local frames and adds the last durable sequence observed at each start. It presents chunks as Client-only `assistant/live-chunk` updates between durable cursors, stages only a later matching settlement until the committed end, and reopens follow on a revision gap. A committed end publishes a named settlement delta that removes the attempt's transient matches, adds the durable entry, and replays only affected Conversation Contexts; an abandoned end publishes the same delta without an entry. A reconnect baseline carries the active attempt's durable start cursor and compact prefix.
+
+The Client event source passes durable settlements through unchanged. The Chat and Trajectory Assistant nodes fold `assistant/live-chunk` while an attempt is active, build settled output directly from `assistant/message`, and do not replay an `assistant/attempt` stream for presentation. Cold settled presentation therefore does not reconstruct per-token timing; other consumers may expand the durable stream when they require its exact evidence.
 
 ### Released v1 to v2 migration
 
@@ -49,7 +51,7 @@ The compact-stream tests pin exact accumulation and expansion for text, reasonin
 
 The pre-merge performance acceptance measured static catalog-routing overhead against direct released-v2 restoration of the same already parsed physical rows across three runs, 100 warmup pairs, and 600 measured pairs; it did not compare v1 with v2 or time backend I/O. Every pooled median and p95 regression stayed within the 5% budget, with a worst p95 regression of 3.150%.
 
-Agent-loop tests pin durable-before-end ordering, interrupted visible prefixes, failed and retry attempts, abandonment, usage, and replay metadata. Session Controller and Conversation tests pin live transient display, reconnect baselines, committed settlement release, history replay, Chat and Trajectory parity, while TypeScript and Python SDK snapshots pin the external event representation.
+Agent-loop tests pin durable-before-end ordering, interrupted visible prefixes, failed and retry attempts, abandonment, usage, and replay metadata. Session Controller and Conversation tests pin live transient display, reconnect baselines, committed settlement release, and history replay. Chat and Trajectory tests pin live partial presentation and direct final-message projection, while TypeScript and Python SDK snapshots pin the external event representation.
 
 ## Alternatives considered
 
@@ -59,13 +61,15 @@ Agent-loop tests pin durable-before-end ordering, interrupted visible prefixes, 
 
 **Carry packed chunk rows through the history API.** This reduces wire and Client work for v1 but gives the Client a second event vocabulary and keeps transport coupled to token-row cardinality. The current API carries scalar durable settlements plus a separate live transient stream.
 
+**Strip embedded streams in Session Controller.** This reduces retained Client memory but creates a second durable event type and makes a transport-facing owner decide which evidence presentation consumers need. The measured bottleneck is repeated expansion, so each UI consumer decides whether to inspect the unchanged settlement.
+
 **Store the stream in a sidecar or replay-only fixture.** This splits one attempt's message and evidence across durability owners and cannot give ordinary resumed sessions the same failed-output and timing facts. The settlement is the atomic owner.
 
 **Redirect references from consumed chunks to their settlement.** A chunk and an attempt settlement are not interchangeable facts. Refusal prevents a migration from silently changing the meaning of plugin-owned references.
 
 ## Consequences
 
-Current logs, telemetry, history pages, and cold Client assembly scale by model attempts rather than token chunks while retaining exact stream evidence inside each settlement. Live presentation remains incremental and intentionally process-local.
+Current logs, telemetry, and history pages scale by model attempts rather than token chunks while retaining exact stream evidence inside each settlement. The Client event window retains that compact evidence, but the Chat and Trajectory Assistant nodes do not expand settled streams into per-delta objects. Live presentation remains incremental and intentionally process-local.
 
 Unlike v1 top-level chunks, which the buffered persistence writer could flush before an attempt ended, v2 has no durable attempt evidence until settlement. A hard process or host loss before settlement discards the complete in-flight stream; `agent/assistant-stream` is not a write-ahead log. This tradeoff avoids a second durability owner for live output.
 

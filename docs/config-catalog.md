@@ -1381,7 +1381,7 @@ export interface ReplayModelConfig {
 
 Depends on: [`ModelModality`](../packages/llm/llm/src/index.ts) · [`RetryPolicyConfig`](../packages/llm/llm/src/index.ts)
 
-Source: [`packages/test-support/llm-replay/src/index.ts:1294`](../packages/test-support/llm-replay/src/index.ts)
+Source: [`packages/test-support/llm-replay/src/index.ts:1278`](../packages/test-support/llm-replay/src/index.ts)
 
 <a id="deepseek-aidsh-llm-retry"></a>
 
@@ -1870,7 +1870,7 @@ export interface Config {
 export type JsonlCompression = 'zstd' | 'none'
 ```
 
-Source: [`packages/session/session-persistence-jsonl/src/index.ts:86`](../packages/session/session-persistence-jsonl/src/index.ts)
+Source: [`packages/session/session-persistence-jsonl/src/index.ts:87`](../packages/session/session-persistence-jsonl/src/index.ts)
 
 <a id="deepseek-aidsh-session-projection-cache"></a>
 
