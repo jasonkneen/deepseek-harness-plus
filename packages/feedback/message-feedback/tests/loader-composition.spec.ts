@@ -100,7 +100,7 @@ describe('message feedback through a real Loader composition', () => {
     })
     if (!put.ok) throw new Error(`expected put success, got ${put.error.code}`)
     const readHandle = await first.sessionPersistence.open(session.id, 'read')
-    const durableEvents = await readHandle.read()
+    const { events: durableEvents } = await readHandle.read()
     await readHandle.close()
     expect(durableEvents.some(event =>
       event.type === 'assistant/message'
@@ -126,7 +126,7 @@ describe('message feedback through a real Loader composition', () => {
     await second.messageFeedback.delete({ sessionId: session.id, messageId: edited.value.messageId, ifVersion: edited.value.version })
     const coldHandle = await second.sessionPersistence.open(session.id, 'read')
     try {
-      const coldEvents = await coldHandle.read()
+      const { events: coldEvents } = await coldHandle.read()
       expect(coldEvents.slice(0, durableEvents.length)).toEqual(durableEvents)
       expect(coldEvents.slice(durableEvents.length).map(event => event.type)).toEqual(['feedback/message-put', 'feedback/message-delete'])
     } finally {

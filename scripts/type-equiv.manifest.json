@@ -547,6 +547,11 @@
     },
     {
       "doc": "docs/subsystems/persistence.md",
+      "symbol": "SessionHandleReadResult",
+      "source": "packages/session/session-persistence/src/handle.ts"
+    },
+    {
+      "doc": "docs/subsystems/persistence.md",
       "symbol": "SessionHandle",
       "source": "packages/session/session-persistence/src/handle.ts"
     },
@@ -558,6 +563,11 @@
     {
       "doc": "docs/subsystems/persistence.md",
       "symbol": "CreateSessionOptions",
+      "source": "packages/core/session/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/persistence.md",
+      "symbol": "SessionSeedEventState",
       "source": "packages/core/session/src/types.ts"
     },
     {

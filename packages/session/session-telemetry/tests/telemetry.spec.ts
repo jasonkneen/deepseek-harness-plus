@@ -435,7 +435,7 @@ describe('SessionTelemetryCoordinator adoption', () => {
         isSeeded: false,
       },
       inheritedEventCount: SessionLogOffset(0),
-      seedSource: 'persistence',
+      eventState: 'detached',
     })
     ctx.sessions.enter(resumed)
     ctx.sessions.announce(resumed)

@@ -132,7 +132,7 @@ it('uploads freeform feedback and message put/edit/delete through the unchanged 
       ] })
     }
     await ctx.sessions.flush(session)
-    expect(await handle.read()).toEqual(session.snapshotEvents())
+    expect((await handle.read()).events).toEqual(session.snapshotEvents())
   } finally {
     await handle.close()
   }
