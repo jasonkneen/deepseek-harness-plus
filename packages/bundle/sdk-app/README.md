@@ -31,7 +31,7 @@ The startup provider binds stdin EOF to the launcher's bounded successful shutdo
 
 `DSH_MAX_TOKENS_AS_SUCCESS` retains the SDK deployment mapping: unset or JSON `true` reports token-limited subagent completion as accepted, while JSON `false` reports it as an error. Provider/model and workspace cwd arrive through the SDK initialization request; the base profile owns adapters, tools, persistence, policy, settings, and credentials.
 
-A profile, home, or invocation patch can set `tool-str-replace-editor` to `disabled: false` to enable it explicitly. The standalone `sdk-minimal` profile owns its separate tool selection.
+The bundle disables the inherited `tool-str-replace-editor` row; the base `read`, `write`, and `edit` tools cover file editing. A profile, home, or invocation patch can set `tool-str-replace-editor` to `disabled: false` to enable it explicitly. The standalone `sdk-minimal` profile owns its separate tool selection.
 
 -----
 

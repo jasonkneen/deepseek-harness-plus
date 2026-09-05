@@ -154,6 +154,7 @@ describe('Python SDK dsh profile keyless smoke', () => {
           },
         },
       })
+      expect(modelRequests[0]?.tools).toEqual(expect.any(Array))
       const tools = modelRequests[0]?.tools as { function?: { name?: string } }[]
       const toolNames = tools.map(tool => tool.function?.name)
       expect(modelRequests[0]?.reasoning_effort).toBe('max')
@@ -258,6 +259,7 @@ describe('Python SDK dsh profile keyless smoke', () => {
         bundles: ['@deepseek-ai/dsh-sdk-minimal'],
         patchReload: 'startup',
       })
+      expect(modelRequests[0]?.tools).toEqual(expect.any(Array))
       const tools = modelRequests[0]?.tools as { function?: { name?: string } }[]
       expect(tools.map(tool => tool.function?.name).sort()).toEqual(
         [process.platform === 'win32' ? 'pwsh' : 'bash', 'str_replace_editor'].sort(),
