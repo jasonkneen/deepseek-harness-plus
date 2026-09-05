@@ -8,6 +8,9 @@
 - id: session-title-llm
   disabled: true
 
+- id: tool-str-replace-editor
+  disabled: true
+
 - insert:
     - id: sdk-app-startup
       name: '@deepseek-ai/dsh-sdk-app'

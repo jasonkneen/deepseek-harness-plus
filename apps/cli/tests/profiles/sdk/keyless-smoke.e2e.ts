@@ -1,5 +1,5 @@
 import { createServer } from 'node:http'
-import { mkdtemp, readFile, readdir, rm } from 'node:fs/promises'
+import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -46,11 +46,14 @@ function waitForLine(
 
 describe('Python SDK dsh profile keyless smoke', () => {
   it.each([
-    { label: 'reports max-token turns with the default mapping config', envValue: undefined },
-    { label: 'reports max-token turns with mapping enabled through env', envValue: 'true' },
-    { label: 'reports max-token turns with mapping disabled through env', envValue: 'false' },
-  ])('$label', async ({ envValue }) => {
+    { label: 'reports max-token turns with the default mapping config', envValue: undefined, editorEnabled: false },
+    { label: 'reports max-token turns with mapping enabled through env', envValue: 'true', editorEnabled: false },
+    { label: 'reports max-token turns with mapping disabled through env', envValue: 'false', editorEnabled: false },
+    { label: 'allows an explicit patch to enable str_replace_editor', envValue: undefined, editorEnabled: true },
+  ])('$label', async ({ envValue, editorEnabled }) => {
     const root = await mkdtemp(join(tmpdir(), 'dsh-python-sdk-runtime-smoke-'))
+    const editorPatch = join(root, 'editor.patch.yml')
+    if (editorEnabled) await writeFile(editorPatch, '- id: tool-str-replace-editor\n  disabled: false\n')
     const modelRequests: Record<string, unknown>[] = []
     const modelServer = createServer((request, response) => {
       let body = ''
@@ -76,6 +79,7 @@ describe('Python SDK dsh profile keyless smoke', () => {
       binScript,
       '--profile',
       'sdk',
+      ...(editorEnabled ? ['--patch', editorPatch] : []),
     ], {
       cwd: repoRoot,
       env: {
@@ -154,7 +158,8 @@ describe('Python SDK dsh profile keyless smoke', () => {
       const toolNames = tools.map(tool => tool.function?.name)
       expect(modelRequests[0]?.reasoning_effort).toBe('max')
       expect(modelRequests[0]?.max_tokens).toBe(1234)
-      expect(toolNames).toEqual(expect.arrayContaining(['web_fetch', 'web_search']))
+      expect(toolNames).toEqual(expect.arrayContaining(['read', 'write', 'edit', 'web_fetch', 'web_search']))
+      expect(toolNames.includes('str_replace_editor')).toBe(editorEnabled)
       expect(toolNames).not.toContain('list_subagent_models')
 
       child.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', id: 3, method: 'shutdown' })}\n`)
@@ -180,9 +185,13 @@ describe('Python SDK dsh profile keyless smoke', () => {
 
   it('boots the standalone minimal profile through its generated manifest', async () => {
     const root = await mkdtemp(join(tmpdir(), 'dsh-python-sdk-minimal-'))
+    const modelRequests: Record<string, unknown>[] = []
     const modelServer = createServer((request, response) => {
-      request.resume()
+      let body = ''
+      request.setEncoding('utf8')
+      request.on('data', (chunk: string) => { body += chunk })
       request.on('end', () => {
+        modelRequests.push(JSON.parse(body) as Record<string, unknown>)
         response.writeHead(200, { 'content-type': 'text/event-stream' })
         response.write('data: {"choices":[{"delta":{"role":"assistant","content":null}}]}\n\n')
         response.write('data: {"choices":[{"delta":{"content":"done"}}]}\n\n')
@@ -249,6 +258,10 @@ describe('Python SDK dsh profile keyless smoke', () => {
         bundles: ['@deepseek-ai/dsh-sdk-minimal'],
         patchReload: 'startup',
       })
+      const tools = modelRequests[0]?.tools as { function?: { name?: string } }[]
+      expect(tools.map(tool => tool.function?.name).sort()).toEqual(
+        [process.platform === 'win32' ? 'pwsh' : 'bash', 'str_replace_editor'].sort(),
+      )
 
       child.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', id: 3, method: 'shutdown' })}\n`)
       await waitForLine(lines, value => value.id === 3, () => stderr)

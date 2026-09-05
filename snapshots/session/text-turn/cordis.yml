@@ -2,6 +2,10 @@
 # The shipped profile owns application startup; this patch fixes only the
 # deterministic test composition and raw persistence needed for recording.
 
+# Shared recordings keep their editor across headless and SDK profile defaults.
+- id: tool-str-replace-editor
+  disabled: false
+
 - id: llm-deepseek
   name: '@deepseek-ai/dsh-llm-deepseek'
   config:
