@@ -415,6 +415,45 @@ describe('toPiContext', () => {
     })
   })
 
+  it.each(['high', ''])('preserves provider thinking level %j through durable projection and replay', (providerThinkingLevel) => {
+    const state = toPiReplayState(assistant({
+      api: 'anthropic-messages',
+      provider: 'anthropic',
+      model: 'claude-opus-5',
+      providerThinkingLevel,
+      content: [{ type: 'text', text: 'done' }],
+    }))
+    expect(state).toEqual({
+      response: {
+        kind: 'pi-ai',
+        version: 2,
+        api: 'anthropic-messages',
+        provider: 'anthropic',
+        model: 'claude-opus-5',
+        providerThinkingLevel,
+        stopReason: 'stop',
+      },
+      blocks: [{ type: 'text' }],
+    })
+    const replayState: unknown = JSON.parse(JSON.stringify(state))
+    const onDegrade = vi.fn()
+    const context = toPiContext({
+      provider: 'anthropic',
+      model: 'claude-opus-5',
+      messages: [createMessage({
+        role: 'assistant',
+        content: [{ type: 'text', text: 'done' }],
+        source: { kind: 'model', provider: 'anthropic', model: 'claude-opus-5', replayState },
+      })],
+    }, undefined, onDegrade)
+    expect(context.messages[0]).toMatchObject({
+      api: 'anthropic-messages',
+      providerThinkingLevel,
+      content: [{ type: 'text', text: 'done' }],
+    })
+    expect(onDegrade).not.toHaveBeenCalled()
+  })
+
   it('replays all native block kinds when optional metadata is absent', () => {
     const state = toPiReplayState(assistant({
       content: [
@@ -450,6 +489,8 @@ describe('toPiContext', () => {
     })
     expect(context.messages[0]).not.toHaveProperty('responseModel')
     expect(context.messages[0]).not.toHaveProperty('responseId')
+    expect(state.response).not.toHaveProperty('providerThinkingLevel')
+    expect(context.messages[0]).not.toHaveProperty('providerThinkingLevel')
   })
 
   it('degrades unsupported replay-state versions to provider-neutral history', () => {
@@ -612,6 +653,8 @@ describe('toPiContext', () => {
     ['unknown stop reason', { ...validReplay, response: { ...validResponse, stopReason: 'pause' } }, 'unknown stopReason'],
     ['non-string response model', { ...validReplay, response: { ...validResponse, responseModel: 1 } }, 'responseModel must be a string'],
     ['non-string response id', { ...validReplay, response: { ...validResponse, responseId: 1 } }, 'responseId must be a string'],
+    ['non-string provider thinking level', { ...validReplay, response: { ...validResponse, providerThinkingLevel: 1 } }, 'providerThinkingLevel must be a string'],
+    ['null provider thinking level', { ...validReplay, response: { ...validResponse, providerThinkingLevel: null } }, 'providerThinkingLevel must be a string'],
     ['missing blocks', { response: validResponse }, 'blocks must be an array'],
     ['non-array blocks', { ...validReplay, blocks: 'text' }, 'blocks must be an array'],
     ['number block', { ...validReplay, blocks: [1] }, 'block 0 must be an object'],
