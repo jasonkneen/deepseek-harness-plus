@@ -24,7 +24,9 @@ export interface PiAiReplayResponse {
   version: 2
   api: Api
   provider: string
+  /** Requested model identity, matching the durable assistant source. */
   model: string
+  /** Provider-reported model; Anthropic uses it as the native replay model. */
   responseModel?: string
   responseId?: string
   providerThinkingLevel?: string
@@ -68,16 +70,19 @@ function emptyPiUsage(): PiUsage {
  * order), so `BlockAssembler` prunes an entry with its block whenever assembly
  * removes one.
  * @param message - completed native pi-ai assistant response.
+ * @param requestedModel - request identity stored in the assistant source; defaults to the native model.
  * @returns the versioned lossless-JSON replay projection.
  */
-export function toPiReplayState(message: AssistantMessage): ReplayEnvelope {
+export function toPiReplayState(message: AssistantMessage, requestedModel = message.model): ReplayEnvelope {
+  const responseModel = message.api === 'anthropic-messages' && message.model !== requestedModel
+    ? message.model : message.responseModel
   const response: PiAiReplayResponse = {
     kind: 'pi-ai',
     version: 2,
     api: message.api,
     provider: message.provider,
-    model: message.model,
-    ...message.responseModel === undefined ? {} : { responseModel: message.responseModel },
+    model: requestedModel,
+    ...responseModel === undefined ? {} : { responseModel },
     ...message.responseId === undefined ? {} : { responseId: message.responseId },
     ...message.providerThinkingLevel === undefined ? {} : { providerThinkingLevel: message.providerThinkingLevel },
     stopReason: message.stopReason,
@@ -215,7 +220,9 @@ function replayedAssistant(message: Message, source: ModelMessageSource, rawStat
     content,
     api: state.response.api,
     provider: state.response.provider,
-    model: state.response.model,
+    // Anthropic reports aliases and fallbacks as model, unlike Completions' informational responseModel.
+    model: state.response.api === 'anthropic-messages'
+      ? state.response.responseModel ?? state.response.model : state.response.model,
     ...state.response.responseModel === undefined ? {} : { responseModel: state.response.responseModel },
     ...state.response.responseId === undefined ? {} : { responseId: state.response.responseId },
     ...state.response.providerThinkingLevel === undefined ? {} : { providerThinkingLevel: state.response.providerThinkingLevel },

@@ -12,7 +12,7 @@ The pi-ai adapter classifies upstream compatibility fields explicitly and persis
 
 The adapter follows [pi-ai 0.85.1](https://github.com/earendil-works/pi/blob/v0.85.1/packages/ai/CHANGELOG.md). `thinkingTokenBudgetField`, `vllmPriority`, and `supportsMaxOutputTokens` are opt-in gateway controls; `thinking.budget` joins the existing template placeholders. The SDK owns budget resolution and serialization. `supportsMidConvoEffort` and `allowedFallbackModels` remain catalog-owned because their correctness depends on exact Anthropic transports, model capabilities, and fallback pricing.
 
-Optional `providerThinkingLevel` remains in the adapter replay-v2 response metadata so Anthropic history retains its provider-native effort. Absence remains valid; neither the replay version nor the released Session format changes. The provider-neutral LLM API stays unchanged.
+Optional `providerThinkingLevel` remains in the adapter replay-v2 response metadata so Anthropic history retains its provider-native effort. Absence remains valid; neither the replay version nor the released Session format changes. Replay provenance retains the requested model while `responseModel` retains an Anthropic alias resolution or fallback. Reconstruction restores that native model so pi-ai still applies its cross-model signature rules. The provider-neutral LLM API stays unchanged.
 
 ## Alternatives considered
 

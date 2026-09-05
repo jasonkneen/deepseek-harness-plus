@@ -4,6 +4,8 @@ import type { AttachmentStore, ImageAttachmentRef, ImageRequestPolicy, RequestIm
 import { createUserMessage, ToolCallId, CONTEXT_WINDOW_EXCEEDED_CODE, EMPTY_RESPONSE_CODE, createMessage } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, StreamChunk } from '@deepseek-ai/dsh-llm'
 import type { AssistantMessage, AssistantMessageEvent, Usage } from '@earendil-works/pi-ai'
+import { transformMessages } from '@earendil-works/pi-ai/api/transform-messages'
+import { getBuiltinModels } from '@earendil-works/pi-ai/providers/all'
 import { toPiContext } from '../src/context.ts'
 import { toPiReplayState } from '../src/replay.ts'
 import { mapStopReason, mapUsage, toStreamChunks } from '../src/stream.ts'
@@ -669,6 +671,48 @@ describe('toPiContext', () => {
 })
 
 describe('toStreamChunks', () => {
+  it.each([
+    ['claude-haiku-4-5', 'claude-haiku-4-5-20251001'],
+    ['claude-fable-5', 'claude-opus-5'],
+    ['claude-opus-5', 'claude-opus-5'],
+  ])('replays Anthropic request %s with native response model %s', async (requestedModel, returnedModel) => {
+    const native = assistant({
+      api: 'anthropic-messages', provider: 'anthropic', model: returnedModel,
+      providerThinkingLevel: 'high',
+      content: [{ type: 'thinking', thinking: 'reason', thinkingSignature: 'signed' }],
+    })
+    const chunks = await collect(toStreamChunks(feed(
+      { type: 'done', reason: 'stop', message: native },
+    ), undefined, undefined, requestedModel))
+    const finish = chunks.find(chunk => chunk.type === 'finish')
+    const replayState: unknown = JSON.parse(JSON.stringify(finish?.replayState))
+    expect(replayState).toMatchObject({ response: { model: requestedModel } })
+    if (requestedModel !== returnedModel) {
+      expect(replayState).toMatchObject({ response: { responseModel: returnedModel } })
+    }
+    const onDegrade = vi.fn()
+    const context = toPiContext({
+      provider: 'anthropic', model: requestedModel,
+      messages: [createMessage({
+        role: 'assistant', content: [{ type: 'reasoning', text: 'reason' }],
+        source: { kind: 'model', provider: 'anthropic', model: requestedModel, replayState },
+      })],
+    }, undefined, onDegrade)
+    expect(onDegrade).not.toHaveBeenCalled()
+    expect(context.messages[0]).toMatchObject({
+      api: 'anthropic-messages', model: returnedModel, providerThinkingLevel: 'high',
+      content: native.content,
+    })
+    const catalog = getBuiltinModels('anthropic')
+    const requested = catalog.find(model => model.id === requestedModel)
+    const returned = catalog.find(model => model.id === returnedModel)
+    if (requested === undefined || returned === undefined) throw new Error('missing Anthropic catalog model')
+    expect(transformMessages(context.messages, returned)[0]).toMatchObject({ content: native.content })
+    expect(transformMessages(context.messages, requested)[0]).toMatchObject({
+      content: requestedModel === returnedModel ? native.content : [{ type: 'text', text: 'reason' }],
+    })
+  })
+
   const partialWithToolCall = assistant({
     content: [{ type: 'toolCall', id: 'call-1', name: 'f', arguments: {} }],
   })

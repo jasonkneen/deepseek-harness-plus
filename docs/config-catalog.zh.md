@@ -1256,7 +1256,7 @@ export interface PiAiCompatProfile {
   thinkingTokenBudgetField?: PiAiThinkingTokenBudgetField
   /** vLLM scheduler `priority`; lower runs earlier, and the server must enable priority scheduling. Omitted unless configured. */
   vllmPriority?: number
-  /** Whether the endpoint accepts `max_output_tokens`; `false` omits it. The three Responses protocols. */
+  /** Whether `openai-responses` accepts `max_output_tokens`; `false` omits it. Azure and Codex ignore this shared compat field. */
   supportsMaxOutputTokens?: boolean
   /**
    * Whether the endpoint accepts `strict` in tool definitions;
