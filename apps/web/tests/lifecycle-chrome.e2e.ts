@@ -296,16 +296,19 @@ describe('web e2e: lifecycle & chrome (workspace flow / reload / dark mode)', ()
     const recoveryTripwire = watchConsole(recoveryPage)
     const sockets: WebSocketRoute[] = []
     let rejectConnections = false
+    let holdConnections = false
     await recoveryPage.routeWebSocket('**/api/remote.mux', (route) => {
       sockets.push(route)
       if (rejectConnections) {
         void route.close({ code: 4001, reason: 'connection recovery test' })
         return
       }
+      if (holdConnections) return
       route.connectToServer()
     })
     onTestFailed(() => saveFailureShot(recoveryPage, 'web-e2e-connection-recovery'))
     try {
+      await recoveryPage.clock.install()
       await recoveryPage.goto(scaffold.authenticatedUrl, { waitUntil: 'load' })
       await recoveryPage.waitForSelector('[class*="frame"]', { timeout: 30_000 })
       await expect.poll(() => sockets.length).toBe(1)
@@ -316,16 +319,16 @@ describe('web e2e: lifecycle & chrome (workspace flow / reload / dark mode)', ()
         name: 'Disconnected, reconnect now', exact: true,
       })
       await offline.waitFor({ timeout: 2_000 })
-      await recoveryPage.waitForTimeout(750)
+      await recoveryPage.clock.fastForward(60_000)
       expect(sockets).toHaveLength(1)
 
       await recoveryPage.context().setOffline(false)
       await expect.poll(() => recoveryPage.evaluate(() => navigator.onLine)).toBe(true)
       const connecting = recoveryPage.getByRole('button', {
-        name: 'Connecting, restart now', exact: true,
+        name: 'Reconnecting automatically, reconnect now', exact: true,
       })
       await connecting.waitFor({ timeout: 10_000 })
-      expect(await connecting.innerText()).toMatch(/^Connecting\.{1,3}$/)
+      expect(await connecting.innerText()).toMatch(/^Reconnecting\.{1,3}$/)
       const connectingGeometry = await connectionIndicatorGeometry(connecting)
       expect(await connectionIndicatorTextAlignment(connecting)).toBe('left')
       await connecting.hover()
@@ -333,13 +336,14 @@ describe('web e2e: lifecycle & chrome (workspace flow / reload / dark mode)', ()
       expect(await connectionIndicatorGeometry(connecting)).toEqual(connectingGeometry)
       await recoveryPage.mouse.move(0, 0)
 
-      await expect.poll(() => sockets.length, { timeout: 40_000 }).toBe(7)
-      const indicator = recoveryPage.getByRole('button', {
-        name: 'Disconnected, reconnect now', exact: true,
-      })
-      await indicator.waitFor({ timeout: 10_000 })
+      for (let count = 2; count <= 9; count++) {
+        await recoveryPage.clock.fastForward(10_000)
+        await expect.poll(() => sockets.length).toBe(count)
+      }
+      const indicator = connecting
       expect(await connectionIndicatorGeometry(indicator)).toEqual(connectingGeometry)
       expect(await connectionIndicatorTextAlignment(indicator)).toBe('left')
+      await indicator.hover()
       const snapshot = await captureStableAria(recoveryPage, '[class*="footArea"]', scaffold.workspaceCwd)
       await compareOrRefreshGolden(CONNECTION_ERROR_EXPECTED, snapshot, MODE)
       const style = await indicator.evaluate((element) => {
@@ -362,6 +366,20 @@ describe('web e2e: lifecycle & chrome (workspace flow / reload / dark mode)', ()
       expect(style.color).toBe(style.referenceColor)
       expect(await indicator.locator('svg').count()).toBe(1)
       expect(await indicator.getAttribute('title')).toBeNull()
+      rejectConnections = false
+      await recoveryPage.clock.fastForward(10_000)
+      await expect.poll(() => sockets.length).toBe(10)
+      const automaticRecovery = recoveryPage.getByRole('status')
+      await automaticRecovery.waitFor({ timeout: 10_000 })
+      expect(await automaticRecovery.innerText()).toBe('Connected')
+      await recoveryPage.clock.fastForward(2_000)
+      await automaticRecovery.waitFor({ state: 'detached' })
+
+      holdConnections = true
+      await sockets.at(-1)!.close({ code: 4001, reason: 'manual recovery test' })
+      await connecting.waitFor()
+      await recoveryPage.clock.fastForward(500)
+      await expect.poll(() => sockets.length).toBe(11)
       const idleBackground = await indicator.evaluate(element => getComputedStyle(element).backgroundColor)
       await indicator.hover()
       expect(await indicator.innerText()).toBe('Reconnect now')
@@ -370,19 +388,20 @@ describe('web e2e: lifecycle & chrome (workspace flow / reload / dark mode)', ()
       await recoveryPage.mouse.down()
       await expect.poll(() => indicator.evaluate(element => getComputedStyle(element).backgroundColor))
         .not.toBe(hoverBackground)
-      rejectConnections = false
+      holdConnections = false
       await recoveryPage.mouse.up()
 
-      await expect.poll(() => sockets.length).toBe(8)
+      await expect.poll(() => sockets.length).toBe(12)
       const recovered = recoveryPage.getByRole('status')
       await recovered.waitFor({ timeout: 10_000 })
       expect(await recovered.innerText()).toBe('Connected')
       expect(await connectionIndicatorGeometry(recovered)).toEqual(connectingGeometry)
       expect(await connectionIndicatorTextAlignment(recovered)).toBe('left')
+      await recoveryPage.clock.fastForward(2_000)
       await recovered.waitFor({ state: 'detached', timeout: 5_000 })
       expect(recoveryTripwire.pageErrors).toEqual([])
-      expect(recoveryTripwire.warnings.filter(warning => /connection lost, retry #[1-6]/i.test(warning)))
-        .toHaveLength(7)
+      expect(recoveryTripwire.warnings.filter(warning => /connection lost, retry #/i.test(warning)))
+        .toHaveLength(11)
     } finally {
       await recoveryPage.close()
     }

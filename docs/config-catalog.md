@@ -318,8 +318,10 @@ Source: [`packages/shell/bash-sandbox/src/index.ts:35`](../packages/shell/bash-s
 Requires: `webServer` · `credentials`
 
 ```ts config-catalog
-/** Plugin config: the deployment's non-loopback serving authorities. */
+/** Browser authentication, request limits, and connection recovery configuration. */
 export interface ConnectionConfig {
+  /** Browser recovery timing, injected into each served page. */
+  recovery?: ConnectionRecoveryConfig
   /**
    * Authorities this deployment serves beyond loopback: exact `host:port`, or
    * port-less `host` matching any port. The /api trust fence refuses any
@@ -334,9 +336,23 @@ export interface ConnectionConfig {
   /** Maximum buffered JSON body for every `/api` request. Default: 300 MiB. */
   maxRequestBodyBytes?: number
 }
+
+/** Timing for generation readiness and automatic reconnection. */
+export interface ConnectionRecoveryConfig {
+  /** First-retry delay cap in ms; actual delay is 50–100% of the cap. Default: 500. */
+  backoffBaseMs?: number
+  /** Growth factor per failed attempt; 1 keeps a fixed cap. Default: 2. */
+  backoffFactor?: number
+  /** Maximum retry delay cap in ms; retries continue at this cap. Default: 10000. */
+  backoffMaxMs?: number
+  /** Delay before reporting a slow handshake, without cancelling it. Default: 3000. */
+  generationReadyWarnMs?: number
+  /** Deadline in ms for readiness, including physical connection setup. Default: 15000. */
+  generationReadyTimeoutMs?: number
+}
 ```
 
-Source: [`packages/client/connection/src/index.ts:71`](../packages/client/connection/src/index.ts)
+Source: [`packages/client/connection/src/index.ts:72`](../packages/client/connection/src/index.ts)
 
 <a id="deepseek-aidsh-client-hmr"></a>
 
