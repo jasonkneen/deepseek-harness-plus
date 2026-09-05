@@ -34,7 +34,7 @@ Status: implemented
 
 ## 验证
 
-[单元测试](../../../../packages/context/session-reference/tests/session-reference.spec.ts)锁定省略计数、完整 Unicode 与控制字符恢复、整条消息丢弃、三个引用的隔离、无存储与保存失败、来源排除与变更隔离，以及发布前取消。[Loader 组合测试](../../../../packages/context/session-reference/tests/loader-composition.spec.ts)使用真实本地存储和分页 `read` 工具，读取巨型单行消息的中部，并检查存储归目标会话所有。[无密钥录制会话场景](../../../../snapshots/session/session-reference-spill/snapshot.yml)锁定持久的模型可见引用上下文。回放会[规范化已知的带引号 spill 定位信息](../../../../packages/test-support/session-snapshot/README.zh.md)，同时保留保存字节数与省略计数。
+[单元测试](../../../../packages/context/session-reference/tests/session-reference.spec.ts)锁定省略计数、完整 Unicode 与控制字符恢复、整条消息丢弃、三个引用的隔离、无存储与保存失败、来源排除与变更隔离，以及发布前取消。[Loader 组合测试](../../../../packages/context/session-reference/tests/loader-composition.spec.ts)使用真实本地存储和分页 `read` 工具，读取巨型单行消息的中部，并检查存储归目标会话所有。[无密钥录制会话场景](../../../../snapshots/session/session-reference-spill/snapshot.yml)锁定持久的模型可见引用上下文。嵌套 Windows 定位信息回归覆盖序列化提取与规范化，且不改写无关反斜杠。回放会[规范化已知的带引号 spill 定位信息](../../../../packages/test-support/session-snapshot/README.zh.md)，同时保留保存字节数与省略计数。
 
 ## 相关决策
 
