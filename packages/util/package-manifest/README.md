@@ -47,7 +47,7 @@ const dsh: DshManifest = {
 <details>
 <summary>Implementation internals — click to expand</summary>
 
-The package root only re-exports declarations from [`src/types.ts`](src/types.ts). It has no runtime state or independently observable relationships, so it publishes no runtime invariant companion.
+The package root only re-exports declarations from [`src/types.ts`](src/types.ts). No runtime invariant companion is published because the package has no runtime state or independently observable relationships.
 
 </details>
 
