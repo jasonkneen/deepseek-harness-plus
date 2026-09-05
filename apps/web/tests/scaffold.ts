@@ -67,7 +67,7 @@ import { LlmAdapter } from '@deepseek-ai/dsh-llm'
 import type {
   LlmModelInfo, LlmProviderInfo, LlmResolvedModelInfo, RetryPolicyConfig, StreamChunk,
 } from '@deepseek-ai/dsh-llm'
-import type { ReplayHandle } from '@deepseek-ai/dsh-llm-replay'
+import type { ReplayHandle, ReplayProviderConfig } from '@deepseek-ai/dsh-llm-replay'
 import {
   installLlmReplay,
   parseSessionLog,
@@ -306,6 +306,8 @@ export interface LaunchOptions {
    * model calls (its header alone mounts the catalog).
    */
   replayFixture?: string
+  /** Explicit replay routes for scenarios exercising provider-dependent behavior; replay/refresh only. */
+  replayProviders?: ReplayProviderConfig[]
   /**
    * Mount the replay provider catalog (the model directory the UI shows)
    * without consuming any recorded script: for scenarios that never call a
@@ -383,13 +385,14 @@ export interface LaunchOptions {
     default: string
   }
   /**
-   * Patch the telemetry exporter URL while preserving the shipped disabled
-   * setting. Point it at a scenario-owned loopback collector so a regression
-   * enabling the row cannot send fixture sessions outside the test.
+   * Patch the telemetry exporter URL while preserving the shipped enabled
+   * setting. A scenario-owned loopback collector contains all fixture uploads.
    */
   telemetryUrl?: string
-  /** Mode when telemetryUrl is supplied; defaults to FULL without enabling a disabled row. */
-  telemetryMode?: 'FULL' | 'FEEDBACK_ONLY'
+  /** Mode when telemetryUrl is supplied; defaults to FEEDBACK_ONLY without enabling a disabled row. */
+  telemetryMode?: 'FEEDBACK_ONLY'
+  /** SDK batch cadence for a scenario-owned collector; omitted to retain the SDK default. */
+  telemetryScheduledDelayMillis?: number
   /**
    * Browse through a trusted non-loopback hostname that the browser resolves
    * to loopback (for example `*.localhost`). The test server stays bound to
@@ -558,8 +561,11 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
       : {
         id: 'session-telemetry-otel',
         config: {
-          mode: options.telemetryMode ?? 'FULL',
+          mode: options.telemetryMode ?? 'FEEDBACK_ONLY',
           exporter: { url: options.telemetryUrl },
+          ...(options.telemetryScheduledDelayMillis === undefined ? {} : {
+            processor: { scheduledDelayMillis: options.telemetryScheduledDelayMillis },
+          }),
           shutdownTimeoutMillis: 1_000,
         },
       },
@@ -743,7 +749,7 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
     if (mode !== 'record' && replayFixture !== undefined) {
       replayHandle = installLlmReplay(ctx, {
         file: replayFixture,
-        providers: replayProviders(options.replayContextWindow).map(provider => ({
+        providers: (options.replayProviders ?? replayProviders(options.replayContextWindow)).map(provider => ({
           ...provider,
           ...(options.replayRetryPolicy === undefined ? {} : { retryPolicy: options.replayRetryPolicy }),
         })),

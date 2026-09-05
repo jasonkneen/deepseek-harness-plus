@@ -55,6 +55,8 @@ Live operations append through `Session.append` and await `sessions.flush`, then
 
 A per-Session queue serializes operations within one service instance; the persistence write handle excludes competing cold writers. Disposal stops admission and drains admitted operations before releasing the service. Persistence failures reject instead of becoming business failures. A failed flush does not roll back an accepted event; callers can list and retry with its version. Successful no-op mutations also flush the current prefix.
 
+Cold material mutations notify `feedback/committed` after flush with a borrowed read-only canonical prefix; observers must deep-clone it before transferring ownership. Observers finish before write ownership is released, must not await another feedback operation for that Session, and cannot reject an already committed mutation. Live consumers observe `session/event`.
+
 ### Source map
 
 | File | Role |
@@ -91,7 +93,7 @@ Independent. Feedback does not change the model request prefix.
 - **Deletion retains history:** delete removes current feedback, not earlier ratings or notes from the append-only log; it is not a privacy-erasure operation.
 - **Writer ownership:** another process holding a Session write handle causes cold mutations to reject. The service does not wake that owner or coordinate Remote calls across processes.
 - **Trusted callers:** requests contain no authenticated actor or audit identity. Deployments must protect the Host gateway.
-- **Telemetry export:** the shipped OTel row is disabled. If enabled in `FULL`, it exports live feedback events; in `FEEDBACK_ONLY`, `/feedback` releases the pending canonical-log prefix, including message-feedback ratings and verbatim notes, not just the command text. Deployments own redaction; see the [OTel export policy](../../session/session-telemetry-otel/README.md).
+- **Telemetry export:** for all users and providers, including `deepseek-official`, the shipped OTel backend in `FEEDBACK_ONLY` releases the complete canonical prefix only after new explicit text feedback, rating/note edits, or withdrawal. The prefix includes context and verbatim notes; later records wait for the next feedback, and `DISABLED` prevents capture. Deployments own redaction; see the [OTel export policy](../../session/session-telemetry-otel/README.md).
 - **Scan cost:** each `list`, `put`, or `delete` that reaches an existing Session scans its full event log to derive current feedback; cold operations also read the full log from persistence. Work grows with total Session history, not just the number of feedback items.
 - **Retention:** `maxNoteBytes` limits one note, not aggregate log size or mutation count.
 

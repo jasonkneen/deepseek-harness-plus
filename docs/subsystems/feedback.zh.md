@@ -221,7 +221,7 @@ fork 种子可以包含父 Session 的反馈事件，但 payload 保留父级 `s
 
 插件释放会关闭操作接纳，并排空已进入各 Session 队列的工作。
 
-显式启用后，[`session-log-deepseek`](../../packages/session/session-log-deepseek/README.zh.md) 会在后续符合条件的 DeepSeek 请求中，把反馈作为普通 `dsh_session_log` 后缀的一部分传送。记录反馈不会触发请求，也不会单独上传 `dsh_feedback`。命令确认文本确认记录并标识 Session 与匿名用户，不报告遥测策略或投递结果。
+显式启用后，[`session-log-deepseek`](../../packages/session/session-log-deepseek/README.zh.md) 会在后续符合条件的 DeepSeek 请求中，把反馈作为普通 `dsh_session_log` 后缀的一部分传送。记录反馈不会触发 LLM 请求，也不会单独上传 `dsh_feedback`。对于非 DeepSeek 路由，[OTel 后端](../../packages/session/session-telemetry-otel/README.zh.md)可以将权威日志前缀释放至已记录的反馈。命令确认文本确认记录并标识 Session 与匿名用户，不报告遥测策略或投递结果。
 
 ## Web 界面
 
@@ -279,6 +279,32 @@ Session-log service; cold operations never construct a Session or Agent.
  */
 @Remote('delete') delete(request: MessageFeedbackDeleteRequest): Promise<MessageFeedbackDeleteResult>
 ```
+
+Source: [`packages/feedback/message-feedback/src/index.ts`](../../packages/feedback/message-feedback/src/index.ts)
+
+<a id="feedback-events"></a>
+
+### `feedback/*` events
+
+<a id="feedbackcommitted--parallel"></a>
+
+#### `feedback/committed` — parallel
+
+Observe a durable cold feedback mutation without publishing a live Session. Observers run before write ownership is released and must not await another message-feedback operation for this Session. The payload is borrowed read-only; deep-clone it before transferring ownership (for example, to Session.fromRestore).
+
+```ts cordis-catalog
+/**
+ * Observe a durable cold feedback mutation without publishing a live Session.
+ * Observers run before write ownership is released and must not await
+ * another message-feedback operation for this Session. The payload is borrowed
+ * read-only; deep-clone it before transferring ownership (for example, to Session.fromRestore).
+ * @param inspection - committed canonical prefix, including the feedback as its last event.
+ * @mode parallel
+ */
+'feedback/committed'(inspection: SessionInspection): void
+```
+
+Types: [SessionInspection](persistence.zh.md)
 
 Source: [`packages/feedback/message-feedback/src/index.ts`](../../packages/feedback/message-feedback/src/index.ts)
 <!-- END GENERATED cordis-surface -->

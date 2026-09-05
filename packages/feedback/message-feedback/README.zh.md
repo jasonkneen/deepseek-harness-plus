@@ -55,6 +55,8 @@ kind: "package-reference"
 
 每个 Session 的队列在同一服务实例内串行化操作；持久化写 handle 排除其他冷写入方。销毁时停止接收操作并排空已接收操作，然后释放服务。持久化故障会 reject，而非变成业务失败。flush 失败不会回滚已接受的事件；调用方可以读取并使用其版本重试。成功的无变化修改也会 flush 当前前缀。
 
+冷会话的实质修改在 flush 后通过 `feedback/committed` 通知借用的只读权威日志前缀；观察方在转移所有权前必须深拷贝。观察方在写入所有权释放前完成，不得等待同一 Session 的其他反馈操作，也不能使已提交的修改失败。活跃会话消费方观察 `session/event`。
+
 ### 源码地图
 
 | 文件 | 职责 |
@@ -91,7 +93,7 @@ kind: "package-reference"
 - **删除保留历史：**delete 移除当前反馈，不会从只追加日志中清除更早的评分或备注；它不是隐私擦除操作。
 - **写入所有权：**另一个进程持有 Session 写 handle 时，冷会话修改会 reject。服务不会唤醒该所有者，也不协调跨进程 Remote 调用。
 - **受信任调用方：**请求不包含经过认证的 actor 或审计身份。部署方必须保护 Host gateway。
-- **遥测导出：**随附的 OTel 配置行处于禁用状态。启用后，`FULL` 会实时导出反馈事件；`FEEDBACK_ONLY` 则在 `/feedback` 时释放尚未导出的权威日志前缀，包括 message-feedback 评分和原样备注，而不只是命令文本。部署方负责脱敏；见 [OTel 导出策略](../../session/session-telemetry-otel/README.zh.md)。
+- **遥测导出：**对于所有用户和提供方，包括 `deepseek-official`，随附 OTel 后端在 `FEEDBACK_ONLY` 模式下仅在新的显式文本反馈、评分或备注编辑、撤回后释放完整权威日志前缀。前缀包含上下文和原样备注；后续记录等待下一次反馈，`DISABLED` 阻止捕获。部署方负责脱敏；见 [OTel 导出策略](../../session/session-telemetry-otel/README.zh.md)。
 - **扫描成本：**每次访问已有 Session 的 `list`、`put` 或 `delete` 都会扫描完整事件日志来推导当前反馈；冷会话操作还会从持久化存储读取完整日志。工作量随 Session 历史总量增长，而不只是反馈条目数。
 - **保留量：**`maxNoteBytes` 只限制单条备注，不限制日志总大小或修改次数。
 
