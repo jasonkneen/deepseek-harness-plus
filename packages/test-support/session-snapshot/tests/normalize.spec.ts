@@ -910,6 +910,19 @@ describe('tokenizeSessionFixtureCwd', () => {
 })
 
 describe('extractSnapshotSpillPaths', () => {
+  it('recognizes locators in nested JSON omissions without scrubbing byte counts', () => {
+    const locator = '/tmp/dsh-acp-snap-123456789/session-123456abcdef/abcdef123456-session-reference-1.txt'
+    const notice = { sessionId: 'source', omittedBytes: 42, fullSnapshot: { status: 'saved', locator, bytes: 1234 } }
+    const log = JSON.stringify({ type: 'user/message', data: { content: [{ type: 'text', text: JSON.stringify([notice]) }] } })
+    expect(extractSnapshotSpillPaths(log)).toEqual(new Map([['session-reference-1.txt', locator]]))
+    const normalized = normalizeSessionLog(log, ctx)
+    const unrelated = '/tmp/unrelated/session-123456abcdef/abcdef123456-session-reference-1.txt'
+    expect(normalizeSessionLog(log.replaceAll(locator, unrelated), ctx)).toContain(unrelated)
+    expect(normalized).toContain('{{spillLocator:session-reference-1.txt}}')
+    expect(normalized).toContain('omittedBytes\\":42')
+    expect(normalized).toContain('bytes\\":1234')
+  })
+
   it('maps each spill filename to its full matched path, last match wins per name', () => {
     const log = [
       'Full formatted result stored at: /tmp/dsh-acp-snapshot-spill/session-c22bc3f1d2af/8a7b6c5d4e3f-bash.txt. Use read with offset/limit, or grep this path to search within it.',

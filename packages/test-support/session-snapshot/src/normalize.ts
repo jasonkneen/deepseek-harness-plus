@@ -48,12 +48,12 @@ const FILE_URI_PATH_PREFIX_RE = /(?:^|[^a-z0-9+.-])file:\/\/\/?$/i
 const UUID_RE = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi
 const LOCAL_SPILL_PATH_RE = new RegExp(
   String.raw`\{\{cwd\}\}[\\/]\.spill[\\/]session-[0-9a-f]{12}[\\/][0-9a-f]{12}-([A-Za-z0-9._~-]+?)`
-  + String.raw`(?=\. Use read with offset/limit|[\s)]|$)`,
+  + String.raw`(?=\. Use read with offset/limit|[\s)"]|\\+"|$)`,
   'g',
 )
 const SNAPSHOT_SPILL_PATH_RE = new RegExp(
   String.raw`(?:[A-Za-z]:)?[\\/](?:tmp|t)[\\/](?:dsh-acp-snap-[0-9a-f]{9}|dsh-acp-snapshot-spill)[\\/]session-[0-9a-f]{12}[\\/][0-9a-f]{12}-([A-Za-z0-9._~-]+?)`
-  + String.raw`(?=\. Use read with offset/limit|[\s)]|$)`,
+  + String.raw`(?=\. Use read with offset/limit|[\s)"]|\\+"|$)`,
   'g',
 )
 
