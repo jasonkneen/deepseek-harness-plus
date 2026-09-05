@@ -30,6 +30,9 @@
       "path": "../../core/agent"
     },
     {
+      "path": "../../core/system-prompt"
+    },
+    {
       "path": "../../compaction/compaction"
     },
     {

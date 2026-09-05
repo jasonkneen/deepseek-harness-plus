@@ -48,7 +48,7 @@ kind: "package-reference"
 | `maxReferenceBytes` | 自动 | 每个来源的最大序列化 JSON 字节数；显式设置时精确覆盖自动预算 |
 | `referenceContextFraction` | `0.2` | 每个来源的上下文窗口比例，范围为 `0` 到 `1` |
 
-自动预算为每个来源 `max(65536, floor(contextWindow × 4 × referenceContextFraction))` 字节。模型上下文容量以 token 计量；每个 token 四字节是容量估算，不是精确的 token 换算。缺少路由、LLM 服务或容量时使用 64 KiB；模型元数据查询错误与取消会使准备失败。
+自动预算为每个来源 `max(65536, floor(contextWindow × 4 × referenceContextFraction))` 字节。模型上下文容量以 token 计量；每个 token 四字节是容量估算，不是精确的 token 换算。缺少路由、LLM 服务、适配器或容量时使用 64 KiB；其他模型元数据查询错误与取消会使准备失败。
 
 生成的[配置目录](../../../docs/config-catalog.zh.md#deepseek-aidsh-session-reference)是每个受支持字段及其 JSDoc 的穷尽式真源。
 

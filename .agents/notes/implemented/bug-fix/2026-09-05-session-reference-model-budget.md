@@ -12,7 +12,7 @@ A fixed 64 KiB reference budget discards useful source context on large-context 
 
 [Session-reference](../../../../packages/context/session-reference/README.md) observes the completed `system-prompt/assemble` waterfall with a local prepend listener and stores its provider/model pair in a WeakMap keyed by Agent. Preparation resolves that route through the optional LLM service; direct preparation before any assembly uses agent options. Diagnostics without an Agent do not update the map.
 
-Each source receives `max(65536, floor(contextWindow × 4 × referenceContextFraction))` bytes, with a default fraction of `0.2`. Four bytes per token is a sizing heuristic. Explicit `maxReferenceBytes` bypasses model lookup and remains exact. Missing route, service, or capacity retains the floor; lookup failures and cancellation propagate.
+Each source receives `max(65536, floor(contextWindow × 4 × referenceContextFraction))` bytes, with a default fraction of `0.2`. Four bytes per token is a sizing heuristic. Explicit `maxReferenceBytes` bypasses model lookup and remains exact. Missing route, service, adapter, or capacity retains the floor; other lookup failures and cancellation propagate. An absent adapter does not prevent stream middleware from serving the route.
 
 ## Alternatives considered
 

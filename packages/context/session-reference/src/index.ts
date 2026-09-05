@@ -9,8 +9,8 @@ import { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import type { Agent, PreStepDecision } from '@deepseek-ai/dsh-agent'
 import { Remote, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
-import { createUserMessage, freezeMessage } from '@deepseek-ai/dsh-llm'
-import type { ContentBlock, UserMessage } from '@deepseek-ai/dsh-llm'
+import { createUserMessage, freezeMessage, LlmError } from '@deepseek-ai/dsh-llm'
+import type { ContentBlock, LlmResolvedModelInfo, UserMessage } from '@deepseek-ai/dsh-llm'
 import { SessionLogOffset } from '@deepseek-ai/dsh-session'
 import type { SessionId } from '@deepseek-ai/dsh-session'
 // Type-only: the `title` projection key plus the live registry and durable
@@ -18,6 +18,7 @@ import type { SessionId } from '@deepseek-ai/dsh-session'
 import type { ProjectionSnapshot } from '@deepseek-ai/dsh-session-projection'
 import type {} from '@deepseek-ai/dsh-session-projection-cache'
 import type {} from '@deepseek-ai/dsh-session-title'
+import type {} from '@deepseek-ai/dsh-system-prompt'
 import type { SessionRecord, SessionSurfaceSnapshot } from '@deepseek-ai/dsh-session-query'
 import {
   DEFAULT_CANDIDATE_LIMIT,
@@ -122,6 +123,7 @@ export class SessionReferenceResolver extends TypertRemoteService {
         'SESSION_REFERENCE_INVALID_CONFIG',
       )
     }
+    // Prepend observes model-selection overrides after downstream assembly completes.
     ctx.on('system-prompt/assemble', async (_assembly, context, next) => {
       const assembly = await next()
       if (context.agent !== undefined) {
@@ -284,7 +286,7 @@ export class SessionReferenceResolver extends TypertRemoteService {
   /**
    * Snapshot all references for one accepted direct message and return one aggregated durable context.
    * Automatic budgets use the last assembled route, or agent options before any assembly.
-   * Missing model capacity uses 64 KiB; metadata lookup failures and cancellation reject preparation.
+   * Missing model capacity or adapter uses 64 KiB; other metadata lookup failures and cancellation reject preparation.
    * @param agent - target agent; references to it are rejected.
    * @param content - already host-normalized readable message content.
    * @param references - structured source sessions in mention order.
@@ -350,7 +352,14 @@ export class SessionReferenceResolver extends TypertRemoteService {
     const { provider, model } = this.assembledRoutes.get(agent) ?? agent.options
     const llm = this.ctx.get('llm')
     if (provider === undefined || model === undefined || llm === undefined) return DEFAULT_MAX_REFERENCE_BYTES
-    const info = await settleWithCancellation(llm.resolveModelInfo(provider, model, signal), signal)
+    let info: LlmResolvedModelInfo
+    try {
+      info = await settleWithCancellation(llm.resolveModelInfo(provider, model, signal), signal)
+    } catch (error: unknown) {
+      // Stream middleware can serve routes without a registered adapter.
+      if (!(error instanceof LlmError) || error.code !== 'NO_ADAPTER') throw error
+      return DEFAULT_MAX_REFERENCE_BYTES
+    }
     if (info.context === undefined) return DEFAULT_MAX_REFERENCE_BYTES
     // Context capacity is in tokens; four bytes/token is a sizing heuristic, not token counting.
     return Math.max(DEFAULT_MAX_REFERENCE_BYTES, Math.floor(info.context.contextWindow * 4 * this.config.referenceContextFraction))

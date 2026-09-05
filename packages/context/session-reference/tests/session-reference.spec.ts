@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import { agentEvents, installModelSelection, type Agent, type ModelSelectionRef } from '@deepseek-ai/dsh-agent'
 import { CompactionId, compactCheckpointSource } from '@deepseek-ai/dsh-compaction'
-import LlmRuntime, { createUserMessage, ToolCallId , createMessage, createToolResultMessage } from '@deepseek-ai/dsh-llm'
+import LlmRuntime, { createUserMessage, ToolCallId , createMessage, createToolResultMessage, LlmError } from '@deepseek-ai/dsh-llm'
 import SessionStore, { Session, SessionId, SessionSeq } from '@deepseek-ai/dsh-session'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import SessionQueryEngine from '@deepseek-ai/dsh-session-query'
@@ -364,6 +364,28 @@ describe('model-relative reference budgets', () => {
     await llmFiber.dispose()
     other.options.model = 'seed'
     expect(bytes(await ctx.sessionReferenceResolver.prepare(other, [], [{ sessionId: SessionId('source') }]))).toBe(65_536)
+  })
+
+  it('uses the floor when the real LLM runtime has no adapter for the route', async () => {
+    const { ctx, resolve, prepare } = await setup()
+    resolve.mockRestore()
+    await expect(ctx.llm.resolveModelInfo('seed', 'seed')).rejects.toMatchObject({ code: 'NO_ADAPTER' })
+    expect(bytes(await prepare())).toBe(65_536)
+  })
+
+  it('does not swallow other LLM errors or cancellation coincident with an absent adapter', async () => {
+    const { ctx, resolve, prepare } = await setup()
+    const read = vi.spyOn(ctx.sessionQuery, 'readSurface')
+    const failure = new LlmError('invalid model context', 'INVALID_MODEL_CONTEXT')
+    resolve.mockRejectedValueOnce(failure)
+    await expect(prepare()).rejects.toBe(failure)
+    const controller = new AbortController()
+    resolve.mockImplementationOnce(async () => {
+      controller.abort('cancel missing route')
+      throw new LlmError('no adapter', 'NO_ADAPTER')
+    })
+    await expect(prepare(controller.signal)).rejects.toThrow(expectCode('SESSION_REFERENCE_CANCELLED'))
+    expect(read).not.toHaveBeenCalled()
   })
 
   it('propagates lookup errors and cancels an unresolved lookup without reading sources', async () => {

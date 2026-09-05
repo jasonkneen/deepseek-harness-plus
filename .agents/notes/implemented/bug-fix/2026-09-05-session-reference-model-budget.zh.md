@@ -12,7 +12,7 @@ Status: implemented
 
 [Session-reference](../../../../packages/context/session-reference/README.zh.md) 通过本地 prepend 监听器观察已完成的 `system-prompt/assemble` 瀑布，并把 provider/model 对存入以 Agent 为键的 WeakMap。准备阶段通过可选 LLM 服务解析该路由；首次组装前直接准备则使用 agent options。不带 Agent 的诊断不会更新映射。
 
-每个来源获得 `max(65536, floor(contextWindow × 4 × referenceContextFraction))` 字节，默认比例为 `0.2`。每个 token 四字节是容量估算。显式 `maxReferenceBytes` 跳过模型查询并保持精确值。缺少路由、服务或容量时保留下限；查询失败和取消会传播。
+每个来源获得 `max(65536, floor(contextWindow × 4 × referenceContextFraction))` 字节，默认比例为 `0.2`。每个 token 四字节是容量估算。显式 `maxReferenceBytes` 跳过模型查询并保持精确值。缺少路由、服务、适配器或容量时保留下限；其他查询失败和取消会传播。缺少适配器不妨碍流中间件处理该路由。
 
 ## Alternatives considered
 
