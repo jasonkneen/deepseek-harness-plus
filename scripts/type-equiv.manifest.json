@@ -1953,6 +1953,16 @@
     },
     {
       "doc": "docs/subsystems/feedback.md",
+      "symbol": "MessageFeedbackPut",
+      "source": "packages/feedback/message-feedback/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/feedback.md",
+      "symbol": "MessageFeedbackDelete",
+      "source": "packages/feedback/message-feedback/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/feedback.md",
       "symbol": "MessageFeedbackListRequest",
       "source": "packages/feedback/message-feedback/src/types.ts"
     },

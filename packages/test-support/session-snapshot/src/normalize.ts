@@ -374,6 +374,7 @@ export function normalizeSessionLog(
       const data = record.data as Record<string, unknown>
       if ('durationMs' in data) data.durationMs = 0
     }
+    normalizeFeedbackClocks(record)
     if (record.type === 'goal/change' && record.data !== null && typeof record.data === 'object') {
       const data = record.data as Record<string, unknown>
       if ('createdAt' in data) data.createdAt = 0
@@ -578,8 +579,19 @@ export function scrubSessionSnapshot(rawLog: string): string {
       return line
     }
     omitFixtureEnvelope(record)
+    normalizeFeedbackClocks(record)
     return JSON.stringify(record)
   }).join('\n')
+}
+
+/** Normalize service-owned feedback clocks without touching user-authored payloads. */
+function normalizeFeedbackClocks(record: Record<string, unknown>): void {
+  if (record.type !== 'feedback/message-put' || record.data === null || typeof record.data !== 'object') return
+  const item = (record.data as { item?: unknown }).item
+  if (item === null || typeof item !== 'object') return
+  const clocks = item as Record<string, unknown>
+  if ('createdAt' in clocks) clocks.createdAt = 0
+  if ('updatedAt' in clocks) clocks.updatedAt = 0
 }
 
 /** Which independent request-header payloads a scrubber replaces. */

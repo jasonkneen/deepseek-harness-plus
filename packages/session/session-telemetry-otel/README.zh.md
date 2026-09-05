@@ -35,7 +35,7 @@ kind: "package-reference"
 | `FEEDBACK_ONLY` | 每个 `feedback/record` 都会回放、复制并脱敏 handoff 游标之后直至该事件的每条权威事件；后续记录等待下一个反馈事件；如果没有后续反馈，则留在本地 |
 | `DISABLED` | 默认值。不构造协调器、提供方、处理器或导出器；没有遥测记录会离开进程，`feedback/record` 会记录「不会共享任何内容」 |
 
-程序化 TypeScript 配置使用导出的 `SessionTelemetryMode` 枚举；原始字符串字面量不可赋值。已挂载服务通过 seam 的 [`SessionTelemetrySharingStatus`](../session-telemetry/README.zh.md#the-sharing-disclosure) `sharing` 属性披露解析后的模式（`full` / `feedback-only` / `disabled`），因此 `/feedback` 的确认文本可以报告会话是否以及如何被共享——即使 `DISABLED` 也会披露 `disabled`。
+程序化 TypeScript 配置使用导出的 `SessionTelemetryMode` 枚举；原始字符串字面量不可赋值。已挂载服务通过 seam 的 [`SessionTelemetrySharingStatus`](../session-telemetry/README.zh.md#the-sharing-disclosure) `sharing` 属性披露解析后的模式（`full` / `feedback-only` / `disabled`），包括在 `DISABLED` 模式下披露 `disabled`。此 API 独立报告策略；`/feedback` 确认文本只确认记录。
 
 ### 最小配置
 

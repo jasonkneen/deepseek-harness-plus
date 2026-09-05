@@ -29,7 +29,7 @@ kind: "package-library"
 
 ### 选择并挂载后端
 
-只加载一个后端插件；它把捕获协调器与自己的投递流水线注册为 `ctx.sessionTelemetry`，重复加载会抛出异常。已挂载后端通过必需的 [`sharing` 成员](#the-sharing-disclosure) 披露共享策略，`/feedback` 的确认文本会渲染它；只有在未挂载任何遥测服务时，消费方才渲染「未配置」。
+只加载一个后端插件；它把捕获协调器与自己的投递流水线注册为 `ctx.sessionTelemetry`，重复加载会抛出异常。已挂载后端通过必需的 [`sharing` 成员](#the-sharing-disclosure) 披露共享策略；只有在未挂载任何遥测服务时，消费方才可报告「未配置」。`/feedback` 命令确认记录，不读取此策略。
 
 ### 后端约定
 
@@ -43,7 +43,7 @@ kind: "package-library"
 
 <a id="the-sharing-disclosure"></a>
 
-每个后端都通过 seam 的 `sharing` 词汇披露其部署级共享策略：`full`（每个事件在发生时立即交接）、`feedback-only`（在 `feedback/record` 事件释放其之前的未释放前缀之前，不交接任何内容）或 `disabled`（完全不交接任何内容）。已记录反馈条目的确认文本会报告该状态；披露从不声称投递——交接是非阻塞入队，批处理、重试与丢失策略仍归后端 SDK。
+每个后端都通过 seam 的 `sharing` 词汇披露其部署级共享策略：`full`（每个事件在发生时立即交接）、`feedback-only`（在 `feedback/record` 事件释放其之前的未释放前缀之前，不交接任何内容）或 `disabled`（完全不交接任何内容）。策略 API 从不声称投递——交接是非阻塞入队，批处理、重试与丢失策略仍归后端 SDK。
 
 ### 脱敏记录
 

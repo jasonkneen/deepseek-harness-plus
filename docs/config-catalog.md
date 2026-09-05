@@ -1515,7 +1515,7 @@ Source: [`packages/mcp/mcp-client/src/index.ts:98`](../packages/mcp/mcp-client/s
 
 ## `@deepseek-ai/dsh-message-feedback`
 
-Requires: `storageDomain` · `sessionPersistence` · `sessions`
+Requires: `sessionPersistence` · `sessions`
 
 ```ts config-catalog
 /** Required deployment policy for optional notes. */
@@ -1525,7 +1525,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/feedback/message-feedback/src/index.ts:50`](../packages/feedback/message-feedback/src/index.ts)
+Source: [`packages/feedback/message-feedback/src/index.ts:39`](../packages/feedback/message-feedback/src/index.ts)
 
 <a id="deepseek-aidsh-permission-presets"></a>
 

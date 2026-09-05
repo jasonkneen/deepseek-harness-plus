@@ -383,13 +383,12 @@ export interface LaunchOptions {
     default: string
   }
   /**
-   * Mount the shipped telemetry row against this exporter URL instead of
-   * disabling it. Used to pin a real backend disclosure in assembled
-   * coverage; point the URL at a local endpoint (a dead port, or a scenario's
-   * own mock collector) so no record leaves the machine.
+   * Patch the telemetry exporter URL while preserving the shipped disabled
+   * setting. Point it at a scenario-owned loopback collector so a regression
+   * enabling the row cannot send fixture sessions outside the test.
    */
   telemetryUrl?: string
-  /** Uploading mode for the mounted telemetry row. Defaults to `FULL`. */
+  /** Mode when telemetryUrl is supplied; defaults to FULL without enabling a disabled row. */
   telemetryMode?: 'FULL' | 'FEEDBACK_ONLY'
   /**
    * Browse through a trusted non-loopback hostname that the browser resolves
@@ -552,8 +551,8 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
     { id: 'session-title-llm', disabled: true },
     // Fixture sessions must never leave the process: the shipped row defaults
     // to the production OTLP endpoint (or whatever DSH_TELEMETRY_OTLP_URL
-    // names in the ambient environment). A scenario that pins a real backend
-    // disclosure passes a local dead endpoint instead of disabling the row.
+    // names in the ambient environment). A scenario with a local collector
+    // preserves the shipped disabled setting instead of overriding it.
     options.telemetryUrl === undefined
       ? { id: 'session-telemetry-otel', disabled: true }
       : {
@@ -950,7 +949,7 @@ export function normalizeWebSessionVolatiles(log: string, workspaceCwd?: string)
     if (line.trim() === '') return line
     const record = mapJsonStringValues(JSON.parse(line), (value) => {
       let normalized = value
-        .replace(/Anonymous user: [^.]+(?=\. Session sharing)/g, 'Anonymous user: {{anonymousUserId}}')
+        .replace(/Anonymous user: [0-9a-f-]{36}(?=\.$)/gi, 'Anonymous user: {{anonymousUserId}}')
       for (const cwd of cwdSpellings) normalized = replaceWebCwd(normalized, cwd)
       return normalized
     }) as { type?: unknown; data?: { endpoint?: unknown } }
@@ -977,7 +976,7 @@ function stableSessionFixture(
       cwd: workspaceCwd,
     })
   const fresh = scrubSessionSnapshot(stabilized)
-    .split(session.id).join('{{sessionId}}')
+    .split(session.id).join('{{session:1}}')
     .split(harnessHome).join('{{harnessHome}}')
   const stable = redactSessionSnapshotIds(stabilizeFixtureMessageIds([fresh], [existing]))[0]
   if (stable === undefined) throw new Error('session harvest produced no stabilized fixture')

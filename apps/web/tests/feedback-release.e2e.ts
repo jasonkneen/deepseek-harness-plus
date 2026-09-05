@@ -1,11 +1,6 @@
-// Keyless assembled-browser coverage for the shipped FEEDBACK_ONLY default
-// over the Web bundles and the real host wire. The scaffold mounts the
-// shipped telemetry row in FEEDBACK_ONLY mode against this suite's own
-// loopback mock collector, so the default release path is real: /feedback
-// releases the session records through that event (exactly one OTLP request,
-// carrying the drive prompt and the feedback text), the acknowledgement pins
-// the feedback-gated disclosure sentence, and a second feedback releases only
-// the records since the first handoff — the earlier prompt does not repeat.
+// The shipped disabled OTel row keeps feedback local. A loopback collector
+// observes the complete browser session through scaffold shutdown, while a
+// separate persistence reader verifies both remarks reach the session log.
 import { readFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import { join } from 'node:path'
@@ -14,16 +9,17 @@ import { once } from 'node:events'
 import { gunzipSync } from 'node:zlib'
 import type { Browser, Page } from 'playwright'
 import { chromium } from 'playwright'
+import type { SessionId } from '@deepseek-ai/dsh-session'
 import { afterAll, beforeAll, describe, expect, it, onTestFailed } from 'vitest'
 import {
   assertFixtureInventory, captureExpandedTurnProcessAria, captureStableAria,
   compareOrRefreshGolden, fixtureUserPrompts,
-  launchWebScaffold, watchConsole, webSnapshotMode, type WebScaffold,
+  launchWebScaffold, readPersistedEvents, watchConsole, webSnapshotMode, type WebScaffold,
 } from './scaffold.ts'
 import { connectFreshWorkspace, newEnglishPage, saveFailureShot } from './support.ts'
 
 const SNAPSHOT_DIR = fileURLToPath(new URL('../../../snapshots/web/feedback-release', import.meta.url))
-// The release path needs only a settled ordinary turn, so this lane replays
+// The local-only path needs only a settled ordinary turn, so this lane replays
 // the feedback-command scenario's recorded session (declared as this
 // manifest's `session.source`) instead of recording a duplicate.
 const FIXTURE = fileURLToPath(new URL('../../../snapshots/web/feedback-command/session.v2.jsonl', import.meta.url))
@@ -33,12 +29,13 @@ const MODE = webSnapshotMode()
 
 const PROMPT = 'Reply with the single word LIGHTHOUSE and stop.'
 
-describe('web e2e: feedback-gated release under the shipped default mode', () => {
+describe('web e2e: feedback stays local with shipped OTel disabled', () => {
   let scaffold: WebScaffold
   let browser: Browser
   let page: Page
   let tripwire: ReturnType<typeof watchConsole>
   let collector: Server
+  let sessionId: SessionId
   const uploads: string[] = []
 
   beforeAll(async () => {
@@ -57,13 +54,12 @@ describe('web e2e: feedback-gated release under the shipped default mode', () =>
     if (address === null || typeof address === 'string') throw new Error('collector has no port')
     scaffold = await launchWebScaffold({
       telemetryUrl: `http://127.0.0.1:${address.port}/v1/logs`,
-      telemetryMode: 'FEEDBACK_ONLY',
       // The replayed session.v2.jsonl belongs to the feedback-command scenario;
       // comparing (or refreshing) the persisted session here would rewrite
-      // that shared source with this lane's feedback events. The release
-      // evidence lives in this lane's golden and collector assertions.
+      // that shared source with this lane's feedback events. Persistence and
+      // collector assertions belong to this lane.
       compareReplaySession: false,
-      ...(MODE === 'record' ? {} : { replayFixture: FIXTURE }),
+      ...(MODE === 'record' ? {} : { replayFixture: FIXTURE, paceMs: 5 }),
     })
     browser = await chromium.launch()
     page = await newEnglishPage(browser)
@@ -74,10 +70,21 @@ describe('web e2e: feedback-gated release under the shipped default mode', () =>
   }, 120_000)
 
   afterAll(async () => {
-    await browser?.close()
-    await scaffold?.close()
-    collector?.close()
-    collector?.closeAllConnections()
+    try {
+      await browser?.close()
+      await scaffold?.close()
+      expect(uploads).toEqual([])
+    } finally {
+      if (collector?.listening) {
+        await new Promise<void>((resolve, reject) => {
+          collector.close((error) => {
+            if (error) reject(error)
+            else resolve()
+          })
+          collector.closeAllConnections()
+        })
+      }
+    }
   })
 
   it('drives the recorded prompt to a settled turn (all modes)', async () => {
@@ -91,10 +98,10 @@ describe('web e2e: feedback-gated release under the shipped default mode', () =>
     const settled = scaffold.whenTurnSettled()
     await input.fill(PROMPT)
     await input.press('Enter')
-    await settled
+    sessionId = await settled
   }, 60_000)
 
-  it.skipIf(MODE === 'record')('releases the session records through the feedback and pins the disclosure', async () => {
+  it.skipIf(MODE === 'record')('records feedback locally and acknowledges its session and anonymous user ids', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-feedback-release'))
     await page.getByText('LIGHTHOUSE', { exact: true }).waitFor({ timeout: 15_000 })
     expect(uploads).toEqual([])
@@ -103,13 +110,8 @@ describe('web e2e: feedback-gated release under the shipped default mode', () =>
     await input.press('Enter')
 
     await page.getByText(/Feedback recorded for session/).waitFor({ timeout: 10_000 })
-    expect(await page.getByText(/recording feedback uploads the session records not yet shared/).count()).toBe(1)
-
-    // FEEDBACK_ONLY releases through the committed feedback event: exactly
-    // one request reaches the collector, carrying the whole unshared range.
-    await expect.poll(() => uploads.length, { timeout: 15_000 }).toBe(1)
-    expect(uploads[0]).toContain('the diff view is unreadable')
-    expect(uploads[0]).toContain(PROMPT)
+    expect(await page.getByText(/Anonymous user: [0-9a-f-]+\.$/i).count()).toBe(1)
+    expect(uploads).toEqual([])
 
     const snapshot = await captureStableAria(page, '[class*="centerCol"]', scaffold.workspaceCwd)
     await compareOrRefreshGolden(ACK_EXPECTED, snapshot, MODE)
@@ -123,16 +125,22 @@ describe('web e2e: feedback-gated release under the shipped default mode', () =>
     expect(tripwire.warnings).toEqual([])
   }, 60_000)
 
-  it.skipIf(MODE === 'record')('releases only the records since the last handoff on a second feedback', async () => {
+  it.skipIf(MODE === 'record')('persists both feedback remarks without uploading session records', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-feedback-release-suffix'))
     const input = page.locator('[data-composer-input]').first()
     await input.fill('/feedback the second remark')
     await input.press('Enter')
-    await expect.poll(() => uploads.length, { timeout: 15_000 }).toBe(2)
-    // Suffix semantics: the second release starts after the first feedback's
-    // handoff, so the drive prompt already shared must not repeat.
-    expect(uploads[1]).toContain('the second remark')
-    expect(uploads[1]).not.toContain(PROMPT)
+    await expect.poll(() => page.getByText(/Feedback recorded for session/).count()).toBe(2)
+    const agent = scaffold.ctx.agents.get(sessionId)
+    if (agent === undefined) throw new Error('feedback session has no active agent')
+    await scaffold.ctx.sessions.flush(agent.session)
+    const events = await readPersistedEvents(scaffold, sessionId)
+    expect(events.filter(event => event.type === 'feedback/record')).toMatchObject([
+      { data: { text: 'the diff view is unreadable' } },
+      { data: { text: 'the second remark' } },
+    ])
+    expect(events.filter(event => event.type === 'turn/end')).toHaveLength(1)
+    expect(uploads).toEqual([])
   }, 60_000)
 
   it.skipIf(MODE === 'record')('keeps the fixture inventory closed', async () => {

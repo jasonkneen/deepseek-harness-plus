@@ -29,7 +29,7 @@ As a deployment, choose a backend, mount it, and add redaction rules when record
 
 ### Choosing and mounting a backend
 
-Load exactly one backend plugin; it registers `ctx.sessionTelemetry` with the capture coordinator and its own delivery pipeline, and a duplicate load throws. The mounted backend discloses its sharing policy through the required [`sharing` member](#the-sharing-disclosure), which the `/feedback` acknowledgement renders; a consumer renders "not configured" only when no telemetry service is mounted.
+Load exactly one backend plugin; it registers `ctx.sessionTelemetry` with the capture coordinator and its own delivery pipeline, and a duplicate load throws. The mounted backend discloses its sharing policy through the required [`sharing` member](#the-sharing-disclosure); a consumer may report "not configured" only when no telemetry service is mounted. The `/feedback` command confirms recording without reading this policy.
 
 ### The backend contract
 
@@ -43,7 +43,7 @@ Capture runs in one of two modes. `live` capture follows session events as they 
 
 <a id="the-sharing-disclosure"></a>
 
-Every backend discloses its deployment-selected sharing policy through the seam's `sharing` vocabulary: `full` (every event is handed over as it happens), `feedback-only` (nothing is handed over until a `feedback/record` event releases the unreleased prefix), or `disabled` (nothing is handed over at all). The acknowledgement of a recorded feedback entry reports this status; the disclosure never claims delivery — handoff is the non-blocking enqueue, and batching, retry, and loss policy stay the backend SDK's.
+Every backend discloses its deployment-selected sharing policy through the seam's `sharing` vocabulary: `full` (every event is handed over as it happens), `feedback-only` (nothing is handed over until a `feedback/record` event releases the unreleased prefix), or `disabled` (nothing is handed over at all). The policy API never claims delivery — handoff is the non-blocking enqueue, and batching, retry, and loss policy stay the backend SDK's.
 
 ### Redacting records
 

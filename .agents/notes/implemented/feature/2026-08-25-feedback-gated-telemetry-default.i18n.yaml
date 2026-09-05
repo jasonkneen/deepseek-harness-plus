@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-08-25-feedback-gated-telemetry-default.md
-2026-08-25-feedback-gated-telemetry-default.md: 19ed75859b54044d38c473f9bd5e8840c5cd2844
-2026-08-25-feedback-gated-telemetry-default.zh.md: d82776b4250e1c37b821df5f387f9df05e0fbfd0
+2026-08-25-feedback-gated-telemetry-default.md: f3de87e8aec62b5fe6ddc71a008ac0fd82aef78d
+2026-08-25-feedback-gated-telemetry-default.zh.md: be3a0d6819a0074a2d30a200cde19e0d3f260363

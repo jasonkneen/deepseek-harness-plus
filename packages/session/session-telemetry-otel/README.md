@@ -35,7 +35,7 @@ Mount this plugin when a deployment should export session records through OpenTe
 | `FEEDBACK_ONLY` | Each `feedback/record` replays, copies, and redacts every canonical event after the handoff cursor through that event; later records wait for another feedback event and remain local if none arrives |
 | `DISABLED` | Default. No coordinator, provider, processor, or exporter is constructed; no telemetry record leaves the process, and a `feedback/record` logs that nothing will be shared |
 
-Programmatic TypeScript configuration uses the exported `SessionTelemetryMode` enum; raw string literals are not assignable. The mounted service discloses the resolved mode through the seam's [`SessionTelemetrySharingStatus`](../session-telemetry/README.md#the-sharing-disclosure) `sharing` property (`full` / `feedback-only` / `disabled`), so the `/feedback` acknowledgement reports whether and how the session is shared — even `DISABLED` discloses `disabled`.
+Programmatic TypeScript configuration uses the exported `SessionTelemetryMode` enum; raw string literals are not assignable. The mounted service discloses the resolved mode through the seam's [`SessionTelemetrySharingStatus`](../session-telemetry/README.md#the-sharing-disclosure) `sharing` property (`full` / `feedback-only` / `disabled`), including `disabled` in `DISABLED` mode. This API reports policy independently of the `/feedback` acknowledgement, which confirms recording only.
 
 ### Minimal configuration
 
