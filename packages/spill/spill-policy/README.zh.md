@@ -111,7 +111,6 @@ kind: "package-reference"
 - [dsh-spill-local](../spill-local/README.zh.md)——保存 spill 文本的本地后端。
 - [dsh-output-retention](../../util/output-retention/README.zh.md)——策略组合的预览机制（`TextRetainer`）。
 - [工具输出 spill 决策](../../../.agents/notes/implemented/architecture/2026-07-08-tool-output-spill-files.zh.md)——能力边界与设计依据。
-- [PTC dispatch-log spill 决策](../../../.agents/notes/implemented/feature/2026-07-26-ptc-dispatch-log-spill.zh.md)——为何持久日志副本同样设界。
 
 -----
 

@@ -104,7 +104,6 @@ Read these pages when the package-level contract is not enough.
 - [dsh-spill-policy](../spill-policy/README.md) — the policy that calls this backend when a result is too large.
 - [Spill subsystem](../../../docs/subsystems/spill.md) — the exhaustive vocabulary and ownership.
 - [Tool output spill decision](../../../.agents/notes/implemented/architecture/2026-07-08-tool-output-spill-files.md) — the capability boundary and design rationale.
-- [Local spill startup cleanup](../../../.agents/notes/implemented/architecture/2026-07-17-local-spill-startup-cleanup.md) — retention, race handling, and safe deletion rules.
 
 -----
 

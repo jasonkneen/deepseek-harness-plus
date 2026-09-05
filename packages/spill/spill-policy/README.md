@@ -111,7 +111,6 @@ Read these pages when the package-level contract is not enough.
 - [dsh-spill-local](../spill-local/README.md) — the local backend that stores the spilled text.
 - [dsh-output-retention](../../util/output-retention/README.md) — the preview mechanics (`TextRetainer`) the policy composes.
 - [Tool output spill decision](../../../.agents/notes/implemented/architecture/2026-07-08-tool-output-spill-files.md) — the capability boundary and design rationale.
-- [PTC dispatch-log spill decision](../../../.agents/notes/implemented/feature/2026-07-26-ptc-dispatch-log-spill.md) — why the durable log copy is bounded too.
 
 -----
 

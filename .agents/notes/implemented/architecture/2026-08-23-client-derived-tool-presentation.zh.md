@@ -684,9 +684,9 @@ optional `view` 的缺失是所有 consumer 共同遵守的预发布 wire 类型
 
 ## 与现有决策的关系
 
-本文部分取代 [Client 工具展示所有权](2026-08-08-client-tool-presentation-ownership.zh.md) 中“card model 接收 Host view”的实现事实；`ui-tool` 拥有展示、业务插件使用 keyed slot、Conversation 只拥有生命周期与拓扑的核心决定保持不变。
+本文部分取代 [Client 工具展示所有权](../../archived/architecture/2026-08-08-client-tool-presentation-ownership.md) 中“card model 接收 Host view”的实现事实；`ui-tool` 拥有展示、业务插件使用 keyed slot、Conversation 只拥有生命周期与拓扑的核心决定保持不变。
 
-本文保留 [toolview 溶解](2026-07-23-toolview-dissolution.zh.md) 的决定：Client 仍只有 slot 注册模型，不恢复 `ToolViewRegistry`。
+本文保留 [toolview 溶解](../../archived/architecture/2026-07-23-toolview-dissolution.md) 的决定：Client 仍只有 slot 注册模型，不恢复 `ToolViewRegistry`。
 
 本文收窄 [render-intent union](2026-07-02-tool-render-intent-union.zh.md) 的消费范围：Host API 与类型保留，Session Remote 与 Web Client 不消费它。本文独自规定 transport 拆分，不改写该 presenter 决策。
 

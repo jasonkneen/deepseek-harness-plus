@@ -104,7 +104,6 @@ kind: "package-reference"
 - [dsh-spill-policy](../spill-policy/README.zh.md)——结果过大时调用此后端的策略。
 - [spill 子系统](../../../docs/subsystems/spill.zh.md)——穷尽式词汇与归属。
 - [工具输出 spill 决策](../../../.agents/notes/implemented/architecture/2026-07-08-tool-output-spill-files.zh.md)——能力边界与设计依据。
-- [本地 spill 启动清理](../../../.agents/notes/implemented/architecture/2026-07-17-local-spill-startup-cleanup.zh.md)——保留期、竞态处理与安全删除规则。
 
 -----
 
