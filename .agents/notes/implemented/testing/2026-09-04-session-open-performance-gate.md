@@ -12,7 +12,7 @@ Measuring only `SessionPersistence.open()` does not stably describe the result f
 
 ## Decision
 
-Linux pull requests run a required `node 24 / benchmarks` job that executes `pnpm run check:ci:bench` → `pnpm run test:bench` → `vitest.bench.config.ts`. The job runs the benchmark lane alone; Vitest runs one file at a time and only prepares input, starts measurement children, aggregates results, and enforces budgets.
+Linux pull requests run a required `node 24 / benchmarks` job that executes `pnpm run check:ci:bench` → `pnpm run test:bench`. The command first builds workspace libraries and dedicated benchmark workers, then invokes `vitest.bench.config.ts`. The job runs the benchmark lane alone; Vitest runs one file at a time and only prepares input, starts measurement children, aggregates results, and enforces budgets. Every timed CPU path executes compiled JavaScript under plain Node with `NODE_OPTIONS` removed and no TypeScript loader; bare workspace imports therefore resolve through package exports to built `lib/` entries.
 
 Required performance gates live under top-level `benchmarks/`, grouped by measured user path rather than package ownership. Host files use `*.bench.ts`, Client-face files use `*.bench.client.ts`, and scenario-specific workers and fixtures stay beside their benchmark without a benchmark suffix. Package-local `.perf.ts` files remain non-gating diagnostics; `scripts/` owns orchestration rather than benchmark cases.
 
@@ -20,7 +20,7 @@ The Session benchmarks synthesize a released-v0 input from fixed parameters: 200
 
 Every Session endpoint runs at two user-lifecycle points. `first-open` starts with only the released V0 generation and therefore includes migration and successor publication. Setup produces `post-upgrade-reopen` once through that same production migration outside measurement, then copies both the unchanged V0 predecessor and published V2 successor into each sample root. Reopen samples use a fresh process, so they measure an upgraded user's later disk open without migration or process-local caches.
 
-Each access-kind and endpoint sample runs in a fresh Node child process. Module imports, Host service initialization, and fixture preparation finish before measurement; the measured process performs no extra parse warm-up. Normal-heap mode runs five independent samples, reports every sample plus minimum, median, and maximum, and enforces access-specific fixed budgets against the median. Another child runs the same path under a fixed 128 MB old-space limit and checks only that it completes; extra GC caused by the constrained heap does not enter the normal timing baseline.
+Each access-kind and endpoint sample runs in a fresh compiled Node child process. Module imports, Host service initialization, and fixture preparation finish before measurement; the measured process performs no extra parse warm-up. Normal-heap mode runs five independent samples, reports every sample plus minimum, median, and maximum, and enforces access-specific fixed budgets against the median. Another child runs the same path under a fixed 128 MB old-space limit and checks only that it completes; extra GC caused by the constrained heap does not enter the normal timing baseline.
 
 The lane contains three independent Session-opening benchmarks and retains the Client-fold benchmark:
 
@@ -37,7 +37,7 @@ Normal-heap mode performs a fixed pair of explicit garbage collections after Hos
 
 The performance gate does not duplicate semantic assertions owned by functional tests; it requires only that the target call completes and reaches its measured endpoint. The Client-fold benchmark continues to use the real `ConversationNodeAssembler` and every Chat Definition, and requires both the large window's absolute time and its scaling relative to the small window to remain below fixed budgets.
 
-Budgets use repeated measurements of the final implementation on the target CI runner, with enough margin for runner noise while remaining below the known regression. Pre-stack commit `0d7ea53743e273930a31e9e2b6ca682f21dd4ca5` is the fixed calibration and review reference; CI does not check out or execute the historical repository. Budgets are reviewed source constants and have no environment-variable override.
+Budgets are layered. The first-open `open` limit, constrained-heap completion checks, and Client-fold scaling bound reject the known regressions; first-history and Agent-resume limits are broader orchestration ceilings that catch additional overhead without duplicating those component verdicts. Repeated measurements on the target CI runner leave margin for runner noise. Pre-stack commit `0d7ea53743e273930a31e9e2b6ca682f21dd4ca5` is the fixed calibration and review reference; CI does not check out or execute the historical repository. Budgets are reviewed source constants and have no environment-variable override.
 
 ## Calibration evidence
 
@@ -45,12 +45,12 @@ The comparison is orthogonal by user lifecycle, not by artifact representation. 
 
 Five-sample medians on the same Node 24 reference machine establish the positive and negative controls:
 
-| Access kind | Implementation | Four-phase total | First history | Agent resume | 128 MB old space |
-|---|---|---:|---:|---:|---|
-| First open | Pre-stack reference | 249.0 ms | 253.8 ms | 100.7 ms | Completes |
-| First open | Repeated-snapshot regression | 4,197.5 ms | 4,284.8 ms | 4,197.9 ms | Exhausts heap |
-| Post-upgrade reopen | Pre-stack reference | 251.1 ms | 253.8 ms | 100.7 ms | Completes |
-| Post-upgrade reopen | Repeated-snapshot regression | 49.2 ms | 50.4 ms | 43.8 ms | Completes |
+| Access kind | Implementation | Four-phase total | First history | Agent resume | Agent retained heap | 128 MB old space |
+|---|---|---:|---:|---:|---:|---|
+| First open | Pre-stack reference | 249.0 ms | 253.8 ms | 100.7 ms | 26.1 MB | Completes |
+| First open | Repeated-snapshot regression | 4,197.5 ms | 4,284.8 ms | 4,197.9 ms | 4.4 MB | Exhausts heap |
+| Post-upgrade reopen | Pre-stack reference | 251.1 ms | 253.8 ms | 100.7 ms | 26.1 MB | Completes |
+| Post-upgrade reopen | Repeated-snapshot regression | 49.2 ms | 50.4 ms | 43.8 ms | 4.5 MB | Completes |
 
 The pre-stack implementation keeps V0 as its current format, so first open does not change its on-disk representation; its native V0 first-history and Agent-resume measurements therefore apply to both lifecycle rows.
 
@@ -65,6 +65,8 @@ The pre-stack implementation keeps V0 as its current format, so first open does 
 **Measure only first-history or Agent-resume total time.** Rejected because an end-to-end number protects the result but cannot identify whether storage, reading, Session restoration, or projection regressed; four phase budgets retain actionable attribution.
 
 **Add fine-grained timing instrumentation inside production implementations.** Rejected because those probes would expand production APIs and couple the benchmark to implementation details. Tests use existing service and object boundaries; costs that those boundaries cannot attribute remain part of the end-to-end result.
+
+**Run measured workers from TypeScript source.** Rejected because a source loader changes module resolution and startup behavior, and causes nested workers to select source-only bootstrap paths. Vitest remains an unmeasured orchestrator; every timed worker executes the build output exactly as plain Node consumers do.
 
 **Use only time budgets or only post-GC memory.** Rejected because time does not reveal memory regressions, while endpoint live memory cannot expose transient migration spikes. Normal-heap post-GC deltas and constrained-heap completion cover the two risks separately.
 

@@ -21,6 +21,7 @@
     "packages/client/*/tests/**/*.tsx",
     "benchmarks/**/*.client.ts",
     "benchmarks/**/*.client.tsx",
+    "benchmarks/support/**/*.ts",
     "packages/*/*/tests/**/*.client.spec.ts",
     "packages/*/*/tests/**/*.client.spec.tsx",
     "packages/*/*/tests/**/*.client.tsx",

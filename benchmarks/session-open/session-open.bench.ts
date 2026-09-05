@@ -1,15 +1,19 @@
 /** Required performance budgets for cold Session preparation, first history, and Agent resume. */
 
-import { spawn } from 'node:child_process'
 import { copyFile, mkdir, mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import {
+  runBuiltBenchmarkWorker,
+  type BuiltBenchmarkWorkerRun,
+} from '../support/built-worker.ts'
 import type {
   SessionOpenBenchmarkScenario,
   SessionOpenWorkerReport,
-} from './session-open.bench.worker.ts'
+} from './session-open.worker.ts'
 import {
+  SYNTHETIC_CURRENT_GENERATION,
   SYNTHETIC_SESSION_DIRECTORY,
   SYNTHETIC_CURRENT_FILENAME,
   SYNTHETIC_V0_FILENAME,
@@ -21,8 +25,8 @@ import {
 const SHAPE = { turns: 200, textDeltas: 500 } as const
 /** Fresh processes per normal-heap scenario; the median enforces each timing budget. */
 const ATTEMPTS = 5
-/** A stuck child is a benchmark failure and must be reaped before another sample starts. */
-const WORKER_TIMEOUT_MS = 120_000
+/** A stuck child is reaped well before the outer test and hook deadlines. */
+const WORKER_TIMEOUT_MS = 60_000
 /** Old-space pressure check, kept independent from normal-heap timing samples. */
 const CONSTRAINED_HEAP_MB = 128
 
@@ -31,7 +35,7 @@ type SessionBenchmarkEndpoint = 'phases' | 'first-history' | 'agent-resume'
 
 const SOURCE_GENERATION_BY_ACCESS = {
   'first-open': 'released-v0',
-  'post-upgrade-reopen': 'current-v2',
+  'post-upgrade-reopen': SYNTHETIC_CURRENT_GENERATION,
 } as const satisfies Record<SessionAccessKind, string>
 
 /** Existing CI calibration: optimized migration is about 2 s and the repeated-snapshot path exceeds 4 s. */
@@ -40,30 +44,24 @@ const MIGRATION_OPEN_BUDGET_MS = 4_000
 const REOPEN_OPEN_BUDGET_MS = 500
 /** Complete event reads remain bounded after either opening path. */
 const READ_BUDGET_MS = 500
-/** Restoring the detached in-memory Session must remain below the migration budget's spare second. */
+/** In-memory Session restore normally takes tens of milliseconds; one second rejects large cloning regressions. */
 const SESSION_RESTORE_BUDGET_MS = 1_000
 /** The fixed production projection set must fold the complete Session within one second. */
 const PROJECTION_BUDGET_MS = 1_000
-/** Host first-history includes migration, restore, projection, and bounded page construction. */
+/** Coarse Host orchestration ceiling; component and constrained-heap gates reject the known migration regression. */
 const FIRST_OPEN_FIRST_HISTORY_BUDGET_MS = 6_000
-/** An already-published V2 Session should produce first history without migration-scale work. */
+/** An already-published current Session should produce first history without migration-scale work. */
 const REOPEN_FIRST_HISTORY_BUDGET_MS = 500
-/** Cold Agent resume includes migration, Session restore, Agent setup, publication, and loop startup. */
+/** Coarse Agent orchestration ceiling; component and constrained-heap gates reject the known migration regression. */
 const FIRST_OPEN_AGENT_RESUME_BUDGET_MS = 7_000
-/** An already-published V2 Session should resume without migration-scale work. */
+/** An already-published current Session should resume without migration-scale work. */
 const REOPEN_AGENT_RESUME_BUDGET_MS = 500
-/** Live Agent, Session, events, and normal caches retained after full GC. */
-const AGENT_RETAINED_HEAP_BUDGET_MB = 192
+/** The 64 MB cap exceeds the 26.1 MB historical-reference median while still detecting retained-graph growth. */
+const AGENT_RETAINED_HEAP_BUDGET_MB = 64
 
-const WORKER = join(import.meta.dirname, 'session-open.bench.worker.ts')
+const WORKER = join(import.meta.dirname, '..', '..', '.dsh-build', 'benchmarks', 'session-open', 'session-open.worker.js')
 
-interface WorkerRun {
-  readonly report: SessionOpenWorkerReport | undefined
-  readonly exitCode: number | null
-  readonly signal: NodeJS.Signals | null
-  readonly timedOut: boolean
-  readonly stderr: string
-}
+type WorkerRun = BuiltBenchmarkWorkerRun<SessionOpenWorkerReport>
 
 function rounded(value: number): number {
   return Math.round(value * 10) / 10
@@ -125,36 +123,12 @@ function runWorker(
   scenario: SessionOpenBenchmarkScenario,
   heapLimitMb?: number,
 ): Promise<WorkerRun> {
-  return new Promise((resolve, reject) => {
-    const child = spawn(process.execPath, [
-      '--expose-gc',
-      ...heapLimitMb === undefined ? [] : [`--max-old-space-size=${String(heapLimitMb)}`],
-      '--import',
-      'tsx/esm',
-      WORKER,
-      root,
-      scenario,
-    ], { cwd: process.cwd(), stdio: ['ignore', 'pipe', 'pipe'] })
-    let stdout = ''
-    let stderr = ''
-    let timedOut = false
-    const timeout = setTimeout(() => {
-      timedOut = true
-      child.kill('SIGKILL')
-    }, WORKER_TIMEOUT_MS)
-    child.stdout.setEncoding('utf8').on('data', (chunk: string) => { stdout += chunk })
-    child.stderr.setEncoding('utf8').on('data', (chunk: string) => { stderr += chunk })
-    child.once('error', (error) => {
-      clearTimeout(timeout)
-      reject(error)
-    })
-    child.once('close', (exitCode, signal) => {
-      clearTimeout(timeout)
-      const line = stdout.trim().split('\n').findLast(candidate => candidate.startsWith('{'))
-      let report: SessionOpenWorkerReport | undefined
-      if (exitCode === 0 && line !== undefined) report = JSON.parse(line) as SessionOpenWorkerReport
-      resolve({ report, exitCode, signal, timedOut, stderr })
-    })
+  return runBuiltBenchmarkWorker({
+    worker: WORKER,
+    args: [root, scenario],
+    timeoutMs: WORKER_TIMEOUT_MS,
+    exposeGc: true,
+    ...(heapLimitMb === undefined ? {} : { heapLimitMb }),
   })
 }
 

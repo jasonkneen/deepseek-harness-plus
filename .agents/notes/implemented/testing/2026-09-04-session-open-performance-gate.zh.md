@@ -12,7 +12,7 @@ Session format v2 的推出改变了两条成本随模型输出增长的路径�
 
 ## 决定
 
-Linux pull request 运行必需的 `node 24 / benchmarks` job，执行 `pnpm run check:ci:bench` → `pnpm run test:bench` → `vitest.bench.config.ts`。该 job 单独运行 benchmark lane；Vitest 逐文件运行，测试进程只负责准备输入、启动测量子进程、汇总结果和执行预算断言。
+Linux pull request 运行必需的 `node 24 / benchmarks` job，执行 `pnpm run check:ci:bench` → `pnpm run test:bench`。该命令先构建 workspace library 和专用 benchmark worker，再调用 `vitest.bench.config.ts`。该 job 单独运行 benchmark lane；Vitest 逐文件运行，只负责准备输入、启动测量子进程、汇总结果和执行预算断言。每条被计时的 CPU 路径都以纯 Node 执行编译后的 JavaScript，并移除 `NODE_OPTIONS` 且不加载 TypeScript runtime；workspace 裸导入因此通过 package exports 解析到构建后的 `lib/` 入口。
 
 必需性能 gate 位于顶层 `benchmarks/`，按被测用户路径而非 package 归属组织。Host 文件使用 `*.bench.ts`，Client 面文件使用 `*.bench.client.ts`，场景专属 worker 与 fixture 留在对应 benchmark 旁且不带 benchmark 后缀。包内 `.perf.ts` 文件仍是非门禁诊断；`scripts/` 负责编排而不承载 benchmark case。
 
@@ -20,7 +20,7 @@ Session benchmark 使用固定参数合成 released-v0 输入：200 轮，每轮
 
 每个 Session endpoint 都针对用户生命周期中的两个时点运行。`first-open` 最初只有 released V0 generation，因此包含 migration 与后继 generation 发布。测试准备阶段在计时外通过同一套生产 migration 生成一次 `post-upgrade-reopen`，再把未改动的 V0 前代和已发布的 V2 后继一起复制到每个样本目录。Reopen 样本使用全新进程，因此测量用户升级完成后的磁盘再次打开，不包含 migration 或进程内 cache。
 
-每个 access kind 与 endpoint 的样本都在全新 Node 子进程中运行。模块加载、Host 服务初始化和 fixture 准备在测量开始前完成；测量进程不执行额外的预热解析。正常堆模式运行五个独立样本，报告全部样本及最小值、中位数和最大值，并以中位数执行各访问状态独立的固定预算。另一个子进程使用固定 128 MB old-space 上限运行同一路径，只判断能否完成；低堆限制引起的额外 GC 不进入正常时间基线。
+每个 access kind 与 endpoint 的样本都在全新、已编译的 Node 子进程中运行。模块加载、Host 服务初始化和 fixture 准备在测量开始前完成；测量进程不执行额外的预热解析。正常堆模式运行五个独立样本，报告全部样本及最小值、中位数和最大值，并以中位数执行各访问状态独立的固定预算。另一个子进程使用固定 128 MB old-space 上限运行同一路径，只判断能否完成；低堆限制引起的额外 GC 不进入正常时间基线。
 
 该 lane 包含三个独立的 Session 打开 benchmark，并保留 Client fold benchmark：
 
@@ -37,7 +37,7 @@ Session benchmark 使用固定参数合成 released-v0 输入：200 轮，每轮
 
 性能 gate 不重复功能测试的内容断言，只要求目标调用完成并到达对应的可观察终点。Client fold benchmark 继续使用真实 `ConversationNodeAssembler` 与全部 Chat Definition，要求大窗口的绝对时间和相对小窗口的缩放比均低于固定预算。
 
-预算以最终实现于目标 CI runner 上的多次样本为基线，并保留足以吸收 runner 波动、但仍能区分已知退化的余量。栈前参考提交固定为 `0d7ea53743e273930a31e9e2b6ca682f21dd4ca5`，只用于校准和评审预算；CI 不 checkout 或执行历史仓库。预算是源码中的受评审常量，不由环境变量覆盖。
+预算分层发挥作用。First-open `open` 上限、受限堆完成性检查和 Client fold 缩放上限会拒绝已知退化；首屏历史与 Agent resume 上限是更宽松的编排总量限制，用于发现额外开销而不重复组件判定。目标 CI runner 上的重复测量为机器波动保留余量。栈前参考提交固定为 `0d7ea53743e273930a31e9e2b6ca682f21dd4ca5`，只用于校准和评审预算；CI 不 checkout 或执行历史仓库。预算是源码中的受评审常量，不由环境变量覆盖。
 
 ## 校准证据
 
@@ -45,11 +45,11 @@ Session benchmark 使用固定参数合成 released-v0 输入：200 轮，每轮
 
 同一台 Node 24 参考机器上的五次样本中位数构成正反例：
 
-| Access kind | 实现 | 四阶段总时间 | 首屏历史 | Agent resume | 128 MB old space |
-|---|---|---:|---:|---:|---|
-| First open | 栈前参考版本 | 249.0 ms | 253.8 ms | 100.7 ms | 完成 |
-| First open | 重复 snapshot 退化实现 | 4,197.5 ms | 4,284.8 ms | 4,197.9 ms | 堆耗尽 |
-| Post-upgrade reopen | 栈前参考版本 | 251.1 ms | 253.8 ms | 100.7 ms | 完成 |
+| Access kind | 实现 | 四阶段总时间 | 首屏历史 | Agent resume | Agent GC 后增量堆 | 128 MB old space |
+|---|---|---:|---:|---:|---:|---|
+| First open | 栈前参考版本 | 249.0 ms | 253.8 ms | 100.7 ms | 26.1 MB | 完成 |
+| First open | 重复 snapshot 退化实现 | 4,197.5 ms | 4,284.8 ms | 4,197.9 ms | 4.4 MB | 堆耗尽 |
+| Post-upgrade reopen | 栈前参考版本 | 251.1 ms | 253.8 ms | 100.7 ms | 26.1 MB | 完成 |
 | Post-upgrade reopen | 重复 snapshot 退化实现 | 49.2 ms | 50.4 ms | 43.8 ms | 完成 |
 
 栈前实现以 V0 作为当前格式，因此 first open 不改变磁盘表示；它的原生 V0 首屏历史与 Agent resume 测量同时适用于两个生命周期行。
@@ -65,6 +65,8 @@ Session benchmark 使用固定参数合成 released-v0 输入：200 轮，每轮
 **只测首屏或 Agent resume 总时间。** 拒绝：端到端数字能保护结果，却不能指出退化来自存储、读取、Session restore 还是 projection；四阶段预算保留可操作的归因。
 
 **在生产实现内部添加细粒度计时桩。** 拒绝：这些桩会扩大生产接口并让 benchmark 与实现细节耦合。测试只使用既有服务和对象边界；无法由这些边界解释的成本保留在端到端结果中。
+
+**从 TypeScript 源码运行被测 worker。** 拒绝：源码 loader 会改变模块解析与启动行为，并使嵌套 worker 选择仅适用于源码的启动路径。Vitest 仍可作为不计时的编排层；每个被计时的 worker 都像纯 Node 消费方一样执行构建产物。
 
 **只用时间预算或只看 GC 后内存。** 拒绝：时间无法发现内存退化，终点存活内存也看不到迁移期间的瞬时爆发。正常堆的 GC 后增量与受限堆的完成性分别覆盖两类风险。
 

@@ -3,10 +3,10 @@ import { defineConfig } from 'vitest/config'
 import { standardDecoratorPlugin, vitestExecArgv } from './vitest.shared.ts'
 
 /**
- * CI performance gate. Every benchmark under `benchmarks/` synthesizes its
- * own input from fixed parameters, measures one user-visible path, and fails when a
- * documented time or heap budget is exceeded. Files run one at a time so a
- * measurement never shares the CPU with another benchmark.
+ * CI performance gate. Vitest orchestrates compiled plain-Node workers under
+ * `.dsh-build/benchmarks/`; timed product work never runs through its source transform.
+ * Files run one at a time so a measurement never shares the CPU with another
+ * benchmark.
  */
 export default defineConfig({
   plugins: [tsconfigPaths({ projects: ['./tsconfig.base.json'] }), standardDecoratorPlugin()],

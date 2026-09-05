@@ -28,9 +28,11 @@ import * as SessionStatsPlugin from '@deepseek-ai/dsh-session-stats'
 import SessionTitleService from '@deepseek-ai/dsh-session-title'
 import * as SessionTurnOutlinePlugin from '@deepseek-ai/dsh-session-turn-outline'
 import TokenMeter from '@deepseek-ai/dsh-token-meter'
+// These Host-only adapters have no public Node export and are compiled into the benchmark worker.
 import { SessionHistoryController } from '../../packages/api/session-controller/src/history.ts'
 import { installModelSelectionProjection } from '../../packages/api/session-controller/src/model-selection-projection.ts'
-import { SYNTHETIC_SESSION_ID } from './synthetic-released-v0-session.ts'
+import { assertBuiltBenchmarkRuntime } from '../support/built-worker.ts'
+import { SYNTHETIC_SESSION_ID } from './session-open.constants.ts'
 
 /** Worker scenario selected by the parent benchmark. */
 export type SessionOpenBenchmarkScenario =
@@ -127,6 +129,7 @@ function memoryDelta(
 }
 
 async function installProjectionSet(ctx: Context, agentLoopOwnsBoundary: boolean): Promise<void> {
+  // Mirrors projection owners mounted by the base and web-app bundles without timing profile boot.
   if (!agentLoopOwnsBoundary) ctx.sessionProjections.register(turnBoundaryProjectionDefinition)
   ctx.sessionProjections.register(agentPresetProjectionDefinition)
   installModelSelectionProjection(ctx)
@@ -151,6 +154,7 @@ class SessionBenchmarkHost {
   private constructor(
     private readonly ctx: Context,
     private readonly scenario: SessionOpenBenchmarkScenario,
+    private readonly history: SessionHistoryController | undefined,
   ) {}
 
   static async create(root: string, scenario: SessionOpenBenchmarkScenario): Promise<SessionBenchmarkHost> {
@@ -161,9 +165,16 @@ class SessionBenchmarkHost {
     else await ctx.plugin(SessionStore)
     await installProjectionSet(ctx, agentScenario)
     await ctx.plugin(JsonlSessionPersistence, { root, compression: 'zstd' })
-    if (scenario === 'first-history') new BenchmarkSessionQuery(ctx)
+    let history: SessionHistoryController | undefined
+    if (scenario === 'first-history') {
+      new BenchmarkSessionQuery(ctx)
+      history = new SessionHistoryController(ctx, (observation) => {
+        // First-history ends at snapshot delivery; Agent-resume owns live activation and retention.
+        observation[Symbol.dispose]()
+      })
+    }
     if (agentScenario) await ctx.plugin(AgentLoop, { agents: [] })
-    return new SessionBenchmarkHost(ctx, scenario)
+    return new SessionBenchmarkHost(ctx, scenario, history)
   }
 
   async measure(): Promise<SessionOpenWorkerReport> {
@@ -252,9 +263,8 @@ class SessionBenchmarkHost {
   private async measureFirstHistory(): Promise<{ readonly events: number }> {
     const abort = new AbortController()
     this.historyAbort = abort
-    const history = new SessionHistoryController(this.ctx, (observation) => {
-      observation[Symbol.dispose]()
-    })
+    const history = this.history
+    if (history === undefined) throw new Error('first-history benchmark did not initialize its controller')
     const iterator = history.follow({
       address: { kind: 'session', sessionId: SessionId(SYNTHETIC_SESSION_ID) },
     }, abort.signal)[Symbol.asyncIterator]()
@@ -278,6 +288,10 @@ class SessionBenchmarkHost {
   }
 }
 
+assertBuiltBenchmarkRuntime(import.meta.url, {
+  '@deepseek-ai/dsh-session-persistence-jsonl': import.meta.resolve('@deepseek-ai/dsh-session-persistence-jsonl'),
+})
+
 const [root, scenarioValue] = process.argv.slice(2)
 const scenarios: readonly SessionOpenBenchmarkScenario[] = [
   'phase-migrate',
@@ -286,7 +300,7 @@ const scenarios: readonly SessionOpenBenchmarkScenario[] = [
   'agent-resume',
 ]
 if (root === undefined || !scenarios.includes(scenarioValue as SessionOpenBenchmarkScenario)) {
-  throw new Error('usage: session-open.bench.worker.ts <root> <phase-migrate|phase-steady|first-history|agent-resume>')
+  throw new Error('usage: session-open.worker.js <root> <phase-migrate|phase-steady|first-history|agent-resume>')
 }
 const scenario = scenarioValue as SessionOpenBenchmarkScenario
 const host = await SessionBenchmarkHost.create(root, scenario)

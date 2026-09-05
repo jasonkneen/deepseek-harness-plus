@@ -16,12 +16,63 @@ importers:
 
   .:
     devDependencies:
+      '@deepseek-ai/cordis':
+        specifier: workspace:^
+        version: link:vendor/cordis
+      '@deepseek-ai/dsh-agent-loop':
+        specifier: workspace:^
+        version: link:packages/core/agent-loop
+      '@deepseek-ai/dsh-agent-loop-testkit':
+        specifier: workspace:^
+        version: link:packages/test-support/agent-loop-testkit
+      '@deepseek-ai/dsh-agent-presets':
+        specifier: workspace:^
+        version: link:packages/preset/agent-presets
+      '@deepseek-ai/dsh-client-store':
+        specifier: workspace:^
+        version: link:packages/client/store
+      '@deepseek-ai/dsh-deque':
+        specifier: workspace:^
+        version: link:packages/util/deque
+      '@deepseek-ai/dsh-llm':
+        specifier: workspace:^
+        version: link:packages/llm/llm
       '@deepseek-ai/dsh-package-manifest':
         specifier: workspace:^
         version: link:packages/util/package-manifest
+      '@deepseek-ai/dsh-session':
+        specifier: workspace:^
+        version: link:packages/core/session
+      '@deepseek-ai/dsh-session-persistence':
+        specifier: workspace:^
+        version: link:packages/session/session-persistence
+      '@deepseek-ai/dsh-session-persistence-jsonl':
+        specifier: workspace:^
+        version: link:packages/session/session-persistence-jsonl
+      '@deepseek-ai/dsh-session-projection':
+        specifier: workspace:^
+        version: link:packages/session/session-projection
+      '@deepseek-ai/dsh-session-query':
+        specifier: workspace:^
+        version: link:packages/session-query/session-query
+      '@deepseek-ai/dsh-session-stats':
+        specifier: workspace:^
+        version: link:packages/session/session-stats
+      '@deepseek-ai/dsh-session-title':
+        specifier: workspace:^
+        version: link:packages/session/session-title
+      '@deepseek-ai/dsh-session-turn-outline':
+        specifier: workspace:^
+        version: link:packages/session/session-turn-outline
+      '@deepseek-ai/dsh-token-meter':
+        specifier: workspace:^
+        version: link:packages/llm/token-meter
       '@deepseek-ai/dsh-tool-session-query':
         specifier: workspace:^
         version: link:packages/session-query/tool-session-query
+      '@deepseek-ai/dsh-typert-protocol':
+        specifier: workspace:^
+        version: link:packages/typert/protocol
       '@deepseek-ai/dsh-web-fetch-http':
         specifier: workspace:^
         version: link:packages/web/web-fetch-http

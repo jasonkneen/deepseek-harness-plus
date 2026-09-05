@@ -2,7 +2,22 @@
 
 import { mkdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
+import { SESSION_FORMAT_VERSION } from '@deepseek-ai/dsh-session'
+import { generationLogFilename } from '../../packages/session/session-persistence-jsonl/src/format.ts'
 import { compressZstdFrame } from '../../packages/session/session-persistence-jsonl/src/zstd.ts'
+import {
+  SYNTHETIC_SESSION_CWD,
+  SYNTHETIC_SESSION_DIRECTORY,
+  SYNTHETIC_SESSION_ID,
+  SYNTHETIC_V0_FILENAME,
+} from './session-open.constants.ts'
+
+export {
+  SYNTHETIC_SESSION_CWD,
+  SYNTHETIC_SESSION_DIRECTORY,
+  SYNTHETIC_SESSION_ID,
+  SYNTHETIC_V0_FILENAME,
+} from './session-open.constants.ts'
 
 /** Fixed workload parameters used by every Session-opening scenario. */
 export interface SyntheticV0SessionShape {
@@ -12,12 +27,10 @@ export interface SyntheticV0SessionShape {
   readonly textDeltas: number
 }
 
-/** Stable identity and storage location of the synthesized Session. */
-export const SYNTHETIC_SESSION_ID = 'bench-session'
-export const SYNTHETIC_SESSION_CWD = '/bench'
-export const SYNTHETIC_SESSION_DIRECTORY = join('--bench--', SYNTHETIC_SESSION_ID)
-export const SYNTHETIC_V0_FILENAME = 'session.jsonl.zstd'
-export const SYNTHETIC_CURRENT_FILENAME = 'session.v2.jsonl.zstd'
+/** Canonical current-generation filename produced by the runtime under test. */
+export const SYNTHETIC_CURRENT_FILENAME = generationLogFilename(SESSION_FORMAT_VERSION, 'zstd')
+/** Report label for a fresh-process reopen of the runtime's current generation. */
+export const SYNTHETIC_CURRENT_GENERATION = `current-v${String(SESSION_FORMAT_VERSION)}`
 
 const TIME_ZERO = 1_700_000_000_000
 /** One body frame per row preserves the historical many-frame workload deterministically. */
