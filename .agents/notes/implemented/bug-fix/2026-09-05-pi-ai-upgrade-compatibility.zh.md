@@ -12,7 +12,7 @@ pi-ai 适配器显式分类上游兼容字段，并且只持久化后续请求�
 
 适配器遵循 [pi-ai 0.85.1](https://github.com/earendil-works/pi/blob/v0.85.1/packages/ai/CHANGELOG.md)。`thinkingTokenBudgetField`、`vllmPriority` 和 `supportsMaxOutputTokens` 是显式启用的网关控制；`thinking.budget` 加入现有模板占位符。SDK 拥有预算解析和序列化。`supportsMidConvoEffort` 和 `allowedFallbackModels` 仍由目录拥有，因为其正确性依赖确切的 Anthropic 传输、模型能力和回退定价。
 
-可选的 `providerThinkingLevel` 保存在适配器 replay-v2 响应元数据中，让 Anthropic 历史保留提供方原生 effort。缺失仍然有效；回放版本与已发布 Session 格式均不改变。回放来源保留请求模型，`responseModel` 则保留 Anthropic 别名解析或回退后的模型。重建会恢复该原生模型，让 pi-ai 继续应用其跨模型签名规则。提供方无关的 LLM API 保持不变。
+可选的 `providerThinkingLevel` 保存在适配器 replay-v2 响应元数据中，让 Anthropic 历史保留提供方原生 effort。缺失仍然有效；回放版本与已发布 Session 格式均不改变。回放来源保留请求模型，`responseModel` 则保留 Anthropic 别名解析或回退后的模型。重建会恢复该原生模型，让 pi-ai 继续应用其跨模型签名规则。提供方无关的 LLM API 保持不变；[按提供方路由的回放归属规则](../architecture/2026-07-14-provider-routed-llm-adapters.zh.md) 仍然适用。0.84.2 Anthropic 适配器[从请求初始化 `model`](https://github.com/earendil-works/pi/blob/v0.84.2/packages/ai/src/api/anthropic-messages.ts#L510-L515)，并且[在消息开始时只记录响应 ID 和用量](https://github.com/earendil-works/pi/blob/v0.84.2/packages/ai/src/api/anthropic-messages.ts#L589-L605)。它从不写入 `responseModel`，因此其回放记录保留请求模型，不携带原生模型元数据。
 
 ## Alternatives considered
 

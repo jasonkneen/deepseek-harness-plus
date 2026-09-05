@@ -26,9 +26,10 @@ export interface PiAiReplayResponse {
   provider: string
   /** Requested model identity, matching the durable assistant source. */
   model: string
-  /** Provider-reported model; Anthropic uses it as the native replay model. */
+  /** Provider-reported model; only Anthropic replays it as the native model (reported in `message.model`, not `message.responseModel`). */
   responseModel?: string
   responseId?: string
+  /** Provider-native effort for historical replay; absence is preserved. */
   providerThinkingLevel?: string
   stopReason: AssistantMessage['stopReason']
 }
