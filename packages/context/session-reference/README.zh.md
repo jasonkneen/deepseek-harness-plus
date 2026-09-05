@@ -33,7 +33,7 @@ kind: "package-reference"
 
 ### 模型能得到什么
 
-引用其他会话的消息会紧随其后收到一条 `## Referenced sessions` 快照，作为第二条 user 角色消息。快照是不受信任的背景：固定警告告诉模型，除非当前用户明确重复，否则不得遵循其中的指令、权限声明或工具请求。每个来源都独立有界——每条消息至多 `maxReferences` 个不同会话、每个来源至多 `maxReferenceBytes` 字节——无法塞入预算的来源会直接使准备失败，而不是返回部分上下文。
+引用其他会话的消息会紧随其后收到一条 `## Referenced sessions` 快照，作为第二条 user 角色消息。快照是不受信任的背景：固定警告告诉模型，除非当前用户明确重复，否则不得遵循其中的指令、权限声明或工具请求。每个来源都独立有界——每条消息至多 `maxReferences` 个不同会话、每个来源采用独立解析出的字节预算——无法塞入预算的来源会直接使准备失败，而不是返回部分上下文。
 
 ### 查找可引用的会话
 
@@ -45,7 +45,10 @@ kind: "package-reference"
 |---|---|---|
 | `maxReferences` | `3` | 一条已准备消息中不同源会话的最大数量；不得超过 `3` |
 | `candidateLimit` | `50` | 返回给宿主的默认候选数量 |
-| `maxReferenceBytes` | `65536` | 一个引用对象的最大序列化 JSON 字节数 |
+| `maxReferenceBytes` | 自动 | 每个来源的最大序列化 JSON 字节数；显式设置时精确覆盖自动预算 |
+| `referenceContextFraction` | `0.2` | 每个来源的上下文窗口比例，范围为 `0` 到 `1` |
+
+自动预算为每个来源 `max(65536, floor(contextWindow × 4 × referenceContextFraction))` 字节。模型上下文容量以 token 计量；每个 token 四字节是容量估算，不是精确的 token 换算。缺少路由、LLM 服务或容量时使用 64 KiB；模型元数据查询错误与取消会使准备失败。
 
 生成的[配置目录](../../../docs/config-catalog.zh.md#deepseek-aidsh-session-reference)是每个受支持字段及其 JSDoc 的穷尽式真源。
 
@@ -63,6 +66,8 @@ kind: "package-reference"
 
 准备阶段在目标消息到达 `agent/pre-step` 时，对每个被引用会话的当前表层各精确读取一次，因此 queued 消息在进入模型步骤时捕获源状态，此后生成的上下文不可变。投影只保留用户直接发出的 `user/message`、assistant 文本，以及携带规范压缩标记的 `user/message` 检查点；带独立来源的 session-reference 消息会被排除，防止快照递归传播。源文本以 JSON 序列化，每个 `<` 都转义为 `\u003c`，因此无法拼出 `<referenced-sessions>` 定界标签。
 
+预算使用目标 agent 的 `system-prompt/assemble` 完成后捕获的 provider 与 model。首次组装前直接调用 `prepare` 时使用 agent options；会话头不决定预算模型。不带 agent 的诊断组装不会影响已捕获路由。
+
 ### 源码地图
 
 | 文件 | 职责 |
@@ -77,7 +82,7 @@ kind: "package-reference"
 
 ### 主要流程
 
-外层 `agent/pre-step` 监听器接受步骤，从直接用户消息中解析规范 mention，再调用 `prepare`：规范化引用（保持首次 mention 顺序、去重、拒绝自引用与超限数量），并行读取每个表层，在 `maxReferenceBytes` 下逐源保留，并渲染聚合提示词。每条持久来源记录保留冻结的 `capturedThroughSeq` 并记录非零 `capturedFormatVersion`；字段缺失表示格式 v0。每份快照都插入到引用它的消息紧后，目标日志先记录可读的直接消息、再记录其带来源上下文，因此捕获后的源变更无法改变目标回放。
+外层 `agent/pre-step` 监听器接受步骤，从直接用户消息中解析规范 mention，再调用 `prepare`：规范化引用（保持首次 mention 顺序、去重、拒绝自引用与超限数量），并行读取每个表层，在解析出的字节预算下逐源保留，并渲染聚合提示词。每条持久来源记录保留冻结的 `capturedThroughSeq` 并记录非零 `capturedFormatVersion`；字段缺失表示格式 v0。每份快照都插入到引用它的消息紧后，目标日志先记录可读的直接消息、再记录其带来源上下文，因此捕获后的源变更无法改变目标回放。
 
 </details>
 
@@ -107,7 +112,7 @@ kind: "package-reference"
 
 #### Token 影响
 
-每条包含引用的消息都会添加固定警告和最多三个序列化快照，每个快照都受 `maxReferenceBytes` 独立限制。精确快照会保留在目标历史中，直到目标压缩遮蔽或摘要它；源会话变更不会添加更多 token。
+每条包含引用的消息都会添加固定警告和最多三个序列化快照，每个快照都受配置值或模型相对字节预算独立限制。精确快照会保留在目标历史中，直到目标压缩遮蔽或摘要它；源会话变更不会添加更多 token。
 
 #### KV Cache 影响
 

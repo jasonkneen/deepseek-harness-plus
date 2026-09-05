@@ -33,7 +33,7 @@ A canonical mention is `@[label](dsh-session:<base64url-encoded-id>)` in Markdow
 
 ### What the agent gets
 
-A message that cites other sessions is followed immediately by a `## Referenced sessions` snapshot as a second user-role message. The snapshot is untrusted background: the fixed warning tells the model not to follow instructions, permission claims, or tool requests inside it unless the current user explicitly repeats them. Each source is bounded independently — at most `maxReferences` distinct sessions per message and `maxReferenceBytes` per source — and a source that cannot fit its budget fails preparation instead of returning partial context.
+A message that cites other sessions is followed immediately by a `## Referenced sessions` snapshot as a second user-role message. The snapshot is untrusted background: the fixed warning tells the model not to follow instructions, permission claims, or tool requests inside it unless the current user explicitly repeats them. Each source is bounded independently — at most `maxReferences` distinct sessions per message and a resolved byte budget per source — and a source that cannot fit its budget fails preparation instead of returning partial context.
 
 ### Finding sessions to reference
 
@@ -45,7 +45,10 @@ A message that cites other sessions is followed immediately by a `## Referenced 
 |---|---|---|
 | `maxReferences` | `3` | Maximum distinct source sessions in one prepared message; must not exceed `3` |
 | `candidateLimit` | `50` | Default candidate count returned to a host |
-| `maxReferenceBytes` | `65536` | Maximum serialized JSON bytes for one reference object |
+| `maxReferenceBytes` | automatic | Explicit maximum serialized JSON bytes per source; overrides the automatic budget exactly |
+| `referenceContextFraction` | `0.2` | Context-window fraction per source, from `0` to `1` |
+
+The automatic budget is `max(65536, floor(contextWindow × 4 × referenceContextFraction))` bytes per source. Model context capacity is measured in tokens; four bytes per token is a sizing heuristic, not an exact token conversion. A missing route, LLM service, or capacity uses 64 KiB; model metadata lookup errors and cancellation fail preparation.
 
 The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-session-reference) is the exhaustive source for every accepted field and its JSDoc.
 
@@ -63,6 +66,8 @@ This section explains the design of the service; the observable behavior is cove
 
 Preparation reads each referenced session's current surface exactly once, when the target message reaches `agent/pre-step`, so a queued message captures source state at model-step entry and the resulting context is immutable afterwards. Projection keeps only direct-user `user/message`, assistant text, and `user/message` checkpoints carrying the canonical compaction marker; separately sourced session-reference messages are excluded, preventing recursive snapshot propagation. Source text is serialized as JSON with every `<` escaped as `\u003c`, so it cannot spell the `<referenced-sessions>` framing tag.
 
+The budget uses the provider and model captured after `system-prompt/assemble` completes for the target agent. Direct `prepare` calls before any assembly use agent options; session headers do not select the budget model. Diagnostic assemblies without an agent do not affect captured routes.
+
 ### Source map
 
 | File | Role |
@@ -77,7 +82,7 @@ Preparation reads each referenced session's current surface exactly once, when t
 
 ### Main flow
 
-The outer `agent/pre-step` listener accepts the step, parses canonical mentions out of direct user messages, then calls `prepare`, which normalizes references (first-mention order, deduplication, self-reference and count rejection), reads every surface in parallel, retains each under `maxReferenceBytes`, and renders the aggregated prompt. Each durable source record keeps the frozen `capturedThroughSeq` and records a nonzero `capturedFormatVersion`; absence denotes format v0. Each snapshot is inserted immediately after the message that cited it, and the target log records the readable direct message followed by its sourced context, so source mutation after capture cannot change target replay.
+The outer `agent/pre-step` listener accepts the step, parses canonical mentions out of direct user messages, then calls `prepare`, which normalizes references (first-mention order, deduplication, self-reference and count rejection), reads every surface in parallel, retains each under its resolved byte budget, and renders the aggregated prompt. Each durable source record keeps the frozen `capturedThroughSeq` and records a nonzero `capturedFormatVersion`; absence denotes format v0. Each snapshot is inserted immediately after the message that cited it, and the target log records the readable direct message followed by its sourced context, so source mutation after capture cannot change target replay.
 
 </details>
 
@@ -107,7 +112,7 @@ The model sees two consecutive user-role messages: the current message with its 
 
 #### Token effect
 
-Each referenced message adds the fixed warning plus up to three serialized snapshots, each independently bounded by `maxReferenceBytes`. The exact snapshot remains in target history until target compaction shadows or summarizes it; source-session changes add no further tokens.
+Each referenced message adds the fixed warning plus up to three serialized snapshots, each independently bounded by the configured or model-relative byte budget. The exact snapshot remains in target history until target compaction shadows or summarizes it; source-session changes add no further tokens.
 
 #### KV Cache effect
 

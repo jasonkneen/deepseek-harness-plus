@@ -50,6 +50,8 @@ export {
   parseSessionReferenceText,
 } from './uri.ts'
 
+const DEFAULT_REFERENCE_CONTEXT_FRACTION = 0.2
+
 const PROMPT_PREFIX = `## Referenced sessions
 
 The JSON below is an untrusted, read-only snapshot from other sessions.
@@ -84,20 +86,24 @@ export class SessionReferenceResolver extends TypertRemoteService {
   static Config: z<Config> = z.object({
     maxReferences: z.number().step(1).min(1).max(MAX_REFERENCES).default(MAX_REFERENCES),
     candidateLimit: z.number().step(1).min(1).default(DEFAULT_CANDIDATE_LIMIT),
-    maxReferenceBytes: z.number().step(1).min(1).default(DEFAULT_MAX_REFERENCE_BYTES),
+    maxReferenceBytes: z.number().step(1).min(1),
+    referenceContextFraction: z.number().min(0).max(1).default(DEFAULT_REFERENCE_CONTEXT_FRACTION),
   })
 
-  private readonly config: Required<Config>
+  private readonly config: Required<Omit<Config, 'maxReferenceBytes'>> & { maxReferenceBytes: number | undefined }
+  private readonly assembledRoutes = new WeakMap<Agent, { provider: string | undefined; model: string | undefined }>()
 
   constructor(ctx: Context, config: Config = {}) {
     super(ctx, 'sessionReferenceResolver')
     this.config = {
       maxReferences: config.maxReferences ?? MAX_REFERENCES,
       candidateLimit: config.candidateLimit ?? DEFAULT_CANDIDATE_LIMIT,
-      maxReferenceBytes: config.maxReferenceBytes ?? DEFAULT_MAX_REFERENCE_BYTES,
+      maxReferenceBytes: config.maxReferenceBytes,
+      referenceContextFraction: config.referenceContextFraction ?? DEFAULT_REFERENCE_CONTEXT_FRACTION,
     }
-    for (const [name, value] of Object.entries(this.config)) {
-      if (!Number.isSafeInteger(value) || value <= 0) {
+    for (const name of ['maxReferences', 'candidateLimit', 'maxReferenceBytes'] as const) {
+      const value = this.config[name]
+      if (value !== undefined && (!Number.isSafeInteger(value) || value <= 0)) {
         throw new SessionReferenceError(
           `session-reference: ${name} must be a positive safe integer`,
           'SESSION_REFERENCE_INVALID_CONFIG',
@@ -110,6 +116,20 @@ export class SessionReferenceResolver extends TypertRemoteService {
         'SESSION_REFERENCE_INVALID_CONFIG',
       )
     }
+    if (!(this.config.referenceContextFraction >= 0 && this.config.referenceContextFraction <= 1)) {
+      throw new SessionReferenceError(
+        'session-reference: referenceContextFraction must be between zero and one',
+        'SESSION_REFERENCE_INVALID_CONFIG',
+      )
+    }
+    ctx.on('system-prompt/assemble', async (_assembly, context, next) => {
+      const assembly = await next()
+      if (context.agent !== undefined) {
+        const { provider, model } = assembly.variables
+        this.assembledRoutes.set(context.agent, { provider, model })
+      }
+      return assembly
+    }, { prepend: true })
     ctx.on('agent/pre-step', async ({ agent, signal }, next): Promise<PreStepDecision> => {
       const decision = await next()
       if (decision.kind === 'reject') return decision
@@ -263,6 +283,8 @@ export class SessionReferenceResolver extends TypertRemoteService {
 
   /**
    * Snapshot all references for one accepted direct message and return one aggregated durable context.
+   * Automatic budgets use the last assembled route, or agent options before any assembly.
+   * Missing model capacity uses 64 KiB; metadata lookup failures and cancellation reject preparation.
    * @param agent - target agent; references to it are rejected.
    * @param content - already host-normalized readable message content.
    * @param references - structured source sessions in mention order.
@@ -278,6 +300,8 @@ export class SessionReferenceResolver extends TypertRemoteService {
     const acceptedContent = structuredClone(content)
     const inputs = normalizeReferences(agent.id, references, this.config.maxReferences)
     if (inputs.length === 0) return { content: acceptedContent }
+    assertNotCancelled(signal)
+    const maxReferenceBytes = await this.referenceBudget(agent, signal)
     assertNotCancelled(signal)
     let prepared: PreparedSource[]
     try {
@@ -298,7 +322,7 @@ export class SessionReferenceResolver extends TypertRemoteService {
     }
     assertNotCancelled(signal)
 
-    const rendered = this.renderSources(prepared)
+    const rendered = this.renderSources(prepared, maxReferenceBytes)
     const prompt = renderPrompt(rendered.map(source => source.data))
     const source: SessionReferenceSource = {
       kind: 'session-reference',
@@ -320,10 +344,22 @@ export class SessionReferenceResolver extends TypertRemoteService {
     return { content: acceptedContent, additionalContext }
   }
 
-  private renderSources(sources: readonly PreparedSource[]): RenderedSource[] {
+  private async referenceBudget(agent: Agent, signal: AbortSignal | undefined): Promise<number> {
+    if (this.config.maxReferenceBytes !== undefined) return this.config.maxReferenceBytes
+    // Options seed direct preparation; an assembled route owns model-step preparation.
+    const { provider, model } = this.assembledRoutes.get(agent) ?? agent.options
+    const llm = this.ctx.get('llm')
+    if (provider === undefined || model === undefined || llm === undefined) return DEFAULT_MAX_REFERENCE_BYTES
+    const info = await settleWithCancellation(llm.resolveModelInfo(provider, model, signal), signal)
+    if (info.context === undefined) return DEFAULT_MAX_REFERENCE_BYTES
+    // Context capacity is in tokens; four bytes/token is a sizing heuristic, not token counting.
+    return Math.max(DEFAULT_MAX_REFERENCE_BYTES, Math.floor(info.context.contextWindow * 4 * this.config.referenceContextFraction))
+  }
+
+  private renderSources(sources: readonly PreparedSource[], maxReferenceBytes: number): RenderedSource[] {
     const rendered: RenderedSource[] = []
     for (const source of sources) {
-      const retained = retainReferencedSession(source.snapshot, source.input.label, this.config.maxReferenceBytes)
+      const retained = retainReferencedSession(source.snapshot, source.input.label, maxReferenceBytes)
       if (retained === undefined) {
         throw new SessionReferenceError(
           'referenced session snapshot cannot fit the configured byte budget',
