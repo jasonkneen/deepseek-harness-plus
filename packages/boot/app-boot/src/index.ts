@@ -41,14 +41,10 @@ export {
   resolveBundleDir,
   resolveProfileDir,
   writeProfileManifest,
-  type DshBundleManifest,
-  type DshManifestSection,
-  type DshProfileManifest,
   type Profile,
   type ProfileLayer,
   type ProfileManifest,
   type ProfileModuleFallbackOptions,
-  type ProfilePatchReload,
   type ProfileTemplate,
 } from './profile.ts'
 

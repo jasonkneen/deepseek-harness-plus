@@ -23,6 +23,8 @@ The VFS image packer: turns one composed profile into the gzip-compressed base t
 <a id="use-this-package"></a>
 ## Use this package
 
+The [`DshConfigTreeDeclaration`](../../util/package-manifest/README.md) type describes each `dsh.configTrees` entry; this packer validates it and resolves its source directory.
+
 The pack is a three-layer standard stack:
 
 1. **Roster** — the composed profile's plugin rows (standard YAML parse under Include's dialect, `!!js` intact), plus the rows of every config tree the CLI declares in its `package.json` `dsh.configTrees` (agent presets), materialized as a Node-style dependency closure. External peer edges never bind the worker; workspace peers stay on the chain.

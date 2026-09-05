@@ -18,6 +18,7 @@ flowchart TD
     pkg_launch_environment["launch-environment"]
     pkg_native_command["native-command"]
     pkg_output_retention["output-retention"]
+    pkg_package_manifest["package-manifest"]
     pkg_timeout["timeout"]
     pkg_util_crypto["util-crypto"]
     pkg_util_time["util-time"]
@@ -1164,6 +1165,7 @@ flowchart TD
 | [`launch-environment`](../packages/util/launch-environment) | `util` | — |
 | [`native-command`](../packages/util/native-command) | `util` | — |
 | [`output-retention`](../packages/util/output-retention) | `util` | — |
+| [`package-manifest`](../packages/util/package-manifest) | `util` | — |
 | [`timeout`](../packages/util/timeout) | `util` | — |
 | [`util-crypto`](../packages/util/crypto) | `util` | — |
 | [`util-time`](../packages/util/time) | `util` | — |

@@ -28,6 +28,7 @@
   "license": "MIT",
   "dependencies": {
     "@deepseek-ai/dsh-atomic-write": "workspace:^",
+    "@deepseek-ai/dsh-package-manifest": "workspace:^",
     "js-yaml": "^4.2.0",
     "resolve.exports": "^2.0.3"
   },
