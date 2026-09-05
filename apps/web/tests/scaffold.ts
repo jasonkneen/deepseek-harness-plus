@@ -67,7 +67,7 @@ import { LlmAdapter } from '@deepseek-ai/dsh-llm'
 import type {
   LlmModelInfo, LlmProviderInfo, LlmResolvedModelInfo, RetryPolicyConfig, StreamChunk,
 } from '@deepseek-ai/dsh-llm'
-import type { ReplayHandle } from '@deepseek-ai/dsh-llm-replay'
+import type { ReplayHandle, ReplayProviderConfig } from '@deepseek-ai/dsh-llm-replay'
 import {
   installLlmReplay,
   parseSessionLog,
@@ -306,6 +306,8 @@ export interface LaunchOptions {
    * model calls (its header alone mounts the catalog).
    */
   replayFixture?: string
+  /** Explicit replay routes for scenarios exercising provider-dependent behavior; replay/refresh only. */
+  replayProviders?: ReplayProviderConfig[]
   /**
    * Mount the replay provider catalog (the model directory the UI shows)
    * without consuming any recorded script: for scenarios that never call a
@@ -383,14 +385,14 @@ export interface LaunchOptions {
     default: string
   }
   /**
-   * Mount the shipped telemetry row against this exporter URL instead of
-   * disabling it. Used to pin a real backend disclosure in assembled
-   * coverage; point the URL at a local endpoint (a dead port, or a scenario's
-   * own mock collector) so no record leaves the machine.
+   * Patch the telemetry exporter URL while preserving the shipped enabled
+   * setting. A scenario-owned loopback collector contains all fixture uploads.
    */
   telemetryUrl?: string
-  /** Uploading mode for the mounted telemetry row. Defaults to `FULL`. */
-  telemetryMode?: 'FULL' | 'FEEDBACK_ONLY'
+  /** Mode when telemetryUrl is supplied; defaults to FEEDBACK_ONLY without enabling a disabled row. */
+  telemetryMode?: 'FEEDBACK_ONLY'
+  /** SDK batch cadence for a scenario-owned collector; omitted to retain the SDK default. */
+  telemetryScheduledDelayMillis?: number
   /**
    * Browse through a trusted non-loopback hostname that the browser resolves
    * to loopback (for example `*.localhost`). The test server stays bound to
@@ -552,15 +554,18 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
     { id: 'session-title-llm', disabled: true },
     // Fixture sessions must never leave the process: the shipped row defaults
     // to the production OTLP endpoint (or whatever DSH_TELEMETRY_OTLP_URL
-    // names in the ambient environment). A scenario that pins a real backend
-    // disclosure passes a local dead endpoint instead of disabling the row.
+    // names in the ambient environment). A scenario with a local collector
+    // preserves the shipped disabled setting instead of overriding it.
     options.telemetryUrl === undefined
       ? { id: 'session-telemetry-otel', disabled: true }
       : {
         id: 'session-telemetry-otel',
         config: {
-          mode: options.telemetryMode ?? 'FULL',
+          mode: options.telemetryMode ?? 'FEEDBACK_ONLY',
           exporter: { url: options.telemetryUrl },
+          ...(options.telemetryScheduledDelayMillis === undefined ? {} : {
+            processor: { scheduledDelayMillis: options.telemetryScheduledDelayMillis },
+          }),
           shutdownTimeoutMillis: 1_000,
         },
       },
@@ -744,7 +749,7 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
     if (mode !== 'record' && replayFixture !== undefined) {
       replayHandle = installLlmReplay(ctx, {
         file: replayFixture,
-        providers: replayProviders(options.replayContextWindow).map(provider => ({
+        providers: (options.replayProviders ?? replayProviders(options.replayContextWindow)).map(provider => ({
           ...provider,
           ...(options.replayRetryPolicy === undefined ? {} : { retryPolicy: options.replayRetryPolicy }),
         })),
@@ -950,7 +955,7 @@ export function normalizeWebSessionVolatiles(log: string, workspaceCwd?: string)
     if (line.trim() === '') return line
     const record = mapJsonStringValues(JSON.parse(line), (value) => {
       let normalized = value
-        .replace(/Anonymous user: [^.]+(?=\. Session sharing)/g, 'Anonymous user: {{anonymousUserId}}')
+        .replace(/Anonymous user: [0-9a-f-]{36}(?=\.$)/gi, 'Anonymous user: {{anonymousUserId}}')
       for (const cwd of cwdSpellings) normalized = replaceWebCwd(normalized, cwd)
       return normalized
     }) as { type?: unknown; data?: { endpoint?: unknown } }
@@ -977,7 +982,7 @@ function stableSessionFixture(
       cwd: workspaceCwd,
     })
   const fresh = scrubSessionSnapshot(stabilized)
-    .split(session.id).join('{{sessionId}}')
+    .split(session.id).join('{{session:1}}')
     .split(harnessHome).join('{{harnessHome}}')
   const stable = redactSessionSnapshotIds(stabilizeFixtureMessageIds([fresh], [existing]))[0]
   if (stable === undefined) throw new Error('session harvest produced no stabilized fixture')
