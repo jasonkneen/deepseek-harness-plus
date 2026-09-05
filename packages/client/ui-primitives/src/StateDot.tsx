@@ -1,8 +1,11 @@
 import clsx from 'clsx'
 import css from './StateDot.module.css'
 
-/** Four-color state semantic (green done / amber user-attention / blue running ring / red error). */
-export type StateDotState = 'done' | 'warning' | 'ongoing' | 'error'
+/**
+ * State semantic: green done / amber user-attention / blue running ring /
+ * red error / grey idle for a tracked subject with nothing in progress.
+ */
+export type StateDotState = 'done' | 'warning' | 'ongoing' | 'error' | 'idle'
 
 /** Outer 3x3 matrix cells (2px pixels on a 10px grid), clockwise from top-left. */
 const MATRIX_CELLS: readonly (readonly [number, number])[] = [

@@ -1,4 +1,5 @@
-// Pill: small rounded label chip (view switcher tabs, filters, badges).
+// Pill: selectable capsule button (view switcher tabs, filters). The
+// read-only badge is `Tag` — reach for it when there is no `onClick`.
 
 import type { ButtonHTMLAttributes, ReactNode } from 'react'
 import clsx from 'clsx'

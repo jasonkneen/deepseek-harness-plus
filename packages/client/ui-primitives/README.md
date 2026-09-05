@@ -27,6 +27,41 @@ English | [中文](README.zh.md)
 
 Compose feature UI from these atoms whenever the web client needs a standard control or an agent-output renderer. They render through React only and take `--dsw-*` design tokens from the theme, so they fit any plugin without importing the theme or the slot system.
 
+<a id="component-catalog"></a>
+### Component catalog
+
+Check this table before writing a control in a feature package. A plugin cannot import another plugin's component, so this package is the only place a control can be shared: reuse what fits, and lift a deliberate visual difference into a prop rather than starting a second copy.
+
+| Export | What it is |
+|---|---|
+| `Button` | Clickable action; `variant` selects `primary`, `ghost`, `outline`, or `toolbar`. |
+| `Switch` | Two-state toggle, 36×20. `label` is required, so the control cannot ship unnamed. |
+| `Input` | Single-line text entry for search boxes and inline forms. |
+| `Menu` | Dropdown of items, separators, and group labels, with nested submenus. |
+| `Pill` | Selectable capsule button for view switchers and filters; takes `active` and `onClick`. |
+| `Tag` | Read-only capsule badge; `tone` selects one of eight palettes. |
+| `StateDot` | Status mark: `done`, `warning`, `ongoing`, `error`, or `idle`. `aria-hidden`, so the render site owns the name. |
+| `ConnectionIndicator` | Inline connection-recovery control across outage, retry, and recovered states. |
+| `DisclosureRow` | 24px compact disclosure that lays title and content side by side. |
+| `Modal` | Centered dialog over a page mask. |
+| `RiskConfirmation` | Sensitive action gated behind an explicit checkbox. |
+| `OnboardingSurface` | First-run stage that holds the application root inert. |
+| `Tooltip` | Hover text on a cloned anchor, placed on one of four sides. |
+| `HoverCard` | Hover preview the pointer can rest on and select from; optional copy button. |
+| `Toast` | Transient top-center banner held for the owner's `holdMs`. |
+| `JsonTree`, `JsonBlock` | Read-only JSON inspection. |
+| `MarkdownText`, `CodeBlock` | Untrusted GFM with TeX math, and highlighted code. |
+| `TerminalBlock`, `ReadBlock`, `DiffBlock`, `SearchBlock`, `WebBlock` | The agent-output card matching each tool-result intent. |
+| `icons/*`, `FishLogo`, `BrandWordmark`, `ReferenceIcon`, `LinkIcon`, `DocumentFileIcon` | Glyphs and brand marks, all riding `currentColor`. |
+
+Three pairs are easy to confuse:
+
+- **`Tag` against `Pill`.** `Pill` is selectable — it takes `active` and `onClick` and drives view switchers and filters. `Tag` is read-only and takes neither. Passing `active` without `onClick` means you want `Tag`.
+- **`DisclosureRow` against a card.** The row lays its title and content side by side at a fixed 24px. A card that stacks a name over a description is a different layout, and belongs in the feature package — `ui-settings-plugins`' `PluginCard` is the precedent and records why.
+- **`FoldToggle` against the exported surface.** It is package-internal and not exported; the output cards use it for their head-tail fold.
+
+Writing your own component in your own package is fine when the need is genuinely specific. What is not fine is copying a control that already exists here — and once a second package needs the same control, it belongs in this package ([decision](../../../.agents/notes/implemented/architecture/2026-09-05-shared-client-control-primitives.md)).
+
 ### Controls and icons
 
 `Button`, `Pill`, `Input`, `Menu`, `Modal`, `Tooltip`, `DisclosureRow`, `StateDot`, `HoverCard`, `Toast`, `ConnectionIndicator`, `RiskConfirmation`, and the `OnboardingSurface` first-run takeover cover the common interaction shapes. The `ic_ds_*` icon set and `FishLogo`/`BrandWordmark` marks fill brand and inline-icon slots. `LinkIcon` draws the leading category glyph for clickable artifact links — globe, folder, code, image, document, or plain paper, all riding `currentColor` — and `classifyLinkPath` derives a file path's category from its extension. `ConnectionIndicator` renders a warning-colored disconnected action, a connecting label whose one-to-three dots advance every 500ms independently of retry timing, or a success-colored recovered status. Every state reserves the widest supplied label and uses fixed icon and text columns, so copy changes do not move or resize the control. Its owner supplies visibility, the recovery hold, localized labels, and the immediate-reconnect callback; the primitive uses no native title tooltip. `useAnchoredPosition` and `useAnchoredMaxHeight` keep floating panels and bottom-anchored overlays clamped to the viewport and following their anchor. `HoverCard` keeps its portaled preview reachable across the anchor gap and can expose a copy button through the `copyText` prop. `Toast` holds for the window its owner names through `holdMs`, because how long a banner has to stay depends on how much there is to read; the same value drives its unmount timer and the stylesheet's fade delay, so the two cannot disagree. `rankByName` is the `/` menu's shared candidate ranker for the command and skill sources: the query must be a case-insensitive ordered subsequence of the name; prefix hits rank first, then alignment score, then source order ([ranking decision](../../../.agents/notes/implemented/feature/2026-08-04-web-slash-command-fuzzy-discovery.md)).

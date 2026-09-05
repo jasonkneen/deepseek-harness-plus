@@ -7,7 +7,7 @@ import type { StateDotState } from '@deepseek-ai/dsh-client-ui-primitives'
 afterEach(cleanup)
 
 describe('StateDot', () => {
-  it.each(['done', 'warning', 'ongoing', 'error'] as const)('renders state %s as data-state', (state) => {
+  it.each(['done', 'warning', 'ongoing', 'error', 'idle'] as const)('renders state %s as data-state', (state) => {
     const { container } = render(<StateDot state={state} />)
     const dot = container.firstElementChild as HTMLElement
     expect(dot.dataset['state']).toBe(state)
