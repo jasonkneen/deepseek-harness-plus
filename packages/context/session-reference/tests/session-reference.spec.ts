@@ -1098,3 +1098,119 @@ describe('session reference discovery and preparation', () => {
         }),
         { surfaceOp: 'append' },
       )
+      source.append(
+        'user/message',
+        createUserMessage({
+          content: [{ type: 'text', text: `${id}-tail` }], source: { kind: 'user' },
+        }),
+        { surfaceOp: 'append' },
+      )
+      return source
+    })
+
+    const prepared = await ctx.sessionReferenceResolver.prepare(
+      fakeAgent(target),
+      [{ type: 'text', text: 'go' }],
+      sources.map(source => ({ sessionId: source.id })),
+    )
+    const context = prepared.additionalContext
+    if (context?.content[0]?.type !== 'text') throw new Error('expected text context')
+    const data = promptData(context.content[0].text) as unknown[]
+    const sizes = data.map(source => Buffer.byteLength(stringifyTagSafeJson(source), 'utf8'))
+    expect(sizes).toHaveLength(3)
+    expect(sizes.every(size => size <= maxReferenceBytes)).toBe(true)
+    expect(sizes.reduce((sum, size) => sum + size, 0)).toBeGreaterThan(maxReferenceBytes * 2)
+  })
+
+  it('fails without producing a partial context when fixed prompt data cannot fit', async () => {
+    const ctx = await harness({ maxReferenceBytes: 16 })
+    const target = ctx.sessions.create(SessionId('target'))
+    const source = ctx.sessions.create(SessionId('source'))
+    await expect(ctx.sessionReferenceResolver.prepare(fakeAgent(target), [{ type: 'text', text: 'go' }], [{ sessionId: source.id }]))
+      .rejects.toThrow(expectCode('SESSION_REFERENCE_BUDGET_EXCEEDED'))
+  })
+
+  it('keeps target replay independent after source mutation, compaction, and deletion', async () => {
+    const ctx = await harness()
+    const target = ctx.sessions.create(SessionId('target'))
+    const source = ctx.sessions.prepare(SessionId('source'))
+    const detachSource = ctx.sessions.enter(source)
+    ctx.sessions.announce(source)
+    const original = source.append(
+      'user/message',
+      createUserMessage({
+        content: [{ type: 'text', text: 'durable referenced fact' }], source: { kind: 'user' },
+      }),
+      { surfaceOp: 'append' },
+    )
+    const prepared = await ctx.sessionReferenceResolver.prepare(
+      fakeAgent(target),
+      [{ type: 'text', text: 'use @source' }],
+      [{ sessionId: source.id }],
+    )
+    const context = prepared.additionalContext
+    if (context === undefined) throw new Error('expected prepared context')
+    target.append('user/message', createUserMessage({
+      content: prepared.content,
+      source: { kind: 'user' },
+    }), { surfaceOp: 'append' })
+    target.append('user/message', context, { surfaceOp: 'append' })
+    const before = target.deriveMessages()
+
+    const later = source.append(
+      'assistant/message',
+      {
+        stream: [],
+        turn: 1,
+        step: 1,
+        message: createMessage({
+          role: 'assistant',
+          content: [{ type: 'text', text: 'later source mutation' }],
+          source: {
+            kind: 'model',
+            ...{ provider: 'mock', model: 'mock' },
+          },
+        }),
+      },
+      { surfaceOp: 'append' },
+    )
+    source.append(
+      'user/message',
+      createUserMessage({
+        content: [{ type: 'text', text: 'later compact checkpoint' }],
+        source: checkpointSource('later-source-mutation'),
+      }),
+      {
+        surfaceOp: { op: 'replace', start: original.seq, end: later.seq },
+        sourceEventSeqs: [original.seq, later.seq],
+      },
+    )
+    detachSource()
+
+    expect(ctx.sessions.get(source.id)).toBeUndefined()
+    expect(target.deriveMessages()).toEqual(before)
+    expect(JSON.stringify(before)).toContain('durable referenced fact')
+    expect(JSON.stringify(before)).toContain('use @source')
+    expect(JSON.stringify(before)).not.toContain('later source mutation')
+    expect(Session.create(SessionId('replayed-target'), target.snapshotEvents()).deriveMessages()).toEqual(before)
+  })
+
+  it('rejects direct invalid configuration before service publication', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    await ctx.plugin(TestSessionQueryEngine)
+    expect(() => new SessionReferenceResolver(ctx, { maxReferences: 0 }))
+      .toThrow(expectCode('SESSION_REFERENCE_INVALID_CONFIG'))
+
+    const oversizedCtx = new Context()
+    await oversizedCtx.plugin(SessionStore)
+    await oversizedCtx.plugin(TestSessionQueryEngine)
+    expect(() => new SessionReferenceResolver(oversizedCtx, { maxReferences: 4 }))
+      .toThrow(expectCode('SESSION_REFERENCE_INVALID_CONFIG'))
+
+    const defaultCtx = new Context()
+    await defaultCtx.plugin(SessionStore)
+    await defaultCtx.plugin(TestSessionQueryEngine)
+    expect(() => new SessionReferenceResolver(defaultCtx)).not.toThrow()
+  })
+})
