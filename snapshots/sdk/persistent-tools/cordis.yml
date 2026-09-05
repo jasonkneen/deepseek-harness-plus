@@ -2,8 +2,11 @@
 # editor as model-facing tools, with process-local providers and an explicit
 # danger-full-access / never-ask policy.
 
-- id: tool-str-replace-editor
-  disabled: false
+- insert:
+    - id: tool-str-replace-editor
+      name: '@deepseek-ai/dsh-tool-str-replace-editor'
+      config:
+        maxOutputChars: 16000
 
 - id: llm-deepseek
   name: '@deepseek-ai/dsh-llm-deepseek'

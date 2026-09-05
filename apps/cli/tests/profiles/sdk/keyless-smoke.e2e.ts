@@ -53,7 +53,12 @@ describe('Python SDK dsh profile keyless smoke', () => {
   ])('$label', async ({ envValue, editorEnabled }) => {
     const root = await mkdtemp(join(tmpdir(), 'dsh-python-sdk-runtime-smoke-'))
     const editorPatch = join(root, 'editor.patch.yml')
-    if (editorEnabled) await writeFile(editorPatch, '- id: tool-str-replace-editor\n  disabled: false\n')
+    if (editorEnabled) await writeFile(editorPatch, [
+      '- insert:',
+      '    - id: tool-str-replace-editor',
+      "      name: '@deepseek-ai/dsh-tool-str-replace-editor'",
+      '',
+    ].join('\n'))
     const modelRequests: Record<string, unknown>[] = []
     const modelServer = createServer((request, response) => {
       let body = ''
