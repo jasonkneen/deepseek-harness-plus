@@ -16,7 +16,7 @@ Linux pull request 运行必需的 `node 24 / benchmarks` job，执行 `pnpm run
 
 必需性能 gate 位于顶层 `benchmarks/`，按被测用户路径而非 package 归属组织。Host 文件使用 `*.bench.ts`，Client 面文件使用 `*.bench.client.ts`，场景专属 worker 与 fixture 留在对应 benchmark 旁且不带 benchmark 后缀。包内 `.perf.ts` 文件仍是非门禁诊断；`scripts/` 负责编排而不承载 benchmark case。
 
-Session benchmark 使用固定参数合成 released-v0 输入：200 轮，每轮 500 个 text delta 与 125 个 reasoning delta，共 127,400 个逻辑事件。输入使用 Zstandard，并固定 logical rows 的分组与 frame 拆分，使每次运行处理相同的事件、字节与 frame 分布。输入在计时前写入每个样本独占的临时目录；benchmark 不使用录制的 Session。
+Session benchmark 使用固定参数合成 released-v0 输入：200 轮，每轮 500 个 text delta 与 125 个 reasoning delta，共 127,400 个逻辑事件。输入使用 Zstandard，并固定 logical rows 的分组与 frame 拆分，使每次运行处理相同的事件、字节与 frame 分布。fixture 直接构造不可变的 released-v0 physical rows，不依赖当前 runtime 的历史 encoder；压缩以及所有被测读取和 migration 入口仍使用生产代码。输入在计时前写入每个样本独占的临时目录；benchmark 不使用录制的 Session。
 
 每个 Session endpoint 都针对用户生命周期中的两个时点运行。`first-open` 最初只有 released V0 generation，因此包含 migration 与后继 generation 发布。测试准备阶段在计时外通过同一套生产 migration 生成一次 `post-upgrade-reopen`，再把未改动的 V0 前代和已发布的 V2 后继一起复制到每个样本目录。Reopen 样本使用全新进程，因此测量用户升级完成后的磁盘再次打开，不包含 migration 或进程内 cache。
 
