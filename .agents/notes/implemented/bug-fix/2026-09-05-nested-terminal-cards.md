@@ -14,11 +14,15 @@ A shell command dispatched through `run_code` carries the arguments and rendered
 
 This partially supersedes only the terminal child-card prohibition in [Client-derived tool presentation](../architecture/2026-08-23-client-derived-tool-presentation.md). That note remains active for Client presentation ownership and the diff/read/search/web child restrictions. No Host presenter, event, schema, metadata, call-tree, or model-context change is required. The metadata and execution-local value decisions in [canonical tool output](../architecture/2026-07-20-canonical-tool-output-contract.md) and [PTC typed returns](../feature/2026-07-20-ptc-typed-tool-returns.md) remain intact; metadata omission does not prohibit Client-derived terminal cards.
 
+Shell output ending in a recognized spill-policy notice uses generic output: expandable in `BashRow`, raw fallback in Details. The notice can follow or replace the exit marker, so its absence at the end does not justify a successful terminal status. The Client recognizes the final notice without changing Host output or schemas.
+
 ## Alternatives considered
 
 **Keep the blanket nested-call rejection.** Rejected because nesting does not remove the raw facts the terminal model already consumes. It hides usable shell output while the same call renders as a terminal at the root.
 
 **Enable every nested structured card.** Rejected because other card models have independent metadata requirements and child restrictions. This fix changes only terminal eligibility.
+
+**Parse exit markers around spill suffixes.** Rejected because truncation can remove the real status; conservative generic output avoids guessing success from an incomplete result.
 
 ## Consequences
 

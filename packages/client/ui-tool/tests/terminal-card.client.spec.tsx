@@ -225,6 +225,30 @@ describe('terminalCardModel', () => {
     expect(terminalCardModel(running({ parentCallId: 'parent' }))).toEqual(terminalCardModel(running()))
   })
 
+  it.each(['bash', 'pwsh'])('keeps nested persistent %s running cards and settled generic results', (name) => {
+    const argsRaw = JSON.stringify({ command: 'pwd' })
+    expect(terminalCardModel(running({ name, argsRaw, parentCallId: 'parent' })))
+      .toEqual(terminalCardModel(running({ name, argsRaw })))
+    expect(terminalCardModel(settled({ call: { name, argsRaw }, parentCallId: 'parent' }))).toBeNull()
+  })
+
+  it.each(['bash', 'pwsh'])('does not infer %s exit status from a spilled preview', (name) => {
+    const notice = '(Omitted 50000 bytes. Full formatted result stored at: /spill/output.txt. Read the file.)'
+    for (const parentCallId of [undefined, 'parent']) {
+      for (const preview of ['failed\n[exit code: 7]', 'killed\n[killed by signal: SIGTERM]', 'partial', '']) {
+        expect(terminalCardModel(settled({
+          ...parentCallId === undefined ? {} : { parentCallId },
+          call: { name, argsRaw: ARGS },
+          content: [{ type: 'text', text: preview === '' ? notice : `${preview}\n\n${notice}` }],
+        }))).toBeNull()
+      }
+    }
+    expect(terminalCardModel(settled({
+      call: { name, argsRaw: ARGS },
+      content: [{ type: 'text', text: `${notice}\nordinary output` }],
+    }))).not.toBeNull()
+  })
+
   it('returns null for background, errors, malformed args, unsupported tools, and non-text results', () => {
     expect(terminalCardModel(running({ argsRaw: shellArgs({ run_in_background: true }) }))).toBeNull()
     expect(terminalCardModel(settled({ isError: true }))).toBeNull()
@@ -464,6 +488,18 @@ describe('BashRow terminal card', () => {
     expect(view.container.querySelector('[class*="_ioText_"][data-error]')).toBeNull()
     expect(view.container.querySelectorAll('[class*="_ioText_"]')[1]?.textContent)
       .toBe('a.ts  b.ts\nc.ts  d.ts\n')
+  })
+
+  it('expands a spilled child result without a successful terminal indicator', () => {
+    const output = 'failed\n[exit code: 7]\n\n(Omitted 50000 bytes. Full formatted result stored at: /spill/output.txt. Read the file.)'
+    const view = render(<BashRow {...rowProps(settled({
+      parentCallId: 'parent', content: [{ type: 'text', text: output }],
+    }))} />)
+    const row = view.container.querySelector('[data-sample="bash"]')!
+    expect(row.getAttribute('role')).toBe('button')
+    fireEvent.click(row)
+    expect(view.container.querySelector('[data-terminal]')).toBeNull()
+    expect(view.container.querySelectorAll('[class*="_ioText_"]')[1]?.textContent).toBe(output)
   })
 
   it('a non-terminal bash call (background start) renders the summary row alone', () => {

@@ -51,7 +51,7 @@ Host 的 `ToolDefinition.presentCall`、`ToolDefinition.presentResult`、`ToolCa
 | 保留 | Session 日志格式、Remote journal 生命周期与 Conversation identity/topology |
 | 保留 | 现有 keyed slot、Generic fallback、Chat、Details 与 Trajectory 结构 |
 | 禁止 | 新 Client presenter service、平行 registry 或 wire renderer id |
-| 禁止 | 新卡片、视觉改版、交互改版或 Code Dispatch rich-card 增强，下述独立决策的 terminal 例外除外 |
+| 禁止 | 新卡片、视觉改版、交互改版或 Code Dispatch rich-card 增强，[嵌套 terminal 卡片例外](../bug-fix/2026-09-05-nested-terminal-cards.zh.md)除外 |
 | 禁止 | 为兼容保留双写、版本协商或旧 `view` 字段 |
 
 ## 术语
@@ -310,7 +310,7 @@ Client terminal model 从工具名称、调用参数、结果 content、error �
 | `terminal_send` background/error | Generic 结果 |
 | Code Dispatch child | 与根调用相同的 terminal 适用规则与 fallback 规则 |
 
-标准 shell 结果继续解析末尾 `[exit code: N]` 与 `[killed by signal: X]`。已解析的 marker 从正文移除；timeout、sandbox denial 与没有 pill 的 marker 留在正文。
+标准 shell 结果解析末尾 `[exit code: N]` 与 `[killed by signal: X]`。末尾已识别的 spill 策略提示会改用 Generic 输出：在 shell 行中可展开，在 Details 中显示原文，因为退出标记可能被移位或省略。已解析的 marker 从 terminal 正文移除；timeout、sandbox denial 与没有 pill 的 marker 留在正文。
 
 调用 `description` 继续显示在 card 上方并覆盖折叠摘要。workdir 继续按绝对、相对和缺失三种情况处理；相对路径基于 Session cwd，且保留 `.`、`..`、盘符与 UNC root 的归一化。
 
@@ -634,7 +634,7 @@ read 行结构、applied diff、search 分组、web sources 和有效 truncation
 
 ### 允许展示增强
 
-将更丰富的 Code Dispatch 卡片、缺失 call head 的推断或其他历史展示增强与所有权变更捆绑，会使快照无法证明对等。本决定拒绝这种捆绑；下述独立决策的 terminal 例外不放宽非 terminal 子调用限制。
+将更丰富的 Code Dispatch 卡片、缺失 call head 的推断或其他历史展示增强与所有权变更捆绑，会使快照无法证明对等。本决定拒绝这种捆绑；[嵌套 terminal 卡片例外](../bug-fix/2026-09-05-nested-terminal-cards.zh.md)不放宽非 terminal 子调用限制。
 
 ### 接受临时 Generic 退化
 

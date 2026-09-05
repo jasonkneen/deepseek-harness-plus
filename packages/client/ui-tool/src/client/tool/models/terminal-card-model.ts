@@ -219,6 +219,24 @@ export function isSettledPersistentShellCall(block: ToolCallBlock): boolean {
   return shellCall(parsed.name, parsed.args)?.persistent === true
 }
 
+/**
+ * Identify a settled foreground shell preview whose spill footer can hide the exit marker.
+ * @param block - running or settled Tool block.
+ * @returns whether the shell output must remain generic without an inferred exit status.
+ */
+export function isSpilledShellCall(block: ToolCallBlock): boolean {
+  if (!('kind' in block)) return false
+  const parsed = parsedToolCall(block)
+  if (parsed === null) return false
+  const call = shellCall(parsed.name, parsed.args)
+  if (call === null || call.background) return false
+  const output = singleResultText(block)
+  // spill-policy appends this footer after a bounded preview; the process
+  // status can be displaced or omitted, so absence cannot imply exit zero.
+  return output !== undefined
+    && /(?:^|\n\n)\(Omitted \d+ bytes\. Full formatted result stored at: [\s\S]+\)$/.test(output)
+}
+
 interface TerminalSendCall {
   kind: 'terminal-send'
   text: string
@@ -257,8 +275,8 @@ function parseExitStatus(text: string): { output: string; exitCode?: number; sig
 /**
  * Derive terminal props for supported shell and terminal-send calls, including
  * nested Code Dispatch calls. Standard shell results parse their final status
- * marker; persistent shell results, background calls, errors, and malformed
- * input use the generic path. {@link isSettledPersistentShellCall} lets that generic
+ * marker; persistent shell results, spill previews, background calls, errors,
+ * and malformed input use the generic path. {@link isSettledPersistentShellCall} lets that generic
  * persistent result remain expandable without inventing one process status.
  * @param block - running or settled Tool block.
  * @param sessionCwd - session workspace root used to resolve workdir.
@@ -289,7 +307,7 @@ export function terminalCardModel(
       },
     }
   }
-  if (block.isError || (call.kind === 'shell' && call.persistent)) return null
+  if (block.isError || (call.kind === 'shell' && call.persistent) || isSpilledShellCall(block)) return null
   const output = singleResultText(block)
   if (output === undefined) return null
   const status = call.kind === 'terminal-send' ? { output } : parseExitStatus(output)

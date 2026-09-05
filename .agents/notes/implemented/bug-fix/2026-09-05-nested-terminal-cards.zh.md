@@ -14,11 +14,15 @@ Status: implemented
 
 本文仅部分取代 [Client 派生工具展示](../architecture/2026-08-23-client-derived-tool-presentation.zh.md)中的 terminal 子调用卡片禁令。该文继续负责 Client 展示所有权及 diff/read/search/web 子调用限制。无需更改 Host 展示转换器、事件、schema、元数据、调用树或模型上下文。[规范工具输出](../architecture/2026-07-20-canonical-tool-output-contract.zh.md)与 [PTC 类型化返回值](../feature/2026-07-20-ptc-typed-tool-returns.zh.md)中的元数据和执行期值决策保持不变；省略元数据不禁止 Client 派生 terminal 卡片。
 
+以已识别的 spill 策略提示结尾的 shell 输出使用通用展示：在 `BashRow` 中可展开，在 Details 中使用原始回退。提示可能位于退出标记之后或取代它，因此末尾缺少退出标记不能作为 terminal 成功状态的依据。Client 识别最终提示，不更改 Host 输出或 schema。
+
 ## 考虑过的替代方案
 
 **保留对嵌套调用的一律拒绝。** 不予采用，因为嵌套不会移除 terminal model 已消费的原始事实。这会隐藏可用的 shell 输出，而同一调用位于根时却可渲染为 terminal。
 
 **启用所有嵌套结构化卡片。** 不予采用，因为其他 card model 有独立的元数据要求与子调用限制。本修复只改变 terminal 适用性。
+
+**解析 spill 后缀附近的退出标记。** 不予采用，因为截断可能移除真实状态；保守的通用输出避免从不完整结果猜测成功。
 
 ## 后果
 

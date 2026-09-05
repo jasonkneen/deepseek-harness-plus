@@ -135,6 +135,9 @@ describe('web e2e: PTC mode round renders nested sub-calls', () => {
 
   it.skipIf(MODE === 'record')('matches the expanded conversation aria golden with stable anchors', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-ptc-aria'))
+    const row = page.locator('[data-subcalls] [data-sample="bash"]').first()
+    await expandOwningTurnProcess(page, row)
+    if (await row.getAttribute('aria-expanded') !== 'true') await row.click()
     const snapshot = await captureExpandedTurnProcessAria(
       page,
       '[class*="centerCol"]',

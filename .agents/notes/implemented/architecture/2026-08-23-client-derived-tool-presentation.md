@@ -51,7 +51,7 @@ The Host `ToolDefinition.presentCall`, `ToolDefinition.presentResult`, `ToolCall
 | Retained | the Session log format, Remote journal lifecycle, and Conversation identity/topology |
 | Retained | the existing keyed slot, Generic fallback, and Chat, Details, and Trajectory structure |
 | Forbidden | a new Client presenter service, parallel registry, or wire renderer id |
-| Forbidden | new cards, visual redesign, interaction redesign, or Code Dispatch rich-card enhancements except the separately owned terminal exception below |
+| Forbidden | new cards, visual redesign, interaction redesign, or Code Dispatch rich-card enhancements except the [nested terminal-card exception](../bug-fix/2026-09-05-nested-terminal-cards.md) |
 | Forbidden | compatibility dual-writing, version negotiation, or retention of the old `view` field |
 
 ## Terminology
@@ -310,7 +310,7 @@ The Client terminal model derives existing `TerminalBlock` props from the tool n
 | background/error `terminal_send` | Generic result |
 | Code Dispatch child | same terminal eligibility and fallback rules as a root call |
 
-Standard shell results continue parsing trailing `[exit code: N]` and `[killed by signal: X]` markers. A parsed marker is removed from the body; timeout, sandbox denial, and markers without a pill remain in the body.
+Standard shell results parse trailing `[exit code: N]` and `[killed by signal: X]` markers. A final recognized spill-policy notice selects Generic output instead: expandable in shell rows and raw in Details, because the exit marker may be displaced or omitted. A parsed marker is removed from the terminal body; timeout, sandbox denial, and markers without a pill remain in the body.
 
 Call `description` remains above the card and overrides the collapsed summary. Workdir continues handling absolute, relative, and missing values. Relative paths resolve against the Session cwd while preserving normalization for `.`, `..`, drive letters, and UNC roots.
 
@@ -634,7 +634,7 @@ An on-demand RPC would turn one page read into N network calls and would still r
 
 ### Allow presentation enhancements
 
-Bundling richer Code Dispatch cards, missing-call-head inference, or other historical presentation enhancements with the ownership change would prevent snapshots from proving equivalence. This decision rejects that coupling; the separately owned terminal exception below does not relax nonterminal child restrictions.
+Bundling richer Code Dispatch cards, missing-call-head inference, or other historical presentation enhancements with the ownership change would prevent snapshots from proving equivalence. This decision rejects that coupling; the [nested terminal-card exception](../bug-fix/2026-09-05-nested-terminal-cards.md) does not relax nonterminal child restrictions.
 
 ### Accept temporary Generic degradation
 
