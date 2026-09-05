@@ -18,11 +18,16 @@
       "types": "./lib/types/index.d.ts",
       "default": "./lib/index.js"
     },
+    "./notice": {
+      "types": "./lib/types/notice.d.ts",
+      "default": "./lib/notice.js"
+    },
     "./src/*": "./src/*",
     "./package.json": "./package.json"
   },
   "files": [
     "lib/index.js",
+    "lib/notice.js",
     "lib/types/**/*.d.ts"
   ],
   "license": "MIT",

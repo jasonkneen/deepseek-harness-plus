@@ -2,6 +2,7 @@
 import type { TerminalBlockLabels, TerminalBlockProps } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
 import { resolveWorkspacePath } from '@deepseek-ai/dsh-util-workspace-path'
+import { hasSpillNotice } from '@deepseek-ai/dsh-spill-policy/notice'
 import type { ToolCallBlock } from './tool-call-model.ts'
 import { parsedToolCall, singleResultText, validEscalationFields } from './raw-tool-call.ts'
 
@@ -231,10 +232,7 @@ export function isSpilledShellCall(block: ToolCallBlock): boolean {
   const call = shellCall(parsed.name, parsed.args)
   if (call === null || call.background) return false
   const output = singleResultText(block)
-  // spill-policy appends this footer after a bounded preview; the process
-  // status can be displaced or omitted, so absence cannot imply exit zero.
-  return output !== undefined
-    && /(?:^|\n\n)\(Omitted \d+ bytes\. Full formatted result stored at: [\s\S]+\)$/.test(output)
+  return output !== undefined && hasSpillNotice(output)
 }
 
 interface TerminalSendCall {

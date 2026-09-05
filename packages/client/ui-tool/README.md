@@ -63,6 +63,8 @@ The package realizes one dispatch rule: atomic Tool views are keyed by wire Tool
 
 
 The package fills `conversation.details.tool` with `ToolDetails`. Row and Details renderers share one pure card model for each terminal, read, diff, search, and web card; the image card is row-only because its gallery renders through the tool-owned `tool.call.images` slot the details panel does not declare. These models validate raw call arguments, result content, failure state, persisted metadata, and Session path facts. Diff, read, search, and web models also reject Code Dispatch children; terminal eligibility does not depend on `parentCallId`. Unsupported or malformed inputs use flattened Tool result text. Card-specific limits and fallback rules for the terminal, diff, read, search, and web cards remain in [the ui-primitives README](../ui-primitives/README.md); the image card's model in this package carries its own fallback rules.
+
+The terminal model uses `hasSpillNotice` from the browser-safe `@deepseek-ai/dsh-spill-policy/notice` entry, not an independent UI pattern. The [spill-policy README](../../spill/spill-policy/README.md#shared-notice-ownership) owns notice formatting and recognition. This check conservatively selects generic output; matching text cannot authenticate its source, and replay leaves recorded result bytes untouched.
 </details>
 
 -----
