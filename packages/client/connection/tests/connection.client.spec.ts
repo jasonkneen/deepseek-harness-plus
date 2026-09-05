@@ -612,6 +612,7 @@ describe('connection lifecycle', () => {
       expect(connected).toBe(1)
       expect(source.activeCount).toBe(1)
       expect(vi.getTimerCount()).toBe(0)
+      expect(warnSpy).toHaveBeenCalledTimes(1)
     } finally {
       controller.stop()
       warnSpy.mockRestore()
@@ -619,7 +620,7 @@ describe('connection lifecycle', () => {
     }
   })
 
-  it('cancels an unready generation, waits for cleanup, and ignores its late ready', async () => {
+  it.each([20, 100, 200])('cancels an unready generation with warn=%i ms, waits for cleanup, and ignores late ready', async (generationReadyWarnMs) => {
     vi.useFakeTimers()
     const randomSpy = vi.spyOn(Math, 'random').mockReturnValue(0)
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
@@ -639,16 +640,22 @@ describe('connection lifecycle', () => {
     const controller = new ConnectionController(source, {
       onConnected: connected,
       onStateChange: state => states.push(state),
-    }, { ...FAST, generationReadyTimeoutMs: 100 })
+    }, { ...FAST, generationReadyWarnMs, generationReadyTimeoutMs: 100 })
     controller.start()
     try {
       await vi.advanceTimersByTimeAsync(100)
       expect(signals[0]?.aborted).toBe(true)
       expect(signals[0]?.reason).toMatchObject({ message: 'connection generation was not ready within 100ms' })
+      const warnings = generationReadyWarnMs <= 100
+        ? [[`[connection] generation is still not ready after ${String(generationReadyWarnMs)}ms`]]
+        : []
+      warnings.push(['[connection] connection generation was not ready within 100ms; cancelling generation'])
+      expect(warnSpy.mock.calls).toEqual(warnings)
       report[0]!({ home: '/stale' })
       await vi.advanceTimersByTimeAsync(1_000)
       expect(signals).toHaveLength(1)
       expect(connected).not.toHaveBeenCalled()
+      expect(warnSpy.mock.calls).toEqual(warnings)
       cleanup.resolve(undefined)
       await vi.advanceTimersByTimeAsync(5)
       expect(signals).toHaveLength(2)
@@ -667,7 +674,7 @@ describe('connection lifecycle', () => {
     }
   })
 
-  it.each(['stop', 'reconnect'] as const)('clears a pending handshake deadline on %s', async (action) => {
+  it.each(['stop', 'reconnect', 'failure'] as const)('clears a pending handshake deadline on %s', async (action) => {
     vi.useFakeTimers()
     const source = new FakeGenerationSource()
     source.holdReady = true
@@ -680,7 +687,8 @@ describe('connection lifecycle', () => {
     try {
       await vi.advanceTimersByTimeAsync(10)
       source.holdReady = false
-      controller[action]()
+      if (action === 'failure') source.fail(new Error('carrier failed'))
+      else controller[action]()
       await vi.advanceTimersByTimeAsync(0)
       source.releaseReady()
       await vi.advanceTimersByTimeAsync(200)
@@ -688,6 +696,7 @@ describe('connection lifecycle', () => {
       expect(connected).toHaveBeenCalledTimes(action === 'stop' ? 0 : 1)
       expect(vi.getTimerCount()).toBe(0)
       expect(warnSpy.mock.calls.some(([message]) => String(message).includes('still not ready'))).toBe(false)
+      expect(warnSpy.mock.calls.some(([message]) => String(message).includes('cancelling generation'))).toBe(false)
     } finally {
       controller.stop()
       await vi.advanceTimersByTimeAsync(0)

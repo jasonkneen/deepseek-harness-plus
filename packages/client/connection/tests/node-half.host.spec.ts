@@ -138,9 +138,12 @@ describe('connection node half', () => {
     }
   })
 
-  it('rejects invalid recovery timing before acquiring Host resources', async () => {
+  it.each([
+    { recovery: { backoffBaseMs: 0 }, error: /backoffBaseMs/ },
+    { recovery: { backoffFactor: NaN }, error: /backoffFactor.*finite/ },
+  ])('rejects invalid recovery timing before acquiring Host resources: $recovery', async ({ recovery, error }) => {
     const ctx = new Context()
-    await expect(apply(ctx, { recovery: { backoffBaseMs: 0 } })).rejects.toThrow()
+    await expect(apply(ctx, { recovery })).rejects.toThrow(error)
     expect(ctx.get('connection')).toBeUndefined()
   })
 

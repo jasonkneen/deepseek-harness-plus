@@ -135,7 +135,7 @@ export interface ConnectionHandle {
    * Start the connect/reconnect loop with the consumer's state callbacks.
    * API Gateway owns the loop; a second call throws.
    * @param sinks - connection-state callbacks.
-   * @param config - reconnect timing tunables.
+   * @param config - explicit timing overrides; omitted fields use Host bootstrap timing.
    * @returns lifecycle controls for the loop.
    */
   start(sinks: ConnectionSinks, config?: ConnectionRecoveryConfig): ConnectionLoop

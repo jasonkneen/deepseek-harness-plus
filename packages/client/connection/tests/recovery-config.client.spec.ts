@@ -17,11 +17,16 @@ describe('connection recovery configuration', () => {
     { backoffBaseMs: 0 },
     { backoffFactor: 0.5 },
     { backoffFactor: Infinity },
+    { backoffFactor: NaN },
     { backoffMaxMs: -1 },
     { generationReadyWarnMs: NaN },
     { generationReadyTimeoutMs: 2_147_483_648 },
     { generationReadyTimeoutMs: '15000' },
   ])('rejects timing that could disable recovery or overflow a timer: %j', (config) => {
     expect(() => resolveConnectionConfig(config)).toThrow()
+  })
+
+  it('preserves a finite fractional growth factor', () => {
+    expect(resolveConnectionConfig({ backoffFactor: 1.5 }).backoffFactor).toBe(1.5)
   })
 })

@@ -97,11 +97,23 @@ describe('connection client apply', () => {
     }
   })
 
-  it('rejects malformed bootstrap recovery before publishing the service', () => {
-    vi.stubGlobal('__DSH_CONNECTION_RECOVERY__', { generationReadyTimeoutMs: 0 })
+  it.each([{ generationReadyTimeoutMs: 0 }, { backoffFactor: NaN }])('rejects malformed bootstrap recovery before publishing the service: %j', (recovery) => {
+    vi.stubGlobal('__DSH_CONNECTION_RECOVERY__', recovery)
     const ctx = new Context()
     expect(() => { apply(ctx) }).toThrow()
     expect(ctx.get('connection')).toBeUndefined()
+  })
+
+  it('rejects a NaN start override without acquiring the generation source', async () => {
+    const handle = await mount()
+    const source = vi.fn<ConnectionGenerationSource>()
+    const unregister = handle.registerGenerationSource(source)
+    try {
+      expect(() => handle.start({}, { backoffFactor: NaN })).toThrow(/backoffFactor.*finite/)
+      expect(source).not.toHaveBeenCalled()
+    } finally {
+      unregister()
+    }
   })
 
   it('treats a runtime without browser location as local', async () => {

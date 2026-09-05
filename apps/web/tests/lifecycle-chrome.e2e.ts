@@ -299,11 +299,7 @@ describe('web e2e: lifecycle & chrome (workspace flow / reload / dark mode)', ()
     let holdConnections = false
     await recoveryPage.routeWebSocket('**/api/remote.mux', (route) => {
       sockets.push(route)
-      if (rejectConnections) {
-        void route.close({ code: 4001, reason: 'connection recovery test' })
-        return
-      }
-      if (holdConnections) return
+      if (rejectConnections || holdConnections) return
       route.connectToServer()
     })
     onTestFailed(() => saveFailureShot(recoveryPage, 'web-e2e-connection-recovery'))
@@ -339,6 +335,13 @@ describe('web e2e: lifecycle & chrome (workspace flow / reload / dark mode)', ()
       for (let count = 2; count <= 9; count++) {
         await recoveryPage.clock.fastForward(10_000)
         await expect.poll(() => sockets.length).toBe(count)
+        if (count === 2) {
+          await recoveryPage.clock.fastForward(1_000)
+          expect(sockets).toHaveLength(count)
+        }
+        await sockets.at(-1)!.close({ code: 4001, reason: 'connection recovery test' })
+        // Drain the close event's promise continuations before advancing the next retry timer.
+        await recoveryPage.evaluate(() => {})
       }
       const indicator = connecting
       expect(await connectionIndicatorGeometry(indicator)).toEqual(connectingGeometry)

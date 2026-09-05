@@ -296,7 +296,9 @@ function waitForReady<T>(
       console.warn(`[connection] generation is still not ready after ${String(config.generationReadyWarnMs)}ms`)
     }, config.generationReadyWarnMs)
     const timeout = setTimeout(() => {
-      finish({ error: new Error(`connection generation was not ready within ${String(config.generationReadyTimeoutMs)}ms`) })
+      const error = new Error(`connection generation was not ready within ${String(config.generationReadyTimeoutMs)}ms`)
+      console.warn(`[connection] ${error.message}; cancelling generation`)
+      finish({ error })
     }, config.generationReadyTimeoutMs)
     const aborted = (): void => {
       finish({ error: new Error('connection generation aborted', { cause: signal.reason }) })

@@ -10,11 +10,11 @@ generation source 可能一直挂起，既不报告就绪，也不报告载体�
 
 ## 决策
 
-[`ConnectionController`](../../../../packages/client/connection/src/client/connection.ts) 同时拥有握手就绪期限和持续重试调度。默认情况下，握手在三秒后报告 Host 响应缓慢，在十五秒后中止。告警提供早期反馈，同时保留需要数秒才能就绪的 Host；硬期限限制每次尝试的时长。取消会传到 generation source，后者必须释放资源并结束，下一 source 才能启动。已取消 source 迟到的 ready 回调不能建立 generation。
+[`ConnectionController`](../../../../packages/client/connection/src/client/connection.ts) 同时拥有握手就绪期限和持续重试调度。默认情况下，握手在三秒后报告 Host 响应缓慢，在十五秒后中止。告警提供早期反馈，同时保留需要数秒才能就绪的 Host；硬期限限制每次尝试的时长，并在取消 generation 时记录超时。告警与取消时间相互独立，因此缩短硬期限不需要同时修改两个字段；排定在握手结束之后的告警会被取消。取消会传到 generation source，后者必须释放资源并结束，下一 source 才能启动。已取消 source 迟到的 ready 回调不能建立 generation。
 
 重试上限从 500ms 开始，经过 1s、2s、4s、8s 增长到 10s，保留现有 50–100% 抖动。达到最大上限后失败仍继续重试。把最大延迟与重试次数上限分开，与 [Socket.IO Client 选项](https://socket.io/docs/v4/client-options/#reconnectionattempts)的区分一致；DSH 保留自身的 Remote stream 协议和唯一调度器。Controller 每要求一次尝试，Gateway 就替换一次物理 socket。仍在等待打开的 WebSocket 候选，以及已打开但未收到首个 ready 帧的 socket，都能通过此路径恢复。
 
-Host Connection 插件校验配置中的 `recovery`，通过 `webserver/index-inject` 把已解析且不含秘密的时序数据注入每个页面。Client 在提供 Connection 之前校验启动输入；直接传给循环的选项可覆盖这些值。定时器值必须是浏览器定时器范围内的正整数，退避因子必须是至少为一的有限数。一表示以固定上限持续重试。Host 时序配置的变更适用于随后加载的页面。
+Host Connection 插件校验配置中的 `recovery`，通过 `webserver/index-inject` 把已解析且不含秘密的时序数据注入每个页面。Client 在提供 Connection 之前校验启动输入；直接传给循环的选项可覆盖这些值。定时器值必须是浏览器定时器范围内的正整数，退避因子必须是至少为一的有限数。共享解析器显式拒绝仅靠范围比较无法排除的 `NaN`。一表示以固定上限持续重试。Host 时序配置的变更适用于随后加载的页面。
 
 Settings 指示器把活动恢复标为**自动重连中**，并始终提供**立即重连**。本决策取代[Web 连接恢复控制](../feature/2026-08-28-web-connection-recovery-control.zh.md)中的终态重试策略。该记录仍拥有手动恢复、浏览器离线暂停、唯一调度器规则与指示器展示。只有新的 `$events` ready 帧才能建立连接状态；各域的 stream 保留各自的 baseline 与 cursor 恢复方式。
 
