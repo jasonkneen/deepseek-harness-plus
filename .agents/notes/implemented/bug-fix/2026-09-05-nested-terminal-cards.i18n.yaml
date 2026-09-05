@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
+# side as of the last confirmed-consistent state. Both languages carry equal authority;
+# after editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-09-05-nested-terminal-cards.md
+2026-09-05-nested-terminal-cards.md: 10e0c082650fe5a937aa8fba9f6080896fe8538f
+2026-09-05-nested-terminal-cards.zh.md: 2ad94f62657b78b5eaf6fde0033e73abee07997e

@@ -255,10 +255,10 @@ function parseExitStatus(text: string): { output: string; exitCode?: number; sig
 }
 
 /**
- * Derive terminal props for supported root shell and terminal-send calls.
- * Standard shell results parse their final status marker; persistent shell
- * results, background calls, errors, malformed input, or child dispatches use
- * the generic path. {@link isSettledPersistentShellCall} lets that generic
+ * Derive terminal props for supported shell and terminal-send calls, including
+ * nested Code Dispatch calls. Standard shell results parse their final status
+ * marker; persistent shell results, background calls, errors, and malformed
+ * input use the generic path. {@link isSettledPersistentShellCall} lets that generic
  * persistent result remain expandable without inventing one process status.
  * @param block - running or settled Tool block.
  * @param sessionCwd - session workspace root used to resolve workdir.
@@ -268,7 +268,6 @@ export function terminalCardModel(
   block: ToolCallBlock,
   sessionCwd?: string,
 ): TerminalCardModel | null {
-  if (block.parentCallId !== undefined) return null
   const parsed = parsedToolCall(block)
   if (parsed === null) return null
   const call = shellCall(parsed.name, parsed.args) ?? terminalSendCall(parsed.name, parsed.args)
