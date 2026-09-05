@@ -727,13 +727,12 @@ describe.skipIf(!existsSync(dshBin))('dsh BUILT bin (node lib/bin.js, no tsx)', 
       ].join('\n'))
       await waitForFile(fixture.ready)
       expect(readFileSync(configFile, 'utf8')).toBe('2')
-      // Removal reverts: the bundle's inserted row must return to its own
-      // default config, not keep the removed override — the insert-aliasing
-      // regression (a shared patch object mutated in place by a former
-      // generation would make this impossible).
+      // Unlink exercises layer removal without racing Chokidar's change-event
+      // suppression window after the preceding edit. The bundle default must return.
       rmSync(fixture.ready)
-      writeFileSync(profilePatch, '[]\n')
+      rmSync(profilePatch)
       await waitForFile(fixture.ready)
+      expect(existsSync(profilePatch)).toBe(false)
       expect(readFileSync(configFile, 'utf8')).toBe('bundle-default')
       // The home-level user layer ($DSH_HOME/cordis.patch.yml) is live too
       // and outranks the per-profile layer.
@@ -753,6 +752,7 @@ describe.skipIf(!existsSync(dshBin))('dsh BUILT bin (node lib/bin.js, no tsx)', 
       expect(existsSync(fixture.disposed)).toBe(true)
     } finally {
       child.kill('SIGKILL')
+      await child
       rmSync(fixture.home, { recursive: true, force: true })
     }
   }, SPAWN_TIMEOUT_MS + 30_000)
