@@ -27,7 +27,7 @@ describe.skipIf(!built)('built migration verifier (plain node)', () => {
           type: 'session', version: 0, id, createdAt: 1, delegationDepth: 0,
         }) + '\\n')
         await ctx.plugin(JsonlSessionPersistence, { root, compression: 'none' })
-        const handle = await ctx.sessionPersistence.open(id, 'read')
+        const handle = await ctx.sessionPersistence.open(id, 'write')
         await handle.close()
         await ctx.sessionPersistence.flush()
         const header = JSON.parse((await readFile(join(directory, 'session.v2.jsonl'), 'utf8')).trim())
