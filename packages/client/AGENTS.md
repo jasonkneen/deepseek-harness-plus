@@ -144,7 +144,7 @@ Bringing up a new `packages/client/<name>` plugin package (ui-workspace is a com
 
 ## New component checklist
 
-1. **Check the [ui-primitives catalog](ui-primitives/README.md#component-catalog) before writing a control.** A plugin cannot import another plugin's component, so `ui-primitives` is the only place a control can be shared: reuse the primitive that already fits, and lift a deliberate visual difference into a prop rather than starting a second copy. Writing your own component in your own package is fine when the need is genuinely specific — what is not fine is copying a control that already exists. Once a second package needs the same control, promote it.
+1. **Check the [ui-primitives catalog](ui-primitives/README.md#component-catalog) before writing a control.** A plugin cannot import another plugin's component, so `ui-primitives` is the only place a control can be shared; the catalog states when to reuse, when to promote, and when your own package is the right home.
 
 2. Compose through register: add the slot to `SlotMap`, declare it in its parent entry's `children`, and register your component — see the [Slots reference](../../docs/subsystems/slots.md). No other composition route exists.
 3. Type the props as the four shares (`PropsRuntime` & `PropsRenderSlots` & `PropsStore` & inject face) — derive, don't hand-write. Shared/surviving state goes in a `createXXXStore()` factory declared at register; component-private state stays local.

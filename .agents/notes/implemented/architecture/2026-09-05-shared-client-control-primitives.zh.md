@@ -26,7 +26,7 @@ Status: implemented
 
 ## 如何找出重复
 
-按名字搜会漏。`.badge`、`.tag`、`.chip`、`.configTag` 找不到以角色而非外观命名的胶囊——`PluginCard` 的未保存标记叫 `.pending`，而它的规则与两个文件之外的徽章逐字节相同。能找出它们的是几何特征：同时带有 `border-radius: 999px` 与 `padding: 1px 8px` 的 CSS Modules 规则。本次改动后，这个特征恰好匹配三条规则——`Tag` 本身、下面那个损坏徽章，以及未保存标记保留下来的 `flex: none` 布局类。
+按名字搜会漏。`.badge`、`.tag`、`.chip`、`.configTag` 找不到以角色而非外观命名的胶囊——`PluginCard` 的未保存标记叫 `.pending`，而它的规则与两个文件之外的徽章逐字节相同。能找出它们的是几何特征：同时带有 `border-radius: 999px` 与 `padding: 1px 8px` 的 CSS Modules 规则。本次改动后，这个特征恰好匹配两条规则：`Tag` 本身与下面那个损坏徽章。未保存标记只剩一个 `flex: none` 布局类，已不再匹配该特征。
 
 <a id="what-stays-local"></a>
 ## 保留在原包的控件
@@ -37,6 +37,7 @@ Status: implemented
 - **`ui-schedule` 的状态点**是表示下次运行的静态蓝点，逾期转为琥珀色。`StateDot` 没有静态蓝——它唯一的蓝是 `ongoing`，一个动画像素方阵——日程列表里每行一个动画，既说错了含义也说错了观感。
 - **`ui-plan` 的模式 chip** 与 **`ui-conversation` 的 `ReferenceChip`** 都是可交互的：前者是警告色调的按钮，带 hover、focus、disabled 与关闭操作；后者是带自有截断逻辑的 Lexical 原子节点。两者都不是只读徽章。
 - **`ui-trajectory` 的单元格 tag** 与 **`ui-user-questions` 的推荐徽章**使用各自的几何——一个是表格密度下的 6px 圆角，一个是侧栏强调色上 600 字重的 6px 圆角。把它们塞进胶囊基准，改掉的是有意的设计，不是意外的分歧。
+- **`TerminalBlock` 的退出状态胶囊**保持为静态 `Pill`。它落在 24px 的命令行上、用的是 pill 自己的几何，`Tag` 的 11px 胶囊放不进那一行。只读与可选中的区分是通常的判据，但这一处由尺寸决定，目录里也是这么写的。
 - **`ui-agent-preset` 的损坏徽章**共用胶囊几何，但带着没有第二处使用的实底错误色填充，而且它是自带提示元素的悬停锚点。改用 `Tag` 就得在功能包样式表里保留一份配色覆盖，并依赖跨文件 CSS 顺序来让它生效。
 
 ## Alternatives considered
@@ -49,7 +50,7 @@ Status: implemented
 
 **扩展 `Pill` 而不是新增 `Tag`。** 否决。`Pill` 高 24px、圆角 12px、字号 12px；徽章基准更密也更圆。合并会产生一个尺寸取决于是否传了 `onClick` 的组件，并抹掉只读与可选中的区分——而目录正需要这个区分来回答"我该用哪个"。
 
-**给 `Tag` 设计 `variant × tone` 双轴 API。** 否决。三个 variant 乘六个 tone 描述十八种组合，其中六种会发布，而且它允许调用方请求没有定义外观的组合。扁平的八成员联合把每个值映射到恰好一种已发布外观。
+**给 `Tag` 设计 `variant × tone` 双轴 API。** 否决。三个 variant 乘六个 tone 描述十八种组合，其中八种会发布，而且它允许调用方请求没有定义外观的组合。扁平的八成员联合把每个值映射到恰好一种已发布外观。
 
 **让 `pending` 与 `unloading` 不渲染点，而不是新增 `idle`。** 否决。这两行今天显示灰点，在一个目的是统一呈现的改动里把它删掉，等于从清单中拿走信息。
 
@@ -59,7 +60,7 @@ Status: implemented
 
 `Tag`、`Switch` 与扩展后的 `StateDot` 在 `packages/client/ui-primitives/tests` 中各有组件测试，处于每文件 100% 覆盖率门禁之内。`StateDot` 的配色通过读取其样式表来钉住：CSS Modules 在组件测试里解析为类名映射，因此某个状态缺了配色规则时会落到继承色上，而任何渲染断言都不会察觉。
 
-四个迁移后的渲染点保留各自包内原有的测试，未作改动。web e2e 的 golden 是 ARIA 快照，完整的 replay web 套件无需重录即可通过，因为这次迁移保住了每一个 role、无障碍名称与状态——`Switch` 保留带 `aria-checked` 的 `role="switch"`，而由于 `StateDot` 是 `aria-hidden`，插件清单的相位点把 `role="img"` 名称保留在外层包裹元素上。
+迁移后的渲染点保留各自包内原有的测试，未作改动。web e2e 的 golden 是 ARIA 快照，完整的 replay web 套件无需重录即可通过，因为这次迁移保住了每一个 role、无障碍名称与状态——`Switch` 保留带 `aria-checked` 的 `role="switch"`，而由于 `StateDot` 是 `aria-hidden`，插件清单的相位点把 `role="img"` 名称保留在外层包裹元素上。
 
 这同时也是自动化证据的边界。本仓库没有任何门禁比较像素，因此胶囊几何、状态点光晕与字重变化，只能由评审对照 PR 中的明暗两套截图来确认。
 
@@ -67,7 +68,7 @@ Status: implemented
 
 - 新的客户端控件现在有一处可查、一处可加，而目录把这次查询变成读一个文件，而不是在四十多个导出上 `grep`。
 - `TagTone` 有八个成员，因为发布了八种外观。加第九个需要一个真的需要它的渲染点，而不是一个对称性论证。
-- 插件清单的标签从 5px 矩形变为胶囊，相位点获得光晕，loading 相位还会有动画。插件设置字段中"未配置"徽章的字重从 400 改为基准的 500。这些都是有意的视觉变更，记录在此，以免后来的读者把它们当成回归。
+- 插件清单的标签从 5px 矩形变为胶囊，其中"已停用"标签的底色从 `--dsw-alias-bg-layer-1` 变为 `neutral` 色调的 `--dsw-alias-bg-module-platform`，由近乎透明变成可见的灰底。相位点获得光晕，并在 `loading` 与 `unloading` 两个相位动画。插件设置字段中"未配置"徽章的字重从 400 改为基准的 500。这些都是有意的视觉变更，记录在此，以免后来的读者把它们当成回归。
 - 本次迁移移除了一个 `#b45309` 字面量。插件清单的 `conditional` 标签写的是 `var(--dsw-alias-state-warning-primary, #b45309)`，而这个别名并不存在——真正的 token 是 `--dsw-alias-state-warn-primary`——所以明暗两套主题一直在绘制那个被 [docs/web-styling.md](../../../../docs/web-styling.zh.md) 禁止的硬编码兜底色。
 - 这条规则无法被机械检查。将来的作者仍然可以复制一个控件，只有评审能拦住。这是不设门禁所接受的代价：另一条路会拒绝正当的工作，而上面那份保留在原包的清单就是正当工作确实存在的证据。
 - `ui-primitives` 多出两个各自只有一个消费方的组件。开关尤其如此，提升它是因为它是一个通用控件，也因为正在进行中的插件管理工作会采用它，而不是再加两份拷贝。

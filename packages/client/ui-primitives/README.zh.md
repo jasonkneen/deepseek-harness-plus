@@ -46,7 +46,7 @@ kind: "package-library"
 | `Modal` | 页面遮罩之上的居中对话框。 |
 | `RiskConfirmation` | 以显式复选框把关的敏感操作确认。 |
 | `OnboardingSurface` | 首次运行的引导舞台，期间保持应用根节点 inert。 |
-| `Tooltip` | 克隆锚点上的悬停文本，可置于四个方向之一。 |
+| `Tooltip` | 克隆锚点上的悬停文本，可置于右、下、上三个方向。 |
 | `HoverCard` | 指针可停留、可选中的悬停预览；可选带复制按钮。 |
 | `Toast` | 顶部居中的瞬时横幅，保持时长由所有者的 `holdMs` 决定。 |
 | `JsonTree`、`JsonBlock` | 只读 JSON 查看。 |
@@ -56,7 +56,7 @@ kind: "package-library"
 
 有三组容易混淆：
 
-- **`Tag` 与 `Pill`。** `Pill` 可选中——它接受 `active` 与 `onClick`，驱动视图切换与筛选器。`Tag` 只读，两者都不接受。传了 `active` 却没有 `onClick`，说明你要的是 `Tag`。
+- **`Tag` 与 `Pill`。** 11px 胶囊尺寸的只读徽章用 `Tag`；胶囊可选中（`active` 与 `onClick`，视图切换与筛选器就是这样用的），或者必须落在 24px 文本行上时用 `Pill`——`TerminalBlock` 把退出状态渲染成静态 `Pill` 正是后一种情况。这里尺寸和是否可交互同样是判据，两者不可互换。
 - **`DisclosureRow` 与卡片。** 该行以固定 24px 把标题与内容左右排列。把名称叠在描述之上的卡片是另一种布局，属于功能包——`ui-settings-plugins` 的 `PluginCard` 是先例，并记录了原因。
 - **`FoldToggle` 与对外导出面。** 它是包内组件，未导出；输出卡片用它做头尾折叠。
 
@@ -64,7 +64,7 @@ kind: "package-library"
 
 ### 控件与图标
 
-`Button`、`Pill`、`Input`、`Menu`、`Modal`、`Tooltip`、`DisclosureRow`、`StateDot`、`HoverCard`、`Toast`、`ConnectionIndicator`、`RiskConfirmation` 与首次运行接管层 `OnboardingSurface` 覆盖常见的交互形态。`ic_ds_*` 图标集与 `FishLogo`/`BrandWordmark` 标记填充品牌与行内图标 slot。`LinkIcon` 为可点击产物链接绘制前置分类图形——地球、文件夹、代码、图片、文档或纸张，全部随 `currentColor`——`classifyLinkPath` 按扩展名推导文件路径的类别。`ConnectionIndicator` 可渲染警告色的断联操作、以独立于 retry 时序的 500ms 节奏推进一至三个点的连接中状态，或成功色的恢复状态。所有状态都为最长的输入 label 预留空间，并使用固定的图标列和文字列，因此文案变化不会移动控件或改变其宽度。它的 owner 提供可见性、恢复驻留时间、本地化 label 与立即重连回调；该原语不使用原生 title tooltip。`useAnchoredPosition` 与 `useAnchoredMaxHeight` 让浮动面板与底部锚定浮层始终钳制在视口内并跟随锚点。`HoverCard` 通过指针离开宽限期让采用 portal 的预览在跨过锚点间隙时仍可触及，并可通过 `copyText` prop 提供复制按钮。 `Toast` 的停留时长由使用方通过 `holdMs` 指定，因为横幅该留多久取决于有多少内容要读；同一个值同时驱动它的卸载定时器与样式表的淡出延迟，两者不可能再错位。 `rankByName` 是 `/` 菜单命令源与 skill 源共享的候选排序器：查询必须是名字的不区分大小写的有序子序列；前缀命中排最前，其次按对齐分数，再按来源顺序（[排名决策](../../../.agents/notes/implemented/feature/2026-08-04-web-slash-command-fuzzy-discovery.zh.md)）。
+上面的目录说明每个导出的用途；本节讲 props 本身看不出来的行为。`ic_ds_*` 图标集与 `FishLogo`/`BrandWordmark` 标记填充品牌与行内图标 slot。`LinkIcon` 为可点击产物链接绘制前置分类图形——地球、文件夹、代码、图片、文档或纸张，全部随 `currentColor`——`classifyLinkPath` 按扩展名推导文件路径的类别。`ConnectionIndicator` 可渲染警告色的断联操作、以独立于 retry 时序的 500ms 节奏推进一至三个点的连接中状态，或成功色的恢复状态。所有状态都为最长的输入 label 预留空间，并使用固定的图标列和文字列，因此文案变化不会移动控件或改变其宽度。它的 owner 提供可见性、恢复驻留时间、本地化 label 与立即重连回调；该原语不使用原生 title tooltip。`useAnchoredPosition` 与 `useAnchoredMaxHeight` 让浮动面板与底部锚定浮层始终钳制在视口内并跟随锚点。`HoverCard` 通过指针离开宽限期让采用 portal 的预览在跨过锚点间隙时仍可触及，并可通过 `copyText` prop 提供复制按钮。 `Toast` 的停留时长由使用方通过 `holdMs` 指定，因为横幅该留多久取决于有多少内容要读；同一个值同时驱动它的卸载定时器与样式表的淡出延迟，两者不可能再错位。 `rankByName` 是 `/` 菜单命令源与 skill 源共享的候选排序器：查询必须是名字的不区分大小写的有序子序列；前缀命中排最前，其次按对齐分数，再按来源顺序（[排名决策](../../../.agents/notes/implemented/feature/2026-08-04-web-slash-command-fuzzy-discovery.zh.md)）。
 
 ### 渲染 agent 输出
 

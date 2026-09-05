@@ -150,14 +150,15 @@ function CardFacts({ moduleName, moduleLabel, entryId, facts }: {
   )
 }
 
-/* `pending` and `unloading` both mean no work is in progress, which is what
- * `idle` marks; only `loading` is activity the dot animates. */
+/* `pending` is the only phase with no work under way. `loading` and
+ * `unloading` are both live transitions the Host is running — an async
+ * disposer can hold `unloading` for a while — so both animate. */
 const PHASE_DOT_STATES = {
   pending: 'idle',
   loading: 'ongoing',
   active: 'done',
   failed: 'error',
-  unloading: 'idle',
+  unloading: 'ongoing',
 } as const satisfies Record<NonNullable<PluginFiberPhase>, StateDotState>
 
 /** Status dot naming a live root-fiber phase; rows with no live fiber show none. */

@@ -40,7 +40,7 @@ describe('StateDot', () => {
 
   it('rejects unknown states at the type level', () => {
     const bad = (state: StateDotState) => state
-    // @ts-expect-error 'paused' is not one of the four states
+    // @ts-expect-error 'paused' is not one of the five states
     expect(bad('paused')).toBe('paused')
   })
 })

@@ -32,8 +32,10 @@
   color: var(--dsw-alias-label-tertiary);
 }
 
-/* Status tones tint their own color at 10% for the fill, so a palette change
- * moves fill and text together and neither needs a second token. */
+/* Status tones tint their own color for the fill, so a palette change moves
+ * fill and text together and neither needs a second token. The tint is 10%,
+ * except `warning`, which keeps the 12% the plugin inventory's conditional
+ * tag shipped with — matching it is what makes this a pure consolidation. */
 .tag[data-tone='success'] {
   background: color-mix(in srgb, var(--dsw-alias-state-success-primary) 10%, transparent);
   color: var(--dsw-alias-state-success-primary);
