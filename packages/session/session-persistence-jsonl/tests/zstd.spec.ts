@@ -428,7 +428,6 @@ describe('JsonlSessionPersistence: default Zstandard encoding', () => {
       meta: { ...header, delegationDepth: 0 },
       events: oneTurnLog(),
     })
-
     expect(await readFile(sourcePath)).toEqual(source)
     const current = (await decodeCompleteFrames(await readFile(currentPath))).toString().split('\n')
     expect(JSON.parse(current[0] as string)).toMatchObject({

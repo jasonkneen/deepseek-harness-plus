@@ -7370,6 +7370,9 @@ importers:
 
   packages/session/session-persistence-jsonl:
     dependencies:
+      '@deepseek-ai/dsh-llm':
+        specifier: workspace:^
+        version: link:../../llm/llm
       '@deepseek-ai/dsh-session-format':
         specifier: workspace:^
         version: link:../session-format

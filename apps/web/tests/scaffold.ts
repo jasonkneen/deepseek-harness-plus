@@ -869,19 +869,15 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
  * in-memory record-mode harvest, so the on-disk zstd default never matters.
  */
 function rawSessionLog(session: Session): string {
-  const encoded = sessionFormatCatalog.encodeCurrent({
-    header: {
-      ...session.header,
-      delegationDepth: session.header.delegationDepth ?? 0,
-    },
-    inheritedEventCount: session.inheritedEventCount,
-    // Session validates durable payloads as JSON; its closed event unions do
-    // not carry the index signature used by the format package's JSON types.
-    events: session.snapshotEvents() as unknown as readonly SessionFormatEvent[],
-  })
+  const encodedEvents = (session.snapshotEvents() as unknown as readonly SessionFormatEvent[])
+    .map(event => sessionFormatCatalog.encodeCurrentEvent(event))
+  const header = sessionFormatCatalog.encodeCurrentHeader({
+    ...session.header,
+    delegationDepth: session.header.delegationDepth ?? 0,
+  }, session.inheritedEventCount)
   return [
-    JSON.stringify(encoded.header),
-    ...encoded.rows.map(record => JSON.stringify(record)),
+    JSON.stringify(header),
+    ...encodedEvents.map(record => JSON.stringify(record)),
     '',
   ].join('\n')
 }

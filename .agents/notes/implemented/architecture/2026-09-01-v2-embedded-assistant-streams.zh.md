@@ -27,7 +27,9 @@ Session format v2 没有顶层 `assistant/chunk` 事件。每个模型 attempt �
 
 `agent/assistant-stream` 发布进程本地 start、瞬态 chunk 与 end frame。loop 会在 committed end frame 命名其类型和序号前追加完整的 `assistant/message` 或 `assistant/attempt`。abandoned end 没有 settlement。
 
-Web follow adapter 显式选择接收这些进程本地 frame，并为每个 start 补充当时观察到的最后一个持久序号。它把 chunk 呈现为持久 cursor 之间的 Client-only `assistant/live-chunk` update，只暂存 start 之后匹配的 settlement，并在 revision 缺口时重新打开 follow。committed end 会发布具名 settlement delta，删除该 attempt 的 transient match、加入持久 entry，并只重放受影响的 Conversation Context；abandoned end 会发布不含 entry 的同类 delta。重连 baseline 携带活跃 attempt 的持久起始 cursor 与紧凑前缀。分页历史、replay、遥测、token 记账与冷 UI 组装读取持久嵌入式 stream，而不是 live frame。
+Web follow adapter 显式选择接收这些进程本地 frame，并为每个 start 补充当时观察到的最后一个持久序号。它把 chunk 呈现为持久 cursor 之间的 Client-only `assistant/live-chunk` update，只暂存 start 之后匹配的 settlement，并在 revision 缺口时重新打开 follow。committed end 会发布具名 settlement delta，删除该 attempt 的 transient match、加入持久 entry，并只重放受影响的 Conversation Context；abandoned end 会发布不含 entry 的同类 delta。重连 baseline 携带活跃 attempt 的持久起始 cursor 与紧凑前缀。
+
+Client event source 原样传递持久 settlement。Chat 与 Trajectory 的 Assistant node 在 attempt 活跃期间折叠 `assistant/live-chunk`，直接从 `assistant/message` 构建 settled output，并且不为展示重放 `assistant/attempt` stream。因此冷恢复的 settled presentation 不会重建逐 token timing；其他消费方需要精确证据时仍可展开持久 stream。
 
 ### 已发布 v1 到 v2 迁移
 
@@ -49,7 +51,7 @@ Generation 选择与发布遵循[已发布 Session 迁移决策](2026-08-31-rele
 
 合并前的 performance acceptance 在三轮、100 组 warmup pair 与 600 组 measured pair 下，针对同一批已经解析的物理 row，把静态 catalog routing 与直接 released-v2 restoration 比较；它不比较 v1 与 v2，也不计入 backend I/O。每个 pooled median 与 p95 regression 都保持在 5% 预算以内，最差 p95 regression 为 3.150%。
 
-Agent-loop 测试固定先持久后 end 的顺序、中断的可见前缀、失败与重试 attempt、abandonment、usage 与 replay metadata。Session Controller 与 Conversation 测试固定实时瞬态显示、重连 baseline、committed settlement 发布、历史回放以及 Chat 与 Trajectory 一致性；TypeScript 与 Python SDK snapshot 固定外部事件表示。
+Agent-loop 测试固定先持久后 end 的顺序、中断的可见前缀、失败与重试 attempt、abandonment、usage 与 replay metadata。Session Controller 与 Conversation 测试固定实时瞬态显示、重连 baseline、committed settlement 发布与历史回放。Chat 与 Trajectory 测试固定实时 partial 展示和最终 message 的直接投影；TypeScript 与 Python SDK snapshot 固定外部事件表示。
 
 ## 备选方案
 
@@ -59,13 +61,15 @@ Agent-loop 测试固定先持久后 end 的顺序、中断的可见前缀、失�
 
 **通过历史 API 传递 packed chunk row。** 这会减少 v1 的 wire 与 Client 工作，却让 Client 拥有第二套事件词汇，并让传输继续与 token-row 基数耦合。当前 API 携带标量持久 settlement，并使用独立的实时瞬态 stream。
 
+**在 Session Controller 中删除嵌入式 stream。** 这会减少 Client 保留的内存，却会引入第二种持久事件类型，并让面向传输的 owner 决定展示消费方需要哪些证据。实测瓶颈来自重复展开，因此由各 UI 消费方决定是否检查原样传递的 settlement。
+
 **把 stream 存在 sidecar 或 replay-only fixture 中。** 这会把一个 attempt 的 message 与证据拆给不同持久性 owner，也无法让普通恢复 Session 获得相同的失败输出与时间事实。settlement 是原子 owner。
 
 **把被消费 chunk 的引用重定向到其 settlement。** Chunk 与 attempt settlement 不是可互换事实。拒绝可以防止迁移悄然改变插件自有引用的含义。
 
 ## 后果
 
-当前日志、遥测、历史页与冷 Client 组装按模型 attempt 而非 token chunk 扩展，同时在每个 settlement 内保留精确 stream 证据。实时呈现保持增量，并且有意仅存在于进程内。
+当前日志、遥测与历史页按模型 attempt 而非 token chunk 扩展，同时在每个 settlement 内保留精确 stream 证据。Client event window 保留这份紧凑证据，但 Chat 与 Trajectory 的 Assistant node 不会把 settled stream 展开成逐 delta 对象。实时呈现保持增量，并且有意仅存在于进程内。
 
 v1 的顶层 chunk 可能在 attempt 结束前由带缓冲的持久化 writer 刷盘；与之不同，v2 在 settlement 之前没有持久 attempt 证据。如果进程或主机在 settlement 前硬中断，完整的 in-flight stream 都会丢失；`agent/assistant-stream` 不是 write-ahead log。这项取舍避免为实时输出增加第二个持久性 owner。
 
