@@ -1813,6 +1813,16 @@
     },
     {
       "doc": "docs/subsystems/session-telemetry.md",
+      "symbol": "SessionTelemetryCapture",
+      "source": "packages/session/session-telemetry/src/coordinator.ts"
+    },
+    {
+      "doc": "docs/subsystems/session-telemetry.md",
+      "symbol": "SessionTelemetryCaptureOptions",
+      "source": "packages/session/session-telemetry/src/coordinator.ts"
+    },
+    {
+      "doc": "docs/subsystems/session-telemetry.md",
       "symbol": "SessionTelemetrySharingStatus",
       "source": "packages/session/session-telemetry/src/index.ts"
     },
@@ -1949,6 +1959,16 @@
     {
       "doc": "docs/subsystems/feedback.md",
       "symbol": "MessageFeedbackItem",
+      "source": "packages/feedback/message-feedback/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/feedback.md",
+      "symbol": "MessageFeedbackPut",
+      "source": "packages/feedback/message-feedback/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/feedback.md",
+      "symbol": "MessageFeedbackDelete",
       "source": "packages/feedback/message-feedback/src/types.ts"
     },
     {

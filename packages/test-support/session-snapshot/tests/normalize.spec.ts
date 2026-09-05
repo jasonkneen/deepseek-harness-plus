@@ -254,6 +254,14 @@ Additional instructions from: nested\AGENTS.md`,
 })
 
 describe('normalizeSessionLog', () => {
+  it('normalizes only message-feedback item clocks', () => {
+    const item = { messageId: 'answer', version: 'version', createdAt: 123, updatedAt: 456, note: 'keep 123' }
+    const input = ['feedback/message-put', 'tool/result'].map(type => JSON.stringify({ type, data: { item } })).join('\n')
+    const output = normalizeSessionLog(input, ctx)
+    expect(output).toContain('"createdAt":0,"updatedAt":0,"note":"keep 123"')
+    expect(output).toContain('"createdAt":123,"updatedAt":456,"note":"keep 123"')
+  })
+
   const header = (over: object) => JSON.stringify({ type: 'session', version: 0, id: 's', createdAt: 123, ...over })
   const event = (over: object) => JSON.stringify({ type: 'turn/start', seq: 1, time: 999, data: { turn: 1 }, ...over })
 
@@ -972,6 +980,19 @@ describe('scrubRequestHeaders', () => {
 })
 
 describe('scrubSessionSnapshot', () => {
+  it('writes stable feedback clocks while retaining notes and version identity', () => {
+    const input = [
+      { type: 'session', id: 's' },
+      { type: 'feedback/message-put', data: { item: { version: 'opaque-version', createdAt: 12, updatedAt: 34, note: 'keep 12' } } },
+      { type: 'feedback/message-put', data: null },
+      { type: 'feedback/message-put', data: { item: null } },
+      { type: 'feedback/message-put', data: { item: {} } },
+    ].map(record => JSON.stringify(record)).join('\n')
+    const output = scrubSessionSnapshot(input)
+    expect(output).toContain('"version":"opaque-version","createdAt":0,"updatedAt":0,"note":"keep 12"')
+    expect(scrubSessionSnapshot(output)).toBe(output)
+  })
+
   it('preserves the header while projecting and scrubbing each body record', () => {
     const header = '  {"type":"session","version":0,"id":"s","createdAt":7}  '
     const request = JSON.stringify({

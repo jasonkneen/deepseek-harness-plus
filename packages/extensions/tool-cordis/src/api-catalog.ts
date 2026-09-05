@@ -1306,26 +1306,26 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
   },
   {
     key: 'messageFeedback',
-    summary: 'Storage-domain sidecar service.',
-    description: 'Storage-domain sidecar service. It inspects persisted Session history and never creates or resumes an Agent or Session.',
+    summary: 'Session-log service; cold operations never construct a Session or Agent.',
+    description: 'Session-log service; cold operations never construct a Session or Agent.',
     methods: [
       {
-        signature: '@Remote(\'list\') async list(request: MessageFeedbackListRequest): Promise<MessageFeedbackListResult>',
-        description: 'Read feedback belonging to the current persisted Session lifecycle. A stale row from a reused Session id is invisible.',
-        parameters: [{ name: 'request', description: 'Session identity to inspect and list.' }],
-        returns: 'current immutable items or `session-not-found`.',
+        signature: '@Remote(\'list\') list(request: MessageFeedbackListRequest): Promise<MessageFeedbackListResult>',
+        description: 'Read current feedback from the canonical log.',
+        parameters: [{ name: 'request', description: 'Session to inspect.' }],
+        returns: 'immutable items or a definite persistence miss.',
       },
       {
         signature: '@Remote(\'put\') put(request: MessageFeedbackPutRequest): Promise<MessageFeedbackPutResult>',
-        description: 'Create or replace feedback for one derived append-origin assistant message. Every request must match the addressed item\'s current version; a matching no-op returns the stored item without changing its revision.',
-        parameters: [{ name: 'request', description: 'target, desired value, and observed item version.' }],
-        returns: 'the committed item or an explicit business failure.',
+        description: 'Create or replace feedback after checking its current version. Matching no-ops retain the version and append no event.',
+        parameters: [{ name: 'request', description: 'Target, desired value, and observed item version.' }],
+        returns: 'the durable item or an explicit business failure.',
       },
       {
         signature: '@Remote(\'delete\') delete(request: MessageFeedbackDeleteRequest): Promise<MessageFeedbackDeleteResult>',
-        description: 'Delete one feedback item. Absence is successful regardless of the supplied version; an existing item requires an exact version match.',
+        description: 'Delete one item after checking its version; absence succeeds without an event.',
         parameters: [{ name: 'request', description: 'Session, message, and observed item version.' }],
-        returns: 'the stable absent postcondition, or an explicit failure.',
+        returns: 'the stable absent postcondition or an explicit failure.',
       },
     ],
   },
@@ -1913,7 +1913,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     methods: [
       {
         signature: 'abstract readonly sharing: SessionTelemetrySharingStatus',
-        description: 'Deployment-selected session-sharing policy, disclosed for acknowledgement surfaces that report whether recorded feedback leaves the process. Every backend must disclose its policy; a consumer renders "not configured" only when no telemetry service is mounted. The seam owns this vocabulary so the disclosure is backend-independent.',
+        description: 'Deployment-selected sharing mode, independent of SDK delivery.',
         parameters: [],
       },
       {
@@ -3192,6 +3192,14 @@ export const EVENT_API: readonly EventApiEntry[] = [
     summary: 'A domain record or the global singleton changed, emitted once per write strictly after the backend acknowledged durability.',
     description: 'A domain record or the global singleton changed, emitted once per write strictly after the backend acknowledged durability. Events of one domain arrive in its write-chain order.',
     parameters: [{ name: 'change', description: 'domain, table (`\'\'` for global), key (`\'\'` for global), operation discriminant, and on `put` the new snapshot.' }],
+  },
+  {
+    name: 'feedback/committed',
+    mode: 'parallel',
+    signature: '\'feedback/committed\'(inspection: SessionInspection): void',
+    summary: 'Observe a durable cold feedback mutation without publishing a live Session.',
+    description: 'Observe a durable cold feedback mutation without publishing a live Session. Observers run before write ownership is released and must not await another message-feedback operation for this Session. The payload is borrowed read-only; deep-clone it before transferring ownership (for example, to Session.fromRestore).',
+    parameters: [{ name: 'inspection', description: 'committed canonical prefix, including the feedback as its last event.' }],
   },
   {
     name: 'fs/edit-intent',

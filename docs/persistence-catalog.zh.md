@@ -405,6 +405,28 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 
 ### `feedback/*`
 
+<a id="feedbackmessage-delete--log-only"></a>
+
+#### `feedback/message-delete` — log-only
+
+```ts persistence-catalog
+/** Log-only deletion; earlier ratings and notes remain in the log. */
+'feedback/message-delete': MessageFeedbackDelete
+```
+
+来源： [`packages/feedback/message-feedback/src/types.ts:55`](../packages/feedback/message-feedback/src/types.ts)
+
+<a id="feedbackmessage-put--log-only"></a>
+
+#### `feedback/message-put` — log-only
+
+```ts persistence-catalog
+/** Log-only human feedback; never enters model history. */
+'feedback/message-put': MessageFeedbackPut
+```
+
+来源： [`packages/feedback/message-feedback/src/types.ts:53`](../packages/feedback/message-feedback/src/types.ts)
+
 <a id="feedbackrecord--log-only"></a>
 
 #### `feedback/record` — log-only
@@ -417,7 +439,7 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 'feedback/record': { text: string }
 ```
 
-来源：[`packages/feedback/command-feedback/src/index.ts:62`](../packages/feedback/command-feedback/src/index.ts)
+来源：[`packages/feedback/command-feedback/src/index.ts:25`](../packages/feedback/command-feedback/src/index.ts)
 
 ### `goal/*`
 

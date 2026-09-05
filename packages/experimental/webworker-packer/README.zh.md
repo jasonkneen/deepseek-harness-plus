@@ -23,6 +23,8 @@ VFS 镜像打包器：把一份合成 profile 变成浏览器 worker 挂载为�
 <a id="use-this-package"></a>
 ## 使用本包
 
+[`DshConfigTreeDeclaration`](../../util/package-manifest/README.zh.md) 描述每个 `dsh.configTrees` 条目；本打包器负责校验并解析其源目录。
+
 打包是三层标准栈：
 
 1. **Roster**——合成 profile 的插件行（标准 YAML 解析、Include 方言、`!!js` 原样保留），加上 CLI 在 `package.json` `dsh.configTrees` 里声明的每棵配置树（agent presets）的行，按 Node 式依赖闭包物化。外部包的 peer 边不追，workspace peer 保留在链上。
