@@ -155,11 +155,10 @@ jobs:
     runs-on: >-
       ${{ inputs.ci && !inputs.release
           && github.repository == 'deepseek-harness/deepseek-harness'
-          && ((github.event_name == 'pull_request'
-               && github.event.pull_request.head.repo.full_name == github.repository
-               && !github.event.pull_request.head.repo.fork
-               && github.event.pull_request.user.login != 'dependabot[bot]')
-              || (github.event_name == 'push' && github.ref == 'refs/heads/master'))
+          && github.event_name == 'pull_request'
+          && github.event.pull_request.head.repo.full_name == github.repository
+          && !github.event.pull_request.head.repo.fork
+          && github.event.pull_request.user.login != 'dependabot[bot]'
           && matrix.target == 'node24-win-x64'
           && vars.DSH_CI_FAILOVER_WINDOWS == 'selfhosted'
           && fromJSON('["self-hosted", "dsh-win-ci", "windows", "x64"]')
@@ -514,6 +513,8 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+      # Node action posts consume temp/compile-cache paths. pnpm post skips
+      # pruning without run_install; no Python/pkg/npm subprocess runs after cleanup.
       - name: Remove private Windows toolchain and test directories
         if: always() && steps.private-windows.outputs.root != ''
         shell: pwsh
@@ -527,6 +528,6 @@ jobs:
           "NODE_COMPILE_CACHE=" >> $env:GITHUB_ENV
           "TMP=$env:RUNNER_TEMP" >> $env:GITHUB_ENV
           "TEMP=$env:RUNNER_TEMP" >> $env:GITHUB_ENV
-          node -e "require('node:fs').rmSync(process.env.PRIVATE_ROOT, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })"
+          node -e "const fs = require('node:fs'); const root = process.env.PRIVATE_ROOT; if (fs.lstatSync(root, { throwIfNoEntry: false })?.isSymbolicLink()) fs.unlinkSync(root); else fs.rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })"
           if ($LASTEXITCODE -ne 0) { throw 'Private Windows job directory removal failed.' }
           if (Test-Path -LiteralPath $env:PRIVATE_ROOT) { throw 'Private Windows job directory survived cleanup.' }

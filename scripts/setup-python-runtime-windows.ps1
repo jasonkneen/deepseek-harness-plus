@@ -31,8 +31,8 @@ foreach ($entry in $privateEnvironment.GetEnumerator()) {
 if ([Runtime.InteropServices.RuntimeInformation]::OSArchitecture -ne 'X64') {
   throw 'Python runtime CI requires a native x64 Windows host.'
 }
-$devMode = Get-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\AppModelUnlock' -Name AllowDevelopmentWithoutDevLicense
-if ($devMode.AllowDevelopmentWithoutDevLicense -ne 1) {
+$devMode = Get-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\AppModelUnlock' -Name AllowDevelopmentWithoutDevLicense -ErrorAction SilentlyContinue
+if ($null -eq $devMode -or $devMode.AllowDevelopmentWithoutDevLicense -ne 1) {
   throw 'The self-hosted Windows image must enable Developer Mode before CI.'
 }
 
@@ -52,5 +52,6 @@ $toolingScripts = Join-Path $tooling 'Scripts'
 $python = Join-Path $toolingScripts 'python.exe'
 & $python -c 'import platform, sys; assert sys.version_info[:2] == (3, 10); assert platform.machine() == "AMD64"; print(sys.version); print(sys.executable)'
 if ($LASTEXITCODE -ne 0) { throw 'Job-private Python version or architecture is incorrect.' }
+# Actions prepends each entry: the last appended directory wins Python lookup.
 $bootstrapScripts >> $env:GITHUB_PATH
 $toolingScripts >> $env:GITHUB_PATH

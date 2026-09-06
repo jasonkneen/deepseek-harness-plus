@@ -1,5 +1,6 @@
 import { spawnSync } from 'node:child_process'
-import { readFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { resolve } from 'node:path'
 import { runInNewContext } from 'node:vm'
 import * as yaml from 'js-yaml'
@@ -32,17 +33,14 @@ function context() {
 }
 
 function route(value: ReturnType<typeof context>, expression = selector): unknown {
-  // The workflow uses only comparisons, booleans and fromJSON; execute that exact expression.
+  // These canonical-case fixtures share JS/Actions comparison results; Actions also ignores string case.
+  // This evaluates the selected syntax, not GitHub's complete expression language.
   return runInNewContext(expression, value, { timeout: 1000 })
 }
 
 describe('Python runtime self-hosted routing', () => {
-  it('routes same-repository member PRs and master CI to native x64 Windows', () => {
+  it('routes same-repository member PRs to native x64 Windows', () => {
     expect(route(context())).toEqual(windows)
-    const master = context()
-    master.github.event_name = 'push'
-    master.github.ref = 'refs/heads/master'
-    expect(route(master)).toEqual(windows)
   })
 
   it.each([
@@ -57,6 +55,7 @@ describe('Python runtime self-hosted routing', () => {
     ['Dependabot author', (value: ReturnType<typeof context>) => { value.github.event.pull_request.user.login = 'dependabot[bot]' }],
     ['disabled failover', (value: ReturnType<typeof context>) => { value.vars.DSH_CI_FAILOVER_WINDOWS = '' }],
     ['unknown failover value', (value: ReturnType<typeof context>) => { value.vars.DSH_CI_FAILOVER_WINDOWS = 'hosted' }],
+    ['master push', (value: ReturnType<typeof context>) => { value.github.event_name = 'push'; value.github.ref = 'refs/heads/master' }],
     ['branch push', (value: ReturnType<typeof context>) => { value.github.event_name = 'push'; value.github.ref = 'refs/heads/topic' }],
     ['tag push', (value: ReturnType<typeof context>) => { value.github.event_name = 'push'; value.github.ref = 'refs/tags/python-v1' }],
   ] as const)('keeps %s on the hosted fallback', (_name, change) => {
@@ -91,11 +90,44 @@ describe('Python runtime self-hosted routing', () => {
     expect(build.steps.find(step => step.name?.startsWith('Enable Windows'))?.if).toBe("runner.os == 'Windows' && runner.environment != 'self-hosted'")
     expect(build.steps.find(step => step.uses?.startsWith('actions/setup-node@'))?.with?.cache).toContain("runner.environment != 'self-hosted'")
     expect(build.steps.at(-1)).toMatchObject({ if: "always() && steps.private-windows.outputs.root != ''", shell: 'pwsh' })
+    expect(build.steps.find(step => step.uses?.startsWith('actions/setup-node@'))?.with?.['package-manager-cache']).toBe(false)
+    expect(build.steps.find(step => step.name === 'Install (immutable)')?.if).toBe("runner.environment != 'self-hosted'")
+    expect(build.steps.find(step => step.name === 'Install private Windows dependencies (immutable)')).toMatchObject({
+      if: "runner.os == 'Windows' && runner.environment == 'self-hosted'",
+      shell: 'pwsh',
+    })
+    expect(build.steps.find(step => step.name === 'Install private Windows dependencies (immutable)')?.run).toContain('pnpm install --frozen-lockfile --package-import-method=copy')
     const cleanup = build.steps.at(-1)!.run!
     expect(cleanup).toContain('"NODE_COMPILE_CACHE=" >> $env:GITHUB_ENV')
     expect(cleanup).toContain('"TMP=$env:RUNNER_TEMP" >> $env:GITHUB_ENV')
     expect(cleanup).toContain('"TEMP=$env:RUNNER_TEMP" >> $env:GITHUB_ENV')
     expect(cleanup).toContain('maxRetries: 10, retryDelay: 100')
+  })
+
+  it.each(['root', 'nested', 'absent'] as const)('cleans a %s job directory without deleting another target', (location) => {
+    const temp = mkdtempSync(resolve(tmpdir(), 'python-runtime-cleanup-'))
+    try {
+      const target = resolve(temp, 'other-job')
+      const owned = resolve(temp, 'owned')
+      mkdirSync(target)
+      writeFileSync(resolve(target, 'sentinel'), 'preserve')
+      if (location === 'nested') mkdirSync(owned)
+      if (location !== 'absent') symlinkSync(target, location === 'root' ? owned : resolve(owned, 'link'), 'junction')
+      const command = /node -e "([^"\n]+)"/.exec(build.steps.at(-1)!.run!)?.[1]
+      expect(command).toBeDefined()
+      const result = spawnSync(process.execPath, ['-e', command!], {
+        env: { ...process.env, PRIVATE_ROOT: owned, NODE_COMPILE_CACHE: '' },
+        encoding: 'utf8',
+        timeout: 10000,
+      })
+      expect(result.error).toBeUndefined()
+      expect(result.signal).toBeNull()
+      expect(result.status, result.stderr).toBe(0)
+      expect(existsSync(owned)).toBe(false)
+      expect(readFileSync(resolve(target, 'sentinel'), 'utf8')).toBe('preserve')
+    } finally {
+      rmSync(temp, { recursive: true, force: true })
+    }
   })
 
   it('reads UTF-8 Session JSONL independently of the host locale', () => {
@@ -127,6 +159,9 @@ describe('Python runtime self-hosted routing', () => {
     expect(setup).toContain('UV_PYTHON_INSTALL_REGISTRY')
     expect(setup).toContain('PNPM_CONFIG_STORE_DIR')
     expect(setup).toContain('PKG_CACHE_PATH')
+    expect(setup.indexOf('$bootstrapScripts >> $env:GITHUB_PATH')).toBeLessThan(setup.indexOf('$toolingScripts >> $env:GITHUB_PATH'))
+    expect(setup).toContain('AllowDevelopmentWithoutDevLicense -ErrorAction SilentlyContinue')
+    expect(setup).toContain('$null -eq $devMode -or')
     expect(setup).not.toMatch(/reg add|Set-ItemProperty|InstallAllUsers/)
   })
 })
