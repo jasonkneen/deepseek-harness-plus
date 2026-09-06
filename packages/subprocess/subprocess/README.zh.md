@@ -119,7 +119,7 @@ spawn 立即返回活动句柄；请求的中止信号驱动与 `terminate()` �
 - [dsh-subprocess-local](../subprocess-local/README.zh.md)——实现本约定的本地宿主提供方。
 - [dsh-subprocess-e2b](../../e2b/subprocess-e2b/README.zh.md)——同一 seam 的远程 E2B 提供方。
 - [dsh-bash-local](../../shell/bash-local/README.zh.md)——最大的消费方：经由本服务运行 bash 命令。
-- [subprocess seam Agent Note](../../../.agents/notes/implemented/architecture/2026-07-26-subprocess-seam.zh.md)——进程部分为何成为独立的 seam，以及随之迁移的内容。
+- [subprocess seam Agent Note](../../../.agents/notes/archived/architecture/2026-07-26-subprocess-seam.md)——进程部分为何成为独立的 seam，以及随之迁移的内容。
 
 -----
 
