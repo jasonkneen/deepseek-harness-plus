@@ -30,9 +30,9 @@ Status: implemented
 
 `dsh-agent-loop` 注册两个内置变量，均为上下文 agent 的纯投影：`model`（= `options.model`）和 `cwd`（= `session.header.cwd`）。示例 persona 写 `powered by the {{model}} model`——模型名称只在 `model:` 配置键中声明一次。`{{cwd}}` 仅在 ACP 示例中演示：每个 ACP 会话携带客户端的 cwd，而配置预创建的 stdio agent 没有 cwd（在那里声称 `{{cwd}}` 的 persona 会导致该轮次失败——这是有意为之）。变量留在 loop 插件上（不同于下面的 section）：它们是本循环驱动的 agent 的运行时事实，替换循环自行提供自己的变量。
 
-### Persona 作为注册表 section
+### Persona 作为 order-0 section
 
-`dsh-system-prompt` 拥有 first-party order 为 `-1000` 的 `harness:identity` 和 order 为 `10200` 的配置 `deployment:persona`，因此两者在循环被替换时仍然存活。[环境后缀决策](../bug-fix/2026-09-06-environment-prompt-suffix.zh.md)仅取代部署 persona 的 identity-first 位置；变量与工具指导的归属仍由本文规定。提示词渲染只有一条路径 `renderPrompt(assembly)`，已路由请求 header 因此会记录准确的提示词，稍后由 `ctx.tokenMeter` 为压缩（compaction）压力回放。agent 作用域的 `deployment:persona` 遮蔽全局默认值，允许 subagent 提供方在发布前安装 persona。[`dsh-system-prompt` README](../../../../packages/core/system-prompt/README.zh.md)规定身份、策略、工具指导、生成协议和最终输出义务的稀疏具名位置。
+`dsh-system-prompt` 拥有 first-party order 为 `-1000` 的 `harness:identity` 和 order 为 0 的配置 `deployment:persona-prefix`，因此两者在循环被替换时仍然存活。提示词渲染只有一条路径 `renderPrompt(assembly)`，已路由请求 header 因此会记录准确的提示词，稍后由 `ctx.tokenMeter` 为压缩（compaction）压力回放。agent 作用域的 `deployment:persona-prefix` 遮蔽全局默认值，允许 subagent 提供方在发布前安装 persona。[`dsh-system-prompt` README](../../../../packages/core/system-prompt/README.zh.md)规定身份、策略、工具指导、生成协议和最终输出义务的稀疏具名位置。
 
 ### 工具指导归属
 
@@ -58,7 +58,7 @@ Status: implemented
 
 ## 交付的不变式
 
-- 第一方提示词通过一条组装路径依次渲染 identity、可复用指令，再渲染包含插值 persona 的环境信息段落。
+- tui-agent 的提示词通过一条组装路径依次渲染 identity、带插值模型名的 persona，然后是 fs/shell/web 指导。
 - fork 和 fresh subagent 的描述反映提供方是否继承已完成的对话轮次；工具随提供方生命周期变化而出现、消失和重新措辞。
 - 未知、无值、格式错误或不平衡的变量引用会指明 section 名称并抛出异常；重复的 section、变量和工具注册同样抛出异常。
 - 快照回放与提示词无关：它按轮次和步骤索引已记录的分片流，不比较发出的请求。

@@ -897,7 +897,7 @@ describe('addHarnessSourceSection', () => {
   it('distinguishes the source path from the current workdir after reusable instructions', async () => {
     const ctx = new Context()
     try {
-      await ctx.plugin(SystemPrompt, { persona: 'You are a coding agent.' })
+      await ctx.plugin(SystemPrompt, { personaPrefix: 'You are a coding agent.' })
       ctx.systemPrompt.section({
         name: 'tools:sdk', order: ctx.systemPrompt.getSectionOrder('TOOLS_SDK'), text: 'Reusable tool SDK.',
       })
@@ -914,9 +914,9 @@ describe('addHarnessSourceSection', () => {
       expect(identityAt).toBeGreaterThanOrEqual(0)
       expect(personaAt).toBeGreaterThanOrEqual(0)
       const sdkAt = rendered.indexOf('Reusable tool SDK.')
-      expect(sdkAt).toBeGreaterThan(identityAt)
+      expect(personaAt).toBeGreaterThan(identityAt)
+      expect(sdkAt).toBeGreaterThan(personaAt)
       expect(sdkAt).toBeLessThan(sourceAt)
-      expect(sourceAt).toBeLessThan(personaAt)
     } finally {
       await ctx.fiber.dispose()
     }

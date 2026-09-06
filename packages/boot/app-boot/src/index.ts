@@ -841,7 +841,7 @@ export const HARNESS_SOURCE_SECTION = 'harness:source'
  * directory. The self-referential `dsh-tool-cordis` toolset reads and edits this
  * checkout. Call once on the settled boot context ({@link boot}); the section
  * uses the shared first-party placement after reusable instructions
- * and before the Web surface and deployment persona. A booted tree with no
+ * and before the Web surface and persona suffix. A booted tree with no
  * `systemPrompt` service has no prompt to augment, so this is then a no-op
  * that returns `undefined`. The section is
  * registered against the `systemPrompt` service's fiber, so a dev HMR reload of

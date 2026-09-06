@@ -107,7 +107,12 @@ describe('web e2e: fresh round trip through the real assembly', () => {
     if (agent === undefined) throw new Error(`the settled Web agent ${settledSessionId} is no longer live`)
     const system = agent.session.requestHeader()?.system
     if (system === undefined) throw new Error('the settled Web request has no system prompt')
-    const suffix = system.split('\n\n').slice(-3).join('\n\n')
+    const paragraphs = system.split('\n\n')
+    expect(paragraphs.slice(0, 2)).toEqual([
+      'You are an AI agent powered by DeepSeek Harness.',
+      'You are a coding agent powered by the deepseek-v4-flash model.',
+    ])
+    const suffix = paragraphs.slice(-3).join('\n\n')
       .split(REPO_ROOT).join('{{sourceRoot}}')
       .split(join(scaffold.workspaceCwd, 'workspace')).join('{{cwd}}')
       .split(scaffold.baseUrl).join('{{webUrl}}')

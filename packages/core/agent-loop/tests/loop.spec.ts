@@ -19,7 +19,7 @@ async function harness(adapter: MockAdapter, persona = '') {
   await ctx.plugin(LlmRuntime)
   await ctx.plugin(SessionStore)
   await ctx.plugin(SessionProjectionRegistry)
-  await ctx.plugin(SystemPrompt, { persona })
+  await ctx.plugin(SystemPrompt, { personaPrefix: persona })
   await ctx.plugin(ToolRuntime)
   await ctx.plugin(AgentRegistry)
   await ctx.plugin(AgentLoop, { agents: [] })
@@ -501,7 +501,7 @@ describe('agent loop', () => {
     expect(types).toContain('tool/result')
   })
 
-  it('renders harness identity and tool guidance before the interpolated persona', async () => {
+  it('renders harness identity, then the persona, then tool guidance — with {{variables}} resolved', async () => {
     const adapter = new MockAdapter([textResponse('ok')])
     // The persona is a TEMPLATE: {{model}} is the loop-registered variable
     // projecting this agent's configured model, so the model knows its own name.
@@ -521,7 +521,7 @@ describe('agent loop', () => {
     await waitForIdle(ctx, agent)
 
     const request = adapter.requests[0]
-    expect(request!.system).toBe('You are an AI agent powered by DeepSeek Harness.\n\nUse the noop tool wisely.\n\nYou are a test agent on mock.')
+    expect(request!.system).toBe('You are an AI agent powered by DeepSeek Harness.\n\nYou are a test agent on mock.\n\nUse the noop tool wisely.')
     expect(request!.tools?.map(t => t.name)).toEqual(['noop'])
   })
 
@@ -556,7 +556,7 @@ describe('agent loop', () => {
 
     expect(adapter.requests).toHaveLength(0) // the request was never sent
     expect(errors.map(error => error.message)).toEqual([
-      'prompt variable "{{cwd}}" has no value for this assembly (section "deployment:persona")',
+      'prompt variable "{{cwd}}" has no value for this assembly (section "deployment:persona-prefix")',
     ])
     const turnEnd = agent.session.snapshotEvents().find(e => e.type === 'turn/end')
     expect(turnEnd?.type === 'turn/end' && turnEnd.data.reason.kind).toBe('error')

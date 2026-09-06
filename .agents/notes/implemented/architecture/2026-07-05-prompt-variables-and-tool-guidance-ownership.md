@@ -30,9 +30,9 @@ Plugins register `{{name}}` values through `ctx.systemPrompt.variable(name, prov
 
 `dsh-agent-loop` registers the two built-ins, both pure projections of the context agent: `model` (= `options.model`) and `cwd` (= `session.header.cwd`). The example personas write `powered by the {{model}} model` — the model name is stated once, in the `model:` config key. `{{cwd}}` is demonstrated in the ACP example only: every ACP session carries the client's cwd, while config-pre-created stdio agents have none (a persona claiming `{{cwd}}` there fails the turn — by design). The variables stay on the loop plugin (unlike the sections below): they are runtime facts of the agents THIS loop drives, and a replacement loop supplies its own.
 
-### Persona as a registry section
+### Persona as the order-0 section
 
-`dsh-system-prompt` owns `harness:identity` at first-party order `-1000` and the configured `deployment:persona` at order `10200`, so both survive a replacement loop. The [environment-suffix decision](../bug-fix/2026-09-06-environment-prompt-suffix.md) supersedes only the identity-first placement of the deployment persona; variable and tool-guidance ownership remain here. Prompt rendering has one path, `renderPrompt(assembly)`, and the routed request header therefore records the exact prompt later replayed by `ctx.tokenMeter` for compaction pressure. An agent-scoped `deployment:persona` shadows the global default and lets subagent providers install a persona before publication. The [`dsh-system-prompt` README](../../../../packages/core/system-prompt/README.md) owns the sparse named placements for identity, policy, tool guidance, generated protocol, and final-output obligations.
+`dsh-system-prompt` owns `harness:identity` at first-party order `-1000` and the configured `deployment:persona-prefix` at order 0, so both survive a replacement loop. Prompt rendering has one path, `renderPrompt(assembly)`, and the routed request header therefore records the exact prompt later replayed by `ctx.tokenMeter` for compaction pressure. An agent-scoped `deployment:persona-prefix` shadows the global default and lets subagent providers install a persona before publication. The [`dsh-system-prompt` README](../../../../packages/core/system-prompt/README.md) owns the sparse named placements for identity, policy, tool guidance, generated protocol, and final-output obligations.
 
 ### Tool guidance ownership
 
@@ -58,7 +58,7 @@ Per-tool semantics and selection guidance live in tool descriptions. Prompt sect
 
 ## Shipped invariants
 
-- First-party prompts render identity, reusable instructions, then environment-bearing sections including the interpolated persona through one assembly path.
+- The tui-agent prompt renders identity, persona with the interpolated model, then fs/shell/web guidance through one assembly path.
 - Fork and fresh subagent descriptions reflect whether the provider inherits completed conversation turns; the tool appears, disappears, and is reworded with provider lifecycle changes.
 - Unknown, valueless, malformed, or unbalanced variable references name the section and throw; duplicate section, variable, and tool registrations also throw.
 - Snapshot replay is prompt-independent: it keys recorded chunk streams by turn and step without comparing the outgoing request.

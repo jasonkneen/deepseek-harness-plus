@@ -42,7 +42,7 @@ SDK 使用 base 默认提供的 `read`、`write` 和 `edit`。要添加 `str_rep
 
 #### 模型看到什么
 
-profile 会在第一方可复用指令之后提供 `You are a coding agent powered by the {{model}} model. Your working directory is {{cwd}}.`。确切的 SDK 初始化路由与会话 cwd 会解析其中的占位符。默认文件工具 schema 包含 `read`、`write` 和 `edit`，不包含 `str_replace_editor`。
+profile 在第一方指导之前提供 `You are a coding agent powered by the {{model}} model.`，并在独立的 persona 后缀中提供 `Your working directory is {{cwd}}.`。确切的 SDK 初始化路由与会话 cwd 会解析其中的占位符。默认文件工具 schema 包含 `read`、`write` 和 `edit`，不包含 `str_replace_editor`。
 
 #### Token 影响
 
