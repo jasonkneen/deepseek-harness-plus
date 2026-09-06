@@ -779,7 +779,8 @@ describe('glob results', () => {
       suggestedName: 'glob-results.txt',
       content: 'a.ts\nb.ts\nc.ts\nd.ts',
     })
-    expect(spill?.saves[0]?.source.callId).toBeDefined()
+    const source = spill?.saves[0]?.source
+    expect(source?.kind === 'tool' && source.callId).toBeTypeOf('string')
     expect(result.additionalContexts?.[0]?.content).toEqual([{ type: 'text', text: 'glob context' }])
   })
 

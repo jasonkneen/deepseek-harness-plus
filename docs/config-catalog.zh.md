@@ -1959,8 +1959,10 @@ export interface Config {
   maxReferences?: number
   /** Default host candidate-list limit. */
   candidateLimit?: number
-  /** Maximum rendered UTF-8 bytes for one source snapshot. */
+  /** Explicit maximum rendered UTF-8 bytes per source; absent uses the model-relative budget with a 64 KiB floor. */
   maxReferenceBytes?: number
+  /** Fraction of the model context window per source, estimated at four bytes per token; between zero and one. */
+  referenceContextFraction?: number
 }
 ```
 
