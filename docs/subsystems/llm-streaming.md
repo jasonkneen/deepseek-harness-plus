@@ -225,7 +225,7 @@ type StreamChunk =
 
 `snapshot()` returns a detached immutable stream. `expandAssistantStream()` strictly checks record keys, member counts, indexes, timestamps, tool-call identity, and lossless JSON before recreating the exact timed chunk sequence. The Session log embeds this stream in `assistant/message` for a surface result or `assistant/attempt` for an attempt with no surface message.
 
-Process-local `agent/assistant-stream` frames carry live presentation. Durable replay, telemetry, token accounting, and historical UI assembly expand the embedded settlement instead of treating live frames as persisted facts.
+Process-local `agent/assistant-stream` frames carry live presentation. Durable replay and restore validation still expand the embedded settlement; telemetry, token accounting, and Host folds read the compact records directly. Record-level readers (`assistantStreamFirstTokenTime`, `assistantStreamHasVisibleContent`, `assistantStreamHasVisibleText`, `lastAssistantStreamChunk`, `assistantStreamChunks`, `joinAssistantStreamText`, `assembleAssistantStream`, and the per-run `runFirstTokenTime` and `runFirstVisibleTime`) answer consumer questions in one pass over the records with early exit, so a large history costs O(records) per settlement instead of O(members) expansion ([fold decision](../../.agents/notes/implemented/architecture/2026-09-06-embedded-stream-record-readers.md)). `expandAssistantStream()` remains the validating path for records read at a durable boundary and for consumers that need every member.
 
 ## `LlmFailure`
 
