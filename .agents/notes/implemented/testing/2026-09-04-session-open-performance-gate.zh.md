@@ -12,7 +12,7 @@ Session format v2 的推出改变了两条成本随模型输出增长的路径�
 
 ## 决定
 
-Linux pull request 运行必需的 `node 24 / benchmarks` job，执行 `pnpm run check:ci:bench` → `pnpm run test:bench`。私有 `@deepseek-ai/dsh-benchmarks` workspace 拥有 benchmark 专属依赖。该命令先构建 workspace library 和 `benchmarks/.dsh-build/` 下的专用 worker，再调用 `vitest.bench.config.ts`。该 job 单独运行 benchmark lane；Vitest 逐文件运行，只负责准备输入、启动测量子进程、汇总结果和执行预算断言。每条被计时的 CPU 路径都以纯 Node 执行编译后的 JavaScript，并移除 `NODE_OPTIONS` 且不加载 TypeScript runtime；workspace 裸导入因此从 `benchmarks/node_modules` 通过 package exports 解析到构建后的 `lib/` 入口。
+Linux pull request 运行必需的 `node 24 / benchmarks` job，执行 `pnpm run check:ci:bench` → `pnpm run test:bench`。私有 `@deepseek-ai/dsh-benchmarks` workspace 拥有 benchmark 专属依赖。该命令先构建 workspace library 和 `benchmarks/.dsh-build/` 下的专用 worker，再调用 `vitest.bench.config.ts`。[标准托管运行器决策](2026-09-06-standard-hosted-benchmark-runner.zh.md)拥有运行器选择及外层 job 超时。该 job 单独运行 benchmark lane；Vitest 逐文件运行，只负责准备输入、启动测量子进程、汇总结果和执行预算断言。每条被计时的 CPU 路径都以纯 Node 执行编译后的 JavaScript，并移除 `NODE_OPTIONS` 且不加载 TypeScript runtime；workspace 裸导入因此从 `benchmarks/node_modules` 通过 package exports 解析到构建后的 `lib/` 入口。
 
 必需性能 gate 位于顶层 `benchmarks/`，按被测用户路径而非 package 归属组织。Host 文件使用 `*.bench.ts`，Client 面文件使用 `*.bench.client.ts`，场景专属 worker 与 fixture 留在对应 benchmark 旁且不带 benchmark 后缀。包内 `.perf.ts` 文件仍是非门禁诊断；`scripts/` 负责编排而不承载 benchmark case。
 
@@ -37,7 +37,7 @@ Session benchmark 使用固定参数合成 released-v0 输入：200 轮，每轮
 
 性能 gate 不重复功能测试的内容断言，只要求目标调用完成并到达对应的可观察终点。Client fold benchmark 继续使用真实 `ConversationNodeAssembler` 与全部 Chat Definition，要求大窗口的绝对时间和相对小窗口的缩放比均低于固定预算。
 
-预算按各测量终点分别校准。两次 Node 24.19 x64 CI 运行的中位数最大相差 5.2%；其 CPU 密集型壁钟时间是 Node 24.18 arm64 参考运行的 1.95–2.06 倍。源码常量记录参考机器上的预期耗时；`ciTimeBudget()` 将其乘以实测的 2 倍 CI 时间系数和 1.25 倍波动余量。GC 后增量堆与 Client fold 缩放预算不属于壁钟时间，因此只使用 1.25 倍余量。128 MB 完成性检查仍是独立的瞬时分配限制。由此得到的 first-open 时间上限、受限堆检查与 Client fold 上限都会拒绝已知退化。栈前参考提交固定为 `0d7ea53743e273930a31e9e2b6ca682f21dd4ca5`，只用于校准和评审预算；CI 不 checkout 或执行历史仓库。预算是源码中的受评审常量，不由环境变量覆盖。
+预算按各测量终点分别校准。两次 Node 24.19 x64 CI 运行的中位数最大相差 5.2%；其 CPU 密集型壁钟时间是 Node 24.18 arm64 参考运行的 1.95–2.06 倍。除当前 generation `open` 外，源码常量记录参考机器上的预期耗时；`ciTimeBudget()` 将其乘以实测的 2 倍 CI 时间系数和 1.25 倍波动余量。当前 generation `open` 使用标准运行器直接测得的 50 ms 预期值，仅乘以 1.25 倍余量，向上取整得到 63 ms 预算。GC 后增量堆与 Client fold 缩放预算不属于壁钟时间，因此只使用 1.25 倍余量。128 MB 完成性检查仍是独立的瞬时分配限制。由此得到的 first-open 时间上限、受限堆检查与 Client fold 上限都会拒绝已知退化。栈前参考提交固定为 `0d7ea53743e273930a31e9e2b6ca682f21dd4ca5`，只用于校准和评审预算；CI 不 checkout 或执行历史仓库。预算是源码中的受评审常量，不由环境变量覆盖。
 
 ## 校准证据
 
@@ -54,12 +54,14 @@ Session benchmark 使用固定参数合成 released-v0 输入：200 轮，每轮
 
 栈前实现以 V0 作为当前格式，因此 first open 不改变磁盘表示；它的原生 V0 首屏历史与 Agent resume 测量同时适用于两个生命周期行。
 
+`ca3ffe95dac2c55eefeb16ed9b61067bbd19ee90` 上的[标准双 CPU 运行](https://github.com/deepseek-harness/deepseek-harness/actions/runs/34023970384/job/101461539961)使用 Node 24.20.0 x64 和 Ubuntu 镜像 `20260831.293.1`。当前 generation `open` 的五次样本为 49.2、47.4、49.1、48.6 和 48.1 ms：中位数 48.6 ms，最大值 49.2 ms。取整后的 50 ms CI 预期值给出 63 ms 上限，不重复乘以 2 倍机器系数。日志标明两个可用 CPU，但未记录型号；它无法区分硬件变化与 Node 版本变化的影响。这是端点专属的运行器校准，不是应用优化或参考机器新测量的证据。其他每项 benchmark 均通过既有预算。确定性正反例在历史 30 ms 上限下拒绝实测中位数，在 63 ms 下接受它，拒绝合成的 75 ms reopen 中位数，并以未改变的 550 ms 上限拒绝合成的 4,000 ms 首次打开耗时。这些正反例验证预算执行，不代表测得新的退化。
+
 校准后的源码预算如下：
 
 | 测量项 | 参考机预期 | CI 预算 |
 |---|---:|---:|
 | First-open `open` | 220 ms | 550 ms |
-| 当前 generation `open` | 12 ms | 30 ms |
+| 当前 generation `open` | 12 ms（历史参考值；CI 预期值：50 ms） | 63 ms |
 | 完整 read | 8 ms | 20 ms |
 | Session restore | 24 ms | 60 ms |
 | Projection | 14 ms | 35 ms |
