@@ -28,8 +28,9 @@ function workflow(file: string): Workflow {
   return load(readFileSync(resolve(root, '.github/workflows', file), 'utf8')) as Workflow
 }
 
-// These selectors use only string/boolean comparisons and short-circuit operators,
-// shared by Actions and JavaScript; absent Actions context properties read as ''.
+// This canonical-case corpus has matching Actions/JavaScript comparison results.
+// This is not an Actions interpreter: string case-folding and general coercion differ.
+// Missing context properties use the Actions empty-string value.
 function evaluate(expression: string, context: Record<string, string | boolean>): unknown {
   const source = expression.trim().replace(/^\$\{\{|\}\}$/g, '')
     .replace(/\b(?:github|vars|runner)(?:\.[a-zA-Z_][a-zA-Z_0-9]*)+/g,
@@ -102,6 +103,7 @@ for (const [file, jobIds] of [['release.yml', ['dependencies', 'pack']], ['relea
           expect(cacheIndex).toBeLessThan(pnpmIndex)
           expect(job.steps[cacheIndex]?.run).toContain('echo "NODE_COMPILE_CACHE=${{ runner.temp }}/node-compile-cache" >> "$GITHUB_ENV"')
           expect(job.steps[cacheIndex]?.run).toContain('echo "npm_config_devdir=${{ runner.temp }}/node-gyp" >> "$GITHUB_ENV"')
+          expect(job.steps[cacheIndex]?.run).toContain('echo "TMPDIR=${{ runner.temp }}" >> "$GITHUB_ENV"')
           expect(job.steps.find(step => step.uses === 'pnpm/action-setup@v4')?.with?.dest)
             .toBe('${{ runner.temp }}/setup-pnpm-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}')
           expect(job.steps.find(step => step.name === 'Install (immutable)')?.run).toBe('pnpm install --frozen-lockfile')
