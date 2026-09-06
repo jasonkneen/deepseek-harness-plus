@@ -16,6 +16,8 @@
 
 Session fixture 保留 header 与 payload，但省略正文 seq/time envelope；replay 会合成这些 envelope。Replay、record 与 refresh 会选择每个 parent/child 角色的最高 generation。当前 v2 使用 `.v2`、每个事件一行，并嵌入紧凑 Assistant stream；保留的 v0（无后缀）与 v1（`.v1`）可以为迁移覆盖保留规范 packed row。[迁移器](../scripts/migrate-packed-session-fixtures.ts)会改写更旧的历史布局。
 
+[Python 运行时与 Wine 调度](../.agents/notes/implemented/process/2026-09-06-master-only-platform-ci.zh.md)。
+
 ## spec 如何被执行
 
 fork 出的 worker 会同时运行多个 spec 文件，coverage gate 会拆成并发的 partition，与同一个 job 中的其它 gate 并排运行，而自托管 runner 共用同一台宿主机和同一个卷。被隔离的只有进程：端口、可预测路径、外部命名空间和继承而来的子进程都不隔离。为每个占用的资源负责到它的 teardown，并把「只有单独运行时才通过」的 spec 读作该 spec 的缺陷，而不是 runner 不稳定。[dsh-ci-test-reliability](../.agents/skills/dsh-ci-test-reliability/SKILL.md) 负责资源分配、状态恢复、同步、超时预算、平台差异与 teardown 规则；它的 [flake 诊断流程](../.agents/skills/dsh-ci-test-reliability/references/ci-flake-diagnosis.md)用于归类已经存在的概率性失败。
