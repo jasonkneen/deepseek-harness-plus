@@ -40,7 +40,7 @@ function median(values: number[]): number {
 
 it('opens, pages, navigates and streams into a 240-turn browser history', async () => {
   if (webSnapshotMode() !== 'replay') throw new Error('browser benchmarks require keyless replay mode')
-  const samples: { open: number; page: number; trajectory: number; first: number; streamTask: number; streamWall: number; input: number; heapMb: number; nodes: number }[] = []
+  const samples: { open: number; page: number; trajectory: number; first: number; streamTask: number; streamWall: number; input: number; inputOverlapped: boolean; heapMb: number; nodes: number }[] = []
   for (let sample = 0; sample < SAMPLES; sample++) {
     const failures: unknown[] = []
     const root = await mkdtemp(join(tmpdir(), 'dsh-browser-benchmark-'))
@@ -49,7 +49,9 @@ it('opens, pages, navigates and streams into a 240-turn browser history', async 
       await writeFile(replayOverride, JSON.stringify([{ kind: 'chunks', chunks: syntheticReply() }]))
       const scaffold = await launchWebScaffold({ replayFixture: join(root, 'override-only.jsonl'), replayOverride, paceMs: PACE_MS, replayContextWindow: 10000000 })
       try {
-        await seedSession(scaffold, syntheticHistory(), SESSION_ID)
+        const history = syntheticHistory()
+        await seedSession(scaffold, history, SESSION_ID)
+        console.log(JSON.stringify({ benchmark: 'long-session-browser/fixture', bytes: Buffer.byteLength(history) }))
         const browser = await chromium.launch({ headless: true })
         try {
           const page = await newEnglishPage(browser)
@@ -100,16 +102,24 @@ it('opens, pages, navigates and streams into a 240-turn browser history', async 
           await page.getByText(FIRST, { exact: false }).last().waitFor()
           await painted(page)
           const first = performance.now() - started
-          expect(await page.getByText(DONE, { exact: false }).count()).toBe(0)
-          // Trusted keyboard input while the response is live, rather than a synthetic heartbeat.
+          await composer.evaluate((element, markers) => {
+            element.addEventListener('input', (event) => {
+              const transcript = document.querySelector('[data-conversation-scroll]')?.textContent ?? ''
+              element.setAttribute('data-benchmark-input-overlap', String(event.isTrusted && transcript.includes(markers.first) && !transcript.includes(markers.done)))
+            }, { once: true })
+          }, { first: FIRST, done: DONE })
+          // Observe the actual trusted input event, not state before asynchronous click/typing.
           const input = await measure(page, async () => {
             await composer.click()
             await page.keyboard.type('next synthetic question')
             await expect.poll(() => composer.textContent()).toBe('next synthetic question')
           })
+          const inputOverlapped = await composer.getAttribute('data-benchmark-input-overlap') === 'true'
+          expect(inputOverlapped).toBe(true)
           await page.getByText(DONE, { exact: false }).last().waitFor()
           const settlement = await settled
           if (!settlement.ok) throw settlement.error
+          await page.waitForFunction(({ selector, expected }) => document.querySelectorAll(selector).length === expected, { selector: TAIL, expected: HISTORY_TURNS + 1 })
           await painted(page)
           const streamWall = performance.now() - started
           const streamTask = await taskMs(cdp) - beforeTask
@@ -117,7 +127,7 @@ it('opens, pages, navigates and streams into a 240-turn browser history', async 
           const metrics = (await cdp.send('Performance.getMetrics')).metrics
           const heap = metrics.find(metric => metric.name === 'JSHeapUsedSize')
           if (heap === undefined) throw new Error('Chromium heap metric missing')
-          samples.push({ open, page: Math.max(...pages), trajectory, first, streamTask, streamWall, input, heapMb: heap.value / 1048576, nodes: await page.locator('*').count() })
+          samples.push({ open, page: Math.max(...pages), trajectory, first, streamTask, streamWall, input, inputOverlapped, heapMb: heap.value / 1048576, nodes: await page.locator('*').count() })
           console.log(JSON.stringify({ benchmark: 'long-session-browser/sample', sample, initialTurns, pages, ...samples.at(-1) }))
           expect(consoleWatch.pageErrors).toEqual([])
           expect(consoleWatch.warnings).toEqual([])

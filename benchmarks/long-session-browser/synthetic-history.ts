@@ -1,6 +1,7 @@
 /** Synthetic current-generation history and paced reply for browser measurements. */
 import { createAssistantMessage, createUserMessage, createToolResultMessage, ToolCallId } from '@deepseek-ai/dsh-llm'
 import type { StreamChunk } from '@deepseek-ai/dsh-llm'
+import { AssistantStreamAccumulator } from '@deepseek-ai/dsh-llm/assistant-stream'
 import { Session, SessionId, SESSION_FORMAT_VERSION } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-session-title'
 
@@ -36,20 +37,42 @@ export function syntheticHistory(): string {
     const code = turn % 12 === 0
       ? '\n\n```ts\n' + Array.from({ length: 60 }, (_, i) => 'const value' + String(i) + ' = ' + String(i)).join('\n') + '\n```'
       : ''
+    const reasoning = 'Compare the synthetic module and test. '.repeat(40)
+    const text = 'Synthetic answer ' + String(turn) + '. ' + 'Preserve ordering and validate the output. '.repeat(30) + code
+    const args = '{"path":"src/example.ts"}'
+    const stream = new AssistantStreamAccumulator()
+    let time = 1700000000000 + turn * 10000
+    const push = (chunk: StreamChunk): void => { stream.push({ time: time++, chunk }) }
+    for (const [index, block] of [{ type: 'reasoning' as const, text: reasoning }, { type: 'text' as const, text }].entries()) {
+      push({ type: 'block-start', index, blockType: block.type })
+      for (let offset = 0; offset < block.text.length; offset += 12) {
+        push({ type: block.type === 'reasoning' ? 'reasoning-delta' : 'text-delta', index, text: block.text.slice(offset, offset + 12) })
+      }
+      push({ type: 'block-end', index, block })
+    }
+    if (tool) {
+      push({ type: 'block-start', index: 2, blockType: 'tool-call' })
+      for (let offset = 0; offset < args.length; offset += 8) {
+        push({ type: 'tool-call-delta', index: 2, id: callId, ...offset === 0 ? { name: 'synthetic_tool' } : {}, argumentsDelta: args.slice(offset, offset + 8) })
+      }
+      push({ type: 'block-end', index: 2, block: { type: 'tool-call', id: callId, name: 'synthetic_tool', arguments: args } })
+    }
+    push({ type: 'usage', usage: { inputTokens: 4000, outputTokens: 800 } })
+    push({ type: 'finish', reason: { kind: tool ? 'tool-calls' : 'stop' } })
     session.append('assistant/message', {
-      turn, step: 1, stream: [],
+      turn, step: 1, stream: [...stream.snapshot()],
       message: createAssistantMessage({
         source: { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
         content: [
-          { type: 'reasoning', text: 'Compare the synthetic module and test. '.repeat(40) },
-          { type: 'text', text: 'Synthetic answer ' + String(turn) + '. ' + 'Preserve ordering and validate the output. '.repeat(30) + code },
-          ...tool ? [{ type: 'tool-call' as const, id: callId, name: 'synthetic_tool', arguments: '{"path":"src/example.ts"}' }] : [],
+          { type: 'reasoning', text: reasoning },
+          { type: 'text', text },
+          ...tool ? [{ type: 'tool-call' as const, id: callId, name: 'synthetic_tool', arguments: args }] : [],
         ],
       }),
       usage: { inputTokens: 4000, outputTokens: 800 },
     }, { surfaceOp: 'append' })
     if (tool) {
-      const call = session.append('tool/call', { turn, step: 1, callId, name: 'synthetic_tool', arguments: '{"path":"src/example.ts"}' })
+      const call = session.append('tool/call', { turn, step: 1, callId, name: 'synthetic_tool', arguments: args })
       session.append('tool/result', { turn, step: 1, message: createToolResultMessage({
         callId, isError: false, content: [{ type: 'text', text: 'Synthetic tool output line.\n'.repeat(160) }],
       }) }, { surfaceOp: 'append', sourceEventSeqs: [call.seq] })
