@@ -14,7 +14,7 @@ Status: proposed
 
 仅当 `inputs.ci && !inputs.release`、仓库为规范仓库，且事件为同仓库非 fork、非 Dependabot 的 PR（Pull Request）或 master 推送时，将 [runtime 工作流](../../../../.github/workflows/build-exe-for-python-sdk.yml) 的 Windows x64 目标路由到常驻运行器池。`DSH_CI_FAILOVER_WINDOWS=selfhosted` 启用此路由；未设置或其他值使通道留在托管运行器。发布/手动构建、其他事件、Linux/macOS 目标、规划作业与 SDK wheel 包作业继续使用托管运行器。实现尚待原生 runtime 验证。
 
-[原生准备探测](https://github.com/deepseek-harness/deepseek-harness/actions/runs/34013261224/job/101432611073) 下载 Python 3.10.20，验证命令解析与包含 pip 的冒烟 venv，断言已注册的 Python 安装与开发人员模式不变，并证明作业根目录已删除。观测到目录非空的删除失败后，Windows 递归删除使用有限重试。工作流另外在 action 后置步骤前清除导出的编译缓存路径并重置临时目录变量；定向测试固定这些赋值，它们不属于引用的探测提交。定向路由测试通过，反转故障切换条件会产生三个预期失败，随后恢复条件。完整可执行文件、wheel 包与真实 API 验证仍待完成。
+[原生准备探测](https://github.com/deepseek-harness/deepseek-harness/actions/runs/34013261224/job/101432611073) 下载 Python 3.10.20，验证命令解析与包含 pip 的冒烟 venv，断言已注册的 Python 安装与开发人员模式不变，并证明作业根目录已删除。观测到目录非空的删除失败后，Windows 递归删除使用有限重试。工作流另外在 action 后置步骤前清除导出的编译缓存路径并重置临时目录变量；定向测试固定这些赋值，它们不属于引用的探测提交。定向路由测试通过，反转故障切换条件会产生三个预期失败，随后恢复条件。首次完整原生运行成功构建可执行文件与 wheel 包，但 Python 用主机默认 GBK 编码读取 UTF-8 Session JSONL 时失败。准备脚本导出 Python UTF-8 模式与 UTF-8 标准流；本地强制 ASCII locale 的子进程复现默认解码失败并验证设置，修复后的原生 keyless／真实 API 验证仍待完成。
 
 [私有准备脚本](../../../../scripts/setup-python-runtime-windows.ps1) 使用预装解释器，在临时 venv 内引导安装 uv 0.11.23，再通过 `--no-bin --no-registry` 将托管 Python 3.10 下载到唯一的作业目录。它创建包含初始工具包的工具 venv，禁止进一步下载 Python。[固定版本的 uv 源码](https://github.com/astral-sh/uv/blob/3cdf50e0924f1ace7a92ddbac98b12a958b87688/crates/uv-cli/src/lib.rs#L6672-L6713) 提供这些参数；[实现](https://github.com/astral-sh/uv/blob/3cdf50e0924f1ace7a92ddbac98b12a958b87688/crates/uv/src/commands/python/install.rs#L667-L723) 禁止创建可执行文件链接与注册表登记。CI 检查开发人员模式，不负责启用它。
 

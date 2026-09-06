@@ -5,6 +5,9 @@ New-Item -ItemType Directory -Path $root | Out-Null
 "root=$root" >> $env:GITHUB_OUTPUT
 
 $privateEnvironment = @{
+  # Session JSONL and SDK pipes use UTF-8, including on Chinese Windows images.
+  PYTHONUTF8 = '1'
+  PYTHONIOENCODING = 'utf-8'
   TMP = $root
   TEMP = $root
   UV_CACHE_DIR = (Join-Path $root 'uv-cache')

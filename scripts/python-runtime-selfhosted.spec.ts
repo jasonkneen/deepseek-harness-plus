@@ -1,3 +1,4 @@
+import { spawnSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { runInNewContext } from 'node:vm'
@@ -95,6 +96,28 @@ describe('Python runtime self-hosted routing', () => {
     expect(cleanup).toContain('"TMP=$env:RUNNER_TEMP" >> $env:GITHUB_ENV')
     expect(cleanup).toContain('"TEMP=$env:RUNNER_TEMP" >> $env:GITHUB_ENV')
     expect(cleanup).toContain('maxRetries: 10, retryDelay: 100')
+  })
+
+  it('reads UTF-8 Session JSONL independently of the host locale', () => {
+    const setup = readFileSync(resolve(root, 'scripts/setup-python-runtime-windows.ps1'), 'utf8')
+    const utf8 = /PYTHONUTF8 = '([^']+)'/.exec(setup)?.[1]
+    expect(utf8).toBe('1')
+    const result = spawnSync(process.platform === 'win32' ? 'python' : 'python3', ['-c', [
+      'import pathlib, tempfile, sys',
+      'assert sys.flags.utf8_mode == 1',
+      'with tempfile.TemporaryDirectory(prefix="python-runtime-encoding-") as root:',
+      '    log = pathlib.Path(root) / "session.jsonl"',
+      '    text = chr(0x2014) + chr(0x4e2d)',
+      '    log.write_bytes(text.encode("utf-8"))',
+      '    assert log.read_text() == text',
+    ].join('\n')], {
+      env: { ...process.env, LC_ALL: 'C', LANG: 'C', PYTHONCOERCECLOCALE: '0', PYTHONUTF8: utf8 },
+      encoding: 'utf8',
+      timeout: 10000,
+    })
+    expect(result.error).toBeUndefined()
+    expect(result.signal).toBeNull()
+    expect(result.status, result.stderr).toBe(0)
   })
 
   it('pins portable Python without registry or shared cache writes', () => {
