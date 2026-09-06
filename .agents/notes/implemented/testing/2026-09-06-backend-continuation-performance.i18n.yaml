@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/testing/2026-09-06-backend-continuation-performance.md
-2026-09-06-backend-continuation-performance.md: 619b583d3d0c9f035b2e78012d1a138adcc4b9f2
-2026-09-06-backend-continuation-performance.zh.md: 2008480ef4d51d1c276776043787a50aaea4e611
+2026-09-06-backend-continuation-performance.md: f8dddda687185d6b6504cd2423d307df02db9dfe
+2026-09-06-backend-continuation-performance.zh.md: 2e87e9157f6a6a834cfcef42c3f35b9f42199e6d

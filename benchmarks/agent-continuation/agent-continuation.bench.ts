@@ -14,7 +14,10 @@ import { WORKLOAD } from './workload.ts'
 const ATTEMPTS = 5
 const WORKER_TIMEOUT_MS = 60_000
 /** M4 Pro / Node 24.19 baseline expectations, before shared CI scaling and variance headroom. */
-const EXPECTED_MS = { 'request-history': 220, 'profile-continuation': 1_700 } as const
+const EXPECTED_MS = { 'profile-continuation': 1_700 } as const
+/** Standard two-CPU hosted CI baseline request-history median is 582.304 ms. */
+const EXPECTED_BASELINE_REQUEST_CI_MS = 600
+const BASELINE_REQUEST_BUDGET_MS = Math.ceil(EXPECTED_BASELINE_REQUEST_CI_MS * PERFORMANCE_BUDGET_HEADROOM)
 /** Standard two-CPU hosted CI tool-continuation median is 898.252 ms. */
 const EXPECTED_TOOL_CONTINUATION_CI_MS = 900
 const TOOL_CONTINUATION_BUDGET_MS = Math.ceil(EXPECTED_TOOL_CONTINUATION_CI_MS * PERFORMANCE_BUDGET_HEADROOM)
@@ -24,7 +27,7 @@ const CATALOG_BUDGET_MS = Math.ceil(EXPECTED_CATALOG_CI_MS * PERFORMANCE_BUDGET_
 const EXPECTED_RETAINED_HEAP_MB = 23
 const WORKERS = join(import.meta.dirname, '..', '.dsh-build', 'agent-continuation')
 
-type Scenario = keyof typeof EXPECTED_MS | 'catalog' | 'tool-continuation'
+type Scenario = keyof typeof EXPECTED_MS | 'catalog' | 'tool-continuation' | 'request-history'
 type Report = ContinuationReport | CatalogReport | ProfileReport
 
 function workerName(scenario: Scenario): string {
@@ -81,6 +84,18 @@ describe('standard hosted tool-continuation calibration', () => {
   })
 })
 
+describe('standard hosted baseline request-history calibration', () => {
+  it('accepts recorded two-CPU samples but rejects a material regression', () => {
+    const recordedMedian = median([618.598065, 618.606407, 582.0351149999999, 582.303506, 581.8318300000001])
+
+    expect(recordedMedian).toBe(582.303506)
+    expect(() => expectTotalWithinBudget(recordedMedian, 550)).toThrow()
+    expectTotalWithinBudget(recordedMedian, BASELINE_REQUEST_BUDGET_MS)
+    expect(BASELINE_REQUEST_BUDGET_MS).toBe(750)
+    expect(() => expectTotalWithinBudget(900, BASELINE_REQUEST_BUDGET_MS)).toThrow()
+  })
+})
+
 describe('continuing tool-heavy Sessions with large histories', () => {
   let scratch: string | undefined
   const sources = new Map<Scenario, string>()
@@ -110,7 +125,8 @@ describe('continuing tool-heavy Sessions with large histories', () => {
       }
       const totalMs = samples.map(sample => sample.totalMs)
       const budgetMs = scenario === 'catalog' ? CATALOG_BUDGET_MS
-        : scenario === 'tool-continuation' ? TOOL_CONTINUATION_BUDGET_MS : ciTimeBudget(EXPECTED_MS[scenario])
+        : scenario === 'tool-continuation' ? TOOL_CONTINUATION_BUDGET_MS
+          : scenario === 'request-history' ? BASELINE_REQUEST_BUDGET_MS : ciTimeBudget(EXPECTED_MS[scenario])
       const retainedHeapBudgetMb = EXPECTED_RETAINED_HEAP_MB * PERFORMANCE_BUDGET_HEADROOM
       console.log(JSON.stringify({
         benchmark: 'agent-continuation/' + scenario, workload: WORKLOAD,

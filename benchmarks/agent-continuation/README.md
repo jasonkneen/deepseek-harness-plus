@@ -18,7 +18,7 @@ Measure long-history request processing, cold tool-heavy continuation, and repea
 
 From the repository root, build the libraries and workers with `pnpm run build:bench`, then run `pnpm exec vitest run --config vitest.bench.config.ts benchmarks/agent-continuation/agent-continuation.bench.ts`. Do not overlap timing runs with builds or other benchmarks.
 
-The test reports all five fresh-process samples and enforces reviewed median budgets. Catalog and tool continuation each use a 900 ms standard hosted CI expectation with 1.25× headroom (1,125 ms); other time budgets use reference-machine scaling. A failed worker reports its exit, signal, timeout, and stderr; temporary roots are removed even on failure. The required benchmark lane discovers this file automatically.
+The test reports all five fresh-process samples and enforces reviewed median budgets. Catalog and tool continuation each use a 900 ms standard hosted CI expectation with 1.25× headroom (1,125 ms); baseline request history uses 600 ms with the same headroom (750 ms). The SDK time budget uses reference-machine scaling. A failed worker reports its exit, signal, timeout, and stderr; temporary roots are removed even on failure. The required benchmark lane discovers this file automatically.
 
 <a id="measurements"></a>
 
