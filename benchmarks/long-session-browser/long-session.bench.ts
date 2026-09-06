@@ -98,13 +98,14 @@ it('opens, pages, navigates and streams into a 240-turn browser history', async 
             (error: unknown) => ({ ok: false as const, error }),
           )
           const started = performance.now()
-          await page.getByRole('button', { name: 'Send message', exact: true }).click()
-          await page.getByText(FIRST, { exact: false }).last().waitFor()
+          await page.locator('[data-composer-seat]').getByRole('button', { name: 'Send message', exact: true }).click()
+          const reply = page.locator('[data-chat-flow-kind="assistant-step"]').last()
+          await reply.getByText(FIRST, { exact: false }).last().waitFor()
           await painted(page)
           const first = performance.now() - started
           await composer.evaluate((element, markers) => {
             element.addEventListener('input', (event) => {
-              const transcript = document.querySelector('[data-conversation-scroll]')?.textContent ?? ''
+              const transcript = Array.from(document.querySelectorAll('[data-chat-flow-kind="assistant-step"]')).at(-1)?.textContent ?? ''
               element.setAttribute('data-benchmark-input-overlap', String(event.isTrusted && transcript.includes(markers.first) && !transcript.includes(markers.done)))
             }, { once: true })
           }, { first: FIRST, done: DONE })
@@ -116,7 +117,7 @@ it('opens, pages, navigates and streams into a 240-turn browser history', async 
           })
           const inputOverlapped = await composer.getAttribute('data-benchmark-input-overlap') === 'true'
           expect(inputOverlapped).toBe(true)
-          await page.getByText(DONE, { exact: false }).last().waitFor()
+          await reply.getByText(DONE, { exact: false }).last().waitFor()
           const settlement = await settled
           if (!settlement.ok) throw settlement.error
           await page.waitForFunction(({ selector, expected }) => document.querySelectorAll(selector).length === expected, { selector: TAIL, expected: HISTORY_TURNS + 1 })

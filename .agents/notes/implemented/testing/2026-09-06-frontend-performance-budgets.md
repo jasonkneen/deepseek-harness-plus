@@ -16,27 +16,27 @@ The existing serial benchmark inventory includes two frontend owners: [active re
 
 The browser input contains 240 closed turns, 40 tool results, and 20 code fences, plus mixed-language prose and reasoning. Historical Assistant records carry matching compact streams built through the production accumulator with 12-character reasoning/text deltas and 8-character tool-argument deltas; empty streams would omit stored and transferred payload costs. Nine older-page actions exhaust this input from its observed 25-turn initial window; the readiness probe follows mounted turn growth rather than duplicating the pagination algorithm. Each sample uses a fresh scaffold and browser. Setup, seeding, browser launch, initial shell load, and sidebar expansion are excluded from open timing. Open ends at transcript availability and an editable composer; page and navigation timings end at their target DOM state. Two animation frames include a rendering opportunity, not hardware presentation or a guarantee that every offscreen node painted.
 
-The continuation sends 120 text deltas at 8 ms replay pacing. It records click-to-first-visible-reply, trusted draft typing whose first actual input event observes the first reply but no completion marker, complete reply wall time through settled persistence and the new rendered turn-tail, and Chromium main-thread task duration. The complete wall budget adds the fixed 992 ms scripted pacing to a scaled overhead allowance; input and completion have their own enforced budgets. Post-GC browser heap and DOM counts remain diagnostics because one endpoint does not prove a leak.
+The continuation sends 120 text deltas at 8 ms replay pacing. Send lookup stays inside the composer seat; first/final marker lookups stay inside the latest Assistant step and retain visible-state waits. The synchronous input witness reads that same bounded reply. Whole-history text and accessibility queries add observer CPU and garbage collection to the measured interval, so reducing that observer work is benchmark repair, not product optimization. It records click-to-first-visible-reply, trusted draft typing whose first actual input event observes the first reply but no completion marker, complete reply wall time through settled persistence and the new rendered turn-tail, and Chromium main-thread task duration. The complete wall budget adds the fixed 992 ms scripted pacing to a scaled overhead allowance; input and completion have their own enforced budgets. Post-GC browser heap and DOM counts remain diagnostics because one endpoint does not prove a leak.
 
 Reconnect uses three fresh compiled plain-Node children. Each creates a 100,000-delta reasoning prefix with distinct timestamps and two compact records before timing `ClientAssistantStream.replace()`. GC precedes the baseline and follows replacement while the result remains reachable; replacement time excludes both collections. The report consumes the result after collection and checks that the next dense live frame remains accepted. This measures reconstruction, not transport, rendering, or an entire reconnect workflow.
 
 ## Calibration
 
-Three-sample medians on the arm64 reference machine, Node 24.19 and Chromium 149.0.7827.55, at product revision `925e012340`, establish the baseline below. An isolated repeat follows a complete workflow smoke. Each browser sample reports raw endpoint values and every page; the paging verdict uses the median of the sample maxima. Reconnect reports all child measurements. Source reference constants retain the original allowances rather than increasing them after the compact-payload correction; the corrected 302.25 ms paging median exceeds its 260 ms reference allowance but remains below its 650 ms CI limit; the shared 2× time scale and 1.25× variance allowance produce CI limits. Memory uses only variance allowance. The existing scale comes from Node CI calibration, not a measured x64 browser comparison; browser-specific runner calibration remains an explicit gap.
+Three-sample medians on the arm64 reference machine, Node 24.19 and Chromium 149.0.7827.55, at product revision `925e012340`, establish the baseline below. An isolated repeat follows a complete workflow smoke. Each browser sample reports raw endpoint values and every page; the paging verdict uses the median of the sample maxima. Reconnect reports all child measurements. Source reference constants retain the original allowances while CI calibration is pending; the bounded-observer 261.60 ms paging median exceeds its 260 ms reference allowance but remains below its 650 ms CI limit; the shared 2× time scale and 1.25× variance allowance produce CI limits. Memory uses only variance allowance. The existing scale comes from Node CI calibration, not a measured x64 browser comparison; browser-specific runner calibration remains an explicit gap.
 
 | Endpoint | Measured median | Reference allowance | CI limit |
 |---|---:|---:|---:|
-| Browser open | 194.04 ms | 200 ms | 500 ms |
-| Slowest older page | 302.25 ms | 260 ms | 650 ms |
-| First Trajectory | 140.44 ms | 160 ms | 400 ms |
-| First reply | 1093.12 ms | 1100 ms | 2750 ms |
-| Stream main-thread task | 1712.99 ms | 1800 ms | 4500 ms |
-| Draft typing | 126.71 ms | 500 ms | 1250 ms |
-| Complete response | 1751.04 ms | 1000 ms overhead + 992 ms pacing | 3492 ms |
+| Browser open | 184.62 ms | 200 ms | 500 ms |
+| Slowest older page | 261.60 ms | 260 ms | 650 ms |
+| First Trajectory | 136.46 ms | 160 ms | 400 ms |
+| First reply | 373.72 ms | 1100 ms | 2750 ms |
+| Stream main-thread task | 1053.87 ms | 1800 ms | 4500 ms |
+| Draft typing | 487.35 ms | 500 ms | 1250 ms |
+| Complete response | 1366.36 ms | 1000 ms overhead + 992 ms pacing | 3492 ms |
 | Reconnect replacement | 13.83 ms | 16 ms | 40 ms |
 | Reconnect retained heap | 23.03 MiB | 24 MiB | 30 MiB |
 
-Draft typing spans 101.58–415.26 ms across the three isolated samples; its reference covers that observed spread instead of treating the median as a per-keystroke bound. No budget is an environment override. Temporary zero allowances exercise every rejection path; these negative controls prove enforcement, not an optimization or a historical regression. A separate control waits for the final reply marker before typing and fails the actual-input overlap assertion. The compact synthetic JSONL is 3,262,577 bytes; all three corrected samples report an overlapping trusted input event and end after the 241st rendered turn-tail.
+Draft typing spans 124.97–504.96 ms across the three isolated samples; the reference remains 500 ms and the scaled CI limit covers that observed spread; the median is not a per-keystroke bound. No budget is an environment override. Temporary zero allowances exercise every rejection path; these negative controls prove enforcement, not an optimization or a historical regression. A separate control waits for the final reply marker before typing and fails the actual-input overlap assertion. The compact synthetic JSONL is 3,262,577 bytes; all three corrected samples report an overlapping trusted input event and end after the 241st rendered turn-tail.
 
 ## Alternatives considered
 
@@ -45,6 +45,8 @@ Draft typing spans 101.58–415.26 ms across the three isolated samples; its ref
 **Promote the entire manual browser diagnostic into CI.** Rejected because its 1,000-session sidebar and 100-turn soak cover a much broader workload. The bounded required case reuses its shipped scaffold and measurement approach without importing a test module or changing the manual inventory.
 
 **Coalesce active reconnect chunks.** Rejected as a benchmark shortcut: Client entries expose per-member ordering and timestamps to conversation definitions. The benchmark retains that production behavior; reducing retained entries requires a separate semantic design, not copied product algorithms or a synthetic approximation.
+
+**Search the entire loaded history for every stream marker.** Rejected because Playwright injects text and accessibility scans into the same renderer whose CPU the benchmark measures. Scoping queries to the composer and latest Assistant preserves visible completion checks without making observer cost proportional to loaded history.
 
 **Measure stream CPU alone.** Rejected because transport stalls and final-settlement delays can leave main-thread CPU low. The independent input, first-reply, and complete-wall budgets cover those waits.
 
