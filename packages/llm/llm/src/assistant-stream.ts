@@ -1,6 +1,8 @@
 /**
  * Lossless compact representation of one model-stream attempt, plus record-level
  * readers that answer common consumer questions without materializing members.
+ * Readers trust the static record type; expandAssistantStream is the validating
+ * path for records read at a durable boundary.
  */
 
 import { assertNever, deepFreeze, snapshotJsonValue } from '@deepseek-ai/dsh-util-values'
