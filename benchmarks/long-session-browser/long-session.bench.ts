@@ -14,7 +14,11 @@ const SAMPLES = 3
 const TAIL = '[data-chat-flow-key^="9:turn-tail"]'
 const REFERENCE = { open: 200, page: 260, trajectory: 160, first: 1100, streamTask: 1800, input: 500, streamWall: 1000 }
 const EXPECTED_OPEN_CI_MS = 700
+const EXPECTED_PAGE_CI_MS = 700
+const EXPECTED_TRAJECTORY_CI_MS = 500
 const OPEN_BUDGET_MS = Math.ceil(EXPECTED_OPEN_CI_MS * PERFORMANCE_BUDGET_HEADROOM)
+const PAGE_BUDGET_MS = Math.ceil(EXPECTED_PAGE_CI_MS * PERFORMANCE_BUDGET_HEADROOM)
+const TRAJECTORY_BUDGET_MS = Math.ceil(EXPECTED_TRAJECTORY_CI_MS * PERFORMANCE_BUDGET_HEADROOM)
 const REPLAY_DURATION_MS = (DELTAS + 4) * PACE_MS
 
 async function painted(page: Page): Promise<void> {
@@ -68,6 +72,20 @@ it('accepts recorded hosted open samples and rejects slower endpoints', () => {
   expect(OPEN_BUDGET_MS).toBe(875)
   expect(() => expectEndpointWithinBudget(OPEN_BUDGET_MS + 1, OPEN_BUDGET_MS)).toThrow()
   expect(() => expectEndpointWithinBudget(2000, OPEN_BUDGET_MS)).toThrow()
+})
+
+it('accepts recorded hosted paging and Trajectory medians and rejects slower endpoints', () => {
+  const endpoints = [
+    { samples: [843.941625, 672.834329, 684.461818], reference: REFERENCE.page, budget: PAGE_BUDGET_MS, expectedBudget: 875 },
+    { samples: [605.788061, 367.754027, 485.931656], reference: REFERENCE.trajectory, budget: TRAJECTORY_BUDGET_MS, expectedBudget: 625 },
+  ]
+  for (const { samples, reference, budget, expectedBudget } of endpoints) {
+    const value = median(samples)
+    expect(() => expectEndpointWithinBudget(value, ciTimeBudget(reference))).toThrow()
+    expectEndpointWithinBudget(value, budget)
+    expect(budget).toBe(expectedBudget)
+    expect(() => expectEndpointWithinBudget(budget + 1, budget)).toThrow()
+  }
 })
 
 it('opens, pages, navigates and streams into a 240-turn browser history', async () => {
@@ -177,7 +195,10 @@ it('opens, pages, navigates and streams into a 240-turn browser history', async 
     if (failures.length > 0) throw new AggregateError(failures, 'browser benchmark failed')
   }
   const aggregate = Object.fromEntries(Object.keys(REFERENCE).map(key => [key, median(samples.map(sample => sample[key as keyof typeof REFERENCE]))]))
-  const budgets = Object.fromEntries(Object.entries(REFERENCE).map(([key, value]) => [key, key === 'open' ? OPEN_BUDGET_MS : ciTimeBudget(value) + (key === 'streamWall' ? REPLAY_DURATION_MS : 0)]))
-  console.log(JSON.stringify({ benchmark: 'long-session-browser/median', turns: HISTORY_TURNS, deltas: DELTAS, paceMs: PACE_MS, samples, aggregate, referenceMs: REFERENCE, expectedOpenCiMs: EXPECTED_OPEN_CI_MS, budgets }))
+  const budgets: Record<string, number> = {
+    ...Object.fromEntries(Object.entries(REFERENCE).map(([key, value]) => [key, ciTimeBudget(value) + (key === 'streamWall' ? REPLAY_DURATION_MS : 0)])),
+    open: OPEN_BUDGET_MS, page: PAGE_BUDGET_MS, trajectory: TRAJECTORY_BUDGET_MS,
+  }
+  console.log(JSON.stringify({ benchmark: 'long-session-browser/median', turns: HISTORY_TURNS, deltas: DELTAS, paceMs: PACE_MS, samples, aggregate, referenceMs: REFERENCE, expectedOpenCiMs: EXPECTED_OPEN_CI_MS, expectedPageCiMs: EXPECTED_PAGE_CI_MS, expectedTrajectoryCiMs: EXPECTED_TRAJECTORY_CI_MS, budgets }))
   for (const [key, value] of Object.entries(aggregate)) expectEndpointWithinBudget(value, budgets[key]!)
 })
