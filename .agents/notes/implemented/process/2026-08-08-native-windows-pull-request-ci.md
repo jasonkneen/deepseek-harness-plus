@@ -1,4 +1,4 @@
-# Agent Note: Dual Wine and native Windows pull-request CI
+# Agent Note: Wine and native Windows CI
 
 Status: implemented
 
@@ -6,7 +6,7 @@ English | [中文](2026-08-08-native-windows-pull-request-ci.zh.md)
 
 ## Problem
 
-The required pull-request Windows verdict needs a fast win32 toolchain signal without making the aggregate wait for scarce Windows capacity. Wine provides that critical-path signal but runs over a Linux kernel and case-sensitive ext4, uses a hoisted dependency layout, and cannot prove NTFS, DACL, ConPTY, crash durability, or native process behavior. With the native serial references disabled, every pull-request head also needs an automatic real Windows-kernel result.
+Wine checks the win32 toolchain over a Linux kernel and case-sensitive ext4 with a hoisted dependency layout. It cannot prove NTFS, DACL, ConPTY, crash durability, or native process behavior. Pull-request correctness therefore needs native Windows build and process checks independently of the post-merge Wine result.
 
 A coverage audit found that stale branch state had restored temporary exclusions for supported LSP sources. Native Windows therefore needed to execute the complete supported source inventory at the same 100%-per-file threshold instead of relying on a smaller platform-specific denominator.
 

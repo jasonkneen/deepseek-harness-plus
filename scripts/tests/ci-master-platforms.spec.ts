@@ -95,9 +95,18 @@ describe('master-only platform scheduling', () => {
     }))
     expect(commands(wine).join('\n')).toContain('--download-only wine')
     expect(wine.steps).toContainEqual(expect.objectContaining({ name: 'Shut down wineserver', if: 'always()' }))
-    for (const mode of ['ci-linux-primary', 'ci-windows-complete'] as const) {
-      expect(gatesForMode(mode).map(gate => gate.displayCommand).join('\n')).not.toMatch(/wine/i)
+    // Graph construction needs a pnpm entrypoint but never launches it.
+    const previous = process.env.npm_execpath
+    process.env.npm_execpath = '/test/pnpm.cjs'
+    try {
+      for (const mode of ['ci-linux-primary', 'ci-windows-complete'] as const) {
+        expect(gatesForMode(mode).map(gate => gate.displayCommand).join('\n')).not.toMatch(/wine/i)
+      }
+    } finally {
+      if (previous === undefined) Reflect.deleteProperty(process.env, 'npm_execpath')
+      else process.env.npm_execpath = previous
     }
+    expect(process.env.npm_execpath).toBe(previous)
   })
 
   it('retains the complete release matrix independently of CI scheduling', () => {

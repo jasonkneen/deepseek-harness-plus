@@ -78,7 +78,7 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-pnpm-
 
-      # Master runs restore and seed the image-specific Wine dependency cache.
+      # Master CI restores and seeds the image-specific Wine dependency cache.
       - name: Compose Wine apt cache key
         id: wine-cache-key
         run: echo "key=wine-debs-${ImageOS:-linux}-${ImageVersion:-v0}" >> "$GITHUB_OUTPUT"

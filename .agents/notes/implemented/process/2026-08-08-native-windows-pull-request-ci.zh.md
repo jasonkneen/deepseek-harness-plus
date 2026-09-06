@@ -1,4 +1,4 @@
-# Agent Note: Wine 与原生 Windows 双通道拉取请求 CI
+# Agent Note: Wine 与原生 Windows CI
 
 Status: implemented
 
@@ -6,7 +6,7 @@ Status: implemented
 
 ## 问题
 
-拉取请求必需的 Windows 判定既需要快速的 win32 工具链信号，也不能让聚合流程等待稀缺的 Windows 容量。Wine 提供这项关键路径信号，但它运行在 Linux 内核与区分大小写的 ext4 之上，采用 hoisted 依赖布局，且无法证明 NTFS、DACL、ConPTY、崩溃持久性或原生进程行为。原生串行参考流程停用期间，每个拉取请求分支头还需要自动取得真实 Windows 内核结果。
+Wine 在 Linux 内核与区分大小写的 ext4 之上采用 hoisted 依赖布局检查 win32 工具链。它无法证明 NTFS、DACL、ConPTY、崩溃持久性或原生进程行为。因此，拉取请求的正确性需要原生 Windows 构建和进程检查，独立于合并后的 Wine 结果。
 
 覆盖率审计发现，陈旧分支状态恢复了针对受支持 LSP 源码的临时排除项。因此，原生 Windows 需要按同一逐文件 100% 阈值执行完整的受支持源码清单，而不能依赖缩小后的平台专用分母。
 
