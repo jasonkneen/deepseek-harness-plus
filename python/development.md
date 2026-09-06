@@ -15,6 +15,8 @@ pnpm exec tsx scripts/build-exe-for-python-sdk.ts
 
 Use `--skip-build` when the required `lib/` artifacts already exist, or `--targets=node24-linux-x64,node24-linux-arm64,node24-macos-arm64,node24-macos-x64,node24-win-x64` to select platforms. Build each target on its native architecture. Products land in `dist-exe/` and the script syncs the selected carriers into `python/sdk-runtime/`. Windows emits `.exe` and `-rg.exe`; macOS also syncs the matching spawn helper required by `node-pty`.
 
+CI-only Windows x64 builds can use the self-hosted pool when `DSH_CI_FAILOVER_WINDOWS=selfhosted`: only same-repository non-fork, non-Dependabot pull requests qualify. The job downloads Python 3.10 into a private temporary directory without registering it in Windows, isolates build caches and test environments, and removes that directory after success or failure. Release and manual builds, Linux and macOS targets, and the SDK-wheel helper retain hosted runners. See the [runner isolation proposal](../.agents/notes/proposed/process/2026-09-06-python-runtime-windows-selfhosted.md) for image prerequisites and validation limits.
+
 ## Validate the SDK
 
 Keep the virtual environment outside `python/`, install the test group, and run the Python suite:
