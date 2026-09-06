@@ -22,7 +22,7 @@ Status: implemented
 | `@deepseek-ai/dsh-spill-local` | 本地后端：在宿主文件系统中提供私有、会话作用域的文件存储。 |
 | `@deepseek-ai/dsh-spill-policy` | 工具结果策略插件：包装分发后的最终文本结果，并以保留预览和 spill 定位符替换超大结果。 |
 
-系统不增加专用的面向模型消费方包。消费方是现有 `ctx.tools` 执行流水线：`dsh-spill-policy` 通过 `tools/post-execute` waterfall（瀑布式事件）使用最终工具结果，模型则按照后端随定位符返回的检索提示读取内容。
+工具结果消费方是 `dsh-spill-policy`，它通过 `tools/post-execute` waterfall（瀑布式事件）使用最终工具结果。模型按照后端随定位符返回的检索提示读取内容。[会话引用 spill 复用](../bug-fix/2026-09-05-session-reference-spill-reuse.zh.md)增加一个直接存储消费方，采用独立的预览、来源信息与失败语义；它不改变工具结果策略。
 
 ### spill seam
 
@@ -33,9 +33,14 @@ interface SpillStore {
   saveText(input: SaveTextSpill): Promise<SpillRef>
 }
 
-interface SpillSource {
+type SpillSource = {
+  kind: 'tool'
   toolName: string
   callId: ToolCallId
+  label: string
+} | {
+  kind: 'session-reference'
+  sessionId: SessionId
   label: string
 }
 

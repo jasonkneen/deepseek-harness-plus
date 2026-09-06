@@ -141,7 +141,7 @@ export function apply(ctx: Context, config: Config): void {
     }
     const save: SaveTextSpill = {
       owner: { sessionId },
-      source: { toolName, callId, label },
+      source: { kind: 'tool', toolName, callId, label },
       suggestedName: `${toolName}.txt`,
       content: text,
     }
