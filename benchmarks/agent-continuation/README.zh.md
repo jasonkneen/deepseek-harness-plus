@@ -18,7 +18,7 @@
 
 在仓库根目录使用 `pnpm run build:bench` 构建库和 worker，然后运行 `pnpm exec vitest run --config vitest.bench.config.ts benchmarks/agent-continuation/agent-continuation.bench.ts`。不要让计时运行与构建或其他基准重叠。
 
-测试报告全部五个新进程样本，并约束经审查的中位数预算。目录用例使用标准托管 CI 的 900 ms 期望值与 1.25× 余量（1,125 ms）；其他时间预算使用参考机器缩放。worker 失败时报告退出状态、信号、超时和 stderr；失败时也会删除临时根目录。必需基准通道自动发现此文件。
+测试报告全部五个新进程样本，并约束经审查的中位数预算。目录和工具续聊用例均使用标准托管 CI 的 900 ms 期望值与 1.25× 余量（1,125 ms）；其他时间预算使用参考机器缩放。worker 失败时报告退出状态、信号、超时和 stderr；失败时也会删除临时根目录。必需基准通道自动发现此文件。
 
 <a id="measurements"></a>
 

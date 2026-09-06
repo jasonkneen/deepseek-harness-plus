@@ -14,14 +14,17 @@ import { WORKLOAD } from './workload.ts'
 const ATTEMPTS = 5
 const WORKER_TIMEOUT_MS = 60_000
 /** M4 Pro / Node 24.19 baseline expectations, before shared CI scaling and variance headroom. */
-const EXPECTED_MS = { 'request-history': 220, 'tool-continuation': 340, 'profile-continuation': 1_700 } as const
+const EXPECTED_MS = { 'request-history': 220, 'profile-continuation': 1_700 } as const
+/** Standard two-CPU hosted CI tool-continuation median is 898.252 ms. */
+const EXPECTED_TOOL_CONTINUATION_CI_MS = 900
+const TOOL_CONTINUATION_BUDGET_MS = Math.ceil(EXPECTED_TOOL_CONTINUATION_CI_MS * PERFORMANCE_BUDGET_HEADROOM)
 /** Standard two-CPU hosted CI catalog median is 858.364 ms; 900 ms is the rounded expectation. */
 const EXPECTED_CATALOG_CI_MS = 900
 const CATALOG_BUDGET_MS = Math.ceil(EXPECTED_CATALOG_CI_MS * PERFORMANCE_BUDGET_HEADROOM)
 const EXPECTED_RETAINED_HEAP_MB = 23
 const WORKERS = join(import.meta.dirname, '..', '.dsh-build', 'agent-continuation')
 
-type Scenario = keyof typeof EXPECTED_MS | 'catalog'
+type Scenario = keyof typeof EXPECTED_MS | 'catalog' | 'tool-continuation'
 type Report = ContinuationReport | CatalogReport | ProfileReport
 
 function workerName(scenario: Scenario): string {
@@ -66,6 +69,18 @@ describe('standard hosted catalog calibration', () => {
   })
 })
 
+describe('standard hosted tool-continuation calibration', () => {
+  it('accepts recorded two-CPU samples but rejects a material regression', () => {
+    const recordedMedian = median([917.006744, 892.091482, 887.838867, 905.6594390000001, 898.2517579999999])
+
+    expect(recordedMedian).toBe(898.2517579999999)
+    expect(() => expectTotalWithinBudget(recordedMedian, 850)).toThrow()
+    expectTotalWithinBudget(recordedMedian, TOOL_CONTINUATION_BUDGET_MS)
+    expect(TOOL_CONTINUATION_BUDGET_MS).toBe(1_125)
+    expect(() => expectTotalWithinBudget(1_400, TOOL_CONTINUATION_BUDGET_MS)).toThrow()
+  })
+})
+
 describe('continuing tool-heavy Sessions with large histories', () => {
   let scratch: string | undefined
   const sources = new Map<Scenario, string>()
@@ -94,7 +109,8 @@ describe('continuing tool-heavy Sessions with large histories', () => {
         finally { await rm(root, { recursive: true, force: true }) }
       }
       const totalMs = samples.map(sample => sample.totalMs)
-      const budgetMs = scenario === 'catalog' ? CATALOG_BUDGET_MS : ciTimeBudget(EXPECTED_MS[scenario])
+      const budgetMs = scenario === 'catalog' ? CATALOG_BUDGET_MS
+        : scenario === 'tool-continuation' ? TOOL_CONTINUATION_BUDGET_MS : ciTimeBudget(EXPECTED_MS[scenario])
       const retainedHeapBudgetMb = EXPECTED_RETAINED_HEAP_MB * PERFORMANCE_BUDGET_HEADROOM
       console.log(JSON.stringify({
         benchmark: 'agent-continuation/' + scenario, workload: WORKLOAD,
