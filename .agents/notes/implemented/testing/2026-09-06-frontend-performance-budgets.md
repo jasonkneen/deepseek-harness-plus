@@ -22,7 +22,7 @@ Reconnect uses three fresh compiled plain-Node children. Each creates a 100,000-
 
 ## Calibration
 
-Three-sample medians on the arm64 reference machine, Node 24.19 and Chromium 149.0.7827.55, at product revision `925e012340`, establish the baseline below. An isolated repeat follows a complete workflow smoke. Each browser sample reports raw endpoint values and every page; the paging verdict uses the median of the sample maxima. Reconnect reports all child measurements. Source reference constants retain the original allowances while CI calibration is pending; the bounded-observer 261.60 ms paging median exceeds its 260 ms reference allowance but remains below its 650 ms CI limit; the shared 2× time scale and 1.25× variance allowance produce CI limits. Memory uses only variance allowance. The existing scale comes from Node CI calibration, not a measured x64 browser comparison; browser-specific runner calibration remains an explicit gap.
+Three-sample medians on the arm64 reference machine, Node 24.19 and Chromium 149.0.7827.55, at product revision `925e012340`, establish the baseline below. An isolated repeat follows a complete workflow smoke. Each browser sample reports raw endpoint values and every page; the paging verdict uses the median of the sample maxima. Reconnect reports all child measurements. Source reference constants retain the original allowances while CI calibration is pending; the bounded-observer 261.60 ms paging median exceeds its 260 ms reference allowance but remains below its 650 ms CI limit; the shared 2× time scale and 1.25× variance allowance produce CI limits. Memory uses only variance allowance. The shared scale originates in Node CI calibration. The first actual x64 browser run below passes the fixed budgets; a second independent CI run remains pending, so repeated-run browser calibration is not complete.
 
 | Endpoint | Measured median | Reference allowance | CI limit |
 |---|---:|---:|---:|
@@ -37,6 +37,24 @@ Three-sample medians on the arm64 reference machine, Node 24.19 and Chromium 149
 | Reconnect retained heap | 23.03 MiB | 24 MiB | 30 MiB |
 
 Draft typing spans 124.97–504.96 ms across the three isolated samples; the reference remains 500 ms and the scaled CI limit covers that observed spread; the median is not a per-keystroke bound. No budget is an environment override. Temporary zero allowances exercise every rejection path; these negative controls prove enforcement, not an optimization or a historical regression. A separate control waits for the final reply marker before typing and fails the actual-input overlap assertion. The compact synthetic JSONL is 3,262,577 bytes; all three corrected samples report an overlapping trusted input event and end after the 241st rendered turn-tail.
+
+### First actual CI run
+
+[Run 34020120425, benchmark job 101451135853](https://github.com/deepseek-harness/deepseek-harness/actions/runs/34020120425/job/101451135853) passes the complete benchmark inventory at `6d1ba089e5052680961825c08aa4de19b4fe137a`. The runner is `VM-7-113-ubuntu-ci-19` in `dsh-selfhosted-ci`, using x64 Node 24.19.0 and Chromium 149.0.7827.55. The following medians use three fresh samples per scenario and leave the local reference table and source budgets unchanged.
+
+| Endpoint | First CI median |
+|---|---:|
+| Browser open | 303.066 ms |
+| Slowest older page | 432.979 ms |
+| First Trajectory | 298.608 ms |
+| First reply | 740.265 ms |
+| Stream main-thread task | 1614.594 ms |
+| Draft typing | 932.746 ms |
+| Complete response | 1677.882 ms |
+| Reconnect replacement | 29.232 ms |
+| Reconnect retained heap | 23.028 MiB |
+
+All three browser samples report `inputOverlapped: true` and finish after the 241st rendered turn-tail. Post-GC browser heap is approximately 52.94 MiB with 17,064 DOM elements; both remain diagnostic endpoints. This run supports the existing budgets on this runner, not a universal 2× browser speed ratio. The required second independent CI run is pending; no budget is relaxed and no product optimization is claimed.
 
 ## Alternatives considered
 
