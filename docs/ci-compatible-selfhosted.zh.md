@@ -2,7 +2,7 @@
 
 [English](ci-compatible-selfhosted.md) | 中文
 
-## 摘要
+## 概述
 
 三个 Node 兼容性作业可以使用现有的 Linux 自托管池，而不改变其版本、必需检查或 master 调度。[CI](../.github/workflows/ci.yml) 拥有运行器选择逻辑；[决策记录](../.agents/notes/implemented/process/2026-09-06-node-compatibility-selfhosted.zh.md) 解释隔离和取舍。
 

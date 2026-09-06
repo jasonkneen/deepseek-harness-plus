@@ -291,7 +291,7 @@ jobs:
 
   node-compat:
     if: github.event_name == 'pull_request'
-    # Only repository-owned PR code may reach the persistent shared VM.
+    # This job admits only repository-owned PR code to the persistent shared VM.
     runs-on: >-
       ${{ vars.DSH_CI_FAILOVER_LINUX == 'selfhosted'
           && github.event.pull_request.head.repo.full_name == github.repository

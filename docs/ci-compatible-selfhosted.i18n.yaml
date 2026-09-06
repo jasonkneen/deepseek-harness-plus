@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write docs/ci-compatible-selfhosted.md
 ci-compatible-selfhosted.md: 5cddb6fabf3b38f82463b7248683a22b7257930a
-ci-compatible-selfhosted.zh.md: c93e8c2eb38bc7edfc35382b0a2dacb01d637d5c
+ci-compatible-selfhosted.zh.md: ebd8c4aa9bd03e650e1b7423331a17d93e7bb0a4

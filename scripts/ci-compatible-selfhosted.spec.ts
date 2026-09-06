@@ -29,8 +29,8 @@ const workflow = yaml.load(readFileSync(resolve(import.meta.dirname, '../.github
 const job = workflow.jobs['node-compat']
 const labels = ['self-hosted', 'linux', 'x64', 'vm-backup']
 
-// These expressions use only boolean operators and equal-typed string/boolean
-// comparisons, whose results agree in Actions and JavaScript.
+// This wiring check uses equal-typed, canonical-case fixtures. Actions compares
+// strings case-insensitively; JavaScript does not. This is not an Actions evaluator.
 function evaluate(expression: string, context: Record<string, unknown>): unknown {
   const body = expression.trim().slice(3, -2)
   return runInNewContext(body, {
