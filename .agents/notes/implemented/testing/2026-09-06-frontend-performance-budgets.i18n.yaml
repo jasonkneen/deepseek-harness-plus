@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/testing/2026-09-06-frontend-performance-budgets.md
-2026-09-06-frontend-performance-budgets.md: 92cdb27fa64efe304f501916f8f5bb205612e454
-2026-09-06-frontend-performance-budgets.zh.md: 38efa82251f3dcc3886051b434df4018c1665888
+2026-09-06-frontend-performance-budgets.md: 6a5b77bfc7e5518599ad59e625e5aa7fab7546f9
+2026-09-06-frontend-performance-budgets.zh.md: 6c1571fc4a1d833b0b1a392eeb859e80a0938e97
