@@ -87,7 +87,7 @@ it('opens, pages, navigates and streams into a 240-turn browser history', async 
             await page.getByRole('row').last().waitFor()
           })
           await page.getByRole('tab', { name: 'Chat', exact: true }).click()
-          await page.waitForFunction(selector => document.querySelectorAll(selector).length === 240, TAIL)
+          await page.waitForFunction(({ selector, expected }) => document.querySelectorAll(selector).length === expected, { selector: TAIL, expected: HISTORY_TURNS })
           const composer = page.locator('[data-composer-input][contenteditable="true"]').last()
           await composer.fill('Continue the synthetic review and summarize the validation. '.repeat(30))
           const cdp = await page.context().newCDPSession(page)
