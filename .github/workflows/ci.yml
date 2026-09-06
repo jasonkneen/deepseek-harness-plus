@@ -291,8 +291,14 @@ jobs:
 
   node-compat:
     if: github.event_name == 'pull_request'
-    # Each compatibility contract receives an independent standard hosted job.
-    runs-on: ${{ matrix.runner }}
+    # Only repository-owned PR code may reach the persistent shared VM.
+    runs-on: >-
+      ${{ vars.DSH_CI_FAILOVER_LINUX == 'selfhosted'
+          && github.event.pull_request.head.repo.full_name == github.repository
+          && github.event.pull_request.head.repo.fork == false
+          && github.event.pull_request.user.login != 'dependabot[bot]'
+          && fromJSON('["self-hosted", "linux", "x64", "vm-backup"]')
+          || matrix.runner }}
     name: ${{ matrix.name }}
     env:
       DSH_GATE_CONCURRENCY: ${{ matrix.gate_concurrency }}
@@ -321,15 +327,28 @@ jobs:
             gate_concurrency: '1'
     steps:
       - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      # Shared hosts keep version installs and generated caches inside runner temp.
+      - name: Isolate compatibility caches
+        if: runner.environment == 'self-hosted'
+        run: |
+          echo "NODE_COMPILE_CACHE=$RUNNER_TEMP/node-compile-cache" >> "$GITHUB_ENV"
+          echo "npm_config_devdir=$RUNNER_TEMP/node-gyp" >> "$GITHUB_ENV"
+          echo "PNPM_CONFIG_STORE_DIR=$HOME/.local/share/pnpm/store" >> "$GITHUB_ENV"
 
       - uses: pnpm/action-setup@v4
         with:
           dest: ${{ runner.temp }}/setup-pnpm-${{ github.run_id }}-${{ github.run_attempt }}
 
       - uses: actions/setup-node@v6
+        env:
+          RUNNER_TOOL_CACHE: ${{ runner.environment == 'self-hosted' && format('{0}/node-compat-toolcache', runner.temp) || runner.tool_cache }}
         with:
           node-version: ${{ matrix.node }}
-          cache: pnpm
+          cache: ${{ runner.environment == 'github-hosted' && 'pnpm' || '' }}
+          package-manager-cache: false
 
       - name: Install (immutable)
         run: pnpm install --frozen-lockfile
