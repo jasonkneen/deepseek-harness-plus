@@ -90,6 +90,8 @@ The package is the one concrete implementation of the public `Agent` contract. I
 
 After `agent/request`, `ctx.llm.prepareCall()` validates adapter-owned fields and resolves reasoning-effort and output-token defaults under the active turn signal. The loop retains that exact adapter through resolution, `request/header` logging, and dispatch. It writes a full header for the first request, a changed envelope, an explicit message-series start, a request after surface replacement, and resume; unchanged steps, retries, and ordinary later turns in the same series inherit the latest header. Before the next waterfall, the loop removes adapter-default fields so the current route resolves them again, while explicit settings persist. An unhandled route still fails with `NO_ADAPTER`.
 
+The loop deep-freezes each derived message identity on its first request and reuses that proof only within the same agent. Restored messages keep their identity; request construction does not freeze their containing event wrappers. Each request freezes its local canonical header, fresh message array, and envelope while leaving the cancellation signal live. The [request-freeze decision](../../../.agents/notes/implemented/simplification/2026-09-06-agent-request-freeze-provenance.md) explains ownership and measurement.
+
 ### Source map
 
 | File | Role |
