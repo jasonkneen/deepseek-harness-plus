@@ -12,7 +12,7 @@ Status: implemented
 
 [CI](../../../../.github/workflows/ci.yml) 将 Linux 故障切换变量应用于这三个作业，要求作者不是 Dependabot，且非 fork 的头部仓库与当前仓库相同。标准托管回退仍然可用。[运行器文档](../../../../docs/ci-compatible-selfhosted.zh.md) 拥有安装与清理行为的说明。
 
-临时工具缓存以重复下载 Node 为代价，换取并发运行器与 Node 版本之间的隔离。pnpm 保留现有的私有安装目录和持久化内容寻址 store。编译缓存与 node-gyp 头文件在首次调用 pnpm 前就使用运行器临时目录。不引入全局 Node 符号链接或系统软件包变更。托管作业保留其工具与软件包缓存。
+临时工具缓存以重复下载 Node 为代价，换取并发运行器与 Node 版本之间的隔离。仅用于 setup-node 的 [ESM 预加载模块](../../../../scripts/ci-compatible-toolcache.mjs) 在 action 进程内指定缓存：Actions 运行器在读取步骤配置后会覆盖保留的环境变量。实际执行的路径检查拒绝运行器临时目录之外的安装；兼容性进程不继承预加载设置。pnpm 保留现有的私有安装目录和持久化内容寻址 store。编译缓存与 node-gyp 头文件在首次调用 pnpm 前就使用运行器临时目录。不引入全局 Node 符号链接或系统软件包变更。托管作业保留其工具与软件包缓存。
 
 [故障切换手册](2026-07-26-ci-failover-runbook.zh.md) 仍拥有仓库信任与池切换规则。[串行参考决策](2026-07-21-serial-cross-platform-ci-reference.zh.md) 仍拥有 master 调度规则。除兼容性作业的运行器选择外，这两个决策都未被取代；两者均保持活跃。
 

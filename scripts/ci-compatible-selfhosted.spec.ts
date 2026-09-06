@@ -34,7 +34,7 @@ const labels = ['self-hosted', 'linux', 'x64', 'vm-backup']
 function evaluate(expression: string, context: Record<string, unknown>): unknown {
   const body = expression.trim().slice(3, -2)
   return runInNewContext(body, {
-    ...context, fromJSON: JSON.parse, format: (template: string, value: string) => template.replace('{0}', value),
+    ...context, fromJSON: JSON.parse,
   }, { timeout: 1000 }) as unknown
 }
 
@@ -81,19 +81,66 @@ describe('Node compatibility self-hosted routing', () => {
   it('isolates version installs and enables hosted package caching only on hosted runners', () => {
     const setup = job.steps.find(step => step.uses === 'actions/setup-node@v6')!
     expect(setup.env).toEqual({
-      RUNNER_TOOL_CACHE: "${{ runner.environment == 'self-hosted' && format('{0}/node-compat-toolcache', runner.temp) || runner.tool_cache }}",
+      NODE_OPTIONS: "${{ runner.environment == 'self-hosted' && '--import=./scripts/ci-compatible-toolcache.mjs' || '' }}",
     })
     expect(setup.with?.['node-version']).toBe('${{ matrix.node }}')
     expect(setup.with?.['package-manager-cache']).toBe(false)
     for (const [environment, cache] of [['github-hosted', 'pnpm'], ['self-hosted', '']]) {
       const context = { runner: { environment, temp: '/runner/temp', tool_cache: '/runner/toolcache' } }
       expect(evaluate(setup.with?.cache as string, context)).toBe(cache)
-      expect(evaluate(setup.env!.RUNNER_TOOL_CACHE!, context)).toBe(
-        environment === 'self-hosted' ? '/runner/temp/node-compat-toolcache' : '/runner/toolcache',
+      expect(evaluate(setup.env!.NODE_OPTIONS!, context)).toBe(
+        environment === 'self-hosted' ? '--import=./scripts/ci-compatible-toolcache.mjs' : '',
       )
     }
     expect(job.steps[0]?.with).toEqual({ 'persist-credentials': false })
     expect(job.steps.some(step => step.uses?.startsWith('actions/cache/'))).toBe(false)
+  })
+
+  it('overrides runner exports inside setup-node without affecting later Node processes', () => {
+    const setup = job.steps.find(step => step.uses === 'actions/setup-node@v6')!
+    const nodeOptions = evaluate(setup.env!.NODE_OPTIONS!, { runner: { environment: 'self-hosted' } }) as string
+    const root = mkdtempSync(join(tmpdir(), 'ci-compatible preload-'))
+    try {
+      const env = { PATH: process.env.PATH, RUNNER_TEMP: root, RUNNER_TOOL_CACHE: join(root, 'persistent') }
+      const probe = (options: Record<string, string | undefined>) => {
+        const child = spawnSync(process.execPath, ['-p', 'process.env.RUNNER_TOOL_CACHE'], {
+          cwd: resolve(import.meta.dirname, '..'), env: options, encoding: 'utf8', timeout: 10_000,
+        })
+        expect(child.error).toBeUndefined()
+        expect(child.signal).toBeNull()
+        return child
+      }
+      const setupChild = probe({ ...env, NODE_OPTIONS: nodeOptions })
+      expect(setupChild.status, setupChild.stderr).toBe(0)
+      expect(setupChild.stdout.trim()).toBe(join(root, 'node-compat-toolcache'))
+      const normalChild = probe(env)
+      expect(normalChild.status, normalChild.stderr).toBe(0)
+      expect(normalChild.stdout.trim()).toBe(env.RUNNER_TOOL_CACHE)
+      const missingTemp = probe({ ...env, RUNNER_TEMP: undefined, NODE_OPTIONS: nodeOptions })
+      expect(missingTemp.status).not.toBe(0)
+      expect(missingTemp.stderr).toContain('requires an absolute RUNNER_TEMP')
+      expect(job.env).not.toHaveProperty('NODE_OPTIONS')
+      expect(job.steps.filter(step => step.env?.NODE_OPTIONS)).toEqual([setup])
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it.skipIf(process.platform === 'win32')('rejects a Node executable outside its runner temporary installation', () => {
+    const step = job.steps.find(candidate => candidate.name === 'Verify isolated Node installation')!
+    expect(step.if).toBe("runner.environment == 'self-hosted'")
+    for (const [executable, status] of [
+      ['/runner temp/node-compat-toolcache/node/24.9.0/x64/bin/node', 0],
+      ['/shared/toolcache/node/24.9.0/x64/bin/node', 1],
+      ['/runner temp/node-compat-toolcache-other/node', 1],
+    ] as const) {
+      const child = spawnSync('bash', ['-e', '-u', '-o', 'pipefail', '-c', 'node() { printf "%s" "$TEST_EXECUTABLE"; }; ' + step.run!], {
+        env: { PATH: process.env.PATH, RUNNER_TEMP: '/runner temp', TEST_EXECUTABLE: executable }, encoding: 'utf8', timeout: 10_000,
+      })
+      expect(child.error).toBeUndefined()
+      expect(child.signal).toBeNull()
+      expect(child.status, child.stderr).toBe(status)
+    }
   })
 
   it.skipIf(process.platform === 'win32')('configures generated caches before pnpm without changing HOME or global links', () => {

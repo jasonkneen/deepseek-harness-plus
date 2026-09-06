@@ -344,11 +344,22 @@ jobs:
 
       - uses: actions/setup-node@v6
         env:
-          RUNNER_TOOL_CACHE: ${{ runner.environment == 'self-hosted' && format('{0}/node-compat-toolcache', runner.temp) || runner.tool_cache }}
+          # The runner overwrites RUNNER_* step env before starting JavaScript actions.
+          NODE_OPTIONS: ${{ runner.environment == 'self-hosted' && '--import=./scripts/ci-compatible-toolcache.mjs' || '' }}
         with:
           node-version: ${{ matrix.node }}
           cache: ${{ runner.environment == 'github-hosted' && 'pnpm' || '' }}
           package-manager-cache: false
+
+      - name: Verify isolated Node installation
+        if: runner.environment == 'self-hosted'
+        run: |
+          node_path=$(node -p process.execPath)
+          echo "Node executable: $node_path"
+          case "$node_path" in
+            "$RUNNER_TEMP/node-compat-toolcache/"*) ;;
+            *) echo "::error::Node compatibility installation is outside runner temp"; exit 1 ;;
+          esac
 
       - name: Install (immutable)
         run: pnpm install --frozen-lockfile

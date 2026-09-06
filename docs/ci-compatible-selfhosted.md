@@ -24,7 +24,7 @@ Each matrix entry runs one repository gate at a time. The matrix retains indepen
 
 ## Installation and cleanup
 
-Self-hosted Node installations use a tool cache beneath `runner.temp`. pnpm setup uses its runner-and-run-private destination. Node compile caches and node-gyp headers also stay beneath runner temp; the pnpm content-addressed store remains persistent. Hosted jobs retain their normal tool cache and pnpm caching. Self-hosted jobs do not restore or upload hosted package caches.
+Self-hosted Node installations use a tool cache beneath `runner.temp`. A setup-node-only ESM preload sets the path inside the action process because the Actions runner overwrites reserved `RUNNER_*` step variables. The following step rejects a Node executable outside that temporary installation; later compatibility processes do not inherit the preload. pnpm setup uses its runner-and-run-private destination. Node compile caches and node-gyp headers also stay beneath runner temp; the pnpm content-addressed store remains persistent. Hosted jobs retain their normal tool cache and pnpm caching. Self-hosted jobs do not restore or upload hosted package caches.
 
 The runner owns temporary-directory cleanup between jobs. These jobs do not install system packages or change global Node symlinks. The shared image must already provide the compiler and Python dependencies needed by native npm packages. A cold temporary Node cache requires downloading the selected runtime again.
 
