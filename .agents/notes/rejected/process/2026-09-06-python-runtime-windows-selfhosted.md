@@ -1,6 +1,6 @@
 # Agent Note: Job-private Windows Python runtime CI
 
-Status: proposed
+Status: rejected — no measured throughput win; the shared pool reproduced the installed-wheel failure and the lane returned to hosted Windows
 
 English | [中文](2026-09-06-python-runtime-windows-selfhosted.zh.md)
 
