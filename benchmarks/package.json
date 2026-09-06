@@ -5,6 +5,8 @@
   "private": true,
   "type": "module",
   "devDependencies": {
+    "playwright": "^1.49.0",
+    "@deepseek-ai/dsh-llm-replay": "workspace:^",
     "@deepseek-ai/cordis": "workspace:^",
     "@deepseek-ai/dsh-agent": "workspace:^",
     "@deepseek-ai/dsh-agent-loop": "workspace:^",

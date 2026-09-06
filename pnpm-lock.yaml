@@ -581,6 +581,9 @@ importers:
       '@deepseek-ai/dsh-llm':
         specifier: workspace:^
         version: link:../packages/llm/llm
+      '@deepseek-ai/dsh-llm-replay':
+        specifier: workspace:^
+        version: link:../packages/test-support/llm-replay
       '@deepseek-ai/dsh-sdk-client':
         specifier: workspace:^
         version: link:../packages/sdk/client
@@ -620,6 +623,9 @@ importers:
       '@deepseek-ai/dsh-typert-protocol':
         specifier: workspace:^
         version: link:../packages/typert/protocol
+      playwright:
+        specifier: ^1.49.0
+        version: 1.61.1
 
   native/landlock-run:
     devDependencies:
