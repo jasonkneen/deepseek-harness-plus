@@ -150,19 +150,7 @@ jobs:
   build:
     needs: [plan, sdk-wheel]
     name: ${{ matrix.target }}
-    # Release and manual builds retain disposable hosted images. Only trusted CI
-    # may use the persistent Windows host; Linux requires an unavailable Docker daemon.
-    runs-on: >-
-      ${{ inputs.ci && !inputs.release
-          && github.repository == 'deepseek-harness/deepseek-harness'
-          && github.event_name == 'pull_request'
-          && github.event.pull_request.head.repo.full_name == github.repository
-          && !github.event.pull_request.head.repo.fork
-          && github.event.pull_request.user.login != 'dependabot[bot]'
-          && matrix.target == 'node24-win-x64'
-          && vars.DSH_CI_FAILOVER_WINDOWS == 'selfhosted'
-          && fromJSON('["self-hosted", "dsh-win-ci", "windows", "x64"]')
-          || matrix.runner }}
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 45
     strategy:
       fail-fast: false
@@ -170,21 +158,13 @@ jobs:
         include: ${{ fromJSON(needs.plan.outputs.matrix) }}
     steps:
       - uses: actions/checkout@v6
-        with:
-          persist-credentials: false
-
-      - name: Prepare private Windows Python toolchain
-        id: private-windows
-        if: runner.os == 'Windows' && runner.environment == 'self-hosted'
-        shell: pwsh
-        run: ./scripts/setup-python-runtime-windows.ps1
 
       - uses: pnpm/action-setup@v4
         with:
           dest: ${{ runner.temp }}/setup-pnpm-js-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}
 
       - name: Enable Windows Developer Mode (symlink support)
-        if: runner.os == 'Windows' && runner.environment != 'self-hosted'
+        if: runner.os == 'Windows'
         shell: pwsh
         run: >-
           reg add "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\AppModelUnlock"
@@ -195,22 +175,18 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version: 24
-          cache: ${{ runner.environment != 'self-hosted' && 'pnpm' || '' }}
-          package-manager-cache: false
+          cache: pnpm
 
       - uses: actions/setup-python@v6.3.0
-        if: runner.environment != 'self-hosted'
         with:
           python-version: '3.10'
 
       - name: Install Python build tooling
-        if: runner.environment != 'self-hosted'
         run: python -m pip install uv==0.11.23
 
       # Cache pkg's target Node binary; lockfile changes roll the
       # exact key while the restore prefix can seed its replacement.
       - uses: actions/cache@v4
-        if: runner.environment != 'self-hosted'
         with:
           path: ~/.pkg-cache
           key: pkg-fetch-${{ matrix.target }}-${{ hashFiles('pnpm-lock.yaml') }}
@@ -218,15 +194,7 @@ jobs:
             pkg-fetch-${{ matrix.target }}-
 
       - name: Install (immutable)
-        if: runner.environment != 'self-hosted'
         run: pnpm install --frozen-lockfile
-
-      - name: Install private Windows dependencies (immutable)
-        if: runner.os == 'Windows' && runner.environment == 'self-hosted'
-        shell: pwsh
-        run: |
-          pnpm install --frozen-lockfile --package-import-method=copy
-          if ($LASTEXITCODE -ne 0) { throw 'Private Windows dependency installation failed.' }
 
       - name: Rebuild Linux node-pty against manylinux 2.28
         if: runner.os == 'Linux'
@@ -512,22 +480,3 @@ jobs:
           path: dist-python/${{ steps.runtime-posix.outputs.wheel || steps.runtime-windows.outputs.wheel }}
           if-no-files-found: error
           retention-days: 7
-
-      # Node action posts consume temp/compile-cache paths. pnpm post skips
-      # pruning without run_install; no Python/pkg/npm subprocess runs after cleanup.
-      - name: Remove private Windows toolchain and test directories
-        if: always() && steps.private-windows.outputs.root != ''
-        shell: pwsh
-        env:
-          PRIVATE_ROOT: ${{ steps.private-windows.outputs.root }}
-        run: |
-          Set-Location $env:GITHUB_WORKSPACE
-          $env:TMP = $env:RUNNER_TEMP
-          $env:TEMP = $env:RUNNER_TEMP
-          Remove-Item Env:NODE_COMPILE_CACHE -ErrorAction SilentlyContinue
-          "NODE_COMPILE_CACHE=" >> $env:GITHUB_ENV
-          "TMP=$env:RUNNER_TEMP" >> $env:GITHUB_ENV
-          "TEMP=$env:RUNNER_TEMP" >> $env:GITHUB_ENV
-          node -e "const fs = require('node:fs'); const root = process.env.PRIVATE_ROOT; if (fs.lstatSync(root, { throwIfNoEntry: false })?.isSymbolicLink()) fs.unlinkSync(root); else fs.rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })"
-          if ($LASTEXITCODE -ne 0) { throw 'Private Windows job directory removal failed.' }
-          if (Test-Path -LiteralPath $env:PRIVATE_ROOT) { throw 'Private Windows job directory survived cleanup.' }
