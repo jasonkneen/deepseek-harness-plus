@@ -207,13 +207,7 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Install benchmark browser and hosted dependencies
-        if: vars.DSH_CI_FAILOVER_LINUX != 'selfhosted' || github.event.pull_request.user.login == 'dependabot[bot]'
         run: pnpm --filter @deepseek-ai/dsh-benchmarks exec playwright install --with-deps chromium
-
-      # The persistent VM image owns Linux system packages; do not run apt here.
-      - name: Install benchmark browser on the failover VM
-        if: vars.DSH_CI_FAILOVER_LINUX == 'selfhosted' && github.event.pull_request.user.login != 'dependabot[bot]'
-        run: pnpm --filter @deepseek-ai/dsh-benchmarks exec playwright install chromium
 
       - name: Run performance benchmarks
         env:
