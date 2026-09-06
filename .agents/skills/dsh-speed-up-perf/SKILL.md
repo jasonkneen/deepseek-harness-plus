@@ -13,7 +13,7 @@ Read [AGENTS.md](../../../AGENTS.md), [architecture](../../../docs/architecture.
 
 Agree on the user-visible endpoint, workload range, resource constraints, acceptable minor behavior differences, and stopping rule. Keep backend and browser end-to-end measurements separate: a fast history iterator or Client fold does not prove fast transport, paint, scrolling, or input response. Exclude model/network latency when measuring local overhead, and state that exclusion rather than calling the result complete product latency.
 
-Inspect the exact current base, not just the running checkout. Study final merged diffs, owning source, tests, and resolved review threads; a PR body can describe an abandoned implementation. Separate merged, closed-unmerged, superseded, estimated, and newly measured evidence. The [PR evidence reference](references/pr-evidence.md) supplies historical leads, not authority to reintroduce their implementations.
+Inspect the exact current base, not just the running checkout. Study final merged diffs, owning source, tests, and resolved review threads; a PR body can describe an abandoned implementation. Separate merged, closed-unmerged, superseded, estimated, and newly measured evidence. The [performance workflow decision and evidence](../../notes/implemented/process/2026-09-06-evidence-driven-performance-skill.md) supply historical leads, not authority to reintroduce their implementations.
 
 ## Survey user paths, then rank candidates
 
@@ -50,7 +50,7 @@ Measure built JavaScript under plain Node for CPU workers; source-loader overhea
 
 Use fresh children and private temporary roots for cold/process-memory samples. Warm samples explicitly retain the intended cache; never let fixture setup secretly warm a cold scenario. Keep the same input, validations, completion condition, and reachable output on both sides. A parse-and-discard baseline is not comparable with validated retained history.
 
-Report all samples and the aggregate that decides the result. Use the existing shared time calibration and reviewed variance headroom; do not scale bytes, counts, or dimensionless ratios by CPU speed. Budgets are source constants, not environment overrides. Serialize measured work against other owned CPU-heavy jobs; measure reference and candidate under comparable conditions. Do not widen a budget or select a lucky run to hide a regression.
+Report all samples and the aggregate that decides the result. For the Node lane, use the existing shared time calibration and reviewed variance headroom; do not scale bytes, counts, or dimensionless ratios by CPU speed. Keep manual browser diagnostics threshold-free. A required browser performance case needs an explicit lane decision and repeated measurements on its actual CI browser/runner before adopting timing budgets; the Node machine multiplier alone is not browser calibration. Budgets are source constants, not environment overrides. Serialize measured work against other owned CPU-heavy jobs; measure reference and candidate under comparable conditions. Do not widen a budget or select a lucky run to hide a regression.
 
 Measure end-to-end latency independently from component phases. Track retained memory with intended objects still reachable, and transient pressure separately through constrained-heap completion or an appropriate peak measurement. Faster execution with unbounded retention is not an automatic win.
 
