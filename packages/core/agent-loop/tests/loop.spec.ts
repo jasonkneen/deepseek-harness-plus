@@ -501,7 +501,7 @@ describe('agent loop', () => {
     expect(types).toContain('tool/result')
   })
 
-  it('renders harness identity, then the persona, then tool guidance — with {{variables}} resolved', async () => {
+  it('renders harness identity and tool guidance before the interpolated persona', async () => {
     const adapter = new MockAdapter([textResponse('ok')])
     // The persona is a TEMPLATE: {{model}} is the loop-registered variable
     // projecting this agent's configured model, so the model knows its own name.
@@ -521,7 +521,7 @@ describe('agent loop', () => {
     await waitForIdle(ctx, agent)
 
     const request = adapter.requests[0]
-    expect(request!.system).toBe('You are an AI agent powered by DeepSeek Harness.\n\nYou are a test agent on mock.\n\nUse the noop tool wisely.')
+    expect(request!.system).toBe('You are an AI agent powered by DeepSeek Harness.\n\nUse the noop tool wisely.\n\nYou are a test agent on mock.')
     expect(request!.tools?.map(t => t.name)).toEqual(['noop'])
   })
 

@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
+# side as of the last confirmed-consistent state. Both languages carry equal authority;
+# after editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-09-06-environment-prompt-suffix.md
+2026-09-06-environment-prompt-suffix.md: 92818a9b75bd228adb77c177c504de8c892d1fc0
+2026-09-06-environment-prompt-suffix.zh.md: edd82ef626f8fcc2e3e019f00e03b24db1f21078

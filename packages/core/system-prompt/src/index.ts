@@ -120,9 +120,6 @@ export interface PromptAssembly {
 
 const SECTION_ORDERS = {
   HARNESS_IDENTITY: -1000,
-  HARNESS_SOURCE: -900,
-  WEB_SURFACE: -800,
-  DEPLOYMENT_PERSONA: 0,
   PLAN_POLICY: 500,
   TEAM_POLICY: 600,
   PTC_ONLY: 800,
@@ -149,6 +146,10 @@ const SECTION_ORDERS = {
   TOOLS_SDK: 5000,
   DELIVERABLE_FILE_REFERENCES: 9000,
   STRUCTURED_OUTPUT: 9900,
+  // Local paths, endpoints, and interpolated personas follow reusable instructions.
+  HARNESS_SOURCE: 10000,
+  WEB_SURFACE: 10100,
+  DEPLOYMENT_PERSONA: 10200,
 } as const
 
 /** Name of a centrally allocated prompt-section position. */
@@ -240,7 +241,7 @@ export interface Config {
   /** Include dynamic runtime-context snapshots in model history (default true). */
   includeRuntimeContext?: boolean
   /**
-   * Deployment-wide order-0 persona template. A scoped section named
+   * Deployment-wide persona template after first-party guidance. A scoped section named
    * `deployment:persona` shadows it; `{{variable}}` references are strict.
    */
   persona?: string

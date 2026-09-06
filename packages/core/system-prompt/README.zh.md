@@ -44,7 +44,7 @@ kind: "package-reference"
 |---|---|---|
 | `includeHarnessIdentity` | `true` | 是否包含顺序为 −1000 的 first-party 固定开场白 `You are an AI agent powered by DeepSeek Harness.`。仅当兼容性部署拥有完整系统提示词时设为 false。 |
 | `includeRuntimeContext` | `true` | 是否在组装中包含有序动态 runtime 上下文 |
-| `persona` | `''` | 全局部署 persona 提示词片段，渲染在顺序 `0` |
+| `persona` | `''` | 全局部署 persona 提示词片段，渲染在第一方可复用指令之后的顺序 `10200` |
 | `toolOrder` | — | 显式面向模型工具顺序，含一个 `'<unlisted-tools>'` 其余项标记 |
 
 生成的[配置目录](../../../docs/config-catalog.zh.md#deepseek-aidsh-system-prompt)是每个受支持字段的穷尽式真源。没有恰好一个其余项或存在重复项的 `toolOrder` 列表会在加载时失败；已列名称没有对应已注册工具会使每次 `assemble()` 被拒绝。
@@ -130,7 +130,7 @@ ctx.systemPrompt.variable('cwd', ({ agent }) => agent?.session.header.cwd)
 
 #### 模型看到什么
 
-默认情况下，每次组装都从下方 harness 身份开始，然后在严格变量插值后追加已配置 persona 与有序插件段。`includeHarnessIdentity: false` 仅省略这个固定开场白。空段会消失；带作用域的段与变量可以为一个 agent 遮蔽全局项。`system-prompt/assemble` waterfall 决定交付的提示词与工具 schema，除非一个有效段声明自身为 complete——此时该确切段会成为完整的系统提示词，而 waterfall 得到的上下文、工具与变量保持不变。有序动态上下文与段分离，只在存在时才会成为带来源的 user 角色快照；`includeRuntimeContext: false` 或带作用域的抑制器会移除全部这类上下文。
+第一方段落依次渲染 harness 身份、可复用指令（包括生成的工具 SDK 和结构化输出指导），最后是携带环境信息的后缀：harness 源码（`10000`）、Web 表层（`10100`）和部署 persona（`10200`）。外部段落的顺序与组装监听器仍决定其最终结果。`includeHarnessIdentity: false` 仅省略这个固定开场白。空段会消失；带作用域的段与变量可以为一个 agent 遮蔽全局项。`system-prompt/assemble` waterfall 决定交付的提示词与工具 schema，除非一个有效段声明自身为 complete——此时该确切段会成为完整的系统提示词，而 waterfall 得到的上下文、工具与变量保持不变。有序动态上下文与段分离，只在存在时才会成为带来源的 user 角色快照；`includeRuntimeContext: false` 或带作用域的抑制器会移除全部这类上下文。
 
 ##### harness 身份
 
@@ -144,7 +144,7 @@ You are an AI agent powered by DeepSeek Harness.
 
 #### KV Cache 影响
 
-只要身份、persona、变量、段文本与顺序的渲染完全相同，前缀就保持稳定。任何变更都可能从第一个变化的系统提示词 token 起使复用失效。
+工具、配置与前置指令一致时，不同源码路径、本地 Web URL 或 persona 变量不会改变可复用的第一方前缀。任何变更都可能从第一个变化的 token 起使复用失效；不保证提供方共享缓存或实际命中率。
 
 ### 工具 schema
 

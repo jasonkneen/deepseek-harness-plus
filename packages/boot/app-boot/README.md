@@ -128,7 +128,7 @@ Indirectly, through the loaded plugin tree, which alone contributes model contex
 
 #### KV Cache effect
 
-Boot itself invalidates nothing in the request prefix. A consumer that calls `addHarnessSourceSection` places one short line near the system prompt's head, before per-request content, so it does not invalidate the cache across turns; any other request-prefix change is owned by the named consumer.
+Boot itself changes no request prefix. `addHarnessSourceSection` places its source path after first-party reusable instructions, so different checkouts leave those preceding bytes unchanged when tools and configuration match. Provider cache reuse is not guaranteed.
 
 ## Known Limitations and Deferred Work
 

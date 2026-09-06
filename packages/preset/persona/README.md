@@ -61,7 +61,7 @@ Use this row when a preset must change an agent's identity and not only its tool
 
 ### How the row registers
 
-`apply` registers one prompt section through `ctx.systemPrompt.section({ name: PERSONA_SECTION, order: ctx.systemPrompt.getSectionOrder('DEPLOYMENT_PERSONA'), text, complete? })` inside the mounting context's scope, so the section lands at order 0 — immediately after the harness identity opener — and only for agents joined to the preset. The shared section name makes a preset persona shadow the deployment's instead of landing beside it, while the service-owned order lookup keeps repository contributors on the central allocation. `includeRuntimeContext: false` calls `ctx.systemPrompt.suppressRuntimeContext()`.
+`apply` registers one prompt section through `ctx.systemPrompt.section({ name: PERSONA_SECTION, order: ctx.systemPrompt.getSectionOrder('DEPLOYMENT_PERSONA'), text, complete? })` inside the mounting context's scope, so the section lands at order 10200 — after first-party reusable instructions — and only for agents joined to the preset. The shared section name makes a preset persona shadow the deployment's instead of landing beside it, while the service-owned order lookup keeps repository contributors on the central allocation. `includeRuntimeContext: false` calls `ctx.systemPrompt.suppressRuntimeContext()`.
 
 ### Why the row is scope-only
 
@@ -96,7 +96,7 @@ Read these pages when the package-level contract is not enough; they move from t
 
 #### What the model sees
 
-The `deployment:persona` section at order 0, immediately after the harness identity opener, carrying exactly this row's configured `text` with prompt variables resolved. For an agent whose preset mounts this row, it replaces whatever persona the deployment configured. In complete mode, the model sees only this rendered section as its system prompt. Runtime context remains enabled by default; when disabled, a fresh agent receives no runtime-context snapshot from sandbox policy, approval policy, delegation, or another system-prompt context provider.
+The `deployment:persona` section at order 10200, after first-party reusable instructions, carrying exactly this row's configured `text` with prompt variables resolved. For an agent whose preset mounts this row, it replaces whatever persona the deployment configured. In complete mode, the model sees only this rendered section as its system prompt. Runtime context remains enabled by default; when disabled, a fresh agent receives no runtime-context snapshot from sandbox policy, approval policy, delegation, or another system-prompt context provider.
 
 #### Token effect
 
@@ -104,7 +104,7 @@ Fixed for a given preset: the persona's own tokens on every request that agent m
 
 #### KV Cache effect
 
-Prefix-stable for the life of an agent — the row mounts once, before the agent is published and therefore before its first request, and its text never changes while the agent runs. Two agents on different presets establish different prefixes from this section onward; neither can invalidate the other's reuse.
+Prefix-stable while the rendered template variables and text are unchanged. Different personas can share the preceding first-party instructions when tools and configuration match; provider cache sharing is not guaranteed.
 
 ## Known Limitations and Deferred Work
 

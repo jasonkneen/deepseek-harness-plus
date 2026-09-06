@@ -14,13 +14,14 @@ import type { PromptContextOrderName, PromptSectionOrderName } from '@deepseek-a
 const BUILT_IN = ['harness:identity', 'deployment:persona']
 const IDENTITY = 'You are an AI agent powered by DeepSeek Harness.'
 const SECTION_ORDER_NAMES = [
-  'HARNESS_IDENTITY', 'HARNESS_SOURCE', 'WEB_SURFACE', 'DEPLOYMENT_PERSONA',
+  'HARNESS_IDENTITY',
   'PLAN_POLICY', 'TEAM_POLICY', 'PTC_ONLY', 'FILE_REFERENCE', 'TOOL_BASH',
   'TOOL_PWSH', 'TOOL_READ', 'TOOL_WRITE', 'TOOL_EDIT', 'TOOL_GLOB',
   'TOOL_GREP', 'TOOL_JOBS', 'TOOL_PTY', 'TOOL_WEB_SEARCH', 'TOOL_WEB_FETCH',
   'TOOL_LSP', 'TOOL_SESSION_QUERY', 'TOOL_GOAL', 'TOOL_CORDIS', 'TOOL_WORKFLOW',
   'TOOL_RALPH', 'TOOL_SUBAGENT', 'TOOL_REPORT', 'TOOLS_SDK',
   'DELIVERABLE_FILE_REFERENCES', 'STRUCTURED_OUTPUT',
+  'HARNESS_SOURCE', 'WEB_SURFACE', 'DEPLOYMENT_PERSONA',
 ] as const satisfies readonly PromptSectionOrderName[]
 const CONTEXT_ORDER_NAMES = [
   'SANDBOX_POLICY', 'APPROVAL_POLICY', 'SUBAGENT_DELEGATION',
@@ -38,6 +39,36 @@ describe('SystemPrompt', () => {
     expect(new Set(orders).size).toBe(orders.length)
     const sorted = [...orders].sort((a, b) => a - b)
     expect(sorted.slice(1).every((order, index) => order - sorted[index]! >= 10)).toBe(true)
+  })
+
+  it('keeps reusable instructions identical across local environments', async () => {
+    const ctx = new Context()
+    try {
+      await ctx.plugin(SystemPrompt, { persona: 'Model {{model}} in {{cwd}} on {{platform}}.' })
+      let environment = { model: 'model-a', cwd: '/alice/project', platform: 'darwin', source: '/alice/dsh', url: 'http://127.0.0.1:3080' }
+      for (const key of ['model', 'cwd', 'platform'] as const) {
+        ctx.systemPrompt.variable(key, () => environment[key])
+      }
+      const reusable = SECTION_ORDER_NAMES.filter(name =>
+        !['HARNESS_IDENTITY', 'HARNESS_SOURCE', 'WEB_SURFACE', 'DEPLOYMENT_PERSONA'].includes(name))
+      for (const name of [...reusable].reverse()) {
+        ctx.systemPrompt.section({ name, order: ctx.systemPrompt.getSectionOrder(name), text: name })
+      }
+      ctx.systemPrompt.section({
+        name: 'source', order: ctx.systemPrompt.getSectionOrder('HARNESS_SOURCE'), text: () => environment.source,
+      })
+      ctx.systemPrompt.section({
+        name: 'web', order: ctx.systemPrompt.getSectionOrder('WEB_SURFACE'), text: () => environment.url,
+      })
+      const first = renderPrompt(await ctx.systemPrompt.assemble())
+      environment = { model: 'model-b', cwd: 'C:/bob/project', platform: 'win32', source: 'C:/bob/dsh', url: 'http://127.0.0.1:4080' }
+      const second = renderPrompt(await ctx.systemPrompt.assemble())
+      const prefix = [IDENTITY, ...reusable].join('\n\n') + '\n\n'
+      expect(first).toBe(prefix + '/alice/dsh\n\nhttp://127.0.0.1:3080\n\nModel model-a in /alice/project on darwin.')
+      expect(second).toBe(prefix + 'C:/bob/dsh\n\nhttp://127.0.0.1:4080\n\nModel model-b in C:/bob/project on win32.')
+    } finally {
+      await ctx.fiber.dispose()
+    }
   })
 
   it('keeps repository context placements unique and integral', async () => {
@@ -121,15 +152,15 @@ describe('SystemPrompt', () => {
     ctx.systemPrompt.tools(() => ({ schemas: [{ name: 'echo', description: 'echo back', parameters: {} }] }))
 
     const assembly = await ctx.systemPrompt.assemble()
-    expect(assembly.sections.map(s => s.name)).toEqual(['harness:identity', 'deployment:persona', 'rules', 'cwd'])
-    expect(assembly.sections.map(s => s.text)).toEqual([IDENTITY, 'You are DeepSeek Harness.', 'Be precise.', 'cwd: /tmp'])
+    expect(assembly.sections.map(s => s.name)).toEqual(['harness:identity', 'rules', 'cwd', 'deployment:persona'])
+    expect(assembly.sections.map(s => s.text)).toEqual([IDENTITY, 'Be precise.', 'cwd: /tmp', 'You are DeepSeek Harness.'])
     expect(assembly.contexts).toEqual([
       { name: 'earlier', text: 'context 1' },
       { name: 'later', text: 'context 2' },
     ])
     expect(assembly.tools).toEqual([{ name: 'echo', description: 'echo back', parameters: {} }])
     expect(assembly.variables).toEqual({})
-    expect(renderPrompt(assembly)).toBe(`${IDENTITY}\n\nYou are DeepSeek Harness.\n\nBe precise.\n\ncwd: /tmp`)
+    expect(renderPrompt(assembly)).toBe(`${IDENTITY}\n\nBe precise.\n\ncwd: /tmp\n\nYou are DeepSeek Harness.`)
     expect(renderContextSnapshot(assembly)).toBe('Current runtime context. This snapshot supersedes earlier runtime-context snapshots.\n\ncontext 1\n\ncontext 2')
   })
 
@@ -307,8 +338,8 @@ describe('SystemPrompt', () => {
 
     const passed: AssembleContext = {}
     const assembly = await ctx.systemPrompt.assemble(passed)
-    expect(seen).toEqual([['harness:identity', 'deployment:persona', 'base', 'from-a']])
-    expect(assembly.sections.map(s => s.name)).toEqual(['harness:identity', 'deployment:persona', 'base', 'from-a'])
+    expect(seen).toEqual([['harness:identity', 'base', 'deployment:persona', 'from-a']])
+    expect(assembly.sections.map(s => s.name)).toEqual(['harness:identity', 'base', 'deployment:persona', 'from-a'])
     expect(contexts[0]).toBe(passed) // the caller's context reaches listeners
   })
 
@@ -368,7 +399,7 @@ describe('SystemPrompt', () => {
     firstParameters.properties['leak'] = { type: 'string' }
 
     const second = await ctx.systemPrompt.assemble()
-    expect(second.sections.map(section => section.name)).toEqual(['harness:identity', 'deployment:persona', 'base'])
+    expect(second.sections.map(section => section.name)).toEqual(['harness:identity', 'base', 'deployment:persona'])
     expect(second.sections[0]!.text).toBe(IDENTITY)
     expect(second.contexts).toEqual([])
     expect(second.tools).toEqual([{ name: 't', description: 'tool', parameters: { type: 'object', properties: {} } }])

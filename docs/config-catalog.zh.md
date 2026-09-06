@@ -2519,7 +2519,7 @@ export interface Config {
   /** Include dynamic runtime-context snapshots in model history (default true). */
   includeRuntimeContext?: boolean
   /**
-   * Deployment-wide order-0 persona template. A scoped section named
+   * Deployment-wide persona template after first-party guidance. A scoped section named
    * `deployment:persona` shadows it; `{{variable}}` references are strict.
    */
   persona?: string
@@ -2532,7 +2532,7 @@ export interface Config {
 }
 ```
 
-来源：[`packages/core/system-prompt/src/index.ts:237`](../packages/core/system-prompt/src/index.ts)
+来源：[`packages/core/system-prompt/src/index.ts:238`](../packages/core/system-prompt/src/index.ts)
 
 <a id="deepseek-aidsh-terminal-bash"></a>
 

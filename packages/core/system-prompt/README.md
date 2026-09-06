@@ -44,7 +44,7 @@ The config owns the fixed opener, runtime context, deployment persona, and tool 
 |---|---|---|
 | `includeHarnessIdentity` | `true` | Include the fixed `You are an AI agent powered by DeepSeek Harness.` first-party opener at order −1000. Set false only when a compatibility deployment owns the complete system prompt. |
 | `includeRuntimeContext` | `true` | Include ordered dynamic runtime context in assembly |
-| `persona` | `''` | The global deployment-persona prompt fragment, rendered at order `0` |
+| `persona` | `''` | The global deployment-persona prompt fragment, rendered at order `10200` after first-party reusable instructions |
 | `toolOrder` | — | Explicit model-facing tool order with one `'<unlisted-tools>'` rest entry |
 
 The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-system-prompt) is the exhaustive source for every accepted field. A `toolOrder` list without exactly one rest entry or with duplicates fails at load; a listed name with no registered tool rejects every `assemble()`.
@@ -130,7 +130,7 @@ The package-level contract is enough for most consumers; read these when you nee
 
 #### What the model sees
 
-By default every assembly starts with the harness identity below, then the configured persona and ordered plugin sections after strict variable interpolation. `includeHarnessIdentity: false` omits only that fixed opener. Empty sections disappear; scoped sections and variables can shadow globals for one agent. The `system-prompt/assemble` waterfall determines the delivered prompt and tool schemas unless one effective section declares itself complete — that exact section then becomes the whole system prompt while the waterfall's contexts, tools, and variables remain. Ordered dynamic contexts are separate from sections and become sourced user-role snapshots only when present; `includeRuntimeContext: false` or a scoped suppressor removes them all.
+First-party sections render the harness identity, reusable instructions (including the generated tools SDK and structured-output guidance), then the environment-bearing suffix: harness source (`10000`), Web surface (`10100`), and deployment persona (`10200`). External section orders and assembly listeners remain authoritative. `includeHarnessIdentity: false` omits only that fixed opener. Empty sections disappear; scoped sections and variables can shadow globals for one agent. The `system-prompt/assemble` waterfall determines the delivered prompt and tool schemas unless one effective section declares itself complete — that exact section then becomes the whole system prompt while the waterfall's contexts, tools, and variables remain. Ordered dynamic contexts are separate from sections and become sourced user-role snapshots only when present; `includeRuntimeContext: false` or a scoped suppressor removes them all.
 
 ##### Harness identity
 
@@ -144,7 +144,7 @@ Identity is a fixed per-request cost when enabled. Persona and plugin text are r
 
 #### KV Cache effect
 
-Prefix-stable while identity, persona, variables, section text, and order render identically. Any change may invalidate reuse from the first changed system-prompt token.
+With matching tools, configuration, and preceding instructions, different source paths, local Web URLs, or persona variables leave the reusable first-party prefix unchanged. Any change may invalidate reuse from the first changed token; provider cache sharing and measured hit rates are not guaranteed.
 
 ### Tool schemas
 

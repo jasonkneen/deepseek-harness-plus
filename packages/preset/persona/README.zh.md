@@ -61,7 +61,7 @@ kind: "package-reference"
 
 ### 本行如何注册
 
-`apply` 在挂载上下文的 scope 内通过 `ctx.systemPrompt.section({ name: PERSONA_SECTION, order: ctx.systemPrompt.getSectionOrder('DEPLOYMENT_PERSONA'), text, complete? })` 注册一个提示词段落，因此该段落落在 order 0——紧随 harness 身份开场白之后——且只对加入该 preset 的 agent 生效。共享段落名让 preset 人设遮蔽部署人设，而不是落在它旁边；服务持有的 order 查询则让仓库自带贡献方服从集中分配。`includeRuntimeContext: false` 会调用 `ctx.systemPrompt.suppressRuntimeContext()`。
+`apply` 在挂载上下文的 scope 内通过 `ctx.systemPrompt.section({ name: PERSONA_SECTION, order: ctx.systemPrompt.getSectionOrder('DEPLOYMENT_PERSONA'), text, complete? })` 注册一个提示词段落，因此该段落落在 order 10200——位于第一方可复用指令之后——且只对加入该 preset 的 agent 生效。共享段落名让 preset 人设遮蔽部署人设，而不是落在它旁边；服务持有的 order 查询则让仓库自带贡献方服从集中分配。`includeRuntimeContext: false` 会调用 `ctx.systemPrompt.suppressRuntimeContext()`。
 
 ### 本行为何仅限 scope 内使用
 
@@ -96,7 +96,7 @@ kind: "package-reference"
 
 #### 模型看到什么
 
-位于 order 0 的 `deployment:persona` 段落，紧随 harness 身份开场白之后，携带本行配置的 `text`，其中的提示词变量已解析。对于其 preset 挂载了本行的 agent，它会替换部署所配置的任何人设。在完整模式下，模型只会看到这个渲染后的段落作为系统提示词。Runtime context 默认保持启用；禁用后，新建 agent 不会收到来自沙箱策略、批准策略、委派或其他 system-prompt 上下文提供方的 runtime-context 快照。
+位于 order 10200 的 `deployment:persona` 段落，在第一方可复用指令之后，携带本行配置的 `text`，其中的提示词变量已解析。对于其 preset 挂载了本行的 agent，它会替换部署所配置的任何人设。在完整模式下，模型只会看到这个渲染后的段落作为系统提示词。Runtime context 默认保持启用；禁用后，新建 agent 不会收到来自沙箱策略、批准策略、委派或其他 system-prompt 上下文提供方的 runtime-context 快照。
 
 #### Token 影响
 
@@ -104,7 +104,7 @@ kind: "package-reference"
 
 #### KV Cache 影响
 
-在一个 agent 的整个生命周期内保持前缀稳定——本行只挂载一次，发生在 agent 发布之前、因而也在它的首个请求之前，且在 agent 运行期间文本不再改变。两个使用不同 preset 的 agent 从该段落起建立各自不同的前缀，谁都无法让对方失去缓存复用。
+渲染后的模板变量与文本不变时，前缀保持稳定。不同 persona 在工具与配置一致时可以共享前置的第一方指令；不保证提供方共享缓存。
 
 ## 已知限制与延期工作
 
