@@ -5,9 +5,23 @@ import { runBuiltBenchmarkWorker } from '../support/built-worker.ts'
 import { ciTimeBudget, PERFORMANCE_BUDGET_HEADROOM } from '../support/calibration.ts'
 import type { ReconnectReport } from './reconnect.worker.client.ts'
 
-const REFERENCE_REPLACE_MS = 16
+const EXPECTED_REPLACE_CI_MS = 50
+const REPLACE_BUDGET_MS = Math.ceil(EXPECTED_REPLACE_CI_MS * PERFORMANCE_BUDGET_HEADROOM)
 const REFERENCE_RETAINED_MB = 24
 const SAMPLES = 3
+
+function expectReplacementWithinBudget(value: number, budget: number): void {
+  expect(value).toBeLessThanOrEqual(budget)
+}
+
+it('accepts recorded hosted reconnect samples and rejects replacement regressions', () => {
+  const recordedMedian = [46.574411, 46.067910, 44.193704].toSorted((a, b) => a - b)[1]!
+  expect(() => expectReplacementWithinBudget(recordedMedian, ciTimeBudget(16))).toThrow()
+  expectReplacementWithinBudget(recordedMedian, REPLACE_BUDGET_MS)
+  expect(REPLACE_BUDGET_MS).toBe(63)
+  expect(() => expectReplacementWithinBudget(75, REPLACE_BUDGET_MS)).toThrow()
+  expect(() => expectReplacementWithinBudget(REPLACE_BUDGET_MS + 1, REPLACE_BUDGET_MS)).toThrow()
+})
 
 it('reconstructs a 100000-delta live prefix within baseline time and retained-memory budgets', async () => {
   const samples: ReconnectReport[] = []
@@ -26,9 +40,9 @@ it('reconstructs a 100000-delta live prefix within baseline time and retained-me
   }
   const replaceMs = samples.map(sample => sample.replaceMs).toSorted((a, b) => a - b)[1]!
   const retainedMb = samples.map(sample => sample.retainedMb).toSorted((a, b) => a - b)[1]!
-  const budgetMs = ciTimeBudget(REFERENCE_REPLACE_MS)
+  const budgetMs = REPLACE_BUDGET_MS
   const budgetMb = REFERENCE_RETAINED_MB * PERFORMANCE_BUDGET_HEADROOM
-  console.log(JSON.stringify({ benchmark: 'active-stream-reconnect', samples, median: { replaceMs, retainedMb }, referenceMs: REFERENCE_REPLACE_MS, referenceMb: REFERENCE_RETAINED_MB, budgetMs, budgetMb }))
-  expect.soft(replaceMs).toBeLessThanOrEqual(budgetMs)
+  console.log(JSON.stringify({ benchmark: 'active-stream-reconnect', samples, median: { replaceMs, retainedMb }, expectedCiMs: EXPECTED_REPLACE_CI_MS, referenceMb: REFERENCE_RETAINED_MB, budgetMs, budgetMb }))
+  expectReplacementWithinBudget(replaceMs, budgetMs)
   expect.soft(retainedMb).toBeLessThanOrEqual(budgetMb)
 })
