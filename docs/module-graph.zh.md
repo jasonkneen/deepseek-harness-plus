@@ -156,6 +156,7 @@ flowchart TD
     pkg_client_ui_layout["client-ui-layout"]
     pkg_client_ui_message_feedback["client-ui-message-feedback"]
     pkg_client_ui_model_selection["client-ui-model-selection"]
+    pkg_client_ui_open_in_app["client-ui-open-in-app"]
     pkg_client_ui_permission_presets["client-ui-permission-presets"]
     pkg_client_ui_plan["client-ui-plan"]
     pkg_client_ui_primitives["client-ui-primitives"]
@@ -239,6 +240,7 @@ flowchart TD
     pkg_host_directory_picker_browse["host-directory-picker-browse"]
     pkg_host_directory_picker_native["host-directory-picker-native"]
     pkg_host_frontend_static["host-frontend-static"]
+    pkg_host_open_in_app["host-open-in-app"]
     pkg_host_plugin_inventory["host-plugin-inventory"]
     pkg_host_webserver["host-webserver"]
   end
@@ -1202,6 +1204,7 @@ flowchart TD
 | [`client-ui-layout`](../packages/client/ui-layout) | `client` | — |
 | [`client-ui-message-feedback`](../packages/client/ui-message-feedback) | `client` | — |
 | [`client-ui-model-selection`](../packages/client/ui-model-selection) | `client` | — |
+| [`client-ui-open-in-app`](../packages/client/ui-open-in-app) | `client` | — |
 | [`client-ui-permission-presets`](../packages/client/ui-permission-presets) | `client` | — |
 | [`client-ui-plan`](../packages/client/ui-plan) | `client` | — |
 | [`client-ui-primitives`](../packages/client/ui-primitives) | `client` | — |
@@ -1234,6 +1237,7 @@ flowchart TD
 | [`host-directory-picker`](../packages/host/directory-picker) | `host` | — |
 | [`host-directory-picker-browse`](../packages/host/directory-picker-browse) | `host` | — |
 | [`host-directory-picker-native`](../packages/host/directory-picker-native) | `host` | — |
+| [`host-open-in-app`](../packages/host/open-in-app) | `host` | — |
 | [`host-webserver`](../packages/host/webserver) | `host` | — |
 | [`invariants`](../packages/runtime-diagnostics/invariants) | `runtime-diagnostics` | — |
 | [`sandbox-windows-acl`](../packages/sandbox/sandbox-windows-acl) | `sandbox` | — |
