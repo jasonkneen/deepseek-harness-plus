@@ -1015,6 +1015,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'the full raw content, at most `maxBytes` long.',
       },
       {
+        signature: 'abstract readByteRange(target: FsTarget, range: { offset: number; length: number }, signal?: AbortSignal): Promise<Uint8Array>',
+        description: 'Read one byte window of the regular file as raw bytes with no decoding or binary rejection: the bytes at `[offset, offset + length)`, shorter when the file ends inside the window and empty when `offset` lies at or past its end. The window is the bound here, not the file: a backend transfers at most `length` bytes of content beyond the prefix it skips to reach `offset` and never buffers the whole file, so the caller\'s cap on `length` is the guard against unbounded buffering.',
+        parameters: [{ name: 'target', description: 'the resolved target to read.' }, { name: 'range', description: '`offset`, the 0-based first byte, and `length`, the largest byte count; both non-negative integers.' }, { name: 'signal', description: 'aborts the read.' }],
+        returns: 'the window\'s bytes, at most `length` long.',
+      },
+      {
         signature: 'abstract listDir(target: FsTarget, signal?: AbortSignal): Promise<FsDirEntry[]>',
         description: 'List direct children of a directory in stable name order. Returns resolved child targets plus cheap metadata only; never reads file contents.',
         parameters: [{ name: 'target', description: 'the resolved directory target.' }, { name: 'signal', description: 'aborts the listing.' }],
@@ -2888,6 +2894,43 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         description: 'Stream a complete Workspace baseline followed by ordered increments.',
         parameters: [{ name: 'signal', description: 'generation cancellation.' }],
         returns: 'baseline followed by ordered Workspace increments.',
+      },
+    ],
+  },
+  {
+    key: 'workspaceFiles',
+    summary: 'Host Remote service over the composed filesystem, confined to one workspace.',
+    description: 'Host Remote service over the composed filesystem, confined to one workspace.',
+    methods: [
+      {
+        signature: '@Remote async read(agent: Agent, path: string, range: WorkspaceFileRange, signal: AbortSignal): Promise<WorkspaceFileText>',
+        description: 'Read one page of lines from a UTF-8 text file inside the Agent\'s workspace.',
+        parameters: [{ name: 'agent', description: 'target Agent resolved from the Session identity on the wire.' }, { name: 'path', description: 'workspace path, absolute or relative to the workspace root.' }, { name: 'range', description: 'the line window; omitted fields take the page defaults.' }, { name: 'signal', description: 'caller cancellation.' }],
+        returns: 'the page, the file\'s version at the stat before it, and whether it reaches the last line.',
+      },
+      {
+        signature: '@Remote async readBytes(agent: Agent, path: string, range: WorkspaceByteRange, signal: AbortSignal): Promise<WorkspaceFileBytes>',
+        description: 'Read one byte window of a regular file inside the Agent\'s workspace: raw bytes, no text decoding and no binary rejection.',
+        parameters: [{ name: 'agent', description: 'target Agent resolved from the Session identity on the wire.' }, { name: 'path', description: 'workspace path, absolute or relative to the workspace root.' }, { name: 'range', description: 'the byte window; omitted fields take the window defaults.' }, { name: 'signal', description: 'caller cancellation.' }],
+        returns: 'the window in base64, the file\'s version and size at the stat before it, and whether it reaches the last byte.',
+      },
+      {
+        signature: '@Remote async stat(agent: Agent, path: string, signal: AbortSignal): Promise<WorkspaceFileStat>',
+        description: 'Report one regular file\'s identity, version, and size without its content.',
+        parameters: [{ name: 'agent', description: 'target Agent resolved from the Session identity on the wire.' }, { name: 'path', description: 'workspace path, absolute or relative to the workspace root.' }, { name: 'signal', description: 'caller cancellation.' }],
+        returns: 'the file\'s absolute path, current version, and byte size.',
+      },
+      {
+        signature: '@Remote async list(agent: Agent, path: string, signal: AbortSignal): Promise<WorkspaceDirectoryListing>',
+        description: 'List the direct children of one directory inside the Agent\'s workspace.',
+        parameters: [{ name: 'agent', description: 'target Agent resolved from the Session identity on the wire.' }, { name: 'path', description: 'workspace path, absolute or relative to the workspace root.' }, { name: 'signal', description: 'caller cancellation.' }],
+        returns: 'the directory\'s children in the backend\'s stable name order, bounded by the entry cap.',
+      },
+      {
+        signature: '@Remote({ mode: \'stream\' }) changes(agent: Agent, signal: AbortSignal): AsyncIterable<WorkspaceFileWatchFrame>',
+        description: 'Stream every `fs/observed` observation of a file inside the Agent\'s workspace. Only Agent filesystem operations report here; the OS is not watched.',
+        parameters: [{ name: 'agent', description: 'target Agent resolved from the Session identity on the wire.' }, { name: 'signal', description: 'generation cancellation.' }],
+        returns: '`ready` once the Host observation queue is active and the workspace root is resolved, then queued and live observations in emission order.',
       },
     ],
   },
@@ -6313,6 +6356,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface WorkspaceBaseline {\n    readonly items: readonly WorkspaceView[];\n    readonly archivedSessionIds: readonly SessionId[];\n}',
   },
   {
+    name: 'WorkspaceByteRange',
+    declaration: 'export interface WorkspaceByteRange {\n    readonly offset?: number;\n    readonly length?: number;\n}',
+  },
+  {
     name: 'WorkspaceCreateRequest',
     declaration: 'export interface WorkspaceCreateRequest {\n    readonly path: string;\n}',
   },
@@ -6327,6 +6374,38 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'WorkspaceDeleteValue',
     declaration: 'export interface WorkspaceDeleteValue {\n    readonly deleted: true;\n}',
+  },
+  {
+    name: 'WorkspaceDirectoryEntry',
+    declaration: 'export interface WorkspaceDirectoryEntry {\n    readonly name: string;\n    readonly type: \'file\' | \'directory\' | \'other\';\n    readonly size?: number;\n}',
+  },
+  {
+    name: 'WorkspaceDirectoryListing',
+    declaration: 'export interface WorkspaceDirectoryListing {\n    readonly path: string;\n    readonly entries: readonly WorkspaceDirectoryEntry[];\n    readonly truncated: boolean;\n}',
+  },
+  {
+    name: 'WorkspaceFileBytes',
+    declaration: 'export interface WorkspaceFileBytes extends WorkspaceFileStat {\n    readonly offset: number;\n    readonly data: string;\n    readonly eof: boolean;\n}',
+  },
+  {
+    name: 'WorkspaceFileChange',
+    declaration: 'export type WorkspaceFileChange = {\n    readonly absolutePath: string;\n    readonly version: string;\n} | {\n    readonly absolutePath: string;\n    readonly absent: true;\n};',
+  },
+  {
+    name: 'WorkspaceFileRange',
+    declaration: 'export interface WorkspaceFileRange {\n    readonly offset?: number;\n    readonly limit?: number;\n}',
+  },
+  {
+    name: 'WorkspaceFileStat',
+    declaration: 'export interface WorkspaceFileStat {\n    readonly absolutePath: string;\n    readonly version: string;\n    readonly bytes?: number;\n}',
+  },
+  {
+    name: 'WorkspaceFileText',
+    declaration: 'export interface WorkspaceFileText extends WorkspaceFileStat {\n    readonly offset: number;\n    readonly text: string;\n    readonly lines: number;\n    readonly eof: boolean;\n}',
+  },
+  {
+    name: 'WorkspaceFileWatchFrame',
+    declaration: 'export type WorkspaceFileWatchFrame = {\n    readonly kind: \'ready\';\n} | {\n    readonly kind: \'change\';\n    readonly change: WorkspaceFileChange;\n};',
   },
   {
     name: 'WorkspaceFollowFrame',
