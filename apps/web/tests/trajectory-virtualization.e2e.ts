@@ -155,10 +155,15 @@ async function rowTop(page: Page, key: string): Promise<number | null> {
 
 async function loadToFirstTurn(page: Page): Promise<void> {
   const marker = FIXTURE.markers.user(1)
+  const loadMore = page.locator('[data-history-load] button')
   for (let attempt = 0; attempt < 12; attempt += 1) {
+    if (await page.getByText(marker, { exact: false }).count() > 0) return
+    await expect.poll(() => loadMore.evaluateAll(buttons =>
+      buttons.length === 0 || !(buttons[0] as HTMLButtonElement).disabled,
+    ), { timeout: 15_000 }).toBe(true)
+    const before = await logicalRows(page)
     await scrollToRatio(page, 0)
     if (await page.getByText(marker, { exact: false }).count() > 0) return
-    const before = await logicalRows(page)
     const anchor = await firstVisibleRow(page)
     await expect.poll(async () => ({
       marker: await page.getByText(marker, { exact: false }).count() > 0,

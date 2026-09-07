@@ -1,8 +1,8 @@
-import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve, sep } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { describe, expect, it, vi } from 'vitest'
+import { afterAll, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import SystemPrompt, { renderPrompt } from '@deepseek-ai/dsh-system-prompt'
 import {
@@ -13,7 +13,16 @@ import {
 
 const NAME = 'dsh-test-bin'
 
-const tmp = (): string => mkdtempSync(join(tmpdir(), 'dsh-app-boot-'))
+const tempRoots: string[] = []
+afterAll(() => {
+  for (const root of tempRoots.splice(0)) rmSync(root, { recursive: true, force: true })
+})
+
+const tmp = (): string => {
+  const dir = mkdtempSync(join(tmpdir(), 'dsh-app-boot-'))
+  tempRoots.push(dir)
+  return dir
+}
 
 describe('resolveConfigPath', () => {
   it('resolves relative to the given cwd outside replay mode', () => {
@@ -885,10 +894,13 @@ describe('addHarnessSourceSection', () => {
   const SOURCE_ROOT = `${sep}opt${sep}harness-src`
   const EXPECTED = `The DeepSeek Harness implementation checkout is at ${SOURCE_ROOT}. The checkout location and current working directory are separate values and may differ; never infer the working directory from this path. Use pwd to determine the current working directory. Use this checkout only to inspect or extend DSH itself.`
 
-  it('distinguishes the source path from the current workdir between identity and persona', async () => {
+  it('distinguishes the source path from the current workdir after reusable instructions', async () => {
     const ctx = new Context()
     try {
-      await ctx.plugin(SystemPrompt, { persona: 'You are a coding agent.' })
+      await ctx.plugin(SystemPrompt, { personaPrefix: 'You are a coding agent.' })
+      ctx.systemPrompt.section({
+        name: 'tools:sdk', order: ctx.systemPrompt.getSectionOrder('TOOLS_SDK'), text: 'Reusable tool SDK.',
+      })
       const dispose = addHarnessSourceSection(ctx, SOURCE_ROOT)
       expect(dispose).toBeTypeOf('function')
       const systemPrompt = ctx.get('systemPrompt')!
@@ -901,8 +913,10 @@ describe('addHarnessSourceSection', () => {
       const personaAt = rendered.indexOf('You are a coding agent.')
       expect(identityAt).toBeGreaterThanOrEqual(0)
       expect(personaAt).toBeGreaterThanOrEqual(0)
-      expect(identityAt).toBeLessThan(sourceAt)
-      expect(sourceAt).toBeLessThan(personaAt)
+      const sdkAt = rendered.indexOf('Reusable tool SDK.')
+      expect(personaAt).toBeGreaterThan(identityAt)
+      expect(sdkAt).toBeGreaterThan(personaAt)
+      expect(sdkAt).toBeLessThan(sourceAt)
     } finally {
       await ctx.fiber.dispose()
     }

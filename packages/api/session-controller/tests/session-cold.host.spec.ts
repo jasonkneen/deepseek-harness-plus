@@ -14,7 +14,8 @@ import { subagentIdentityProjectionDefinition } from '@deepseek-ai/dsh-subagent/
 import TypertRegistry from '@deepseek-ai/dsh-typert-registry'
 import { createUserMessage, MessageId } from '@deepseek-ai/dsh-llm'
 import { snapshotSubagentDescriptor } from '@deepseek-ai/dsh-subagent'
-import type { Agent } from '@deepseek-ai/dsh-agent'
+import { createInboxStub } from '@deepseek-ai/dsh-agent-loop-testkit'
+import type { Agent, Inbox } from '@deepseek-ai/dsh-agent'
 import type { SessionEvent, SessionHeader, SessionId } from '@deepseek-ai/dsh-session'
 import type { SessionPromptRequest, SessionRequestId } from '../src/types.ts'
 import {
@@ -40,6 +41,10 @@ function promptRequest(
     ...payload,
     requestId: `cold-${String(nextRequestId++)}` as SessionRequestId,
   }
+}
+
+function inboxFor(): Inbox {
+  return createInboxStub()
 }
 
 function header(id: string, createdAt: number, extra: Partial<SessionHeader> = {}): SessionHeader {
@@ -540,7 +545,9 @@ describe('subagent ownership fence', () => {
       inheritedEventCount: SessionLogOffset(1),
     })
     const followup = vi.fn()
-    const agent = { id: session.id, session, status: 'idle', ctx, followup } as unknown as Agent
+    const agent = {
+      id: session.id, session, inbox: inboxFor(), status: 'idle', ctx, followup,
+    } as unknown as Agent
     ctx.agents.register(agent)
     const remote = createSessionTestRemote(ctx, { defaultModelSelection: () => ({ provider: 'p', model: 'm' }), cwd: '/tmp' })
 
@@ -559,7 +566,9 @@ describe('subagent ownership fence', () => {
     await ctx.plugin(AgentRegistry)
     const session = ctx.sessions.create(sid('session-browser-zone'), { meta: { cwd: '/proj' } })
     const followup = vi.fn()
-    const agent = { id: session.id, session, status: 'idle', ctx, followup } as unknown as Agent
+    const agent = {
+      id: session.id, session, inbox: inboxFor(), status: 'idle', ctx, followup,
+    } as unknown as Agent
     ctx.agents.register(agent)
     const remote = createSessionTestRemote(ctx, {
       defaultModelSelection: () => ({ provider: 'p', model: 'm' }),
@@ -679,6 +688,7 @@ describe('sessions.prompt synchronous rejection', () => {
     ctx.agents.register({
       id: session.id,
       session,
+      inbox: inboxFor(),
       status: 'idle',
       ctx,
       followup: () => { throw new Error('agent "session-throwing" lifecycle disposed') },

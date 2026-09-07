@@ -37,10 +37,10 @@ export const TODO_SYSTEM_PROMPT = 'You are a coding agent. For multi-step work, 
 /** Options for {@link codingHarness}. */
 export interface CodingHarnessOptions {
   /**
-   * Deployment persona for the tree (the system-prompt plugin's `persona`
-   * config — per-context, not per-agent). Omitted ⇒ no persona section.
+   * Deployment persona prefix for the tree (the system-prompt plugin's `personaPrefix`
+   * config — per-context, not per-agent). Omitted ⇒ no persona prefix section.
    */
-  persona?: string
+  personaPrefix?: string
   /** Durable JSONL persistence root (the resume suite needs it; others stay file-free). */
   persistenceRoot?: string
   /**
@@ -56,7 +56,7 @@ export interface CodingHarnessOptions {
 export async function codingHarness(workdir: string, options: CodingHarnessOptions = {}): Promise<Context> {
   const ctx = new Context()
   await mountAgentLoopTestDependencies(ctx, {
-    systemPrompt: { persona: options.persona ?? '' },
+    systemPrompt: { personaPrefix: options.personaPrefix ?? '' },
   })
   await ctx.plugin(AgentLoop, { agents: [] })
   await ctx.plugin(LlmDeepSeek, options.modelContextWindow === undefined ? {} : {

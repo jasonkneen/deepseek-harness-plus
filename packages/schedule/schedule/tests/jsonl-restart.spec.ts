@@ -84,7 +84,11 @@ async function settleCurrentTasks(): Promise<void> {
 async function readStored(ctx: Context, id: SessionId) {
   const handle = await ctx.sessionPersistence.open(id, 'read')
   try {
-    return { header: handle.header, inheritedEventCount: handle.inheritedEventCount, events: await handle.read() }
+    return {
+      header: handle.header,
+      inheritedEventCount: handle.inheritedEventCount,
+      events: (await handle.read()).events,
+    }
   } finally {
     await handle.close()
   }

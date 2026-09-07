@@ -35,7 +35,7 @@ async function harness(): Promise<{ ctx: Context; agent: Agent }> {
   await writeFile(join(workdir, 'AGENTS.md'), `If the user asks for the workspace context handshake, reply with exactly this string and nothing else: ${PROBE}.\n`)
   ctx = new Context()
   await mountAgentLoopTestDependencies(ctx, {
-    systemPrompt: { persona: 'Answer the user exactly and concisely.' },
+    systemPrompt: { personaPrefix: 'Answer the user exactly and concisely.' },
   })
   await ctx.plugin(LocalFileSystem, { cwd: '/' })
   await ctx.plugin(ToolFs)

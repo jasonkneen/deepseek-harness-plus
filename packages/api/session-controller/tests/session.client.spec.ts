@@ -15,7 +15,6 @@ const PARENT = 'fk-parent' as SessionId
 afterEach(() => {
   vi.unstubAllGlobals()
 })
-
 function makeSession(
   api = new FakeApiClient(),
   options: SessionOptions = {},
@@ -401,9 +400,11 @@ describe('prompt and cancel errors', () => {
     })
     await session.open()
     const prompted = await session.prompt([{ type: 'text', text: '继续' }], 'queue')
+    const steered = await session.prompt([{ type: 'text', text: '现在处理' }], 'steer')
     const cancelled = await session.cancel()
 
     expect(prompted).toEqual({ ok: true, value: { accepted: true } })
+    expect(steered).toEqual({ ok: true, value: { accepted: true } })
     expect(cancelled).toEqual({ ok: true, value: { accepted: true } })
     expect(api.callsOf('session.follow')).toEqual([
       {
@@ -420,7 +421,16 @@ describe('prompt and cancel errors', () => {
         requestId: expect.any(String) as unknown as string,
         parentSessionId: PARENT, childSessionId: SID,
         mode: 'continuable',
+        delivery: 'queue',
         content: [{ type: 'text', text: '继续' }],
+        clientTimeZone: new Intl.DateTimeFormat().resolvedOptions().timeZone,
+      },
+      {
+        requestId: expect.any(String) as unknown as string,
+        parentSessionId: PARENT, childSessionId: SID,
+        mode: 'continuable',
+        delivery: 'steer',
+        content: [{ type: 'text', text: '现在处理' }],
         clientTimeZone: new Intl.DateTimeFormat().resolvedOptions().timeZone,
       },
     ])
@@ -457,6 +467,7 @@ describe('prompt and cancel errors', () => {
         requestId: expect.any(String) as unknown as string,
         parentSessionId: PARENT, childSessionId: SID,
         mode: 'continuable',
+        delivery: 'queue',
         content,
         clientTimeZone: new Intl.DateTimeFormat().resolvedOptions().timeZone,
       },
@@ -477,6 +488,29 @@ describe('prompt and cancel errors', () => {
     expect(session.getSnapshot().promptError).toMatchObject({
       op: 'stop', error: { code: 'subagent/unauthorized' },
     })
+  })
+
+  it('rejects staged files instead of dropping them from subagent continuations', async () => {
+    const api = new FakeApiClient()
+    const session = new Session(SID, fakeRemote(api), {
+      address: { parentSessionId: PARENT, childSessionId: SID, mode: 'continuable' },
+      parentAvailable: true,
+    })
+    await session.open()
+
+    const prompted = await session.prompt([
+      { type: 'file', receiptId: 'receipt' as never },
+      { type: 'text', text: '继续' },
+    ], 'queue')
+
+    expect(prompted).toMatchObject({
+      ok: false,
+      error: {
+        code: 'subagent/attachment-invalid',
+        details: { reason: 'SUBAGENT_FILE_UNSUPPORTED' },
+      },
+    })
+    expect(api.callsOf('subagents.prompt')).toEqual([])
   })
 
   it('sends a one-shot address to the Host under the continuable marker', async () => {
