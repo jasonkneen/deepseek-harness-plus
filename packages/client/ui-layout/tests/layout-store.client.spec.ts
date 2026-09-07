@@ -17,6 +17,7 @@ describe('createLayoutStore', () => {
       rightbarShown: false,
       rightbarTrack: false,
       rightbarFullscreen: false,
+      rightbarInstant: false,
     })
   })
 
@@ -152,5 +153,74 @@ describe('right panel', () => {
     actions.closeRightbar()
     actions.setViewportWidth(3000)
     expect(store.getSnapshot()).toMatchObject({ sidebar: 420, rightbarShown: false, rightbarTrack: false })
+  })
+})
+
+describe('right panel instant geometry', () => {
+  it.each([true, false])('closes fullscreen with track=%s in one instant update and retains repeated close reports', (track) => {
+    const { store, actions } = createLayoutStore().create()
+    actions.openRightbar(track, true)
+    actions.closeRightbar()
+    expect(store.getSnapshot()).toMatchObject({
+      rightbarShown: false, rightbarTrack: false, rightbarFullscreen: false, rightbarInstant: true,
+    })
+    const closed = store.getSnapshot()
+    actions.closeRightbar()
+    expect(store.getSnapshot()).toBe(closed)
+  })
+
+  it('restores the normal track instantly, retaining the marker on an identical report', () => {
+    const { store, actions } = createLayoutStore().create()
+    actions.openRightbar(true, true)
+    actions.openRightbar(true, false)
+    expect(store.getSnapshot()).toMatchObject({
+      rightbarShown: true, rightbarTrack: true, rightbarFullscreen: false, rightbarInstant: true,
+    })
+    const restored = store.getSnapshot()
+    actions.openRightbar(true, false)
+    expect(store.getSnapshot()).toBe(restored)
+    actions.openRightbar(false, false)
+    expect(store.getSnapshot().rightbarInstant).toBe(false)
+  })
+
+  it('allows a normal close to animate, including after restoring from fullscreen', () => {
+    const { store, actions } = createLayoutStore().create()
+    actions.openRightbar(true, false)
+    actions.closeRightbar()
+    expect(store.getSnapshot().rightbarInstant).toBe(false)
+    actions.openRightbar(true, true)
+    actions.openRightbar(true, false)
+    expect(store.getSnapshot().rightbarInstant).toBe(true)
+    actions.closeRightbar()
+    expect(store.getSnapshot()).toMatchObject({ rightbarTrack: false, rightbarInstant: false })
+  })
+
+  it.each(['setSidebar', 'toggleSidebar', 'setRightbar', 'setViewportWidth'] as const)('clears instant geometry on %s', (action) => {
+    const { store, actions } = createLayoutStore().create()
+    actions.openRightbar(true, true)
+    actions.closeRightbar()
+    expect(store.getSnapshot().rightbarInstant).toBe(true)
+    if (action === 'toggleSidebar') actions.toggleSidebar()
+    else actions[action](action === 'setViewportWidth' ? 1800 : 350)
+    expect(store.getSnapshot().rightbarInstant).toBe(false)
+    actions.closeRightbar()
+    expect(store.getSnapshot().rightbarInstant).toBe(false)
+  })
+
+  it('does not let an unchanged frame measurement reset the fullscreen-exit marker', () => {
+    const { store, actions } = createLayoutStore().create()
+    actions.openRightbar(true, true)
+    actions.closeRightbar()
+    const closed = store.getSnapshot()
+    actions.setViewportWidth(closed.viewportWidth)
+    expect(store.getSnapshot()).toBe(closed)
+  })
+
+  it.each([true, false])('clears the exit marker on a fresh opening with fullscreen=%s', (fullscreen) => {
+    const { store, actions } = createLayoutStore().create()
+    actions.openRightbar(true, true)
+    actions.closeRightbar()
+    actions.openRightbar(true, fullscreen)
+    expect(store.getSnapshot()).toMatchObject({ rightbarShown: true, rightbarFullscreen: fullscreen, rightbarInstant: false })
   })
 })

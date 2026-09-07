@@ -38,6 +38,8 @@ type LayoutState = {
   rightbarTrack: boolean
   /** Reported fullscreen presentation; hides the outer resize handle. */
   rightbarFullscreen: boolean
+  /** Suppress transitions for a fullscreen exit until another geometry action. */
+  rightbarInstant: boolean
 }
 
 /**
@@ -72,27 +74,38 @@ export function createLayoutStore(): EngineStoreHandle<LayoutState, LayoutAction
       rightbarShown: false,
       rightbarTrack: false,
       rightbarFullscreen: false,
+      rightbarInstant: false,
     }),
     actions: {
-      setSidebar: (d, px: number) => { d.sidebar = clampWidth(px, SIDEBAR_MIN, SIDEBAR_MAX) },
+      setSidebar: (d, px: number) => {
+        d.rightbarInstant = false
+        d.sidebar = clampWidth(px, SIDEBAR_MIN, SIDEBAR_MAX)
+      },
       // Narrow toggles flip only the override: the width preference survives
       // untouched, so re-widening restores the pre-squeeze layout.
       toggleSidebar: (d) => {
+        d.rightbarInstant = false
         if (d.viewportWidth < SIDEBAR_AUTO_COLLAPSE) d.narrowExpanded = !d.narrowExpanded
         else d.sidebar = d.sidebar === 0 ? SIDEBAR_DEFAULT : 0
       },
       // Crossing the breakpoint in either direction drops the override: the
       // narrow default is auto-collapsed, the wide state is the preference.
       setViewportWidth: (d, width: number) => {
+        if (d.viewportWidth === width) return
+        d.rightbarInstant = false
         if ((d.viewportWidth < SIDEBAR_AUTO_COLLAPSE) !== (width < SIDEBAR_AUTO_COLLAPSE)) {
           d.narrowExpanded = false
         }
         d.viewportWidth = width
       },
       setRightbar: (d, px: number) => {
+        d.rightbarInstant = false
         d.rightbar = clampWidth(px, RIGHTBAR_MIN, Math.max(RIGHTBAR_MIN, d.viewportWidth * RIGHTBAR_MAX_RATIO))
       },
       openRightbar: (d, track: boolean, fullscreen: boolean) => {
+        if (!d.rightbarShown || d.rightbarTrack !== track || d.rightbarFullscreen !== fullscreen) {
+          d.rightbarInstant = d.rightbarFullscreen && !fullscreen
+        }
         if (!d.rightbarShown && d.viewportWidth < SIDEBAR_AUTO_COLLAPSE) d.narrowExpanded = false
         d.rightbar ??= Math.max(RIGHTBAR_MIN, Math.round(d.viewportWidth * RIGHTBAR_DEFAULT_RATIO))
         d.rightbarShown = true
@@ -100,6 +113,7 @@ export function createLayoutStore(): EngineStoreHandle<LayoutState, LayoutAction
         d.rightbarFullscreen = fullscreen
       },
       closeRightbar: (d) => {
+        if (d.rightbarShown) d.rightbarInstant = d.rightbarFullscreen
         d.rightbarShown = false
         d.rightbarTrack = false
         d.rightbarFullscreen = false

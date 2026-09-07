@@ -201,6 +201,7 @@ export function AppFrame({
       data-sidebar-collapsed={sidebarCollapsed || undefined}
       data-rightbar-collapsed={cols.rightbar === 0 || undefined}
       data-rightbar-fullscreen={panels.rightbarFullscreen || undefined}
+      data-rightbar-instant={panels.rightbarInstant || undefined}
       data-dragging={dragging || undefined}
     >
       <DocumentTitle

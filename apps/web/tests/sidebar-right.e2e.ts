@@ -85,6 +85,28 @@ async function pointIn(locator: Locator, fx: number, fy: number): Promise<{ x: n
   return { x: box.x + box.width * fx, y: box.y + box.height * fy }
 }
 
+/** Pause the panel's next real transform transition after observing its initial frame geometry. */
+async function holdPanelSlide(panel: Locator) {
+  return await panel.evaluateHandle((node) => {
+    const controller = new AbortController()
+    const state = { animation: null as Animation | null, columnsAtStart: '', dispose: () => { controller.abort() } }
+    node.addEventListener('transitionrun', (event) => {
+      if (event.target !== node || (event as TransitionEvent).propertyName !== 'transform') return
+      const frame = node.closest('[style*="grid-template-columns"]')
+      if (frame === null) throw new Error('panel frame is unavailable')
+      state.columnsAtStart = getComputedStyle(frame).gridTemplateColumns
+      const slide = node.getAnimations().find(animation =>
+        'transitionProperty' in animation && animation.transitionProperty === 'transform')
+      if (slide === undefined || slide.effect === null) throw new Error('panel transform transition is unavailable')
+      slide.pause()
+      slide.currentTime = Number(slide.effect.getComputedTiming().endTime) / 2
+      state.animation = slide
+      controller.abort()
+    }, { signal: controller.signal })
+    return state
+  })
+}
+
 /** The expand button in the conversation header, present only while collapsed. */
 function expandOf(page: Page): Locator {
   return page.locator('[data-sidebar-right-expand]')
@@ -457,21 +479,7 @@ describe('web e2e: shipped right Sidebar', () => {
 
       // Pause the real CSS transition at its midpoint so host scheduling cannot
       // skip the partly covered frame whose underlying width is under test.
-      const held = await panel.evaluateHandle((node) => {
-        const controller = new AbortController()
-        const state = { animation: null as Animation | null, dispose: () => { controller.abort() } }
-        node.addEventListener('transitionrun', (event) => {
-          if (event.target !== node || (event as TransitionEvent).propertyName !== 'transform') return
-          const slide = node.getAnimations().find(animation =>
-            'transitionProperty' in animation && animation.transitionProperty === 'transform')
-          if (slide === undefined || slide.effect === null) throw new Error('panel transform transition is unavailable')
-          slide.pause()
-          slide.currentTime = Number(slide.effect.getComputedTiming().endTime) / 2
-          state.animation = slide
-          controller.abort()
-        }, { signal: controller.signal })
-        return state
-      })
+      const held = await holdPanelSlide(panel)
       try {
         await expandOf(page).click()
         await expect.poll(() => held.evaluate(state => state.animation?.playState)).toBe('paused')
@@ -487,6 +495,29 @@ describe('web e2e: shipped right Sidebar', () => {
         await expect.poll(() => frame.getAttribute('data-rightbar-fullscreen')).toBe('true')
         expect(await panel.boundingBox()).toEqual({ x: 0, y: 0, ...viewport })
         expect(await geometry()).toEqual({ columns: normalColumns, transition: 'none', handles: ['none'], animatingGrid: false })
+
+        const exit = await holdPanelSlide(panel)
+        try {
+          await column.locator('[data-sidebar-right-toggle]').click()
+          await expect.poll(() => exit.evaluate(state => state.animation?.playState)).toBe('paused')
+          expect(await exit.evaluate(state => state.columnsAtStart)).toBe(closedColumns)
+          const leaving = await panel.boundingBox()
+          if (leaving === null) throw new Error('leaving panel is not rendered')
+          expect(leaving.x).toBeGreaterThan(0)
+          expect(leaving.x).toBeLessThan(viewport.width)
+          expect(await geometry()).toEqual({ columns: closedColumns, transition: 'none', handles: ['none'], animatingGrid: false })
+          await exit.evaluate((state) => { (state.animation as Animation).finish() })
+          expect((await geometry()).columns).toBe(closedColumns)
+        } finally {
+          await exit.evaluate((state) => {
+            state.dispose()
+            if (state.animation?.playState === 'paused') state.animation.finish()
+          })
+          await exit.dispose()
+        }
+
+        await expandOf(page).click()
+        await expect.poll(() => frame.getAttribute('data-rightbar-fullscreen')).toBe('true')
         await column.locator('[data-sidebar-right-mode="push"]').click()
         expect((await geometry()).columns).toBe(normalColumns)
         expect((await geometry()).animatingGrid).toBe(false)

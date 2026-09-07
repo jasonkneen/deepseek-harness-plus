@@ -13,6 +13,7 @@
     644,
     756
   ],
+  "columnTransition": "grid-template-columns",
   "expanded": true,
   "mode": "push",
   "panelContentWidth": 756,
@@ -60,6 +61,7 @@
     644,
     756
   ],
+  "columnTransition": "none",
   "expanded": true,
   "mode": "fullscreen",
   "panelContentWidth": 1680,
@@ -107,6 +109,7 @@
     1400,
     0
   ],
+  "columnTransition": "none",
   "expanded": false,
   "mode": "fullscreen",
   "panelContentWidth": 0,
@@ -154,6 +157,7 @@
     1400,
     0
   ],
+  "columnTransition": "grid-template-columns",
   "expanded": false,
   "mode": "push",
   "panelContentWidth": 0,
@@ -190,6 +194,7 @@
     644,
     756
   ],
+  "columnTransition": "none",
   "expanded": true,
   "mode": "fullscreen",
   "panelContentWidth": 1680,
@@ -237,6 +242,7 @@
     644,
     756
   ],
+  "columnTransition": "grid-template-columns",
   "expanded": true,
   "mode": "push",
   "panelContentWidth": 756,
@@ -273,6 +279,7 @@
     644,
     756
   ],
+  "columnTransition": "grid-template-columns",
   "expanded": true,
   "mode": "push",
   "panelContentWidth": 756,
@@ -320,6 +327,7 @@
     604,
     0
   ],
+  "columnTransition": "grid-template-columns",
   "expanded": false,
   "mode": "push",
   "panelContentWidth": 0,
@@ -367,6 +375,7 @@
     1260,
     0
   ],
+  "columnTransition": "grid-template-columns",
   "expanded": false,
   "mode": "push",
   "panelContentWidth": 0,
@@ -414,6 +423,7 @@
     711,
     0
   ],
+  "columnTransition": "none",
   "expanded": true,
   "mode": "fullscreen",
   "panelContentWidth": 767,
@@ -461,6 +471,7 @@
     1260,
     0
   ],
+  "columnTransition": "grid-template-columns",
   "expanded": false,
   "mode": "push",
   "panelContentWidth": 0,

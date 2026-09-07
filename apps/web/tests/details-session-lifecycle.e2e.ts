@@ -93,6 +93,7 @@ async function sidebarSnapshot(page: Page) {
     return {
       viewport: [window.innerWidth, window.innerHeight],
       columns: getComputedStyle(frame).gridTemplateColumns.split(' ').map(value => Math.round(Number.parseFloat(value))),
+      columnTransition: getComputedStyle(frame).transitionProperty,
       expanded,
       mode: panel.getAttribute('data-sidebar-right-panel'),
       panelContentWidth: expanded ? Math.round(Number.parseFloat(style.width)) : 0,
@@ -261,6 +262,7 @@ describe.skipIf(MODE === 'record')('web e2e: details panel follows the current S
     // Closing the fullscreen panel exposes Session navigation without changing
     // its manual mode; reopening after the round trip must restore that mode.
     await close()
+    expect((await sidebarSnapshot(page)).columnTransition).toBe('none')
     await checkpoint('A closed with manual fullscreen retained')
     await select(seeded, 'DONE')
     await expect.poll(() => detailsTrack(page)).toBe(0)

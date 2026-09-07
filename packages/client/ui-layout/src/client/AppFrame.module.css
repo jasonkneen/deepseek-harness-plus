@@ -60,9 +60,11 @@
   transition: none;
 }
 
-/* Fullscreen covers the frame before its underlying columns change. */
+/* Fullscreen covers the frame while its underlying columns enter or exit. */
 .frame[data-rightbar-fullscreen],
-.frame[data-rightbar-fullscreen] .handle {
+.frame[data-rightbar-fullscreen] .handle,
+.frame[data-rightbar-instant],
+.frame[data-rightbar-instant] .handle {
   transition: none;
 }
 

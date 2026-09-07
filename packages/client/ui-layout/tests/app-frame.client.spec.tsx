@@ -317,6 +317,54 @@ describe('AppFrame normal width concessions', () => {
 })
 
 describe('AppFrame right panel presentation', () => {
+  it('releases the fullscreen track with the instant marker while clearing fullscreen', () => {
+    const { frame, instance } = mountFrame()
+    act(() => { instance.actions.openRightbar(true, true) })
+    expect(tracks(frame)).toEqual([280, 864])
+    act(() => { instance.actions.closeRightbar() })
+    expect(tracks(frame)).toEqual([280, 0])
+    expect(frame.dataset.rightbarFullscreen).toBeUndefined()
+    expect(frame.dataset.rightbarInstant).toBe('true')
+    expect(frame.querySelector('[data-side="rightbar"]')).toBeNull()
+    act(() => { instance.actions.closeRightbar() })
+    expect(frame.dataset.rightbarInstant).toBe('true')
+  })
+
+  it('marks restoration instant without suppressing the following normal close', () => {
+    const { frame, instance } = mountFrame()
+    act(() => { instance.actions.openRightbar(true, true) })
+    act(() => { instance.actions.openRightbar(true, false) })
+    expect(tracks(frame)).toEqual([280, 864])
+    expect(frame.dataset.rightbarFullscreen).toBeUndefined()
+    expect(frame.dataset.rightbarInstant).toBe('true')
+    act(() => { instance.actions.closeRightbar() })
+    expect(tracks(frame)).toEqual([280, 0])
+    expect(frame.dataset.rightbarFullscreen).toBeUndefined()
+    expect(frame.dataset.rightbarInstant).toBeUndefined()
+  })
+
+  it.each(['setSidebar', 'toggleSidebar', 'setRightbar', 'viewport', 'open'] as const)('reenables normal transitions after %s', (action) => {
+    const { frame, instance } = mountFrame()
+    act(() => { instance.actions.openRightbar(true, true); instance.actions.closeRightbar() })
+    expect(frame.dataset.rightbarInstant).toBe('true')
+    act(() => {
+      if (action === 'viewport') resize(1800)
+      else if (action === 'open') instance.actions.openRightbar(true, false)
+      else if (action === 'toggleSidebar') instance.actions.toggleSidebar()
+      else instance.actions[action](350)
+    })
+    expect(frame.dataset.rightbarInstant).toBeUndefined()
+    expect(frame.dataset.rightbarFullscreen).toBeUndefined()
+  })
+
+  it('keeps fullscreen suppression independent from resetting the instant marker', () => {
+    const { frame, instance } = mountFrame()
+    act(() => { instance.actions.openRightbar(true, true) })
+    act(() => { instance.actions.setSidebar(350) })
+    expect(frame.dataset.rightbarInstant).toBeUndefined()
+    expect(frame.dataset.rightbarFullscreen).toBe('true')
+  })
+
   it('preserves normal tracks through fullscreen and hides the outer resize handle', () => {
     const { frame, instance, rightOwner } = mountFrame()
     act(() => { instance.actions.openRightbar(true, false) })
