@@ -141,10 +141,19 @@ describe('QueueDock', () => {
       }],
     }
     const source = liveSession(pending)
-    const view = render(<QueueDock {...kitFor(pending)} useSession={source.useSession} />)
+    const props = kitFor(pending)
+    const view = render(<QueueDock {...props} useSession={source.useSession} />)
     expect(view.getByText('等待上传').closest('[data-submission-echo]')).not.toBeNull()
     expect(view.getByRole('img', { name: '排队消息图片' }).getAttribute('src')).toBe('blob:queue-preview')
     expect(view.getByLabelText('排队文件 notes.txt').textContent).toContain('2.4GB')
+    expect(view.getByRole('status').textContent).toBe('发送中…')
+    for (const name of ['编辑排队消息', '删除排队消息', '插话发送']) {
+      const button = view.getByRole('button', { name }) as HTMLButtonElement
+      expect(button.disabled).toBe(true)
+      fireEvent.click(button)
+    }
+    expect(props.updateQueue).not.toHaveBeenCalled()
+    expect(view.queryByRole('textbox')).toBeNull()
 
     act(() => {
       source.push({
@@ -154,6 +163,32 @@ describe('QueueDock', () => {
     })
     expect(view.getAllByText('等待上传')).toHaveLength(1)
     expect(view.container.querySelector('[data-submission-echo]')).toBeNull()
+    expect(view.queryByRole('status')).toBeNull()
+    for (const name of ['编辑排队消息', '删除排队消息', '插话发送']) {
+      expect((view.getByRole('button', { name }) as HTMLButtonElement).disabled).toBe(false)
+    }
+    fireEvent.click(view.getByRole('button', { name: '编辑排队消息' }))
+    expect((view.getByRole('textbox') as HTMLInputElement).value).toBe('等待上传')
+  })
+
+  it('keeps sending status visible while a queue containing local submissions is collapsed', () => {
+    const pending: SessionSnapshot = {
+      ...snapshotWith([row('accepted', '已排队')]),
+      pendingSubmissions: [{
+        requestId: 'req-waiting' as never, placement: 'queued', time: 1,
+        text: '等待发送', attachments: [],
+      }],
+    }
+    const source = liveSession(pending)
+    const view = render(<QueueDock {...kitFor(pending)} useSession={source.useSession} />)
+    expect(view.getByRole('status').textContent).toBe('发送中…')
+    const header = view.getByRole('button', { name: /2 条排队消息\s*发送中…/ })
+    expect(header.getAttribute('aria-expanded')).toBe('false')
+    fireEvent.click(header)
+    expect(view.getAllByRole('status')).toHaveLength(1)
+    expect(view.getByRole('status').closest('[data-submission-echo]')).not.toBeNull()
+    act(() => { source.push(snapshotWith([row('accepted', '已排队')])) })
+    expect(view.queryByRole('status')).toBeNull()
   })
 
   it('leaves pending steering to the conversation flow', () => {

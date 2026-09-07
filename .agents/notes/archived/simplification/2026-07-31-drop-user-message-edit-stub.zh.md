@@ -1,7 +1,7 @@
 # Agent Note: 移除 user 消息的编辑存根
 
 Status: implemented
-Archived: 2026-09-01
+Archived: 2026-09-04
 
 [English](2026-07-31-drop-user-message-edit-stub.md) | 中文
 

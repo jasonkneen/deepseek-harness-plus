@@ -118,8 +118,7 @@ ctx.systemPrompt.variable('cwd', ({ agent }) => agent?.session.header.cwd)
 - [系统提示词子系统](../../../docs/subsystems/system-prompt.zh.md)——确切的跨包类型与生成的服务 API。
 - [tools 包](../tools/README.zh.md)——其 schema 流入组装的工具注册表。
 - [提示词变量 Agent Note](../../../.agents/notes/implemented/architecture/2026-07-05-prompt-variables-and-tool-guidance-ownership.zh.md)——哪些提示词事实归谁所有。
-- [第一方提示词顺序 Agent Note](../../../.agents/notes/implemented/architecture/2026-08-25-sparse-first-party-prompt-section-orders.zh.md)——稀疏具名顺序分配。
-- [显式工具顺序 Agent Note](../../../.agents/notes/implemented/feature/2026-07-06-explicit-tool-order.zh.md)——为何存在中心顺序列表。
+- [第一方提示词顺序 Agent Note](../../../.agents/notes/archived/architecture/2026-08-25-sparse-first-party-prompt-section-orders.md)——稀疏具名顺序分配。
 - [core 分组地图](../README.zh.md)——core 各包如何组合。
 
 -----

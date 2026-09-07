@@ -12,6 +12,7 @@ import type {
   SessionAccess,
   SessionHandle,
   SessionHandleReadOptions,
+  SessionHandleReadResult,
   SessionPersistenceSnapshot,
   SessionPersistenceStatOptions,
 } from '@deepseek-ai/dsh-session-persistence'
@@ -60,6 +61,8 @@ interface StubHooks {
   onStat?: () => void
   /** Runs inside `read` before it resolves. */
   onRead?: () => void
+  /** Observes the detached values returned by `read`. */
+  onReadResult?: (events: SessionEvent[]) => void
   /** Replaces the read result for every open handle. */
   readFailure?: unknown
   /** Replaces the stat result. */
@@ -104,7 +107,7 @@ function stubPersistence(
         _offset?: number,
         _length?: number,
         options?: SessionHandleReadOptions,
-      ): Promise<readonly SessionEvent[]> => {
+      ): Promise<SessionHandleReadResult> => {
         counters.read += 1
         void options
         hooks.onRead?.()
@@ -112,7 +115,9 @@ function stubPersistence(
           // oxlint-disable-next-line typescript/prefer-promise-reject-errors
           return Promise.reject(hooks.readFailure)
         }
-        return Promise.resolve(structuredClone(entry.events))
+        const events = structuredClone(entry.events)
+        hooks.onReadResult?.(events)
+        return Promise.resolve({ eventState: 'detached', events })
       },
       append: () => Promise.reject(new SessionReadOnlyError(id, 'append')),
       flush: () => Promise.reject(new SessionReadOnlyError(id, 'flush')),
@@ -176,7 +181,10 @@ describe('SessionObservationReader cold path', () => {
     const meta = header('interrupted-cold')
     const store = new Map([[meta.id, { header: meta, events: interruptedLog('crashed'), revision: 'r1' }]])
     const counters = { stat: 0, open: 0, read: 0 }
-    ctx.provide('sessionPersistence', stubPersistence(store, counters))
+    let restoredSource: SessionEvent[] | undefined
+    ctx.provide('sessionPersistence', stubPersistence(store, counters, {
+      onReadResult: (events) => { restoredSource = events },
+    }))
     const reader = new SessionObservationReader(ctx)
 
     using observed = await reader.read(meta.id)
@@ -185,6 +193,8 @@ describe('SessionObservationReader cold path', () => {
     expect(observed.header).toMatchObject({ id: meta.id, cwd: '/workspace' })
     expect(observed.revision).toBe(SessionPersistenceRevision('r1'))
     expect(observed.events.map(event => event.type)).toEqual(['turn/start', 'user/message', 'turn/end'])
+    expect(observed.events[0]).toBe(restoredSource?.[0])
+    expect(Object.isFrozen(restoredSource?.[0]?.data)).toBe(false)
     expect(observed.cursor).toBe(2)
     // No projection registry is mounted, so the observation carries none.
     expect(observed.projections).toBeUndefined()
@@ -418,9 +428,9 @@ describe('SessionObservationReader cold path', () => {
     class SwapHandle implements SessionHandle {
       readonly inheritedEventCount = SessionLogOffset(0)
       constructor(readonly id: SessionIdType, readonly header: SessionHeader, readonly access: SessionAccess) {}
-      read(): Promise<readonly SessionEvent[]> {
+      read(): Promise<SessionHandleReadResult> {
         SwapPersistence.readCalls += 1
-        return Promise.resolve([messageEvent(0, 'swap')])
+        return Promise.resolve({ eventState: 'detached', events: [messageEvent(0, 'swap')] })
       }
 
       append(): Promise<void> {

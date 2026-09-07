@@ -111,16 +111,16 @@ export class SessionObservationReader {
         throwIfObservationAborted(signal)
         const attached = this.ctx.sessions.get(sessionId)
         if (attached !== undefined) return this.live(attached, projectionMode)
-        // Ownership transfer into `prepare` freezes the seed in place, so the
-        // entry keeps its own detached copies of the just-read events.
-        const seed = loaded.events.map(event => structuredClone(event))
+        // The handle marks persisted events as adoptable; synthetic closers
+        // are owned by this read, so the combined seed needs no copy.
+        const seed = loaded.events
         let session: Session
         try {
           session = this.ctx.sessions.prepare(sessionId, {
             seed,
             meta: structuredClone(loaded.header),
             inheritedEventCount: loaded.inheritedEventCount,
-            seedSource: 'persistence',
+            eventState: loaded.eventState,
           })
         } catch (error: unknown) {
           // The store rejects an id with a live owner: that owner is the

@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/archived/simplification/2026-07-31-drop-user-message-edit-stub.md
-2026-07-31-drop-user-message-edit-stub.md: 06b3f7cf1096b1a02ae0efeeec94e1a86a5a4b10
-2026-07-31-drop-user-message-edit-stub.zh.md: cad2981ed0aabd356570291a0039dfed207d0ee2
+2026-07-31-drop-user-message-edit-stub.md: 4080fd0aae688810f19779b2c452deea170a70c4
+2026-07-31-drop-user-message-edit-stub.zh.md: f0da1da052a92ae4e695de0a1109f415dd59c79b

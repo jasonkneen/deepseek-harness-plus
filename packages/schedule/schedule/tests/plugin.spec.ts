@@ -64,7 +64,7 @@ class PersistenceProbe extends SessionPersistence {
       inheritedEventCount: SessionLogOffset(0),
       access,
       read: async (offset = 0, length = Number.MAX_SAFE_INTEGER) =>
-        entry.events.slice(offset, offset + length),
+        ({ eventState: 'detached', events: structuredClone(entry.events.slice(offset, offset + length)) }),
       append: async (events) => { entry.events.push(...events) },
       flush: async () => {},
       close: async () => {},

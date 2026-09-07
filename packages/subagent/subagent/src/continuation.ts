@@ -294,7 +294,7 @@ function agentMessageSource(sender: Agent): AgentMessageSource {
 function agentMessage(sender: Agent, content: ContentBlock[]) {
   return createUserMessage({
     content: [
-      { type: 'text' as const, text: `Agent ${sender.id} sent a message:` },
+      { type: 'text' as const, text: `Agent ${sender.id} sent a message: ` },
       ...content,
     ],
     source: agentMessageSource(sender),
