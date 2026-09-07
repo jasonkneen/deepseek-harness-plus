@@ -59,7 +59,7 @@ interface MigrationPreparation {
 }
 ```
 
-A new read or write open joins the existing entry only when its source path and revision still match. `waitWithAbort()` races each caller's AbortSignal against the shared Promise without forwarding that signal to shared work. The backend-owned controller is aborted only when the last waiter leaves while preparation is still running.
+A new read or write open joins the existing entry only when its source path and revision still match. `waitWithAbort()` races each caller's AbortSignal against the shared Promise without forwarding that signal to shared work. The backend-owned controller is aborted only when the last waiter leaves while preparation is still running. The cancellation test pauses the physical read and observes two registered waiters before aborting one caller; an event-loop yield alone cannot establish admission after asynchronous path and revision lookup.
 
 Completed results enter the existing bounded `coldLogMemo`. The `StoredLog` discriminant separates published current state from `PreparedStoredLog`, whose `publication` field binds current logical events to their matching publication operation. A query followed by Agent resume therefore reuses the same Decode and migration result. The in-flight map owns only running work; it is not a second completed-result cache.
 

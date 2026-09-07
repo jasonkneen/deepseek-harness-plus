@@ -16,6 +16,25 @@ const shared = {
 export default defineConfig([
   {
     ...shared,
+    entry: { 'reconnect.worker': 'active-stream-reconnect/reconnect.worker.client.ts' },
+    outDir: '.dsh-build/active-stream-reconnect',
+    clean: true,
+    tsconfig: 'tsconfig.client.json',
+  },
+  {
+    ...shared,
+    entry: {
+      'agent-continuation.worker': 'agent-continuation/agent-continuation.worker.ts',
+      'child-catalog.worker': 'agent-continuation/child-catalog.worker.ts',
+      'profile-continuation.worker': 'agent-continuation/profile-continuation.worker.ts',
+      'profile-adapter': 'agent-continuation/profile-adapter.ts',
+    },
+    outDir: '.dsh-build/agent-continuation',
+    clean: true,
+    tsconfig: 'tsconfig.host.json',
+  },
+  {
+    ...shared,
     entry: { 'session-open.worker': 'session-open/session-open.worker.ts' },
     outDir: '.dsh-build/session-open',
     clean: true,

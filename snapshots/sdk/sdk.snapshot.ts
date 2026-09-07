@@ -118,6 +118,9 @@ interface SdkAssertions {
 }
 
 const SDK_ASSERTIONS: Readonly<Record<string, SdkAssertions>> = {
+  'subagent-continuable': {
+    environment: { DSH_SNAPSHOT_HUMAN_STEER: '1' },
+  },
   'subagent-dsh-sdk-diagnostic': {
     environment: { DSH_TEST_CHILD_PATCH: dshSdkDiagnosticChildPatch },
   },

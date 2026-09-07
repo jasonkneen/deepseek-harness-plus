@@ -678,6 +678,12 @@ importers:
       '@deepseek-ai/dsh-llm':
         specifier: workspace:^
         version: link:../packages/llm/llm
+      '@deepseek-ai/dsh-llm-replay':
+        specifier: workspace:^
+        version: link:../packages/test-support/llm-replay
+      '@deepseek-ai/dsh-sdk-client':
+        specifier: workspace:^
+        version: link:../packages/sdk/client
       '@deepseek-ai/dsh-session':
         specifier: workspace:^
         version: link:../packages/core/session
@@ -702,12 +708,21 @@ importers:
       '@deepseek-ai/dsh-session-turn-outline':
         specifier: workspace:^
         version: link:../packages/session/session-turn-outline
+      '@deepseek-ai/dsh-subagent':
+        specifier: workspace:^
+        version: link:../packages/subagent/subagent
       '@deepseek-ai/dsh-token-meter':
         specifier: workspace:^
         version: link:../packages/llm/token-meter
+      '@deepseek-ai/dsh-tools':
+        specifier: workspace:^
+        version: link:../packages/core/tools
       '@deepseek-ai/dsh-typert-protocol':
         specifier: workspace:^
         version: link:../packages/typert/protocol
+      playwright:
+        specifier: ^1.49.0
+        version: 1.61.1
 
   native/landlock-run:
     devDependencies:
@@ -1028,6 +1043,9 @@ importers:
       '@deepseek-ai/dsh-util-time':
         specifier: workspace:^
         version: link:../../util/time
+      '@deepseek-ai/dsh-util-values':
+        specifier: workspace:^
+        version: link:../../util/values
       '@deepseek-ai/dsh-util-workspace-path':
         specifier: workspace:^
         version: link:../../util/workspace-path

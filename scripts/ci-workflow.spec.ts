@@ -211,6 +211,16 @@ describe('CI workflow', () => {
     expect(aggregate.needs).toContain('node-24-bench')
     expect(node24Bench.name).toBe('node 24 / benchmarks')
     expect(node24Bench.env).toBeUndefined()
+    expect(node24Bench.steps).toContainEqual({
+      name: 'Install benchmark browser and hosted dependencies',
+      run: 'pnpm --filter @deepseek-ai/dsh-benchmarks exec playwright install --with-deps chromium',
+    })
+    expect(JSON.stringify(node24Bench.steps)).not.toContain('DSH_CI_FAILOVER_LINUX')
+    expect(node24Bench.steps).toContainEqual({
+      name: 'Run performance benchmarks',
+      env: { DSH_GATE_VERBOSE: '1' },
+      run: 'pnpm run check:ci:bench',
+    })
     expect(aggregate.needs).not.toContain('windows-coverage')
     expect(aggregate.needs).toContain('windows-native-tests')
     expect(aggregate.needs).not.toContain('windows-observational')

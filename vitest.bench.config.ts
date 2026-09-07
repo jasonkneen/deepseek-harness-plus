@@ -3,8 +3,9 @@ import { defineConfig } from 'vitest/config'
 import { standardDecoratorPlugin, vitestExecArgv } from './vitest.shared.ts'
 
 /**
- * CI performance gate. Vitest orchestrates compiled plain-Node workers under
- * `.dsh-build/benchmarks/`; timed product work never runs through its source transform.
+ * CI performance gate. Node CPU cases use compiled plain-Node workers under
+ * `benchmarks/.dsh-build/`; browser cases drive built Client artifacts through
+ * the shared shipped-composition Web scaffold.
  * Files run one at a time so a measurement never shares the CPU with another
  * benchmark.
  */

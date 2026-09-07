@@ -1349,22 +1349,22 @@
     {
       "doc": "docs/subsystems/subagent.md",
       "symbol": "AgentMessageSource",
-      "source": "packages/subagent/subagent/src/continuation.ts"
+      "source": "packages/subagent/subagent/src/continuation-messages.ts"
     },
     {
       "doc": "docs/subsystems/subagent.md",
       "symbol": "SubagentSettledMessageSource",
-      "source": "packages/subagent/subagent/src/continuation.ts"
+      "source": "packages/subagent/subagent/src/continuation-messages.ts"
     },
     {
       "doc": "docs/subsystems/subagent.md",
       "symbol": "SubagentSendMessageOptions",
-      "source": "packages/subagent/subagent/src/continuation.ts"
+      "source": "packages/subagent/subagent/src/types.ts"
     },
     {
       "doc": "docs/subsystems/subagent.md",
       "symbol": "SubagentInterruptAuthority",
-      "source": "packages/subagent/subagent/src/continuation.ts"
+      "source": "packages/subagent/subagent/src/types.ts"
     },
     {
       "doc": "docs/subsystems/subagent.md",
@@ -1374,7 +1374,7 @@
     {
       "doc": "docs/subsystems/subagent.md",
       "symbol": "ContinuableStart",
-      "source": "packages/subagent/subagent/src/continuation.ts"
+      "source": "packages/subagent/subagent/src/types.ts"
     },
     {
       "doc": "docs/subsystems/subagent.md",

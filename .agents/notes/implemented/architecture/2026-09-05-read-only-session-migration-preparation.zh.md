@@ -59,7 +59,7 @@ interface MigrationPreparation {
 }
 ```
 
-新的 read/write open 只有在 source path 与 revision 仍匹配时才加入已有 entry。`waitWithAbort()` 让每个 caller 的 AbortSignal 与 shared Promise 竞争，但不会把 caller signal 传给共享工作。只有最后一个 waiter 在 preparation 仍运行时离开，backend-owned controller 才会 abort。
+新的 read/write open 只有在 source path 与 revision 仍匹配时才加入已有 entry。`waitWithAbort()` 让每个 caller 的 AbortSignal 与 shared Promise 竞争，但不会把 caller signal 传给共享工作。只有最后一个 waiter 在 preparation 仍运行时离开，backend-owned controller 才会 abort。取消测试暂停物理读取，并在取消一个 caller 前观察到两个已注册的 waiter；仅让出一次事件循环不能证明异步路径与 revision 查找后的加入已经完成。
 
 完成结果进入既有 bounded `coldLogMemo`。`StoredLog` 判别字段把已发布 current state 与 `PreparedStoredLog` 分开，后者的 `publication` 字段把 current logical events 与匹配的 publication operation 绑定，使 query 后紧接的 Agent resume 复用同一次 Decode 与 migration。In-flight map 只拥有运行中的工作，不是第二个 completed-result cache。
 

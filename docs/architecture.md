@@ -106,6 +106,8 @@ Input reaches the driver through one inbox. Some messages wake it immediately; i
 
 `agent/pre-step` decides what the model sees. Listeners may rewrite the claimed messages or reject them outright; a rejected or empty first claim still closes a durable turn that spent no step, so the log records the attempt. An enter decision may also set `startsRequestSeries` to begin a distinct model-message series: the loop then logs a fresh `request/header` (reason `series`, or `change` carrying `startsSeries: true` when the envelope changed too). A listener that rebuilds a downstream enter decision must spread it (`{ ...decision, messages }`) so the declaration survives. Each step reads the prompt sections and tool schemas that plugins registered.
 
+The loop sends immutable requests while keeping cancellation live. It reuses message-freeze provenance only for identities it has fully frozen; [agent-loop](../packages/core/agent-loop/README.md) owns the request construction rules.
+
 Details: the [sequence diagram](agent-lifecycle.md), the [tool pipeline](tool-execution-pipeline.md), and [cancellation and error recovery](subsystems/core.md#the-agent-handle).
 
 ## Session log
