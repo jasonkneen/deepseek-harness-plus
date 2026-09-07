@@ -89,6 +89,9 @@ async function bootWeb(
     // Export owns a Connection Fetch route, so this Host-only composition
     // disables it with the transport service above.
     { id: 'session-log-download', disabled: true },
+    // The open-in-app host routes wait for the webserver and connection
+    // rows disabled above (connection's trust fence guards every route).
+    { id: 'open-in-app', disabled: true },
     // The always-on reload chain waits for the browser roster and bound port
     // disabled above.
     { id: 'client-hmr', disabled: true },

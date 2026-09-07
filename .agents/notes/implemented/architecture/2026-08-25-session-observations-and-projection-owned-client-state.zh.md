@@ -51,7 +51,7 @@ flowchart LR
 
 ### 数据源解析与生命周期
 
-一份 observation 把所有返回字段绑定到同一 lifecycle witness。调用方不会把 corpus list 的 header、persistence 的 events 和稍后 live Session 的 projections 拼在一起。选中的 header 与事件前缀共同产生 cursor 和 projection snapshot。
+一份 observation 把所有返回字段绑定到同一 lifecycle witness。调用方不会把 corpus list 的 header、persistence 的 events 和稍后 live Session 的 projections 拼在一起。选中的 header 与事件前缀共同产生 cursor 和 projection snapshot。live observation 在读取时以日志长度固定 cut，并在首次访问时才物化 `events`；日志只会追加，所以无论消费者多晚读取，该前缀都完全相同，而只需要 header、cursor 或 projections 的消费者永远不会复制日志。
 
 系统在 cold borrow 前后都检查 live 优先级。第二次检查封住 persistence 加载期间 Agent 完成 attach 的竞态。如果 persistence 报告由 live source 胜出，但 SessionQuery 检查时该 source 已经 detach，解析会重新开始，而不是发布一份无人持有的引用。
 

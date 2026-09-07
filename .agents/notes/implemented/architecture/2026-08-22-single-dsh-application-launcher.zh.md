@@ -46,7 +46,7 @@ SDK 用户通过 profile 自定义插件。`dsh plugin --profile <name> ...` 管
 
 ### Python 运行时
 
-Python 运行时 wheel 通过私有 `dsh-python-runtime-closure` 部署 manifest，打包来自 `node_modules/@deepseek-ai/dsh/lib/bin.js` 的普通 `@deepseek-ai/dsh` CLI。Python 客户端默认选择 `dsh --profile sdk`、有序 patch 文件与显式 Harness home；`python/sdk/examples` 下的可运行示例选择 `sdk-minimal`。安装的 `dsh` 控制台命令暴露相同 profile 语法与单独打包的 `web` 应用。
+Python 运行时 wheel 将 [`python/sdk-runtime/runtime-bootstrap.mjs`](../../../../python/sdk-runtime/runtime-bootstrap.mjs) 暂存为 `dsh-python-runtime-closure` 入口。其普通分支调用公开 CLI export；提供方私有选择会在 CLI 解析前分派到内部子进程 runner，而不是应用入口。[原生 containment 决策](2026-08-28-subprocess-native-containment.zh.md)负责该私有分派。Python 客户端默认选择 `dsh --profile sdk`、有序 patch 文件与显式 Harness home；`python/sdk/examples` 下的可运行示例选择 `sdk-minimal`。安装的 `dsh` 控制台命令暴露相同 profile 语法与单独打包的 `web` 应用。
 
 可执行文件族是 `deepseek-harness-sdk-runtime-<platform>-<arch>`。SDK 协议格式、wheel 与 import 分发名称、伴随文件名称，以及协议 identity `deepseek-harness-sdk-runtime` 保持稳定。SDK 包族是 `@deepseek-ai/dsh-sdk-client`、`@deepseek-ai/dsh-sdk-protocol` 与 `@deepseek-ai/dsh-sdk-jsonrpc-server`；`@deepseek-ai/dsh-acp` 继续作为 ACP 协议插件。仓库不保留 Python 专用 Node 应用、检入的完整配置、兼容包、转发可执行文件、后备解析器或 SDK／ACP 启动别名。[docs/architecture.md](../../../../docs/architecture.zh.md)负责该启动方式，[`python/sdk-runtime` README](../../../../python/sdk-runtime/README.zh.md)负责 Windows 载体。
 

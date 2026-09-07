@@ -311,7 +311,7 @@ export type Config = LocalConfig
 
 依赖：[`LocalConfig`](#deepseek-aidsh-bash-local)
 
-来源：[`packages/shell/bash-sandbox/src/index.ts:35`](../packages/shell/bash-sandbox/src/index.ts)
+来源：[`packages/shell/bash-sandbox/src/index.ts:36`](../packages/shell/bash-sandbox/src/index.ts)
 
 <a id="deepseek-aidsh-client-connection"></a>
 
@@ -894,6 +894,37 @@ export interface Config {
 ```
 
 来源：[`packages/host/frontend-static/src/index.ts:30`](../packages/host/frontend-static/src/index.ts)
+
+<a id="deepseek-aidsh-host-open-in-app"></a>
+
+## `@deepseek-ai/dsh-host-open-in-app`
+
+需要：`webServer` · `connection` · `subprocess`
+
+```ts config-catalog
+/** Open-in-app host configuration. */
+export interface Config {
+  /**
+   * Per-command deadline in milliseconds for catalog-resolution host
+   * commands (`xcode-select`, the Windows registry reads).
+   */
+  readonly probeTimeoutMs: number
+  /**
+   * Per-command deadline in milliseconds for icon-extraction host commands
+   * (`plutil`/`sips` on macOS, the PowerShell extraction on Windows).
+   */
+  readonly iconTimeoutMs: number
+  /**
+   * Early-failure watch window per launch, in milliseconds: a launcher still
+   * running when the window closes counts as launched and keeps running, so
+   * this bounds how long the open route holds a successful launch, not how
+   * long an application may live.
+   */
+  readonly launchWatchMs: number
+}
+```
+
+来源：[`packages/host/open-in-app/src/index.ts:49`](../packages/host/open-in-app/src/index.ts)
 
 <a id="deepseek-aidsh-host-webserver"></a>
 
@@ -2365,7 +2396,7 @@ export interface Config {
    * `bypassPermissions` explicitly skips permission checks.
    */
   permissionMode?: ClaudeCodePermissionMode
-  /** Grace in milliseconds for Claude Code process-tree termination. */
+  /** Grace in milliseconds between Claude Code managed-range termination tiers. */
   disposeGraceMs?: number
 }
 
@@ -2395,7 +2426,7 @@ export interface Config {
   env?: Record<string, string>
   /** Native non-interactive permission mode fixed for this Provider instance. */
   permissionMode?: CodexPermissionMode
-  /** Grace in milliseconds for app-server process-tree termination. */
+  /** Grace in milliseconds between app-server managed-range termination tiers. */
   disposeGraceMs?: number
 }
 
@@ -2510,7 +2541,7 @@ export interface Config {
 }
 ```
 
-来源：[`packages/e2b/subprocess-e2b/src/index.ts:25`](../packages/e2b/subprocess-e2b/src/index.ts)
+来源：[`packages/e2b/subprocess-e2b/src/index.ts:26`](../packages/e2b/subprocess-e2b/src/index.ts)
 
 <a id="deepseek-aidsh-system-prompt"></a>
 
@@ -3386,6 +3417,7 @@ export interface Config {
 - `@deepseek-ai/dsh-client-ui-layout`（[`packages/client/ui-layout/src/index.ts`](../packages/client/ui-layout/src/index.ts)）
 - `@deepseek-ai/dsh-client-ui-message-feedback`（[`packages/client/ui-message-feedback/src/index.ts`](../packages/client/ui-message-feedback/src/index.ts)）
 - `@deepseek-ai/dsh-client-ui-model-selection`（[`packages/client/ui-model-selection/src/index.ts`](../packages/client/ui-model-selection/src/index.ts)）
+- `@deepseek-ai/dsh-client-ui-open-in-app`（[`packages/client/ui-open-in-app/src/index.ts`](../packages/client/ui-open-in-app/src/index.ts)）
 - `@deepseek-ai/dsh-client-ui-permission-presets`（[`packages/client/ui-permission-presets/src/index.ts`](../packages/client/ui-permission-presets/src/index.ts)）
 - `@deepseek-ai/dsh-client-ui-plan`（[`packages/client/ui-plan/src/index.ts`](../packages/client/ui-plan/src/index.ts)）
 - `@deepseek-ai/dsh-client-ui-reference`（[`packages/client/ui-reference/src/index.ts`](../packages/client/ui-reference/src/index.ts)）

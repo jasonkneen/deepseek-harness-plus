@@ -335,6 +335,7 @@
     { "path": "./packages/host/directory-picker-browse" },
     { "path": "./packages/host/directory-picker-native" },
     { "path": "./packages/host/frontend-static" },
+    { "path": "./packages/host/open-in-app" },
     { "path": "./packages/host/plugin-inventory" },
     { "path": "./packages/llm/plugin-package-inventory-deepseek" },
     { "path": "./packages/host/webserver" },
