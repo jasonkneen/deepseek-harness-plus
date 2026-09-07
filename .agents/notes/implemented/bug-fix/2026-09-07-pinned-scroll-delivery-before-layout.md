@@ -10,7 +10,7 @@ A delayed scroll sample compares positions from different layouts. While Chat is
 
 ## Decision
 
-[ChatView](../../../../packages/client/ui-chat/src/client/chat/ChatView.tsx) samples pinned scroll deliveries synchronously through the same sample operation that clears pending work. This preserves the existing observed-top comparison for genuine reader movement and releases layout follow before further growth. Pinned samples use scroll metrics, not semantic-row geometry; moving away still disarms follow immediately. Away-reader samples remain coalesced at the existing interval or `scrollend`.
+[ChatView](../../../../packages/client/ui-chat/src/client/chat/ChatView.tsx) uses the existing observed-top comparison to sample non-reader pinned scroll deliveries synchronously through the same sample operation that clears pending work. This releases layout follow before further growth. Genuine reader movement remains pending until the existing interval or `scrollend`, even within the follow threshold: growth must not erase small gestures before they accumulate into a scroll-away. Immediate pinned samples use scroll metrics, not semantic-row geometry.
 
 ## Alternatives considered
 

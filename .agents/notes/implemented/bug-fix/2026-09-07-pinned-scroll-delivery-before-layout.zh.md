@@ -10,7 +10,7 @@ Status: implemented
 
 ## Decision
 
-[ChatView](../../../../packages/client/ui-chat/src/client/chat/ChatView.tsx) 通过同一个清除待处理工作的采样操作，同步采样贴底滚动事件。该机制保留现有的已观察顶部位置比较来识别真实读者移动，并在后续增长前恢复布局跟随。贴底采样只读取滚动指标，不读取语义行几何；离底移动仍会立即关闭跟随。离底读者的采样仍合并到现有周期或 `scrollend` 时执行。
+[ChatView](../../../../packages/client/ui-chat/src/client/chat/ChatView.tsx) 使用现有的已观察顶部位置比较，通过同一个清除待处理工作的采样操作，同步采样非读者引起的贴底滚动事件。这会在后续增长前恢复布局跟随。真实读者移动即使位于跟随阈值内，也保持待处理直到现有周期或 `scrollend`：增长不能在小幅操作累积为离底滚动前将其抵消。立即执行的贴底采样只读取滚动指标，不读取语义行几何。
 
 ## Alternatives considered
 
