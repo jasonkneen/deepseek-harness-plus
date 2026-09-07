@@ -9115,6 +9115,9 @@ importers:
 
   packages/subprocess/subprocess-local:
     dependencies:
+      '@deepseek-ai/dsh-win32-process':
+        specifier: workspace:^
+        version: link:../win32-process
       koffi:
         specifier: ^3.1.0
         version: 3.1.1

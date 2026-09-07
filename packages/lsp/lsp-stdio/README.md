@@ -91,7 +91,7 @@ This section explains the design decisions behind the provider and where the cod
 - **Read before spawn.** The source is resolved, contained, and byte-bounded inside the workspace queue before any process is created, so a queued query sees current bytes when its turn starts and an invalid source cannot leave an idle process pooled.
 - **One pooled process per canonical workspace.** Instances are single-flighted per `(server id, canonical workspace target)`; a transport failure retries the read-only query once on a fresh process after awaiting disposal.
 - **Per-workspace serialization.** One abortable queue per workspace serializes source-read/open/query/close lifecycles; distinct workspaces run in parallel, and a cancellation that fails to stop a server terminates only that instance.
-- **Bounded teardown.** Graceful `shutdown`/`exit` escalates through tree termination (process-group signaling on POSIX, `taskkill /T /F` on Windows); quiescence is confirmed by awaiting process-tree exit, not by the kill outcome.
+- **Bounded teardown.** Graceful `shutdown`/`exit` escalates through the subprocess provider's managed-range termination procedure; quiescence is confirmed by awaiting that whole range, not by the termination request's outcome.
 - **Execution-world pairing.** Servers launch through `ctx.subprocess` with `processId: null` (another machine or PID namespace must not monitor the harness), sources read through `ctx.fs`, and no `fs/observed` event is emitted — only the LSP result is model-visible.
 
 ### Source map

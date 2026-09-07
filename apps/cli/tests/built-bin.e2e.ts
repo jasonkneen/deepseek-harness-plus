@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createInterface } from 'node:readline'
@@ -614,6 +614,25 @@ describe.skipIf(!existsSync(dshBin))('dsh BUILT bin (node lib/bin.js, no tsx)', 
       expect(result).toEqual({ code: 0, stdout: cliVersion, stderr: '' })
     } finally {
       rmSync(project, { recursive: true, force: true })
+    }
+  })
+
+  it.skipIf(process.platform === 'win32')('runs through an installed-style symlink', async () => {
+    const installation = mkdtempSync(join(tmpdir(), 'dsh-bin-link-'))
+    const installedBin = join(installation, 'dsh')
+    symlinkSync(dshBin, installedBin)
+    try {
+      const result = await execa(process.execPath, [installedBin, '--version'], {
+        input: '',
+        timeout: SPAWN_TIMEOUT_MS,
+        killSignal: 'SIGKILL',
+        reject: false,
+      })
+      expect(result.exitCode).toBe(0)
+      expect(result.stdout).toBe(cliVersion)
+      expect(result.stderr).toBe('')
+    } finally {
+      rmSync(installation, { recursive: true, force: true })
     }
   })
 
