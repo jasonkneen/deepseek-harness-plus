@@ -184,6 +184,14 @@ describe('workspaceFiles.changes — ending', () => {
     expect(await pending).toEqual({ done: true, value: undefined })
   })
 
+  it('drops queued observations when cancelled after ready but before the next pull', async () => {
+    const stream = open(harness.endpoint())
+    await expect(stream.next()).resolves.toEqual({ done: false, value: { kind: 'ready' } })
+    await observe(join(harness.workspace, 'queued-before-abort.txt'), present('v1'))
+    stream.controller.abort()
+    await expect(stream.next()).resolves.toEqual({ done: true, value: undefined })
+  })
+
   it('ends when its signal aborts during setup, without delivering anything', async () => {
     const stream = open(harness.endpoint())
     const pending = stream.next()

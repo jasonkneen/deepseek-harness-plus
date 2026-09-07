@@ -6,6 +6,7 @@
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import { describe, expect, it } from 'vitest'
 import { ChangeFeed } from '../src/client/change-feed.ts'
+import type { WorkspaceFileWatchFrame } from '../src/types.ts'
 import { FakeRemote, peek, settle } from './fake-remote.client.ts'
 
 const S1 = 's1' as SessionId
@@ -23,6 +24,33 @@ function harness() {
 }
 
 describe('ChangeFeed — one Host stream per session', () => {
+  it('starts a later follower from the existing session acknowledgement without opening another stream', async () => {
+    const { remote, feed } = harness()
+    const controller = new AbortController()
+    const first = feed.follow(S1, 'first-resource', controller.signal)
+    try {
+      await expect(first.ready).resolves.toBe(true)
+      const second = feed.follow(S1, 'second-resource', controller.signal)
+      await expect(second.ready).resolves.toBe(true)
+      expect(remote.calls).toEqual(['changes', 'accept'])
+      expect(remote.opened).toHaveLength(1)
+
+      second.bind('/w/second.txt')
+      const iterator = second[Symbol.asyncIterator]()
+      await remote.opened[0]!.source.deliver({
+        kind: 'change', change: { absolutePath: '/w/second.txt', version: 'v1' },
+      })
+      await expect(iterator.next()).resolves.toEqual({ done: false, value: { kind: 'changed', version: 'v1' } })
+      controller.abort()
+      await expect(iterator.next()).resolves.toEqual({ done: true, value: undefined })
+      await feed.settle()
+      expect(remote.disposed).toEqual(['workspace file changes of s1'])
+    } finally {
+      controller.abort()
+      await feed.settle()
+    }
+  })
+
   it('shares one stream among the followers of a session and opens another per session', async () => {
     const { remote, follow } = harness()
     follow(S1, '/w/a.txt')
@@ -176,6 +204,35 @@ describe('ChangeFeed — delivery', () => {
 })
 
 describe('ChangeFeed — a follower ends', () => {
+  it('ends every follower and disposes the session stream for an unknown wire frame kind', async () => {
+    const { remote, feed } = harness()
+    const controller = new AbortController()
+    const first = feed.follow(S1, 'first-resource', controller.signal)
+    const second = feed.follow(S1, 'second-resource', controller.signal)
+    const firstIterator = first[Symbol.asyncIterator]()
+    const secondIterator = second[Symbol.asyncIterator]()
+    try {
+      await expect(Promise.all([first.ready, second.ready])).resolves.toEqual([true, true])
+      const endings = Promise.all([firstIterator.next(), secondIterator.next()])
+      const source = remote.opened[0]!.source
+      // The Remote double supplies decoded wire data, including an unknown protocol tag.
+      const wireFrame: unknown = JSON.parse('{"kind":"future-frame"}')
+      source.push(wireFrame as WorkspaceFileWatchFrame)
+      await expect(endings).resolves.toEqual([
+        { done: true, value: undefined },
+        { done: true, value: undefined },
+      ])
+      await feed.settle()
+      expect(source.aborted).toBe(true)
+      expect(remote.disposed).toEqual(['workspace file changes of s1'])
+      expect(remote.opened).toHaveLength(1)
+    } finally {
+      controller.abort()
+      await Promise.all([firstIterator.return?.(), secondIterator.return?.()])
+      await feed.settle()
+    }
+  })
+
   it('ends on its signal and drops nothing queued before it', async () => {
     const { remote, follow } = harness()
     const mine = follow(S1, '/w/a.txt')

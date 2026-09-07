@@ -33,6 +33,37 @@ function harness() {
 }
 
 describe('createSidebarRightStore — the sequence', () => {
+  it.each(['left', 'right'] as const)('splits one pane at its %s edge and records the tab move as one reversible intent', (zone) => {
+    const { actions, layout, entries, guide } = harness()
+    actions.openContent(SESSION, {
+      kind: 'text', contentId: 'dsh-resource://file/session/s-test/a.txt', title: 'a',
+    }, () => {})
+    const text = Object.values(layout().tabs).find(tab => tab.kind === 'text')
+    if (text === undefined) throw new Error('expected the text tab')
+    const before = layout()
+    const home = getPane(before, before.rootId).id
+    const recorded = entries()
+
+    actions.dropTab(SESSION, text.id, home, zone)
+
+    const split = getSplit(layout(), layout().rootId)
+    const destination = findTabPane(layout(), text.id)
+    expect(split.axis).toBe('row')
+    expect(split.children).toEqual(zone === 'left' ? [destination.id, home] : [home, destination.id])
+    expect(split.sizes).toEqual([0.5, 0.5])
+    expect(destination.tabs).toEqual([text.id])
+    expect(destination.activeTabId).toBe(text.id)
+    expect(getPane(layout(), home).tabs).toEqual([guide()])
+    expect(layout().tabs).toEqual(before.tabs)
+    expect(entries()).toBe(recorded + 1)
+    const dropped = layout()
+
+    actions.undo(SESSION)
+    expect(layout()).toEqual(before)
+    actions.redo(SESSION)
+    expect(layout()).toEqual(dropped)
+  })
+
   it('allows two docked panes and rejects further splits without recording', () => {
     const { actions, layout, entries } = harness()
     actions.splitPane(SESSION)
