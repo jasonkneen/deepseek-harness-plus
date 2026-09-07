@@ -334,7 +334,14 @@ describe.skipIf(!hasPwsh)('terminal-bash pwsh real shell', () => {
         text: '$env:KEEP = "ok"; Set-Location /',
         submit: true,
       })
-      expect((await first.done).waitReason).toBe('stdin_read')
+      // Silence can settle a send before pwsh publishes its prompt. Empty
+      // sends keep observing the same command until exact readiness arrives.
+      const deadline = Date.now() + 8_000
+      let firstResult = await first.done
+      while (firstResult.waitReason === 'inferred_idle' && Date.now() < deadline) {
+        firstResult = await ctx.terminals.startSend(agent, created.sessionId, { text: '', submit: false }).done
+      }
+      expect(firstResult.waitReason).toBe('stdin_read')
       const second = ctx.terminals.startSend(agent, created.sessionId, {
         text: 'Write-Output "keep=$env:KEEP secret=$env:DSH_TEST_SECRET"',
         submit: true,

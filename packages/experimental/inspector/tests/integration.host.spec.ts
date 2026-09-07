@@ -370,6 +370,13 @@ describe('experimental Inspector real Worker', () => {
     await Promise.all([cdp.call('Runtime.enable'), secondCdp.call('Runtime.enable')])
     const firstContext = await clientContext(cdp)
     const secondContext = await clientContext(secondCdp)
+    // Runtime.enable queues Console subscription frames on the Client socket.
+    // A round trip on that socket confirms both subscriptions before the
+    // independent fixture-worker channel emits the event.
+    await Promise.all([
+      cdp.call('Runtime.evaluate', { expression: 'void 0', contextId: firstContext }),
+      secondCdp.call('Runtime.evaluate', { expression: 'void 0', contextId: secondContext }),
+    ])
     const value = { owner: 'client-console' }
     const marker = 'client-console-event'
     await client.log(value, marker)
