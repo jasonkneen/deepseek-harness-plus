@@ -235,10 +235,10 @@ describe('CI workflow', () => {
     expect(aggregate.needs).not.toContain('windows-observational')
     expect(aggregate.needs).not.toContain('serial-windows')
 
-    // Linux failover is a separate switch: the four required Linux workers
+    // Linux failover is a separate switch: the three enterprise Linux workers
     // and the verdict job resolve their pool through DSH_CI_FAILOVER_LINUX,
     // never the Windows switch.
-    for (const [jobName, job] of [['node-24', node24], ['node-24-coverage', node24Coverage], ['node-24-bench', node24Bench], ['node-24-consumers', node24Consumers]] as const) {
+    for (const [jobName, job] of [['node-24', node24], ['node-24-coverage', node24Coverage], ['node-24-consumers', node24Consumers]] as const) {
       expect(typeof job['runs-on']).toBe('string')
       expect(job['runs-on'], `${jobName} runs-on must use the Linux failover switch`).toContain('DSH_CI_FAILOVER_LINUX')
       expect(job['runs-on'], `${jobName} runs-on must not use the Windows failover switch`).not.toContain('DSH_CI_FAILOVER_WINDOWS')
@@ -267,6 +267,45 @@ describe('CI workflow', () => {
     // possible, so the first failure must not truncate the rest.
     expect(windowsObservational.env).toBeDefined()
     expect(windowsObservational.env).not.toMatchObject({ DSH_GATE_FAIL_FAST: '1' })
+  })
+
+  it('runs required benchmarks on standard hosted Linux independently of failover', () => {
+    const workflow = loadWorkflow('.github/workflows/ci.yml')
+    const benchmark = workflowJob(workflow, 'node-24-bench')
+    const aggregate = workflowJob(workflow, 'all-checks-passed')
+
+    expect(benchmark['runs-on']).toBe('ubuntu-24.04')
+    expect(benchmark.if).toBe("github.event_name == 'pull_request'")
+    expect(benchmark.needs).toBeUndefined()
+    expect(benchmark['continue-on-error']).toBeUndefined()
+    expect(benchmark.env).toBeUndefined()
+    expect(aggregate.needs).toContain('node-24-bench')
+  })
+
+  it('always restores the hosted benchmark pnpm cache', () => {
+    const benchmark = workflowJob(loadWorkflow('.github/workflows/ci.yml'), 'node-24-bench')
+    if (!Array.isArray(benchmark.steps)) throw new TypeError('benchmark job must define steps')
+    const caches = benchmark.steps.filter(step => isRecord(step) && step.uses === 'actions/cache/restore@v4')
+
+    expect(caches).toHaveLength(1)
+    expect(caches[0]).not.toHaveProperty('if')
+    expect(caches[0]).toMatchObject({
+      with: {
+        path: '${{ steps.pnpm-store.outputs.path }}',
+        key: "${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}",
+      },
+    })
+  })
+
+  it('bounds the complete benchmark job to fifteen minutes', () => {
+    const benchmark = workflowJob(loadWorkflow('.github/workflows/ci.yml'), 'node-24-bench')
+
+    expect(benchmark['timeout-minutes']).toBe(15)
+    expect(benchmark.steps).toContainEqual({
+      name: 'Run performance benchmarks',
+      env: { DSH_GATE_VERBOSE: '1' },
+      run: 'pnpm run check:ci:bench',
+    })
   })
 
   it('gives the Wine Host TypeScript compile the repository heap budget', () => {
