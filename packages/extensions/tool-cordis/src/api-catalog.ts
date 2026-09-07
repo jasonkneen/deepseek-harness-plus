@@ -611,6 +611,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'the path, or undefined for an unknown id.',
       },
       {
+        signature: 'fetchBundle(request: Request): Response',
+        description: 'Serve an advertised revisioned bundle or source map without a Web server. Unknown URLs return 404, unsupported methods return 405, and `HEAD` returns the same immutable headers without a body.',
+        parameters: [{ name: 'request', description: 'shell-carrier request for a `/plugins` resource.' }],
+        returns: 'the exact response also exposed by the optional Web route.',
+      },
+      {
         signature: 'artifactBaseline(id: string): ClientArtifactBaseline | undefined',
         description: 'Filesystem baseline captured before an entry\'s current bytes were read. HMR compares it with the live files when installing a watch, so a write between startup composition and watch installation cannot disappear into the watcher\'s initial state.',
         parameters: [{ name: 'id', description: 'entry id (package name).' }],
