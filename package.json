@@ -37,7 +37,7 @@
     "test:coverage": "vitest run --coverage",
     "test:coverage:partitioned": "tsx scripts/run-coverage-partitions.ts",
     "test:e2e": "vitest run --config vitest.e2e.config.ts",
-    "test:bench": "npm run build:bench && npm run test:bench:built",
+    "test:bench": "npm run build:bench && npm run build:web && npm run test:bench:built",
     "test:bench:built": "vitest run --config vitest.bench.config.ts",
     "test:expected": "vitest run --config vitest.expected.config.ts",
     "test:expected:refresh": "DSH_SNAPSHOT=refresh vitest run --config vitest.expected.config.ts",

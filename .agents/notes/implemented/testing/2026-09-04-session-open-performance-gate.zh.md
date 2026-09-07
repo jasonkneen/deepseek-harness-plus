@@ -12,13 +12,13 @@ Session format v2 的推出改变了两条成本随模型输出增长的路径�
 
 ## 决定
 
-Linux pull request 运行必需的 `node 24 / benchmarks` job，执行 `pnpm run check:ci:bench` → `pnpm run test:bench`。私有 `@deepseek-ai/dsh-benchmarks` workspace 拥有 benchmark 专属依赖。该命令先构建 workspace library 和 `benchmarks/.dsh-build/` 下的专用 worker，再调用 `vitest.bench.config.ts`。[标准托管运行器决策](2026-09-06-standard-hosted-benchmark-runner.zh.md)拥有运行器选择及外层 job 超时。该 job 单独运行 benchmark lane；Vitest 逐文件运行，只负责准备输入、启动测量子进程、汇总结果和执行预算断言。每条被计时的 CPU 路径都以纯 Node 执行编译后的 JavaScript，并移除 `NODE_OPTIONS` 且不加载 TypeScript runtime；workspace 裸导入因此从 `benchmarks/node_modules` 通过 package exports 解析到构建后的 `lib/` 入口。
+Linux pull request 运行必需的 `node 24 / benchmarks` job，执行 `pnpm run check:ci:bench` → `pnpm run test:bench`。私有 `@deepseek-ai/dsh-benchmarks` workspace 拥有 benchmark 专属依赖。该命令先构建 workspace library 和 `benchmarks/.dsh-build/` 下的专用 worker，再调用 `vitest.bench.config.ts`。[标准托管运行器决策](2026-09-06-standard-hosted-benchmark-runner.zh.md)拥有运行器选择及外层 job 超时。该 job 单独运行 benchmark lane；Vitest 逐文件运行，只负责准备输入、启动测量子进程、汇总结果和执行预算断言。每条被计时的 Node CPU 路径都以纯 Node 执行编译后的 JavaScript，并移除 `NODE_OPTIONS` 且不加载 TypeScript runtime；workspace 裸导入因此从 `benchmarks/node_modules` 通过 package exports 解析到构建后的 `lib/` 入口。
 
 必需性能 gate 位于顶层 `benchmarks/`，按被测用户路径而非 package 归属组织。Host 文件使用 `*.bench.ts`，Client 面文件使用 `*.bench.client.ts`，场景专属 worker 与 fixture 留在对应 benchmark 旁且不带 benchmark 后缀。包内 `.perf.ts` 文件仍是非门禁诊断；`scripts/` 负责编排而不承载 benchmark case。
 
 Session benchmark 使用固定参数合成 released-v0 输入：200 轮，每轮 500 个 text delta 与 125 个 reasoning delta，共 127,400 个逻辑事件。输入使用 Zstandard，并固定 logical rows 的分组与 frame 拆分，使每次运行处理相同的事件、字节与 frame 分布。fixture 直接构造不可变的 released-v0 physical rows，不依赖当前 runtime 的历史 encoder；压缩以及所有被测读取和 migration 入口仍使用生产代码。输入在计时前写入每个样本独占的临时目录；benchmark 不使用录制的 Session。
 
-每个 Session endpoint 都针对用户生命周期中的两个时点运行。`first-open` 最初只有 released V0 generation，因此包含 migration 与后继 generation 发布。测试准备阶段在计时外通过同一套生产 migration 生成一次 `post-upgrade-reopen`，再把未改动的 V0 前代和已发布的 V2 后继一起复制到每个样本目录。Reopen 样本使用全新进程，因此测量用户升级完成后的磁盘再次打开，不包含 migration 或进程内 cache。
+每个 Session endpoint 都针对用户生命周期中的两个时点运行。`first-open` 最初只有 released V0 generation，包含 migration；只读消费者不发布后继文件，可写 Agent resume 才会发布。测试准备阶段在计时外通过同一套生产 migration 生成一次 `post-upgrade-reopen`，再把未改动的 V0 前代和已发布的 V2 后继一起复制到每个样本目录。Reopen 样本使用全新进程，因此测量用户升级完成后的磁盘再次打开，不包含 migration 或进程内 cache。
 
 每个 access kind 与 endpoint 的样本都在全新、已编译的 Node 子进程中运行。模块加载、Host 服务初始化和 fixture 准备在测量开始前完成；测量进程不执行额外的预热解析。正常堆模式运行五个独立样本，报告全部样本及最小值、中位数和最大值，并以中位数执行各访问状态独立的固定预算。另一个子进程使用固定 128 MB old-space 上限运行同一路径，只判断能否完成；低堆限制引起的额外 GC 不进入正常时间基线。
 
@@ -26,7 +26,7 @@ Session benchmark 使用固定参数合成 released-v0 输入：200 轮，每轮
 
 | Benchmark | 被测路径 | 时间指标 |
 |---|---|---|
-| 阶段剖面 | 分别为 first open 与 post-upgrade reopen 执行真实 persistence open、handle read、Session restore 与 projection | `openMs`、`readMs`、`sessionRestoreMs`、`projectionMs` 各自使用固定预算；migration 所等待的编码、写入、verify 与 publish 全部归入 first-open `openMs` |
+| 阶段剖面 | 分别为 first open 与 post-upgrade reopen 执行真实 persistence open、handle read、Session restore 与 projection | `openMs`、`readMs`、`sessionRestoreMs`、`projectionMs` 各自使用固定预算；只读 migration 归入 first-open `openMs`；后继编码、verify 与 publish 属于可写 Agent resume |
 | 首屏历史 | 两种 access kind 分别经 Host Session history controller 读取到首个分页 snapshot | First open 与 reopen 各有一个端到端预算；均包含 source stat、读取、Session restore、projection、分页与 snapshot 构造，first open 还包含 migration；两者都不包含 Gateway 网络传输、Client fold 或浏览器 paint |
 | Agent resume | 对两种 access kind 分别调用 `ctx.agents.resume()`，直到 Agent 创建、setup、发布与 loop 启动完成 | First open 与 reopen 各有一个端到端预算；两条路径都不与首屏历史串行，也不依赖它留下的 cache |
 | Client fold | 大小两个 v2 history window 经真实 `ConversationNodeAssembler` 与全部 Chat Definition fold | 大窗口的绝对时间与相对小窗口的缩放比各自使用固定预算 |
@@ -50,7 +50,7 @@ Session benchmark 使用固定参数合成 released-v0 输入：200 轮，每轮
 | First open | 栈前参考版本 | 249.0 ms | 253.8 ms | 100.7 ms | 26.1 MB | 完成 |
 | First open | 重复 snapshot 退化实现 | 4,197.5 ms | 4,284.8 ms | 4,197.9 ms | 4.4 MB | 堆耗尽 |
 | Post-upgrade reopen | 栈前参考版本 | 251.1 ms | 253.8 ms | 100.7 ms | 26.1 MB | 完成 |
-| Post-upgrade reopen | 重复 snapshot 退化实现 | 49.2 ms | 50.4 ms | 43.8 ms | 完成 |
+| Post-upgrade reopen | 重复 snapshot 退化实现 | 49.2 ms | 50.4 ms | 43.8 ms | 4.5 MB | 完成 |
 
 栈前实现以 V0 作为当前格式，因此 first open 不改变磁盘表示；它的原生 V0 首屏历史与 Agent resume 测量同时适用于两个生命周期行。
 
@@ -102,4 +102,4 @@ Session benchmark 使用固定参数合成 released-v0 输入：200 轮，每轮
 
 每个 pull request 多付出一个必需 Linux job；该 job 的 Session 部分运行多个短生命周期子进程，以换取冷 cache、独立 V8 heap、明确 GC 状态和可归因的失败。仓库级 benchmark 目录接受有意的跨包测试依赖，而不修改产品 package manifest。固定 Zstandard workload 同时覆盖事件规模与 frame 拓扑；first-open 测量保护一次性升级体验，reopen 测量防止后续打开退化，四阶段预算定位成本归属，首屏预算保护用户可见等待，Agent resume 预算与 GC 后增量保护完整冷恢复及常驻内存，128 MB 模式保护瞬时分配上限。
 
-该 gate 不测量网络传输、浏览器渲染或真实录制 Session，也不是持续性能趋势系统。Node 或 runner 变化需要用同一 workload 重新采样并评审预算；修改业务实现时不得顺带放宽预算而不提供新的正反例数据。
+Session 与 Node-fold 场景不测量网络传输、浏览器渲染或真实录制 Session，也不是持续性能趋势系统。[前端性能预算](2026-09-06-frontend-performance-budgets.zh.md)拥有浏览器工作流测量。Node 或 runner 变化需要用同一 workload 重新采样并评审预算；修改业务实现时不得顺带放宽预算而不提供新的正反例数据。
