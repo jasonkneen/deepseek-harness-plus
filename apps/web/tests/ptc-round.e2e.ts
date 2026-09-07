@@ -103,7 +103,7 @@ describe('web e2e: PTC mode round renders nested sub-calls', () => {
   }, 60_000)
 
   it.skipIf(MODE === 'record')('expands the nested bash terminal inline before and after reload', async () => {
-    onTestFailed(() => saveFailureShot(page, 'web-e2e-ptc-details'))
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-ptc-rightbar'))
     let liveTerminalAria: string | undefined
     for (const reloaded of [false, true]) {
       if (reloaded) {
@@ -114,7 +114,7 @@ describe('web e2e: PTC mode round renders nested sub-calls', () => {
       }
       const nest = page.locator('[data-subcalls]').first()
       const frame = page.locator('[style*="grid-template-columns"]').first()
-      expect(await frame.getAttribute('data-details-collapsed')).toBe('true')
+      expect(await frame.getAttribute('data-rightbar-collapsed')).toBe('true')
       await expandOwningTurnProcess(page, nest)
       const row = nest.locator('[data-sample="bash"]').first()
       await expect.poll(() => row.getAttribute('data-state')).toBe('ok')
@@ -126,7 +126,7 @@ describe('web e2e: PTC mode round renders nested sub-calls', () => {
       await terminal.getByText('echo CODE_ROUND_OK', { exact: true }).waitFor()
       await terminal.getByText('CODE_ROUND_OK', { exact: true }).waitFor()
       await expect.poll(() => terminal.locator('[data-state]').getAttribute('data-state')).toBe('done')
-      await expect.poll(() => frame.getAttribute('data-details-collapsed'), { timeout: 5_000 }).toBe('true')
+      await expect.poll(() => frame.getAttribute('data-rightbar-collapsed'), { timeout: 5_000 }).toBe('true')
       const aria = await terminal.ariaSnapshot()
       if (reloaded) expect(aria).toBe(liveTerminalAria)
       else liveTerminalAria = aria

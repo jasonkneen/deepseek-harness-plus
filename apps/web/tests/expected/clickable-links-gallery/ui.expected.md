@@ -4,6 +4,8 @@
   - button "Session log":
     - text: Session log
     - img
+  - button "Open the sidebar":
+    - img
   - tablist:
     - tab "Chat" [selected]
     - tab "Trajectory"
@@ -176,7 +178,6 @@
 - button "Open site/app.js": app.js
 - button "Open src/tokens.css": tokens.css
 - text: + 1 file
-- button "Show in folder"
 - button "Copy":
   - img
 - button "Good response":
