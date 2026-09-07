@@ -38,6 +38,7 @@ const UI_EXPANDED_EXPECTED = fileURLToPath(
 // Command-row goldens over the same conversation after direct host commands.
 const COMMAND_ROW_EXPECTED = fileURLToPath(new URL('../../../snapshots/web/seeded-history/command-row.expected.md', import.meta.url))
 const FEEDBACK_ROW_EXPECTED = fileURLToPath(new URL('../../../snapshots/web/seeded-history/feedback-row.expected.md', import.meta.url))
+const FILE_PREVIEW_EXPECTED = join(SNAPSHOT_DIR, 'file-preview.expected.md')
 const MODE = webSnapshotMode()
 const SEED_ID = 'seeded-history-web-e2e'
 
@@ -189,11 +190,8 @@ describe('web e2e: seeded history renders through cold resume', () => {
 
   beforeAll(async () => {
     scaffold = await launchWebScaffold({})
-    // The workspace-aware flow runs sessions in <workspaceCwd>/workspace
-    // (the composer's default draft name); the read-tool targets must live in
-    // that session cwd. Pre-creating the directory is safe because the picker
-    // adopts an existing directory by path.
-    const sessionCwd = join(scaffold.workspaceCwd, 'workspace')
+    // Composer recording uses a child workspace; seedSession owns the scaffold root.
+    const sessionCwd = MODE === 'record' ? join(scaffold.workspaceCwd, 'workspace') : scaffold.workspaceCwd
     await mkdir(sessionCwd, { recursive: true })
     await writeFile(join(sessionCwd, 'a.txt'), 'alpha\n')
     await writeFile(join(sessionCwd, 'b.txt'), 'beta\n')
@@ -407,7 +405,10 @@ describe('web e2e: seeded history renders through cold resume', () => {
   })
 
   it.skipIf(MODE === 'record')('file-path tool rows rebuilt from the cold log open the right Sidebar', async () => {
-    onTestFailed(() => saveFailureShot(page, 'web-e2e-seeded-toolrow'))
+    onTestFailed(async () => {
+      await mkdir(fileURLToPath(new URL('../../../.artifacts/screenshots/0907-2205-sidebar', import.meta.url)), { recursive: true })
+      await saveFailureShot(page, `screenshots/0907-2205-sidebar/seeded-toolrow-${process.pid}`)
+    })
     // Interaction over cold-resumed history: read summaries are file links
     // that open a text-preview tab in the right Sidebar (not expand-in-place).
     // Runs after the golden capture; still zero model calls.
@@ -422,6 +423,13 @@ describe('web e2e: seeded history renders through cold resume', () => {
     await expect.poll(() => column.locator('[data-dockkit-tab-title]').count(), { timeout: 5_000 }).toBe(2)
     // Path label survives from the recorded args (a.txt).
     await expect.poll(() => page.getByText('a.txt', { exact: false }).count(), { timeout: 5_000 }).toBeGreaterThan(0)
+    const path = column.locator('[data-textpreview-path]')
+    const absolutePath = join(scaffold.workspaceCwd, 'a.txt')
+    await expect.poll(() => path.textContent()).toBe(absolutePath)
+    expect(await path.getAttribute('title')).toBe(absolutePath)
+    await expect.poll(() => column.locator('[data-textpreview-line="1"]').textContent()).toBe('alpha\n')
+    const preview = await captureStableAria(page, '[data-textpreview-state="text"]', scaffold.workspaceCwd)
+    await compareOrRefreshGolden(FILE_PREVIEW_EXPECTED, preview, MODE)
     // Put the column back so the later goldens see the default frame.
     await column.locator('[data-sidebar-right-toggle]').click()
     await expect.poll(() => frame.getAttribute('data-rightbar-collapsed'), { timeout: 5_000 }).toBe('true')
@@ -531,7 +539,7 @@ describe('web e2e: seeded history renders through cold resume', () => {
     expect(tripwire.pageErrors).toEqual([])
     expect(tripwire.warnings).toEqual([])
     await assertFixtureInventory(SNAPSHOT_DIR, [
-      'command-row.expected.md', 'feedback-row.expected.md',
+      'command-row.expected.md', 'feedback-row.expected.md', 'file-preview.expected.md',
       'session.v2.jsonl', 'ui.expected.md', 'ui-expanded.expected.md',
     ])
   })

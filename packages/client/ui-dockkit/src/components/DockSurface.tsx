@@ -33,6 +33,8 @@ export interface DockSurfaceProps {
    * split control disabled with `labels.splitPaneNarrow` (see README).
    */
   readonly canSplit: boolean
+  /** Hide the split control when the pane budget is spent; defaults to false. Width-blocked controls remain disabled. */
+  readonly hideSplitAtCapacity?: boolean
   /** Body drop geometry: all edge bands, or left/right halves with whole-pane moves once splitting is unavailable. */
   readonly dropZones?: 'edges' | 'horizontal'
   /** Smallest share a divider may leave a pane; defaults to the kit's fraction. */
@@ -153,7 +155,7 @@ function sameSizes(a: readonly number[], b: readonly number[]): boolean {
 /** The split tree and the gestures over it. */
 export function DockSurface({
   state, canSplit, canAddTab, intents, labels, renderTab, renderTabTitle, renderTabMenuItems, chrome, onRoom,
-  dropZones = 'edges', minPaneFraction = MIN_PANE_FRACTION,
+  dropZones = 'edges', minPaneFraction = MIN_PANE_FRACTION, hideSplitAtCapacity = false,
 }: DockSurfaceProps): ReactNode {
   const surface = useRef<HTMLDivElement | null>(null)
   const [preview, setPreview] = useState<Preview>(NO_PREVIEW)
@@ -263,6 +265,7 @@ export function DockSurface({
       })
     },
     splitBlock,
+    hideSplitAtCapacity,
     canAddTab: canAddTab ?? ALWAYS,
     dropTarget: preview.dropTarget,
     horizontalDrops: dropZones === 'horizontal',

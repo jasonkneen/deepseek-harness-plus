@@ -51,7 +51,7 @@ type UseResource = <P extends ResourceProtocol>(address: string) => ResourceSnap
 
 ### 帧
 
-提供方产出 `RemoteResult` 帧：首帧是当前状态，之后每次变化一帧。`ok` 帧使资源 `live`、替换值、清除失败；`ok: false` 帧使其 `failed`、记下失败、保留最后一个值。失败是数据不是异常：Remote 面本来就把失败折进 `ok: false` 且从不 reject，提供方原样转发这些帧，模型既不捕获也不包装——提供方流里抛出是编程错误，任其冒出。自行结束的流保持最后状态；提供方在中止它的那次释放之后产出的帧被丢弃，迭代器被归还。流只推元数据不推载荷：`file` 的值是 `{ version, bytes?, changed }`，消费方自己经 [Workspace Files 服务](2026-09-05-workspace-files-service.zh.md)按页读内容。
+提供方产出 `RemoteResult` 帧：首帧是当前状态，之后每次变化一帧。`ok` 帧使资源 `live`、替换值、清除失败；`ok: false` 帧使其 `failed`、记下失败、保留最后一个值。失败是数据不是异常：Remote 面本来就把失败折进 `ok: false` 且从不 reject，提供方原样转发这些帧，模型既不捕获也不包装——提供方流里抛出是编程错误，任其冒出。自行结束的流保持最后状态；提供方在中止它的那次释放之后产出的帧被丢弃，迭代器被归还。流只推元数据不推载荷：`file` 的值是 `{ absolutePath, version, bytes?, changed }`，消费方自己经 [Workspace Files 服务](2026-09-05-workspace-files-service.zh.md)按页读内容。
 
 ### 生命周期
 

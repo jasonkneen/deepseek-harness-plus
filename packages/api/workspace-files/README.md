@@ -71,7 +71,7 @@ Each failure is one `RemoteError` code with typed details, declared in [`src/typ
 
 ### Client file resources
 
-The browser export registers the `file` provider into `ctx.resources` and requires `resources`, `remote`, `remote.workspaceFiles`, and `sessions`. The bundle's single `workspace-files` row supplies both faces; the Client has no separate configuration. A component follows a file through its standard `useResource<'file'>(address)` prop and reads `{ version, bytes?, changed }`; content is fetched separately through the paged methods.
+The browser export registers the `file` provider into `ctx.resources` and requires `resources`, `remote`, `remote.workspaceFiles`, and `sessions`. The bundle's single `workspace-files` row supplies both faces; the Client has no separate configuration. A component follows a file through its standard `useResource<'file'>(address)` prop and reads `{ absolutePath, version, bytes?, changed }`; content is fetched separately through the paged methods.
 
 A `session/<sessionId>/<path>` resource address sends its relative path unchanged to the Host, which resolves and confines it against that Session's workspace root; the Client needs no Session `cwd`. An `absolute/<path>` address reads through the current Session. Both use the `dsh-resource://file/` grammar in [workspace-path](../../util/workspace-path/README.md). An absolute address without a current Session produces `workspace-file/unknown-workspace`; an unsupported address produces `workspace-file/unsupported-address`. These Client failures end the stream and make reload a no-op.
 

@@ -168,6 +168,7 @@ export function TextPreview({
     )
   }
   const next = loadedThrough + 1
+  const displayPath = meta.value?.absolutePath ?? file.path
   // Reload does two things at once: stat again through the resource (which
   // clears `changed`, or a failed frame) and read the pages again through the face.
   const reload = (): void => { meta.reload(); reloadPages(tab.id, file, signal) }
@@ -203,7 +204,7 @@ export function TextPreview({
           </p>
         )}
       <div className={css.header}>
-        <div className={css.path} title={file.path}>{file.path}</div>
+        <div className={css.path} title={displayPath} data-textpreview-path>{displayPath}</div>
         <button
           type="button"
           className={clsx(css.tool, state.wrap && css.toolOn)}

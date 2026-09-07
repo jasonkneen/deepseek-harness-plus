@@ -60,6 +60,12 @@
   transition: none;
 }
 
+/* Fullscreen covers the frame before its underlying columns change. */
+.frame[data-rightbar-fullscreen],
+.frame[data-rightbar-fullscreen] .handle {
+  transition: none;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .handle {
     transition: none;

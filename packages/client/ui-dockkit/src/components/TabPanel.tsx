@@ -234,21 +234,23 @@ export function TabPanel({ state, pane, callbacks }: TabPanelProps): ReactNode {
           </button>
         )}
         <div className={css.stripFill} data-dockkit-strip-fill />
-        <button
-          type="button"
-          className={css.iconButton}
-          aria-label={callbacks.labels.splitPane}
-          title={splitTitle(callbacks.labels, block)}
-          disabled={block !== undefined}
-          data-dockkit-split-button={pane.id}
-          data-dockkit-split-blocked={block}
-          onClick={(event) => {
-            event.stopPropagation()
-            callbacks.onSplitPane(pane.id)
-          }}
-        >
-          <SplitGlyph />
-        </button>
+        {!(callbacks.hideSplitAtCapacity && block === 'budget') && (
+          <button
+            type="button"
+            className={css.iconButton}
+            aria-label={callbacks.labels.splitPane}
+            title={splitTitle(callbacks.labels, block)}
+            disabled={block !== undefined}
+            data-dockkit-split-button={pane.id}
+            data-dockkit-split-blocked={block}
+            onClick={(event) => {
+              event.stopPropagation()
+              callbacks.onSplitPane(pane.id)
+            }}
+          >
+            <SplitGlyph />
+          </button>
+        )}
         {/* The embedder's surface-wide controls, in the top-right pane only: the
             strip is the surface's top edge, and this pane's end is its corner. */}
         {pane.id === callbacks.chromePaneId && callbacks.chrome !== undefined && (

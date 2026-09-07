@@ -109,7 +109,7 @@ The model is documented in [Client Resources](client-resources.md); this section
 
 `useResource<P>(address)` is a global standard prop on every slot component, whatever its scope. It returns `{ status, value, failure, reload }`: `none` when the address's protocol has no provider or the address is not a resource address (`sidebar://guide` names no resource), `loading` until the first frame, `live` with the latest `ok` value, `failed` with the latest frame's failure beside the last value. `reload()` asks the provider for a fresh frame and is a no-op without one ([read a resource](../../packages/client/resources/README.md#read-a-resource)).
 
-A resource stays open while it has a holder — a subscribed `useResource` or a `ctx.resources.pin(address, signal)`; the first holder opens the provider's stream, later holders share it and read the latest value at once, and the last release aborts the stream and discards the value. Streams carry metadata, not content: the `file` value is `{ version, bytes?, changed }`, and a consumer reads file text itself, by page, through the Workspace Files service ([lifecycle](../../packages/client/resources/README.md#lifecycle)).
+A resource stays open while it has a holder — a subscribed `useResource` or a `ctx.resources.pin(address, signal)`; the first holder opens the provider's stream, later holders share it and read the latest value at once, and the last release aborts the stream and discards the value. Streams carry metadata, not content: the `file` value is `{ absolutePath, version, bytes?, changed }`, and a consumer reads file text itself, by page, through the Workspace Files service ([lifecycle](../../packages/client/resources/README.md#lifecycle)).
 
 ## Workspace Files
 

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 /** Sidebar presentation and tab subscriptions through the production slot renderer. */
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, fireEvent } from '@testing-library/react'
 import { useState } from 'react'
 import { SlotTestRuntime } from '@deepseek-ai/dsh-client-test-runtime'
@@ -23,10 +23,38 @@ declare module '../src/client/contract/params.ts' {
 const SESSION = 's-test' as SessionId
 const OTHER = 's-other' as SessionId
 const runtimes: SlotTestRuntime[] = []
+let getAnimationsDescriptor: PropertyDescriptor | undefined
+
+beforeEach(() => {
+  getAnimationsDescriptor = Object.getOwnPropertyDescriptor(Element.prototype, 'getAnimations')
+  Object.defineProperty(Element.prototype, 'getAnimations', { configurable: true, writable: true, value: () => [] })
+})
 
 afterEach(async () => {
-  for (const runtime of runtimes.splice(0)) await runtime.dispose()
+  try {
+    for (const runtime of runtimes.splice(0)) await runtime.dispose()
+  } finally {
+    vi.restoreAllMocks()
+    if (getAnimationsDescriptor === undefined) Reflect.deleteProperty(Element.prototype, 'getAnimations')
+    else Object.defineProperty(Element.prototype, 'getAnimations', getAnimationsDescriptor)
+  }
 })
+
+/** Browser-owned animation completion controlled independently of the test clock. */
+function transition(property = 'transform') {
+  const done = Promise.withResolvers<Animation>()
+  let state: AnimationPlayState = 'running'
+  const animation = {
+    transitionProperty: property,
+    get playState() { return state },
+    finished: done.promise,
+  } as CSSTransition
+  return {
+    animation,
+    finish: () => { state = 'finished'; done.resolve(animation) },
+    cancel: () => { state = 'idle'; done.reject(new DOMException('Transition canceled', 'AbortError')) },
+  }
+}
 
 async function mountSeat(viewportWidth = 1440, canShow = true) {
   const runtime = await SlotTestRuntime.create()
@@ -177,6 +205,108 @@ describe('RightbarSeat presentation', () => {
   })
 })
 
+describe('RightbarSeat fullscreen entry', () => {
+  it('retains the previous report until its transform finishes, then leaves the track in place on exit', async () => {
+    const h = await mountSeat()
+    act(() => { h.actions.setMode(SESSION, 'fullscreen') })
+    const panel = element(h.view.container, '[data-sidebar-right-panel]')
+    const slide = transition()
+    const unrelated = transition('opacity')
+    vi.spyOn(panel, 'getAnimations').mockReturnValue([slide.animation, unrelated.animation])
+    h.frame.closeRightbar.mockClear()
+    h.open()
+    expect(panel.hasAttribute('data-sidebar-right-open')).toBe(true)
+    expect(panel.dataset['sidebarRightPanel']).toBe('fullscreen')
+    expect(h.frame.openRightbar).not.toHaveBeenCalled()
+    expect(h.frame.closeRightbar).not.toHaveBeenCalled()
+    await act(async () => { slide.finish(); await slide.animation.finished })
+    expect(h.frame.openRightbar).toHaveBeenCalledExactlyOnceWith(true, true)
+    fireEvent.click(element(h.view.container, '[data-sidebar-right-mode]'))
+    expect(h.frame.openRightbar).toHaveBeenLastCalledWith(true, false)
+    unrelated.finish()
+  })
+
+  it('reports immediately without a transform transition, including zero-duration and reduced-motion entry', async () => {
+    const h = await mountSeat()
+    act(() => { h.actions.setMode(SESSION, 'fullscreen') })
+    const unrelated = transition('opacity')
+    const ended = transition()
+    ended.finish()
+    vi.spyOn(element(h.view.container, '[data-sidebar-right-panel]'), 'getAnimations')
+      .mockReturnValue([unrelated.animation, ended.animation])
+    h.open()
+    expect(h.frame.openRightbar).toHaveBeenCalledExactlyOnceWith(true, true)
+    unrelated.finish()
+  })
+
+  it('reports when reduced motion cancels the entering transition', async () => {
+    const h = await mountSeat(767, false)
+    const slide = transition()
+    vi.spyOn(element(h.view.container, '[data-sidebar-right-panel]'), 'getAnimations').mockReturnValue([slide.animation])
+    h.open()
+    expect(h.frame.openRightbar).not.toHaveBeenCalled()
+    await act(async () => { slide.cancel(); await Promise.allSettled([slide.animation.finished]) })
+    expect(h.frame.openRightbar).toHaveBeenCalledExactlyOnceWith(false, true)
+  })
+
+  it('waits for a replacement transform after cancellation', async () => {
+    const h = await mountSeat(767, false)
+    const first = transition()
+    const replacement = transition()
+    const animations = vi.spyOn(element(h.view.container, '[data-sidebar-right-panel]'), 'getAnimations')
+      .mockReturnValue([first.animation])
+    h.open()
+    animations.mockReturnValue([replacement.animation])
+    await act(async () => { first.cancel(); await Promise.allSettled([first.animation.finished]) })
+    expect(h.frame.openRightbar).not.toHaveBeenCalled()
+    await act(async () => { replacement.finish(); await replacement.animation.finished })
+    expect(h.frame.openRightbar).toHaveBeenCalledExactlyOnceWith(false, true)
+  })
+
+  it.each(['close', 'push', 'session', 'unmount'])('ignores a late completion after %s', async (change) => {
+    const h = await mountSeat()
+    act(() => { h.actions.setMode(SESSION, 'fullscreen') })
+    const slide = transition()
+    vi.spyOn(element(h.view.container, '[data-sidebar-right-panel]'), 'getAnimations').mockReturnValue([slide.animation])
+    h.open()
+    expect(h.frame.openRightbar).not.toHaveBeenCalled()
+    if (change === 'close') fireEvent.click(element(h.view.container, '[data-sidebar-right-toggle]'))
+    else if (change === 'push') fireEvent.click(element(h.view.container, '[data-sidebar-right-mode]'))
+    else if (change === 'session') {
+      await h.runtime.sessions.add({ id: OTHER })
+      act(() => { h.controller.openResource('dsh-resource://file/session/s-other/b.txt') })
+    } else await h.runtime.dispose()
+    const openCalls = [...h.frame.openRightbar.mock.calls]
+    const closeCalls = h.frame.closeRightbar.mock.calls.length
+    await act(async () => { slide.finish(); await slide.animation.finished })
+    expect(h.frame.openRightbar.mock.calls).toEqual(openCalls)
+    expect(h.frame.closeRightbar).toHaveBeenCalledTimes(closeCalls)
+  })
+
+  it('uses the current viewport report when entry crosses the fullscreen breakpoint', async () => {
+    const h = await mountSeat()
+    act(() => { h.actions.setMode(SESSION, 'fullscreen') })
+    const slide = transition()
+    vi.spyOn(element(h.view.container, '[data-sidebar-right-panel]'), 'getAnimations').mockReturnValue([slide.animation])
+    h.open()
+    h.view.update({ width: 420, viewportWidth: 500, canShow: false })
+    expect(h.frame.openRightbar).not.toHaveBeenCalled()
+    await act(async () => { slide.finish(); await slide.animation.finished })
+    expect(h.frame.openRightbar).toHaveBeenCalledExactlyOnceWith(false, true)
+  })
+
+  it('does not delay normal presentation behind its slide', async () => {
+    const h = await mountSeat()
+    const slide = transition()
+    const animations = vi.spyOn(element(h.view.container, '[data-sidebar-right-panel]'), 'getAnimations')
+      .mockReturnValue([slide.animation])
+    h.open()
+    expect(h.frame.openRightbar).toHaveBeenCalledExactlyOnceWith(true, false)
+    expect(animations).not.toHaveBeenCalled()
+    slide.finish()
+  })
+})
+
 describe('slot-owned useTabInfo', () => {
   it('updates body and title navigation with no layout commit and retains the bound hook', async () => {
     const h = await mountSeat()
@@ -308,17 +438,17 @@ describe('slot-owned useTabInfo', () => {
     expect(document.querySelector('[data-dockkit-tab-menu]')).toBeNull()
   })
 
-  it('limits splits to two panes and adds a guide only to a pane without one', async () => {
+  it('hides split controls at two panes and adds a guide only to a pane without one', async () => {
     const h = await mountSeat()
     h.open()
+    const splitButtons = () => h.view.container.querySelectorAll<HTMLButtonElement>('[data-dockkit-split-button]')
+    expect(splitButtons()).toHaveLength(1)
     act(() => { h.controller.split() })
     expect(dockPaneIds(h.layout())).toHaveLength(2)
     const stored = h.instance.getSnapshot()
     act(() => { expect(h.controller.split()).toBeUndefined() })
     expect(h.instance.getSnapshot()).toBe(stored)
-    const splitButtons = h.view.container.querySelectorAll<HTMLButtonElement>('[data-dockkit-split-button]')
-    expect(splitButtons).toHaveLength(2)
-    expect([...splitButtons].every(button => button.disabled)).toBe(true)
+    expect(splitButtons()).toHaveLength(0)
     const right = dockPaneIds(h.layout())[1]!
     h.open('right.txt', { paneId: right })
     const guide = getPane(h.layout(), right).tabs.find(id => h.layout().tabs[id]?.kind === 'guide')!
@@ -327,6 +457,11 @@ describe('slot-owned useTabInfo', () => {
     expect(add.closest('[data-dockkit-pane]')?.getAttribute('data-dockkit-pane')).toBe(right)
     fireEvent.click(add)
     expect(getPane(h.layout(), right).tabs.filter(id => h.layout().tabs[id]?.kind === 'guide')).toHaveLength(1)
+    const closing = [...getPane(h.layout(), right).tabs]
+    act(() => { for (const tabId of closing) h.actions.closeTab(SESSION, tabId) })
+    expect(dockPaneIds(h.layout())).toHaveLength(1)
+    expect(splitButtons()).toHaveLength(1)
+    expect(splitButtons()[0]?.disabled).toBe(false)
   })
 })
 

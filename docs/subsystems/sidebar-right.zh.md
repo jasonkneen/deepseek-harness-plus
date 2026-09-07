@@ -109,7 +109,7 @@ export function apply(ctx: Context): void {
 
 `useResource<P>(address)` 是每个 slot 组件都有的全局标准 prop，不论作用域。它返回 `{ status, value, failure, reload }`：地址协议没有提供方或地址不是资源地址（`sidebar://guide` 不指向资源）时为 `none`，首帧之前为 `loading`，`live` 携带最新 `ok` 值，`failed` 在最后一个值旁携带最新帧的失败。`reload()` 请提供方给一个新帧，没有提供方时是空操作（[读取资源](../../packages/client/resources/README.zh.md#read-a-resource)）。
 
-资源有持有者就保持打开——订阅中的 `useResource` 或一次 `ctx.resources.pin(address, signal)`；第一个持有者打开提供方的流，之后的持有者共享它并立刻读到最新值，最后一个释放时中止流并丢弃值。流只推元数据不推内容：`file` 的值是 `{ version, bytes?, changed }`，消费方自己经 Workspace Files 服务按页读文件文本（[生命周期](../../packages/client/resources/README.zh.md#lifecycle)）。
+资源有持有者就保持打开——订阅中的 `useResource` 或一次 `ctx.resources.pin(address, signal)`；第一个持有者打开提供方的流，之后的持有者共享它并立刻读到最新值，最后一个释放时中止流并丢弃值。流只推元数据不推内容：`file` 的值是 `{ absolutePath, version, bytes?, changed }`，消费方自己经 Workspace Files 服务按页读文件文本（[生命周期](../../packages/client/resources/README.zh.md#lifecycle)）。
 
 ## Workspace Files
 

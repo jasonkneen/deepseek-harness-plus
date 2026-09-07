@@ -425,6 +425,100 @@ describe('web e2e: shipped right Sidebar', () => {
       expect(tripwire.warnings).toEqual([])
     })
 
+    it('keeps the conversation still during fullscreen entry and installs the hidden track without animation', async () => {
+      onTestFailed(() => saveFailureShot(page, 'screenshots/0907-sidebar-rules/sidebar-right-fullscreen-entry'))
+      mkdirSync(SHOT_DIR, { recursive: true })
+      const column = await resetSidebar(page)
+      const frame = page.locator('[class*="frame"]').first()
+      const panel = column.locator('[data-sidebar-right-panel]')
+      const viewport = page.viewportSize()
+      if (viewport === null) throw new Error('expected a fixed viewport')
+      const geometry = () => frame.evaluate(node => ({
+        columns: getComputedStyle(node).gridTemplateColumns,
+        transition: getComputedStyle(node).transitionProperty,
+        handles: [...node.querySelectorAll('[data-side="sidebar"], [data-side="rightbar"]')]
+          .map(handle => getComputedStyle(handle).transitionProperty),
+        animatingGrid: node.getAnimations().some(animation =>
+          'transitionProperty' in animation && animation.transitionProperty === 'grid-template-columns'
+          && animation.playState !== 'finished' && animation.playState !== 'idle'),
+      }))
+      await frame.evaluate(async (node) => { await Promise.allSettled(node.getAnimations().map(animation => animation.finished)) })
+      const normalColumns = (await geometry()).columns
+      await column.locator('[data-sidebar-right-mode="fullscreen"]').click()
+      await expect.poll(() => panel.boundingBox()).toEqual({ x: 0, y: 0, ...viewport })
+      await column.locator('[data-sidebar-right-toggle]').click()
+      await Promise.all([
+        panel.evaluate(async (node) => { await Promise.allSettled(node.getAnimations().map(animation => animation.finished)) }),
+        frame.evaluate(async (node) => { await Promise.allSettled(node.getAnimations().map(animation => animation.finished)) }),
+      ])
+      const closedColumns = (await geometry()).columns
+      expect(closedColumns).not.toBe(normalColumns)
+      await page.emulateMedia({ reducedMotion: 'no-preference' })
+
+      // Pause the real CSS transition at its midpoint so host scheduling cannot
+      // skip the partly covered frame whose underlying width is under test.
+      const held = await panel.evaluateHandle((node) => {
+        const controller = new AbortController()
+        const state = { animation: null as Animation | null, dispose: () => { controller.abort() } }
+        node.addEventListener('transitionrun', (event) => {
+          if (event.target !== node || (event as TransitionEvent).propertyName !== 'transform') return
+          const slide = node.getAnimations().find(animation =>
+            'transitionProperty' in animation && animation.transitionProperty === 'transform')
+          if (slide === undefined || slide.effect === null) throw new Error('panel transform transition is unavailable')
+          slide.pause()
+          slide.currentTime = Number(slide.effect.getComputedTiming().endTime) / 2
+          state.animation = slide
+          controller.abort()
+        }, { signal: controller.signal })
+        return state
+      })
+      try {
+        await expandOf(page).click()
+        await expect.poll(() => held.evaluate(state => state.animation?.playState)).toBe('paused')
+        const entering = await panel.boundingBox()
+        if (entering === null) throw new Error('entering panel is not rendered')
+        expect(entering.x).toBeGreaterThan(0)
+        expect(entering.x).toBeLessThan(viewport.width)
+        expect((await geometry()).columns).toBe(closedColumns)
+        expect((await geometry()).animatingGrid).toBe(false)
+        expect(await frame.getAttribute('data-rightbar-fullscreen')).toBeNull()
+
+        await held.evaluate((state) => { (state.animation as Animation).finish() })
+        await expect.poll(() => frame.getAttribute('data-rightbar-fullscreen')).toBe('true')
+        expect(await panel.boundingBox()).toEqual({ x: 0, y: 0, ...viewport })
+        expect(await geometry()).toEqual({ columns: normalColumns, transition: 'none', handles: ['none'], animatingGrid: false })
+        await column.locator('[data-sidebar-right-mode="push"]').click()
+        expect((await geometry()).columns).toBe(normalColumns)
+        expect((await geometry()).animatingGrid).toBe(false)
+
+        await page.emulateMedia({ reducedMotion: 'reduce' })
+        await column.locator('[data-sidebar-right-mode="fullscreen"]').click()
+        await column.locator('[data-sidebar-right-toggle]').click()
+        await expect.poll(() => frame.getAttribute('data-rightbar-fullscreen')).toBeNull()
+        await expandOf(page).click()
+        await expect.poll(() => frame.getAttribute('data-rightbar-fullscreen')).toBe('true')
+        expect(await panel.boundingBox()).toEqual({ x: 0, y: 0, ...viewport })
+        expect((await geometry()).columns).toBe(normalColumns)
+        expect((await geometry()).animatingGrid).toBe(false)
+      } finally {
+        await held.evaluate((state) => {
+          state.dispose()
+          if (state.animation?.playState === 'paused') state.animation.finish()
+        })
+        await held.dispose()
+        try {
+          if (await panel.getAttribute('data-sidebar-right-panel') === 'fullscreen'
+            && await panel.getAttribute('data-sidebar-right-open') !== null) {
+            await column.locator('[data-sidebar-right-mode="push"]').click()
+          }
+        } finally {
+          await page.emulateMedia({ reducedMotion: null })
+        }
+      }
+      expect(tripwire.pageErrors).toEqual([])
+      expect(tripwire.warnings).toEqual([])
+    })
+
     it('keeps a capacity-closed panel closed after widening and uses fullscreen on a narrow viewport', async () => {
       const viewport = page.viewportSize()
       if (viewport === null) throw new Error('expected a fixed viewport')
@@ -448,6 +542,7 @@ describe('web e2e: shipped right Sidebar', () => {
         await page.setViewportSize({ width: 767, height: viewport.height })
         await expect.poll(async () => await panel.getAttribute('data-sidebar-right-panel')).toBe('fullscreen')
         await expect.poll(async () => await width(panel)).toBe(767)
+        await expect.poll(() => frame.getAttribute('data-rightbar-fullscreen')).toBe('true')
         expect(await frame.locator('[data-side="rightbar"]').count()).toBe(0)
         await column.locator('[data-sidebar-right-mode="push"]').click()
         await expect.poll(async () => await column.locator('[data-sidebar-right-open]').count()).toBe(0)
@@ -673,13 +768,11 @@ describe('web e2e: shipped right Sidebar', () => {
       await dragTo(page, moving, await pointIn(panes.nth(1), 0.5, 0.5))
       await expect.poll(async () => await tabTitles(panes.nth(1))).toContain(title)
 
-      const splitOf = (pane: Locator): Locator => pane.locator('[data-dockkit-split-button]')
-      await expect.poll(async () => await splitOf(panes.first()).isDisabled()).toBe(true)
-      expect(await splitOf(panes.first()).getAttribute('data-dockkit-split-blocked')).toBe('budget')
+      const splitButtons = column.locator('[data-dockkit-split-button]')
+      await expect.poll(async () => await splitButtons.count()).toBe(0)
       expect(await panes.count()).toBe(2)
       await setPanelWidth(page, 560)
-      await expect.poll(async () => await splitOf(panes.last()).isDisabled()).toBe(true)
-      expect(await splitOf(panes.last()).getAttribute('data-dockkit-split-blocked')).toBe('budget')
+      await expect.poll(async () => await splitButtons.count()).toBe(0)
 
       const outer = column.locator('[data-dockkit-divider]').first()
       const before = await width(panes.last())
@@ -698,9 +791,7 @@ describe('web e2e: shipped right Sidebar', () => {
       await dragElement(page, outer, { x: surfaceBox.x + surfaceBox.width / 2, y: grip.y })
       await expect.poll(ratio).toBeCloseTo(0.5, 2)
       expect(await panes.count()).toBe(2)
-      expect(await splitOf(panes.first()).isDisabled()).toBe(true)
-      expect(await splitOf(panes.first()).getAttribute('data-dockkit-split-blocked')).toBe('budget')
-      expect(await splitOf(panes.first()).getAttribute('title')).toBe('Two panes is the limit')
+      expect(await splitButtons.count()).toBe(0)
 
       // 5. Two floats coexist, and one of them moves. Both leave the widest
       //    pane; a pane emptied by the first float is merged away, so the

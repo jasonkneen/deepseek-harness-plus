@@ -177,5 +177,5 @@ function unknownWorkspace(address: string): RemoteError<'workspace-file/unknown-
  * @returns the metadata frame value.
  */
 function metadataOf(stat: WorkspaceFileStat, changed: boolean): WorkspaceFileResource {
-  return { version: stat.version, changed, ...(stat.bytes === undefined ? {} : { bytes: stat.bytes }) }
+  return { absolutePath: stat.absolutePath, version: stat.version, changed, ...(stat.bytes === undefined ? {} : { bytes: stat.bytes }) }
 }

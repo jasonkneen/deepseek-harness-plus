@@ -41,7 +41,7 @@ describe('Host-resolved file paths', () => {
     expect(remote.calls).toEqual(['changes', 'accept', 'stat'])
     expect(request).toMatchObject({ sessionId: SESSION, path: RELATIVE })
     request.resolve({ ok: true, value: { absolutePath: CANONICAL, version: 'v0', bytes: 3 } })
-    await expect(first).resolves.toEqual({ done: false, value: { ok: true, value: { version: 'v0', bytes: 3, changed: false } } })
+    await expect(first).resolves.toEqual({ done: false, value: { ok: true, value: { absolutePath: CANONICAL, version: 'v0', bytes: 3, changed: false } } })
   })
 
   it('does not stat an opened changes stream until the Host acknowledges its subscription', async () => {
@@ -58,7 +58,7 @@ describe('Host-resolved file paths', () => {
     const request = await remote.waitForStat(0)
     expect(remote.calls).toEqual(['changes', 'accept', 'stat'])
     request.resolve({ ok: true, value: { absolutePath: CANONICAL, version: 'v0' } })
-    await expect(first).resolves.toEqual({ done: false, value: { ok: true, value: { version: 'v0', changed: false } } })
+    await expect(first).resolves.toEqual({ done: false, value: { ok: true, value: { absolutePath: CANONICAL, version: 'v0', changed: false } } })
   })
 
   it.each(['abort', 'end', 'failure'] as const)('settles %s before Host ready without sending a stat or leaving a stream', async (ending) => {
@@ -94,7 +94,7 @@ describe('Host-resolved file paths', () => {
     await source.deliver({ kind: 'change', change: { absolutePath: CANONICAL, version: 'v1' } })
     expect(remote.stats).toHaveLength(1)
     expect(remote.calls).toEqual(['changes', 'accept', 'stat', 'accept'])
-    await expect(next).resolves.toEqual({ done: false, value: { ok: true, value: { version: 'v1', bytes: 3, changed: true } } })
+    await expect(next).resolves.toEqual({ done: false, value: { ok: true, value: { absolutePath: CANONICAL, version: 'v1', bytes: 3, changed: true } } })
   })
 
   it.each([
@@ -112,7 +112,7 @@ describe('Host-resolved file paths', () => {
     await source.deliver({ kind: 'change', change: { absolutePath: CANONICAL, version: 'v1' } })
     request.resolve({ ok: true, value: { absolutePath: CANONICAL, version: 'v0', bytes: 3 } })
     await expect(first).resolves.toMatchObject({ value: { ok: true, value: { version: 'v0', changed: false } } })
-    await expect(iterator.next()).resolves.toEqual({ done: false, value: { ok: true, value: { version: 'v1', bytes: 3, changed: true } } })
+    await expect(iterator.next()).resolves.toEqual({ done: false, value: { ok: true, value: { absolutePath: CANONICAL, version: 'v1', bytes: 3, changed: true } } })
 
     await source.deliver({ kind: 'change', change: { absolutePath: '/other/file.txt', version: 'other-after-stat' } })
     await source.deliver({ kind: 'change', change: { absolutePath: CANONICAL, version: 'v2' } })
@@ -138,7 +138,7 @@ describe('Host-resolved file paths', () => {
     await source.deliver({ kind: 'change', change: { absolutePath: CANONICAL, version: 'v3' } })
     retry.resolve({ ok: true, value: { absolutePath: CANONICAL, version: 'v2', bytes: 5 } })
     await expect(retried).resolves.toEqual({
-      done: false, value: { ok: true, value: { version: 'v2', bytes: 5, changed: trigger === 'write' } },
+      done: false, value: { ok: true, value: { absolutePath: CANONICAL, version: 'v2', bytes: 5, changed: trigger === 'write' } },
     })
     await expect(iterator.next()).resolves.toMatchObject({ value: { ok: true, value: { version: 'v3', changed: true } } })
     expect(remote.stats).toHaveLength(2)
@@ -166,7 +166,7 @@ describe('Host-resolved file paths', () => {
     for (const request of remote.stats.slice(3)) {
       request.resolve({ ok: true, value: { absolutePath: CANONICAL, version: 'v1', bytes: 4 } })
     }
-    const value = { done: false, value: { ok: true, value: { version: 'v1', bytes: 4, changed: false } } }
+    const value = { done: false, value: { ok: true, value: { absolutePath: CANONICAL, version: 'v1', bytes: 4, changed: false } } }
     await expect(reloaded).resolves.toEqual([value, value])
     await remote.opened[0]!.source.deliver({ kind: 'change', change: { absolutePath: '/host/other.txt', version: 'other-v1' } })
     await expect(otherChange).resolves.toMatchObject({ value: { ok: true, value: { version: 'other-v1', changed: true } } })

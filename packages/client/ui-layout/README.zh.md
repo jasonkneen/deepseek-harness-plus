@@ -39,7 +39,7 @@ kind: "package-reference"
 <details>
 <summary>实现细节——点击展开</summary>
 
-一次注册声明四个子slot并绑定 `ctx.layout` 的 `toggleSidebar`、`openRightbar(track, fullscreen)` 与 `closeRightbar`。store持有唯一的frame宽度测量、左右栏偏好及占用方报告的呈现状态。`rightbar` 的owner参数为实际 `width`、`viewportWidth` 与普通呈现的 `canShow`；占用方在空间不足时执行确定性的收起，变宽不自行重新展开。全屏隐藏宽度手柄，但不自行释放占用方要求保留的轨道。AppFrame 始终挂载会话与右栏；已连接 Session 经 `SessionProvider` 渲染，没有 Session 时右栏是一条空的零宽轨道。它把所选 Session 标题投影到构建配置的产品标题或本地化 `common.brand.localBuild` 回退值之上，因此 locale revision 会随根 entry 一起更新文档元数据。主题呈现器是第二个 effect：从解析后的快照做纯 DOM 写入——初始状态经 getter 读取一次，此后仅事件驱动，不经过 React。它先应用调色板、字号与 token 变量，再把渲染出的背景测量为唯一的颜色依据。
+一次注册声明四个子slot并绑定 `ctx.layout` 的 `toggleSidebar`、`openRightbar(track, fullscreen)` 与 `closeRightbar`。store持有唯一的frame宽度测量、左右栏偏好及占用方报告的呈现状态。`rightbar` 的owner参数为实际 `width`、`viewportWidth` 与普通呈现的 `canShow`；占用方在空间不足时执行确定性的收起，变宽不自行重新展开。全屏隐藏宽度手柄，但不自行释放占用方要求保留的轨道。AppFrame 始终挂载会话与右栏；已连接 Session 经 `SessionProvider` 渲染，没有 Session 时右栏是一条空的零宽轨道。它把所选 Session 标题投影到构建配置的产品标题或本地化 `common.brand.localBuild` 回退值之上，因此 locale revision 会随根 entry 一起更新文档元数据。主题呈现器是第二个 effect：从解析后的快照做纯 DOM 写入——初始状态经 getter 读取一次，此后仅事件驱动，不经过 React。它先应用调色板、字号与 token 变量，再把渲染出的背景测量为唯一的颜色依据。 全屏呈现禁用网格和手柄过渡；占用方完全覆盖框架后才报告新的列宽。
 
 </details>
 

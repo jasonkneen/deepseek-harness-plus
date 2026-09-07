@@ -49,6 +49,8 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
  * know when its pages are stale.
  */
 export interface WorkspaceFileResource {
+  /** Absolute path in the Host filesystem, as returned by the last successful stat. */
+  readonly absolutePath: string
   /** The Host's latest report of the file's version: from `stat` first, then from each reported write. */
   readonly version: string
   /** Byte size as of the last `stat`, when the backend reports it. */

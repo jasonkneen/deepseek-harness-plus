@@ -118,7 +118,7 @@ describe('file provider — the address', () => {
     expect(remote.opened.map(o => o.sessionId)).toEqual([S1])
     expect(remote.stats[0]).toMatchObject({ sessionId: S1, path: ABS_PATH })
     remote.stats[0]!.resolve({ ok: true, value: { absolutePath: ABS_PATH, version: 'v0', bytes: 3 } })
-    await expect(first).resolves.toEqual({ done: false, value: { ok: true, value: { version: 'v0', bytes: 3, changed: false } } })
+    await expect(first).resolves.toEqual({ done: false, value: { ok: true, value: { absolutePath: ABS_PATH, version: 'v0', bytes: 3, changed: false } } })
     remote.opened[0]!.source.push({ kind: 'change', change: { absolutePath: ABS_PATH, version: 'v1' } })
     await expect(it.next()).resolves.toMatchObject({ value: { ok: true, value: { version: 'v1', changed: true } } })
     // A reload stats the same absolute path again.
@@ -127,7 +127,7 @@ describe('file provider — the address', () => {
     await settle()
     expect(remote.stats[1]).toMatchObject({ sessionId: S1, path: ABS_PATH })
     remote.stats[1]!.resolve({ ok: true, value: { absolutePath: ABS_PATH, version: 'v1', bytes: 4 } })
-    await expect(next).resolves.toEqual({ done: false, value: { ok: true, value: { version: 'v1', bytes: 4, changed: false } } })
+    await expect(next).resolves.toEqual({ done: false, value: { ok: true, value: { absolutePath: ABS_PATH, version: 'v1', bytes: 4, changed: false } } })
   })
 
   it('opens one change stream per session named by the addresses', async () => {
@@ -150,7 +150,7 @@ describe('file provider — the opening stat', () => {
     expect(remote.stats).toHaveLength(1)
     expect(remote.stats[0]).toMatchObject({ sessionId: S1, path: REL_PATH, signal: controller.signal })
     remote.stats[0]!.resolve({ ok: true, value: stat('v0', 3) })
-    await expect(first).resolves.toEqual({ done: false, value: { ok: true, value: { version: 'v0', bytes: 3, changed: false } } })
+    await expect(first).resolves.toEqual({ done: false, value: { ok: true, value: { absolutePath: HOST_PATH, version: 'v0', bytes: 3, changed: false } } })
   })
 
   it('omits bytes when the backend reports none', async () => {
@@ -158,7 +158,7 @@ describe('file provider — the opening stat', () => {
     const first = it.next()
     await settle()
     remote.stats[0]!.resolve({ ok: true, value: { absolutePath: HOST_PATH, version: 'v0' } })
-    await expect(first).resolves.toStrictEqual({ done: false, value: { ok: true, value: { version: 'v0', changed: false } } })
+    await expect(first).resolves.toStrictEqual({ done: false, value: { ok: true, value: { absolutePath: HOST_PATH, version: 'v0', changed: false } } })
   })
 
   it('yields the Host failure as a frame and keeps following the address', async () => {
@@ -178,7 +178,7 @@ describe('file provider — the opening stat', () => {
     source.push({ kind: 'change', change: { absolutePath: HOST_PATH, version: 'v1' } })
     await settle()
     remote.stats[1]!.resolve({ ok: true, value: stat('v1', 5) })
-    await expect(pending).resolves.toEqual({ done: false, value: { ok: true, value: { version: 'v1', bytes: 5, changed: true } } })
+    await expect(pending).resolves.toEqual({ done: false, value: { ok: true, value: { absolutePath: HOST_PATH, version: 'v1', bytes: 5, changed: true } } })
   })
 
   it('lets a reload retry a failed opening stat', async () => {
@@ -191,7 +191,7 @@ describe('file provider — the opening stat', () => {
     const next = it.next()
     await settle()
     remote.stats[1]!.resolve({ ok: true, value: stat('v0', 3) })
-    await expect(next).resolves.toEqual({ done: false, value: { ok: true, value: { version: 'v0', bytes: 3, changed: false } } })
+    await expect(next).resolves.toEqual({ done: false, value: { ok: true, value: { absolutePath: HOST_PATH, version: 'v0', bytes: 3, changed: false } } })
   })
 
   it('ends without a frame when aborted during the stat', async () => {
@@ -219,7 +219,7 @@ describe('file provider — Host writes', () => {
   it('flags a write with its version and keeps the byte count', async () => {
     const { remote, it } = await live()
     remote.opened[0]!.source.push({ kind: 'change', change: { absolutePath: HOST_PATH, version: 'v1' } })
-    await expect(it.next()).resolves.toEqual({ done: false, value: { ok: true, value: { version: 'v1', bytes: 3, changed: true } } })
+    await expect(it.next()).resolves.toEqual({ done: false, value: { ok: true, value: { absolutePath: HOST_PATH, version: 'v1', bytes: 3, changed: true } } })
     expect(remote.stats).toHaveLength(1)
   })
 
@@ -254,7 +254,7 @@ describe('file provider — a reported disappearance', () => {
     await settle()
     expect(remote.stats).toHaveLength(2)
     remote.stats[1]!.resolve({ ok: true, value: stat('v2', 9) })
-    await expect(next).resolves.toEqual({ done: false, value: { ok: true, value: { version: 'v2', bytes: 9, changed: true } } })
+    await expect(next).resolves.toEqual({ done: false, value: { ok: true, value: { absolutePath: HOST_PATH, version: 'v2', bytes: 9, changed: true } } })
   })
 
   it('yields the not-found frame and keeps following, so a later write stats again and brings the file back flagged', async () => {
@@ -270,7 +270,7 @@ describe('file provider — a reported disappearance', () => {
     const back = it.next()
     await settle()
     remote.stats[2]!.resolve({ ok: true, value: stat('v3', 8) })
-    await expect(back).resolves.toEqual({ done: false, value: { ok: true, value: { version: 'v3', bytes: 8, changed: true } } })
+    await expect(back).resolves.toEqual({ done: false, value: { ok: true, value: { absolutePath: HOST_PATH, version: 'v3', bytes: 8, changed: true } } })
   })
 })
 
@@ -285,7 +285,7 @@ describe('file provider — reload', () => {
     expect(remote.stats).toHaveLength(2)
     expect(remote.stats[1]).toMatchObject({ sessionId: S1, path: REL_PATH })
     remote.stats[1]!.resolve({ ok: true, value: stat('v1', 7) })
-    await expect(next).resolves.toEqual({ done: false, value: { ok: true, value: { version: 'v1', bytes: 7, changed: false } } })
+    await expect(next).resolves.toEqual({ done: false, value: { ok: true, value: { absolutePath: HOST_PATH, version: 'v1', bytes: 7, changed: false } } })
   })
 
   it('yields a failed stat as a frame and keeps the stream open', async () => {
@@ -334,7 +334,7 @@ describe('file provider — reload', () => {
     expect(remote.stats.slice(2).map(pending => pending.path)).toEqual([REL_PATH, HOST_PATH])
     remote.stats[2]!.resolve({ ok: true, value: stat('v1', 3) })
     remote.stats[3]!.resolve({ ok: true, value: stat('v1', 3) })
-    const cleared = { done: false, value: { ok: true, value: { version: 'v1', bytes: 3, changed: false } } }
+    const cleared = { done: false, value: { ok: true, value: { absolutePath: HOST_PATH, version: 'v1', bytes: 3, changed: false } } }
     await expect(nexts).resolves.toEqual([cleared, cleared])
   })
 

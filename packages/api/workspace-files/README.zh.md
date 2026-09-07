@@ -71,7 +71,7 @@ kind: "package-reference"
 
 ### Client 文件资源
 
-浏览器导出向 `ctx.resources` 注册 `file` 提供者，要求 `resources`、`remote`、`remote.workspaceFiles` 和 `sessions` 在场。bundle 中单个 `workspace-files` 条目供应两面；Client 没有单独配置。组件经标准 prop `useResource<'file'>(address)` 跟随文件，读取 `{ version, bytes?, changed }`；内容通过分页方法另行获取。
+浏览器导出向 `ctx.resources` 注册 `file` 提供者，要求 `resources`、`remote`、`remote.workspaceFiles` 和 `sessions` 在场。bundle 中单个 `workspace-files` 条目供应两面；Client 没有单独配置。组件经标准 prop `useResource<'file'>(address)` 跟随文件，读取 `{ absolutePath, version, bytes?, changed }`；内容通过分页方法另行获取。
 
 `session/<sessionId>/<path>` 资源地址把相对路径原样发送给 Host，由 Host 按该 Session 的工作区根解析并检查包含关系；Client 不需要 Session `cwd`。`absolute/<path>` 地址经当前 Session 读取。两者都使用[workspace-path](../../util/workspace-path/README.zh.md)规定的 `dsh-resource://file/` 语法。没有当前 Session 的绝对地址产生 `workspace-file/unknown-workspace`；不支持的地址产生 `workspace-file/unsupported-address`。这些 Client 失败会结束流，并使刷新无动作。
 

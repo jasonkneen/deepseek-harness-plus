@@ -98,7 +98,7 @@ abstract readByteRange(target: FsTarget, range: { offset: number; length: number
 
 Client 导出向 `ctx.resources` 注册一个 `ResourceProvider<'file'>`，存活期与插件相同，并声明 `ResourceProtocolMap.file`。文本预览包把本包导出的 `WorkspaceFileParams` 注册为 `SidebarRightResourceParamsMap.file`。
 
-- **值是元数据**，`WorkspaceFileResource { version, bytes?, changed }`；内容从不进入流，因为内容可以任意大，而流是用来推送变更而不是载荷的。消费者用 `read` 读页（或用 `readBytes` 开窗），并以 `version` 与 `changed` 得知它们何时过时。
+- **值是元数据**，`WorkspaceFileResource { absolutePath, version, bytes?, changed }`；内容从不进入流，因为内容可以任意大，而流是用来推送变更而不是载荷的。消费者用 `read` 读页（或用 `readBytes` 开窗），并以 `version` 与 `changed` 得知它们何时过时。
 - **地址命名文件，作用域决定读取会话。** `session` 地址携带的相对路径原样交给 Host，由 Host 按该会话的工作区根解析并检查包含关系，不要求 Client 持有 cwd。`absolute` 地址经当前会话读取，缺少当前会话时产生 `workspace-file/unknown-workspace`。不支持的语法产生 `workspace-file/unsupported-address`。这两种 Client 错误会结束流，刷新无动作。
 - **帧。** 第一帧是 `stat`（`changed: false`）或其失败的 `ok: false` 帧；提供者不抛也不接，因为 Remote 面从不 reject，而提供者流里的抛错只可能是编程错误，任其浮出。携带值尚未持有的版本的 Host 写入产生 `changed: true`、保留字节数、不做 stat；携带已持有版本的帧被丢弃。报告的消失会再 stat 一次——仍在则是标为 `changed` 的新元数据，不在则是保留上一个值供展示的 `not-found` 帧。`reload(address)` 再 stat 一次并产生 `changed: false`。跟随的是地址而不是文件：stat 失败后流继续，因此 agent 创建该文件或一次刷新会让资源恢复正常。中止 signal 则流静默结束。
 - **每会话一条 `changes` 订阅。** 首位跟随者打开 `remote.$stream`，最后一位离开时释放，后继流和插件拆除等待关闭完成。Client 接受 Host 的 `ready` 后才开始首次 `stat`；本地发出 WebSocket 请求不是 Host 确认。跟随者先按地址注册，缓冲路径未知期间的变更，成功 stat 后按返回的 `absolutePath` 过滤排队与实时帧，反斜杠归一为斜杠。尚未成功绑定时，Session 内任何写入均可触发重新 stat。载体掉线由 Gateway 监督器重连；Host 结束或终态失败会结束跟随者，并保留最近元数据，直到重新打开。

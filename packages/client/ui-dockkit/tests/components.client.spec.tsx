@@ -258,11 +258,33 @@ describe('DockSurface', () => {
     expect(disabled.getAttribute('data-dockkit-split-blocked')).toBe('budget')
   })
 
+  it('hides capacity-blocked split controls when opted in and restores them when capacity returns', () => {
+    const controller = seededController()
+    controller.splitPane()
+    const state = controller.getSnapshot().state
+    layOut(dockPaneIds(state), 420)
+    const intents = spyIntents()
+    const props: DockSurfaceProps = {
+      state, canSplit: false, hideSplitAtCapacity: true, intents, labels: TEST_LABELS, renderTab: tab => <p>{tab.title}</p>,
+    }
+    const view = render(<DockSurface {...props} />)
+    expect(screen.queryByRole('button', { name: TEST_LABELS.splitPane })).toBeNull()
+    expect(view.container.querySelectorAll('[data-dockkit-split-button]')).toHaveLength(0)
+    expect(view.container.querySelectorAll('[data-dockkit-pane]')).toHaveLength(2)
+
+    view.rerender(<DockSurface {...props} canSplit />)
+    const buttons = screen.getAllByRole('button', { name: TEST_LABELS.splitPane })
+    expect(buttons).toHaveLength(2)
+    expect(buttons.every(button => !button.hasAttribute('disabled'))).toBe(true)
+    fireEvent.click(buttons[0]!)
+    expect(intents.splitPane).toHaveBeenCalledExactlyOnceWith(dockPaneIds(state)[0])
+  })
+
   // jsdom lays nothing out, so the room rule reads the rectangles this spec
   // hands it: two panes, one wide enough for two halves and one not. The
   // strip's fixed part is 104px in both (the chrome pane's controls), the chip
   // minimum falls back to the stylesheet's 59px.
-  it('disables the split control, with its own title, in a pane too narrow for two halves', () => {
+  it.each([false, true])('keeps the width-blocked split control and its title with hideSplitAtCapacity=%s', (hideSplitAtCapacity) => {
     const controller = seededController()
     controller.setExpanded(true)
     controller.splitPane()
@@ -282,6 +304,7 @@ describe('DockSurface', () => {
       <DockSurface
         state={snapshot.state}
         canSplit
+        hideSplitAtCapacity={hideSplitAtCapacity}
         intents={controller}
         labels={TEST_LABELS}
         renderTab={tab => <p>{tab.contentId}</p>}

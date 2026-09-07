@@ -8,9 +8,9 @@
  *
  * The panel stays mounted while collapsed, translated off the frame's right
  * edge, so opening and closing are one gesture in both presentations: a slide
- * from and to that edge. Because the frame's track transition reads the same
- * duration and curve, the panel's left edge and the conversation's right edge
- * travel together while squeezing.
+ * from and to that edge. Normal presentation moves the frame's tracks with
+ * the panel. A fullscreen opening reserves its underlying track only after
+ * the panel covers the frame, without animating those hidden columns.
  *
  * The panel has no header of its own: its two controls — presentation switch
  * and collapse — ride the docking kit's chrome seat at the end of the top-right
@@ -28,7 +28,7 @@
  * domain follows each session's store commits, including sessions off screen.
  */
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef } from 'react'
-import type { ReactNode } from 'react'
+import type { ReactNode, RefObject } from 'react'
 import { createPortal } from 'react-dom'
 import type {
   HostObservable, InjectFace, PropsLocale, PropsRenderSlots, PropsRuntime, PropsStore,
@@ -284,11 +284,12 @@ function PanelChrome({ sessionId, fullscreen, autoFullscreen, actions, t }: Pick
  * The panel: the docked surface with the two controls in its top-right strip,
  * anchored to the frame's right edge and slid off it while collapsed.
  */
-function SidebarPanel(panel: PanelProps & { width: number }): ReactNode {
-  const { sessionId, surface, actions, t, renderSlot, openTab, width, reportRoom, fullscreen, autoFullscreen } = panel
+function SidebarPanel(panel: PanelProps & { width: number; panelRef: RefObject<HTMLDivElement> }): ReactNode {
+  const { sessionId, surface, actions, t, renderSlot, openTab, width, reportRoom, fullscreen, autoFullscreen, panelRef } = panel
   const { expanded } = surface.layout
   return (
     <div
+      ref={panelRef}
       className={css.panel}
       style={{ width: fullscreen ? '100%' : width }}
       data-sidebar-right-panel={fullscreen ? 'fullscreen' : 'push'}
@@ -302,6 +303,7 @@ function SidebarPanel(panel: PanelProps & { width: number }): ReactNode {
         <DockSurface
           state={surface.layout}
           canSplit={canSplit(surface.layout) && dockPaneIds(surface.layout).length < 2}
+          hideSplitAtCapacity
           dropZones="horizontal"
           minPaneFraction={0.2}
           canAddTab={paneId => guideIn(surface.layout, paneId) === undefined}
@@ -356,6 +358,7 @@ export function RightbarSeat({
   const shown = surface !== undefined && surface.layout.expanded
   const autoFullscreen = viewportWidth < 768
   const fullscreen = autoFullscreen || surface?.layout.mode === 'fullscreen'
+  const panelRef = useRef<HTMLDivElement | null>(null)
   // The kit's room-rule readings, kept in a ref: the service reads them at
   // call time through the binding, and a reading never re-renders anything.
   const room = useRef<ReadonlyMap<PaneId, HalvesFit>>(new Map())
@@ -370,10 +373,28 @@ export function RightbarSeat({
     if (shown && !fullscreen && !canShow) actions.setExpanded(sessionId, false)
   }, [actions, sessionId, shown, fullscreen, canShow])
 
-  // Before paint, so the frame's track and this panel's slide start in the same
-  // frame: the frame re-renders synchronously from this report, and both
-  // transitions read the same duration and curve.
-  useLayoutEffect(() => { syncPresentation({ shown, track, fullscreen }) }, [shown, track, fullscreen, syncPresentation])
+  // Fullscreen leaves the previous column report in force until its own slide
+  // completes. Normal presentation and zero-duration transitions report before paint.
+  useLayoutEffect(() => {
+    let disposed = false
+    const reportWhenCovered = (): void => {
+      if (disposed) return
+      // A shown panel renders unconditionally and attaches its ref before this effect.
+      const entering = shown && fullscreen
+        ? (panelRef.current as HTMLDivElement).getAnimations().filter(animation =>
+          'transitionProperty' in animation && animation.transitionProperty === 'transform'
+          && animation.playState !== 'finished' && animation.playState !== 'idle')
+        : []
+      if (entering.length === 0) {
+        syncPresentation({ shown, track, fullscreen })
+        return
+      }
+      // Cancellation can replace the transition or remove it for reduced motion.
+      void Promise.allSettled(entering.map(animation => animation.finished)).then(reportWhenCovered)
+    }
+    reportWhenCovered()
+    return () => { disposed = true }
+  }, [sessionId, shown, track, fullscreen, syncPresentation])
   // Leaving is part of that report: a seat that unmounts with its session must
   // hand the track back rather than leave one sized for a surface nobody draws.
   useLayoutEffect(() => () => { syncPresentation({ shown: false, track: false, fullscreen: false }) }, [syncPresentation])
@@ -395,7 +416,7 @@ export function RightbarSeat({
   }
   return (
     <>
-      <SidebarPanel {...panel} width={width} />
+      <SidebarPanel {...panel} width={width} panelRef={panelRef} />
       <Floats {...panel} />
     </>
   )

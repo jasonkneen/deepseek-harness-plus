@@ -87,7 +87,7 @@ export function FileHeader({ tab, useResource, t }: Props) {
 
 资源有持有者就存活：一个订阅中的 `useResource`，或一次钉住。`ctx.resources.pin(address, signal)` 在不订阅的情况下让资源保持打开直到 `signal` 中止，已中止的信号什么也不钉；右侧 Sidebar 在每条打开的 tab 记录存续期内钉住其地址，因此切 tab 卸载正文不关流。第一个持有者打开提供方的流；最后一个释放时中止它、丢弃值，并把快照回到 `loading`（有提供方）或 `none`（没有）。提供方在这次释放之后产出的帧被丢弃，迭代器被归还。`ctx.resources.source(address)` 是 hook 背后的裸 observable，按地址引用稳定，供 React 之外的调用方使用；只读它的快照不算持有（[生命周期](../../packages/client/resources/README.zh.md#lifecycle)）。
 
-流只推元数据不推内容。`file` 提供方的值是 `{ version, bytes?, changed }`：`version` 与 `bytes` 来自 Host 的 `stat`，`changed` 在 Host 报告 agent 写入时置起、由 `reload` 清除。消费方自己经 Workspace Files Remote 命名空间按页读文件文本（[`dsh-api-workspace-files`](../../packages/api/workspace-files/README.zh.md)）。
+流只推元数据不推内容。`file` 提供方的值是 `{ absolutePath, version, bytes?, changed }`：`absolutePath`、`version` 与 `bytes` 来自 Host 的 `stat`，`changed` 在 Host 报告 agent 写入时置起、由 `reload` 清除。消费方自己经 Workspace Files Remote 命名空间按页读文件文本（[`dsh-api-workspace-files`](../../packages/api/workspace-files/README.zh.md)）。
 
 ## 限制
 

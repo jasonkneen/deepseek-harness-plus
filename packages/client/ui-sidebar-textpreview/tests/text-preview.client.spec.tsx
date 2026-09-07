@@ -13,7 +13,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest
 import { act, cleanup, fireEvent, render } from '@testing-library/react'
 import { RemoteError } from '@deepseek-ai/dsh-client-test-runtime'
 import { TextPreview } from '../src/client/TextPreview.tsx'
-import { ADDRESS, PATH, SESSION, TAB_ID, failure, harness, page, settle } from './fixtures.client.ts'
+import { ABSOLUTE_PATH, ADDRESS, PATH, SESSION, TAB_ID, failure, harness, page, settle } from './fixtures.client.ts'
 
 const LINE_HEIGHT = 20
 
@@ -67,6 +67,35 @@ function click(container: HTMLElement, selector: string): void {
 }
 
 describe('TextPreview — pages', () => {
+  it.each([ABSOLUTE_PATH, 'C:\\work\\project\\notes.md', '\\\\host\\share\\notes.md'])(
+    'shows the Host path %s in the header and tooltip even when text cannot be read',
+    async (absolutePath) => {
+      const h = harness({ 1: failure('workspace-file/not-text', { path: PATH }) })
+      h.useResource.mockReturnValue({
+        status: 'live', value: { absolutePath, version: 'v1', changed: false }, failure: undefined, reload: h.reload,
+      })
+      const view = render(<TextPreview {...h.props()} />)
+      await settle()
+      const path = view.container.querySelector('[data-textpreview-path]')
+      expect(path?.textContent).toBe(absolutePath)
+      expect(path?.getAttribute('title')).toBe(absolutePath)
+      expect(h.read).toHaveBeenCalledWith(SESSION, PATH, 1, h.controller.signal)
+    },
+  )
+
+  it('shows the requested path until Host metadata supplies its absolute path', async () => {
+    const h = harness({ 1: page(1, ['one'], true) })
+    const metadata = h.useResource()
+    h.useResource.mockReturnValue({ status: 'loading', value: undefined, failure: undefined, reload: h.reload })
+    const view = render(<TextPreview {...h.props()} />)
+    await settle()
+    expect(view.container.querySelector('[data-textpreview-path]')?.textContent).toBe(PATH)
+    h.useResource.mockReturnValue(metadata)
+    view.rerender(<TextPreview {...h.props()} />)
+    expect(view.container.querySelector('[data-textpreview-path]')?.textContent).toBe(ABSOLUTE_PATH)
+    expect(view.container.querySelector('[data-textpreview-path]')?.getAttribute('title')).toBe(ABSOLUTE_PATH)
+  })
+
   it('reads the first page on first mount and draws its lines, offering the next', async () => {
     const h = harness({ 1: page(1, ['one', 'two', 'three'], false) })
     const view = render(<TextPreview {...h.props()} />)
