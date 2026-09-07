@@ -174,6 +174,7 @@ Electron-builder always emits generic-provider channel metadata for the deployme
 
 ## Known limitations
 
+- The Web "Open In..." action is disabled in Desktop because its host plugin requires HTTP routes; Desktop does not provide a `webServer`.
 - Release signing, notarization, update hosting, and previous-version installed-artifact qualification require the production release environment.
 - Desktop plugins with dependency lifecycle scripts are rejected unless their package appears in the desktop project's reviewed `allowBuilds` policy.
 - The desktop shell shares sessions, settings, credentials, workspaces, and storage under `$DSH_HOME` with CLI dsh, while executable packages, plugin activation, lockfiles, and package-manager state remain separate.

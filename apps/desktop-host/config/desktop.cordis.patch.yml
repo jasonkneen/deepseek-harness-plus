@@ -12,6 +12,12 @@
 - id: client-hmr
   disabled: true
 
+- id: open-in-app
+  disabled: true
+
+- id: ui-open-in-app
+  disabled: true
+
 - id: directory-picker
   disabled: true
 

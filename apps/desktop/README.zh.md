@@ -174,6 +174,7 @@ Electron-builder 始终为 `DSH_DESKTOP_AUTO_UPDATE_ENV` 选择的部署生成 g
 
 ## 已知限制
 
+- Desktop 禁用 Web 的“在本地应用中打开”操作，因为其 Host 插件依赖 HTTP 路由，而 Desktop 不提供 `webServer`。
 - 发布签名、公证、更新托管和跨上一版本的已安装产物验证需要生产发布环境。
 - 依赖包含 lifecycle script 的桌面插件，只有其包名进入桌面项目经过评审的 `allowBuilds` 策略后才能安装。
 - 桌面壳与 CLI dsh 共享 `$DSH_HOME` 下的会话、设置、凭据、工作区和存储，但可执行包、插件激活、锁文件与包管理器状态彼此隔离。
