@@ -166,6 +166,41 @@ describe('SessionObservationReader live path', () => {
     await ctx.fiber.dispose()
   })
 
+  it('materializes live events only on first read and shares them across leases', async () => {
+    const ctx = await readerContext()
+    const session = ctx.sessions.create(SessionId('live-lazy-events'))
+    session.append('turn/start', { turn: 1 })
+    const snapshotEvents = vi.spyOn(session, 'snapshotEvents')
+    const reader = new SessionObservationReader(ctx)
+
+    using observed = await reader.read(session.id, { projectionMode: 'none' })
+    using retained = observed.retain()
+    expect(observed.cursor).toBe(0)
+    expect(snapshotEvents).not.toHaveBeenCalled()
+
+    expect(retained.events).toBe(observed.events)
+    expect(observed.events.map(event => event.type)).toEqual(['turn/start'])
+    expect(snapshotEvents).toHaveBeenCalledOnce()
+    await ctx.fiber.dispose()
+  })
+
+  it('keeps a live cut fixed when the log grows before events are first read', async () => {
+    const ctx = await readerContext()
+    const session = ctx.sessions.create(SessionId('live-fixed-cut'))
+    session.append('turn/start', { turn: 1 })
+    const reader = new SessionObservationReader(ctx)
+
+    using observed = await reader.read(session.id, { projectionMode: 'none' })
+    session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+    using later = await reader.read(session.id, { projectionMode: 'none' })
+
+    expect(observed.cursor).toBe(0)
+    expect(observed.events.map(event => event.type)).toEqual(['turn/start'])
+    expect(later.cursor).toBe(1)
+    expect(later.events.map(event => event.type)).toEqual(['turn/start', 'turn/end'])
+    await ctx.fiber.dispose()
+  })
+
   it('reports a missing session when no persistence service is mounted', async () => {
     const ctx = await readerContext()
     await expect(new SessionObservationReader(ctx).read(SessionId('absent'))).rejects.toMatchObject({
