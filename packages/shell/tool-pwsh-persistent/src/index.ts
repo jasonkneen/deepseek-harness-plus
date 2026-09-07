@@ -17,7 +17,7 @@ import { defineTool } from '@deepseek-ai/dsh-tools'
 const TRUNCATED_MESSAGE = '<response clipped><NOTE>To save on context only part of this file has been shown to you. You should retry this tool after you have searched inside the file with Select-String in order to find the line numbers of what you are looking for.</NOTE>'
 const LOST_PREFIX_MESSAGE = '<response clipped><NOTE>The beginning of this command output was dropped by the terminal scrollback limit. The following text is the earliest retained output.</NOTE>\n'
 const SHELL_RESET_MESSAGE = 'The persistent pwsh shell was reset; the next pwsh call starts from the workspace with a fresh current directory and environment.'
-const SHELL_PROMPT = 'dsh> '
+const SHELL_PROMPT = '__DSH_PERSISTENT_PWSH_PROMPT__ '
 const TIMEOUT_CODE = 'PERSISTENT_PWSH_TIMEOUT'
 // One page is enough to find a just-emitted completion marker; the full
 // scrollback is assembled only when a command settles or needs partial output.
@@ -252,6 +252,15 @@ async function respondToSessionExit(
   ].filter(part => part.length > 0).join('\n')
 }
 
+/**
+ * The pwsh prompt function that overrides the backend bootstrap value with
+ * this tool's own prompt. `[char]27`/`[char]7` build the OSC bytes at runtime
+ * because raw ESC characters in submitted input are unreliable under
+ * PSReadLine.
+ */
+const PWSH_PROMPT_SETUP =
+  "function prompt { [Console]::Write([char]27 + ']133;D;' + [int]$LASTEXITCODE + [char]7); '" + SHELL_PROMPT + "' }"
+
 function persistentShells(ctx: Context, config: ResolvedConfig): PersistentShells {
   const pending = new WeakMap<Agent, Promise<TerminalSessionId>>()
   const live = new Map<Agent, TerminalSessionId>()
@@ -298,8 +307,15 @@ function persistentShells(ctx: Context, config: ResolvedConfig): PersistentShell
             live.delete(owner)
           }, 'tool-pwsh-persistent owner cache cleanup')
         }
-        // The selected terminal backend owns bootstrap and publishes only a
-        // ready session.
+        const setup = ctx.terminals.startSend(owner, spawned.sessionId, {
+          text: PWSH_PROMPT_SETUP,
+          submit: true,
+          signal: combinedSignal,
+        })
+        const result = await setup.done
+        if (result.sessionStatus.kind === 'exited' || result.waitReason === 'timeout') {
+          throw new Error('persistent pwsh shell did not accept initialization')
+        }
         return spawned.sessionId
       } catch (error: unknown) {
         await reset(owner, 'persistent pwsh initialization failed')
