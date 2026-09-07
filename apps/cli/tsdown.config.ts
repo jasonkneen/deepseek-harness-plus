@@ -1,8 +1,9 @@
 import { defineConfig } from 'tsdown'
 
 /**
- * The dsh application ships its CLI bin. The root tsdown builds only
- * `lib/types/index.js`, so this override points at the bin's tsc output.
+ * The dsh CLI ships one entry: the `bin` referenced by package.json `bin`.
+ * The root tsdown builds only `lib/types/index.js`, so this override points at
+ * `lib/types/bin.js` instead; its reachable mode modules bundle with it.
  * Declarations come from `tsc -b` (dts: false), matching every package.
  */
 export default defineConfig({

@@ -154,30 +154,18 @@ importers:
       '@deepseek-ai/dsh-agent-tool-presentation':
         specifier: workspace:^
         version: link:../../packages/core/agent-tool-presentation
-      '@deepseek-ai/dsh-api-gateway':
-        specifier: workspace:^
-        version: link:../../packages/api/gateway
       '@deepseek-ai/dsh-app-boot':
         specifier: workspace:^
         version: link:../../packages/boot/app-boot
       '@deepseek-ai/dsh-base':
         specifier: workspace:^
         version: link:../../packages/bundle/base
-      '@deepseek-ai/dsh-client-connection':
-        specifier: workspace:^
-        version: link:../../packages/client/connection
-      '@deepseek-ai/dsh-client-modules':
-        specifier: workspace:^
-        version: link:../../packages/client/modules
       '@deepseek-ai/dsh-client-ui-agent-preset':
         specifier: workspace:^
         version: link:../../packages/client/ui-agent-preset
       '@deepseek-ai/dsh-client-ui-cordis':
         specifier: workspace:^
         version: link:../../packages/extensions/ui-cordis
-      '@deepseek-ai/dsh-client-ui-directory-picker-native':
-        specifier: workspace:^
-        version: link:../../packages/client/ui-directory-picker-native
       '@deepseek-ai/dsh-cmdline':
         specifier: workspace:^
         version: link:../../packages/boot/cmdline
@@ -217,12 +205,6 @@ importers:
       '@deepseek-ai/dsh-hooks-codex':
         specifier: workspace:^
         version: link:../../packages/hooks/hooks-codex
-      '@deepseek-ai/dsh-host-directory-picker-native':
-        specifier: workspace:^
-        version: link:../../packages/host/directory-picker-native
-      '@deepseek-ai/dsh-host-webserver':
-        specifier: workspace:^
-        version: link:../../packages/host/webserver
       '@deepseek-ai/dsh-http-proxy':
         specifier: workspace:^
         version: link:../../packages/util/http-proxy
@@ -340,9 +322,6 @@ importers:
       '@deepseek-ai/dsh-web-app':
         specifier: workspace:^
         version: link:../../packages/bundle/web-app
-      '@deepseek-ai/dsh-web-frontend':
-        specifier: workspace:^
-        version: link:../web
       '@deepseek-ai/dsh-webhook':
         specifier: workspace:^
         version: link:../../packages/webhook/webhook
@@ -407,6 +386,9 @@ importers:
       '@deepseek-ai/dsh-host-frontend-static':
         specifier: workspace:^
         version: link:../../packages/host/frontend-static
+      '@deepseek-ai/dsh-host-webserver':
+        specifier: workspace:^
+        version: link:../../packages/host/webserver
       '@deepseek-ai/dsh-llm':
         specifier: workspace:^
         version: link:../../packages/llm/llm
@@ -570,15 +552,24 @@ importers:
       '@deepseek-ai/dsh-client-modules':
         specifier: workspace:^
         version: link:../../packages/client/modules
+      '@deepseek-ai/dsh-client-ui-directory-picker-native':
+        specifier: workspace:^
+        version: link:../../packages/client/ui-directory-picker-native
       '@deepseek-ai/dsh-cmdline':
         specifier: workspace:^
         version: link:../../packages/boot/cmdline
+      '@deepseek-ai/dsh-host-directory-picker-native':
+        specifier: workspace:^
+        version: link:../../packages/host/directory-picker-native
       '@deepseek-ai/dsh-host-webserver':
         specifier: workspace:^
         version: link:../../packages/host/webserver
       '@deepseek-ai/dsh-launch-environment':
         specifier: workspace:^
         version: link:../../packages/util/launch-environment
+      '@deepseek-ai/dsh-web-frontend':
+        specifier: workspace:^
+        version: link:../web
 
   apps/web:
     devDependencies:

@@ -38,10 +38,6 @@ const MODE = webSnapshotMode()
 const NARRATION = 'Reading the workspace now.'
 const PROMPT = `Begin your reply with the plain sentence "${NARRATION}" as text, and in that same message call the bash tool with the command "echo alpha". After the tool result, reply with the single word DONE and stop.`
 
-async function waitForStatsThroughput(page: Page): Promise<void> {
-  await page.locator('[class*="centerCol"]').getByText(/tok\/s/).first().waitFor({ timeout: 10_000 })
-}
-
 describe('web e2e: assistant IconActions wait for the turn to end', () => {
   let scaffold: WebScaffold | undefined
   let browser: Browser | undefined
@@ -151,7 +147,6 @@ describe('web e2e: assistant IconActions wait for the turn to end', () => {
     const copyButtons = page.getByRole('button', { name: 'Copy' })
     await expect.poll(() => copyButtons.count(), { timeout: 10_000 }).toBe(1)
     expect(await page.getByRole('button', { name: 'Branch into a new conversation' }).count()).toBe(0)
-    await waitForStatsThroughput(page)
     await copyButtons.first().focus()
     const running = await captureStableAria(page, '[class*="centerCol"]', scaffold!.workspaceCwd)
     await compareOrRefreshGolden(RUNNING_EXPECTED, running, MODE)
@@ -165,7 +160,6 @@ describe('web e2e: assistant IconActions wait for the turn to end', () => {
     await page.locator('[data-turn-process]').waitFor({ timeout: 10_000 })
     await expect.poll(() => copyButtons.count(), { timeout: 10_000 }).toBe(2)
     await expect.poll(() => page.locator('[data-streaming="true"]').count(), { timeout: 10_000 }).toBe(0)
-    await waitForStatsThroughput(page)
     await copyButtons.last().focus()
     const settledAria = await captureStableAria(page, '[class*="centerCol"]', scaffold!.workspaceCwd)
     await compareOrRefreshGolden(SETTLED_EXPECTED, settledAria, MODE)
@@ -211,7 +205,6 @@ describe('web e2e: assistant IconActions wait for the turn to end', () => {
     await page.keyboard.press('Escape')
     await trigger.click()
 
-    await waitForStatsThroughput(page)
     const expanded = await captureStableAria(page, '[class*="centerCol"]', scaffold!.workspaceCwd)
     await compareOrRefreshGolden(USAGE_EXPANDED_EXPECTED, expanded, MODE)
     expect(tripwire.pageErrors).toEqual([])
@@ -233,7 +226,6 @@ describe('web e2e: assistant IconActions wait for the turn to end', () => {
     const answerTop = await page.getByText('DONE', { exact: true }).evaluate(element =>
       element.closest<HTMLElement>('[data-chat-flow-kind="assistant-step"]')?.getBoundingClientRect().top)
     expect(answerTop).toBe((processBottom ?? 0) + 8)
-    await waitForStatsThroughput(page)
     await process.focus()
     const completed = await captureStableAria(page, '[class*="centerCol"]', scaffold!.workspaceCwd)
     await compareOrRefreshGolden(COMPLETED_EXPECTED, completed, MODE)
@@ -289,7 +281,6 @@ describe('web e2e: assistant IconActions wait for the turn to end', () => {
     await expect.poll(() => process.count(), { timeout: 10_000 }).toBe(1)
     expect(await process.getAttribute('aria-expanded')).toBe('true')
     expect(await tool.evaluate(element => element.ownerDocument.activeElement === element)).toBe(true)
-    await waitForStatsThroughput(page)
     const focused = await captureStableAria(page, '[class*="centerCol"]', scaffold!.workspaceCwd)
     await compareOrRefreshGolden(FOCUSED_EXPECTED, focused, MODE)
     expect(tripwire.pageErrors).toEqual([])

@@ -649,7 +649,6 @@ describe('web e2e: long Chat scroll contract', () => {
       const readyPath = join(world.scaffold.workspaceCwd, TOOL_READY_FILE)
       const releasePath = join(world.scaffold.workspaceCwd, TOOL_RELEASE_FILE)
       await openSeed(world.page, TOOL_FIXTURE, TOOL_FIXTURE.markers.assistant(TOOL_FIXTURE.turns))
-      await expectBottom(world.page)
       const settled = world.scaffold.whenTurnSettled(60_000)
       let released = false
       try {

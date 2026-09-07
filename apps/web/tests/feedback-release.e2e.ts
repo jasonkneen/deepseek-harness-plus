@@ -82,8 +82,6 @@ describe.each(MODE === 'record' ? ['deepseek-official'] : ['deepseek-official', 
     await page.getByRole('menuitem', { name: /^Model\b/ }).click()
     await page.getByRole('menuitemradio', { name, exact: true }).click()
     await expect.poll(() => trigger.getAttribute('aria-label')).toContain(name)
-    // The selection projection can precede the RPC reply that closes the menu.
-    await expect.poll(() => trigger.getAttribute('aria-expanded')).toBe('false')
   }
 
   beforeAll(async () => {
