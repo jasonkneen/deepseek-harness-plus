@@ -600,6 +600,13 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
       { id: 'directory-picker-browse', name: '@deepseek-ai/dsh-host-directory-picker-browse' },
       { id: 'ui-directory-picker-browse', name: '@deepseek-ai/dsh-client-ui-directory-picker-browse' },
     ] },
+    // The open-in-app header button reflects the host application probe —
+    // whatever editors and terminals the RUNNING machine has installed — so
+    // its presence and label would vary per host and platform. Pin both rows
+    // off (routes and surface); the packages' own composition and jsdom tests
+    // cover the button.
+    { id: 'open-in-app', disabled: true },
+    { id: 'ui-open-in-app', disabled: true },
     ...options.agentPresets === undefined
       ? []
       // Never the derived harness-home root: a developer's own presets must not
