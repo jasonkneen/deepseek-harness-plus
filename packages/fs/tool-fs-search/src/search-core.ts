@@ -394,7 +394,7 @@ export async function trySaveFormattedResult(
   }
   const save: SaveTextSpill = {
     owner: { sessionId },
-    source: { toolName: exec.name, callId: exec.callId, label: 'result' },
+    source: { kind: 'tool', toolName: exec.name, callId: exec.callId, label: 'result' },
     suggestedName,
     content,
   }

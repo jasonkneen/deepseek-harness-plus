@@ -53,7 +53,7 @@ export class LocalSubprocessRuntime extends SubprocessRuntime {
   private live = new Set<LocalSubprocessHandle>()
   /** Live terminals retained through normal quiescence or host-exit finalization. */
   private terminals = new Set<LocalTerminalHandle>()
-  /** Test hook: spill and platform knobs forwarded to spawnSubprocess. */
+  /** Test hook: process, spill, and platform operations forwarded to spawnSubprocess. */
   internals: SpawnInternals = {}
   /** Provider-lifetime latch suppressing repeated weaker-containment warnings. */
   private fallbackWarningIssued = false

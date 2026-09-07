@@ -15,8 +15,9 @@
 
 - id: system-prompt
   config:
-    persona: >-
-      You are a coding agent powered by the {{model}} model. Your working directory is {{cwd}}.
+    personaSuffix: Your working directory is {{cwd}}.
+    personaPrefix: >-
+      You are a coding agent powered by the {{model}} model.
 
 # Full-text session search is opt-in (the base row's `openAt: never`). This
 # restatement keeps the Web values on one ephemeral in-memory index; a
@@ -167,6 +168,11 @@
         # A deployment adding authorities keeps this expression and concatenates
         # its literals, for example: ['app.internal', ...ctx.webRuntime.trustedHosts].
         trustedHosts: !!js ctx.webRuntime.trustedHosts
+
+    # Raw Blob and ReadableStream uploads run independently of Connection's
+    # RPC and generation service.
+    - id: file-upload
+      name: '@deepseek-ai/dsh-client-file-upload'
 
     - id: api-remotes
       name: '@deepseek-ai/dsh-api-remotes'
@@ -345,9 +351,6 @@
   disabled: true
 
 - id: tool-fs-search
-  disabled: true
-
-- id: tool-str-replace-editor
   disabled: true
 
 # The `skill` REGISTRY stays in the host plane. It is host+per-scope layered

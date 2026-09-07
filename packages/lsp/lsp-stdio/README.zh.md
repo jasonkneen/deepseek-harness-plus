@@ -119,10 +119,9 @@ kind: "package-reference"
 <a id="further-exploration"></a>
 ## 进一步探索
 
-当包级约定不够用时阅读以下页面。它们从共享的导航模型逐步进入 seam、工具与决策证据。
+当包级约定不够用时阅读以下页面。它们从共享的导航模型逐步进入 seam 与工具。
 
 - [LSP 导航子系统](../../../docs/subsystems/lsp.zh.md)——操作、坐标、请求与结果，以及 `LspError` code。
-- [LSP 能力 seam Agent Note](../../../.agents/notes/implemented/architecture/2026-07-15-lsp-capability-seam.zh.md)——设计原理、备选方案与刻意推迟的 API。
 - [dsh-lsp](../lsp/README.zh.md)——本提供方注册到的 seam。
 - [dsh-tool-lsp](../tool-lsp/README.zh.md)——基于该 seam 的面向模型工具。
 - [lsp 组地图](../README.zh.md)——三个包的家族及其相关文档。

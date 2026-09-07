@@ -101,6 +101,13 @@ describe('client bundle purity gate', () => {
     expect(() => resolveId('@deepseek-ai/dsh-token-meter/client/internal')).toThrow(/purity/)
   })
 
+  it('admits only the pure spill notice entry, not its Host policy', () => {
+    expect(resolveId('@deepseek-ai/dsh-spill-policy/notice')).toBeNull()
+    expect(resolveId('@deepseek-ai/dsh-output-retention')).toBeNull()
+    expect(() => resolveId('@deepseek-ai/dsh-spill-policy')).toThrow(/purity/)
+    expect(() => resolveId('@deepseek-ai/dsh-spill-policy/notice/internal')).toThrow(/purity/)
+  })
+
   it('lets exact generated Remote contributions inline without admitting their package implementation', () => {
     expect(resolveId('@deepseek-ai/dsh-goal/remote')).toBeNull()
     expect(() => resolveId('@deepseek-ai/dsh-goal')).toThrow(/purity/)

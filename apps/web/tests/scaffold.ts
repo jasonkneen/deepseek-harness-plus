@@ -67,7 +67,7 @@ import { LlmAdapter } from '@deepseek-ai/dsh-llm'
 import type {
   LlmModelInfo, LlmProviderInfo, LlmResolvedModelInfo, RetryPolicyConfig, StreamChunk,
 } from '@deepseek-ai/dsh-llm'
-import type { ReplayHandle } from '@deepseek-ai/dsh-llm-replay'
+import type { ReplayHandle, ReplayProviderConfig } from '@deepseek-ai/dsh-llm-replay'
 import {
   installLlmReplay,
   parseSessionLog,
@@ -192,7 +192,18 @@ const INSTALL_ANCHOR = join(REPO_ROOT, 'apps/cli/package.json')
 const REPLAY_PROVIDERS = [{
   id: 'deepseek-official',
   name: 'DeepSeek',
-  models: [{ id: 'deepseek-v4-flash', name: 'DeepSeek-V4-Flash', contextWindow: 128_000 }],
+  models: [
+    { id: 'deepseek-v4-flash', name: 'DeepSeek-V4-Flash', contextWindow: 128_000 },
+    {
+      id: 'deepseek-v4-flash-vision-exp',
+      name: 'DeepSeek-V4-Flash-Vision-Exp',
+      contextWindow: 1_000_000,
+      inputModalities: ['text', 'image'] as const,
+      defaultMaxTokens: 256_000,
+      reasoningEfforts: ['off', 'low', 'high', 'max'],
+      defaultReasoningEffort: 'high',
+    },
+  ],
 }]
 
 /**
@@ -295,6 +306,8 @@ export interface LaunchOptions {
    * model calls (its header alone mounts the catalog).
    */
   replayFixture?: string
+  /** Explicit replay routes for scenarios exercising provider-dependent behavior; replay/refresh only. */
+  replayProviders?: ReplayProviderConfig[]
   /**
    * Mount the replay provider catalog (the model directory the UI shows)
    * without consuming any recorded script: for scenarios that never call a
@@ -372,14 +385,14 @@ export interface LaunchOptions {
     default: string
   }
   /**
-   * Mount the shipped telemetry row against this exporter URL instead of
-   * disabling it. Used to pin a real backend disclosure in assembled
-   * coverage; point the URL at a local endpoint (a dead port, or a scenario's
-   * own mock collector) so no record leaves the machine.
+   * Patch the telemetry exporter URL while preserving the shipped enabled
+   * setting. A scenario-owned loopback collector contains all fixture uploads.
    */
   telemetryUrl?: string
-  /** Uploading mode for the mounted telemetry row. Defaults to `FULL`. */
-  telemetryMode?: 'FULL' | 'FEEDBACK_ONLY'
+  /** Mode when telemetryUrl is supplied; defaults to FEEDBACK_ONLY without enabling a disabled row. */
+  telemetryMode?: 'FEEDBACK_ONLY'
+  /** SDK batch cadence for a scenario-owned collector; omitted to retain the SDK default. */
+  telemetryScheduledDelayMillis?: number
   /**
    * Browse through a trusted non-loopback hostname that the browser resolves
    * to loopback (for example `*.localhost`). The test server stays bound to
@@ -541,15 +554,18 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
     { id: 'session-title-llm', disabled: true },
     // Fixture sessions must never leave the process: the shipped row defaults
     // to the production OTLP endpoint (or whatever DSH_TELEMETRY_OTLP_URL
-    // names in the ambient environment). A scenario that pins a real backend
-    // disclosure passes a local dead endpoint instead of disabling the row.
+    // names in the ambient environment). A scenario with a local collector
+    // preserves the shipped disabled setting instead of overriding it.
     options.telemetryUrl === undefined
       ? { id: 'session-telemetry-otel', disabled: true }
       : {
         id: 'session-telemetry-otel',
         config: {
-          mode: options.telemetryMode ?? 'FULL',
+          mode: options.telemetryMode ?? 'FEEDBACK_ONLY',
           exporter: { url: options.telemetryUrl },
+          ...(options.telemetryScheduledDelayMillis === undefined ? {} : {
+            processor: { scheduledDelayMillis: options.telemetryScheduledDelayMillis },
+          }),
           shutdownTimeoutMillis: 1_000,
         },
       },
@@ -733,7 +749,7 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
     if (mode !== 'record' && replayFixture !== undefined) {
       replayHandle = installLlmReplay(ctx, {
         file: replayFixture,
-        providers: replayProviders(options.replayContextWindow).map(provider => ({
+        providers: (options.replayProviders ?? replayProviders(options.replayContextWindow)).map(provider => ({
           ...provider,
           ...(options.replayRetryPolicy === undefined ? {} : { retryPolicy: options.replayRetryPolicy }),
         })),
@@ -819,6 +835,7 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
             replayFixture,
             mode,
             `http://${browserHost}:${port}`,
+            harnessHome,
           )
         } catch (error) {
           failures.push(error)
@@ -852,19 +869,15 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
  * in-memory record-mode harvest, so the on-disk zstd default never matters.
  */
 function rawSessionLog(session: Session): string {
-  const encoded = sessionFormatCatalog.encodeCurrent({
-    header: {
-      ...session.header,
-      delegationDepth: session.header.delegationDepth ?? 0,
-    },
-    inheritedEventCount: session.inheritedEventCount,
-    // Session validates durable payloads as JSON; its closed event unions do
-    // not carry the index signature used by the format package's JSON types.
-    events: session.snapshotEvents() as unknown as readonly SessionFormatEvent[],
-  })
+  const encodedEvents = (session.snapshotEvents() as unknown as readonly SessionFormatEvent[])
+    .map(event => sessionFormatCatalog.encodeCurrentEvent(event))
+  const header = sessionFormatCatalog.encodeCurrentHeader({
+    ...session.header,
+    delegationDepth: session.header.delegationDepth ?? 0,
+  }, session.inheritedEventCount)
   return [
-    JSON.stringify(encoded.header),
-    ...encoded.rows.map(record => JSON.stringify(record)),
+    JSON.stringify(header),
+    ...encodedEvents.map(record => JSON.stringify(record)),
     '',
   ].join('\n')
 }
@@ -938,7 +951,7 @@ export function normalizeWebSessionVolatiles(log: string, workspaceCwd?: string)
     if (line.trim() === '') return line
     const record = mapJsonStringValues(JSON.parse(line), (value) => {
       let normalized = value
-        .replace(/Anonymous user: [^.]+(?=\. Session sharing)/g, 'Anonymous user: {{anonymousUserId}}')
+        .replace(/Anonymous user: [0-9a-f-]{36}(?=\.$)/gi, 'Anonymous user: {{anonymousUserId}}')
       for (const cwd of cwdSpellings) normalized = replaceWebCwd(normalized, cwd)
       return normalized
     }) as { type?: unknown; data?: { endpoint?: unknown } }
@@ -953,6 +966,7 @@ function stableSessionFixture(
   session: Session,
   existing: string,
   workspaceCwd: string,
+  harnessHome: string,
 ): string {
   const prepared = prepareSessionSnapshotFixtureForComparison(
     normalizeWebSessionVolatiles(rawSessionLog(session), workspaceCwd),
@@ -964,7 +978,8 @@ function stableSessionFixture(
       cwd: workspaceCwd,
     })
   const fresh = scrubSessionSnapshot(stabilized)
-    .split(session.id).join('{{sessionId}}')
+    .split(session.id).join('{{session:1}}')
+    .split(harnessHome).join('{{harnessHome}}')
   const stable = redactSessionSnapshotIds(stabilizeFixtureMessageIds([fresh], [existing]))[0]
   if (stable === undefined) throw new Error('session harvest produced no stabilized fixture')
   return stable
@@ -975,6 +990,7 @@ async function assertReplaySession(
   fixturePath: string,
   mode: WebSnapshotMode,
   webUrl: string,
+  harnessHome: string,
 ): Promise<void> {
   let expected = await readFile(fixturePath, 'utf8')
   const fixtureDir = dirname(fixturePath)
@@ -997,7 +1013,7 @@ async function assertReplaySession(
   if (sessionCwd === undefined) throw new Error(`${fixturePath}: replayed session has no cwd`)
   const actual = rawSessionLog(session)
   if (mode === 'refresh' && writesCurrentSessionFixtures(manifest, mode)) {
-    expected = stableSessionFixture(session, expected, sessionCwd)
+    expected = stableSessionFixture(session, expected, sessionCwd, harnessHome)
     expectedPath = recordedSessionFixturePath(fixturePath, session.header.version)
     await writeFile(expectedPath, expected)
   }
@@ -1010,8 +1026,11 @@ async function assertReplaySession(
     sessionIds: typeof expectedHeader.id === 'string' ? [expectedHeader.id] : [],
     cwd: typeof expectedHeader.cwd === 'string' ? expectedHeader.cwd : '\0no-cwd\0',
   }
-  expect(normalizeSessionSnapshots([normalizeWebSessionVolatiles(actual)], actualContext)[0], `${fixturePath}: persisted replay`)
-    .toBe(normalizeSessionSnapshots([normalizeWebSessionVolatiles(expected)], expectedContext)[0])
+  const actualSnapshot = normalizeSessionSnapshots([normalizeWebSessionVolatiles(actual)], actualContext)[0]
+    ?.split(harnessHome).join('{{harnessHome}}')
+  const expectedSnapshot = normalizeSessionSnapshots([normalizeWebSessionVolatiles(expected)], expectedContext)[0]
+    ?.split(harnessHome).join('{{harnessHome}}')
+  expect(actualSnapshot, `${fixturePath}: persisted replay`).toBe(expectedSnapshot)
 
   if (manifest.header?.pin !== true) return
   const normalizePrompt = (value: string): string => value
@@ -1032,7 +1051,7 @@ async function assertReplaySession(
 
 /**
  * Record-mode fixture write-back: harvest the live session, scrub request
- * headers to {{system}}/{{tools}}, tokenize the run-local cwd, redact opaque
+ * headers to {{system}}/{{tools}}, tokenize the run-local cwd and Harness Home, redact opaque
  * identities with typed relationship-preserving tokens, and write the fixture.
  * A manifest-retained historical generation makes the write-back a no-op.
  * @param scaffold - the record-mode scaffold.
@@ -1048,7 +1067,12 @@ export async function recordFixture(scaffold: WebScaffold, sessionId: SessionId,
   const target = recordedSessionFixturePath(fixturePath, agent.session.header.version)
   const existingPath = existsSync(target) ? target : fixturePath
   const existing = existsSync(existingPath) ? await readFile(existingPath, 'utf8') : ''
-  await writeFile(target, stableSessionFixture(agent.session, existing, scaffold.workspaceCwd))
+  await writeFile(target, stableSessionFixture(
+    agent.session,
+    existing,
+    scaffold.workspaceCwd,
+    scaffold.harnessHome,
+  ))
 }
 
 /**
@@ -1078,8 +1102,8 @@ export function fixtureIdentity(
 
 /**
  * Realize a recorded seed fixture against one scaffold: substitute the
- * `{{sessionId}}`/`{{cwd}}` placeholders and rewrite the recorded cwd to the
- * scaffold's workspace. Idempotent, so a caller may realize early (e.g. to
+ * `{{sessionId}}`/`{{cwd}}`/`{{harnessHome}}` placeholders and rewrite the
+ * recorded cwd to the scaffold's workspace. Idempotent, so a caller may realize early (e.g. to
  * price content exactly as the host will fold it) and still pass the result
  * through {@link seedSession}.
  * @param scaffold - the booted scaffold whose workspace the seed targets.
@@ -1104,6 +1128,7 @@ export function realizeSeedFixture(scaffold: WebScaffold, fixtureText: string, i
         .replace(/\{\{session:([2-9]\d*)\}\}/g, (_token, ordinal: string) => `${id}-child-${ordinal}`)
         .replace(/\{\{(message|approval|workflow|command|rpc|retry|id):([1-9]\d*)\}\}/g, (_token, kind: string, ordinal: string) =>
           fixtureIdentity(kind as 'message' | 'approval' | 'workflow' | 'command' | 'rpc' | 'retry' | 'id', Number(ordinal)))
+        .split('{{harnessHome}}').join(scaffold.harnessHome)
         .split('{{cwd}}').join(scaffold.workspaceCwd)
       return result
     })
@@ -1304,7 +1329,7 @@ async function persistSeedSession(
 export async function readPersistedEvents(scaffold: WebScaffold, id: SessionId): Promise<readonly SessionEvent[]> {
   const handle = await scaffold.ctx.sessionPersistence.open(id, 'read')
   try {
-    return await handle.read()
+    return (await handle.read()).events
   } finally {
     await handle.close()
   }
@@ -1373,20 +1398,30 @@ function normalizeAria(snapshot: string, workspaceCwd: string, age: boolean): st
  * @param selector - the region locator selector.
  * @param workspaceCwd - normalization input.
  * @param options - `normalizeAge` collapses relative-time buckets to `{{age}}`
- *   for a region whose rows are dated from live wall-clock state.
+ *   for a region whose rows are dated from live wall-clock state;
+ *   `replacements` tokenizes scenario-owned values before generic normalization.
  * @returns the stable normalized snapshot.
  */
 export async function captureStableAria(
   page: Page,
   selector: string,
   workspaceCwd: string,
-  options: { normalizeAge?: boolean } = {},
+  options: {
+    normalizeAge?: boolean
+    replacements?: readonly (readonly [value: string, token: string])[]
+  } = {},
 ): Promise<string> {
   const region = page.locator(selector).first()
   const age = options.normalizeAge === true
-  let previous = normalizeAria(await region.ariaSnapshot(), workspaceCwd, age)
+  const normalize = (snapshot: string): string => {
+    for (const [value, token] of options.replacements ?? []) {
+      snapshot = snapshot.split(value).join(token)
+    }
+    return normalizeAria(snapshot, workspaceCwd, age)
+  }
+  let previous = normalize(await region.ariaSnapshot())
   await expect.poll(async () => {
-    const current = normalizeAria(await region.ariaSnapshot(), workspaceCwd, age)
+    const current = normalize(await region.ariaSnapshot())
     const stable = current === previous
     previous = current
     return stable

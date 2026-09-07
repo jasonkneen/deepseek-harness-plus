@@ -25,7 +25,7 @@ Mount `dsh-subprocess-local` in any composition that runs child processes on the
 <a id="use-this-package"></a>
 ## Use this package
 
-Mount the provider beside its consumers and start processes exactly as the subprocess service specifies; this package decides only how those processes run on the host.
+Mount the provider beside its consumers and start processes exactly as the subprocess service specifies; this package decides only how those processes run on the host. On Windows, non-terminal children and `taskkill` helpers start with their windows hidden so background operations do not take focus. This also hides GUI windows that honor the process startup visibility setting.
 
 ### Mounting the provider
 
@@ -50,7 +50,7 @@ Collect mode keeps the last `maxBytes` of a stream in memory — errors and fina
 
 ### Shutdown behavior
 
-Normal disposal terminates every running managed range and terminal session and awaits quiescence. During a JavaScript-observable host exit — direct `process.exit()`, default uncaught exceptions, default unhandled rejections — synchronous finalization asks a Linux scope to kill its members, kills each Windows runner so its sole Job handle closes, and uses the existing PGID, `taskkill`, or captured-identity operation for fallbacks. It creates no promises or timers and does not claim quiescence. Unhandled `SIGTERM`/`SIGINT`/`SIGHUP`, `SIGKILL`, fatal OOM, native crashes, and power loss need an external supervisor.
+Normal disposal terminates every running managed range and terminal session and awaits quiescence. During a JavaScript-observable host exit — direct `process.exit()`, default uncaught exceptions, default unhandled rejections — synchronous finalization asks a Linux scope to kill its members, kills each Windows runner so its sole Job handle closes, and uses the existing PGID, `taskkill`, or captured-identity operation for fallbacks. It creates no promises or timers and does not claim quiescence. The same exit removes the private per-process spill directory when it holds no completed spill file; completed spill files remain as full-output recovery artifacts until an external cleanup. Unhandled `SIGTERM`/`SIGINT`/`SIGHUP`, `SIGKILL`, fatal OOM, native crashes, and power loss need an external supervisor.
 
 ### What can go wrong
 
@@ -108,8 +108,8 @@ Read these pages when the provider-level contract is not enough. They move from 
 - [Subprocess subsystem](../../../docs/subsystems/subprocess.md) — spawn specs, output readers, outcomes, and the `DSH_*` environment in full.
 - [dsh-subprocess](../subprocess/README.md) — the abstract contract this provider implements.
 - [dsh-bash-local](../../shell/bash-local/README.md) — the largest consumer and the concrete stdio shapes it asks for.
-- [Subprocess seam Agent Note](../../../.agents/notes/implemented/architecture/2026-07-26-subprocess-seam.md) — why the process half became its own seam.
-- [Synchronous subprocess exit cleanup](../../../.agents/notes/implemented/bug-fix/2026-08-11-synchronous-subprocess-exit-cleanup.md) — the host-exit finalization decision and its failure modes.
+- [Subprocess seam Agent Note](../../../.agents/notes/archived/architecture/2026-07-26-subprocess-seam.md) — why the process half became its own seam.
+- [Synchronous subprocess exit cleanup](../../../.agents/notes/archived/bug-fix/2026-08-11-synchronous-subprocess-exit-cleanup.md) — the host-exit finalization decision and its failure modes.
 
 -----
 
@@ -136,7 +136,7 @@ These limits define when the provider is a poor fit or needs special operational
 - **Fallback terminal ownership remains observational** — on macOS or Linux without usable user-systemd, a child that reparents before any foreground-inspection snapshot or leaves the owned terminal session can escape the process-table scan. The local provider does not add a continuous process-table monitor; supported Linux native mode instead retains these descendants through scope membership.
 - **In-process cleanup requires a JavaScript-observable exit** — direct `process.exit()`, default uncaught exceptions, and default unhandled rejections emit Node's synchronous `exit` event. The default OS disposition for an unhandled `SIGTERM`, `SIGINT`, or `SIGHUP` bypasses that event; an application covers those signals only by installing a handler that performs normal disposal or calls `process.exit()`. `SIGKILL`, fatal OOM, `process.abort()`, native crashes, power loss, and any failure that cannot run JavaScript require an external supervisor, container init, or equivalent OS owner.
 - **The credential scrub is a name heuristic** — `*KEY*`/`*PASSWORD*`/`*SECRET*`/`*TOKEN*` only; differently named secrets (for example `*PASSPHRASE*`) pass through, and a whitelist for over-scrubbed variables is noted future work.
-- **Completed spill files are not deleted** — bounded full-output recovery files (and the private per-process spill directory) accumulate under the OS tmpdir until something external cleans them; oversize incomplete spills are discarded and deletion is attempted immediately, but a cleanup failure can leave a bounded file behind.
+- **Completed spill files are not deleted** — bounded full-output recovery files accumulate under the OS tmpdir until something external cleans them; the private per-process spill directory is removed at a JavaScript-observable exit only when it holds no completed spill file.
 
 <a id="dev-note"></a>
 ### Dev Note

@@ -82,6 +82,9 @@ async function bootWeb(
     // skills test below proves it reaches preset-composed agents.
     { id: 'skill-badge', disabled: false },
     { id: 'modules', disabled: true },
+    // The physical Connection row owns the disabled HTTP server. bootWeb
+    // supplies only its in-process registries so Host services still prove
+    // their shipped dependency graph without binding a port.
     { id: 'connection', disabled: true },
     // Export owns a Connection Fetch route, so this Host-only composition
     // disables it with the transport service above.
@@ -139,6 +142,10 @@ async function bootWeb(
   const rootConfig = join(profileDir, 'cordis.yml')
   await writeFile(rootConfig, '[]\n')
   return await boot('dsh-test', rootConfig, [...bundlePatches, ...overrides], (bootCtx) => {
+    bootCtx.provide('connection', {
+      fetch: { register: () => () => {} },
+      rpc: { intercept: () => () => {} },
+    } as never)
     provideCmdline(bootCtx, { args: [], exit: () => {} })
   })
 }
@@ -285,7 +292,7 @@ describe('the shipped Web composition', () => {
     try {
       const assembly = await ctx.systemPrompt.assemble({ scope: handle.agent })
       expect(assembly.sections).toEqual([
-        { name: 'deployment:persona', text: MINIMAL_PROMPT },
+        { name: 'deployment:persona-prefix', text: MINIMAL_PROMPT },
       ])
       expect(assembly.tools.map(tool => tool.name)).toEqual(['bash', 'str_replace_editor'])
       expect(assembly.tools.find(tool => tool.name === 'bash')?.description).toBe(MINIMAL_BASH_DESCRIPTION)

@@ -50,7 +50,7 @@ selector 是 per-spawn locator 或 sentinel，不是凭据或持久格式。Linu
 
 ## Existing decisions and supersession
 
-本 Note 拥有当前 native containment 机制。它局部更新了[subprocess seam](2026-07-26-subprocess-seam.zh.md)中的 provider 与 no-PID 事实、[持久化 PTY 会话](../feature/2026-07-16-persistent-pty-sessions.zh.md)中的 Linux teardown 事实、[宿主退出同步清理](../bug-fix/2026-08-11-synchronous-subprocess-exit-cleanup.zh.md)使用的 native target、[共享 Win32 process primitives](2026-08-19-shared-win32-process-primitives.zh.md)的 ordinary 消费方，以及[Python SDK profile 运行时](2026-08-23-python-sdk-dsh-profile-runtime.zh.md)选择的私有入口。每份 Note 都保留其余决策并继续处于 active 状态。
+本 Note 拥有当前 native containment 机制。它局部更新了[subprocess seam](../../archived/architecture/2026-07-26-subprocess-seam.md)中的 provider 与 no-PID 事实、[持久化 PTY 会话](../feature/2026-07-16-persistent-pty-sessions.zh.md)中的 Linux teardown 事实、[宿主退出同步清理](../../archived/bug-fix/2026-08-11-synchronous-subprocess-exit-cleanup.md)使用的 native target、[共享 Win32 process primitives](../../archived/architecture/2026-08-19-shared-win32-process-primitives.md)的 ordinary 消费方，以及[Python SDK profile 运行时](../../archived/architecture/2026-08-23-python-sdk-dsh-profile-runtime.md)选择的私有入口。每份 Note 都保留其余决策并继续处于 active 状态。
 
 ## Verification
 

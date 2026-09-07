@@ -110,7 +110,7 @@ kind: "package-reference"
 - [pwsh-local](../pwsh-local/README.zh.md) —— 本执行器继承的进程机制。
 - [sandbox-windows-acl](../../sandbox/sandbox-windows-acl/README.zh.md) —— Windows 受限令牌 runner 链。
 - [Bash 执行器子系统](../../../docs/subsystems/shell.zh.md) —— 请求/spec 词汇、结果与完整的服务约定。
-- [pwsh 执行器与工具笔记](../../../.agents/notes/implemented/feature/2026-08-01-pwsh-tool-and-executor.zh.md) —— pwsh 执行器与工具这一对背后的决策。
+- [pwsh 执行器与工具笔记](../../../.agents/notes/archived/feature/2026-08-01-pwsh-tool-and-executor.md) —— pwsh 执行器与工具这一对背后的决策。
 
 -----
 
