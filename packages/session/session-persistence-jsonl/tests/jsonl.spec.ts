@@ -793,17 +793,29 @@ describe('JsonlSessionPersistence: immutable format generations', () => {
     const controller = new AbortController()
     const reason = new Error('first historical waiter cancelled')
 
+    const internals = ctx.sessionPersistence as unknown as {
+      migrationPreparations: Map<SessionId, { waiters: number }>
+    }
     const first = ctx.sessionPersistence.open(header.id, 'read', { signal: controller.signal })
     const second = ctx.sessionPersistence.open(header.id, 'read')
-    await pause.entered
-    await scheduler.yield()
-    controller.abort(reason)
-    await expect(first).rejects.toBe(reason)
-    pause.release()
-    const handle = await second
-    expect((await handle.read()).events).toEqual([])
-    expect(readTally.bySuffix.get(sourcePath)).toBe(1)
-    await handle.close()
+    const settled = Promise.allSettled([first, second])
+    try {
+      await pause.entered
+      // Both callers must join the preparation before either caller leaves it.
+      await expect.poll(() => internals.migrationPreparations.get(header.id)?.waiters).toBe(2)
+      controller.abort(reason)
+      await expect(first).rejects.toBe(reason)
+      pause.release()
+      const handle = await second
+      expect((await handle.read()).events).toEqual([])
+      expect(readTally.bySuffix.get(sourcePath)).toBe(1)
+    } finally {
+      controller.abort(reason)
+      pause.release()
+      for (const result of await settled) {
+        if (result.status === 'fulfilled') await result.value.close()
+      }
+    }
   })
 
   it('cancels shared historical preparation after its last waiter leaves', async () => {
