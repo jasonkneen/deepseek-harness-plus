@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
 import { chmodSync, existsSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
@@ -292,6 +292,57 @@ describe('disposeAcpChild (the backend-owned teardown ladder over seam verbs)', 
     await disposeAcpChild(child, 50)
     const outcome = await child.done
     expectHostTermination(outcome, 'SIGKILL')
+  })
+
+  it('waits for observed tree exit after the EOF grace and termination request', async () => {
+    vi.useFakeTimers()
+    const exited = Promise.withResolvers<boolean>()
+    const stdin = new PassThrough()
+    const calls: string[] = []
+    const child: SubprocessHandle = {
+      pid: 123,
+      stdin,
+      stdout: undefined,
+      stderr: undefined,
+      collected: {},
+      done: exited.promise.then(() => ({ exitCode: 1, signal: null })),
+      terminate: () => { calls.push('terminate') },
+      waitForExit: (signal?: AbortSignal) => {
+        if (signal === undefined) {
+          calls.push('wait for exit')
+          return exited.promise
+        }
+        calls.push('wait for EOF')
+        return new Promise((resolve) => {
+          signal.addEventListener('abort', () => { resolve(false) }, { once: true })
+        })
+      },
+    }
+    let disposal: Promise<void> | undefined
+    try {
+      let disposed = false
+      disposal = disposeAcpChild(child, 150).then(() => { disposed = true })
+      expect(stdin.writableEnded).toBe(true)
+      await vi.advanceTimersByTimeAsync(149)
+      expect(calls).toEqual(['wait for EOF'])
+      await vi.advanceTimersByTimeAsync(1)
+      expect(calls).toEqual(['wait for EOF', 'terminate', 'wait for exit'])
+      // Advancing the clock cannot stand in for the process owner's exit proof.
+      await vi.advanceTimersByTimeAsync(10_000)
+      expect(disposed).toBe(false)
+      exited.resolve(true)
+      await disposal
+      expect(disposed).toBe(true)
+    } finally {
+      exited.resolve(true)
+      try {
+        await vi.runAllTimersAsync()
+        await disposal
+      } finally {
+        stdin.destroy()
+        vi.useRealTimers()
+      }
+    }
   })
 
   it('observes a spawn-level rejection and returns without a process to reap', async () => {
@@ -859,6 +910,8 @@ describe('dsh-subagent-acp', () => {
     const tmp = mkdtempSync(join(tmpdir(), 'acp-ignore-eof-'))
     const ready = join(tmp, 'ready')
     const sigterm = join(tmp, 'sigterm')
+    let child: SubprocessHandle | undefined
+    let run: Awaited<ReturnType<typeof startAcpRun>> | undefined
     try {
       const spec: AcpRunSpec = {
         command: process.execPath,
@@ -872,18 +925,32 @@ describe('dsh-subagent-acp', () => {
         // Tiny EOF grace so the ignored-EOF window elapses quickly.
         disposeEofGraceMs: 150,
         disposeGraceMs: 2000,
-        spawn: spawnSubprocess,
+        spawn: (spec) => {
+          child = spawnSubprocess(spec)
+          return child
+        },
       }
-      const run = await startAcpRun(request(), spec)
+      run = await startAcpRun(request(), spec)
       await waitForFile(ready)
-      // Bound it so a hang fails loud rather than stalling the suite.
-      await expect(Promise.race([
-        run.dispose(),
-        new Promise((_r, reject) => { setTimeout(() => { reject(new Error('dispose did not return')) }, 5000) }),
-      ])).resolves.toBeUndefined()
+      await run.dispose()
+      const outcome = await child!.done
+      expect(outcome.signal).toBeNull()
+      if (process.platform === 'win32') {
+        expect(outcome.exitCode).not.toBeNull()
+        expect(outcome.exitCode).not.toBe(0)
+      } else {
+        expect(outcome.exitCode).toBe(0)
+      }
       expect(existsSync(sigterm)).toBe(process.platform !== 'win32')
     } finally {
-      rmSync(tmp, { recursive: true, force: true })
+      try {
+        await run?.dispose()
+      } finally {
+        child?.terminate()
+        await child?.waitForExit()
+        await child?.done
+        rmSync(tmp, { recursive: true, force: true })
+      }
     }
   })
 
