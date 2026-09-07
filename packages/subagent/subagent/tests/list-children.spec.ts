@@ -35,9 +35,11 @@ import { seedStoredSession } from './persistence-helpers.ts'
 type Script = ConstructorParameters<typeof MockAdapter>[0]
 
 const roots: string[] = []
+const persistenceDisposers: Array<() => Promise<void>> = []
 const projCacheRoots: string[] = []
 
-afterEach(() => {
+afterEach(async () => {
+  await Promise.all(persistenceDisposers.splice(0).map(dispose => dispose()))
   for (const root of projCacheRoots.splice(0)) rmSync(root, { recursive: true, force: true })
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })
 })
@@ -51,7 +53,8 @@ async function setup(
   await mountAgentLoopTestDependencies(ctx)
   const root = mkdtempSync(join(tmpdir(), 'dsh-subagent-list-'))
   roots.push(root)
-  await ctx.plugin(JsonlSessionPersistence, { root })
+  const persistence = await ctx.plugin(JsonlSessionPersistence, { root })
+  persistenceDisposers.push(() => persistence.dispose())
   await ctx.plugin(AgentLoop, { agents: [] })
   if (options.sessionProjections !== false) await ctx.plugin(SessionProjectionRegistry)
   if (options.projectionCache === true) {
