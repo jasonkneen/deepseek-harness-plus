@@ -100,7 +100,9 @@ describe('web e2e: live-turn interactions (cancel / error / retry)', () => {
     scaffold = await launchWebScaffold({
       replayFixture: FIXTURE,
       ...(overridePath === undefined ? {} : { replayOverride: overridePath }),
-      ...(overridePath === undefined ? {} : { compareReplaySession: false }),
+      // Override streams use live timings; positive chunk spacing keeps the
+      // recovered response's decode duration and throughput observable.
+      ...(overridePath === undefined ? {} : { compareReplaySession: false, paceMs: 5 }),
       ...(retryPolicy === undefined ? {} : { replayRetryPolicy: retryPolicy }),
     })
     scaffold.ctx.on('session/event', (_session, event: SessionEvent) => { sessionEvents.push(event) })

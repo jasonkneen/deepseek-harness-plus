@@ -56,6 +56,7 @@ describe('web e2e: workspace management (create / rename / flat view / hover aff
     const pathInput = dialog.locator('input[aria-label="Edit path"]')
     await pathInput.fill(path)
     await pathInput.press('Enter')
+    await pathInput.waitFor({ state: 'hidden', timeout: 10_000 })
     return dialog
   }
 
@@ -68,7 +69,10 @@ describe('web e2e: workspace management (create / rename / flat view / hover aff
     await dialog.getByRole('button', { name: 'New folder' }).click()
     await page.getByLabel('Folder name').fill(name)
     await page.getByRole('button', { name: 'Create', exact: true }).click()
-    // Creating selects the new folder in the listing; Open adopts it.
+    // The create response closes the child dialog before its relist selects
+    // the new folder; adoption must wait for that selection.
+    await expect.poll(() => dialog.getByRole('list').getByRole('button', { name, exact: true }).getAttribute('aria-current'),
+      { timeout: 10_000 }).toBe('true')
     await dialog.getByRole('button', { name: 'Open', exact: true }).click()
     await dialog.waitFor({ state: 'hidden', timeout: 10_000 })
     await expect.poll(
