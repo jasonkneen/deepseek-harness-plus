@@ -123,6 +123,7 @@ export const SERVICE_PAGE: Record<string, string> = {
   webhookRuntime: 'webhook.md',
   workspaceRegistry: 'workspace.md',
   workspaceController: 'workspace.md',
+  workspaceFiles: 'workspace.md',
   directoryPickerController: 'workspace.md',
 }
 
@@ -175,6 +176,9 @@ export const SERVICE_WALK_EXEMPTIONS: Record<string, string> = {
   slots: 'client-side interface-typed browser service — packages/client/ui-renderer/README.md owns the API',
   theme: 'client-side interface-typed browser service — packages/client/ui-theme/README.md owns the API',
   workspaces: 'client-side interface-typed browser service — packages/api/workspace-controller/README.md owns the API',
+  resources: 'client-side resource model (protocol providers, pins, live sources) — packages/client/resources/README.md owns the API',
+  sidebarRight: 'client-side right-Sidebar navigation face — packages/client/ui-sidebar-right/README.md owns the API',
+  sidebarRightTabs: 'client-side right-Sidebar tab-type registry — packages/client/ui-sidebar-right/README.md owns the API',
 }
 
 /**
@@ -755,6 +759,14 @@ export const TYPE_LINK_EXEMPTIONS: Readonly<Record<string, string>> = {
   WorkflowAgentEndInfo: 'event-local snapshot is owned by packages/workflow/workflow/src/index.ts',
   WorkflowAgentInfo: 'event-local snapshot is owned by packages/workflow/workflow/src/index.ts',
   WorkflowResultInfo: 'event-local snapshot is owned by packages/workflow/workflow/src/index.ts',
+  WorkspaceByteRange: 'Host workspace file endpoint contract is owned by packages/api/workspace-files/README.md',
+  WorkspaceDirectoryListing: 'Host workspace file endpoint contract is owned by packages/api/workspace-files/README.md',
+  WorkspaceFileBytes: 'Host workspace file endpoint contract is owned by packages/api/workspace-files/README.md',
+  WorkspaceFileChange: 'Host workspace file endpoint contract is owned by packages/api/workspace-files/README.md',
+  WorkspaceFileWatchFrame: 'Host workspace file endpoint contract is owned by packages/api/workspace-files/README.md',
+  WorkspaceFileRange: 'Host workspace file endpoint contract is owned by packages/api/workspace-files/README.md',
+  WorkspaceFileStat: 'Host workspace file endpoint contract is owned by packages/api/workspace-files/README.md',
+  WorkspaceFileText: 'Host workspace file endpoint contract is owned by packages/api/workspace-files/README.md',
 }
 
 /** Repository data policy consumed by the Cordis catalog projector. */

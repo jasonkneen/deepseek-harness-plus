@@ -28,6 +28,8 @@
     { "path": "../../core/scope" },
     { "path": "../../core/session" },
     { "path": "../../context/file-reference" },
+    { "path": "../../fs/fs" },
+    { "path": "../../sandbox/sandbox-policy" },
     { "path": "../../attachment/attachment" },
     { "path": "../../client/file-upload/tsconfig.host.json" },
     { "path": "../../interaction/permission-presets" },

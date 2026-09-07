@@ -193,6 +193,13 @@ const SERVICE_ROLES: ServiceRole[] = [
     note: 'Projects the user-settings seam onto the generated Remote namespace: the read is always redacted and every refusal is classified here, not on the seam Definition.',
   },
   {
+    key: 'workspaceFiles',
+    pkg: 'api-workspace-files',
+    title: 'Host workspace file Remote service',
+    mode: 'core',
+    note: 'Serves stat, paged text, byte windows, directory listings, and the change feed for files inside a Session\'s workspace root, confined by lstat, containment, and a stat re-check.',
+  },
+  {
     key: 'workspaceController',
     pkg: 'api-workspace-controller',
     title: 'Host Workspace Remote controller',
