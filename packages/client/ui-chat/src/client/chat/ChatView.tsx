@@ -579,8 +579,9 @@ export function ChatView({
     scheduleActiveTurn()
   }
 
-  // Raw scroll events only schedule work. Geometry is sampled at most once
-  // per interval, with scrollend providing the final sample for a short burst.
+  // Pinned deliveries must settle before layout growth can invalidate their
+  // floor. Away-reader anchor geometry stays coalesced until the interval or
+  // scrollend; pinned samples read only scroll metrics unless the reader leaves.
   useEffect(() => {
     const local = listRef.current
     /* v8 ignore next -- ref-null guard: effect runs after the list node commits. */
@@ -597,6 +598,10 @@ export function ChatView({
     }
     const onScroll = (): void => {
       scrollSamplePendingRef.current = true
+      if (atBottomRef.current) {
+        sample()
+        return
+      }
       sampleTimer ??= window.setTimeout(sample, SCROLL_SAMPLE_INTERVAL_MS)
     }
     el.addEventListener('scroll', onScroll, { passive: true })
