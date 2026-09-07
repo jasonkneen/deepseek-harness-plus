@@ -16,6 +16,9 @@ importers:
 
   .:
     devDependencies:
+      '@deepseek-ai/dsh-agent':
+        specifier: workspace:^
+        version: link:packages/core/agent
       '@deepseek-ai/dsh-package-manifest':
         specifier: workspace:^
         version: link:packages/util/package-manifest
