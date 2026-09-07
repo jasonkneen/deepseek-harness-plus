@@ -51,7 +51,7 @@ Every owner disposes its observation. `retain()` creates another lease over the 
 
 ### Source resolution and lifetime
 
-An observation binds all returned fields to one lifecycle witness. Callers do not combine a header from corpus listing, events from persistence, and projections from a later live Session. The selected header and event prefix produce the cursor and projection snapshot together.
+An observation binds all returned fields to one lifecycle witness. Callers do not combine a header from corpus listing, events from persistence, and projections from a later live Session. The selected header and event prefix produce the cursor and projection snapshot together. A live observation fixes its cut as the log length at read time and materializes `events` on the first access; the log only appends, so that prefix is identical however late a consumer reads it, and a consumer that needs only the header, cursor, or projections never copies the log.
 
 Live preference is checked both before and after a cold borrow. The second check closes the race in which an Agent attaches while persistence is loading. If persistence itself reports that a live source won but that source has already detached by the time SessionQuery examines it, resolution restarts instead of publishing an unowned reference.
 
