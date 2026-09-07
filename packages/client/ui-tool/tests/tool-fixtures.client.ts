@@ -1,27 +1,10 @@
-/** Test adapter for the production conversation.details.tool registration. */
+/** Shared Chat-slice and Session-event fixtures for Tool row tests. */
 import type { SessionLiveEventEntry } from '@deepseek-ai/dsh-api-session-controller/client'
 import { SessionSeq } from '@deepseek-ai/dsh-session/types'
 import { isJsonValue, type JsonValue } from '@deepseek-ai/dsh-util-values'
 import type {
-  ChatConversationViewNode, ChatSnapshot, ConversationNode, DetailsSlotProps,
-  DetailsToolOwnerProps, RunningToolCall, ToolResultNode,
+  ChatConversationViewNode, ChatSnapshot, ConversationNode, RunningToolCall, ToolResultNode,
 } from '@deepseek-ai/dsh-client-ui-chat/client'
-import type { TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
-import { ToolDetails } from '../src/client/tool/ToolDetails.tsx'
-
-type TrajectorySnapshot = Parameters<Parameters<DetailsSlotProps['useTrajectory']>[0]>[0]
-
-const emptyTrajectory: TrajectorySnapshot = {
-  eventNodes: [],
-  eventLocations: new Map(),
-  requests: [],
-  callSchemas: new Map(),
-  partial: null,
-  runningCalls: [],
-}
-
-/** Stable empty Trajectory source for DetailsPanel fixtures. */
-export const useEmptyTrajectory: DetailsSlotProps['useTrajectory'] = selector => selector(emptyTrajectory)
 
 function jsonFixture(value: unknown): JsonValue {
   if (!isJsonValue(value)) throw new Error('tool event fixture must be lossless JSON')
@@ -141,27 +124,4 @@ export function toolSessionEvents(nodes: readonly ToolResultNode[]): readonly Se
     entries.push(resultEntry)
   }
   return entries
-}
-
-/**
- * Bind ui-tool's details renderer to the conversation slot callback shape.
- * @param t - conversation locale seat used by Tool cards.
- * @param home - optional Host account home for POSIX `~` summaries.
- * @returns a direct-test renderSlot implementation.
- */
-export function renderToolDetails(
-  t: TranslateNS<'conversation'>,
-  home?: string,
-): DetailsSlotProps['renderSlot'] {
-  return (_key, owner) => {
-    // PropsRenderSlots keeps its key generic even for this one-key share;
-    // recover the concrete owner selected by the adapter's fixed slot.
-    const details = owner as unknown as DetailsToolOwnerProps
-    return <ToolDetails
-      block={details.block}
-      cwd={details.cwd}
-      useHostInfo={selector => selector({ home, isLoopback: true })}
-      t={t}
-    />
-  }
 }
