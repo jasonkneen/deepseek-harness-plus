@@ -32,7 +32,7 @@ Plugins register `{{name}}` values through `ctx.systemPrompt.variable(name, prov
 
 ### Persona as the order-0 section
 
-`dsh-system-prompt` owns `harness:identity` at first-party order `-1000` and the configured `deployment:persona` at order 0, so both survive a replacement loop. Prompt rendering has one path, `renderPrompt(assembly)`, and the routed request header therefore records the exact prompt later replayed by `ctx.tokenMeter` for compaction pressure. An agent-scoped `deployment:persona` shadows the global default and lets subagent providers install a persona before publication. The [`dsh-system-prompt` README](../../../../packages/core/system-prompt/README.md) owns the sparse named placements for identity, policy, tool guidance, generated protocol, and final-output obligations.
+`dsh-system-prompt` owns `harness:identity` at first-party order `-1000` and the configured `deployment:persona-prefix` at order 0, so both survive a replacement loop. Prompt rendering has one path, `renderPrompt(assembly)`, and the routed request header therefore records the exact prompt later replayed by `ctx.tokenMeter` for compaction pressure. An agent-scoped `deployment:persona-prefix` shadows the global default and lets subagent providers install a persona before publication. The [`dsh-system-prompt` README](../../../../packages/core/system-prompt/README.md) owns the sparse named placements for identity, policy, tool guidance, generated protocol, and final-output obligations.
 
 ### Tool guidance ownership
 
