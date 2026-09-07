@@ -103,8 +103,8 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 ```ts persistence-catalog
 /**
  * One normalized mutation of an agent's durable pending-message lists.
- * Live dispatch precedes projection mutation, so synchronous observers may
- * read the pre-splice inbox to recover the removed messages.
+ * The session-projection registry applies the committed event before
+ * `Session.append()` returns; Inbox live notifications follow that commit.
  */
 'agent/inbox/spliced': {
   target: InboxTarget
@@ -115,7 +115,7 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 }
 ```
 
-来源：[`packages/core/agent/src/types.ts:58`](../packages/core/agent/src/types.ts)
+来源：[`packages/core/agent/src/types.ts:87`](../packages/core/agent/src/types.ts)
 
 ### `agent-preset/*`
 
