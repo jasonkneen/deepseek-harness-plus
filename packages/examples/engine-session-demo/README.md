@@ -25,3 +25,4 @@ None; each run is a fresh engine process, and only the recorded answer enters th
 - **One task per invocation** — the bin drives a single turn to quiescence and exits; interactive multi-turn sessions require `continuation` on the backend rows and repeated invocations.
 - **Engine tool activity is invisible** — the session log records the prompt, final answer, and outcome only; the engine's internal tool calls never become session events.
 - **Native login is a precondition** — a logged-out `claude` or `codex` surfaces as a run error; the bin provides no login flow.
+- No runtime invariant companion is published because the package owns no independently observed event stream or mutable relation; its behavior tests cover the composition.

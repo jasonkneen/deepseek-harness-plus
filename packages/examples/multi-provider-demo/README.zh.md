@@ -25,3 +25,4 @@ dsh-multi-provider-demo [--config path] run --provider <name> [--model <id>] <ta
 
 - **每次 `run` 一个任务**：bin 将单个全新 agent 驱动至静止后退出；没有交互式会话或恢复。
 - **密钥在运行时决定行为**：缺失的 provider 密钥会让 `run` 命令在第一次模型调用时失败；列表无法证明某个 provider 可用。
+- 不发布运行时不变量伴随插件，因为本包不拥有可独立观测的事件流或可变关系；其行为测试覆盖组合。

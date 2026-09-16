@@ -8,7 +8,7 @@ import { defineConfig } from 'tsdown'
  * matching every package.
  */
 export default defineConfig({
-  entry: ['lib/types/index.js', 'lib/types/invariant.js', 'lib/types/bin.js'],
+  entry: ['lib/types/index.js', 'lib/types/bin.js'],
   outDir: 'lib',
   format: ['esm'],
   platform: 'node',

@@ -25,3 +25,4 @@ None; each `run` boots one fresh agent and session.
 
 - **One task per `run`** — the bin drives a single fresh agent to quiescence and exits; there is no interactive session or resume.
 - **Keys select behavior at run time** — a missing provider key fails the `run` command at the first model call; the listing cannot prove a provider is usable.
+- No runtime invariant companion is published because the package owns no independently observed event stream or mutable relation; its behavior tests cover the composition.

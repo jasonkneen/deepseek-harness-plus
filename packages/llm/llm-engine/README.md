@@ -62,3 +62,4 @@ None; each run is a fresh engine process with its own provider state.
 - **Host cwd** — engine runs happen in the host process's cwd, not the session's workspace.
 - **Auxiliary calls refused** — compaction and session-title generation fail for engine sessions; titles fall back to the fallback rules.
 - **Catalog is static** — model lists are curated from the installed SDK/catalog versions; a newer CLI may support models the list does not yet name (the `native` choice always tracks the CLI's own default).
+- No runtime invariant companion is published because the package owns no independently observed event stream or mutable relation; its behavior tests cover the composition.

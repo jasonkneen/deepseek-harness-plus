@@ -42,3 +42,4 @@ None directly; each inserted row's package owns its effect.
 - **A patch replaces whole row configs** — profile overrides must restate every field a row keeps; there is no deep-merge layer. A later patch that wants to extend the `llm-pi-ai` providers dict must restate all three routes.
 - **Backend tool rows ship disabled** — enabling them changes the model-facing tool surface of every agent in the profile; scope with Agent Presets instead of a blanket enable where that matters.
 - **Delegation remains per-task, not whole-session** — the composed backends answer one self-contained task per run (see each backend README's Known Limitations); driving an entire session through Claude Code or Codex is a separate experimental surface.
+- No runtime invariant companion is published because the package owns no independently observed event stream or mutable relation; its behavior tests cover the composition.
