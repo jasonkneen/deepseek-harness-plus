@@ -1,0 +1,107 @@
+# The dsh-multi-provider bundle patch: an optional layer over dsh-base that
+# activates third-party model providers and composes the delegation backends.
+#
+# Layer contract: this patch sits AFTER dsh-base in a profile's
+# `dsh.profile.bundles` list. It targets base rows by id (`llm-pi-ai`) and
+# inserts rows base deliberately omits (`subagent-codex`,
+# `subagent-claude-code` and their tool rows, which base.spec.ts pins as
+# absent). Every patch replaces a row's whole `config`, so the `llm-pi-ai`
+# row restates everything the pack needs and nothing more.
+#
+# Credential references resolve per request through the credential seam, so
+# no key is inlined here: set GOOGLE_API_KEY, MINIMAX_API_KEY,
+# KIMI_CODING_API_KEY, and ANTHROPIC_API_KEY in the process environment or
+# the managed credentials document, exactly like DEEPSEEK_API_KEY.
+#
+# The `anthropic` route is the KEY-based Claude API (Anthropic Messages
+# protocol). Claude Code and Codex are NOT here: they are agents, not model
+# endpoints, and authenticate with native OAuth through the delegation
+# backends composed below — no key of any kind.
+
+- patch:
+    # The base bundle mounts dsh-llm-pi-ai dormant (zero routes) so the user's
+    # settings document decides which providers run. This pack activates the
+    # three flagship third-party routes with curated model catalogs; each
+    # entry's unset fields default from the installed pi-ai catalog (endpoint,
+    # wire protocol, capacities). A profile user can still narrow or extend
+    # the lists below through their own patch or the `llm-pi-ai:` settings
+    # section; deleting the `models` list serves the full installed catalog.
+    - id: llm-pi-ai
+      config:
+        providers:
+          google:
+            displayName: Gemini
+            apiKeyEnv: GOOGLE_API_KEY
+            models:
+              - id: gemini-2.5-flash
+              - id: gemini-2.5-pro
+              - id: gemini-3-pro-preview
+          minimax:
+            displayName: MiniMax
+            apiKeyEnv: MINIMAX_API_KEY
+            models:
+              - id: MiniMax-M2.7
+              - id: MiniMax-M2.7-highspeed
+              - id: MiniMax-M3
+          kimi-coding:
+            displayName: Kimi (Moonshot)
+            apiKeyEnv: KIMI_CODING_API_KEY
+            models:
+              - id: kimi-for-coding
+              - id: kimi-for-coding-highspeed
+              - id: k3
+          anthropic:
+            displayName: Claude (API)
+            apiKeyEnv: ANTHROPIC_API_KEY
+            models:
+              - id: claude-opus-5
+              - id: claude-sonnet-4-5
+              - id: claude-haiku-4-5
+
+- insert:
+    # The engine LLM adapter: registers `claude-code` and `codex` as provider
+    # routes on the LLM seam (the web Models picker lists them), backed by
+    # the delegation rows below with native OAuth — no key.
+    - id: llm-engine
+      name: '@deepseek-ai/dsh-llm-engine'
+      config:
+        # Long-lived engine sessions: turns resume the same Claude/Codex
+        # conversation instead of starting fresh.
+        continuation: true
+
+    # Delegation backends, loaded on the host with no child process until a
+    # tool call. continuation: true persists native sessions (Claude session
+    # files, Codex threads) so engine turns share one conversation across
+    # the harness session.
+    - id: subagent-codex
+      name: '@deepseek-ai/dsh-subagent-codex'
+      config:
+        continuation: true
+
+    - id: subagent-claude-code
+      name: '@deepseek-ai/dsh-subagent-claude-code'
+      config:
+        continuation: true
+
+    # The model-facing tool rows carry the shipped-profile posture: present
+    # but disabled, so composed agents do NOT grow the subagent_codex /
+    # subagent_claude_code tools by default. Remove `disabled: true` (or
+    # restate the row without it in a later patch) to expose a backend to
+    # every agent; Agent Presets may scope that exposure.
+    - id: tool-subagent-codex
+      name: '@deepseek-ai/dsh-tool-subagent'
+      disabled: true
+      config:
+        provider: codex
+        toolName: subagent_codex
+        enableRunInBackground: false
+        maxDepth: 'provider-managed'
+
+    - id: tool-subagent-claude-code
+      name: '@deepseek-ai/dsh-tool-subagent'
+      disabled: true
+      config:
+        provider: claude-code
+        toolName: subagent_claude_code
+        enableRunInBackground: false
+        maxDepth: 'provider-managed'

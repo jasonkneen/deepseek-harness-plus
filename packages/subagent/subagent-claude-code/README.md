@@ -29,7 +29,32 @@ Mount this provider when a delegation should run as a real Claude Code session i
 
 ### Installing the Bundle
 
-Install the package into the target Profile, then restart that Profile. The installation brings the pinned Agent SDK and one compatible platform CLI payload into the Profile; the declared patch layer registers only the dormant provider and starts no Claude process.
+This package is an optional Profile Bundle. Install it into the target Profile, then restart that Profile. The installation brings the pinned Agent SDK and one compatible platform CLI payload into that Profile, while the declared `cordis.patch.yml` layer registers only the dormant `claude-code` Host provider and starts no Claude process. Removing the package withdraws that provider and its private runtime closure on the next Profile start.
+
+## Capabilities and context
+
+The provider advertises no optional start-time capabilities and reports `inheritsParentContext: false`. Claude Code receives the standalone text task and the parent Session cwd, but not the parent conversation, persona, tool filter, depth policy, or structured-output contract. Every run has an independent SDK query, cancellation controller, CLI process, and non-persisted product session.
+
+## Configuration
+
+| Key | Default | Meaning |
+|---|---|---|
+| `providerName` | `claude-code` | Non-empty registry name on `ctx.subagents`; each mounted instance needs a unique value. |
+| `env` | `{}` | Explicit SDK/CLI environment layered over the shared credential-scrubbed parent environment. |
+| `permissionMode` | `dontAsk` | Native non-interactive permission policy fixed for every run from this Provider instance. |
+| `disposeGraceMs` | `3000` | Positive finite grace in milliseconds, no greater than [`MAX_TIMER_DELAY_MS`](../../util/timeout/README.md), between the shared process-tree owner's termination tiers; disposal then waits for whole-tree exit. |
+| `continuation` | `false` | Whether runs persist their SDK session and resume earlier conversations (`continueFrom`). `persistSession: true` writes session state under the native Claude Code config dir; the one-shot default touches no native state. |
+
+| `permissionMode` value | Native behavior |
+|---|---|
+| `dontAsk` | Deny operations that are not already authorized instead of prompting. |
+| `acceptEdits` | Accept file edits; any remaining permission prompt is denied by the unattended callback. |
+| `auto` | Let Claude Code's native classifier allow or deny permission requests. |
+| `plan` | Run in native planning mode, deny execution approval, and return the completed plan as the final answer. |
+| `bypassPermissions` | Explicitly set the SDK's dangerous confirmation and bypass permission checks. |
+
+Production omits `pathToClaudeCodeExecutable`, so Agent SDK 0.3.220 selects the matching native `claude` or `claude.exe` from its own platform package and passes that absolute command through the custom-spawn hook to `dsh-subprocess`. The provider does not inspect `PATH`, implement platform selection, or fall back to a host `claude`. Native settings and authentication remain authoritative, while `permissionMode` is the only query-level policy override. The plugin does not select a model, create a product home, log in, or probe an account. Credential-shaped ambient variables are removed before the explicit `env` overlay is applied, so an API key or token intended for the child must be supplied there. Non-credential endpoint variables such as `ANTHROPIC_BASE_URL`, along with ordinary ambient values such as `PATH` and `HOME`, remain inherited unless overridden; `PATH` does not choose the Claude executable.
+
 
 ```sh
 dsh plugin --profile <name> add @deepseek-ai/dsh-subagent-claude-code
@@ -168,12 +193,12 @@ Append-only: foreground adds one result after the reusable parent prefix, while 
 
 <a id="known-limitations-and-deferred-work"></a>
 
-
 These limits define when this provider is a poor fit or needs special operational care. They are current package constraints, not a general Claude Code comparison or a task backlog.
 
-- **One fresh query and process per run** — there is no continuation, resume, pooling, progress stream, or product-session persistence.
-- **Static instance selection** — Profile rows fix provider names, optional models, and tool bindings; calls cannot choose or change either a provider or model dynamically, and every exposed tool needs a unique `toolName`.
-- **Host settings are intentionally authoritative** — when `model` is omitted, project and user settings choose it; native settings always retain the remaining tools and behavior, and the provider does not provide a filtered or hermetic production mode.
+- **One fresh query and process per run unless `continuation: true`** — with continuation, runs persist and resume the native session (Claude `resume`); the one-shot default is a fresh query with no product-session persistence. Live text deltas stream on `SubagentRun.updates` while the query runs.
+- **Static instance selection** — Profile rows fix provider names and tool bindings; calls cannot choose a provider dynamically, and every exposed tool needs a unique `toolName`.
+- **Host settings are intentionally authoritative** — project and user settings can change model, tools, and behavior; the provider does not provide a filtered or hermetic production mode.
+
 - **Authentication and account state remain native** — the Bundle supplies the CLI but does not create an account, log in, or rewrite Claude settings; configuration and authentication failures surface with their lifecycle stage and the safe `unknown` fallback rather than a separate public classification.
 - **The SDK platform payload is required at delegation time** — installs that omit optional dependencies, unsupported platforms, and missing or damaged payloads fail at the first query; there is no host-CLI fallback.
 - **No human interaction path** — `AskUserQuestion` is disabled, permission prompts are denied, MCP elicitation is declined, and blocking dialogs fail closed instead of suspending.

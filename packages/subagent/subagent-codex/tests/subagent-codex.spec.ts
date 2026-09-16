@@ -238,6 +238,7 @@ function defaultWire(child: FakeChild): CodexAppServerWire {
     child.handle.stdout!,
     child.handle.stdin!,
     DEFAULT_CODEX_PERMISSION_MODE,
+    false,
   )
 }
 
@@ -250,6 +251,7 @@ function runSpec(
     permissionMode: DEFAULT_CODEX_PERMISSION_MODE,
     env: {},
     disposeGraceMs: DEFAULT_DISPOSE_GRACE_MS,
+    continuation: false,
     spawn: () => child.handle,
     ...overrides,
   }
@@ -270,7 +272,7 @@ async function initializeWire(): Promise<{
     jsonrpc: '2.0',
     method: 'initialized',
   })
-  const starting = wire.startThread(process.cwd(), new AbortController().signal)
+  const starting = wire.startThread(process.cwd(), undefined, new AbortController().signal)
   const threadStart = await child.peer.nextMethod('thread/start')
   child.peer.respond(threadStart, { thread: { id: 'thread-1', ephemeral: true } })
   await starting
@@ -642,6 +644,7 @@ describe('task admission and package contracts', () => {
       child.handle.stdout!,
       child.handle.stdin!,
       permissionMode,
+      false,
     )
     wire.start()
     const initializing = wire.initialize(new AbortController().signal)
@@ -649,7 +652,7 @@ describe('task admission and package contracts', () => {
     child.peer.respond(initialize, { userAgent: 'codex-cli 0.153.4' })
     await initializing
     await child.peer.nextMethod('initialized')
-    const starting = wire.startThread('/workspace', new AbortController().signal)
+    const starting = wire.startThread('/workspace', undefined, new AbortController().signal)
     const threadStart = await child.peer.nextMethod('thread/start')
     expect(threadStart.params).toEqual({
       cwd: '/workspace',
@@ -744,7 +747,7 @@ describe('CodexAppServerWire', () => {
     await initializing
     await child.peer.nextMethod('initialized')
 
-    const starting = wire.startThread('/workspace', new AbortController().signal)
+    const starting = wire.startThread('/workspace', undefined, new AbortController().signal)
     const threadStart = await child.peer.nextMethod('thread/start')
     expect(threadStart.params).toEqual({
       cwd: '/workspace',
@@ -757,6 +760,8 @@ describe('CodexAppServerWire', () => {
     const result = wire.runTurn(
       ['first', 'second'],
       new AbortController().signal,
+      undefined,
+      undefined,
     )
     const turnStart = await child.peer.nextMethod('turn/start')
     expect(turnStart.params).toEqual({
@@ -800,7 +805,7 @@ describe('CodexAppServerWire', () => {
 
   it('uses the last nullable-phase answer when no explicit final exists', async () => {
     const { child, wire } = await initializeWire()
-    const result = wire.runTurn(['task'], new AbortController().signal)
+    const result = wire.runTurn(['task'], new AbortController().signal, undefined, undefined)
     const turnStart = await child.peer.nextMethod('turn/start')
     child.peer.respond(turnStart, { turn: { id: 'turn-1' } })
     child.peer.send(
@@ -827,7 +832,7 @@ describe('CodexAppServerWire', () => {
     ] as const
     for (const [codexErrorInfo, category, stopReason] of scenarios) {
       const { child, wire } = await initializeWire()
-      const result = wire.runTurn(['task'], new AbortController().signal)
+      const result = wire.runTurn(['task'], new AbortController().signal, undefined, undefined)
       const turnStart = await child.peer.nextMethod('turn/start')
       child.peer.respond(turnStart, { turn: { id: 'turn-1' } })
       child.peer.send(
@@ -864,7 +869,7 @@ describe('CodexAppServerWire', () => {
     ] as const
     for (const [codexErrorInfo, detail, category, httpStatus] of scenarios) {
       const { child, wire } = await initializeWire()
-      const result = wire.runTurn(['task'], new AbortController().signal)
+      const result = wire.runTurn(['task'], new AbortController().signal, undefined, undefined)
       const turnStart = await child.peer.nextMethod('turn/start')
       child.peer.respond(turnStart, { turn: { id: 'turn-1' } })
       child.peer.send(turnCompleted('failed', 'turn-1', 'thread-1', {
@@ -893,7 +898,7 @@ describe('CodexAppServerWire', () => {
       { httpConnectionFailed: null },
     ]) {
       const { child, wire } = await initializeWire()
-      const result = wire.runTurn(['task'], new AbortController().signal)
+      const result = wire.runTurn(['task'], new AbortController().signal, undefined, undefined)
       const turnStart = await child.peer.nextMethod('turn/start')
       child.peer.respond(turnStart, { turn: { id: 'turn-1' } })
       child.peer.send(turnCompleted('failed', 'turn-1', 'thread-1', {
@@ -924,7 +929,7 @@ describe('CodexAppServerWire', () => {
       const child = fakeChild()
       const wire = defaultWire(child)
       wire.start()
-      const pending = wire.startThread('/workspace', new AbortController().signal)
+      const pending = wire.startThread('/workspace', undefined, new AbortController().signal)
       const frame = await child.peer.nextMethod('thread/start')
       child.peer.respond(frame, { thread: { id: 'thread-1', ephemeral: false } })
       await expect(pending).rejects.toThrow('did not create an ephemeral thread')
@@ -932,7 +937,7 @@ describe('CodexAppServerWire', () => {
     }
     {
       const { child, wire } = await initializeWire()
-      const pending = wire.runTurn(['task'], new AbortController().signal)
+      const pending = wire.runTurn(['task'], new AbortController().signal, undefined, undefined)
       const frame = await child.peer.nextMethod('turn/start')
       child.peer.respond(frame, { turn: { id: '' } })
       await expect(pending).rejects.toThrow('turn/start turn id')
@@ -997,7 +1002,7 @@ describe('CodexAppServerWire', () => {
     ]
     for (const scenario of scenarios) {
       const { child, wire } = await initializeWire()
-      const result = wire.runTurn(['task'], new AbortController().signal)
+      const result = wire.runTurn(['task'], new AbortController().signal, undefined, undefined)
       const turnStart = await child.peer.nextMethod('turn/start')
       child.peer.respond(turnStart, { turn: { id: 'turn-1' } })
       await nextTask()
@@ -1013,7 +1018,7 @@ describe('CodexAppServerWire', () => {
 
   it('fails closed when terminal notification params are not an object', async () => {
     const { child, wire } = await initializeWire()
-    const result = wire.runTurn(['task'], new AbortController().signal)
+    const result = wire.runTurn(['task'], new AbortController().signal, undefined, undefined)
     const turnStart = await child.peer.nextMethod('turn/start')
     child.peer.respond(turnStart, { turn: { id: 'turn-1' } })
     child.peer.send({ method: 'turn/completed', params: null })
@@ -1023,7 +1028,7 @@ describe('CodexAppServerWire', () => {
 
   it('keeps an unsupported request authoritative over an early terminal in the same chunk', async () => {
     const { child, wire } = await initializeWire()
-    const result = wire.runTurn(['task'], new AbortController().signal)
+    const result = wire.runTurn(['task'], new AbortController().signal, undefined, undefined)
     const turnStart = await child.peer.nextMethod('turn/start')
     child.peer.send(
       { id: turnStart.id, result: { turn: { id: 'turn-1' } } },
@@ -1037,7 +1042,7 @@ describe('CodexAppServerWire', () => {
 
   it('answers all five unattended request classes without granting authority', async () => {
     const { child, wire } = await initializeWire()
-    const result = wire.runTurn(['task'], new AbortController().signal)
+    const result = wire.runTurn(['task'], new AbortController().signal, undefined, undefined)
     const turnStart = await child.peer.nextMethod('turn/start')
 
     child.peer.send({
@@ -1142,7 +1147,7 @@ describe('CodexAppServerWire', () => {
 
   it('records only a safe diagnostic for an explicit sandbox failure', async () => {
     const { child, wire } = await initializeWire()
-    const result = wire.runTurn(['task'], new AbortController().signal)
+    const result = wire.runTurn(['task'], new AbortController().signal, undefined, undefined)
     const turnStart = await child.peer.nextMethod('turn/start')
     child.peer.respond(turnStart, { turn: { id: 'turn-1' } })
     child.peer.send(turnCompleted('failed', 'turn-1', 'thread-1', {
@@ -1161,7 +1166,7 @@ describe('CodexAppServerWire', () => {
 
   it('records declined command and file items without retaining their payloads', async () => {
     const { child, wire } = await initializeWire()
-    const result = wire.runTurn(['task'], new AbortController().signal)
+    const result = wire.runTurn(['task'], new AbortController().signal, undefined, undefined)
     const turnStart = await child.peer.nextMethod('turn/start')
     child.peer.respond(turnStart, { turn: { id: 'turn-1' } })
     child.peer.send({
@@ -1209,9 +1214,81 @@ describe('CodexAppServerWire', () => {
     wire.close()
   })
 
+  it('recognizes large, split, and ordered stderr signatures without retaining raw text', () => {
+    const first = fakeChild()
+    const largeWire = new CodexAppServerWire(
+      first.handle.stdout!,
+      first.handle.stdin!,
+      'never',
+      false,
+    )
+    largeWire.observeStderr(
+      `SECRET_TOKEN approval policy is Never; reject command${'x'.repeat(2_048)}`,
+    )
+    expect(largeWire.collectDiagnostic()).toBe(
+      'Codex unattended decision (mode: never; request: command execution; decision: denied): Codex rejected an escalation because the selected policy never asks for approval',
+    )
+    expect(largeWire.collectDiagnostic()).not.toContain('SECRET_TOKEN')
+
+    const second = fakeChild()
+    const splitWire = new CodexAppServerWire(
+      second.handle.stdout!,
+      second.handle.stdin!,
+      'never',
+      false,
+    )
+    splitWire.observeStderr('SECRET_TOKEN approval policy is Ne')
+    splitWire.observeStderr('ver; reject command — /private/secret.txt')
+    expect(splitWire.collectDiagnostic()).toBe(
+      'Codex unattended decision (mode: never; request: command execution; decision: denied): Codex rejected an escalation because the selected policy never asks for approval',
+    )
+    expect(splitWire.collectDiagnostic()).not.toContain('SECRET_TOKEN')
+    expect(splitWire.collectDiagnostic()).not.toContain('/private/secret.txt')
+
+    const third = fakeChild()
+    const orderedWire = new CodexAppServerWire(
+      third.handle.stdout!,
+      third.handle.stdin!,
+      'dangerously-bypass-approvals-and-sandbox',
+      false,
+    )
+    orderedWire.observeStderr(
+      'approval policy is Never; reject command; recorded sandbox violation: path=/private/secret.txt',
+    )
+    expect(orderedWire.collectDiagnostic()).toBe(
+      'Codex unattended decision (mode: dangerously-bypass-approvals-and-sandbox; request: sandbox execution; decision: failed): Codex reported a sandbox violation',
+    )
+    expect(orderedWire.collectDiagnostic()).not.toContain('/private/secret.txt')
+  })
+
+  it('does not reapply an old stderr signature after a newer request diagnostic', async () => {
+    const { child, wire } = await initializeWire()
+    wire.observeStderr('recorded sandbox violation:')
+    const result = wire.runTurn(['task'], new AbortController().signal, undefined, undefined)
+    const turnStart = await child.peer.nextMethod('turn/start')
+    child.peer.respond(turnStart, { turn: { id: 'turn-1' } })
+    await nextTask()
+    child.peer.send({
+      id: 'file-approval',
+      method: 'item/fileChange/requestApproval',
+      params: {
+        threadId: 'thread-1',
+        turnId: 'turn-1',
+        availableDecisions: ['decline'],
+      },
+    })
+    await child.peer.nextResponse('file-approval')
+    expect(wire.collectDiagnostic()).toContain('request: file approval')
+    wire.observeStderr('later benign stderr')
+    expect(wire.collectDiagnostic()).toContain('request: file approval')
+    child.peer.send(agentMessage('answer', 'final_answer'), turnCompleted('completed'))
+    await expect(result).resolves.toMatchObject({ stopReason: 'completed' })
+    wire.close()
+  })
+
   it('keeps a newer request diagnostic after replaying an older early item', async () => {
     const { child, wire } = await initializeWire()
-    const result = wire.runTurn(['task'], new AbortController().signal)
+    const result = wire.runTurn(['task'], new AbortController().signal, undefined, undefined)
     const turnStart = await child.peer.nextMethod('turn/start')
     child.peer.send({
       method: 'item/completed',
@@ -1237,6 +1314,25 @@ describe('CodexAppServerWire', () => {
     await expect(result).resolves.toMatchObject({ stopReason: 'completed' })
     expect(wire.collectDiagnostic()).toContain('request: command approval')
     wire.close()
+  })
+
+  it('keeps a newer stderr fact after replaying an older early terminal', async () => {
+    hostStderrWrite.capture = true
+    hostStderrWrite.chunks.length = 0
+    const { child, wire } = await initializeWire()
+    const result = wire.runTurn(['task'], new AbortController().signal, undefined, undefined)
+    const turnStart = await child.peer.nextMethod('turn/start')
+    child.peer.send(turnCompleted('failed', 'turn-1', 'thread-1', {
+      message: 'sandbox failure',
+      codexErrorInfo: 'sandboxError',
+    }))
+    await nextTask()
+    wire.observeStderr('approval policy is Never; reject command')
+    child.peer.respond(turnStart, { turn: { id: 'turn-1' } })
+    await expect(result).rejects.toThrow('sandboxError')
+    expect(wire.collectDiagnostic()).toContain('request: command execution')
+    wire.close()
+    hostStderrWrite.capture = false
   })
 
   it('fails the run on unknown requests or wrong request association', async () => {
@@ -1276,7 +1372,7 @@ describe('CodexAppServerWire', () => {
       },
     ]) {
       const { child, wire } = await initializeWire()
-      const result = wire.runTurn(['task'], new AbortController().signal)
+      const result = wire.runTurn(['task'], new AbortController().signal, undefined, undefined)
       const turnStart = await child.peer.nextMethod('turn/start')
       child.peer.respond(turnStart, { turn: { id: 'turn-1' } })
       await nextTask()
@@ -1290,7 +1386,7 @@ describe('CodexAppServerWire', () => {
 
   it('rejects conflicting early turn identities before accepting output', async () => {
     const { child, wire } = await initializeWire()
-    const result = wire.runTurn(['task'], new AbortController().signal)
+    const result = wire.runTurn(['task'], new AbortController().signal, undefined, undefined)
     const turnStart = await child.peer.nextMethod('turn/start')
     child.peer.send({
       method: 'turn/started',
@@ -1303,7 +1399,7 @@ describe('CodexAppServerWire', () => {
 
   it('does not retain a diagnostic from a mismatched early item', async () => {
     const { child, wire } = await initializeWire()
-    const result = wire.runTurn(['task'], new AbortController().signal)
+    const result = wire.runTurn(['task'], new AbortController().signal, undefined, undefined)
     const turnStart = await child.peer.nextMethod('turn/start')
     child.peer.send({
       method: 'item/completed',
@@ -1321,7 +1417,7 @@ describe('CodexAppServerWire', () => {
 
   it('does not retain a diagnostic from a mismatched provisional request', async () => {
     const { child, wire } = await initializeWire()
-    const result = wire.runTurn(['task'], new AbortController().signal)
+    const result = wire.runTurn(['task'], new AbortController().signal, undefined, undefined)
     const turnStart = await child.peer.nextMethod('turn/start')
     child.peer.send({
       id: 'provisional-approval',
@@ -1353,7 +1449,7 @@ describe('CodexAppServerWire', () => {
     }
     {
       const { child, wire } = await initializeWire()
-      const result = wire.runTurn(['task'], new AbortController().signal)
+      const result = wire.runTurn(['task'], new AbortController().signal, undefined, undefined)
       await child.peer.nextMethod('turn/start')
       child.peer.send(
         {
@@ -1370,7 +1466,7 @@ describe('CodexAppServerWire', () => {
   it('interrupts only an active open turn and contains remote interrupt failure', async () => {
     const { child, wire } = await initializeWire()
     wire.interrupt()
-    const result = wire.runTurn(['task'], new AbortController().signal)
+    const result = wire.runTurn(['task'], new AbortController().signal, undefined, undefined)
     const turnStart = await child.peer.nextMethod('turn/start')
     child.peer.respond(turnStart, { turn: { id: 'turn-1' } })
     await nextTask()
@@ -1405,7 +1501,7 @@ describe('CodexAppServerWire', () => {
     )
     await nextTask()
 
-    const result = wire.runTurn(['task'], new AbortController().signal)
+    const result = wire.runTurn(['task'], new AbortController().signal, undefined, undefined)
     const turnStart = await child.peer.nextMethod('turn/start')
     child.peer.respond(turnStart, { turn: { id: 'turn-1' } })
     await nextTask()
@@ -1861,6 +1957,7 @@ describe('run lifecycle and quiescence', () => {
         permissionMode: DEFAULT_CODEX_PERMISSION_MODE,
         env: {},
         disposeGraceMs: 10,
+        continuation: false,
         spawn,
       },
     )).rejects.toThrow('aborted before app-server startup')
@@ -1871,6 +1968,7 @@ describe('run lifecycle and quiescence', () => {
       permissionMode: DEFAULT_CODEX_PERMISSION_MODE,
       env: {},
       disposeGraceMs: 10,
+      continuation: false,
       spawn: () => { throw new Error('SECRET_TOKEN spawn failure') },
     })
     await expect(spawnFailure)

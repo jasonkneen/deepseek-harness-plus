@@ -96,6 +96,7 @@ export type {
   SubagentStartRequest,
   SubagentStopReason,
   SubagentStopReasonMap,
+  SubagentUpdate,
 } from './types.ts'
 export {
   foldSubagentDescriptor,
@@ -645,6 +646,8 @@ export class SubagentRuntime extends TypertRemoteService {
       { when: request.maxDepth !== undefined, cap: 'depthLimit' },
       { when: request.toolFilter !== undefined, cap: 'toolFilter' },
       { when: request.persona !== undefined, cap: 'persona' },
+      { when: request.continueFrom !== undefined, cap: 'continuation' },
+      { when: request.reasoningEffort !== undefined, cap: 'reasoningEffort' },
     ]
     for (const { when, cap } of needs) {
       if (when && !provider.capabilities[cap]) {

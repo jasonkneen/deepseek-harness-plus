@@ -1,0 +1,7 @@
+{
+  "name": "engine-session-example",
+  "private": true,
+  "version": "0.0.1",
+  "type": "module",
+  "description": "Runnable demo: the experimental whole-session engines — Claude Code via the Agent SDK and Codex via app-server, each driving one durable harness session with native OAuth"
+}

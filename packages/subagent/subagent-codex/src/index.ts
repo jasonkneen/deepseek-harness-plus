@@ -32,7 +32,8 @@ export const inject = ['subagents', 'subprocess']
 
 const DEFAULT_PROVIDER_NAME = 'codex'
 
-/** Deployment-owned model, permission, environment, and process-release settings. */
+/** Deployment-owned model, permission, environment, process-release, and continuation settings. */
+
 export interface Config {
   /** Provider name on `ctx.subagents` (default `codex`). */
   providerName?: string
@@ -47,6 +48,12 @@ export interface Config {
   permissionMode?: CodexPermissionMode
   /** Grace in milliseconds between app-server managed-range termination tiers. */
   disposeGraceMs?: number
+  /**
+   * Whether runs persist their thread and resume earlier conversations
+   * (`continueFrom`). Thread persistence writes under the native Codex home;
+   * the one-shot default touches no native state.
+   */
+  continuation?: boolean
 }
 
 export const Config: z<Config> = z.object({
@@ -56,12 +63,13 @@ export const Config: z<Config> = z.object({
   permissionMode: z.union([...CODEX_PERMISSION_MODES])
     .default(DEFAULT_CODEX_PERMISSION_MODE),
   disposeGraceMs: z.number().default(DEFAULT_DISPOSE_GRACE_MS),
+  continuation: z.boolean().default(false),
 })
 
 type ResolvedConfig = Omit<Required<Config>, 'model'> & Pick<Config, 'model'>
 
 class CodexProvider implements SubagentProvider {
-  readonly capabilities: SubagentCapabilities = NO_START_CAPABILITIES
+  readonly capabilities: SubagentCapabilities = { ...NO_START_CAPABILITIES, continuation: true, reasoningEffort: true }
   readonly inheritsParentContext = false
 
   constructor(
@@ -98,6 +106,7 @@ class CodexProvider implements SubagentProvider {
       permissionMode: this.config.permissionMode,
       env: this.config.env,
       disposeGraceMs: this.config.disposeGraceMs,
+      continuation: this.config.continuation,
       spawn: spawnSpec => this.ctx.subprocess.spawn(spawnSpec),
       onError: (error, stopReason) => {
         this.ctx.logger.warn(
@@ -121,6 +130,7 @@ export function apply(ctx: Context, config: Config): void {
     env: config.env as Record<string, string>,
     permissionMode: config.permissionMode ?? DEFAULT_CODEX_PERMISSION_MODE,
     disposeGraceMs: config.disposeGraceMs as number,
+    continuation: config.continuation ?? false,
   }
   assertPositiveFinite(
     'subagent-codex',

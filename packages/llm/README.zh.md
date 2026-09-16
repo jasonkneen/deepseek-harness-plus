@@ -31,6 +31,7 @@ llm 组提供 harness 的模型调用能力：一个提供方无关的服务，�
 | [`plugin-package-inventory-deepseek/`](plugin-package-inventory-deepseek/README.zh.md) | 为官方 DeepSeek 请求贡献当前启用的 Loader 包清单 | 贡献 `dsh_plugin_packages` |
 | [`llm-retry/`](llm-retry/README.zh.md) | 在持久 agent 步骤边界上按各提供方策略重试失败的模型请求 | 监听 `agent/request-error` |
 | [`token-meter/`](token-meter/README.zh.md) | 用固定启发式规则从持久会话日志测量请求与上下文压力 | `ctx.tokenMeter` |
+| [`llm-engine/`](llm-engine/README.zh.md) | 本地引擎 CLI 适配器（Claude Code、Codex，原生 OAuth） | 注册到 `ctx.llm` |
 
 -----
 

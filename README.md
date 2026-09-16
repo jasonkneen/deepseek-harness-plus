@@ -8,6 +8,18 @@ It is built on an **everything-is-a-plugin** architecture and powered by [Cordis
 
 Documentation: [https://deepseek-harness.github.io/deepseek-harness/](https://deepseek-harness.github.io/deepseek-harness/)
 
+## This fork
+
+This repository is a fork of [deepseek-ai/deepseek-harness](https://github.com/deepseek-ai/deepseek-harness) that adds third-party providers and local agent engines on top of the upstream tree. The fork's additions live in one commit lineage over `upstream/master`; everything else is upstream.
+
+**Third-party key-based providers.** The [`@deepseek-ai/dsh-multi-provider`](packages/bundle/multi-provider/README.md) bundle activates Gemini, MiniMax, Kimi, and the key-based Claude API on the dormant pi-ai adapter, with curated model catalogs and per-request credential references (`GOOGLE_API_KEY`, `MINIMAX_API_KEY`, `KIMI_CODING_API_KEY`, `ANTHROPIC_API_KEY`) — no adapter code, configuration only.
+
+**Local agent engines as first-class providers.** The [`@deepseek-ai/dsh-llm-engine`](packages/llm/llm-engine/README.md) adapter registers **Claude Code** and **Codex** as selectable providers on the LLM seam — they appear in the web Models picker like any other provider. They authenticate with the native CLIs' OAuth state (claude.ai / ChatGPT), so no API key is needed. Each engine route advertises its real model catalog (Claude Opus/Sonnet/Haiku; GPT-5.3 Codex) with selectable reasoning effort, supports long-lived sessions that resume the same engine conversation across turns (Claude `resume`, Codex `thread/resume`), and streams live text deltas. The subagent seam underneath gained optional `continuation` and `reasoningEffort` capabilities plus a live `updates` channel.
+
+**Runnable demos and tests.** `pnpm run demo:multi-provider providers|run` lists providers and runs one task on any key-based or engine provider; `pnpm run demo:engine-session` runs a whole session through either engine. The `examples/multi-provider` and `examples/engine-session` leaves carry keyless Loader specs, byte-pinned listing snapshots, live per-provider turns, live OAuth delegation, and cross-turn memory e2e suites.
+
+**Desktop app.** [`@deepseek-ai/dsh-desktop`](apps/desktop/README.md) is an Electron shell that embeds the Web UI in a frameless window (hidden title bar with native macOS traffic lights, opt-in macOS 26 Tahoe liquid glass). It serves the UI through the `dsh` CLI, installing `@deepseek-ai/dsh` on first run with your permission when it isn't already present — no harness source is bundled. It ships as a signed + notarized macOS build: cut a release with `desktop:release` (bump + tag + build + notarize + upload) or the tag-triggered `.github/workflows/desktop-release.yml`. See [apps/desktop/README.md](apps/desktop/README.md).
+
 ## Developer preview
 
 DeepSeek Harness is in _developer preview_ and iterating rapidly. **THERE WILL BE COMPATIBILITY-BREAKING CHANGES.**

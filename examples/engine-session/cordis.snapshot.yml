@@ -1,0 +1,34 @@
+# Snapshot-replay twin of cordis.yml: identical rows; replay skips .env
+# mounted — the entire session runs through one delegation backend (Claude
+# Code via the official Agent SDK, or Codex via the official app-server), with
+# the harness owning the durable session. The engine bin (packages/examples/
+# engine-session-demo) creates the session, logs the user prompt, delegates
+# the whole task, logs the engine's final answer and the turn outcome, and
+# flushes the session to persistence. Both engines authenticate with native
+# OAuth (claude.ai / ChatGPT); no key is inlined here.
+
+# Managed child-process groups for the engine backends (spawn/kill/output plumbing).
+- id: subprocess
+  name: '@deepseek-ai/dsh-subprocess-local'
+
+# The shared subagent service: one-shot runs plus durable run discovery.
+- id: subagent
+  name: '@deepseek-ai/dsh-subagent'
+
+# The delegation backends, loaded with no child process until a run starts.
+- id: subagent-codex
+  name: '@deepseek-ai/dsh-subagent-codex'
+
+- id: subagent-claude-code
+  name: '@deepseek-ai/dsh-subagent-claude-code'
+
+# The harness's own durable session store: the engine transcript lands here
+# as ordinary session events (user/message, assistant/message, turn/end).
+- id: session
+  name: '@deepseek-ai/dsh-session'
+
+- id: persistence
+  name: '@deepseek-ai/dsh-session-persistence-jsonl'
+  config:
+    root: './.sessions'
+    compression: !!js "process.env.DSH_SNAPSHOT === undefined ? 'zstd' : 'none'"

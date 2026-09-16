@@ -1,0 +1,197 @@
+# Multi-provider pack demo: the agent spine with the dsh-llm-pi-ai adapter
+# activated for Gemini, MiniMax, and Kimi, plus the Claude Code and Codex
+# delegation backends. This leaf is the runnable reference for the
+# @deepseek-ai/dsh-multi-provider bundle patch (packages/bundle/multi-provider):
+# the `llm-pi-ai` providers dict below mirrors the pack's patch exactly, and
+# the keyless boot spec keeps the two in sync.
+#
+# The app bin loads the gitignored root `.env` into the process environment;
+# credentials resolve per request through the credential seam below, so no key
+# is inlined. Snapshot replay skips `.env` and selects `cordis.snapshot.yml`.
+
+# User-settings document (`$DSH_HOME/settings.yaml`, hot-reloaded): a
+# `llm-pi-ai:` section there overrides per-request facts without a restart.
+- id: settings
+  name: '@deepseek-ai/dsh-settings-file'
+
+# Credential store: the live process environment over `$DSH_HOME/.credentials.yaml`
+# (owner-only file, hot-reloaded). Adapters resolve GEMINI_API_KEY,
+# MINIMAX_API_KEY, and MOONSHOT_API_KEY through it at each request.
+- id: credentials
+  name: '@deepseek-ai/dsh-credentials-local'
+
+# The generic pi-ai adapter: one instance owns the provider dict below. Each
+# route names a pi-ai catalog provider (google, minimax, kimi-coding,
+# anthropic) and a credential reference; unset fields (endpoint, wire
+# protocol, capacities) default from the installed catalog. The models lists
+# narrow each catalog to harness-appropriate flagships; deleting one serves
+# the full catalog. `anthropic` is the KEY-based Claude API — Claude Code and
+# Codex are not here, they are agents that authenticate with native OAuth
+# through the delegation backends below.
+- id: llm-pi-ai
+  name: '@deepseek-ai/dsh-llm-pi-ai'
+  config:
+    providers:
+      google:
+        displayName: Gemini
+        apiKeyEnv: GOOGLE_API_KEY
+        models:
+          - id: gemini-2.5-flash
+          - id: gemini-2.5-pro
+          - id: gemini-3-pro-preview
+      minimax:
+        displayName: MiniMax
+        apiKeyEnv: MINIMAX_API_KEY
+        models:
+          - id: MiniMax-M2.7
+          - id: MiniMax-M2.7-highspeed
+          - id: MiniMax-M3
+      kimi-coding:
+        displayName: Kimi (Moonshot)
+        apiKeyEnv: KIMI_CODING_API_KEY
+        models:
+          - id: kimi-for-coding
+          - id: kimi-for-coding-highspeed
+          - id: k3
+      anthropic:
+        displayName: Claude (API)
+        apiKeyEnv: ANTHROPIC_API_KEY
+        models:
+          - id: claude-opus-5
+          - id: claude-sonnet-4-5
+          - id: claude-haiku-4-5
+
+# The engine LLM adapter: registers `claude-code` and `codex` as provider
+# routes on the LLM seam, backed by the delegation rows below. Selecting one
+# in the Models picker routes every turn through the local CLI with its
+# native OAuth state — no key.
+- id: llm-engine
+  name: '@deepseek-ai/dsh-llm-engine'
+  config:
+    continuation: true
+
+# Managed child-process groups for the bash executor (spawn/kill/output plumbing).
+- id: subprocess
+  name: '@deepseek-ai/dsh-subprocess-local'
+
+- id: bash
+  name: '@deepseek-ai/dsh-bash-local'
+  config:
+    timeoutMs: 60000
+
+# One pre-created agent per flagship route; the demo bin and the keyed e2e
+# drive these by id, or create fresh agents for any registered provider.
+- id: agent-spine
+  name: '@deepseek-ai/dsh-agent-spine-demo'
+  config:
+    agents:
+      - id: main
+        provider: google
+        model: gemini-2.5-flash
+        cwd: !!js process.cwd()
+      - id: minimax
+        provider: minimax
+        model: MiniMax-M3
+        cwd: !!js process.cwd()
+      - id: kimi
+        provider: kimi-coding
+        model: kimi-for-coding
+        cwd: !!js process.cwd()
+    workspaceContext:
+      maxBytes: 65536
+    persona: |
+      You are the multi-provider demo agent, powered by the {{model}} model.
+
+      Verify your work by running the code or tests. Keep answers brief and
+      factual.
+
+- id: persistence
+  name: '@deepseek-ai/dsh-session-persistence-jsonl'
+  config:
+    root: './.sessions'
+    compression: !!js "process.env.DSH_SNAPSHOT === undefined ? 'zstd' : 'none'"
+
+- id: checkpoint-policy
+  name: '@deepseek-ai/dsh-session-checkpoint-policy'
+
+# Summarize an older range when derived history approaches the context window.
+- id: token-meter
+  name: '@deepseek-ai/dsh-token-meter'
+
+- id: compaction-basic
+  name: '@deepseek-ai/dsh-compaction-basic'
+  config:
+    thresholdRatio: 0.8
+    retainRatio: 0.16
+    maxTokens: 8192
+    compactionRetries: 1
+
+# Projection registry: durable subagent identity (mode/label) folds through
+# its registered units; subagent catalog reads fail loud without the capability.
+- id: session-projection
+  name: '@deepseek-ai/dsh-session-projection'
+
+# Expose fresh-child `spawn` and completed-prefix `fork` through independent
+# in-process backends.
+- id: subagent
+  name: '@deepseek-ai/dsh-subagent'
+
+- id: subagent-spawn-in-process
+  name: '@deepseek-ai/dsh-subagent-spawn-in-process'
+  config:
+    providerName: spawn
+
+- id: subagent-fork-in-process
+  name: '@deepseek-ai/dsh-subagent-fork-in-process'
+  config:
+    providerName: fork
+
+# The delegation backends, loaded on the host with no child process until a
+# model-facing tool call. The tool rows below carry the shipped-profile
+# posture: present but disabled, so composed agents do NOT grow the
+# subagent_codex / subagent_claude_code tools by default. Remove
+# `disabled: true` to expose a backend to every agent in this composition.
+- id: subagent-codex
+  name: '@deepseek-ai/dsh-subagent-codex'
+  config:
+    continuation: true
+
+- id: subagent-claude-code
+  name: '@deepseek-ai/dsh-subagent-claude-code'
+  config:
+    continuation: true
+
+- id: tool-subagent-codex
+  name: '@deepseek-ai/dsh-tool-subagent'
+  disabled: true
+  config:
+    provider: codex
+    toolName: subagent_codex
+    enableRunInBackground: false
+    maxDepth: 'provider-managed'
+
+- id: tool-subagent-claude-code
+  name: '@deepseek-ai/dsh-tool-subagent'
+  disabled: true
+  config:
+    provider: claude-code
+    toolName: subagent_claude_code
+    enableRunInBackground: false
+    maxDepth: 'provider-managed'
+
+# Continuable background children are selected per delegation tool. The
+# separately loaded control registers global `send_message`; `report` is
+# installed only in continuable child scopes.
+- id: tool-subagent-control
+  name: '@deepseek-ai/dsh-tool-subagent-control'
+
+- id: tool-subagent-report
+  name: '@deepseek-ai/dsh-tool-subagent-report'
+
+- id: tool-subagent
+  name: '@deepseek-ai/dsh-tool-subagent'
+  config:
+    provider: spawn
+    toolName: subagent
+    backgroundMode: continuable
+    maxDepth: 1

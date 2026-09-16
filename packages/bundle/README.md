@@ -22,12 +22,13 @@ This group maps the installable patch layers used by `dsh --profile`. Each packa
 
 | Package | Role | ctx key |
 |---|---|---|
-| [`base`](base/README.md) | Shared core for base-backed profiles | — (patch only) |
-| [`acp-app`](acp-app/README.md) | Automation-only ACP stdio application over base | mounts the ACP bridge |
-| [`web-app`](web-app/README.md) | Browser application layer over base | mounts Web rows |
-| [`headless`](headless/README.md) | One-shot command-line task application over base | `headless-runner` |
-| [`sdk-app`](sdk-app/README.md) | SDK JSON-RPC stdio application over base | mounts the SDK server |
-| [`sdk-minimal`](sdk-minimal/README.md) | Standalone minimal SDK application without base or Web | — (complete patch tree) |
+| [`base/`](base/README.md) | The shared dsh core every profile applies first | — (patch only) |
+| [`acp-app/`](acp-app/README.md) | Automation-only ACP stdio application over base | mounts the ACP bridge |
+| [`web-app/`](web-app/README.md) | Browser surface: web patch layer + runtime glue plugin | mounts rows |
+| [`headless/`](headless/README.md) | Direct one-shot task mode over base, with no Host or Web layer | mounts `headless-runner` |
+| [`sdk-app/`](sdk-app/README.md) | SDK JSON-RPC stdio application over base | mounts the SDK server |
+| [`sdk-minimal/`](sdk-minimal/README.md) | Standalone minimal SDK application without base or Web | — (complete patch tree) |
+| [`multi-provider/`](multi-provider/README.md) | Optional third-party layer: Gemini/MiniMax/Kimi routes on `dsh-llm-pi-ai` plus the Claude Code and Codex delegation backends | — (patch only) |
 
 In-box bundles resolve from the dsh installation; out-of-tree bundles install into a profile through `dsh plugin --profile <name> add <package>`.
 

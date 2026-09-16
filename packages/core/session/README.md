@@ -71,6 +71,8 @@ The logical `SessionHeader.isSeeded` field reports whether fork history exists w
 
 `ctx.sessions.flush(session)` dispatches the awaited durability checkpoint: every persistence listener flushes and the call settles after all of them. A producer that needs an immediate durability barrier awaits it instead of assuming the write-behind drained.
 
+One-shot drivers agree on which assistant text is a session's final answer through `lastAssistantText(events, fromSeq)`: the concatenated text blocks of the last non-empty `assistant/message` at or after `fromSeq`, counting only events after the interval's first `turn/start`. The headless runner and the engine-session runner both print from this single aggregation instead of re-deriving it.
+
 -----
 
 <a id="understand-the-implementation"></a>

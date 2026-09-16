@@ -71,6 +71,8 @@ session.deriveMessages()         // the derived model history
 
 `ctx.sessions.flush(session)` 分发需等待完成的持久性检查点：每个持久化监听器都会刷新，调用在所有监听器结算后完成。需要立即持久性屏障的生产方应等待它，而不是假定延后写入已经排空。
 
+一次性驱动通过 `lastAssistantText(events, fromSeq)` 对齐「哪段助手文本是会话的最终回答」：即 `fromSeq` 之后最后一个非空 `assistant/message` 的文本块拼接，且只统计该区间第一个 `turn/start` 之后的事件。headless runner 与 engine-session runner 都从这一份聚合逻辑打印，而不是各自重新推导。
+
 -----
 
 <a id="understand-the-implementation"></a>
