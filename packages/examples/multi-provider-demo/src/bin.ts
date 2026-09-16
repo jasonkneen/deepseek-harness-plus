@@ -121,18 +121,24 @@ async function runTask(
       ? { provider: options.provider }
       : { provider: options.provider, model },
   })
-  const before = agent.session.events.length
+  const before = agent.session.seq
+  // Collect this run's events as they commit; the historical log is not read back.
+  const events: SessionEvent[] = []
+  const stopObserving = ctx.on('session/event', (session, event) => {
+    if (session.id === agent.session.id) events.push(event)
+  })
   agent.followup(createUserMessage({
     content: [{ type: 'text', text: options.task }],
     source: { kind: 'user' },
   }))
   await agent.whenIdle()
-  const text = lastAssistantText(agent.session.events, before)
+  stopObserving()
+  const text = lastAssistantText(events, before)
   if (text === '') {
     // Fail loud with the durable turn outcome (e.g. MISSING_CREDENTIAL
     // naming the provider's unresolved key) instead of a generic empty reply.
     let reason: SessionEvent<'turn/end'>['data']['reason'] | undefined
-    for (const event of agent.session.events) {
+    for (const event of events) {
       if (event.seq < before) continue
       if (event.type === 'turn/end') reason = event.data.reason
     }

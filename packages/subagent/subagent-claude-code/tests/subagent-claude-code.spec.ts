@@ -49,7 +49,6 @@ import {
   successfulResult,
   textTask,
   type ClaudeCodeRunSpec,
-  updateChannel,
 } from '../src/run.ts'
 
 type QueryFactory = (params: {
@@ -310,7 +309,6 @@ function fakeRun(
     permissionMode: DEFAULT_CLAUDE_CODE_PERMISSION_MODE,
     env: { ANTHROPIC_API_KEY: 'fake-key' },
     disposeGraceMs: 5,
-    continuation: false,
     spawn: (spawnSpec) => {
       spawnSpecs.push(spawnSpec)
       return child.handle
@@ -860,7 +858,6 @@ describe('query options and result mapping', () => {
         ANTHROPIC_API_KEY: 'explicit-fake-key',
       },
       disposeGraceMs: 17,
-      continuation: false,
       spawn,
     }
     const controller = new AbortController()
@@ -871,9 +868,6 @@ describe('query options and result mapping', () => {
         captured.push(value)
       },
       value => diagnostics.push(value),
-      undefined,
-      undefined,
-      undefined,
     )
 
     expect(options).toMatchObject({
@@ -952,9 +946,8 @@ describe('query options and result mapping', () => {
         permissionMode,
         env: {},
         disposeGraceMs: 17,
-        continuation: false,
         spawn: () => child.handle,
-      }, new AbortController(), () => {}, () => {}, undefined, undefined, undefined)
+      }, new AbortController(), () => {}, () => {})
       expect(options.permissionMode).toBe(permissionMode)
       expect(options).not.toHaveProperty('model')
       expect(options.disallowedTools).toEqual(permissionMode === 'plan'
@@ -977,9 +970,8 @@ describe('query options and result mapping', () => {
       permissionMode: 'plan',
       env: {},
       disposeGraceMs: 17,
-      continuation: false,
       spawn: () => child.handle,
-    }, new AbortController(), () => {}, () => {}, undefined, undefined, undefined)
+    }, new AbortController(), () => {}, () => {})
     expect(options.disallowedTools).toEqual([
       'AskUserQuestion',
       'ExitPlanMode',
@@ -1025,22 +1017,19 @@ describe('query options and result mapping', () => {
       success('first'),
       success('last'),
     ])
-    await expect(consumeClaudeQuery(query, updateChannel(), false)).resolves.toEqual({
+    await expect(consumeClaudeQuery(query)).resolves.toEqual({
       output: [{ type: 'text', text: 'last' }],
       stopReason: 'completed',
     })
     await expect(consumeClaudeQuery(
       queryFrom([{ type: 'system', subtype: 'init' } as SDKMessage]),
-      updateChannel(),
-      false,
     )).rejects.toThrow(expectedFailureDiagnostic('query-run', 'invalid-result'))
-
 
     const onPermissionDenied = vi.fn()
     await expect(consumeClaudeQuery(queryFrom([
       permissionDenied(),
       success('after denial'),
-    ]), updateChannel(), false, onPermissionDenied)).resolves.toEqual({
+    ]), onPermissionDenied)).resolves.toEqual({
       output: [{ type: 'text', text: 'after denial' }],
       stopReason: 'completed',
     })
@@ -1124,7 +1113,6 @@ describe('run publication, cancellation, and settlement', () => {
       permissionMode: 'dontAsk',
       env: {},
       disposeGraceMs: 5,
-      continuation: false,
       spawn: () => children[childIndex++]!.handle,
     }
     queryMock.mockImplementation(({ prompt, options }) => {
@@ -1177,7 +1165,6 @@ describe('run publication, cancellation, and settlement', () => {
       permissionMode: DEFAULT_CLAUDE_CODE_PERMISSION_MODE,
       env: {},
       disposeGraceMs: 5,
-      continuation: false,
       spawn: () => child.handle,
     })
     await expect(run.result).resolves.toEqual({
@@ -1228,7 +1215,6 @@ describe('run publication, cancellation, and settlement', () => {
         permissionMode: DEFAULT_CLAUDE_CODE_PERMISSION_MODE,
         env: {},
         disposeGraceMs: 5,
-        continuation: false,
         spawn: () => child.handle,
       })
       const result = await run.result
@@ -1257,7 +1243,6 @@ describe('run publication, cancellation, and settlement', () => {
       permissionMode: 'dontAsk',
       env: {},
       disposeGraceMs: 5,
-      continuation: false,
       spawn: () => children[index++]!.handle,
     }
     queryMock.mockImplementation(({ prompt, options }) => {
@@ -1309,7 +1294,6 @@ describe('run publication, cancellation, and settlement', () => {
         permissionMode: DEFAULT_CLAUDE_CODE_PERMISSION_MODE,
         env: {},
         disposeGraceMs: 5,
-        continuation: false,
         spawn: () => child.handle,
       },
     )

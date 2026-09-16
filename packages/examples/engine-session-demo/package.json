@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-engine-session-demo",
   "description": "Experimental whole-session engine runner: drive one durable harness session entirely through the Claude Code (Agent SDK) or Codex (app-server) backend, recording the transcript in the harness session log",
-  "version": "0.1.3",
+  "version": "0.1.6-alpha.1",
   "publishConfig": {
     "access": "public"
   },

@@ -34,8 +34,7 @@ const DEFAULT_PROVIDER_NAME = 'claude-code'
 
 /* jscpd:ignore-start -- sibling product providers intentionally expose
  * overlapping deployment-owned fields without adding a shared config owner. */
-/** Deployment-owned permission, environment, process-release, and continuation settings. */
-
+/** Deployment-owned model, permission, environment, and process-release settings. */
 export interface Config {
   /** Provider name on `ctx.subagents` (default `claude-code`). */
   providerName?: string
@@ -55,12 +54,6 @@ export interface Config {
   permissionMode?: ClaudeCodePermissionMode
   /** Grace in milliseconds between Claude Code managed-range termination tiers. */
   disposeGraceMs?: number
-  /**
-   * Whether runs persist their SDK session and resume earlier conversations
-   * (`continueFrom`). Persistence writes session state under the native
-   * Claude Code config dir; the one-shot default touches no native state.
-   */
-  continuation?: boolean
 }
 
 export const Config: z<Config> = z.object({
@@ -70,7 +63,6 @@ export const Config: z<Config> = z.object({
   permissionMode: z.union([...CLAUDE_CODE_PERMISSION_MODES])
     .default(DEFAULT_CLAUDE_CODE_PERMISSION_MODE),
   disposeGraceMs: z.number().default(DEFAULT_DISPOSE_GRACE_MS),
-  continuation: z.boolean().default(false),
 })
 
 type ResolvedConfig = Omit<Required<Config>, 'model'> & Pick<Config, 'model'>
@@ -79,7 +71,7 @@ type ResolvedConfig = Omit<Required<Config>, 'model'> & Pick<Config, 'model'>
 /* jscpd:ignore-start -- Cordis registration and shared-seam plumbing mirror
  * the Codex sibling; each product's lifecycle remains package-private. */
 class ClaudeCodeProvider implements SubagentProvider {
-  readonly capabilities: SubagentCapabilities = { ...NO_START_CAPABILITIES, continuation: true, reasoningEffort: true }
+  readonly capabilities: SubagentCapabilities = NO_START_CAPABILITIES
   readonly inheritsParentContext = false
 
   constructor(
@@ -121,7 +113,6 @@ class ClaudeCodeProvider implements SubagentProvider {
       permissionMode: this.config.permissionMode,
       env: this.config.env,
       disposeGraceMs: this.config.disposeGraceMs,
-      continuation: this.config.continuation,
       spawn: spawnSpec => this.ctx.subprocess.spawn(spawnSpec),
       onError: (error, stopReason) => {
         this.ctx.logger.warn(
@@ -146,7 +137,6 @@ export function apply(ctx: Context, config: Config): void {
     env: config.env as Record<string, string>,
     permissionMode: config.permissionMode ?? DEFAULT_CLAUDE_CODE_PERMISSION_MODE,
     disposeGraceMs: config.disposeGraceMs as number,
-    continuation: config.continuation ?? false,
   }
   assertPositiveFinite(
     'subagent-claude-code',

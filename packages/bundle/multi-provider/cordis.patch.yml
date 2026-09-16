@@ -70,18 +70,13 @@
         continuation: true
 
     # Delegation backends, loaded on the host with no child process until a
-    # tool call. continuation: true persists native sessions (Claude session
-    # files, Codex threads) so engine turns share one conversation across
-    # the harness session.
+    # tool call. Upstream backends run one-shot; native session continuation
+    # is not configurable on these rows.
     - id: subagent-codex
       name: '@deepseek-ai/dsh-subagent-codex'
-      config:
-        continuation: true
 
     - id: subagent-claude-code
       name: '@deepseek-ai/dsh-subagent-claude-code'
-      config:
-        continuation: true
 
     # The model-facing tool rows carry the shipped-profile posture: present
     # but disabled, so composed agents do NOT grow the subagent_codex /

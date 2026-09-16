@@ -99,6 +99,7 @@ async function runEngineSession(ctx: Context, engine: Engine, task: string): Pro
   session.append('assistant/message', {
     turn: 1,
     step: 1,
+    stream: [],
     message: createAssistantMessage({
       content: [{ type: 'text', text }],
       source: { provider: engine, model: 'native' },

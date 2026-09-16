@@ -29,29 +29,7 @@ Mount this provider when a delegation should run as a real Codex session in the 
 
 ### Installing the Bundle
 
-This package is an optional Profile Bundle. Install it into the target Profile, then restart that Profile. The installation brings the official wrapper and one compatible native platform payload into that Profile, while the declared `cordis.patch.yml` layer registers only the dormant `codex` Host provider and starts no Codex process. Removing the package withdraws that provider and its private runtime closure on the next Profile start.
-
-The provider advertises no optional start-time capabilities and reports `inheritsParentContext: false`. Codex receives the standalone text task and the parent Session cwd, but not the parent conversation, persona, tool filter, depth policy, or structured-output contract. The ephemeral Codex thread id and turn id stay private to this run and are never persisted in the parent Session.
-
-## Configuration
-
-| Key | Default | Meaning |
-|---|---|---|
-| `providerName` | `codex` | Non-empty registry name on `ctx.subagents`; each mounted instance needs a unique value. |
-| `model` | omitted | Optional model name sent on `thread/start`; when omitted, native project and user Codex settings choose the model. |
-| `env` | `{}` | Explicit child environment layered over the subprocess seam's credential-scrubbed parent environment. |
-| `permissionMode` | `never` | Native non-interactive approval and sandbox mode fixed for every thread from this Provider instance. |
-| `disposeGraceMs` | `3000` | Positive finite grace in milliseconds, no greater than [`MAX_TIMER_DELAY_MS`](../../util/timeout/README.md), between the shared process-tree owner's termination tiers; disposal then waits for whole-tree exit. |
-| `continuation` | `false` | Whether runs persist their thread and resume earlier conversations (`continueFrom` via `thread/resume`). Persistent threads write under the native Codex home; the one-shot default keeps threads ephemeral. |
-
-| `permissionMode` value | `thread/start` fields | Native behavior |
-|---|---|---|
-| `never` | `approvalPolicy: never`; sandbox omitted | Never ask for approval; execution failures return to the model under the native sandbox. |
-| `approve-for-me` | `approvalPolicy: on-request`, `approvalsReviewer: auto_review`, `sandbox: workspace-write` | Route permission requests through Codex automatic review without a human. |
-| `dangerously-bypass-approvals-and-sandbox` | `approvalPolicy: never`, `sandbox: danger-full-access` | Skip approval and sandbox enforcement; this value must be selected explicitly. |
-
-Production resolves the `codex` bin declared by its pinned `@openai/codex@0.149.1` dependency and launches that JavaScript wrapper with the current Node executable. The wrapper selects the matching native platform payload; the provider neither inspects nor falls back to a host `codex` on `PATH`. Native Codex configuration and authentication remain authoritative through the parent cwd, `HOME`, and `CODEX_HOME`, while the Provider overrides only the selected thread model/approval/reviewer/sandbox fields. When `model` is omitted, native project and user settings still choose it. All other project, provider, MCP, hook, skill, and account settings remain native. The plugin does not create `CODEX_HOME`, log in, or probe an account. Credential-shaped ambient variables are removed by the subprocess seam before the explicit `env` overlay is applied.
-
+Install the package into the target Profile, then restart that Profile. The installation brings the official wrapper and one compatible native platform payload into the Profile; the declared patch layer registers only the dormant provider and starts no Codex process.
 
 ```sh
 dsh plugin --profile <name> add @deepseek-ai/dsh-subagent-codex
@@ -188,11 +166,11 @@ Append-only: foreground adds one result after the reusable parent prefix, while 
 
 <a id="known-limitations-and-deferred-work"></a>
 
+
 These limits define when this provider is a poor fit or needs special operational care. They are current package constraints, not a general Codex comparison or a task backlog.
 
-- **One fresh process, thread, and turn per run unless `continuation: true`** — with continuation, threads persist and resume (`thread/resume`); the one-shot default keeps threads ephemeral. Live `item/agentMessage/delta` text streams on `SubagentRun.updates` while the turn runs.
+- **One fresh process, thread, and turn per run** — there is no continuation, resume, pooling, progress stream, or product-session persistence.
 - **Static instance selection** — Profile rows fix provider names, optional models, and tool bindings; calls cannot choose or change either a provider or model dynamically, and every exposed tool needs a unique `toolName`.
-
 - **Authentication and account state remain native** — the Bundle supplies the CLI but does not create an account, log in, trust a project, or rewrite Codex settings; configuration and authentication failures surface with their lifecycle stage and the safe `unknown` fallback rather than a separate public taxonomy.
 - **The native platform payload is required at delegation time** — installs that omit optional dependencies, unsupported platforms, and missing or damaged payloads fail at the first run; there is no host-CLI fallback.
 - **Compatibility is pinned by development evidence** — upgrading from the verified 0.153.4 protocol baseline requires regenerating upstream schema evidence and rerunning handshake, answer-selection, approval, cancellation, keyless real-product, and credentialed DeepSeek nonce tests.

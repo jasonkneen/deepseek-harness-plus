@@ -19,6 +19,7 @@ import * as EngineLlm from '../src/index.ts'
 class FakeProvider implements SubagentProvider {
   readonly name: string
   readonly capabilities = {
+    agentOptions: true,
     outputSchema: false,
     depthLimit: false,
     toolFilter: false,

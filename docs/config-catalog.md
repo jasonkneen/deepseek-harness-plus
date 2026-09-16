@@ -1188,27 +1188,6 @@ Depends on: [`ModelModality`](../packages/llm/llm/src/index.ts) · [`RetryPolicy
 
 Source: [`packages/llm/llm-deepseek/src/config.ts:25`](../packages/llm/llm-deepseek/src/config.ts)
 
-<a id="deepseek-aidsh-llm-engine"></a>
-
-## `@deepseek-ai/dsh-llm-engine`
-
-Requires: `llm` · `subagents`
-
-```ts config-catalog
-/** Plugin config: the long-lived session switch for both engine routes. */
-export interface Config {
-  /**
-   * Whether turns resume the engine's long-lived session (Claude `resume`,
-   * Codex `thread/resume`) instead of starting fresh. Requires the
-   * `continuation: true` option on the matching backend rows; engine state
-   * then persists under the native CLI config dirs.
-   */
-  continuation?: boolean
-}
-```
-
-Source: [`packages/llm/llm-engine/src/index.ts:27`](../packages/llm/llm-engine/src/index.ts)
-
 <a id="deepseek-aidsh-llm-pi-ai"></a>
 
 ## `@deepseek-ai/dsh-llm-pi-ai`
@@ -2600,7 +2579,7 @@ Source: [`packages/subagent/subagent-acp/src/index.ts:27`](../packages/subagent/
 Requires: `subagents` · `subprocess`
 
 ```ts config-catalog
-/** Deployment-owned model, permission, environment, process-release, and continuation settings. */
+/** Deployment-owned model, permission, environment, and process-release settings. */
 export interface Config {
   /** Provider name on `ctx.subagents` (default `claude-code`). */
   providerName?: string
@@ -2620,12 +2599,6 @@ export interface Config {
   permissionMode?: ClaudeCodePermissionMode
   /** Grace in milliseconds between Claude Code managed-range termination tiers. */
   disposeGraceMs?: number
-  /**
-   * Whether runs persist their SDK session and resume earlier conversations
-   * (`continueFrom`). Persistence writes session state under the native
-   * Claude Code config dir; the one-shot default touches no native state.
-   */
-  continuation?: boolean
 }
 
 /** Profile-selectable non-interactive Claude Code permission mode. */
@@ -2641,7 +2614,7 @@ Source: [`packages/subagent/subagent-claude-code/src/index.ts:38`](../packages/s
 Requires: `subagents` · `subprocess`
 
 ```ts config-catalog
-/** Deployment-owned model, permission, environment, process-release, and continuation settings. */
+/** Deployment-owned model, permission, environment, and process-release settings. */
 export interface Config {
   /** Provider name on `ctx.subagents` (default `codex`). */
   providerName?: string
@@ -2656,12 +2629,6 @@ export interface Config {
   permissionMode?: CodexPermissionMode
   /** Grace in milliseconds between app-server managed-range termination tiers. */
   disposeGraceMs?: number
-  /**
-   * Whether runs persist their thread and resume earlier conversations
-   * (`continueFrom`). Thread persistence writes under the native Codex home;
-   * the one-shot default touches no native state.
-   */
-  continuation?: boolean
 }
 
 /** Profile-selectable non-interactive Codex permission mode. */
@@ -3754,7 +3721,6 @@ Imported as libraries by other packages; a `cordis.yml` cannot load them.
 - `@deepseek-ai/dsh-client-web` ([`packages/client/web/src/index.ts`](../packages/client/web/src/index.ts))
 - `@deepseek-ai/dsh-cmdline` ([`packages/boot/cmdline/src/index.ts`](../packages/boot/cmdline/src/index.ts))
 - `@deepseek-ai/dsh-deque` ([`packages/util/deque/src/index.ts`](../packages/util/deque/src/index.ts))
-- `@deepseek-ai/dsh-engine-session-demo` ([`packages/examples/engine-session-demo/src/index.ts`](../packages/examples/engine-session-demo/src/index.ts))
 - `@deepseek-ai/dsh-experimental-agent-team-profile` ([`packages/experimental/agent-team-profile/src/index.ts`](../packages/experimental/agent-team-profile/src/index.ts))
 - `@deepseek-ai/dsh-experimental-agent-team-web-profile` ([`packages/experimental/agent-team-web-profile/src/index.ts`](../packages/experimental/agent-team-web-profile/src/index.ts))
 - `@deepseek-ai/dsh-experimental-browser-use-runtime` ([`packages/experimental/browser-use-runtime/src/index.ts`](../packages/experimental/browser-use-runtime/src/index.ts))
@@ -3767,8 +3733,6 @@ Imported as libraries by other packages; a `cordis.yml` cannot load them.
 - `@deepseek-ai/dsh-lazy-require` ([`packages/util/lazy-require/src/index.ts`](../packages/util/lazy-require/src/index.ts))
 - `@deepseek-ai/dsh-llm-mock-server` ([`packages/test-support/llm-mock-server/src/index.ts`](../packages/test-support/llm-mock-server/src/index.ts))
 - `@deepseek-ai/dsh-loader-smoke` ([`packages/test-support/loader-smoke/src/index.ts`](../packages/test-support/loader-smoke/src/index.ts))
-- `@deepseek-ai/dsh-multi-provider` ([`packages/bundle/multi-provider/src/index.ts`](../packages/bundle/multi-provider/src/index.ts))
-- `@deepseek-ai/dsh-multi-provider-demo` ([`packages/examples/multi-provider-demo/src/index.ts`](../packages/examples/multi-provider-demo/src/index.ts))
 - `@deepseek-ai/dsh-native-command` ([`packages/util/native-command/src/index.ts`](../packages/util/native-command/src/index.ts))
 - `@deepseek-ai/dsh-output-retention` ([`packages/util/output-retention/src/index.ts`](../packages/util/output-retention/src/index.ts))
 - `@deepseek-ai/dsh-package-manifest` ([`packages/util/package-manifest/src/index.ts`](../packages/util/package-manifest/src/index.ts))

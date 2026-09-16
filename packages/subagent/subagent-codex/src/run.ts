@@ -152,13 +152,6 @@ export interface CodexRunSpec {
   readonly spawn: (spec: SubprocessSpawnSpec) => SubprocessHandle
   /** Diagnostic sink for a post-publication error flattened into a result. */
   readonly onError?: (error: Error, stopReason: SubagentStopReason) => void
-  /**
-   * Whether runs persist their thread and can resume (`thread/start` with
-   * `ephemeral: false`; `continueFrom` resumes via `thread/resume`). Thread
-   * persistence writes under the native Codex home; the one-shot default
-   * touches no native state.
-   */
-  readonly continuation: boolean
 }
 
 function thrown(value: unknown): Error {
@@ -258,9 +251,7 @@ export async function startCodexRun(
     child.stdout as NonNullable<SubprocessHandle['stdout']>,
     child.stdin as NonNullable<SubprocessHandle['stdin']>,
     spec.permissionMode,
-    spec.continuation,
     spec.model,
-
   )
   const onStderr = (chunk: Buffer | string): void => {
     const bytes = typeof chunk === 'string' ? Buffer.from(chunk) : chunk
@@ -326,10 +317,7 @@ export async function startCodexRun(
     wire.start()
     await Promise.race([wire.initialize(request.signal), processFailure])
     startupStage = 'thread-start'
-    await Promise.race([
-      wire.startThread(spec.cwd, request.continueFrom, request.signal),
-      processFailure,
-    ])
+    await Promise.race([wire.startThread(spec.cwd, request.signal), processFailure])
   } catch (error: unknown) {
     request.signal.removeEventListener('abort', onAbort)
     const cancelledBeforeCleanup = runAbort.signal.aborted
@@ -393,7 +381,7 @@ export async function startCodexRun(
     attempt: async () => {
       try {
         const terminal = await Promise.race([
-          wire.runTurn(texts, runAbort.signal, request.agentOptions?.model, request.reasoningEffort),
+          wire.runTurn(texts, runAbort.signal),
           publishedProcessFailure,
         ])
         if (terminal.stopReason === 'completed') return terminal
@@ -443,7 +431,6 @@ export async function startCodexRun(
   return subprocessRunHandle({
     id: brandString<SessionId>(randomUUID()),
     result,
-    updates: wire.updates(),
     signal: request.signal,
     onAbort,
     requestCancel,
